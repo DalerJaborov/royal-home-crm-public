@@ -17,6 +17,9 @@ import { scrollableRegion } from "../lib/a11y";
 import { useSyncFiltersToUrl } from "../hooks/useUrlFilters";
 import { TeamTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalTeamView } from "../components/look/team/RoyalTeamView";
+import { loadView } from "../components/rh2/Rh2ErrorState";
 
 /** Достижения месяца: по одному значку на номинацию, только среди активных с ненулевым результатом.
  *  Комиссия приходит null у смотрящего без finance.view (ночная проверка 24.09.2026, №159/М4) —
@@ -101,12 +104,14 @@ type TeamFilter = "all" | "agents" | "managers" | "frozen";
 
 function TeamDesktop() {
   const clean = useCleanShell();
+  // «Новый вид» (18.11.2026): другая разметка тех же данных и окон.
+  const royal = useRoyalLook();
   const can = useCan();
   const isSupervisor = can("team.viewFull");
-  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(isSupervisor);
+  const { data: team, isLoading: teamLoading, isError: teamError, fetchStatus: teamFetch, refetch: refetchTeam } = useTeam(isSupervisor);
   const { data: stages } = useTeamStages(isSupervisor);
   const stagesById = new Map((stages?.agents ?? []).map((a) => [a.id, a]));
-  const { data: fame, isLoading: fameLoading, isError: fameError, refetch: refetchFame } = useHallOfFame();
+  const { data: fame, isLoading: fameLoading, isError: fameError, fetchStatus: fameFetch, refetch: refetchFame } = useHallOfFame();
   const { data: top } = useTopAgents();
   const canManageAgents = can("agents.manage");
   // Комиссия — отдельное право (ночная проверка 24.09.2026, №159/М4): экран
@@ -184,6 +189,107 @@ function TeamDesktop() {
     const total = agents.reduce((n, m) => n + m.activeLoad, 0);
     return { agents: agents.length, total };
   }, [team]);
+
+  const overlays = (
+    <>
+      {showFilters && (
+        <Rh2Sheet
+          title="Фильтры"
+          onClose={() => setShowFilters(false)}
+          ariaLabel="Фильтры команды"
+          footer={
+            <>
+              <button
+                className="pill ghost"
+                type="button"
+                onClick={() => {
+                  setRoleFilter(null);
+                  setStateFilter("all");
+                }}
+              >
+                Сбросить
+              </button>
+              <button className="pill" type="button" onClick={() => setShowFilters(false)}>
+                Показать {visible.length}
+              </button>
+            </>
+          }
+        >
+          <div className="sec-t" style={{ marginTop: 0 }}>
+            Роль
+          </div>
+          <div className="seg" role="group" aria-label="Роль">
+            <button type="button" aria-selected={roleFilter === null} onClick={() => setRoleFilter(null)}>
+              Любая
+            </button>
+            {rolesPresent.map((r) => (
+              <button key={r} type="button" aria-selected={roleFilter === r} onClick={() => setRoleFilter(r)}>
+                {ROLE_LABELS[r]}
+              </button>
+            ))}
+          </div>
+          <div className="sec-t">Состояние</div>
+          <div className="seg" role="group" aria-label="Состояние">
+            {(
+              [
+                ["all", "Все"],
+                ["online", "В сети"],
+                ["frozen", "Заморожены"],
+              ] as const
+            ).map(([key, label]) => (
+              <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </Rh2Sheet>
+      )}
+      {handoverFor && <HandoverModal agent={handoverFor} onClose={() => setHandoverFor(null)} />}
+      {freezeFor && <FreezeAgentModal agent={freezeFor} onClose={() => setFreezeFor(null)} />}
+      {pointsFor && (
+        <PointsJournalModal agentId={pointsFor.id} agentName={pointsFor.fullName} onClose={() => setPointsFor(null)} />
+      )}
+    </>
+  );
+
+  if (royal) {
+    return (
+      <RoyalTeamView
+        supervisor={isSupervisor}
+        fame={{ data: fame, view: loadView({ data: fame, isError: fameError, fetchStatus: fameFetch }), retry: () => void refetchFame() }}
+        team={{ data: team, view: loadView({ data: team, isError: teamError, fetchStatus: teamFetch }), retry: () => void refetchTeam() }}
+        visible={visible}
+        counts={counts}
+        online={online}
+        frozen={frozenMembers}
+        load={load}
+        filter={filter}
+        onFilter={setFilter}
+        sheetFilters={sheetFilters}
+        onOpenFilters={() => setShowFilters(true)}
+        showStages={showStages}
+        onToggleStages={() => setShowStages((v) => !v)}
+        stagesNode={<StagesMatrix team={team ?? []} stages={stages} onOpen={openAgent} />}
+        recognition={(
+          <details className="clean-team-recognition card tight">
+            <summary>Достижения и рейтинг команды</summary>
+            <div className="cols2"><HallOfFameBoard /><TopAgentsBoard /></div>
+          </details>
+        )}
+        boards={<><HallOfFameBoard /><TopAgentsBoard /></>}
+        rank={(memberId) => rankById.get(memberId)}
+        rankTotal={top?.agents.length ?? 0}
+        seesMoney={seesMoney}
+        canManage={canManageAgents}
+        chips={(m) => <TeamChips member={m} achievements={achievements} stages={stagesById.get(m.id)} />}
+        onOpen={openAgent}
+        onFreeze={setFreezeFor}
+        onHandover={setHandoverFor}
+        onPoints={setPointsFor}
+        overlays={overlays}
+      />
+    );
+  }
 
   if (!isSupervisor) {
     return (
@@ -307,7 +413,7 @@ function TeamDesktop() {
             </div>
             <p className="state">
               {load.agents === 0
-                ? "Активных агентов нет, раздавать лиды некому."
+                ? "Активных агентов нет, раздавать заявки некому."
                 : `У ${load.agents} ${pluralizeRu(load.agents, ["агента", "агентов", "агентов"])} в работе ${load.total} ${pluralizeRu(load.total, ["клиент", "клиента", "клиентов"])}.`}
             </p>
           </div>
@@ -333,7 +439,7 @@ function TeamDesktop() {
                       заморозки — от вида зависит и судьба вернувшегося клиента. */}
                   {absenceLabel(m)}
                   {m.frozenAt ? `, с ${relativeTime(m.frozenAt)}` : ""}.
-                  {m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые лиды ему не приходят.
+                  {m.frozenReason ? ` Причина: ${m.frozenReason}.` : ""} Новые заявки ему не приходят.
                 </span>
                 <span className="acts">
                   <button className="pill sm" type="button" onClick={() => setFreezeFor(m)}>
@@ -403,7 +509,7 @@ function TeamDesktop() {
                 <span className="sk w22" /> Загружаем команду
               </div>
             </div>
-          ) : teamError ? (
+          ) : teamError && !team ? (
             <div className="card tight" style={{ marginTop: 12 }}>
               <div className="state err">
                 <span className="dot crit" /> Команда не загрузилась. Это сбой связи, а не пустой штат.{" "}
@@ -439,7 +545,7 @@ function TeamDesktop() {
                       <tr>
                         <th scope="col">Сотрудник</th>
                         <th scope="col">Нагрузка</th>
-                        <th scope="col">Лиды</th>
+                        <th scope="col">Заявки</th>
                         <th scope="col">Показы</th>
                         <th scope="col">Сделки</th>
                         {seesMoney && <th scope="col" className="num">Комиссия</th>}
@@ -607,7 +713,7 @@ function TeamDesktop() {
                           {/* Месячные показатели (макет `.tbl` не знает узкого экрана):
                               те же цифры, что в колонках десктопной таблицы, чипами. */}
                           <span style={CHIP_ROW}>
-                            <span className="chip mute">Лиды: {m.month.leads}</span>
+                            <span className="chip mute">Заявки: {m.month.leads}</span>
                             <span className="chip mute">Показы: {m.month.showings}</span>
                             <span className="chip mute">Сделки: {m.month.dealsCompleted}</span>
                             {seesMoney && <span className="chip mute">Комиссия: {formatMoney(m.month.commission ?? 0, "TJS")}</span>}
@@ -649,63 +755,7 @@ function TeamDesktop() {
         </div>
       </div>
 
-      {showFilters && (
-        <Rh2Sheet
-          title="Фильтры"
-          onClose={() => setShowFilters(false)}
-          ariaLabel="Фильтры команды"
-          footer={
-            <>
-              <button
-                className="pill ghost"
-                type="button"
-                onClick={() => {
-                  setRoleFilter(null);
-                  setStateFilter("all");
-                }}
-              >
-                Сбросить
-              </button>
-              <button className="pill" type="button" onClick={() => setShowFilters(false)}>
-                Показать {visible.length}
-              </button>
-            </>
-          }
-        >
-          <div className="sec-t" style={{ marginTop: 0 }}>
-            Роль
-          </div>
-          <div className="seg" role="group" aria-label="Роль">
-            <button type="button" aria-selected={roleFilter === null} onClick={() => setRoleFilter(null)}>
-              Любая
-            </button>
-            {rolesPresent.map((r) => (
-              <button key={r} type="button" aria-selected={roleFilter === r} onClick={() => setRoleFilter(r)}>
-                {ROLE_LABELS[r]}
-              </button>
-            ))}
-          </div>
-          <div className="sec-t">Состояние</div>
-          <div className="seg" role="group" aria-label="Состояние">
-            {(
-              [
-                ["all", "Все"],
-                ["online", "В сети"],
-                ["frozen", "Заморожены"],
-              ] as const
-            ).map(([key, label]) => (
-              <button key={key} type="button" aria-selected={stateFilter === key} onClick={() => setStateFilter(key)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </Rh2Sheet>
-      )}
-      {handoverFor && <HandoverModal agent={handoverFor} onClose={() => setHandoverFor(null)} />}
-      {freezeFor && <FreezeAgentModal agent={freezeFor} onClose={() => setFreezeFor(null)} />}
-      {pointsFor && (
-        <PointsJournalModal agentId={pointsFor.id} agentName={pointsFor.fullName} onClose={() => setPointsFor(null)} />
-      )}
+      {overlays}
     </div>
   );
 }
@@ -802,7 +852,7 @@ function TeamChips({
       {achievements?.commission === member.id && <span className="chip warn">Лучшая комиссия</span>}
       {achievements?.deals === member.id && <span className="chip ok">Больше всех сделок</span>}
       {achievements?.showings === member.id && <span className="chip ok">Больше всех показов</span>}
-      {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт лиды</span>}
+      {achievements?.speed === member.id && <span className="chip">Быстрее всех берёт заявки</span>}
       {(stages?.showingsScheduled ?? 0) > 0 && (
         <span className="chip mute">Показов назначено: {stages?.showingsScheduled}</span>
       )}

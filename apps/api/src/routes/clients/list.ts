@@ -4,7 +4,7 @@ import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import {
-  clientDisplayName,
+  clientDisplayName, clientNameParts,
   clientQuerySchema,
   type ClientSort,
   parseShortCode,
@@ -30,7 +30,7 @@ import { phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 import { CLIENT_PROFILE_HIDDEN, CLIENT_TRANSFERRED_HIDDEN, decideClientCardAccess } from "../../lib/clientCardAccess.js";
-import { noContactWhere } from "../../lib/noContact.js";
+import { lastStaffContactAtByClient, noContactWhere } from "../../lib/noContact.js";
 
 export const listRouter = Router();
 
@@ -251,9 +251,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
     canSearchByOrigin: can(req, "clients.viewOrigin"),
   });
   if (textSearchAnd) where.AND = textSearchAnd;
-  // «Без контакта» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
+  // «Не связывались» — то же правило, что у счётчика сводки и «Контроля» (lib/noContact.ts). После
   // текстового поиска: тот заменяет where.AND целиком.
-  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere(new Date())];
+  if (noContact) where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), noContactWhere()];
   // Keep the scope outside the text-search AND, which fuzzy search replaces.
   if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 
@@ -431,6 +431,10 @@ listRouter.get("/", requireAuth, async (req, res) => {
   // кнопке «Принять», после приёма она живёт в хронологии карточки.
   const leadReasons = await loadLeadReasons(items.filter((c) => !c.acceptedAt));
   const canSeePhone = can(req, "clients.viewPhone");
+  // «Последний контакт ДД.ММ» в строке — правилом контакта всей CRM (lib/noContact.ts),
+  // одним пакетом на страницу. lastContactAt для этого не годится: его двигает любая
+  // заметка, а у новой карточки он равен моменту создания (кадры владельца 21.11.2026).
+  const lastStaffContact = await lastStaffContactAtByClient(items);
   const nextStepFor = (clientId: string, gateUntilAccepted: boolean, seesPhone: boolean) => {
     const step = stepByClient.get(clientId);
     if (!step || gateUntilAccepted) return null;
@@ -482,9 +486,16 @@ listRouter.get("/", requireAuth, async (req, res) => {
         displayName: clientDisplayName(presented, {
           propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
         }),
+        // То же имя порознь — строка «Нового вида» ставит якорь второй строкой (пачка D1).
+        displayNameParts: clientNameParts(presented, {
+          propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
+        }),
         // Ближайший шаг — свободный текст из хронологии: до приёма лида хронология
         // закрыта (гейт выше), без права на номер номер в тексте шага маскируется.
         nextStep: nextStepFor(c.id, gateUntilAccepted, canSeePhone),
+        // До приёма заявки (и у переданной карточки) хронология закрыта — даты контакта
+        // нет вовсе, а не «контакта ещё не было».
+        ...(gateUntilAccepted ? {} : { lastStaffContactAt: lastStaffContact.get(c.id)?.toISOString() ?? null }),
         leadReason: rowAccess === "transferred" ? null : (leadReasons.get(c.id) ?? null),
         unread: unreadByClient.get(c.id) ?? false,
         // «Все мои» — единственный срез, где карточка может быть в Корзине,

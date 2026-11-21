@@ -9,6 +9,7 @@ import {
   ownerAnswerSchema,
   customerRequestTransitionSchema, customerRequestCloseSchema,
   uiPreferencesSchema,
+  homePreferencesSchema,
   montageCopiesUpdateSchema,
   migrateLegacyTheme,
   type ActiveCallView,
@@ -354,10 +355,32 @@ meRouter.put("/preferences", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  const agent = await prisma.agent.update({
-    where: { id: req.agent!.id },
-    data: { preferences: parsed.data },
-    select: { preferences: true },
+  // Раскладка главной «Нового вида» (`home`) — своё поле с отдельным сохранением
+  // (ревью #326): тело БЕЗ неё (старая вкладка, обычное сохранение темы) её не
+  // стирает, а сохранённая остаётся. Сброс «Вернуть как было» шлёт `home: { blocks: {} }`.
+  // Чтение и запись — в одной транзакции, чтобы параллельное сохранение раскладки
+  // не потерялось между ними.
+  const agent = await prisma.$transaction(async (tx) => {
+    let data: typeof parsed.data = parsed.data;
+    if (data.home === undefined || data.textSize === undefined) {
+      const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
+      const saved = (current?.preferences ?? null) as { home?: unknown; textSize?: unknown } | null;
+      if (data.home === undefined) {
+        const kept = homePreferencesSchema.safeParse(saved?.home);
+        if (kept.success && kept.data) data = { ...data, home: kept.data };
+      }
+      // «Размер текста» (пачка C, 20.11.2026): клиент шлёт его, только когда человек его выбрал;
+      // сохранение без поля (тема, старая вкладка, другое устройство) выбранный размер не стирает.
+      if (data.textSize === undefined) {
+        const keptSize = uiPreferencesSchema.shape.textSize.safeParse(saved?.textSize);
+        if (keptSize.success && keptSize.data) data = { ...data, textSize: keptSize.data };
+      }
+    }
+    return tx.agent.update({
+      where: { id: req.agent!.id },
+      data: { preferences: data },
+      select: { preferences: true },
+    });
   });
   res.json(agent.preferences ?? {});
 });

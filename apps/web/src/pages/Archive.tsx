@@ -1,3 +1,4 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, Receipt, CheckCircle2, ClipboardList, BarChart3 } from "lucide-react";
@@ -19,13 +20,10 @@ import { useAuditLog } from "../hooks/useAuditLog";
 import {
   useApproveDeleteRequest,
   useApprovePropertyDeleteRequest,
-  useApprovePropertyCountDispute,
   useDeleteRequests,
-  usePropertyCountDisputes,
   usePropertyDeleteRequests,
   useRejectDeleteRequest,
   useRejectPropertyDeleteRequest,
-  useRejectPropertyCountDispute,
 } from "../hooks/useDeleteRequests";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
@@ -43,6 +41,8 @@ import { ClientTrashReviewSheet } from "../components/ClientTrashReviewSheet";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { PropertyChangeRequestsInbox } from "../components/PropertyChangeRequestsInbox";
+import { RecordsSection, useRecordsSectionMark } from "../components/look/records/RecordsSection";
+import { PropertyPhoto } from "../components/property/PropertyPhoto";
 
 /**
  * «Архив и корзина».
@@ -282,152 +282,6 @@ function DeleteRequestsQueue() {
 }
 
 /**
- * ЗАЯВКИ АГЕНТОВ НА ПЕРЕСМОТР ЧИСЛА ОБЪЕКТОВ (владелец 06.09.2026, разбор слепых
- * зон п.3) — третья очередь на этом экране, устроенная как две выше: агент не
- * может исправить число, которое услышал ИИ, он только предлагает своё и
- * объясняет почему; решает руководитель с правом `clients.merge` — тот же круг,
- * что уже разбирает споры о дублях клиентов.
- *
- * Почему рядом с заявками на удаление, а не на карточке клиента: руководитель
- * разбирает очередь, а не обходит карточки. Заявка, живущая только там, где её
- * подали, ждала бы, пока кто-нибудь случайно откроет ту карточку.
- */
-function PropertyCountDisputesQueue() {
-  const can = useCan();
-  const canDecide = can("archive.view") && can("clients.merge");
-  const { data, isLoading, isError, refetch } = usePropertyCountDisputes(canDecide);
-  const requests = data?.items ?? [];
-  const approveRequest = useApprovePropertyCountDispute();
-  const rejectRequest = useRejectPropertyCountDispute();
-  const [rejecting, setRejecting] = useState<string | null>(null);
-  const [decisionError, setDecisionError] = useState<string | null>(null);
-
-  async function handleApprove(id: string) {
-    setDecisionError(null);
-    try {
-      await approveRequest.mutateAsync({ id });
-    } catch (err) {
-      setDecisionError(err instanceof Error ? err.message : "Не удалось принять число агента");
-    }
-  }
-
-  async function handleReject(id: string, note: string) {
-    setDecisionError(null);
-    try {
-      await rejectRequest.mutateAsync({ id, decisionNote: note });
-      setRejecting(null);
-    } catch (err) {
-      setDecisionError(err instanceof Error ? err.message : "Не удалось отклонить заявку");
-    }
-  }
-
-  if (!canDecide) return null;
-
-  return (
-    <section className="card" id="property-count-disputes">
-      <div className="sec-h stack">
-        <h2>Заявки на пересмотр числа объектов</h2>
-        <span className="note">Число слышит ИИ из разговоров — менять его может только руководитель</span>
-      </div>
-
-      {decisionError && !rejecting && (
-        <div className="state err">
-          <span className="dot crit" />
-          {decisionError}
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="state">
-          <span className="sk av" />
-          <span className="sk w28" />
-          <span className="sk w22" /> Загружаем заявки
-        </div>
-      )}
-
-      {isError && (
-        <Rh2ErrorState
-          message="Не удалось загрузить очередь заявок. Это не значит, что заявок нет — попробуйте ещё раз."
-          onRetry={() => refetch()}
-        />
-      )}
-
-      {!isLoading && !isError && requests.length === 0 && (
-        <Rh2EmptyState icon={BarChart3} title="Споров о числе объектов нет." />
-      )}
-
-      {requests.length > 0 && (
-        <div className="list">
-          {requests.map((r) => (
-            <div className="row" key={r.id}>
-              <span className="av" style={{ background: "var(--blue)", color: "var(--blue-ink)" }}>
-                {initials(r.client.fullName)}
-              </span>
-              <div className="t">
-                <b>
-                  <Link className="lk" to={`/clients/${r.client.shortId}`}>
-                    {r.client.fullName}
-                  </Link>
-                </b>
-                <span>
-                  {r.role === "SELLER" ? "Продажа" : "Покупка"}: ИИ насчитал {r.aiCount}, агент предлагает {r.proposedCount}.
-                  {` «${r.reason}»`}
-                  {r.requestedBy ? `. Просит ${r.requestedBy.fullName}` : ""}, {relativeTime(r.createdAt)}
-                </span>
-              </div>
-              <span className="chip only-wide">
-                {r.aiCount} → {r.proposedCount}
-              </span>
-              <div className="act">
-                {/* Подписи с ЧИСЛАМИ, а не «Принять число агента»/«Оставить число ИИ»:
-                    два таких длинных ярлыка не помещаются в строку на телефоне
-                    (замерено: 322 px на 271 доступных, строка уезжала вбок — `.act`
-                    в прототипе не переносится). Числа короче слов и заодно
-                    возвращают то, что прячет `only-wide`-чип на узком экране.
-                    Полная формулировка остаётся в aria-label — для чтения вслух. */}
-                <button
-                  className="pill sm"
-                  type="button"
-                  disabled={approveRequest.isPending}
-                  aria-label={`Принять число агента: ${r.proposedCount}`}
-                  onClick={() => void handleApprove(r.id)}
-                >
-                  Принять {r.proposedCount}
-                </button>
-                <button
-                  className="pill ghost sm"
-                  type="button"
-                  aria-label={`Оставить число ИИ: ${r.aiCount}`}
-                  onClick={() => {
-                    setRejecting(r.id);
-                    setDecisionError(null);
-                  }}
-                >
-                  Оставить {r.aiCount}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {rejecting && (
-        <RejectSheet
-          title="Оставить число ИИ"
-          pending={rejectRequest.isPending}
-          error={decisionError}
-          onCancel={() => {
-            setRejecting(null);
-            setDecisionError(null);
-          }}
-          onSubmit={(note) => void handleReject(rejecting, note)}
-        />
-      )}
-    </section>
-  );
-}
-
-/**
  * ЗАЯВКИ АГЕНТОВ НА УДАЛЕНИЕ ОБЪЕКТА (31.08.2026) — зеркало очереди выше, то же
  * место и то же устройство, только для карточек объектов. Право `properties.delete`.
  */
@@ -558,7 +412,18 @@ function PropertyDeleteRequestsQueue() {
   );
 }
 
+/** «Новый вид» (пачка records): метка раздела над экраном; без признака разметка прежняя. */
 export function Archive() {
+  return (
+    <RecordsSection>
+      <ArchiveScreen />
+    </RecordsSection>
+  );
+}
+
+function ArchiveScreen() {
+  const section = useRecordsSectionMark();
+  const rootClass = section ? "rh2 screens ry-archive" : "rh2 screens";
   const can = useCan();
   const canView = can("archive.view");
   const canPurgeProperties = can("properties.purge");
@@ -681,7 +546,7 @@ export function Archive() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className={rootClass} data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -695,7 +560,7 @@ export function Archive() {
   }
 
   return (
-    <div className="rh2 screens">
+    <div className={rootClass} data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -747,7 +612,7 @@ export function Archive() {
                 <rect x="3" y="4" width="18" height="17" rx="3" />
                 <path d="M3 9h18" />
               </svg>
-              Объекты
+              <span className="lbl">Объекты</span>
             </span>
             <b>{binCount(propertyTrashLoading, propertyTrashPage?.total)}</b>
             <small>в корзине объектов</small>
@@ -762,7 +627,7 @@ export function Archive() {
                 <circle cx="12" cy="8" r="4" />
                 <path d="M4 21a8 8 0 0 1 16 0" />
               </svg>
-              Клиенты
+              <span className="lbl">Клиенты</span>
             </span>
             <b>{binCount(clientTrashLoading, clientTrashPage?.total)}</b>
             <small>в корзине клиентов</small>
@@ -777,7 +642,7 @@ export function Archive() {
                 <path d="M3 7h18v12H3z" />
                 <path d="M3 11h18" />
               </svg>
-              Расходы
+              <span className="lbl">Расходы</span>
             </span>
             {/* У расходов постраничной выдачи нет: сервер отдаёт весь список за
                 период, поэтому число это его длина, а не `total`. Без права
@@ -790,7 +655,6 @@ export function Archive() {
         <DeleteRequestsQueue />
         <PropertyDeleteRequestsQueue />
         <PropertyChangeRequestsInbox />
-        <PropertyCountDisputesQueue />
 
         {bin === "properties" && (
           <section className="card">
@@ -826,12 +690,7 @@ export function Archive() {
                         нельзя, вспомнить объект по названию нечем. */}
                     <span className="av" style={{ background: "var(--track)", color: "var(--muted)", overflow: "hidden" }}>
                       {p.photos?.[0] ? (
-                        <img
-                          src={p.photos[0].thumbUrl}
-                          alt=""
-                          loading="lazy"
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
+                        <PropertyPhoto fill compact sources={[p.photos[0].thumbUrl, p.photos[0].url]} />
                       ) : (
                         <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="3" y="5" width="18" height="14" rx="3" />
@@ -1008,11 +867,11 @@ export function Archive() {
             <div className="filters">
               <label className="field">
                 <span className="lab">Период с</span>
-                <input className="inp" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <RuDateField className="inp" value={from} onChange={(e) => setFrom(e.target.value)} />
               </label>
               <label className="field">
                 <span className="lab">по</span>
-                <input className="inp" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <RuDateField className="inp" value={to} onChange={(e) => setTo(e.target.value)} />
               </label>
               <span className="spacer" />
               <span className="note" style={{ fontSize: "var(--fs-13)", color: "var(--faint)" }}>

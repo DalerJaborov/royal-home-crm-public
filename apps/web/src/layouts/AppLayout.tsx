@@ -20,11 +20,16 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useUiPrefs } from "../store/uiPrefs";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { isRh2Route } from "../lib/navigation";
+import { isWideRoute } from "../lib/shellLayout";
 import { useCleanShellSelection } from "../hooks/useCleanShell";
 import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
-import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
+import { useScrollStripHints } from "../hooks/useScrollStripHints";
+import { useMobileUx } from "../hooks/useMobileUx";
 import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
+import { useDeviceLookMemory, useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
+import { forgetRetiredLookKeys } from "../hooks/royalLookChoice";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -79,8 +84,18 @@ function SectionFallback() {
 }
 
 export function AppLayout() {
-  const { clean, pending: shellPending, unavailable: appearanceUnavailable } = useCleanShellSelection(true);
+  // Новый интерфейс и «Новый вид» — всем (21.11.2026, hooks/useCleanShell.ts): без запроса и без ожидания.
+  const { clean, look, pending: shellPending } = useCleanShellSelection(true);
+  const royal = useRoyalLookChoice(clean && look === "royal");
+  // Прежние постоянные ключи выбора вида/оболочки больше ничего не решают — стираем один раз.
+  useEffect(() => { forgetRetiredLookKeys(); }, []);
   useCleanViewport(clean);
+  // Клавиатура телефона на ЛЮБОМ экране с полем (аудит К07): признак `data-kb-open` на <html> прячет нижнее
+  // меню (theme-2026-mobile-shell.css, п. 8). Расчёт один на приложение — lib/keyboardInset.ts.
+  const phoneUx = useMobileUx();
+  useKeyboardInset(phoneUx);
+  // Ряды вкладок и фильтров, которые листаются вбок, гаснут у края там, где CSS сам этого не умеет (аудит К20).
+  useScrollStripHints(royal);
   usePushSubscriptionRefresh();
   const renderedContent = useRef(false);
   useLayoutEffect(() => { if (!shellPending) renderedContent.current = true; }, [shellPending]);
@@ -89,8 +104,17 @@ export function AppLayout() {
     else delete document.documentElement.dataset.shell;
     return () => { delete document.documentElement.dataset.shell; };
   }, [clean]);
+  // Closed by default: any error, OFF switch, opt-out or logout removes the attribute.
+  useLookAttribute(royal);
+  // Флаг устройства для входа и страниц по ссылке (пачка records): ставится и снимается только здесь.
+  useDeviceLookMemory(royal, shellPending);
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  // В открытой переписке нового вида нижнего меню нет вовсе (владелец 20.11.2026, кадр с iPhone): переписка
+  // занимает весь экран, а при клавиатуре Safari сдвигал видимую область, и меню «висело» над ней.
+  // Выбор диалога живёт в адресе (`?open=`) — отсюда признак; скрывает его CSS только на телефоне (< 820 px):
+  // с 820 px «?open=» ставится сам, а на 768-1023 это боковая рейка, которую прятать нельзя.
+  const chatThreadOpen = royal && pathname.startsWith("/messages") && !!new URLSearchParams(search).get("open");
   const viewportKey = useRouteViewportKey(pathname, clean);
   const scrollRef = useRef<HTMLDivElement>(null);
   /**
@@ -258,9 +282,9 @@ export function AppLayout() {
         // ниже них (жалоба владельца 19.08.2026). На десктопе и на телефонах без
         // выреза переменная равна нулю — правило безвредно везде.
         className={clean ? "clean-frame" : "flex-1 flex flex-col min-w-0 md:overflow-y-auto md:overscroll-contain pt-[env(safe-area-inset-top)]"}
+        data-ry-wide={royal && isWideRoute(pathname) ? "" : undefined}
       >
-        {clean ? <CleanShell /> : <Topbar />}
-        {appearanceUnavailable && <ShellAppearanceRecovery />}
+        {clean ? <CleanShell royal={royal} /> : <Topbar />}
         {/* Загрузка файлов идёт минутами, а человек за это время уходит на другие
             экраны. Указатель липнет под верхней панелью и виден отовсюду, пока
             очередь не пуста, — иначе агент решает, что всё пропало. */}
@@ -299,6 +323,10 @@ export function AppLayout() {
               разделами незачем. */}
           <Suspense fallback={null}>
             {pathname === "/" && <NotificationsBanner />}
+            {/* Предложение установить CRM как приложение: строка в самом экране «Главная», один раз,
+                когда установка возможна (lib/installHint.ts). Плавающим слоем над меню больше не висит
+                (аудит К06.1, 21.11.2026). */}
+            {pathname === "/" && <InstallAppHint />}
             {/* Плашки «Клиент просит звонок» здесь больше нет (владелец 24.09.2026:
                 «мне не нужна просьба позвонить и плашка» — её видели директор и
                 админ, хотя звонить должен агент). Прямая просьба о живом человеке
@@ -339,15 +367,10 @@ export function AppLayout() {
           </PullToRefresh>
         </main>
       </div>
-      <BottomNav />
+      <BottomNav royal={royal} chatOpen={chatThreadOpen} />
       {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
           Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
       <AssistantHost />
-      {/* Предложение установить CRM как приложение — на третий заход, только на
-          телефоне и только если она ещё не установлена. См. InstallAppHint. */}
-      <Suspense fallback={null}>
-        <InstallAppHint />
-      </Suspense>
       {/* UpdatePrompt переехал на уровень App.tsx (сиблинг <Routes>, монтируется
           один раз на жизнь вкладки) — см. комментарий в UpdatePrompt.tsx: здесь,
           внутри ProtectedRoute/AppLayout, компонент терял состояние при

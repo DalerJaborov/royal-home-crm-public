@@ -44,10 +44,10 @@ describe("Напоминания молчащим: два тумблера и ч
   });
 });
 
-describe("Просьба подтвердить показ: «Лиды» и «Бот»", () => {
+describe("Просьба подтвердить показ: «Заявки» и «Бот»", () => {
   it("каждая вкладка называет выключенный тумблер другой", () => {
     expect(showingConfirmBlockedBy({ askClientsToConfirmShowings: false, botCanConfirmShowings: true }, "bot")).toContain(
-      "«Лиды»"
+      "«Заявки»"
     );
     expect(showingConfirmBlockedBy({ askClientsToConfirmShowings: true, botCanConfirmShowings: false }, "leads")).toContain(
       "«Бот»"

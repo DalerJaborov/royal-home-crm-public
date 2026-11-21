@@ -41,7 +41,7 @@ import type { AssistantReadToolPlugin } from "./types.js";
  *  - get_unworked — «Контроль руководителя» (overdueTasksWhere, noContactWhere,
  *    findSilentAfterShowing), dashboard.analytics; без него — только своё;
  *  - get_my_day — «мои дела»: list_my_tasks + свои непринятые заявки, свои
- *    пропущенные без перезвона и свои клиенты без контакта;
+ *    пропущенные без перезвона и свои клиенты, с кем ни разу не связывались;
  *  - get_missed_calls — «Звонки → Входящие → Без перезвона» (missedWithoutCallbackIds):
  *    calls.transcripts — все, calls.ownTranscripts — только свои (ownIncomingCallsOr);
  *  - get_team_load — «Команда» (agentLoadCounts, team.viewFull) и рейтинг недели
@@ -172,7 +172,7 @@ export const getDaySnapshotTool: AssistantReadToolPlugin = {
   statusPhrase: "Собираю картину дня…",
   description:
     "Руководству: снимок дня ВСЕЙ компании на сейчас — обращения за сегодня, звонки (входящие, пропущенные), показы на " +
-    "сегодня, закрытые сделки, задачи на сегодня и просроченные, клиенты без контакта, пропущенные вчера без перезвона, " +
+    "сегодня, закрытые сделки, задачи на сегодня и просроченные, клиенты, с кем ни разу не связывались, пропущенные вчера без перезвона, " +
     "вчерашние итоги, объекты в продаже; комиссия месяца и прогноз — только тем, кому видны финансы. Зови на «что сегодня " +
     "горит», «как дела в компании», «сводка дня», «имрӯз дар ширкат чӣ гап», «вазъи имрӯза». Числа бери ровно из display. " +
     "За прошлый день или период — get_company_stats с датами; свои дела сотрудника — get_my_day.",
@@ -197,7 +197,7 @@ export const getDaySnapshotTool: AssistantReadToolPlugin = {
     const [showings, overdueTasks, noContactClients, dealsToday] = await Promise.all([
       loadShowingsToday(now, viewerRole),
       prisma.interaction.count({ where: { ...overdueTasksWhere(now), ...visibleInteractionWhere(viewerRole) } }),
-      prisma.client.count({ where: noContactWhere(now) }),
+      prisma.client.count({ where: noContactWhere() }),
       // То же условие «сделка закрыта», что у вчерашнего числа утренней сводки (morningNumbers.ts).
       prisma.deal.count({ where: { stage: "COMPLETED", closedAt: { gte: day.start, lt: day.end } } }),
     ]);
@@ -230,7 +230,7 @@ export const getDaySnapshotTool: AssistantReadToolPlugin = {
         `⏰ Задач на сегодня: ${morning.tasksToday} · просрочено: ${overdueTasks}`,
         `⏰ Корҳои имрӯза: ${morning.tasksToday} · мӯҳлаташ гузашта: ${overdueTasks}`,
       ),
-      tr(lang, `📵 Клиентов без контакта: ${noContactClients}`, `📵 Мизоҷони бе тамос: ${noContactClients}`),
+      tr(lang, `📵 Клиентов, с кем не связывались: ${noContactClients}`, `📵 Мизоҷоне, ки бо онҳо тамос нагирифтаем: ${noContactClients}`),
       morning.missedCallsNoCallbackYesterday > 0
         ? tr(
             lang,
@@ -302,7 +302,7 @@ export const getUnworkedTool: AssistantReadToolPlugin = {
   level: "A",
   statusPhrase: "Смотрю, что не отработано…",
   description:
-    "Кто не отработал: просроченные задачи, клиенты без контакта (ни разговора, ни сообщения клиента дольше порога), " +
+    "Кто не отработал: просроченные задачи, клиенты, с кем ни разу не связывались (ни звонка сотрудника, даже без ответа, ни его сообщения, ни показа), " +
     "«тишина после показа». Руководству — по всей компании с разбивкой по сотрудникам (agent — имя, чтобы сузить до " +
     "одного); рядовому сотруднику — только его собственное. Зови на «кто не отработал», «кому не звонили», «просрочки у " +
     "Фарруха», «кӣ кор накард», «ба кӣ занг назаданд», «корҳои мӯҳлаташ гузашта». Числа — ровно из display, подробные " +
@@ -344,8 +344,8 @@ export const getUnworkedTool: AssistantReadToolPlugin = {
       ...(scopeAgentId ? { OR: [{ agentId: scopeAgentId }, { subjectAgentId: scopeAgentId }] } : {}),
     };
     const noContact: Prisma.ClientWhereInput = scopeAgentId
-      ? { AND: [noContactWhere(now), { assignedAgentId: scopeAgentId }] }
-      : noContactWhere(now);
+      ? { AND: [noContactWhere(), { assignedAgentId: scopeAgentId }] }
+      : noContactWhere();
     const overview = scopeAgentId === null;
 
     const [overdueRows, overdueTotal, overdueGroups, noContactRows, noContactTotal, noContactGroups, silent] = await runLimited(
@@ -423,7 +423,7 @@ export const getUnworkedTool: AssistantReadToolPlugin = {
     const display = [
       tr(lang, `🔴 Кто не отработал — ${scopeLabel}`, `🔴 Кӣ кор накард — ${scopeLabel}`),
       tr(lang, `⏰ Просроченные задачи: ${counts.overdueTasks}`, `⏰ Корҳои мӯҳлаташ гузашта: ${counts.overdueTasks}`),
-      tr(lang, `📵 Клиенты без контакта: ${counts.noContact}`, `📵 Мизоҷони бе тамос: ${counts.noContact}`),
+      tr(lang, `📵 Клиенты, с кем не связывались: ${counts.noContact}`, `📵 Мизоҷоне, ки бо онҳо тамос нагирифтаем: ${counts.noContact}`),
       tr(
         lang,
         `🤐 Тишина после показа (дольше ${silent.days} дн.): ${counts.silentAfterShowing}`,
@@ -526,7 +526,7 @@ export const getMyDayTool: AssistantReadToolPlugin = {
             select: { shortId: true, kind: true, fullName: true, assignedAt: true },
           }),
         () => prisma.client.count({ where: unacceptedWhere }),
-        () => prisma.client.count({ where: { AND: [noContactWhere(now), { assignedAgentId: actor.id }] } }),
+        () => prisma.client.count({ where: { AND: [noContactWhere(), { assignedAgentId: actor.id }] } }),
         async () => (seesCalls ? await loadMissedNoCallback(actor, { own: true, days: 3 }) : null),
       ],
       3,
@@ -557,7 +557,7 @@ export const getMyDayTool: AssistantReadToolPlugin = {
         ? tr(lang, `☎️ Пропущенные без перезвона: ${missed.total}`, `☎️ Зангҳои ҷавобнагирифта, бе бозанг: ${missed.total}`)
         : null,
       noContactTotal
-        ? tr(lang, `📵 Ваши клиенты без контакта: ${noContactTotal}`, `📵 Мизоҷони шумо бе тамос: ${noContactTotal}`)
+        ? tr(lang, `📵 Ваши клиенты, с кем вы не связывались: ${noContactTotal}`, `📵 Мизоҷони шумо, ки бо онҳо тамос нагирифтед: ${noContactTotal}`)
         : null,
       showings.length + todayTasks.length + overdue.length + unacceptedTotal + (missed?.total ?? 0) === 0
         ? tr(lang, "На сегодня дел нет.", "Барои имрӯз кор нест.")
@@ -663,7 +663,7 @@ export const getTeamLoadTool: AssistantReadToolPlugin = {
   statusPhrase: "Смотрю нагрузку команды…",
   description:
     "Нагрузка команды и рейтинг недели. Нагрузка — сколько покупателей у каждого агента в работе (из них по своим " +
-    "объектам), сколько его клиентов без контакта, пауза заявок или отсутствие; руководству видна вся команда, " +
+    "объектам), сколько его клиентов, с кем ни разу не связывались, пауза заявок или отсутствие; руководству видна вся команда, " +
     "рядовому сотруднику — только своя нагрузка. Рейтинг недели (баллы за 7 дней, топ-5) — тем, кому открыт пульт. " +
     "Зови на «кто перегружен», «у кого сколько клиентов», «рейтинг недели», «кӣ бештар кор дорад», «рейтинги ҳафта». " +
     "Числа — ровно из display.",
@@ -680,15 +680,15 @@ export const getTeamLoadTool: AssistantReadToolPlugin = {
     if (!canTeam) {
       const [load, noContact, board] = await Promise.all([
         agentLoadCounts([actor.id]),
-        prisma.client.count({ where: { AND: [noContactWhere(now), { assignedAgentId: actor.id }] } }),
+        prisma.client.count({ where: { AND: [noContactWhere(), { assignedAgentId: actor.id }] } }),
         canBoard ? loadWeeklyLeaderboard(now) : Promise.resolve(null),
       ]);
       const mine = load.get(actor.id) ?? NO_LOAD;
       const display = [
         tr(
           lang,
-          `👤 Ваша нагрузка: ${mine.total} покупателей в работе (по своим объектам ${mine.own}), без контакта ${noContact}`,
-          `👤 Сарбории шумо: ${mine.total} харидор дар кор (аз рӯи объектҳои худ ${mine.own}), бе тамос ${noContact}`,
+          `👤 Ваша нагрузка: ${mine.total} покупателей в работе (по своим объектам ${mine.own}), не связывались ${noContact}`,
+          `👤 Сарбории шумо: ${mine.total} харидор дар кор (аз рӯи объектҳои худ ${mine.own}), тамос нагирифта ${noContact}`,
         ),
         ...(board ? leaderboardLines(board, lang) : []),
       ].join("\n");
@@ -712,8 +712,8 @@ export const getTeamLoadTool: AssistantReadToolPlugin = {
       agentLoadCounts(ids),
       prisma.client.groupBy({
         by: ["assignedAgentId"],
-        // «Без контакта» по агентам — тот же разрез, что у «Вопроса к данным» (lib/missionControlAsk.ts).
-        where: { AND: [noContactWhere(now), { assignedAgentId: { in: ids } }] },
+        // «Не связывались» по агентам — тот же разрез, что у «Вопроса к данным» (lib/missionControlAsk.ts).
+        where: { AND: [noContactWhere(), { assignedAgentId: { in: ids } }] },
         _count: { _all: true },
       }),
       canBoard ? loadWeeklyLeaderboard(now) : Promise.resolve(null),
@@ -742,7 +742,7 @@ export const getTeamLoadTool: AssistantReadToolPlugin = {
       ...shown.map(
         (r) =>
           `👤 ${r.agent} — ${r.buyersInWork}` +
-          tr(lang, ` · без контакта ${r.noContact}`, ` · бе тамос ${r.noContact}`) +
+          tr(lang, ` · не связывались ${r.noContact}`, ` · тамос нагирифта ${r.noContact}`) +
           (r.status ? ` · ${r.status}` : ""),
       ),
       rows.length > shown.length ? moreText(lang, rows.length - shown.length).trim() : null,

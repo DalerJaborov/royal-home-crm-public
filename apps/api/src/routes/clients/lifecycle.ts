@@ -84,14 +84,14 @@ lifecycleRouter.post("/:id/decline", requireAuth, async (req, res) => {
   // отказов ВЛАДЕЛЬЦА — руководитель или служба безопасности, нажав «Отклонить»
   // на чужом лиде, штрафовали агента, который ничего не делал (аудит 23.09.2026, №39).
   if (client.assignedAgentId !== req.agent!.id) {
-    return res.status(403).json({ error: "Отклонить лид может только тот, кому он отдан. Передать другому — кнопкой «Назначить»." });
+    return res.status(403).json({ error: "Отклонить заявку может только тот, кому она отдана. Передать другому — кнопкой «Назначить»." });
   }
 
   const result = await declineLead(req.params.id, client.assignedAgentId);
   if (!result.ok) {
     if (result.reason === "not_found") return res.status(404).json({ error: "Клиент не найден" });
     if (result.reason === "already_accepted") {
-      return res.status(409).json({ error: "Лид уже принят — отклонить его больше нельзя, используйте отказ от работы" });
+      return res.status(409).json({ error: "Заявка уже принята — отклонить её больше нельзя, используйте отказ от работы" });
     }
     return res.status(409).json({ error: LEAD_TAKEN_ERROR });
   }
@@ -217,12 +217,16 @@ lifecycleRouter.post("/:id/bot-pause", requireAuth, async (req, res) => {
   // обоих мессенджерах бот в Telegram продолжал отвечать поверх агента, а снятие
   // паузы в Telegram не срабатывало.
   const [meta, telegram] = await prisma.$transaction([
-    prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt } }),
-    prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt } }),
+    // Новая или снятая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
+    prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } }),
+    prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } }),
   ]);
   if (meta.count + telegram.count === 0) {
     return res.status(404).json({ error: "У этого клиента нет диалога с ботом" });
   }
+  // Кто, когда и на сколько — в журнале действий (21.11.2026): ручную паузу иначе не отличить от автоматической.
+  logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "Client", client.id,
+    pausedUntil ? { pausedUntil: pausedUntil.toISOString(), minutes: Math.round((pausedUntil.getTime() - Date.now()) / 60_000) } : undefined);
   return res.json({ pausedUntil });
 });
 
@@ -256,7 +260,7 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);
@@ -278,6 +282,8 @@ lifecycleRouter.post("/:id/transfer", requireAuth, async (req, res) => {
     comment: parsed.data.comment,
     voiceNoteUrl: parsed.data.voiceNoteUrl,
     voiceNoteTranscript: parsed.data.voiceNoteTranscript,
+    // Нажавший кнопку — руководитель (аудит 18.11.2026, находка №1), а не агент-владелец.
+    actorId: req.agent!.id,
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   // logAudit("CLIENT_TRANSFER", ...) отсюда убран (22.08.2026): transferClientByAgent
@@ -335,7 +341,7 @@ lifecycleRouter.post("/:id/refuse", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);

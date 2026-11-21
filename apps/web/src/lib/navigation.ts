@@ -285,7 +285,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
   const moneyItems = compact<NavItem>([
     can("finance.view") && { to: "/finance", icon: Wallet, label: "Финансы", group: "money" },
     can("reports.view") && { to: "/reports", icon: BarChart3, label: "Отчёты", group: "money" },
-    can("reports.view") && { to: "/sources", icon: Compass, label: "Источники лидов", group: "money" },
+    can("reports.view") && { to: "/sources", icon: Compass, label: "Источники заявок", group: "money" },
     // Экран «Инсайты» рисует вкладки «Денег» (MoneyTabs в SectionTabs.tsx), а в
     // меню стоял в «Настройках»: открыл из одного раздела, оказался в другом.
     can("insights.view") && { to: "/insights", icon: BrainCircuit, label: "Инсайты от ИИ", group: "money" },

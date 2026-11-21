@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
-import { daysOffSentenceRu, formatClientCode } from "@royal-home/shared";
+import { daysOffSentenceRu, formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";
 import {
@@ -15,6 +15,8 @@ import {
 } from "../hooks/useAgents";
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
@@ -111,7 +113,7 @@ function headerSubtitle(roleLabel: string, live: AgentLive | undefined, member: 
     if (device) parts.push(device);
   }
   if (member?.frozen) parts.push(absenceLabel(member));
-  else if (member && leadsPaused(member)) parts.push(`пауза лидов до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
+  else if (member && leadsPaused(member)) parts.push(`пауза заявок до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
   // Личные выходные (11.10.2026) — одной строкой и на ПК, и на телефоне (подзаголовок общий).
   if (member?.weeklyDaysOff?.length) parts.push(daysOffSentenceRu(member.weeklyDaysOff));
   return parts.join(" · ");
@@ -200,6 +202,7 @@ export function TeamMemberDetail() {
   const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mobile = useMobileUx();
+  const royal = useRoyalLook();
   const can = useCan();
   // Все три ручки карточки (/overview, /live, /team) закрыты правом
   // team.viewFull: без него запрос заведомо даёт 403, поэтому не шлём его вовсе.
@@ -296,7 +299,12 @@ export function TeamMemberDetail() {
     statusNow,
   };
 
-  return mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />;
+  // «Новый вид»: метка раздела team и для окон, открытых из карточки (права, отпуск, передача дел).
+  return (
+    <RoyalSection name={royal ? "team" : undefined}>
+      {mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />}
+    </RoyalSection>
+  );
 }
 
 interface SharedProps {
@@ -344,9 +352,11 @@ function TeamMemberDetailDesktop(props: SharedProps) {
     revertError, setRevertError,
     lastInteraction, nextTask, statusNow,
   } = props;
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2 screens">
+    <div className={royal ? "rh2 screens ry-member" : "rh2 screens"} data-ry-section={royal ? "team" : undefined}>
       <div className="scr">
         {overview.isLoading && (
           <div className="card">
@@ -401,7 +411,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                     <>
                       {canPauseLeads(member) && (
                         <button className="pill ghost" type="button" onClick={() => setShowLeadPause(true)}>
-                          {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                          {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                         </button>
                       )}
                       <button className="pill ghost" type="button" onClick={() => setShowFreeze(true)}>
@@ -562,7 +572,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                     {data.problems.noContactClients.total > 0 && (
                       <>
                         <p className="state" style={{ margin: "8px 0 0" }}>
-                          <b>Без контакта больше суток</b> · {data.problems.noContactClients.total}
+                          <b>{NO_CONTACT_TEXT.title}</b> · {data.problems.noContactClients.total}
                         </p>
                         {data.problems.noContactClients.items.map((c) => (
                           <Link key={c.id} className="row" to={`/clients/${c.shortId}`} state={backState(id, data.agent.fullName)}>
@@ -709,7 +719,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
               ) : (
                 <div className="tiles">
                   <Link className="tile" to={`/clients?agentId=${id}`}>
-                    <span className="hd">Лидов в работе</span>
+                    <span className="hd">Заявок в работе</span>
                     <b>{liveData.leads.inWork}</b>
                     {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
                   </Link>
@@ -807,7 +817,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         </div>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className={royal ? "chip mute" : "chip warn"}>без договорённости</span>}
                       </Link>
                     ))}
                   </div>
@@ -917,7 +927,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
             {/* 11. KPI за последние дни */}
             <div className="sec">
               <div className="sec-h">
-                <h2>KPI за последние дни</h2>
+                <h2>Показатели за последние дни</h2>
               </div>
               <div className="card">
                 {data.kpiHistory.length === 0 ? (
@@ -981,9 +991,11 @@ function TeamMemberDetailMobile(props: SharedProps) {
   // Шаг назад вместо жёсткого перехода в «Команду»: иначе возврат терял срез и
   // место в списке (разбор в hooks/useGoBack.ts).
   const goBack = useGoBack("/team");
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2" style={MH_HOST}>
+    <div className={royal ? "rh2 ry-member" : "rh2"} style={MH_HOST} data-ry-section={royal ? "team" : undefined}>
       <div className="mh">
         <ShellOwnHeader />
         <div className="top">
@@ -1067,7 +1079,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                 <div className="qa" role="group" aria-label="Действия руководителя" style={{ gridTemplateColumns: "repeat(2,1fr)", marginTop: 8 }}>
                   {canPauseLeads(member) && (
                     <button type="button" onClick={() => setShowLeadPause(true)}>
-                      {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                      {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                     </button>
                   )}
                   <button type="button" onClick={() => setShowFreeze(true)}>
@@ -1231,7 +1243,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                     {data.problems.noContactClients.total > 0 && (
                       <div className="quiet">
                         <div className="ln">
-                          <b>Без контакта больше суток · {data.problems.noContactClients.total}</b>
+                          <b>{NO_CONTACT_TEXT.title} · {data.problems.noContactClients.total}</b>
                         </div>
                       </div>
                     )}
@@ -1372,7 +1384,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                     <Link className="tile" to={`/clients?agentId=${id}`}>
                       <div className="v">{liveData.leads.inWork}</div>
                       {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
-                      <div className="l">лидов в работе</div>
+                      <div className="l">заявок в работе</div>
                     </Link>
                     <Link className="tile" to={`/calls?agentId=${id}`}>
                       <div className="v">{liveData.calls.weekTotal}</div>
@@ -1495,7 +1507,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         </span>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className={royal ? "chip mute" : "chip warn"}>без договорённости</span>}
                       </div>
                     ))}
                   </div>
@@ -1610,7 +1622,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
               {/* 11. KPI за последние дни */}
               <section className="sec">
                 <div className="sec-t">
-                  <h2>KPI за последние дни</h2>
+                  <h2>Показатели за последние дни</h2>
                 </div>
                 {data.kpiHistory.length === 0 ? (
                   <div className="card-s">

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { callbackRequestViewSchema } from "@royal-home/shared";
 import { api } from "../../lib/api";
@@ -13,9 +14,16 @@ export function callbackRequestConversationIds(ids: Array<string | null | undefi
 
 /** Conversation-local controls, not a company-wide callback banner. A local
  * claim is never shown as a completed call or a delivered customer message. */
-export function CustomerRequestsPanel({ conversationId, conversationIds }: { conversationId?: string; conversationIds?: string[] }) {
+export function CustomerRequestsPanel({ conversationId, conversationIds, variant = "panel" }: {
+  conversationId?: string; conversationIds?: string[];
+  /** «line» — новый вид чатов (20.11.2026): одна серая строка по центру ленты,
+   *  как служебное сообщение Telegram, а не цветная полоса над перепиской. */
+  variant?: "panel" | "line";
+}) {
   const can = useCan(), agentId = useAuthStore(state => state.agent?.id), qc = useQueryClient();
   const readOnly = useIsReadOnly();
+  // Служебная строка нового вида: «Закрыть» — с подтверждением, это не отменить.
+  const [closing, setClosing] = useState<string | null>(null);
   const enabled = !!agentId && (can("messages.view") || can("messages.viewOwn"));
   const ids = callbackRequestConversationIds(conversationIds ?? (conversationId ? [conversationId] : []));
   const requestQueries = useQueries({ queries: ids.map(sourceId => ({
@@ -43,6 +51,28 @@ export function CustomerRequestsPanel({ conversationId, conversationIds }: { con
   if (!enabled || ids.length === 0) return null;
   if (queryFailed && requestItems.length === 0) return <p className="px-3 py-2 text-sm" role="status">Не удалось обновить запросы клиента.</p>;
   if (!requestItems.length && !queryFailed) return null;
+  if (variant === "line") return <section aria-label="Запросы клиента в этом диалоге" className="ry-service-lines">
+    {queryFailed && <p className="ry-service" role="status">Не удалось обновить часть запросов клиента.</p>}
+    {requestItems.map(request => {
+      const queued = request.lifecycleStatus === "QUEUED", mine = request.assignedAgentId === agentId;
+      const human = request.requestKind === "HUMAN";
+      const act = (action: "accept" | "return" | "close") => transition.mutate({ id: request.id, expectedRevision: request.lifecycleRevision!, action });
+      return <p key={request.id} className="ry-service">
+        <span>{human ? "Клиент ждёт сотрудника" : "Клиент просит позвонить"}{request.topic ? `: ${request.topic}` : ""}
+          {queued ? "" : mine ? " · вы приняли" : " · принял другой сотрудник"}</span>
+        {!readOnly && <span className="ry-service-acts">
+          {queued && <button type="button" disabled={transition.isPending} onClick={() => act("accept")}>Принять</button>}
+          {!queued && mine && <button type="button" disabled={transition.isPending} onClick={() => act("return")}>Вернуть в очередь</button>}
+          {(queued || mine) && (closing === request.id ? <>
+            <span>Закрыть запрос?</span>
+            <button type="button" disabled={transition.isPending} onClick={() => { setClosing(null); act("close"); }}>Да, закрыть</button>
+            <button type="button" onClick={() => setClosing(null)}>Нет</button>
+          </> : <button type="button" disabled={transition.isPending} onClick={() => setClosing(request.id)}>Закрыть</button>)}
+        </span>}
+      </p>;
+    })}
+    {transition.isError && <p className="ry-service" role="alert">Не удалось подтвердить изменение. Проверьте запрос перед повтором.</p>}
+  </section>;
   return <section aria-label="Запросы клиента в этом диалоге" className="px-3 py-2 space-y-2 max-h-52 overflow-auto shrink-0 bg-blue/5">
     {queryFailed && <p className="text-sm" role="status">Не удалось обновить часть запросов клиента.</p>}
     {requestItems.map(request => {

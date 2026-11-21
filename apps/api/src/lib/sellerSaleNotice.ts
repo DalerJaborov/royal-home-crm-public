@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { logTimeline } from "./timeline.js";
 import { sendPushToAgent } from "../push.js";
 import { recomputeSellerCardState } from "./sellerCardState.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 
 /**
  * СТОРОНА ПРОДАВЦА ПРИ УСПЕШНОЙ СДЕЛКЕ (владелец 09.09.2026).
@@ -181,6 +182,15 @@ async function notifyIntakeAgent(
   sellerName: string
 ): Promise<void> {
   if (!property.intakeAgentId) return;
+  /**
+   * Выключатель владельца «сообщения после сделки» (14.11.2026, lib/sellerSwitches.ts)
+   * гасит ТОЛЬКО это уведомление. Остальное в notifySellerSideOfSale — пересчёт
+   * карточки продавца, строка о продаже в хронологии, задача про пост — это учёт,
+   * а не сообщение: без пересчёта светофор снова наказывал бы агента за его же
+   * продажу (шапка файла). Снятие объекта с сайта (jobs/dealCloseFollowup.ts) тоже
+   * не трогается.
+   */
+  if (!(await sellerSwitchOn("dealAfterCloseMessagesEnabled"))) return;
   await sendPushToAgent(property.intakeAgentId, {
     title: "✅ Ваш объект продан",
     body: `${property.title} — продавец ${sellerName}.`,

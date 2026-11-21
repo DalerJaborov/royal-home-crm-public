@@ -22,6 +22,7 @@ import { agentSender, deliverToConversation, deliverVoiceToConversation, deliver
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
+import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
 import { ownBotConversationSql, ownBotConversationMineSql, ownBotConversationWhere } from "../lib/ownBotConversationScope.js";
 import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
@@ -344,7 +345,7 @@ function toLikePattern(q?: string): string | null {
  *  страницы, подсчёт совпадений и подсчёт сегментов (сводка ниже), чтобы число
  *  на кнопке и фактический список за ней никогда не расходились. */
 interface SegmentFilters {
-  /** Срез «Ждут человека»: последняя реплика — от клиента, ответа ещё нет. */
+  /** Срез «Ждут»: реально ждут ответа сейчас — см. lib/inboxWaiting.ts (моложе 48 ч, без контакта после, не «ок/спасибо»). */
   needsHuman?: boolean;
   /** Срез «Бот на паузе»: pausedUntil ещё не истёк. */
   paused?: boolean;
@@ -423,7 +424,7 @@ async function loadPageCandidates(
             AND (${ownBotConversationSql(ownAgentId)})
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -467,7 +468,7 @@ async function loadPageCandidates(
             )
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -560,7 +561,7 @@ async function countMatches(
             AND (${ownBotConversationSql(ownAgentId)})
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -589,7 +590,7 @@ async function countMatches(
             )
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -636,7 +637,7 @@ async function loadSegmentCounts(
           SELECT
             COUNT(*) AS "all",
             COUNT(*) FILTER (
-              WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+              WHERE ${waitingForHumanSql(conversationWaitingParts())}
             ) AS "needsHuman",
             COUNT(*) FILTER (WHERE c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) AS "paused",
             COUNT(*) FILTER (
@@ -660,7 +661,7 @@ async function loadSegmentCounts(
           SELECT
             COUNT(*) AS "all",
             COUNT(*) FILTER (
-              WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+              WHERE ${waitingForHumanSql(conversationWaitingParts())}
             ) AS "needsHuman",
             COUNT(*) FILTER (WHERE c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) AS "paused",
             COUNT(*) FILTER (
@@ -741,6 +742,7 @@ async function loadInboxAlerts(
       FROM "BotConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
       WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+        AND (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -755,6 +757,7 @@ async function loadInboxAlerts(
       FROM "TelegramConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
       WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+        AND (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -1099,13 +1102,22 @@ async function loadGroupedInboxRows(input: {
     countPaused: bigint;
     countMine: bigint;
   };
+  // Те же условия «ждёт человека», что у плоского списка (lib/inboxWaiting.ts), но над
+  // колонками объединённой выборки: у неё нет присоединённого `cl`, поэтому отметка
+  // последней попытки агента берётся подзапросом по id клиента.
+  const groupedWaitingParts: WaitingSqlParts = {
+    lastMessage: Prisma.sql`s."lastMessage"`,
+    activityAt: Prisma.sql`COALESCE(s."lastMessageAt", s."updatedAt")`,
+    clientId: Prisma.sql`s."clientId"`,
+    lastAgentAttemptAt: Prisma.sql`(SELECT x."lastAgentAttemptAt" FROM "Client" x WHERE x.id = s."clientId")`,
+  };
   const sourceRowsSql = Prisma.sql`${botRows} UNION ALL ${telegramRows} UNION ALL ${directRows}`;
   const now = new Date();
   const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint }[]>(Prisma.sql`
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
-        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
       FROM source_rows s
     ), grouped AS (
@@ -1124,7 +1136,7 @@ async function loadGroupedInboxRows(input: {
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
-        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
       FROM source_rows s
     ), grouped AS (
@@ -1342,6 +1354,23 @@ conversationsRouter.post("/:id/link-client", requirePermission("messages.view"),
       next(err);
     }
   });
+
+/**
+ * ОТСЕЯНО КАК СПАМ (владелец 20.11.2026; ревью #333): разговоры, где бот не ответил, потому что код счёл ход спамом
+ * (lib/spamFilter.ts). Только руководство (`clients.assign` — РОП, директор, админ). До 100 последних за 30 дней.
+ */
+conversationsRouter.get("/spam-filtered", requireAuth, requirePermission("clients.assign"), async (_req, res) => {
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: Date | null; turns: number; mutedUntil: string | null }>>`
+    SELECT c."id", c."channel", c."name", c."lastMessageAt",
+      jsonb_array_length(COALESCE(c."leadDraft"->'spamMute'->'turns','[]'::jsonb))::int AS "turns", c."leadDraft"->'spamMute'->>'mutedUntil' AS "mutedUntil"
+    FROM "BotConversation" c
+    WHERE c."clientId" IS NULL AND c."lastMessageAt" > ${since}
+      AND jsonb_array_length(COALESCE(c."leadDraft"->'spamMute'->'turns','[]'::jsonb)) > 0
+      AND COALESCE((c."leadDraft"->'spamMute'->>'exempt')::boolean, false) = false
+    ORDER BY c."lastMessageAt" DESC NULLS LAST LIMIT 100`;
+  res.json({ items: rows.map(row => ({ ...row, lastMessageAt: row.lastMessageAt?.toISOString() ?? null })) });
+});
 
 conversationsRouter.get("/:id", requireAuth, async (req, res) => {
   const rawId = req.params.id;
@@ -1731,13 +1760,15 @@ async function setPausedUntil(rawId: string, pausedUntil: Date | null): Promise<
     const id = rawId.slice(TG_PREFIX.length);
     const exists = await prisma.telegramConversation.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return false;
-    await prisma.telegramConversation.update({ where: { id }, data: { pausedUntil, botPausedAt } });
+    // pauseAlertSentAt — отметка тревоги «бот на паузе» (lib/botPauseWatch.ts): снятая или новая пауза — новый отсчёт
+    // (описание поля в схеме; 21.11.2026: «Вернуть боту» её не сбрасывал, и тревога на следующей паузе молчала сутки).
+    await prisma.telegramConversation.update({ where: { id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } });
     void publishConversationUpdated("telegram", id);
     return true;
   }
   const exists = await prisma.botConversation.findUnique({ where: { id: rawId }, select: { id: true } });
   if (!exists) return false;
-  await prisma.botConversation.update({ where: { id: rawId }, data: { pausedUntil, botPausedAt } });
+  await prisma.botConversation.update({ where: { id: rawId }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } });
   void publishConversationUpdated("bot", rawId);
   return true;
 }
@@ -1767,7 +1798,21 @@ conversationsRouter.post("/:id/pause", requireAuth, requirePermission("messages.
   if (!(await setPausedUntil(req.params.id, pausedUntil))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
+  // Кто, когда и на сколько поставил паузу — в журнале действий: ручную паузу иначе не отличить от автоматической (21.11.2026).
+  logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "BotConversation", req.params.id,
+    pausedUntil ? { pausedUntil: pausedUntil.toISOString(), minutes: Math.round((pausedUntil.getTime() - Date.now()) / 60_000) } : undefined);
   res.json({ ok: true, pausedUntil });
+});
+
+/** «Вернуть боту» для отсеянного как спам: отметка снята, разговор больше не отсеивается. */
+conversationsRouter.post("/:id/spam-restore", requireAuth, requirePermission("clients.assign"), async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный идентификатор переписки" });
+  const { exemptCustomerSpam } = await import("../lib/customerSpamMuteStore.js");
+  if (!(await exemptCustomerSpam(id.data))) return res.status(404).json({ error: "Диалог не найден" });
+  // Кто и когда вернул разговор боту — в журнале действий.
+  logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
+  res.json({ ok: true });
 });
 
 /** «Вернуть боту» прямо из инбокса — снимает паузу, ИИ снова отвечает сам.
@@ -1776,6 +1821,7 @@ conversationsRouter.post("/:id/resume", requireAuth, requirePermission("messages
   if (!(await setPausedUntil(req.params.id, null))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
+  logAudit(req, "BOT_PAUSE_CLEARED", "BotConversation", req.params.id);
   res.json({ ok: true });
 });
 

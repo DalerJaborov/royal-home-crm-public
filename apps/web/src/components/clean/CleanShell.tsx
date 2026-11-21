@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, House, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useNavigation, type NavItem } from "../../lib/navigation";
-import { defaultCleanNavigation, partitionCleanNavigation } from "../../lib/cleanNavigationOrder";
+import { defaultCleanNavigation, navGroupsKey, partitionCleanNavigation, readOpenNavGroups, royalSideNavigation, type RoyalNavGroup } from "../../lib/cleanNavigationOrder";
 import { useUiPrefs } from "../../store/uiPrefs";
 import { CleanNavigationOrderSheet } from "./CleanNavigationOrderSheet";
 export { partitionCleanNavigation } from "../../lib/cleanNavigationOrder";
@@ -14,6 +14,7 @@ import { useShellStore } from "../../store/shell";
 import { ASSISTANT_ENTRY_LABEL, ASSISTANT_ENTRY_TITLE, useAssistantEntry } from "../../hooks/useAssistantEntry";
 import { Topbar } from "../Topbar";
 import { CButton, CLink } from "./ui";
+import { lazyWithReload } from "../../lib/lazyWithReload";
 import { permitsCleanChunkWarming, scheduleCleanRouteChunks, warmCleanRouteChunk, type WarmConnection } from "../../lib/cleanRouteChunks";
 
 function warmOnIntent(path: string) {
@@ -24,14 +25,61 @@ function warmOnIntent(path: string) {
 }
 
 
-function Tab({ item }: { item: NavItem }) {
-  return <NavLink to={item.to} end={item.end} className="clean-tab" onPointerEnter={() => warmOnIntent(item.to)} onPointerDown={() => warmOnIntent(item.to)} onFocus={() => warmOnIntent(item.to)}>
-    {item.label}
+/** «Новый вид»: значки меню своим куском — тем, у кого вида нет, он не грузится. */
+const RoyalNavIcon = lazyWithReload(() => import("../look/RoyalNavIcon"));
+
+function Tab({ item, royal }: { item: NavItem; royal?: boolean }) {
+  return <NavLink to={item.to} end={item.end} className="clean-tab" title={royal ? item.label : undefined} onPointerEnter={() => warmOnIntent(item.to)} onPointerDown={() => warmOnIntent(item.to)} onFocus={() => warmOnIntent(item.to)}>
+    {royal ? ({ isActive }) => <>
+      <span className="ry-nav-glyph" aria-hidden="true"><Suspense fallback={null}><RoyalNavIcon to={item.to} active={isActive} /></Suspense></span>
+      <span className="ry-nav-label">{item.label}</span>
+      {!!item.badge && <><span className="clean-nav-count" aria-hidden="true">{item.badge > 99 ? "99+" : item.badge}</span><span className="sr-only">{item.badgeQuiet ? "Всего" : "Новых"}: {item.badge}</span></>}
+    </> : <>{item.label}
     {!!item.badge && <><span className="clean-nav-count" aria-hidden="true">{item.badge > 99 ? "99+" : item.badge}</span><span className="sr-only">{item.badgeQuiet ? "Всего" : "Новых"}: {item.badge}</span></>}
+    </>}
   </NavLink>;
 }
 
-export function CleanShell() {
+/**
+ * Группа бокового меню «Нового вида»: свёрнута, пока человек сам её не открыл
+ * (запоминается на этом устройстве — удобство, а не настройка) или пока в ней
+ * открытый сейчас раздел. Непрочитанное внутри видно на заголовке суммой.
+ */
+function RoyalNavGroupBlock({ group, active }: { group: RoyalNavGroup; active: boolean }) {
+  const agentId = useAuthStore((state) => state.agent?.id);
+  const [open, setOpen] = useState(() => active || readOpenNavGroups(agentId).includes(group.key));
+  useEffect(() => { if (active) setOpen(true); }, [active]);
+  const unread = group.items.reduce((total, item) => total + (item.badgeQuiet ? 0 : item.badge ?? 0), 0);
+  // Запоминается только нажатие человека: раскрытие из-за открытого раздела — нет,
+  // иначе группы оставались бы открытыми после любого перехода.
+  const toggle = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    const next = !open;
+    setOpen(next);
+    try {
+      const keys = new Set(readOpenNavGroups(agentId));
+      if (next) keys.add(group.key); else keys.delete(group.key);
+      window.localStorage.setItem(navGroupsKey(agentId), JSON.stringify([...keys]));
+    } catch { /* Без хранилища группа просто не запомнит положение. */ }
+  };
+  return <details className="ry-nav-group" open={open}>
+    <summary className="ry-nav-group-title" onClick={toggle}>
+      <span className="ry-nav-label">{group.title}</span>
+      {!!unread && <><span className="clean-nav-count" aria-hidden="true">{unread > 99 ? "99+" : unread}</span><span className="sr-only">Новых: {unread}</span></>}
+      <ChevronDown aria-hidden="true" className="ry-nav-group-chev" />
+    </summary>
+    {group.items.map((item) => <Tab key={item.to} item={item} royal />)}
+  </details>;
+}
+
+/**
+ * `royal` — «Новый вид» (AppLayout решает по ответу сервера). Разметка та же,
+ * меняются три вещи: у вкладок значок, на ПК вкладки встают боковым меню
+ * (theme-look-royal.css), а остальные разделы — свёрнутыми группами под чертой
+ * (пачка B, 20.11.2026: было 33 строки подряд), а не в выпадающем «Ещё»: из
+ * бокового меню по-прежнему достижим ВЕСЬ реестр навигации, каждый путь — один раз.
+ */
+export function CleanShell({ royal = false }: { royal?: boolean }) {
   const { main, all } = useNavigation();
   const [tabCapacity, setTabCapacity] = useState(6);
   const actorId = useAuthStore((state) => state.agent?.id);
@@ -43,6 +91,7 @@ export function CleanShell() {
   const prefsHydrated = useUiPrefs((state) => state.serverHydrated);
   const [navigationEditor, setNavigationEditor] = useState<{ actorId: string; epoch: number } | null>(null);
   const { tabs, overflow } = partitionCleanNavigation(main, all, tabCapacity, savedOrder);
+  const side = royalSideNavigation(main, all, savedOrder);
   const permittedPaths = [...new Set([...main, ...all].map((item) => item.to))].sort().join("\n");
   useEffect(() => {
     if (!actorId) return;
@@ -112,9 +161,14 @@ export function CleanShell() {
         <b className="clean-brand-mobile">{title ?? "Royal Home"}</b>
       </Link>
       <nav className="clean-tabs" aria-label="Основные разделы">
-        {tabs.map((item) => <Tab key={item.to} item={item} />)}
+        {royal ? <>
+          {side.primary.map((item) => <Tab key={item.to} item={item} royal />)}
+          {side.groups.length > 0 && <span className="ry-side-sep" role="separator" />}
+          {side.groups.map((group) => <RoyalNavGroupBlock key={group.key} group={group}
+            active={group.items.some((item) => pathname === item.to || (!item.end && item.to !== "/" && pathname.startsWith(`${item.to}/`)))} />)}
+        </> : tabs.map((item) => <Tab key={item.to} item={item} />)}
       </nav>
-      {overflow.length > 0 && <details ref={menu} className="clean-more" data-active={!!activeOverflow || undefined} onBlur={(event) => {
+      {!royal && overflow.length > 0 && <details ref={menu} className="clean-more" data-active={!!activeOverflow || undefined} onBlur={(event) => {
         if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
       }} onKeyDown={(event) => {
         if (event.key === "Escape" && menu.current) { menu.current.open = false; menuButton.current?.focus(); }
@@ -128,7 +182,7 @@ export function CleanShell() {
         </nav>
       </details>}
       <div className="clean-header-tools">
-        {actorId && overflow.length === 0 && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
+        {actorId && (royal || overflow.length === 0) && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
         {assistantEntry.visible && <CButton variant="soft" size="icon-md" className="clean-ai" aria-label={ASSISTANT_ENTRY_LABEL} title={ASSISTANT_ENTRY_TITLE} onClick={assistantEntry.open} {...assistantEntry.preloadProps}><Sparkles /></CButton>}
         {canCreate && <CLink to="/properties/new" className="clean-create" variant="soft" size="icon-md" aria-label="Создать объект"><Plus /></CLink>}
       </div>

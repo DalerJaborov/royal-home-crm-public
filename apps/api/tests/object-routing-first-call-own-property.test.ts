@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
-import { handleMissedFirstCalls } from "../src/services/leads/firstCall.js";
+import { firstCallAfterDue, handleMissedFirstCalls } from "../src/services/leads/firstCall.js";
 import { dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
@@ -139,7 +139,7 @@ describe("P0-1: срыв первого звонка не уводит лид п
     });
     expect(note).not.toBeNull();
     const moved = await prisma.interaction.findFirst({
-      where: { clientId: lead.id, notes: { contains: "Лид снят и переназначен" } },
+      where: { clientId: lead.id, notes: { contains: "Заявка снята и переназначена" } },
     });
     expect(moved).toBeNull();
   });
@@ -174,5 +174,40 @@ describe("P0-1: срыв первого звонка не уводит лид п
     expect(after.assignedAgentId).toBe(nextId);
     expect(after.assignReason).toBeNull();
     expect(after.matchedPropertyId).toBe(foreignPropertyId);
+  });
+});
+
+describe("19.11.2026: номер не таджикский — клиент не уходит, одна фраза для всех", () => {
+  it("лид с российским номером остаётся у агента, руководитель знает, круга нет", async () => {
+    const lead = await makeLead("иностранный номер", { phone: `+7999${tail}${clientIds.length}` });
+    await tick();
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: lead.id } });
+    expect(after.assignedAgentId).toBe(ownerId);
+    expect(after.acceptedAt).not.toBeNull();
+    expect(after.reassignCount).toBe(0);
+    const note = await prisma.interaction.findFirst({
+      where: { clientId: lead.id, notes: { contains: "CRM его не набирает" } },
+    });
+    expect(note).not.toBeNull();
+    // Повторный тик ту же запись не дублирует.
+    await tick();
+    expect(await prisma.interaction.count({ where: { clientId: lead.id, notes: { contains: "CRM его не набирает" } } })).toBe(1);
+  });
+
+  it("фраза «что будет после срока» совпадает с решением крона", () => {
+    const base = { assignedAgentId: "a1", ownPropertyLead: false, assignReason: null, matchedProperty: null };
+    const own = {
+      assignedAgentId: "a1",
+      ownPropertyLead: true,
+      assignReason: "own_property_explicit",
+      matchedProperty: { deletedAt: null, intakeAgentId: "a1", assignedAgentId: null, createdById: null },
+    };
+    expect(firstCallAfterDue({ ...base, phone: "+992931234567" }, true)).toEqual({ kind: "moves", text: "иначе клиент уйдёт другому агенту" });
+    expect(firstCallAfterDue({ ...own, phone: "+992931234567" }, true).kind).toBe("own_property");
+    expect(firstCallAfterDue({ ...base, phone: "+79991234567" }, true).kind).toBe("not_dialable");
+    expect(firstCallAfterDue({ ...base, phone: "+79991234567" }, false).kind).toBe("stays");
+    for (const c of [base, own]) {
+      expect(firstCallAfterDue({ ...c, phone: "+992931234567" }, true).text).not.toContain("Royal Score");
+    }
   });
 });

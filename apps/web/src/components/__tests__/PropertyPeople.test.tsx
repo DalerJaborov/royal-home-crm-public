@@ -75,6 +75,25 @@ describe("PropertyPeople", () => {
     expect(html).toContain("Умед Каримов");
   });
 
+  it("свой объект без права на номер (18.11.2026) — продавец именем, номер маской, звонок через CRM", () => {
+    const html = render(
+      <PropertyPeople
+        property={{
+          assignedAgent: null,
+          intakeAgent: intake,
+          ownerContact: null,
+          ownerContactHidden: true,
+          ownerContactMasked: "+992•••••12",
+          sellerClient: { id: "c1", shortId: 86, fullName: "Фарход Рахимов", canOpen: true },
+        }}
+      />
+    );
+    expect(html).toContain("Фарход Рахимов");
+    expect(html).toContain("+992•••••12");
+    expect(html).toContain("data-call-button");
+    expect(html).not.toContain("910001012");
+  });
+
   it("принял и ведёт сделку один человек — одна строка, а не две", () => {
     const html = render(
       <PropertyPeople property={{ assignedAgent: intake, intakeAgent: intake, ownerContact: null, ownerContactHidden: false }} />

@@ -71,6 +71,20 @@ export function startBackgroundWork(): void {
     console.log("[cron] dev: плановые задачи НЕ запущены (предохранитель от реальных рассылок); включить: DEV_CRONS=1");
   } else {
     startCronJobs();
+    // Группы помощницы после выката: переезд в супергруппу, пропущенный пока бот был выключен, лечится сразу, не через час
+    // (тот же сторож, что у плановой задачи assistant-group-sweep). Ничего в группы не пишет.
+    setTimeout(() => {
+      void import("./lib/assistantGroupWatchdog.js")
+        .then((m) => m.sweepAssistantGroups())
+        .catch((err) => console.error("[assistant-group] обход при старте:", err instanceof Error ? err.message : err));
+    }, GROUP_SWEEP_DELAY_MS).unref();
+    // Словарь произношения озвучки после выката (20.11.2026): устарел — обновляется сам, без ручных шагов. Свежий словарь —
+    // ни одного запроса; отказ ElevenLabs — в журнал ошибок, процесс не падает (lib/narrationPronunciation.ts).
+    setTimeout(() => {
+      void import("./lib/narrationPronunciation.js")
+        .then((m) => m.syncPronunciationDictionaryOnStart())
+        .catch((err) => console.error("[narration] словарь произношения при старте:", err instanceof Error ? err.message : err));
+    }, PRONUNCIATION_SYNC_DELAY_MS).unref();
   }
   startTelegramBot();
   // Суточный тик, чья минута пришлась на выкат, догоняется сразу после старта
@@ -84,6 +98,10 @@ export function startBackgroundWork(): void {
 }
 
 const CATCH_UP_DELAY_MS = 60_000;
+/** Обход групп помощницы при старте: после того, как бот успел подняться и взять getMe. */
+const GROUP_SWEEP_DELAY_MS = 30_000;
+/** Проверка словаря произношения озвучки при старте: после того, как поднялась база, и не вместе с первыми тиками. */
+const PRONUNCIATION_SYNC_DELAY_MS = 45_000;
 
 /**
  * Запуск отдельным процессом: node dist/worker.js (контейнер worker, этап А3).

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound, Tag } from "lucide-react";
 import { api } from "../../lib/api";
+import { Rh2LoadProblem } from "../../components/rh2/Rh2ErrorState";
 import { InstagramAppBinding } from "./InstagramAppBinding";
 
 /**
@@ -47,10 +48,11 @@ const CHANNEL_TITLES: Record<string, string> = {
 
 export function MessengerAccounts() {
   const queryClient = useQueryClient();
-  const { data } = useQuery<{ items: AccountRow[] }>({
+  const accounts = useQuery<{ items: AccountRow[] }>({
     queryKey: ["messenger-accounts"],
     queryFn: () => api("/settings/messenger-accounts"),
   });
+  const { data } = accounts;
   const items = data?.items ?? [];
 
   const [adding, setAdding] = useState(false);
@@ -416,7 +418,9 @@ export function MessengerAccounts() {
         </div>
       )}
 
-      {items.length === 0 && !adding && (
+      {/* Ошибка или нет связи — не «список пуст» (ревью #346): словами и с «Повторить». */}
+      <Rh2LoadProblem query={accounts} message="Не удалось загрузить подключённые аккаунты. Проверьте связь и нажмите «Повторить»." />
+      {data && items.length === 0 && !adding && (
         <div className="quiet" style={{ marginTop: "var(--s2)" }}>
           <span className="dot" />
           <span className="txt">

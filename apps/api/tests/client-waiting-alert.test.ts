@@ -6,6 +6,13 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgent,
 }));
 
+// Выключатель «Клиент ждёт ответа» (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { alertClientWaiting, runClientSilenceSweep, waitingEpisodeOf, CLIENT_WAITING_MINUTES, repeatClientWaiting, CLIENT_WAITING_REPEAT_MINUTES } = await import(
   "../src/lib/clientWaitingAlert.js"
@@ -370,5 +377,36 @@ describe("follow_up — звонок агента считается ответ�
     } finally {
       await prisma.interaction.deleteMany({ where: { clientId: conv.clientId! } });
     }
+  });
+});
+
+describe("выключатель «клиент молчит 30 минут» (19.11.2026)", () => {
+  it("выключен — молчат сторож, его повтор и тик silence; поломка бота и передача сотруднику идут как раньше", async () => {
+    const id = await conversation([{ role: "user", content: "позовите человека", at: minutesAgo(CLIENT_WAITING_MINUTES + 10) }]);
+    switchesOff.add("notifyClientWaitingEnabled");
+    try {
+      const sweep = await runClientSilenceSweep();
+      expect(sweep).toEqual({ checked: 0, alerted: 0, skippedOffHours: false });
+      expect(await alertClientWaiting({ conversationId: id, trigger: "silence" })).toBe("skipped");
+      expect(await repeatClientWaiting({ conversationId: id, since: new Date(), now: new Date() })).toBe("skipped");
+      expect(ownPush(id)).toHaveLength(0);
+      expect(await prisma.pendingDirectorAlert.count({ where: { tag: `client-waiting-${id}` } })).toBe(0);
+      // Сигналы о поломке и передаче — не напоминания: идут всегда.
+      expect(await alertClientWaiting({ conversationId: id, trigger: "escalate" })).toBe("agent");
+      const other = await conversation([{ role: "user", content: "алло", at: minutesAgo(1) }]);
+      expect(await alertClientWaiting({ conversationId: other, trigger: "failed", why: "бот сломался" })).toBe("agent");
+      const third = await conversation([{ role: "user", content: "алло", at: minutesAgo(1) }]);
+      expect(await alertClientWaiting({ conversationId: third, trigger: "handover", why: "передал" })).toBe("agent");
+      const fourth = await conversation([{ role: "user", content: "алло", at: minutesAgo(1) }]);
+      expect(await alertClientWaiting({ conversationId: fourth, trigger: "follow_up", since: new Date() })).toBe("agent");
+    } finally {
+      switchesOff.delete("notifyClientWaitingEnabled");
+    }
+  });
+
+  it("включён — сторож молчания сигналит как раньше", async () => {
+    const id = await conversation([{ role: "user", content: "есть 2-комн.?", at: minutesAgo(CLIENT_WAITING_MINUTES + 10) }]);
+    await runClientSilenceSweep();
+    expect(ownPush(id)).toHaveLength(1);
   });
 });

@@ -46,9 +46,10 @@ async function mkClient(name: string, daysSilent: number) {
       // карточки; lastContactAt оно не читает. Старая дата создания нужна, чтобы
       // клиенты теста были самыми давними и в общей базе прогона.
       // Даты от 1970 года — заведомо старше любых карточек общей базы прогона;
-      // «свежий» (0 дней) — клиент только что написал сам, это и есть контакт.
+      // «свежий» (0 дней) — с ним уже связывались (отметка «агент пытался»): в
+      // «Не связывались» (17.11.2026) его быть не должно.
       createdAt: daysSilent === 0 ? new Date() : new Date(Date.UTC(1970, 0, 2) + (5000 - daysSilent) * DAY),
-      ...(daysSilent === 0 ? { lastClientMessageAt: new Date() } : {}),
+      ...(daysSilent === 0 ? { lastClientMessageAt: new Date(), lastAgentAttemptAt: new Date() } : {}),
     },
   });
   clientIds.push(c.id);
@@ -87,15 +88,13 @@ describe("1. клиент завис", () => {
     expect(ids.indexOf(old.id)).toBeLessThan(ids.indexOf(mid.id));
     expect(d.items.length).toBeLessThanOrEqual(5);
     expect(d.stuckTotal).toBeGreaterThanOrEqual(2);
-    // Порог общий для всей CRM — сутки (packages/shared/src/clientNoContact.ts).
-    expect(d.stuckDays).toBe(1);
     const row = d.items.find((i: { id: string }) => i.id === old.id);
     const midRow = d.items.find((i: { id: string }) => i.id === mid.id);
     // Без контакта тишина считается от создания карточки (даты фикстуры — с 1970 года).
     expect(row.silentDays).toBeGreaterThan(midRow.silentDays);
     expect(row.tone).toBe("warn");
-    // С карточкой, где контакта не было ни разу, подсказка говорит именно это.
-    expect(row.hint).toBe("Контакта ещё не было");
+    // «Не связывались» (17.11.2026): подсказка называет возраст карточки.
+    expect(row.hint).toMatch(/^Не связывались, карточке \d+ (день|дня|дней)$/);
     expect(row.href).toMatch(/^\/clients\//);
   });
 });

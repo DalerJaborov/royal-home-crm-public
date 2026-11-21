@@ -376,7 +376,7 @@ export const updateStaffTool = staffTool({
     const roleChange = changes.role !== undefined && changes.role !== target.role;
     const roleOnly = Object.keys(changes).every((key) => key === "role");
     const risk = [
-      deactivating ? "Учётка отключится сразу: вход, сессии и пуши гаснут, непринятые лиды уйдут в очередь. Клиенты в работе останутся за ним — передайте дела отдельно." : null,
+      deactivating ? "Учётка отключится сразу: вход, сессии и пуши гаснут, непринятые заявки уйдут в очередь. Клиенты в работе останутся за ним — передайте дела отдельно." : null,
       roleChange ? "Права станут как у новой роли; личные надстройки прав сбросятся." : null,
       roleChange && roleOnly ? "Отменить можно 15 минут — роль и личные права вернутся." : null,
       deactivating || roleChange || changes.phone !== undefined ? "Руководству придёт одно сообщение об этом." : null,
@@ -473,7 +473,7 @@ export const freezeStaffTool = staffTool({
   name: "freeze_staff",
   statusPhrase: "Готовлю заморозку…",
   description:
-    "Заморозить сотрудника (отпуск VACATION, больничный SICK, прочее OTHER): новые лиды ему не идут, непринятые уходят в очередь, " +
+    "Заморозить сотрудника (отпуск VACATION, больничный SICK, прочее OTHER): новые заявки ему не идут, непринятые уходят в очередь, " +
     "KPI замирает. Причина обязательна — спроси, если не названа. until — дата выхода ГГГГ-ММ-ДД, если названа. Себя заморозить нельзя." + STEP_UP_NOTE,
   parameters: {
     type: "object",
@@ -501,7 +501,7 @@ export const freezeStaffTool = staffTool({
         Причина: plainField(args.reason, 200),
         ...(args.until ? { "Выход": args.until } : {}),
       },
-      risk: "Новые лиды не пойдут, непринятые уйдут в очередь (лиды по его объектам останутся). Отменить — 15 минут (снятые лиды в очереди останутся), позже — «разморозь».",
+      risk: "Новые заявки не пойдут, непринятые уйдут в очередь (заявки по его объектам останутся). Отменить — 15 минут (снятые заявки в очереди останутся), позже — «разморозь».",
     };
   },
   async execute(args, staff, actor, snap) {
@@ -519,7 +519,7 @@ export const freezeStaffTool = staffTool({
 export const unfreezeStaffTool = staffTool({
   name: "unfreeze_staff",
   statusPhrase: "Готовлю разморозку…",
-  description: "Разморозить сотрудника: снова получает лиды и звонки." + STEP_UP_NOTE,
+  description: "Разморозить сотрудника: снова получает заявки и звонки." + STEP_UP_NOTE,
   parameters: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] },
   requires: ["agents.manage"],
   stepUp: true,
@@ -846,7 +846,7 @@ export const pauseStaffLeadsTool = staffTool({
       title: `⏸ Пауза заявок: ${plainField(String(snap.fullName), 80)} на ${args.hours} ч`,
       was: { "Новые заявки": snap.leadsPausedUntil ? `пауза до ${String(snap.leadsPausedUntil).slice(0, 16).replace("T", " ")} UTC` : "получает" },
       becomes: { "Новые заявки": `пауза ${args.hours} ч`, ...(args.reason ? { Причина: plainField(args.reason, 200) } : {}) },
-      risk: "Непринятые лиды уйдут в очередь, текущие клиенты останутся. Сотрудник получит уведомление.",
+      risk: "Непринятые заявки уйдут в очередь, текущие клиенты останутся. Сотрудник получит уведомление.",
     };
   },
   async execute(args, staff, actor, snap) {

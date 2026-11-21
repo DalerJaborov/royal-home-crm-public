@@ -15,7 +15,9 @@ describe("property narration boundaries", () => {
     // Смена цены — новые факты: озвучка пересобирается и снова идёт агенту на одобрение.
     expect(narrationHash(snapshot)).not.toBe(narrationHash(narrationFacts({ ...facts, price: 1 })));
   });
-  it.each(["Цена: 900000", "Всего пятьсот тысяч сомони", "$ 900", "Стоимость миллион", "90 000 USD"])("allows spoken price %s (owner 11.11.2026)", (text) => expect(narrationScriptError(text)).toBeNull());
+  it.each(["Цена: 900000", "Всего пятьсот тысяч сомони", "Стоимость миллион"])("allows spoken price %s (owner 11.11.2026)", (text) => expect(narrationScriptError(text)).toBeNull());
+  // 21.11.2026, владелец: цену в озвучке говорим только в сомони — доллары не уходят в ElevenLabs.
+  it.each(["$ 900", "90 000 USD", "сто тысяч долларов"])("rejects a price in dollars %s (owner 21.11.2026)", (text) => expect(narrationScriptError(text)).toMatch(/только в сомони/u));
   it("requires explicit voice configuration and accepts more than two choices", () => {
     expect(narrationConfigSchema.parse({}).voices).toEqual([]);
     expect(narrationConfigSchema.safeParse({ modelId: "m", voices: [1, 2, 3].map((n) => ({ id: `v${n}`, name: `Голос ${n}` })) }).success).toBe(true);

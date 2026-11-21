@@ -5,7 +5,7 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
-import { noContactWhere } from "../../lib/noContact.js";
+import { lastStaffContactAtByClient, noContactWhere } from "../../lib/noContact.js";
 import { awaitingAcceptanceWhere, clientsScopeBaseWhere } from "../../lib/clientBaseOverview.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
@@ -14,7 +14,7 @@ import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
  * GET /clients/summary — сводка над списком клиентов для экрана «Клиенты»
  * артефакта «Единый пульт директора» (шаблон tpl-clients): счётчики срезов
  * (Покупатели · Мои · Продавцы · Потерянные · Прочие), четыре плитки (Новые ·
- * Без агента · Без контакта · Показы), строка-предупреждение «X ждёт агента
+ * Без агента · Не связывались · Показы), строка-предупреждение «X ждёт агента
  * N минут, свободны: …».
  *
  * Один запрос вместо шести списков с pageSize=1: экран открывается часто, а
@@ -49,12 +49,19 @@ export interface ClientsSummary {
     count: number;
     oldest: { id: string; shortId: number; fullName: string; kind: string; waitingMinutes: number } | null;
   };
-  /** «Без контакта» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts):
-   *  клиенты в работе, у которых больше суток не было разговора по телефону и
-   *  сообщения от самого клиента; новая карточка — от создания. */
-  noContactOverDay: number;
+  /** «Не связывались» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts):
+   *  клиенты в работе, с которыми сотрудники ни разу не связывались (ни звонка, даже
+   *  без ответа, ни сообщения сотрудника, ни показа). Срока нет. */
+  neverContacted: number;
   showings: { today: number; tomorrow: number };
 }
+
+/**
+ * Сколько самых давних непринятых карточек проверять на контакт для строки «ждёт агента».
+ * Непринятых в работе — единицы и десятки; если все проверенные уже с контактом, строки
+ * нет: лучше промолчать, чем назвать неправду.
+ */
+const OLDEST_CANDIDATES = 50;
 
 export const summaryRouter = Router();
 
@@ -97,8 +104,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     newToday,
     newYesterday,
     awaitingCount,
-    oldest,
-    noContactOverDay,
+    oldestCandidates,
+    neverContacted,
     showToday,
     showTomorrow,
     trashedMine,
@@ -120,22 +127,43 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
       prisma.client.count({ where: { ...base, createdAt: { gte: today.start, lte: today.end } } }),
       prisma.client.count({ where: { ...base, createdAt: { gte: yesterday.start, lte: yesterday.end } } }),
       prisma.client.count({ where: awaitingWhere }),
-      prisma.client.findFirst({
+      prisma.client.findMany({
         where: awaitingWhere,
         // Ждёт с момента, как лид достался агенту (assignedAt), а не с создания
         // карточки: переданный по кругу лид иначе «ждал» бы дни (24.09.2026,
         // пункт 25). Тот же порядок, что у среза в списке — старые первыми.
-        orderBy: { assignedAt: "asc" },
-        select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true },
+        orderBy: [{ assignedAt: "asc" }, { id: "asc" }],
+        take: OLDEST_CANDIDATES,
+        select: { id: true, shortId: true, fullName: true, kind: true, assignedAt: true, lastAgentAttemptAt: true, lastContactAt: true },
       }),
-      // «Без контакта» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
-      prisma.client.count({ where: { AND: [base, noContactWhere(now)] } }),
+      // «Не связывались» — одно правило на всю CRM (lib/noContact.ts, packages/shared/src/clientNoContact.ts).
+      prisma.client.count({ where: { AND: [base, noContactWhere()] } }),
       prisma.interaction.count({ where: showingWhere(today) }),
       prisma.interaction.count({ where: showingWhere(tomorrow) }),
       meId
         ? prisma.client.count({ where: { deletedAt: { not: null }, OR: [{ assignedAgentId: meId }, { lastAgentId: meId }] } })
         : Promise.resolve(null),
     ]);
+
+  /**
+   * «X ЖДЁТ АГЕНТА N ДНЕЙ» — ТОЛЬКО ЕСЛИ С НИМ ПРАВДА НИКТО НЕ СВЯЗЫВАЛСЯ (21.11.2026).
+   *
+   * Кадр владельца: «Шохмурод ждёт агента 54 дня», а с клиентом в тот же день говорили.
+   * Строка брала самую старую НЕПРИНЯТУЮ карточку (acceptedAt пуст) и считала дни от
+   * назначения — контакт сотрудника её не гасил: агент мог звонить и писать, не нажав
+   * «Принять». Теперь строка гаснет, как только после назначения был контакт сотрудника
+   * по правилу всей CRM (lib/noContact.ts — то же правило, что «Не связывались» и «Ждут»
+   * в чатах), или карточку приняли. Число «Ждут принятия» не меняется: это факт о
+   * карточке, и строки списка за ним те же.
+   */
+  const oldest = await (async () => {
+    if (oldestCandidates.length === 0) return null;
+    const contact = await lastStaffContactAtByClient(oldestCandidates);
+    return oldestCandidates.find((c) => {
+      const at = contact.get(c.id);
+      return !at || at.getTime() <= c.assignedAt.getTime();
+    }) ?? null;
+  })();
 
   const summary: ClientsSummary = {
     buyers,
@@ -158,7 +186,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
           }
         : null,
     },
-    noContactOverDay,
+    neverContacted,
     showings: { today: showToday, tomorrow: showTomorrow },
     trashedMine,
   };

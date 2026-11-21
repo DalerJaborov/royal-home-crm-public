@@ -123,8 +123,12 @@ export interface Property {
    *  случая на клиенте нечем: оба дают `ownerContact: null` — честный флаг решает
    *  это на сервере, том же месте, где решается и сама маскировка. */
   ownerContactHidden?: boolean;
+  /** Номер собственника маской (`+9929300••456`) — тому, кто ведёт объект, но полного номера
+   *  не видит (с 18.11.2026 полный видит только директор). Звонок — кнопкой через станцию. */
+  ownerContactMasked?: string | null;
   /** Карточка продавца, к которой привязан объект (sellerClientId) — только в
-   *  ответе GET /properties/:id и только тем, кому виден номер собственника.
+   *  ответе GET /properties/:id и только тем, кому виден номер собственника или
+   *  кто ведёт объект сам (с 18.11.2026 — без номера, маской).
    *  `canOpen` — откроется ли у этого сотрудника карточка клиента. */
   sellerClient?: { id: string; shortId: number; fullName: string; canOpen: boolean } | null;
   assignedAgentId: string | null;
@@ -300,6 +304,8 @@ export interface Client {
    *  объекта продавца, которых в этом типе может не быть. Нет поля — значит эндпоинт
    *  его не отдаёт (Корзина, «Потерянные» и т.п.), там fullName/formatClientName как раньше. */
   displayName?: string;
+  /** То же имя порознь: `{ name, anchor }` (clientNameParts в @royal-home/shared) — строка «Нового вида». */
+  displayNameParts?: { name: string; anchor: string | null } | null;
   /** Фамилия отдельным полем — необязательна, у старых карточек не заполнена. */
   lastName?: string | null;
   phone: string;
@@ -336,14 +342,6 @@ export interface Client {
   dualIntentNeedsConfirmation?: boolean;
   dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
   dualIntentNeedsReview?: boolean;
-  /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
-   *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
-   *  зон п.3). null — ИИ ещё ничего не услышал. */
-  sellerDeclaredPropertyCount?: number | null;
-  /** Симметрично выше, но для покупателя: сколько объектов хочет купить —
-   *  услышал ИИ, не агент (владелец 07.09.2026, «пусть у покупателя будет то
-   *  же самое»). null — обычный случай, купить одну квартиру, ИИ не отмечал. */
-  buyerDesiredPropertyCount?: number | null;
   /** Фото профиля из мессенджера, уже скачанное к нам (`/uploads/avatars/...`).
    *  Нет — components/ClientAvatar.tsx рисует кружок с инициалами. */
   avatarUrl?: string | null;
@@ -467,6 +465,14 @@ export interface Client {
   aiInsightAt: string | null;
   createdAt: string;
   lastContactAt: string;
+  /**
+   * ПОСЛЕДНИЙ КОНТАКТ СОТРУДНИКА по правилу всей CRM (lib/noContact.ts на сервере:
+   * звонок с исходом дозвона, разговор, сообщение сотрудника, встреча или показ).
+   * Только в списке клиентов (GET /clients). null — ни разу не связывались;
+   * поля нет — сервер дату не отдаёт (заявка ещё не ваша). Не путать с
+   * lastContactAt: тот двигает любая заметка, а у новой карточки он равен созданию.
+   */
+  lastStaffContactAt?: string | null;
   /**
    * Когда клиент САМ последний раз написал в переписке (не lastContactAt — тот
    * растёт и от исходящих сообщений агента). Тот же признак «был реальный
@@ -713,6 +719,8 @@ export interface AppNotification {
   /** Сколько раз подряд повторилось это же событие (владелец 20.08.2026) — 1 — обычное. */
   count: number;
   read: boolean;
+  /** Показана человеку в открытом списке (метка на колокольчике её уже не считает), но может ждать действия. */
+  seenAt?: string | null;
   /** Погашено системой (смена владельца/статуса клиента), а не прочитано
    *  агентом — Пачка 19, 12.09.2026. null/undefined — обычное уведомление. */
   retiredAt?: string | null;

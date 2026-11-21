@@ -69,6 +69,11 @@ export interface PlanForecastInsight {
 /** Значение Settings.monthlyCommissionPlan по умолчанию (schema.prisma). */
 export const DEFAULT_COMMISSION_PLAN = 8000;
 
+/** Колонка плана NOT NULL с умолчанием 8000: совпадение с умолчанием — «план не задан». Одна функция для главной и дашборда. */
+export function isDefaultCommissionPlan(plan: number): boolean {
+  return plan === DEFAULT_COMMISSION_PLAN;
+}
+
 /** Экстраполяция текущего темпа продаж на весь месяц — «умная» версия плитки «Цель месяца». */
 export async function computePlanForecast(): Promise<PlanForecastInsight> {
   const [settings, money] = await Promise.all([
@@ -93,10 +98,58 @@ export async function computePlanForecast(): Promise<PlanForecastInsight> {
   const plan = Number(settings?.monthlyCommissionPlan ?? DEFAULT_COMMISSION_PLAN);
   // Колонка NOT NULL с default 8000: «не задан» от «задан 8000» в базе не отличить —
   // честно помечаем совпадение с умолчанием, фронт не выдаёт его за настоящий план.
-  const planIsDefault = plan === DEFAULT_COMMISSION_PLAN;
+  const planIsDefault = isDefaultCommissionPlan(plan);
   const forecastPercent = plan ? Math.round((forecastEndOfMonth / plan) * 100) : 0;
 
   return { commissionMonth, plan, forecastEndOfMonth, forecastPercent, daysElapsed, daysInMonth, planIsDefault };
+}
+
+export interface PreviousMonthCommission {
+  /** Комиссия прошлого месяца с 1-го числа по ту же точку месяца, что сейчас (честное сравнение). */
+  toDate: number;
+  /** Комиссия прошлого месяца целиком. */
+  total: number;
+}
+
+/**
+ * КОМИССИЯ ПРОШЛОГО МЕСЯЦА ДЛЯ СРАВНЕНИЯ (главная руководителя, 20.11.2026).
+ *
+ * «15 510 с. за ноябрь» без сравнения не говорит, хорошо это или плохо. Сравнивать
+ * неполный месяц с полным прошлым нечестно (20 дней против 31), поэтому основное
+ * сравнение — с прошлым месяцем на ту же точку: прошло 19 дней 14 часов ноября —
+ * берём октябрь с 1-го по 20-е 14:00. Если прошлый месяц короче (31 марта против
+ * февраля), точка упирается в его конец. Полный прошлый месяц — отдельным числом.
+ *
+ * Те же правила денег, что у computePlanForecast: закрытые сделки (COMPLETED) по
+ * closedAt, суммы в сомони через toTjs, границы месяцев по Душанбе.
+ */
+/** Потолок выборки сделок прошлого месяца (защита от аварии). */
+export const PREVIOUS_MONTH_DEALS_CAP = 5000;
+
+export async function computePreviousMonthCommission(now: Date = new Date()): Promise<PreviousMonthCommission> {
+  const thisStart = dushanbeStartOfMonth(now);
+  const prevStart = dushanbeStartOfMonth(new Date(thisStart.getTime() - 1));
+  const cut = new Date(Math.min(prevStart.getTime() + (now.getTime() - thisStart.getTime()), thisStart.getTime()));
+  const [money, deals] = await Promise.all([
+    loadMoneyContext(),
+    prisma.deal.findMany({
+      where: { stage: "COMPLETED", closedAt: { gte: prevStart, lt: thisStart } },
+      select: { commissionAmount: true, currency: true, closedAt: true },
+      // Сделок за месяц у агентства десятки; потолок — от аварии, а не рабочий режим.
+      // Порядок по дате закрытия — чтобы при упоре в потолок отрезались поздние сделки
+      // месяца, а сравнение «на ту же точку» оставалось полным.
+      orderBy: [{ closedAt: "asc" }, { id: "asc" }],
+      take: PREVIOUS_MONTH_DEALS_CAP,
+    }),
+  ]);
+  let toDate = 0;
+  let total = 0;
+  for (const d of deals) {
+    const tjs = toTjs(d.commissionAmount, d.currency, money);
+    total += tjs;
+    if (d.closedAt && d.closedAt < cut) toDate += tjs;
+  }
+  return { toDate: roundMoney(toDate), total: roundMoney(total) };
 }
 
 export interface WorkloadInsight {

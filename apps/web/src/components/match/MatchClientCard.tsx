@@ -193,7 +193,7 @@ export function MatchClientCard({
           title="Отдать клиента"
           description={`Клиент ${c.fullName} сразу уйдёт${
             responsibleAgentName ? ` агенту ${responsibleAgentName}` : " ответственному за объект"
-          } как новый лид — заберётся у текущего агента, таймер на принятие начнётся заново.`}
+          } как новая заявка — заберётся у текущего агента, таймер на принятие начнётся заново.`}
           confirmLabel="Отдать"
           onConfirm={confirmGive}
           onCancel={() => setGiveConfirmOpen(false)}

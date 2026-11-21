@@ -2,6 +2,9 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError, GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "../messengers/meta.js";
 import { logSystemError } from "./systemError.js";
+import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
+import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { autoLinkInstagramPages } from "./metaEternalTokens.js";
 
 /**
  * ПОДПИСКА АККАУНТОВ INSTAGRAM НА НАШИ УВЕДОМЛЕНИЯ — ПРОВЕРКА И ПОЧИНКА (02.10.2026).
@@ -122,7 +125,9 @@ export async function ensureInstagramSubscription(token: string): Promise<Subscr
  */
 export async function checkInstagramSubscriptions(): Promise<{ ok: number; restored: number; failed: number }> {
   const rows = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM", enabled: true },
+    // Аккаунт, к которому Meta закрыла доступ (lib/instagramAccountAccess.ts), не дёргаем:
+    // о нём уже сказано один раз, а каждые три часа «не удалось проверить» — шум.
+    where: { channel: "INSTAGRAM", enabled: true, accessLostAt: null },
     select: { id: true, title: true, token: true },
     take: 50,
   });
@@ -149,6 +154,8 @@ export async function checkInstagramSubscriptions(): Promise<{ ok: number; resto
       );
     } else {
       totals.failed++;
+      // «Meta закрыла доступ» — одна отметка через общую дверь, строка ниже не нужна (21.11.2026).
+      if ((await noteInstagramKeyRefused({ accountId: row.id, text: outcome.error, detail: outcome.error.slice(0, 200) })).locked) continue;
       await logSystemError(
         "meta",
         `Instagram «${row.title}»: не удалось проверить подписку на сообщения (${outcome.error}). ` +
@@ -180,6 +187,12 @@ export async function checkInstagramSubscriptions(): Promise<{ ok: number; resto
 
 /** Сколько дней тишины у аккаунта считаем подозрительными. */
 export const SILENCE_DAYS = 3;
+/**
+ * У живого аккаунта хватает суток (21.11.2026, Arvan: входящие встали 17.11, а журнал
+ * сказал об этом только 20.11). Живой — за последнюю неделю переписок не меньше этого.
+ */
+export const BUSY_WEEK_CONVERSATIONS = 10;
+export const BUSY_SILENCE_DAYS = 1;
 /** Меньше переписок за всё время — аккаунт слишком тихий, чтобы судить по паузе. */
 const SILENCE_MIN_HISTORY = 10;
 
@@ -191,15 +204,18 @@ const SILENCE_MIN_HISTORY = 10;
  * письма есть, — иначе тихие выходные выглядели бы поломкой.
  */
 export async function findSilentInstagramAccounts(now: Date = new Date()): Promise<Array<{ id: string; title: string; lastAt: Date | null }>> {
-  const since = new Date(now.getTime() - SILENCE_DAYS * 24 * 60 * 60 * 1000);
+  const DAY = 24 * 60 * 60 * 1000;
+  const weekAgo = new Date(now.getTime() - 7 * DAY);
   const accounts = await prisma.messengerAccount.findMany({
-    where: { channel: "INSTAGRAM", enabled: true },
+    where: { channel: "INSTAGRAM", enabled: true, accessLostAt: null },
     select: { id: true, title: true },
     take: 50,
   });
   if (accounts.length < 2) return [];
   const stats = await Promise.all(
     accounts.map(async (a) => {
+      const week = await prisma.botConversation.count({ where: { accountId: a.id, lastMessageAt: { gte: weekAgo } } });
+      const since = new Date(now.getTime() - (week >= BUSY_WEEK_CONVERSATIONS ? BUSY_SILENCE_DAYS : SILENCE_DAYS) * DAY);
       const [total, recent, last] = await Promise.all([
         prisma.botConversation.count({ where: { accountId: a.id } }),
         prisma.botConversation.count({ where: { accountId: a.id, lastMessageAt: { gte: since } } }),
@@ -221,6 +237,9 @@ export async function findSilentInstagramAccounts(now: Date = new Date()): Promi
 
 /** Тик крона: подписка + сторож тишины, итог — в журнал. */
 export async function runInstagramSubscriptionWatch(): Promise<{ ok: number; restored: number; failed: number; silent: number }> {
+  // Страницу для пути через постоянный ключ CRM ищет сама (21.11.2026); сбой поиска
+  // не мешает остальной проверке.
+  await autoLinkInstagramPages().catch((err) => console.warn("[ig-subscription] поиск Страниц не удался:", describeError(err)));
   const totals = await checkInstagramSubscriptions();
   const silent = await findSilentInstagramAccounts();
   for (const s of silent) {
@@ -231,6 +250,24 @@ export async function runInstagramSubscriptionWatch(): Promise<{ ok: number; res
         `Причина паузы неизвестна: сравните с входящими в Instagram и проверьте доставку событий в Настройках → Каналы.`,
       { dedupKey: `ig-account-silent:${s.id}` }
     );
+    /**
+     * Руководству — один раз на эпизод тишины (21.11.2026): Arvan молчал с 17.11, а знал
+     * об этом только журнал. Метка с датой последнего диалога: новая тишина — новая тревога,
+     * та же — не повторяется. Переключатель «Подписка на Webhooks» в кабинете Meta через API
+     * не виден (ФАКТ 17–20.11: /me/subscribed_apps отвечал «подписан»), поэтому шаг — про кабинет.
+     */
+    await raiseCriticalAlarm({
+      tag: `ig-account-silent:${s.id}:${last}`,
+      title: "Instagram: в аккаунт не приходят сообщения",
+      // Тело тревоги режется на 220 знаках (channelKeyAlarm.ts) — главное действие в начале.
+      body:
+        `«${s.title}»: сообщений нет с ${last}. Если клиенты пишут, а в CRM пусто — включите «Подписка на Webhooks» ` +
+        "у аккаунта: кабинет Meta → Royal Home Reels → Instagram → настройка API, шаг 1.",
+      url: "/settings?tab=channels",
+      quiet: true,
+      recipientRoles: MANAGEMENT_ALARM_ROLES,
+      everyMs: 30 * 24 * 60 * 60_000,
+    });
   }
   return { ...totals, silent: silent.length };
 }

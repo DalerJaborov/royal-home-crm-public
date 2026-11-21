@@ -7,10 +7,10 @@ import {
   reelsCaptionValuesFromProperty,
   withPostFooter,
   buildPriceDisplay,
-  priceInTjsOnly,
   buildReelsHashtags,
 } from "../src/lib/reelsCaptionTemplate.js";
 import { formatPrice } from "../src/ai/seoGenerator.js";
+import { propertyPriceTjs } from "@royal-home/shared";
 
 /**
  * Подпись под Reels по шаблону (решение владельца 04.08.2026: шаблоны вместо
@@ -364,7 +364,7 @@ describe("Подвал под постом", () => {
  * идёт только в сомони, а в автопостинге и в сомони, и в $»).
  */
 describe("Новые факты и цена", () => {
-  const money = { usdToTjs: 10 } as Parameters<typeof priceInTjsOnly>[2];
+  const money = { usdToTjs: 10 };
 
   it("рынок, участок и удобства доезжают до значений подписи", () => {
     const v = reelsCaptionValuesFromProperty({
@@ -410,14 +410,13 @@ describe("Новые факты и цена", () => {
     );
   });
 
-  it("монтажёру — только сомони, без скобок: эту цену он набирает в кадр", () => {
-    const forMontajer = priceInTjsOnly(1000, "USD", money);
-    expect(forMontajer).not.toContain("(");
-    expect(forMontajer).toBe(formatPrice(10000, "TJS"));
-  });
-
-  it("курса нет — цену не выдаём за сомони, показываем как есть", () => {
-    expect(priceInTjsOnly(1000, "USD", undefined)).toBe(formatPrice(1000, "USD"));
+  it("ревью #348: сомони в подписи — то же число, что голос и обложка (до тысячи), без курса — только доллары", () => {
+    // 85 000 $ по курсу 10,92: голос и обложка говорят «928 000», подпись прежде писала 928 200.
+    expect(buildPriceDisplay(85000, "USD", { usdToTjs: 10.92 })).toBe(`${formatPrice(propertyPriceTjs(85000, "USD", 10.92)!, "TJS")} (${formatPrice(85000, "USD")})`);
+    expect(propertyPriceTjs(85000, "USD", 10.92)).toBe(928_000);
+    // Курса в Настройках нет — запасной курс 11 в подпись не идёт: только доллары.
+    expect(buildPriceDisplay(85000, "USD", { usdToTjs: 11, fallback: true })).toBe(formatPrice(85000, "USD"));
+    expect(buildPriceDisplay(850000, "TJS", { usdToTjs: 11, fallback: true })).toBe(formatPrice(850000, "TJS"));
   });
 });
 

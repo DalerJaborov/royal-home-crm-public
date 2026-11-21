@@ -315,7 +315,7 @@ export type RoyalScoreCategoryKey = "sales" | "speed" | "crm" | "properties" | "
 
 export const ROYAL_SCORE_CATEGORIES: { key: RoyalScoreCategoryKey; label: string; weightPercent: number }[] = [
   { key: "sales", label: "Продажи", weightPercent: 40 },
-  { key: "speed", label: "Скорость обработки лидов", weightPercent: 20 },
+  { key: "speed", label: "Скорость обработки заявок", weightPercent: 20 },
   { key: "crm", label: "Работа с CRM", weightPercent: 15 },
   { key: "properties", label: "Работа с объектами", weightPercent: 10 },
   { key: "tasks", label: "Выполнение задач", weightPercent: 10 },
@@ -352,7 +352,7 @@ export const CATEGORY_OF: Partial<Record<ActiveScoreEventKind, RoyalScoreCategor
  * фронте показывается ровно это, а не отдельно придуманная копия.
  */
 export const EVENT_LABELS: Partial<Record<ActiveScoreEventKind, string>> = {
-  lead_accepted: "Принял лид",
+  lead_accepted: "Принял заявку",
   call_on_time: "Позвонил вовремя",
   card_filled: "Карточка клиента полностью заполнена",
   showing_done: "Показ проведён, итог заполнен",

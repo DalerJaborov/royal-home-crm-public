@@ -89,11 +89,12 @@ beforeAll(async () => {
   agentB = await createTestAgent(`Другой базы ${runId}`);
   director = await createTestAgent(`Директор базы ${runId}`, "DIRECTOR");
 
-  // В работе: покупатель с живым контактом (клиент написал только что) — не «без контакта».
-  await makeClient({ assignedAgentId: agentA, lastClientMessageAt: new Date() });
-  // В работе: продавец без единого контакта — «без контакта» сразу (общее правило).
+  // В работе: покупатель, с которым агент связывался (общая отметка «агент пытался»,
+  // lib/noContact.ts) — не «не связывались». Сообщение самого клиента по правилу 21.11 не в счёт.
+  await makeClient({ assignedAgentId: agentA, lastClientMessageAt: new Date(), lastAgentAttemptAt: new Date() });
+  // В работе: продавец без единого контакта — «не связывались» сразу (общее правило).
   await makeClient({ assignedAgentId: agentA, kind: "SELLER" });
-  // В работе: ещё не принят агентом (и без контакта).
+  // В работе: ещё не принят агентом (и не связывались).
   await makeClient({ assignedAgentId: agentA, acceptedAt: null, assignedAt: new Date() });
   // Не в работе: закрытая сделка, Архив, работа завершена — ждёт руководителя.
   await makeClient({ assignedAgentId: agentA, status: "DEAL_CLOSED", lastClientMessageAt: new Date() });
@@ -114,8 +115,8 @@ beforeAll(async () => {
   });
   auditIds.push(refuse.id);
 
-  // У агента B — один свой клиент в работе.
-  await makeClient({ assignedAgentId: agentB, lastClientMessageAt: new Date() });
+  // У агента B — один свой клиент в работе, с ним агент связывался.
+  await makeClient({ assignedAgentId: agentB, lastClientMessageAt: new Date(), lastAgentAttemptAt: new Date() });
 });
 
 afterAll(async () => {
@@ -146,7 +147,7 @@ describe("get_client_base_overview — числа по своим карточк
     expect(out.meaning.noStatuses).toMatch(/нет с 16\.11\.2026/);
     expect(out.period).toMatch(/по Душанбе/);
     expect(out.display).toMatch(/В работе: 3/);
-    expect(out.display).toMatch(/без контакта больше суток: 2/);
+    expect(out.display).toMatch(/не связывались ни разу: 2/);
     expect(out.display).toMatch(/Не в работе: 3/);
     // Имена клиентов и телефоны в ответ не попадают вовсе.
     expect(JSON.stringify(out)).not.toMatch(new RegExp(`База клиент ${runId}|\\+99277${runId}`));
@@ -162,7 +163,7 @@ describe("get_client_base_overview — числа по своим карточк
     const o = (await call(actorA())).overview;
     expect(o.inWork.buyers).toBe(summary.body.buyers);
     expect(o.inWork.sellers).toBe(summary.body.sellers);
-    expect(o.inWork.noContact).toBe(summary.body.noContactOverDay);
+    expect(o.inWork.noContact).toBe(summary.body.neverContacted);
     expect(o.inWork.awaitingAcceptance).toBe(summary.body.awaitingAgent.count);
   });
 

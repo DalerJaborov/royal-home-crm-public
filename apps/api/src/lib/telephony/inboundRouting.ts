@@ -170,7 +170,7 @@ export const ROUTE_SKIP_TEXT: Record<RouteSkipReason, string> = {
   ambiguous_phone: "по номеру нашлось несколько карточек",
   client_deleted: "карточка в Корзине",
   no_agent: "у карточки нет ответственного",
-  lead_not_accepted: "ответственный ещё не принял лид",
+  lead_not_accepted: "ответственный ещё не принял заявку",
   client_closed: "сделка по клиенту закрыта или клиент потерян",
   agent_inactive: "ответственный отключён",
   agent_frozen: "ответственный временно заморожен (отсутствует)",

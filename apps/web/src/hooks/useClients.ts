@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "../store/toast";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, RobotCallStopState, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
@@ -64,7 +65,7 @@ export interface ClientFilters {
    *  же правилом, и клиентский отбор страницы расходился бы с ним на длинных
    *  списках. */
   noFirstContactYesterday?: boolean;
-  /** «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts). */
+  /** «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts). */
   noContact?: boolean;
   /** Экран «Архив»: только карточки Архива. */
   archived?: boolean;
@@ -109,7 +110,9 @@ export interface ClientsSummary {
     count: number;
     oldest: { id: string; shortId: number; fullName: string; kind: string; waitingMinutes: number } | null;
   };
-  noContactOverDay: number;
+  /** «Не связывались» — клиенты в работе, с кем ни разу не связывался сотрудник
+   *  (packages/shared/src/clientNoContact.ts). */
+  neverContacted: number;
   showings: { today: number; tomorrow: number };
   trashedMine: number | null;
 }
@@ -845,7 +848,10 @@ export function useSecurityReview(clientId: string) {
         method: "POST",
         body,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Итог вердикта (18.11.2026): осталась ли карточка в работе и почему — панель
+      // проверки после ответа исчезает, иначе проверяющий этого не узнал бы.
+      if (data?.message) toast.success(data.message);
       qc.invalidateQueries({ queryKey: ["client"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
     },

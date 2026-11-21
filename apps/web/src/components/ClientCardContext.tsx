@@ -1,12 +1,6 @@
-import { clientIntents } from "@royal-home/shared";
+import { clientIntents, positiveBudget } from "@royal-home/shared";
 import { formatMoney, PROPERTY_TYPE_LABELS, relativeTime } from "../lib/format";
 import type { Client } from "../types";
-
-export function clientPropertyCountVisible(client: Client, role: "BUYER" | "SELLER") {
-  const intents = clientIntents(client);
-  return role === "SELLER" ? intents.sells && client.sellerDeclaredPropertyCount != null
-    : intents.buys && client.buyerDesiredPropertyCount != null;
-}
 
 export function ClientCardFacts({ client }: { client: Client }) {
   if (!clientIntents(client).buys) return null;
@@ -15,7 +9,7 @@ export function ClientCardFacts({ client }: { client: Client }) {
   }
   const facts = [client.desiredType ? PROPERTY_TYPE_LABELS[client.desiredType] : null,
     client.desiredRooms ? `${client.desiredRooms} комн.` : null, client.desiredDistrict?.name,
-    client.budgetMin && client.budgetMax ? `${formatMoney(client.budgetMin, client.currency)} — ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMax ? `до ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMin ? `от ${formatMoney(client.budgetMin, client.currency)}` : null].filter(Boolean);
+    positiveBudget(client.budgetMin) && positiveBudget(client.budgetMax) ? `${formatMoney(client.budgetMin!, client.currency)} — ${formatMoney(client.budgetMax!, client.currency)}` : positiveBudget(client.budgetMax) ? `до ${formatMoney(client.budgetMax!, client.currency)}` : positiveBudget(client.budgetMin) ? `от ${formatMoney(client.budgetMin!, client.currency)}` : null].filter(Boolean);
   return facts.length ? <p className="client-card-facts"><b>Ищет:</b> {facts.join(" · ")}</p> : <p className="sub">Параметры покупки ещё не заполнены.</p>;
 }
 

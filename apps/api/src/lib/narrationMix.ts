@@ -1,5 +1,11 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { NARRATION_LOUDNESS } from "./narrationLoudness.js";
+import { NARRATION_FIT as SHARED_FIT, NARRATION_VOICE_START_SEC as SHARED_START, NARRATION_VOICE_TAIL_TOLERANCE_SEC } from "@royal-home/shared";
 import { probeDurationSec, probeMediaInfo, runFfmpeg } from "./ffmpeg.js";
+import { buildOverlayFilter, drawtextAvailable, subtitleCues } from "./video/narrationOverlay.js";
+import { logSystemError } from "./systemError.js";
 
 /**
  * НАЛОЖЕНИЕ ОЗВУЧКИ НА РОЛИК БЕЗ ГОЛОСА (11.11.2026, решение владельца: «где просто меняется
@@ -16,15 +22,15 @@ import { probeDurationSec, probeMediaInfo, runFfmpeg } from "./ffmpeg.js";
  * Ничего не бросает: отказ ffmpeg возвращается текстом, вызывающий пишет logSystemError.
  */
 
-/** Голос начинается через 0,3 с: первое слово не съедается на склейке. */
-export const NARRATION_VOICE_START_SEC = 0.3;
+/** Голос начинается через 0,3 с: первое слово не съедается на склейке (одно правило с оценкой длины, packages/shared/narrationLength.ts). */
+export const NARRATION_VOICE_START_SEC = SHARED_START;
 /** Метка отказа «озвучка длиннее ролика» в тексте ошибки: по ней карточка объекта говорит агенту понятными словами. */
 export const NARRATION_VOICE_LONGER_MARK = "длиннее ролика";
 /** Допуск на хвост: тишина в конце mp3 ElevenLabs. */
-const VOICE_TAIL_TOLERANCE_SEC = 0.5;
+const VOICE_TAIL_TOLERANCE_SEC = NARRATION_VOICE_TAIL_TOLERANCE_SEC;
 
 export type NarrationMixResult =
-  | { ok: true; durationSec: number; fit: NarrationFit }
+  | { ok: true; durationSec: number; voiceSec: number; fit: NarrationFit }
   | { ok: false; code: "NO_VIDEO" | "VOICE_LONGER" | "FFMPEG"; error: string; voiceSec?: number; masterSec?: number };
 
 /**
@@ -35,7 +41,7 @@ export type NarrationMixResult =
  *  TOO_LONG — дальше только другой текст (короче) или монтажёр (lib/narrationAutoFlow.ts).
  * Ролик длиннее голоса — норма: музыка играет дальше.
  */
-export const NARRATION_FIT = { maxTempo: 1.15, maxFreezeSec: 3 } as const;
+export const NARRATION_FIT = SHARED_FIT;
 export type NarrationFit = { tier: "PLAIN" | "SPEED" | "FREEZE" | "TOO_LONG"; tempo: number; freezeSec: number };
 
 export function planNarrationFit(voiceSec: number, masterSec: number, opts: { allowFreeze: boolean } = { allowFreeze: true }): NarrationFit {
@@ -70,7 +76,8 @@ export function narrationFitNote(fit: NarrationFit): string | null {
  *  - ограничитель на выходе: сумма громкой музыки и голоса не уходит в перегруз.
  */
 export const NARRATION_MIX = {
-  voiceLoudness: "loudnorm=I=-16:TP=-1.5:LRA=11",
+  // 21.11.2026: −16 → −14 LUFS (ролик был на ~3 дБ тише ленты); источник — lib/narrationLoudness.ts.
+  voiceLoudness: NARRATION_LOUDNESS.voice,
   musicVolume: 0.8,
   ducking: "sidechaincompress=threshold=0.015:ratio=20:attack=10:release=800",
   limiter: "alimiter=limit=0.95:level=0",
@@ -93,7 +100,9 @@ export function narrationAudioGraph(masterHasAudio: boolean, fit: Pick<Narration
 
 /** fit — подгонка длины (перемикс вышедшего ролика); без него, как на приёме от монтажёра, голос
  *  длиннее ролика — отказ VOICE_LONGER (монтажёр пришлёт ролик длиннее). */
-export async function mixNarrationOntoMaster(input: { masterPath: string; voicePath: string; outPath: string; fit?: { allowFreeze: boolean } }): Promise<NarrationMixResult> {
+/** textOverlay (18.11.2026) — плашка с ценой и субтитры по тексту озвучки (lib/video/narrationOverlay.ts); картинка тогда перекодируется. */
+export async function mixNarrationOntoMaster(input: { masterPath: string; voicePath: string; outPath: string; fit?: { allowFreeze: boolean };
+  textOverlay?: { price: string | null; script: string } }): Promise<NarrationMixResult> {
   const master = await probeMediaInfo(input.masterPath);
   if (!master?.hasVideo) return { ok: false, code: "NO_VIDEO", error: "Ролик без голоса не читается как видео." };
   const voiceSec = await probeDurationSec(input.voicePath);
@@ -105,29 +114,61 @@ export async function mixNarrationOntoMaster(input: { masterPath: string; voiceP
       error: `Озвучка (${voiceSec.toFixed(1)} с) ${NARRATION_VOICE_LONGER_MARK} (${master.durationSec.toFixed(1)} с) — нужен ролик не короче озвучки.`,
     };
   }
-  const base = ["-y", "-hide_banner", "-loglevel", "error", "-i", input.masterPath, "-i", input.voicePath,
-    "-filter_complex", narrationAudioGraph(master.hasAudio, fit), "-map", fit.freezeSec > 0 ? "[vout]" : "0:v:0", "-map", "[aout]"];
-  if (fit.freezeSec > 0) base[base.indexOf("-filter_complex") + 1] += `;[0:v:0]tpad=stop_mode=clone:stop_duration=${fit.freezeSec.toFixed(2)}[vout]`;
-  const tail = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-shortest", input.outPath];
-  const encode = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
-  try {
-    // Стоп-кадр — новая картинка, копировать нечего: сразу перекодирование.
-    await runFfmpeg({ args: [...base, ...(fit.freezeSec > 0 ? encode : ["-c:v", "copy"]), ...tail], timeoutMs: fit.freezeSec > 0 ? 420_000 : 120_000, label: "наложение озвучки" });
-  } catch (firstErr) {
-    // Картинка не копируется в mp4 (кодек или контейнер) — один повтор с перекодированием.
-    await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
-    if (fit.freezeSec > 0) return { ok: false, code: "FFMPEG", error: `ffmpeg не смог наложить озвучку: ${firstErr instanceof Error ? firstErr.message.slice(0, 300) : String(firstErr)}` };
-    try {
-      await runFfmpeg({ args: [...base, ...encode, ...tail], timeoutMs: 420_000, label: "наложение озвучки" });
-    } catch (err) {
-      await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
-      return { ok: false, code: "FFMPEG", error: `ffmpeg не смог наложить озвучку: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}` };
+  // Текст на ролике (18.11.2026): нужен размер кадра и drawtext в ffmpeg; нет — ролик без текста и строка в журнал.
+  let overlayDir: string | null = null;
+  let overlay = "";
+  if (input.textOverlay && master.width && master.height) {
+    if (await drawtextAvailable()) {
+      overlayDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "rh-overlay-"));
+      const cues = subtitleCues({ script: input.textOverlay.script, voiceSec, startSec: NARRATION_VOICE_START_SEC, tempo: fit.tempo });
+      overlay = buildOverlayFilter({ width: master.width, height: master.height, price: input.textOverlay.price, cues, workDir: overlayDir });
+    } else {
+      void logSystemError("video-handoff", "Цена и субтитры на ролике не нарисованы: в ffmpeg на сервере нет фильтра drawtext.", { dedupKey: "narration-overlay-no-drawtext" });
     }
   }
+  const freeze = fit.freezeSec > 0 ? `tpad=stop_mode=clone:stop_duration=${fit.freezeSec.toFixed(2)}` : "";
+  const tail = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "-shortest", input.outPath];
+  const encode = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
+  const why = (err: unknown) => `ffmpeg не смог наложить озвучку: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`;
+  /** Одно сведение; null — получилось, иначе текст отказа. */
+  const runMix = async (textFilter: string): Promise<string | null> => {
+    const video = [freeze, textFilter].filter(Boolean).join(",");
+    const base = ["-y", "-hide_banner", "-loglevel", "error", "-i", input.masterPath, "-i", input.voicePath,
+      "-filter_complex", narrationAudioGraph(master.hasAudio, fit) + (video ? `;[0:v:0]${video}[vout]` : ""), "-map", video ? "[vout]" : "0:v:0", "-map", "[aout]"];
+    try {
+      // Стоп-кадр или текст — новая картинка, копировать нечего: сразу перекодирование.
+      await runFfmpeg({ args: [...base, ...(video ? encode : ["-c:v", "copy"]), ...tail], timeoutMs: video ? 420_000 : 120_000, label: "наложение озвучки" });
+      return null;
+    } catch (firstErr) {
+      // Картинка не копируется в mp4 (кодек или контейнер) — один повтор с перекодированием.
+      await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
+      if (video) return why(firstErr);
+      try {
+        await runFfmpeg({ args: [...base, ...encode, ...tail], timeoutMs: 420_000, label: "наложение озвучки" });
+        return null;
+      } catch (err) {
+        await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
+        return why(err);
+      }
+    }
+  };
+  let error: string | null;
+  try {
+    error = await runMix(overlay);
+    // Текст не нарисовался (шрифт, фильтр, редкий символ) — ролик важнее текста (ревью 18.11): ещё раз без
+    // текста и строка руководству; объект не застревает со старой ценой из-за плашки.
+    if (error && overlay) {
+      void logSystemError("video-handoff", `Цена и субтитры на ролике не нарисованы, ролик собран без текста: ${error}`, { dedupKey: "narration-overlay-failed" });
+      error = await runMix("");
+    }
+  } finally {
+    if (overlayDir) await fs.promises.rm(overlayDir, { recursive: true, force: true }).catch(() => {});
+  }
+  if (error) return { ok: false, code: "FFMPEG", error };
   const out = await probeMediaInfo(input.outPath);
   if (!out?.hasVideo || !out.hasAudio) {
     await fs.promises.rm(input.outPath, { force: true }).catch(() => {});
     return { ok: false, code: "FFMPEG", error: "После наложения озвучки в ролике нет картинки или звука." };
   }
-  return { ok: true, durationSec: out.durationSec, fit };
+  return { ok: true, durationSec: out.durationSec, voiceSec, fit };
 }

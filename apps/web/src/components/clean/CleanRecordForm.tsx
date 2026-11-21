@@ -14,12 +14,10 @@ export function focusCleanRecordError(id: string) {
   document.getElementById(id)?.querySelector<HTMLInputElement>(".fld.bad input:not(:disabled), .fld.bad select, .fld.bad textarea")?.focus();
 }
 
-export function CleanInteractionContext({ name, isLoading, isError, onRetry, scheduling }: {
-  name?: string; isLoading: boolean; isError: boolean; onRetry: () => void; scheduling: boolean;
-}) {
+export function CleanInteractionContext({ name, scheduling }: { name: string; scheduling: boolean }) {
   return <section className="clean-interaction-context" aria-label="Выбранный клиент">
     <span className="lab">{scheduling ? "Показ для клиента" : "Взаимодействие с клиентом"}</span>
-    {name ? <p className="clean-interaction-client">{name}</p> : isLoading ? <p role="status">Загружаем клиента…</p> : isError ? <div role="alert"><p>Не удалось загрузить карточку выбранного клиента.</p><button className="pill ghost" type="button" onClick={onRetry}>Повторить</button></div> : null}
+    <p className="clean-interaction-client">{name}</p>
   </section>;
 }
 

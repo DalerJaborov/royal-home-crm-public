@@ -425,7 +425,7 @@ export async function importClientIntoDraft(
   // До принятия лида карточка агенту закрыта — тот же гейт, что у card-fill и
   // /ai/property-draft.
   if (scopeToOwnAgent(req) && !client.acceptedAt) {
-    return result(403, { error: "Сначала примите лид — до принятия карточка закрыта" });
+    return result(403, { error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   const draft = await ensureDraft(agentId, body.draftId ?? draftHeaderId);

@@ -50,7 +50,7 @@ import { generateReelsCaptionWithAi } from "../../ai/reelsCaptionAi.js";
 import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { localVideoDelete } from "../../lib/localVideoStorage.js";
 import { removePurgedNarrationAudio } from "../../lib/propertyNarrationCleanup.js";
-import { startNarrationForNewProperty } from "../../lib/narrationAutoFlow.js";
+import { startNarrationForNewProperty, wizardNarrationTextRejection } from "../../lib/narrationAutoFlow.js";
 import { propertyOwnedFilePaths } from "../../lib/diskCleanup.js";
 import {
   skipVideoHandoffOnManualPublish,
@@ -83,6 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -407,7 +408,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
    * ВЫБРАНА КАРТОЧКА ПРОДАВЦА — «КОНТАКТ ВЛАДЕЛЬЦА» БЕРЁМ ИЗ НЕЁ, С СЕРВЕРА.
    *
    * Форма раньше копировала номер из выбранной карточки на клиенте — но агент без
-   * права clients.viewPhone получает номер ЗАМАСКИРОВАННЫМ («+992•••••57»), и ровно
+   * права clients.viewPhone получает номер ЗАМАСКИРОВАННЫМ («+9929300••456»), и ровно
    * эти точки уезжали в ownerContact навсегда. Маска — для глаз агента; сама связь
    * «объект → карточка продавца» номер не раскрывает, поэтому честный телефон в
    * ownerContact кладёт сервер, у которого он есть. Пустой или замаскированный
@@ -869,7 +870,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
 
   // Озвучка ролика: сразу ставится в очередь, агенту придёт на одобрение (lib/narrationAutoFlow.ts).
   // Под рубильником autoGenerate; ошибка не роняет создание объекта.
-  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration);
+  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration, req.source === "telegram" ? "TELEGRAM" : "CRM");
+  // Текст агента не принят (доллары и т.п., ревью 21.11): мастеру — честно и сразу, в ответе сохранения.
+  const narrationTextRejected = wizardNarrationTextRejection(parsedDraftRef.data.narration);
+  const narrationNote = narrationTextRejected ? { narrationTextRejected } : {};
 
   // Автопубликации у объекта в конвейере нет: пока не сняли видео, публиковать
   // нечего, и попытка кончилась бы отказом сайта на каждом созданном объекте.
@@ -879,7 +883,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
   // это не значит «готов к публикации», это значит «публикации не будет вовсе».
   if (isPipelineStatus(property.status) || property.offSite) {
     publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
   }
 
   // Автопубликация сразу при создании — по решению директора. Best-effort и молча:
@@ -896,8 +900,9 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
+  void autoLinkPropertyById(property.id);
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
 }
 
 crudRouter.post("/", requireAuth, async (req, res) => {
@@ -1043,7 +1048,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // Скрытый номер владельца форма получает пустым и шлёт обратно `null` — правка
   // этажа стирала номер собственника у того, кому он не показан (аудит 23.09.2026,
   // №31). Кому номер скрыт, тот его и не меняет: поле отбрасывается целиком.
-  if (data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners")).ownerContactHidden) {
+  if (data.ownerContact !== undefined && stripOwnerContact(existing, can(req, "properties.viewOwners")).ownerContactHidden) {
     delete data.ownerContact;
   }
 
@@ -1477,6 +1482,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     resyncReason: "правка карточки (PATCH)",
     awaitPriceSync: false,
     priceCaptionStage: priceDelivery?.caption,
+    actorId: req.agent!.id,
   });
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
@@ -1496,6 +1502,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.json(presentProperty(published, req));
   }
 
+  void autoLinkPropertyById(updated.id);
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
   res.json(presentProperty(updated, req));
 });

@@ -5,6 +5,9 @@ import request from "supertest";
 const s = vi.hoisted(() => ({ role: "MARKETING", access: true, property: vi.fn(), settings: vi.fn(), latest: vi.fn(), findVersion: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), audio: vi.fn(), file: vi.fn(), upload: vi.fn(), delivery: vi.fn(), deliveryFind: vi.fn(), deliveryUpdate: vi.fn(), preview: vi.fn(), metadataList: vi.fn(), report: vi.fn(), assigned: vi.fn(), configSave: vi.fn(), versions: vi.fn() }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/auth/middleware.js")>(), requireAuth: (req: any, _res: any, next: () => void) => { req.agent = { id: "staff", role: s.role }; next(); } }));
 vi.mock("../src/routes/properties/shared.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/properties/shared.js")>(), canManageProperty: () => s.access }));
+// Права на утверждение — одна дверь с Шабнам (lib/staffNarration.ts, 18.11.2026): здесь по роли и s.access.
+vi.mock("../src/lib/staffNarration.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/staffNarration.js")>(),
+  narrationAccessForAgent: async () => (!s.access || ["EDITOR", "VIEWER", "OBSERVER"].includes(s.role) ? null : { agentId: "staff", isManager: ["MARKETING", "ADMIN", "DIRECTOR"].includes(s.role), role: s.role }) }));
 vi.mock("../src/routes/marketing.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/marketing.js")>(), hasMarketingRole: (agent?: { role?: string } | null) => ["MARKETING", "ADMIN", "DIRECTOR"].includes(agent?.role ?? "") }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/localVideoStorage.js")>(), localVideoUpload: s.upload, localVideoFilePath: s.file, localVideoDelete: vi.fn().mockResolvedValue(true) }));
@@ -15,7 +18,8 @@ vi.mock("../src/lib/publicationMetadataSync.js", async (importOriginal) => ({ ..
 vi.mock("../src/db.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/db.js")>();
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
-    property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+    property: { findUnique: s.property, findUniqueOrThrow: s.property, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    videoRemakeRequest: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
     freeNarration: { findMany: vi.fn().mockResolvedValue([]) },
     // Последний выбор голоса сотрудника (12.11.2026): у этой подделки его нет.
@@ -25,6 +29,9 @@ vi.mock("../src/db.js", async (importOriginal) => {
   };
   return { ...actual, prisma: { ...prisma, $transaction: (fn: (tx: typeof prisma) => unknown) => fn(prisma) } };
 });
+// Повтор наложения (20.11.2026): проверяются права пути, сама дверь подменена.
+const retry = vi.hoisted(() => vi.fn(async () => "QUEUED" as const));
+vi.mock("../src/lib/narrationAutoFlow.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/narrationAutoFlow.js")>(), retryNarrationRemix: retry }));
 import { narrationRouter } from "../src/routes/properties/narration.js";
 import { narrationFacts, narrationHash } from "../src/lib/propertyNarration.js";
 const app = express(); app.use(express.json()); app.use("/properties", narrationRouter);
@@ -210,8 +217,9 @@ describe("property narration route boundaries", () => {
     const response = await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true });
     expect(response.status).toBe(200);
     expect(s.updateMany).toHaveBeenCalledWith({ where: { id: versionId, status: "READY", approvedAt: null }, data: { approvedAt: expect.any(Date), approvedById: "staff" } });
+    // Аудио по тексту маркетинга на ВЫШЕДШЕМ ролике (здесь он вышел в Instagram) ждёт агента после прослушивания (ревью 18.11).
     s.latest.mockResolvedValue({ ...row(), status: "READY", approvedAt: null, source: "MANUAL", storageKey: "k" });
-    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
+    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(200);
     s.role = "EDITOR"; s.assigned.mockResolvedValue({ id: "assigned" });
     expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
   });
@@ -232,6 +240,16 @@ describe("property narration route boundaries", () => {
     // Цену говорим (владелец 11.11.2026): {цена} — допустимое слово шаблона.
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{вид} барои фурӯш. Нархаш {цена}." }] })).status).toBe(200);
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{стоимость} барои фурӯш." }] })).status).toBe(400);
+  });
+  it("settings PUT (21.11.2026): новый шаблон с {этажей} не принимается, этаж — можно; старый шаблон с {этажей} не мешает сохранить остальное", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "{вид} барои фурӯш. [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.]" };
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old] }, elevenLabsApiKey: "test" });
+    const bad = await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}и бинои {этажей} ошёна.]" }] });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/Этажность дома в озвучке не называем/u);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}.]" }] })).status).toBe(200);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [old], dailyCharLimit: 4000 })).status).toBe(200);
   });
   it("settings PUT guards templates and endings (16.11.2026): digits in Tajik text, Direct in Latin, the word брон; types and endings are saved", async () => {
     s.role = "ADMIN"; s.configSave.mockResolvedValue({});
@@ -280,12 +298,22 @@ describe("property narration route boundaries", () => {
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });
     const response = await request(app).get("/properties/narration-options");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [] });
+    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [], usdToTjs: null });
   });
   it("an agent edit with generate is refused while auto narration is off", async () => {
     s.role = "AGENT";
     const response = await request(app).post(base).send({ expectedRevision: 1, requestKey: "33333333-3333-4333-8333-333333333333", script: "Квартира барои фурӯш, се ҳуҷра.", generate: true });
     expect(response.status).toBe(409);
     expect(s.create).not.toHaveBeenCalled();
+  });
+  it("remix-retry: чужой агент (нет доступа к объекту) и монтажёр получают 403 и повтор не зовётся; ведущий объект — повтор", async () => {
+    s.role = "AGENT"; s.access = false;
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    s.role = "EDITOR"; s.access = true; s.assigned.mockResolvedValue({ id: "assigned" });
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    expect(retry).not.toHaveBeenCalled();
+    s.role = "AGENT"; s.assigned.mockResolvedValue(null);
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(200);
+    expect(retry).toHaveBeenCalledWith(propertyId, "staff");
   });
 });

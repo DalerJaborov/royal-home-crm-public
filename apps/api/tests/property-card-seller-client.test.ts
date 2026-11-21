@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 
 /**
  * СОБСТВЕННИК В КАРТОЧКЕ ОБЪЕКТА — ИМЕНЕМ И ССЫЛКОЙ (владелец 24.09.2026).
@@ -145,10 +146,14 @@ describe("Собственник в карточке объекта", () => {
     });
   });
 
-  it("агент, принявший объект, видит имя, но продавец закреплён за другим — ссылки нет", async () => {
+  it("агент, принявший объект, видит имя и маску номера, но продавец закреплён за другим — ссылки нет", async () => {
     const res = await view(intakeToken);
     expect(res.status).toBe(200);
-    expect(res.body.ownerContactHidden).toBe(false);
+    // Свой объект номер не открывает (владелец 18.11.2026): полный номер — только директору.
+    expect(res.body.ownerContactHidden).toBe(true);
+    expect(res.body.ownerContact).toBeNull();
+    expect(res.body.ownerContactMasked).toBe(maskClientPhone(`+99298${tail5}71`));
+    expect(JSON.stringify(res.body)).not.toContain(`98${tail5}71`);
     expect(res.body.sellerClient?.fullName).toBe(`Продавец Ссылкин ${runId}`);
     expect(res.body.sellerClient?.canOpen).toBe(false);
     // Правило то же, что у самой карточки клиента: она ему правда не откроется.

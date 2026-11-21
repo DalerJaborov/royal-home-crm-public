@@ -141,7 +141,7 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
       continue;
     }
     if (ownAgentId && !c.acceptedAt) {
-      outcomes.push({ clientId, status: "skipped", reason: "сначала примите лид" });
+      outcomes.push({ clientId, status: "skipped", reason: "сначала примите заявку" });
       continue;
     }
     if (!toSmsPhone(c.phone)) {

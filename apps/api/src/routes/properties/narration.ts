@@ -1,35 +1,51 @@
 import { Router } from "express";
 import { z } from "zod";
-import { narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { ownMusicRemixSinceAfterSave, narrationListenRequestSchema, type NarrationListenResult, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTotalFloorsError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { narrationFactsChanges, narrationLengthLine, type NarrationFacts } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { clipCountsAsPublished } from "../../lib/publishedClip.js";
+import { narrationAccessForAgent } from "../../lib/staffNarration.js";
+import { measuredNarrationCharsPerSec, narrationAudioSec, narrationClipSec, narrationLengthCheckFor } from "../../lib/narrationLengthCalibration.js";
+import { narrationReleaseView } from "../../lib/narrationRelease.js";
+import { estimateNarrationPublishAt } from "../../lib/videoHandoff.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
-import { narrationFacts, narrationFactsCurrent, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, suggestedNarration, narrationScriptError, withNarrationRate } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT, NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
-import { narrationMixNoteFor } from "../../lib/narrationAutoMaster.js";
-import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAutoEnabled, requestAutoNarration } from "../../lib/narrationAutoFlow.js";
+import { adoptListenedNarration, NARRATION_LISTEN_HOLD_MS, afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, narrationRemixRetryable, ownMusicRemixApplies, requestAutoNarration, retryNarrationRemix } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
-import { syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
+import { pronunciationDictionaryStale, syncPronunciationDictionary } from "../../lib/narrationPronunciation.js";
 import { narrationLastChoiceFor } from "../../lib/narrationLastChoice.js";
 import { sendToMontajer } from "../../lib/montageObservers.js";
 import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/ownerReport/delivery.js";
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
+import { usableMontajerWhere } from "../../lib/montajerHandover.js";
 import { mediaExecutionMode } from "../../lib/mediaExecution.js";
 import { preparePublicationMetadataPreview } from "../../lib/publicationMetadataSync.js";
 import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
 import { createFreeNarrationRequest, freeNarrationFilePath, freeNarrationUsedToday, runFreeNarration } from "../../lib/freeNarration.js";
+import { listenNarration, narrationListenFilePath } from "../../lib/narrationListen.js";
 
 export const narrationRouter = Router();
-narrationRouter.use(["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], requireAuth);
+narrationRouter.use(["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-samples", "/:id/narration"], requireAuth);
 const idSchema = z.string().uuid();
 const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMarketingRole(agent);
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
-const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
+const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "790000", currency: "TJS" };
+/** Те же факты, когда цену сказать нельзя: доллары, а курса нет — `{цена}` выпадает вместе со своим предложением. */
+const SAMPLE_FACTS_NO_PRICE = { ...SAMPLE_FACTS, price: "85000", currency: "USD" };
+/** Видна ли кнопка «Утвердить»: права на объект (одна дверь с Шабнам), разовый проход — владелец, текст маркетинга — маркетинг. */
+async function canApproveAudioFor(agentId: string, role: string, propertyId: string, source: string | null): Promise<boolean> {
+  const access = await narrationAccessForAgent(agentId, propertyId);
+  if (!access) return false;
+  if (source === "BACKFILL") return isNarrationOwnerRole(role);
+  return true;
+}
 // This static path is mounted before /properties/:id.
 narrationRouter.get("/narration-settings", async (req, res) => {
   if (!manager(req.agent)) return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
@@ -48,7 +64,7 @@ narrationRouter.get("/narration-options", async (_req, res) => {
   const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
-    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate() };
   res.json(view);
 });
 
@@ -105,6 +121,38 @@ narrationRouter.post("/narration-free", async (req, res) => {
     default: return res.status(404).json({ error: "Запрос не найден" });
   }
 });
+/**
+ * «▶ ПРОСЛУШАТЬ» В МАСТЕРЕ И КАРТОЧКЕ (21.11.2026). Тот же путь звука, что у ролика (lib/narrationListen.ts):
+ * сохранили без изменений — этот файл и уйдёт монтажёру. Тот же текст и голос второй раз — без оплаты (cached).
+ */
+narrationRouter.post("/narration-listen", async (req, res) => {
+  const body = narrationListenRequestSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: "Нужны текст озвучки (от 10 знаков) и голос" });
+  const out = await listenNarration({ agentId: req.agent!.id, ...body.data });
+  switch (out.status) {
+    case "READY": {
+      const result: NarrationListenResult = { id: out.id, fileUrl: `/properties/narration-listen/${out.id}/file`, cached: out.cached };
+      return res.json(result);
+    }
+    case "NO_ACCESS": return res.status(403).json({ error: "Нет доступа к озвучке" });
+    case "OFF": return res.status(409).json({ error: "Автоозвучка выключена в настройках: послушать можно будет в карточке объекта" });
+    case "NOT_CONFIGURED": return res.status(409).json({ error: "Озвучка не настроена: нет ключа, модели или голосов" });
+    case "VOICE_UNKNOWN": return res.status(400).json({ error: "Такого голоса нет в утверждённых для озвучки" });
+    case "TAJIK_MODEL": return res.status(400).json({ error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 в настройках." });
+    case "INVALID": return res.status(400).json({ error: out.error });
+    case "BUSY": return res.status(409).json({ error: "Звук уже готовится", busy: true });
+    case "LIMIT_PERSON": return res.status(429).json({ error: `Сегодня уже ${out.limit} прослушиваний нового текста. Повтор того же текста бесплатен.` });
+    case "BUDGET": return res.status(429).json({ error: "Дневной предел озвучки исчерпан. Попробуйте завтра." });
+    case "FAILED": return res.status(out.quota ? 503 : 502).json({ error: out.quota ? "Кредиты ElevenLabs закончились. Сообщите руководителю." : "Не получилось подготовить звук. Попробуйте ещё раз." });
+  }
+});
+narrationRouter.get("/narration-listen/:id/file", async (req, res) => {
+  const id = idSchema.safeParse(req.params.id);
+  const file = id.success ? await narrationListenFilePath(id.data, req.agent!.id) : null;
+  if (!file) return res.status(404).json({ error: "Звука нет: прослушивание хранится сутки" });
+  res.setHeader("Cache-Control", "private, no-store"); res.type("audio/mpeg").sendFile(file);
+});
+
 narrationRouter.get("/narration-free/:id/file", async (req, res) => {
   const id = idSchema.safeParse(req.params.id);
   const file = id.success ? await freeNarrationFilePath(id.data, req.agent!.id) : null;
@@ -143,19 +191,32 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   // Поле, которого нет в запросе, остаётся прежним: старый экран не стирает шаблоны и пределы.
   const { config: existing, unreadable } = await configuration();
   if (unreadable) return res.status(409).json({ error: "Сохранённые настройки озвучки не читаются, поэтому сохранение остановлено: оно стёрло бы голоса и шаблоны. Сообщите разработчику (запись в журнале ошибок)." });
-  const parsed = narrationConfigSchema.safeParse({ ...existing, ...Object.fromEntries(Object.entries(patch.data).filter(([, v]) => v !== undefined)) });
+  // Момент включения своей музыки ставит только сервер (ревью 18.11): с экрана не принимается.
+  const { ownMusicRemixSince: _ignoredSince, ...patchData } = patch.data;
+  const merged = { ...existing, ...Object.fromEntries(Object.entries(patchData).filter(([, v]) => v !== undefined)) } as typeof existing;
+  const since = ownMusicRemixSinceAfterSave(existing, merged, new Date());
+  const { ownMusicRemixSince: _oldSince, ...withoutSince } = merged;
+  const parsed = narrationConfigSchema.safeParse(since ? { ...withoutSince, ownMusicRemixSince: since } : withoutSince);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте модель и список голосов", details: parsed.error.flatten() });
   const modelProblem = narrationModelError(parsed.data);
   if (modelProblem) return res.status(400).json({ error: modelProblem });
   // Сторож шаблонов и концовок (16.11.2026): цифры, «Direct», «брон», скобки, тире — одна проверка на оба списка.
   // Новые правила (цифры, Direct, брон) только к новым и изменённым текстам: старый живой шаблон не мешает сохранить остальное.
-  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+  const sameAsBefore = (item: { id: string; text: string; lang: string }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
     const old = before?.find((b) => b.id === item.id);
-    const unchanged = !!old && old.text === item.text && old.lang === item.lang;
-    return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
+    return !!old && old.text === item.text && old.lang === item.lang;
+  };
+  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+    const unchanged = sameAsBefore(item, before);
+    // {этажей} (21.11.2026): этажность дома в озвучке не говорим; старый живой шаблон с ним читается (оборот снимается при сборке), новый не принимаем.
+    return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang) ?? narrationTotalFloorsError(item.text));
   };
   for (const template of parsed.data.templates ?? []) {
-    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
+    // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
+    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
+      // Только для нового или изменённого при этом сохранении шаблона: старый, не тронутый, сохранению не мешает.
+      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE))
+        ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения: добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
@@ -166,10 +227,10 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   // поддержанных моделей (lib/narrationPronunciation.ts); иначе правила просто хранятся.
   let saved = parsed.data;
   let pronunciationNote: string | undefined;
-  const spoken = (c: typeof saved) => JSON.stringify((c.pronunciationRules ?? []).map(({ word, alias, phoneme }) => [word, alias ?? "", phoneme ?? ""]));
-  // Правила поменялись, или стартовый набор ещё ни разу не ушёл в ElevenLabs (нет id словаря).
-  const neverSynced = (saved.pronunciationRules ?? []).length > 0 && !(saved.pronunciationDictionaries ?? []).length;
-  if (spoken(existing) !== spoken(saved) || neverSynced) {
+  // Словарь устарел (20.11.2026): правила, которые РЕАЛЬНО уходят в ElevenLabs, не совпали с отпечатком уже отправленных —
+  // правка, нет словаря, нет отпечатка (настройки до этой даты) или снята пометка «проверить носителем». Одно решение с
+  // проходом при запуске фонового процесса (lib/narrationPronunciation.ts); правка непроверенного звука словарь не трогает.
+  if (pronunciationDictionaryStale(saved)) {
     const sync = await syncPronunciationDictionary(saved, (await configuration()).key);
     if (sync.status === "SYNCED") saved = { ...saved, pronunciationDictionaries: sync.dictionaries };
     if (sync.status === "FAILED") pronunciationNote = `Словарь произношения сохранён в CRM, но в ElevenLabs не обновился: ${sync.error}`;
@@ -192,6 +253,8 @@ narrationRouter.use("/:id/narration", async (req, res, next) => {
 narrationRouter.get("/:id/narration", async (req, res) => {
   const p = res.locals.narrationProperty;
   const facts = narrationFacts(p);
+  // Карточка собирает текст той же функцией, что сервер: с курсом, чтобы {цена} прозвучала в сомони (21.11.2026).
+  const usdToTjs = await narrationRate();
   const { config, key } = await configuration();
   const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id,
     ...(req.agent!.role === "EDITOR" ? { deliveries: { some: { editorId: req.agent!.id } } } : {}) }, orderBy: { revision: "desc" }, take: 50 });
@@ -211,18 +274,25 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     const status = r.status === "SENT" && actual === "DELIVERED" ? "DELIVERED" : r.status === "SENT" && ["UNDELIVERABLE", "EXPIRED", "REVOKED", "DELETED", "REJECTED"].includes(actual ?? "") ? "NOT_DELIVERED" : r.status;
     return { id: r.id, status, period: r.period, lastError: r.lastError };
   });
+  // Ждёт ли последняя версия человека (одно правило с Шабнам и перемиксом): самоодобренная на вышедшем ролике — тоже.
+  const latestAwaitsHuman = versions[0] ? await narrationAwaitsHuman(p.id, p, versions[0]) : false;
+  const latestAudioSec = versions[0]?.status === "READY" && versions[0].storageKey && versions[0].audioSec == null ? await narrationAudioSec(versions[0].storageKey) : null;
   res.json({ versions: versions.map((v) => ({ id: v.id, revision: v.revision, script: v.script, voiceId: v.voiceId, status: v.status,
     approvedAt: v.approvedAt, stale: !narrationFactsCurrent(v, p), hasAudio: v.status === "READY" && !!v.storageKey, errorCode: v.errorCode, createdAt: v.createdAt,
+    // Настоящая длина голоса (замер или ffprobe файла, ревью 18.11): кнопку «Утвердить» решает она, а не оценка по тексту.
+    audioSec: v.audioSec ?? (v.id === versions[0]?.id ? latestAudioSec : null),
+    ...(v.id === versions[0]?.id ? { awaitsHuman: latestAwaitsHuman } : {}),
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
-    source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter })),
-    suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
+    source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter, generationStartedAt: v.generationStartedAt })),
+    suggestedScript: suggestedNarration(facts), facts: withNarrationRate(facts, usdToTjs), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
     ownerReport: manager(req.agent) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
     canDraft: req.agent!.role !== "EDITOR", readiness: { voiceCount: config.voices.length, modelConfigured: !!config.modelId, apiKeyConfigured: !!key },
     // Агент объекта (canManageProperty уже проверен выше) одобряет готовое аудио автоозвучки.
     // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
-    canApproveAudio: req.agent!.role !== "EDITOR" && (versions[0]?.source !== "BACKFILL" || isNarrationOwnerRole(req.agent!.role)), autoGenerate: narrationAutoEnabled(config),
+    // Те же права, что у самого утверждения (narrationAccessForAgent, ревью 18.11): «только просмотр» кнопки не видит.
+    canApproveAudio: await canApproveAudioFor(req.agent!.id, req.agent!.role, p.id, versions[0]?.source ?? null), autoGenerate: narrationAutoEnabled(config),
     off: p.narrationOff,
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
@@ -231,7 +301,12 @@ narrationRouter.get("/:id/narration", async (req, res) => {
       // 14.11.2026: агент видит, что новая озвучка на вышедший ролик не легла, а не только руководство в журнале.
       problem: p.videoMasterMixError && p.videoMasterMixErrorVersionId && p.videoMasterMixErrorVersionId === versions[0]?.id
         ? (p.videoMasterMixError.includes(NARRATION_VOICE_LONGER_MARK) ? "VOICE_LONGER" as const : "FAILED" as const) : null,
-      note: await narrationMixNoteFor(p, versions[0] ?? null) },
+      canRetry: narrationRemixRetryable(p, versions[0]?.id),
+      note: narrationMixNoteFor(p, versions[0] ?? null, { ownMusicPending: !p.videoMasterStorageKey && await ownMusicRemixApplies(p.id) }) },
+    // ОДНО УТВЕРЖДЕНИЕ (18.11.2026): длина ролика для «укладывается ли текст», что поменялось, ход выпуска.
+    clipSec: await narrationClipSec(p), charsPerSec: await measuredNarrationCharsPerSec(), published: await clipCountsAsPublished(p.id, p),
+    changed: narrationFactsChanges(versions.find((v) => v.approvedAt && v.status === "READY")?.factsSnapshot as NarrationFacts | undefined, facts),
+    release: await narrationReleaseView(p, versions[0]),
     quotaExceeded: manager(req.agent) ? !!await narrationQuotaExceededSince() : undefined });
 });
 
@@ -245,13 +320,18 @@ narrationRouter.post("/:id/narration", async (req, res) => {
   if (parsed.data.generate) {
     // Правка агента при автоозвучке: новая версия сразу в очередь генерации (та же дверь, тот же потолок).
     if (!narrationAutoEnabled(config)) return res.status(409).json({ error: "Автоозвучка выключена в настройках. Сохраните текст без генерации." });
+    // «Озвучить» = одобрить (21.11.2026, владелец: «сверх быстро»): нажавший одобряет версию, как только звук готов.
+    // Прослушал этот же текст и голос — звук берётся готовым, без второй оплаты (adoptListenedNarration).
+    const listenId = parsed.data.listenId;
     const outcome = await requestAutoNarration({ propertyId: p.id, actorId: req.agent!.id, source: "AGENT", script: parsed.data.script, templateId: parsed.data.templateId, endingId: parsed.data.endingId,
-      voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: 0 });
+      voiceId: parsed.data.voiceId, expectedRevision: parsed.data.expectedRevision, requestKey: parsed.data.requestKey, debounceMs: listenId ? NARRATION_LISTEN_HOLD_MS : 0, approveAsId: req.agent!.id });
+    // Текст длиннее ролика тоже здесь (18.11.2026): 400 до ElevenLabs, кредиты не тратятся.
     if (outcome.status === "INVALID") return res.status(400).json({ error: outcome.error });
     if (outcome.status === "DISABLED") return res.status(409).json({ error: "Для объекта выбрано «Без озвучки». Сначала включите озвучку." });
     if (outcome.status === "UNCHANGED") return res.status(409).json({ error: "Текст и голос такие же, как в текущей озвучке." });
     if (outcome.status !== "QUEUED") return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйте через минуту." : "Версия изменилась. Обновите карточку." });
-    return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
+    const adopted = listenId && !outcome.coalesced ? await adoptListenedNarration({ propertyId: p.id, versionId: outcome.versionId, listenId, actorId: req.agent!.id }) : null;
+    return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true, ...(adopted ? { listened: adopted } : {}) });
   }
   const facts = narrationFacts(p);
   const script = parsed.data.script ?? suggestedNarration(facts);
@@ -278,14 +358,31 @@ narrationRouter.post("/:id/narration", async (req, res) => {
  *   монтажёр получает его существующим путём lib/narrationDelivery.ts. Ту же функцию зовёт Шабнам.
  */
 narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
-  if (req.agent!.role === "EDITOR") return res.status(403).json({ error: "Озвучку одобряет агент объекта" });
   const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId);
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите текст и номер версии" });
   const p = res.locals.narrationProperty;
-  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: req.agent!.id, isManager: manager(req.agent), actorRole: req.agent!.role });
+  // Права одни на CRM и Шабнам (ревью 18.11, lib/staffNarration.ts): живая учётка, не «только просмотр», не монтажёр,
+  // хозяин объекта или руководство. Утверждение на вышедшем ролике — это выпуск в сети.
+  const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  if (!access) return res.status(403).json({ error: "Озвучку утверждает тот, кто ведёт объект, или руководство" });
+  const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
-  res.json({ ok: true, ...(outcome === "AUDIO_APPROVED" ? { delivery: await afterNarrationApproved(p.id, versionId.data) } : {}) });
+  if (outcome === "PRICE_NOT_IN_TJS") return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });
+  const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefined;
+  // Ролик уже вышел — примерное время выхода нового (точное карточка покажет, когда голос наложен).
+  const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(() => null) : null;
+  res.json({ ok: true, ...(delivery ? { delivery } : {}), ...(publishAt ? { publishAt: publishAt.toISOString() } : {}) });
+});
+
+/** «Попробовать ещё раз» (20.11.2026): наложение утверждённой озвучки упало — снять отметку, обход сведёт заново. */
+narrationRouter.post("/:id/narration/remix-retry", async (req, res) => {
+  const p = res.locals.narrationProperty;
+  const access = await narrationAccessForAgent(req.agent!.id, p.id);
+  if (!access) return res.status(403).json({ error: "Повторить может тот, кто ведёт объект, или руководство" });
+  const outcome = await retryNarrationRemix(p.id, access.agentId);
+  if (outcome === "NOTHING_TO_RETRY") return res.status(409).json({ error: "Повторять нечего: озвучка уже наложена или ошибка другая. Обновите карточку." });
+  res.json({ ok: true, message: "CRM попробует наложить озвучку ещё раз в течение минуты." });
 });
 
 /**
@@ -324,6 +421,10 @@ narrationRouter.post("/:id/narration/:versionId/generate", async (req, res) => {
   if (!parsed.success || !versionId.success) return res.status(400).json({ error: "Подтвердите генерацию выбранной версии" });
   const p = res.locals.narrationProperty, { config, key } = await configuration();
   if (!key || !narrationProviderReady(config, key)) return res.status(409).json({ error: "ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках." });
+  // Длина до оплаты и у кнопки маркетинга (ревью 18.11): текст длиннее ролика в ElevenLabs не уходит.
+  const draft = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id }, select: { script: true, language: true } });
+  const length = draft ? await narrationLengthCheckFor(p, draft.script, draft.language) : null;
+  if (length && !length.fits) return res.status(400).json({ error: narrationLengthLine(length) });
   const outcome = await generateNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, requireApproval: true, config, key });
   switch (outcome.status) {
     case "REJECTED": return res.status(409).json({ error: "Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным результатом требует проверки провайдера." });
@@ -379,7 +480,9 @@ narrationRouter.post("/:id/narration/:versionId/handoff-preview", async (req, re
   const row = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id, revision: parsed.data.expectedRevision, status: "READY", approvedAt: { not: null } } });
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision: "desc" } });
   if (!row || latest?.id !== row.id || !narrationFactsCurrent(row, p)) return res.status(409).json({ error: "Нужна готовая актуальная озвучка" });
-  if (parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: "EDITOR", isActive: true } })) return res.status(400).json({ error: "Монтажёр недоступен" });
+  // Монтажёр — назначенный в Настройках и не отключённый, роль не важна (19.11.2026, lib/montajerHandover.ts);
+  // что он именно назначенный, проверяет prepareNarrationDeliveryPlan.
+  if (parsed.data.editorId && !await prisma.agent.findFirst({ where: usableMontajerWhere(parsed.data.editorId), select: { id: true } })) return res.status(400).json({ error: "Монтажёр недоступен" });
   const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.requestKey } });
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try { prepared = await prepareNarrationDeliveryPlan(p.id, row.id, parsed.data.mode, parsed.data.editorId); }

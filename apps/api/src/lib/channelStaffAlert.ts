@@ -1,3 +1,4 @@
+import { NO_TEXT_NOTE } from "@royal-home/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
@@ -7,6 +8,7 @@ import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { TG_PREFIX } from "./conversationId.js";
 import type { ChannelCoreStaffReason } from "./customerChannelCore.js";
+import { loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
 
 /**
  * «КЛИЕНТ ЖДЁТ ЧЕЛОВЕКА» ДЛЯ КАНАЛОВ БЕЗ СВОЕГО ЯДРА (один мозг, шаг 3, 16–17.11.2026).
@@ -32,18 +34,25 @@ export type ChannelStaffWhy = ChannelCoreStaffReason | "bot_retired";
 /** After these the customer hears the handover line (legacyQualifyDoor.ts), and the push says so. */
 const HANDED_OVER: ReadonlySet<ChannelStaffWhy> = new Set(["escalate", "action_needs_staff", "unreadable_input", "core_refused", "core_unavailable"]);
 const HANDED_OVER_NOTE = " Клиенту бот отвечает, что передал сообщение сотруднику.";
+/** Для двери «Бот отвечает сам»: ядро недоступно и бот на канале выключен — техсбой, остальное — «передал сотруднику». */
+export function channelStaffSignalKind(why: ChannelStaffWhy): StaffSignalKind {
+  return why === "core_unavailable" || why === "bot_retired" ? "technical" : "answered_handover";
+}
 
 export async function alertChannelStaff(input: { channel: string;
   /** TelegramConversation.id for TELEGRAM, TelegramDirectConversation.id for TELEGRAM_DIRECT, BotConversation.id otherwise. */
   conversationId: string | null | undefined; text: string; why: ChannelStaffWhy;
   /** Provider message id of the customer's message (dedupe of one message); null = batch window. */
-  eventId?: string | null }): Promise<"sent" | "already" | "skipped" | "excluded"> {
+  eventId?: string | null;
+  /** Номер клиента известен: при «бот отвечает сам» человек всё равно узнаёт — это заявка (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean }): Promise<"sent" | "already" | "skipped" | "excluded" | "self"> {
   try {
     if (!input.conversationId) return "skipped";
     if (input.channel !== "TELEGRAM" && input.channel !== "TELEGRAM_DIRECT") {
       const { alertClientWaiting } = await import("./clientWaitingAlert.js");
       const outcome = await alertClientWaiting(HANDED_OVER.has(input.why)
-        ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}` }
+        ? { conversationId: input.conversationId, trigger: "handover", why: `${WHY_TEXT[input.why]}${HANDED_OVER_NOTE}`,
+          ...(input.phoneKnown ? { phoneKnown: true } : {}) }
         : { conversationId: input.conversationId, trigger: "failed", why: WHY_TEXT[input.why] });
       // «Уже сказали» (сторож молчания или прошлый ход занял эпизод) — не «некого»: клиенту можно сказать «передал» (R1-2).
       // `excluded` (client in the trash, no chat): no signal by design — the door stays silent instead (review 0e463b02 N5).
@@ -57,6 +66,10 @@ export async function alertChannelStaff(input: { channel: string;
       : await prisma.telegramConversation.findUnique({ where: { id: input.conversationId }, select });
     if (!chat || chat.client?.deletedAt) return "excluded";
     const owner = chat.client?.assignedAgent?.isActive ? chat.client.assignedAgent.id : null;
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): чат без карточки и без своего агента — руководство не зовём,
+    // клиенту вместо «передал сотруднику» бот сам отвечает шагом к номеру (ai/legacyQualifyDoor.ts).
+    const signal = { kind: channelStaffSignalKind(input.why), ownAgent: !!owner, hasCard: !!chat.clientId, phoneKnown: input.phoneKnown === true };
+    if (!staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) return "self";
     const recipients = owner ? [owner] : await findAgentsWithPermission("messages.view");
     if (!recipients.length) {
       void logSystemError("telegram", `Клиент в Telegram ждёт ответа, а уведомить некого (чат ${chat.id}).`,
@@ -68,7 +81,7 @@ export async function alertChannelStaff(input: { channel: string;
       VALUES (${randomUUID()},'channel-staff-alert',${key},now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
     if (claimed !== 1) return "already"; // a person was already told about this message (or this batch)
     // clientOwnWords keeps the customer's voice transcript (stripUntrusted would drop it: review #224 L6).
-    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[голосовое или вложение без текста]";
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     const name = chat.client?.fullName?.trim() || (chat.username ? `@${chat.username}` : "клиент из Telegram");
     // Direct-message chats are shown inside the client card only (routes/conversations.ts); without a card there is no CRM

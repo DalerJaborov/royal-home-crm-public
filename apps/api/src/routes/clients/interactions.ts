@@ -19,6 +19,8 @@ import { notifyNoAnswerEscalation, planNoAnswerStep } from "../../lib/noAnswerSt
 import { runClientAutopilotInBackground } from "../../lib/clientAutopilot.js";
 import { foreignWriteDenied } from "./shared.js";
 import { trashClient } from "../../lib/trashClient.js";
+import { fileEndOfWorkDeleteRequest } from "../../lib/clientDeleteRequest.js";
+import { securityAutomationOn, securityReviewCloseBlocker } from "../../lib/securityAutomation.js";
 import { checkAgentPhoneAsk } from "../../lib/agentPhoneAskDetector.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { closeLeadPushNotifications, sendPushToAgents } from "../../push.js";
@@ -43,7 +45,7 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   {
     const denied = foreignWriteDenied(req, client, ownAgentId);
@@ -254,13 +256,17 @@ interactionsRouter.post("/:id/interactions", requireAuth, async (req, res) => {
 });
 
 /**
- * Решение службы безопасности по закрытой карточке.
+ * Решение службы безопасности по карточке на проверке.
  *
- * Два исхода, и оба закрывают карточку — разница в том, ЧТО зафиксировано.
- * «Проверено, вопросов нет» — обычное закрытие, сделка действительно прошла мимо
- * нас. «Нарушение подтверждено» — то же закрытие, но в истории остаётся запись, по
- * которой потом разбираются с человеком. Закрытие — обычная Корзина (16.11.2026:
- * «Архива» как состояния больше нет), восстановимо.
+ * С 18.11.2026 (случай ПР-000714: «вопросов нет» закрыло продавца, чей объект
+ * продавался) вердикт — прежде всего запись в деле, а не кнопка удаления:
+ *  - «Проверено, вопросов нет» карточку НЕ закрывает никогда;
+ *  - «Нарушение подтверждено» убирает её в Корзину (восстановимо), только если
+ *    автоматика СБ включена и карточка не в работе: нет второй роли, открытой
+ *    сделки, объекта в продаже, открытой задачи и работы агента после постановки
+ *    на проверку (lib/securityAutomation.ts, securityReviewCloseBlocker).
+ * Карточка в работе остаётся как есть (причина — в закрытой записи хронологии);
+ * работы нет, но закрывать вердикт не вправе — руководителю заявка на удаление.
  *
  * Решение необратимо только в одну сторону: перепроверить карточку можно, снова
  * отправив её на проверку через обычный отказ. Возвращать «в PENDING» отдельной
@@ -289,11 +295,26 @@ interactionsRouter.post(
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
       const current = await tx.client.findUnique({ where: { id: client.id } });
       if (!current || current.deletedAt || current.securityReview !== "PENDING") return null;
-      const openDeal = await tx.deal.findFirst({ where: { clientId: client.id,
-        stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } });
+      // ЧТО ВЕРДИКТ ДЕЛАЕТ С КАРТОЧКОЙ (владелец 18.11.2026, случай ПР-000714: «вопросов
+      // нет», а карточку закрыло, хотя объект продавался). «Вопросов нет» не закрывает
+      // никогда. «Нарушение подтверждено» закрывает, только если автоматика СБ включена
+      // и карточка не в работе (lib/securityAutomation.ts, securityReviewCloseBlocker).
+      // Карточка в работе — остаётся как есть, причина в закрытой записи ниже. Работы
+      // нет, а в Корзину вердикт её не убирает («вопросов нет» или автоматика
+      // выключена) — руководителю заявка на удаление, решает человек (как конец
+      // работы после отказа, 16.11.2026): иначе карточка висела бы ничьей.
+      const automationOn = await securityAutomationOn(tx);
+      const blocker = await securityReviewCloseBlocker(tx, current);
+      const outcome: "keep" | "trash" | "delete-request" = blocker ? "keep"
+        : verdict === "CONFIRMED" && automationOn ? "trash" : "delete-request";
+      // Карточка осталась в работе, а отказ агента уже закрыл его назначение — без
+      // возврата она повисла бы ничьей: агент писать в неё не может, новое сообщение
+      // клиента её не оживляет (ревью 18.11.2026, случай ПР-000714). Возвращаем агенту.
+      const reopen = outcome === "keep" && current.assignmentCompletedAt !== null && current.assignedAgentId !== null;
       await tx.client.update({
         where: { id: client.id },
         data: {
+          ...(reopen ? { assignmentRefusedAt: null, assignmentRefusedByAgentId: null, assignmentCompletedAt: null } : {}),
           securityReview: verdict,
           securityReviewedAt: new Date(),
           securityReviewedById: req.agent!.id,
@@ -307,7 +328,10 @@ interactionsRouter.post(
         outcome: verdict === "CONFIRMED" ? "NEGATIVE" : "NEUTRAL",
         investigationOnly: true,
         investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
-        notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null]
+        notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null,
+          outcome === "keep" ? `Карточка осталась в работе${reopen ? " и возвращена агенту" : ""}: ${blocker}`
+            : outcome === "trash" ? "Работы по карточке нет — убирается в Корзину"
+            : "Работы по карточке нет — руководителю отправлена заявка на удаление"]
           .filter(Boolean)
           .join(". "),
         // Голосовая заметка к решению (01.09.2026) — переиспользует поля,
@@ -321,17 +345,27 @@ interactionsRouter.post(
       await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt,
         subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
       // Карточка закрывается только ПОСЛЕ вердикта — до него она висела как есть
-      // нарочно, чтобы не выглядеть решённой. Вторая роль или открытая сделка —
-      // работа с клиентом продолжается, закрывать нечего.
-      return { close: !current.dualIntent && !openDeal };
+      // нарочно, чтобы не выглядеть решённой.
+      return { outcome, blocker, reopen };
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
     logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
 
-    if (reviewed.close) {
+    let message = `${label}. Карточка осталась в работе${reviewed.reopen ? " и возвращена агенту" : ""}: ${reviewed.blocker}`;
+    if (reviewed.outcome === "trash") {
       const trashed = await trashClient(client.id, req.agent!.id, { notifyHolder: false });
-      if (!trashed.ok) console.error("[security-review] карточка не убрана в Корзину:", trashed.error);
+      if (trashed.ok) message = `${label}. Карточка ушла в Корзину`;
+      else {
+        // Запись вердикта уже сказала «убирается» — правдивый итог второй строкой.
+        message = `${label}. Карточка осталась: ${trashed.error}`;
+        await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM",
+          investigationOnly: true, notes: `Карточку не удалось убрать в Корзину: ${trashed.error}` }).catch(() => {});
+      }
+    } else if (reviewed.outcome === "delete-request") {
+      await fileEndOfWorkDeleteRequest(client, client.assignedAgentId ?? req.agent!.id,
+        "Работа по карточке завершена — решите, удалять ли её.");
+      message = `${label}. Работы по карточке нет — руководителю ушла заявка на удаление`;
     }
 
     // Вердикт вынес один проверяющий — у ОСТАЛЬНЫХ с правом clients.securityReview
@@ -344,6 +378,6 @@ interactionsRouter.post(
       await closeLeadPushNotifications(reviewers.map((id) => ({ agentId: id, tag: `security-review-${client.id}` })));
     })().catch((err) => console.error("[push] закрытие проверки СБ у остальных проверяющих:", err));
 
-    res.json({ ok: true, verdict, message: label });
+    res.json({ ok: true, verdict, message });
   }
 );

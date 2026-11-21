@@ -1380,8 +1380,22 @@ model VideoRemakeRequest {
   /// (владелец 30.10.2026: «когда выйдет новый»). Ставит возврат по смене цены или
   /// данных карточки; выполняет задание публикации (replaceOldPostsBeforeRemakePublish).
   replaceOldPostsOnPublish Boolean   @default(false)
-  /// Когда задание публикации нового ролика сняло старые посты; null — ещё не снимало.
+  /// Когда замена старых постов закончена (все сети решены); null — ещё не закончена.
   oldPostsReplacedAt       DateTime?
+  /// СНАЧАЛА НОВЫЙ, ПОТОМ СТАРЫЙ (18.11.2026, lib/remakeOldPosts.ts): снимок старых постов (каналы, id, ссылка
+  /// Instagram), взятый один раз перед публикацией нового ролика. Старый пост в сети снимается только после того,
+  /// как там вышел новый; не вышел — старый возвращается в карточку и остаётся висеть.
+  oldPosts                 Json?
+  /// Итог по каждой сети: { [канал]: { state, url?, error? } } — карточка показывает «новый пост, старый снят».
+  oldPostsOutcome          Json?
+  /// Когда обход последний раз проверял эту замену (18.11.2026): обход идёт от давно не проверенных, повторы
+  /// TikTok не задерживают остальных.
+  oldPostsCheckedAt        DateTime?
+  /// Старые посты, перенесённые из закрытой прежней замены (18.11.2026, lib/remakeRequests.ts): вторая замена,
+  /// пока первая не закрыта. Их снимет эта заявка, когда в той же сети выйдет новый ролик.
+  carriedOldPosts          Json?
+  /// Версия озвучки, ради которой эта замена (18.11.2026): карточка показывает ход выпуска именно её.
+  narrationVersionId       String?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])
@@ -1399,7 +1413,7 @@ model MontajerMessage {
   id         String   @id @default(uuid())
   propertyId String
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" —
+  /// "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL" —
   /// см. MontajerMessageKind в lib/videoHandoff.ts.
   kind       String
   text       String
@@ -1756,6 +1770,13 @@ model Notification {
   /// Человекочитаемая причина гашения — «клиент передан Иванову», «агент
   /// заморожен» и т.п. Пишется тем же вызовом, что ставит retiredAt.
   retiredReason String?
+  /// «ПРОСМОТРЕНО» — отдельно от «сделано» (владелец 21.11.2026: «прочитал, быстро
+  /// открыл, а метка на колокольчике не гаснет»). Ставится, когда человек открыл
+  /// список и строка была на экране. Метка на колокольчике считает только то, что
+  /// ещё не просмотрено; сама строка при этом остаётся «Новое»/«Ждёт решения» (read
+  /// не трогаем), пока по ней не сделано действие. Новое событие с тем же tag
+  /// (upsertByTag) сбрасывает отметку обратно в null и метка загорается снова.
+  seenAt        DateTime?
 
   @@index([agentId, read])
   @@index([agentId, createdAt])
@@ -2194,6 +2215,7 @@ model GeoAlias {
 
 model Property {
   investigationCases InvestigationCase[]
+  constructionLinks ConstructionPropertyLink[]
   narrationVersions PropertyNarrationVersion[]
   narrationDeliveries PropertyNarrationDelivery[]
   metadataSyncDrafts PublicationMetadataSync[]
@@ -2421,6 +2443,21 @@ model Property {
   /// null у обычной (не перемонтажной) передачи. См. lib/videoHandoff.ts.
   videoHandoffRemakeReason        String?
   videoHandoffRemakeComment       String?
+  /// Причина перемонтажа ЗАХОДА, который сейчас у монтажёра (19.11.2026). Поля выше
+  /// гаснут при захвате отправки, а «Сделаю позже» должен вернуть объект в очередь
+  /// тем же заходом: перемонтаж — перемонтажом, обычная передача — обычной. Пишутся
+  /// при постановке в очередь и при захвате отправки (lib/videoHandoff.ts).
+  videoHandoffRoundRemakeReason   String?
+  videoHandoffRoundRemakeComment  String?
+  /// Монтажёр сам пропустил объект из бота («Сделаю позже», «Взять другой», «Уже
+  /// сделан», 19.11.2026), а готовый ролик по нему ещё не принят. Пока отметка стоит,
+  /// файл без номера бот не кладёт молча на объект в работе, а спрашивает «чей это
+  /// ролик», и ролик по этому объекту принимается штатно. Гаснет при приёме ролика.
+  videoHandoffMontajerSkippedAt   DateTime?
+  /// Куда вернуть пропущенный монтажёром объект, открытый под приём его ролика
+  /// (openSkippedForMontajerFinal): "QUEUED" или "RECEIVED". Если приём оборвался
+  /// (упал процесс), обход брошенных ручных ожиданий возвращает объект сюда, а не в NONE.
+  videoHandoffManualRestoreStatus String?
   /// Факты карточки (propertyFactsForMontajer), которые ушли монтажёру В ПРОШЛЫЙ
   /// РАЗ — по ним считается блок «что изменилось в карточке» при перемонтаже с
   /// причиной WRONG_CAPTION/CARD_DATA_CHANGED (cardFactsDiff в videoHandoff.ts).
@@ -2462,17 +2499,35 @@ model Property {
   /// CRM прямо сейчас накладывает новую озвучку на этот ролик (ffmpeg до 9 минут): второй тик
   /// не запускает вторую копию; метка старше 15 минут считается брошенной (12.11.2026).
   videoMasterMixingAt            DateTime?
-  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; MACHINE — CRM сама
-  /// отделила старый голос от музыки вышедшего ролика (lib/narrationAutoMaster.ts). null — старые записи (монтажёр).
+  /// Откуда мастер (16.11.2026): EDITOR — монтажёр прислал ролик без голоса; null — старые записи (монтажёр).
+  /// MACHINE (CRM сама отделяла старый голос) больше не пишется: машинное отделение убрано 18.11.2026.
   videoMasterSource              String?
-  /// Отделить голос от этого готового ролика не получилось (текст для руководства) — для этого же
-  /// файла повтора нет, объект ушёл монтажёру. Новый готовый ролик — новая попытка.
+  // не используется с 18.11, удалить следующим выкатом (машинное отделение голоса убрано; черновик SQL —
+  // docs/journal/2026-11-18-narration-drop-voice-separator.md). Код эти колонки не читает и не пишет.
   videoMasterAutoError           String?
   videoMasterAutoErrorFinalPath  String?
-  /// Временные сбои сервиса (не ответил, перезапускался при выкате) на этом готовом ролике: после
-  /// трёх подряд — отказ и монтажёру; до того — повтор не раньше videoMasterAutoRetryAt.
   videoMasterAutoAttempts        Int       @default(0)
   videoMasterAutoRetryAt         DateTime?
+  /// ПРОСЛУШАТЬ ПЕРЕД ВЫПУСКОМ (17.11.2026, lib/narrationPreview.ts). CRM наложила новую озвучку на
+  /// ВЫШЕДШИЙ ролик — новый файл не подменяет вышедший, а ждёт решения хозяина объекта:
+  /// «Выпустить» / «Другой голос или текст» / «Оставить старый». Молчит — выходит сам в
+  /// narrationPreviewDueAt (часы clipOwnerAutoPublishHours, ночью — в 07:00; 0 часов — сам не выходит).
+  narrationPreviewPath           String?
+  narrationPreviewVersionId      String?
+  /// Ролик без голоса, на который наложен кандидат: сменился — кандидат устарел.
+  narrationPreviewMasterKey      String?
+  narrationPreviewAt             DateTime?
+  narrationPreviewDueAt          DateTime?
+  narrationPreviewVoiceSec       Float?
+  narrationPreviewClipSec        Float?
+  /// Хозяину отправлено (задача narration-preview-due): пусто — отправит следующий тик (повтор после падения).
+  narrationPreviewNotifiedAt     DateTime?
+  /// Хозяин отказался от наложения этой версии («Оставить старый» / «Другой голос или текст») —
+  /// эту версию CRM больше не накладывает; новая версия озвучки — новый кандидат.
+  narrationPreviewDeclinedVersionId String?
+  /// СВОЯ МУЗЫКА (18.11.2026, lib/narrationMusic.ts): трек библиотеки, положенный в последний перемонтаж
+  /// (ролик или кандидат «прослушать»). Следующий перемонтаж берёт другой. Без связи: трек могут удалить.
+  narrationMusicTrackId          String?
   /// МОМЕНТ, КОГДА ГОТОВЫЙ РОЛИК РЕАЛЬНО ПОЛУЧЕН (21.09.2026, случай №114 — ролик
   /// принят, файл лёг на диск, но рестарт контейнеров посреди публикации оборвал
   /// её молча, publishedChannels остался пуст, объект завис в EDITING навсегда).
@@ -3027,6 +3082,13 @@ model PropertyNarrationVersion {
   generationAttempts Int @default(0)
   /// Агенту ушло одно сообщение «прослушайте и одобрите»; повторов нет.
   approvalNotifiedAt DateTime?
+  /// Одобрить сразу, как будет готова, от имени этого сотрудника (21.11.2026, владелец: «одобрение сразу там же, чтобы
+  /// сверх быстро»): он сохранил выбор озвучки в мастере, нажал «Озвучить» в карточке, поменял цену или отправил на
+  /// перемонтаж. Одобряет та же approveNarrationVersionIn; доллары (#348) не одобряются. null — как раньше, ждёт человека.
+  approveAsId String?
+  /// Куда слать «прослушайте и одобрите», если одобрить сразу нельзя (21.11.2026, ревью): текст агента из мастера не
+  /// принят и подменён шаблоном. CRM — заводили в CRM, TELEGRAM — через Шабнам, только туда. null — как раньше, в оба места.
+  askVia String?
   approvalChatId String?
   /// Агент нажал «Править текст» в Шабнам: следующий его текст в течение 15 минут — новый текст озвучки.
   editRequestedAt DateTime?
@@ -3039,6 +3101,8 @@ model PropertyNarrationVersion {
   /// Голос длиннее ролика (16.11.2026): эта версия — тот же объект короче, другим шаблоном, вместо
   /// версии shortenedFromId. Одна перегенерация на версию: укороченную ещё раз не укорачивают.
   shortenedFromId String?
+  /// Длина готового голоса, секунды (18.11.2026): замер для оценки длины текста до оплаты (lib/narrationLength.ts).
+  audioSec Float?
   /// Что CRM сделала с длиной при наложении (агенту одной строкой): «голос ускорен на 8%» и т.п.
   mixNote String?
   deliveries PropertyNarrationDelivery[]
@@ -3065,7 +3129,7 @@ model StaffClipIntake {
   caption        String?
   sizeBytes      Int?
   /// ASKING — ждём объект; CHOSEN — объект найден, ждём кнопку; READY / MONTAGE — сделано;
-  /// UNDONE — «Не тот объект»; CANCELLED; FAILED.
+  /// UNDONE — «Не тот объект»; CANCELLED; FAILED; FREE — ушёл в пост без объекта (StaffSocialPost).
   status         String    @default("ASKING")
   propertyId     String?
   /// Объекты, предложенные кнопками (shortId), и исключённые после «Не тот объект».
@@ -3074,11 +3138,74 @@ model StaffClipIntake {
   decidedAt      DateTime?
   /// Что сделал «Готов» / «Монтаж», чтобы «Не тот объект» откатил ровно это.
   result         Json?
+  /// Расшифровка звука ролика для распознавания объекта (21.11.2026, телефоны замаскированы):
+  /// второй раз за неё не платим — она же основа подписи поста без объекта.
+  transcript     String?
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// ПОСТ БЕЗ ОБЪЕКТА ОТ ШАБНАМ (21.11.2026, владелец: «да, а также научи…»). Сотрудник с правом
+/// маркетинга присылает Шабнам ролик или альбом фото — она готовит пост тем же кодом, что экран
+/// «Ролики» CRM (черновик SocialVideoPost, подпись lib/socialVideoAi.ts), показывает превью и
+/// публикует ТОЛЬКО по кнопке «Опубликовать» того же сотрудника. Строка держит выбор сетей,
+/// подпись и захват кнопки (двойное нажатие и повтор апдейта не публикуют дважды).
+/// telegram/staffSocialPost.ts.
+model StaffSocialPost {
+  id                String    @id @default(uuid())
+  chatId            String
+  agentId           String
+  /// VIDEO | PHOTO
+  kind              String
+  /// Ролик пришёл через «к какому объекту» (StaffClipIntake) — одна строка на ролик.
+  staffClipIntakeId String?   @unique
+  /// Альбом Telegram: один пост на альбом (повтор доставки не заводит второй).
+  mediaGroupKey     String?   @unique
+  /// Слова сотрудника к файлу (подпись к видео или альбому) — основа подписи поста.
+  request           String?
+  /// RU | TG | RU_TG — язык подписи.
+  language          String    @default("RU")
+  /// Выбранные сети (SocialVideoChannel[]).
+  channels          Json?
+  /// Черновик в «Роликах» CRM — то, что уходит в публикацию.
+  socialVideoPostId String?   @unique
+  /// PREPARING — готовим (черновик, подпись, новая подпись): публиковать нельзя; PREVIEW — превью показано,
+  /// ждём кнопку; EDIT_CAPTION — ждём новый текст; PICKING — выбор сетей; PUBLISHING — нажато «Опубликовать»;
+  /// PUBLISHED — ушло в публикацию; CANCELLED — отменено человеком; EXPIRED — сутки без решения, убрано уборкой
+  /// (lib/staffSocialPostSweep.ts, она же возвращает зависшие PREPARING / PUBLISHING после перезапуска).
+  /// Все переходы условные (updateMany из ожидаемого статуса). Подготовка не удалась — строка и черновик удаляются.
+  status            String    @default("PREPARING")
+  previewMessageId  Int?
+  /// Номер показанного превью (в кнопке «Опубликовать»): старое превью не публикует.
+  previewVersion    Int       @default(0)
+  /// Отпечаток подписи и сетей показанного превью: уходит ровно то, что человек видел.
+  previewCaptionHash String?
+  /// updatedAt черновика после НАШЕЙ последней записи: черновик позже правили в «Роликах» CRM — его не удаляем никогда.
+  draftSeenAt       DateTime?
+  publishedAt       DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  @@index([chatId, status, updatedAt])
+  @@index([status, expiresAt])
+}
+
+/// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
+/// подбирает владелец (Настройки → Озвучка). Файл — в закрытом хранилище роликов (storageKey,
+/// lib/localVideoStorage.ts); тип проверен по содержимому, длина — ffprobe.
+model NarrationMusicTrack {
+  id          String   @id @default(uuid())
+  title       String
+  storageKey  String   @unique
+  /// mp3 | m4a
+  format      String
+  durationSec Float
+  sizeBytes   Int
+  createdById String?
+  createdAt   DateTime @default(now())
 }
 
 model NarrationVoiceSample {
@@ -3668,6 +3795,10 @@ model Client {
   /// может быть правдой, а может быть способом увести сделку. Отличить по тексту
   /// в CRM нельзя, поэтому карточка уходит не следующему агенту, а в СБ.
   securityReview            String?
+  /// Когда карточку поставили «на проверку СБ» (18.11.2026). Точка отсчёта для
+  /// «агент работал после постановки» — вердикт не закрывает карточку в работе
+  /// (apps/api/src/lib/securityAutomation.ts, securityReviewCloseBlocker).
+  securityReviewRequestedAt DateTime?
   securityReviewedAt        DateTime?
   securityReviewedById      String?
   securityReviewer          Agent?               @relation("SecurityReviewer", fields: [securityReviewedById], references: [id], onDelete: SetNull)
@@ -3995,6 +4126,10 @@ model Client {
   /// таймером duplicateReviewDueAt (lib/duplicateReview.ts::sweepExpiredDuplicateReviews,
   /// тот же принцип, что у lostReturnAcceptMinutes/returnAcceptDueAt).
   duplicateReviewOfClientId   String?
+  /// НОМЕР ИЗ КОММЕНТАРИЯ (18.11.2026, messengers/commentPhoneLead.ts): карточка заведена сразу, но в раздачу идёт после
+  /// ответа клиента боту в личных или по истечении этого срока (20 мин рабочего окна). Пусто — обычная раздача.
+  /// Снимает ТОЛЬКО lib/commentPhoneHold.ts (тик раздачи); утренняя волна такие карточки до срока не берёт.
+  commentPhoneHoldUntil       DateTime?
   duplicateReviewOfClient     Client?   @relation("ClientDuplicateReview", fields: [duplicateReviewOfClientId], references: [id], onDelete: SetNull)
   /// Обратная сторона self-relation выше — карточки, которые сочли похожими НА эту.
   duplicateReviewCandidateOf  Client[]  @relation("ClientDuplicateReview")
@@ -4030,6 +4165,10 @@ model Client {
   /// сколько у клиента объектов — ИИ сам понимает и вносит»). Каждое новое
   /// упоминание ЗАМЕНЯЕТ значение, а не складывается — та же логика, что у
   /// budgetMin/Max при уточнении бюджета.
+  /// 18.11.2026: подсчёт объектов ИИ УДАЛЁН (владелец: «Надо удалить логику такую… что то она
+  /// мешает всем»). Колонки ниже никто больше не пишет и экран не показывает; сами колонки
+  /// оставлены — удаление необратимо. Читает старое значение только «Контроль работы с
+  /// продавцом» (lib/sellerControlEpisodes.ts), он на проде не запускался ни разу.
   sellerDeclaredPropertyCount   Int?
   /// Когда именно ИИ впервые услышал текущее число — от этого момента, а не от
   /// встречи, считается срок до аларма «заявлено N, добавлено M»
@@ -4141,6 +4280,9 @@ model Client {
   /// по workStatus=DEFERRED + deferredUntil<=now — без составного индекса это
   /// полный проход по всей таблице клиентов на каждом тике.
   @@index([workStatus, deferredUntil])
+  /// Снятие придержки номера из комментария (lib/commentPhoneHold.ts) — каждый тик раздачи отбирает
+  /// commentPhoneHoldUntil not null; без индекса это полный проход по клиентам (ревью #283, 20.11.2026).
+  @@index([commentPhoneHoldUntil])
   /// Пуши «новое объявление на площадке подошло покупателю» (14.11.2026).
   marketAlerts BuyerMarketAlert[]
 }
@@ -4361,6 +4503,13 @@ model MessengerAccount {
   pageId           String?
   /// Последняя УСПЕШНАЯ отправка этого аккаунта через Страницу (ключ компании).
   eternalLastSentAt DateTime?
+  /// Meta закрыла доступ к аккаунту (21.11.2026, Arvan: «You cannot access the app till you log in to
+  /// www.instagram.com…» — проверка безопасности или блокировка). Одна запись и одна тревога на случай;
+  /// проверки здоровья, лента и сторожа подписки такой аккаунт не трогают. Снимается само при первом
+  /// успешном вызове или новом маркере. Вся логика — lib/instagramAccountAccess.ts.
+  accessLostAt     DateTime?
+  /// Что ответила Meta (без маркера), для карточки в Настройках.
+  accessLostReason String?
   /// Маркер доступа, зашифрован тем же способом, что ключи в Settings.
   token            String
   /// Выключенный аккаунт не отвечает и не принимает — но диалоги и история целы.
@@ -5973,6 +6122,61 @@ model GeminiCache {
 /// Пишется best-effort из центрального обработчика ошибок API и с фронта
 /// (window.onerror). Директор получает утренний push-дайджест, если за сутки
 /// были ошибки. Чистится автоматически (90 дней), в отличие от AuditLog.
+/// META НЕ ПРОПУСКАЕТ ОТПРАВКУ С АККАУНТА (18.11.2026, lib/metaSendBlock.ts).
+///
+/// Отказ Meta «по правилам» (код 368 и родня, список — META_SEND_POLICY_BLOCKS) —
+/// не сбой, который лечится повтором: 17.11 Instagram Arvan получил четыре таких
+/// отказа за шесть минут, а повтор зависших диалогов готовился сделать до 46 попыток
+/// с новым текстом каждый раз. Строка — один аккаунт и один вид отправки:
+/// `dm` (личные сообщения, ответ на комментарий в личку) и `comment` (публичный
+/// ответ под постом) Meta ограничивает по отдельности.
+///
+/// Пока `liftedAt` пусто, автоматика бота в этот аккаунт не пишет; отправка
+/// сотрудника из CRM разрешена и служит пробой. После `nextProbeAt` одна настоящая
+/// отправка идёт пробой (замок `probeLeaseUntil` — одна на все процессы): прошла —
+/// `liftedAt`, не прошла — следующая ступень лесенки. Строка не удаляется: по
+/// `since`/`liftedAt` повтор зависших узнаёт, что реплика ждала во время запрета.
+model MetaSendBlock {
+  id              String    @id @default(uuid())
+  /// `account:<MessengerAccount.id>` или `settings:<CHANNEL>` (ключ из Настроек).
+  accountKey      String
+  /// `dm` | `comment`.
+  surface         String
+  /// INSTAGRAM | FACEBOOK | WHATSAPP.
+  channel         String
+  accountId       String?
+  /// Как аккаунт называется для людей: «Arvan Estate (Instagram)».
+  label           String
+  /// Начало последнего эпизода запрета.
+  since           DateTime
+  /// Когда запрет снят удачной пробой. Пусто — запрет действует.
+  liftedAt        DateTime?
+  lastFailureAt   DateTime
+  /// Отказов по правилам в этом эпизоде.
+  failures        Int       @default(1)
+  /// Ступень лесенки проб (0 — первая пауза).
+  probeStep       Int       @default(0)
+  /// С этого момента следующая настоящая отправка — проба.
+  nextProbeAt     DateTime
+  /// Проба уже идёт (другие ждут) до этого момента.
+  probeLeaseUntil DateTime?
+  /// Код и подкод ошибки Meta отдельными полями — текст ошибки в журнале обрезается.
+  lastCode        Int
+  lastSubcode     Int?
+  lastErrorType   String?
+  lastFbtraceId   String?
+  lastMessage     String?
+  /// Первое предупреждение Meta «навязчивая отправка» (613/2018338) в текущем часе. Само по себе
+  /// не запрет: второе в течение часа — уже метка. Строка, где были только предупреждения, —
+  /// `failures = 0` и `liftedAt` = `since` (запрета не было).
+  warningAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([accountKey, surface])
+  @@index([liftedAt])
+}
+
 model ErrorLog {
   id           String    @id @default(uuid())
   /// "api" | "web"
@@ -6478,6 +6682,12 @@ model Settings {
   videoHandoffQueuePausedAt         DateTime?
   videoHandoffQueuePausedById       String?
   videoHandoffQueuePauseReason      String?
+  /// МОНТАЖЁР УПРАВЛЯЕТ ОЧЕРЕДЬЮ ИЗ БОТА (19.11.2026, владелец: «дай монтажёру
+  /// пропускать очередь кнопкой или передвигать её»). true — в боте кнопки
+  /// «⏭ Пропустить», «Взять сейчас», «выше/ниже», «уже сделан»; false — кнопок
+  /// нет, нажатие отвечает «выключено руководителем». Паузу и «Отложить»
+  /// руководства монтажёр не обходит в любом положении. lib/montajerQueueControl.ts.
+  montajerQueueControlEnabled       Boolean   @default(true)
   /// Канал для кросспоста (Bot API уже подключён для личных сообщений —
   /// apps/api/src/telegram/api.ts; здесь просто chat_id канала, где бот админ).
   telegramChannelId                 String?
@@ -7154,6 +7364,49 @@ model Settings {
   /// стирается: включили обратно — история на месте. @default(true), чтобы
   /// поведение на проде не изменилось само в момент выката миграции.
   royalScoreEnabled                 Boolean   @default(true)
+  /// ВЫКЛЮЧАТЕЛИ АВТОМАТИКИ «РАБОТА С ПРОДАВЦАМИ» (владелец 14.11.2026). Список,
+  /// правило «главный И свой» и подписи — packages/shared/src/sellerAutomationSwitches.ts,
+  /// проверка — apps/api/src/lib/sellerSwitches.ts в начале каждого тика/задания.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  sellerAutomationMasterEnabled         Boolean @default(true)
+  sellerNoPropertyAlarmEnabled          Boolean @default(true)
+  sellerPropertyMissingAntifraudEnabled Boolean @default(true)
+  agentUnansweredAlarmEnabled           Boolean @default(true)
+  dealStaleSellersEnabled               Boolean @default(true)
+  sellerProbeCallEnabled                Boolean @default(true)
+  dealAfterCloseMessagesEnabled         Boolean @default(true)
+  sellerAiAnalysisEnabled               Boolean @default(true)
+  morningSellerLinesEnabled             Boolean @default(true)
+  /// РУБИЛЬНИК «СЛУЖБА БЕЗОПАСНОСТИ: АВТОМАТИКА» (владелец 18.11.2026: «временно
+  /// выключить всю логику сб… чтобы уведомление было руководителю»). Выключен —
+  /// автоматика СБ/антифрода сама не меняет карточку и агента, сигнал уходит
+  /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
+  /// @default(false) нарочно: после выката выключено, включает человек.
+  securityAutomationEnabled             Boolean @default(false)
+  /// ВЫКЛЮЧАТЕЛИ «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти
+  /// функции, просто сделать переключатели»). Список, подписи и группы —
+  /// packages/shared/src/automationSwitches.ts, проверка — apps/api/src/lib/automationSwitches.ts.
+  /// Все @default(true): выкат миграции поведение не меняет, выключает человек.
+  aiCardFromCallEnabled                 Boolean @default(true)
+  aiAgentShowingAutoBookEnabled         Boolean @default(true)
+  aiJobSeekerAutoDetachEnabled          Boolean @default(true)
+  dealStaleBuyersEnabled                Boolean @default(true)
+  notifyClientWaitingEnabled            Boolean @default(true)
+  notifyRobotTookCallEnabled            Boolean @default(true)
+  notifyTrashAnomalyEnabled             Boolean @default(true)
+  notifyPropertyReviewOverdueEnabled    Boolean @default(true)
+  /// «Бот отвечает и после заявки» (владелец 20.11.2026: «бот не должен же молчать»). Реестр — packages/shared/src/automationSwitches.ts.
+  /// ВКЛ по умолчанию. ВЫКЛ — прежнее поведение: после заявки бот отвечает только на прямой вопрос и новую деталь.
+  botRepliesAfterLeadEnabled            Boolean @default(true)
+  /// «Спам — без ответа и без модели» (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»). ВКЛ.
+  botSpamFilterEnabled                  Boolean @default(true)
+  /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
+  /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
+  shabnamSocialPublishEnabled           Boolean @default(true)
+  /// «Instagram через постоянный ключ Meta» (владелец 21.11.2026: «Да, переводи»). Реестр — automationSwitches.ts. ВКЛ:
+  /// аккаунт, прошедший проверку (ключ компании, права, Страница с этим Instagram), отвечает через Страницу,
+  /// личный маркер — запасной. ВЫКЛ — все аккаунты Instagram на личных маркерах, как до 21.11.
+  instagramCompanyKeyEnabled            Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -7292,6 +7545,36 @@ model Settings {
   /// Только в режиме «только заявки»: «хотим посмотреть», «куда ехать», «адрес»
   /// и таджикские равные — заявка агенту сразу, с объектом, если он известен.
   botHotIntentHandover              Boolean   @default(true)
+  /// ЭСТАФЕТА (владелец 20.11.2026, «да» на замену правил 18.08 и 28.09): в режиме «только заявки» ответ сотрудника глушит
+  /// бота на N минут (180 = 3 часа), а не на 10 лет / 12 часов; ручная кнопка паузы — бессрочно, как была. Читает lib/leadOnlyConfig.ts.
+  botStaffQuietMinutes              Int       @default(180)
+  /// «Бот пишет своими словами» (SPEC, этап 1.4): шаг выбирает код, слова пишет модель, готовая фраза — страховка.
+  /// ВЫКЛЮЧЕН по умолчанию до прогона на живых диалогах. Читает lib/leadOnlyConfig.ts.
+  botOwnWords                       Boolean   @default(false)
+  /// Номера проверяющих (владелец 20.11.2026): с ними бот говорит как с клиентом, хотя это сотрудники; заявка от них
+  /// карточкой не становится. Читает lib/botReviewers.ts.
+  botReviewerPhones                 String[]  @default([])
+  /// «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026: «бот никак не вызывал администратора, директора… полностью сам все
+  /// отвечает… и в комментариях»). ВКЛ — бот не зовёт руководство («клиент ждёт», «передаю сотруднику», «комментарий
+  /// требует человека»), а сам отвечает безопасной фразой и ведёт к номеру. Остаются всегда: агенту — о его клиенте,
+  /// заявка с номером, назначающим — заявка без агента, техсбой. Одна дверь чтения — lib/botAnswersItself.ts.
+  /// ВЫКЛЮЧЕН по умолчанию.
+  botAnswersItself                  Boolean   @default(false)
+  /// НОМЕР ИЗ КОММЕНТАРИЯ — РАЗГОВОР (18.11.2026, messengers/commentPhoneLead.ts): ВКЛ — одно личное с вопросом о цели,
+  /// публичный ответ, если личное невозможно, и скрытие комментария. ВЫКЛ — карточка с пометкой, а комментарий разбирается
+  /// прежним путём (ответ модели под постом). ВЫКЛЮЧЕН по умолчанию: включается после «да» владельца на тексты.
+  /// Читает lib/botAnswersItself.ts.
+  botCommentPhoneConversation       Boolean   @default(false)
+  /// НОМЕР ИЗ КОММЕНТАРИЯ — ЗАЯВКА (20.11.2026, рубильник ревью #283): ВКЛ — номер под постом (Instagram, Facebook,
+  /// YouTube, обсуждение Telegram) становится карточкой и уходит агенту. ВЫКЛ — как до #283: номер под постом карточкой
+  /// не становится. Разговор по номеру (botCommentPhoneConversation) действует только при ВКЛ этой настройки.
+  /// ВЫКЛЮЧЕН по умолчанию. Читает только lib/botAnswersItself.ts.
+  botCommentPhoneLead               Boolean   @default(false)
+  /// РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК memor.pro (20.11.2026, решение владельца): раз в неделю забирать открытый файл и показывать
+  /// статус разрешения у объектов и на карте. ТОЛЬКО для сотрудников. ВКЛ по умолчанию. Читает lib/constructionRegistry/sync.ts (loadRegistrySettings).
+  constructionRegistryEnabled       Boolean   @default(true)
+  /// Уведомление ответственному агенту, когда у привязанного объекта сменился цвет в реестре. ВКЛ по умолчанию; первый забор ничего не шлёт.
+  constructionRegistryNotify        Boolean   @default(true)
   /// Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026). По умолчанию ВЫКЛ.
   marketBuyerAlertsEnabled          Boolean   @default(false)
   /// Когда рубильник пуша «объявление под покупателя» включили (ставит первый прогон; null при выключенном). «Новое» считается от неё.
@@ -7355,6 +7638,11 @@ model Settings {
   /// только на то, когда новый лид уходит агенту, а не на доступность бота.
   workHoursStart                    String    @default("09:30")
   workHoursEnd                      String    @default("18:00")
+  /// НАЧАЛО РАБОЧЕГО ДНЯ СОТРУДНИКОВ, "HH:MM" по Душанбе (20.11.2026). Отдельно от
+  /// workHoursStart (окна раздачи заявок): главная руководителя помечает агента
+  /// «сегодня не заходил» только в его рабочий день (companyDaysOff, личные выходные,
+  /// companyHolidays) и только после этого часа. Настройки → Сотрудники.
+  workdayStart                      String    @default("09:30")
   /// ОБЩИЕ ВЫХОДНЫЕ КОМПАНИИ (владелец 11.10.2026: «у нас нет никаких выходных»):
   /// дни недели по Душанбе, 0 — воскресенье … 6 — суббота. Пусто (по умолчанию) —
   /// выходных нет. До 11.10 воскресенье было зашито выходным в коде.
@@ -7853,6 +8141,17 @@ model Settings {
   /// Рубильник: выключено по умолчанию, правило меняет маршрут живых звонков. Включает владелец
   /// после проверки на станции; выключено — такой звонок идёт к оператору, как у незнакомого номера.
   incomingArchiveCallbackEnabled Boolean @default(false)
+  /// ПРОПУЩЕННЫЙ ВХОДЯЩИЙ ЗВОНОК НЕ ТЕРЯЕТСЯ (18.11.2026). Оба рубильника выключены по
+  /// умолчанию: вливание не меняет поведение прода, включает владелец.
+  /// А. Неотвеченный входящий (ни человек, ни робот): звонившему сразу уходит одна СМС
+  /// со ссылкой на WhatsApp (lib/telephony/missedCallFollowup.ts, причина MISSED_CALL_WA).
+  missedCallSmsEnabled         Boolean  @default(false)
+  /// Текст СМС: одно сообщение, сначала таджикский, потом русский, ссылка голая.
+  /// Хранится только здесь (умолчание — значение колонки), второго источника в коде нет.
+  missedCallSmsText            String   @default("Салом. Шумо занг задед, мо ҷавоб дода натавонистем. Ба WhatsApp нависед: https://wa.me/992777776001 Вы звонили, мы не успели ответить. Напишите нам в WhatsApp.")
+  /// Б. Пропущенный с незнакомого номера заводит карточку и общую задачу «Перезвонить»
+  /// (тот же механизм, что у молчавшего после робота: inbound_missed_callback).
+  missedCallCallbackTaskEnabled Boolean @default(false)
   /// РЕЖИМ МАРШРУТИЗАЦИИ НЕЗНАКОМЫХ ЗВОНКОВ (владелец 20.08.2026) — заготовка на
   /// будущее, а не переключатель поведения станции. Сейчас на линии реально
   /// действует только "assigned_then_forward" (клиента с ответственным уводит
@@ -9211,6 +9510,12 @@ model IncomingCall {
   /// Номер звонящего в том виде, в каком его хранит CRM (+992…). Станция сообщает
   /// девять цифр без кода страны — приводится при записи (см. lib/telephony/incomingCalls.ts).
   phone             String
+  /// Откуда пришёл звонок: "phone" — обычная линия, "whatsapp" — голосовой звонок
+  /// WhatsApp через шлюз SIP (канал станции `PJSIP/whatsapp-gw-…`, 18.11.2026).
+  /// Строка, а не enum — по той же причине, что routeDecision: новый канал не
+  /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
+  /// решает lib/telephony/callSource.ts.
+  source            String    @default("phone")
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди
@@ -9813,8 +10118,8 @@ model StageEvent {
   /// "CLIENT" | "DEAL" — чей переход.
   entityType String
   entityId   String
-  /// Какое поле сменилось: "status" | "workStatus" | "stage" — у клиента их
-  /// два независимых, и без имени поля переходы двух машин состояний смешаются.
+  /// Какое поле сменилось: у клиента — "status" | "workStatus" | "source" (два состояния и источник
+  /// независимы, без имени поля переходы смешались бы), у сделки — "stage".
   field      String
   /// Откуда ушли. null — запись о создании: первый статус, прежнего не было.
   from       String?
@@ -10511,7 +10816,7 @@ model SmsMessage {
   id                String    @id @default(uuid())
   /// Номер в форме провайдера: 992XXXXXXXXX.
   phone             String
-  /// LOGIN_CODE | PROPERTY_SHARE | CALL_PROPERTIES | TEST
+  /// LOGIN_CODE | PROPERTY_SHARE | CALL_PROPERTIES | SHOWING_CONFIRM | OWNER_REPORT | MISSED_CALL_WA | TEST
   purpose           String
   /// Текст, как ушёл (для кода входа — заглушка без самого кода).
   text              String
@@ -10837,6 +11142,11 @@ model SocialVideoPost {
   status        String    @default("DRAFT")
   scheduledAt   DateTime?
   startedAt     DateTime?
+  /// Бронь исполнителя публикации (19.11.2026): кто первым поставил время — тот исполняет, остальные выходят.
+  /// null — исполнителя ещё не было; сбрасывается при каждом новом заходе (lib/socialVideoPosts.ts::claimRun).
+  runClaimedAt  DateTime?
+  /// Кто держит бронь: «хост:pid:время старта процесса» (claimRun) — бронь умершего процесса не мешает повтору задания.
+  runClaimedBy  String?
   finishedAt    DateTime?
 
   /// Исход по каждому каналу: { INSTAGRAM: { state, error, note, postId, url, retriable,
@@ -11421,6 +11731,7 @@ model MarketListing {
   /// Совпадения с нашими объектами: только обратная сторона связи, колонок нет.
   ownMatches     PropertyMarketMatch[]
   buyerAlerts    BuyerMarketAlert[]
+  contacts       MarketListingContact[]
 
   @@unique([source, sourceId])
   @@index([dealType, propertyType, isActive])
@@ -11513,6 +11824,26 @@ model BuyerMarketAlert {
   @@unique([clientId, listingId])
   @@index([clientId, notifiedAt])
   @@index([listingId])
+}
+
+/// КТО УЖЕ СВЯЗЫВАЛСЯ С ПРОДАВЦОМ ЧУЖОГО ОБЪЯВЛЕНИЯ (17.11.2026). Пишет одна дверь — POST /market/listing-contact
+/// (кнопки «Показать номер» и «Написать в WhatsApp»), когда агент получил номер продавца. Блок «С площадок» под
+/// клиентом показывает это всем агентам, чтобы двое не звонили одному хозяину. Номера здесь нет — только кто,
+/// когда, каким действием и для какого клиента.
+model MarketListingContact {
+  id        String        @id @default(uuid())
+  listingId String
+  listing   MarketListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Сотрудник, получивший номер (без внешнего ключа: уволенный не должен стирать историю).
+  agentId   String
+  /// Для какого покупателя (null — номер взяли не из карточки клиента).
+  clientId  String?
+  /// PHONE — «Показать номер», WHATSAPP — «Написать в WhatsApp».
+  action    String
+  createdAt DateTime      @default(now())
+
+  @@index([listingId, createdAt])
+  @@index([agentId, createdAt])
 }
 
 model PropertyMarketMatch {
@@ -11702,7 +12033,8 @@ enum RobotCallStopSource {
 model FreeNarration {
   id                  String    @id @default(uuid())
   agentId             String
-  /// TELEGRAM | API
+  /// TELEGRAM | API | LISTEN («▶ Прослушать» в мастере объекта, 21.11.2026: lib/narrationListen.ts, свой предел на человека,
+  /// requestKey = «listen:<сотрудник>:<отпечаток звука>» — тот же текст и голос второй раз не оплачиваются)
   source              String
   chatId              String?
   /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN
@@ -11754,4 +12086,125 @@ model SomonPhoneSighting {
 
   @@id([phoneHash, advertId])
   @@index([seenAt])
+}
+
+// ───────────── Реестр разрешённых строек Душанбе (memor.pro, 20.11.2026) ─────────────
+// ТОЛЬКО ДЛЯ СОТРУДНИКОВ: отдельные таблицы нарочно, чтобы публичные ответы (сайт, бот, реклама), собирающие поля
+// Property, не могли подхватить их случайно. Контактов застройщиков не берём и не храним.
+
+enum ConstructionColor {
+  GREEN
+  YELLOW
+  RED
+}
+
+enum ConstructionLinkState {
+  LINKED
+  REJECTED
+}
+
+enum ConstructionLinkMethod {
+  AUTO
+  MANUAL
+}
+
+/// Застройщик (заказчик строительства): нормализованное имя без «ҶДММ «…»», кавычек и регистра. Рейтинг считается на лету.
+model ConstructionDeveloper {
+  id             String                @id @default(uuid())
+  nameNormalized String                @unique
+  displayName    String
+  createdAt      DateTime              @default(now())
+  projects       ConstructionProject[]
+}
+
+/// Проект из реестра. Ключ источника — sourceId (поле id реестра; qaror НЕ уникален: у садика тот же номер, что у дома).
+model ConstructionProject {
+  id              String                @id @default(uuid())
+  sourceId        String                @unique
+  qaror           String
+  title           String
+  customer        String
+  developerId     String
+  developer       ConstructionDeveloper @relation(fields: [developerId], references: [id])
+  lat             Float
+  lng             Float
+  category        String
+  eduType         String?
+  colorStatus     ConstructionColor
+  isComplete      Boolean               @default(false)
+  hasCommission   Boolean               @default(false)
+  sourceUrl       String
+  /// Хэш строки списка: поменялся — перечитываем страницу объекта.
+  listHash        String
+  address         String?
+  description     String?
+  floors          Int?
+  blocks          String[]
+  /// [{ name, ready }] — документы проекта и готовность каждого.
+  documents       Json                  @default("[]")
+  warning         String?
+  detailFetchedAt DateTime?
+  firstSeenAt     DateTime              @default(now())
+  lastSeenAt      DateTime              @default(now())
+  statusChangedAt DateTime?
+  /// Пропал из списка реестра (сторож не дал ложной тревоги): не удаляем, помечаем.
+  removedAt       DateTime?
+  statusChanges   ConstructionStatusChange[]
+  links           ConstructionPropertyLink[]
+
+  @@index([developerId])
+  @@index([colorStatus, category])
+  @@index([removedAt])
+}
+
+model ConstructionStatusChange {
+  id        String               @id @default(uuid())
+  projectId String
+  project   ConstructionProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromColor ConstructionColor?
+  toColor   ConstructionColor
+  changedAt DateTime             @default(now())
+  /// Когда агенту отправлено уведомление об этой смене (null — ещё нет). Уведомляем по таблице, а не по памяти процесса.
+  notifiedAt DateTime?
+
+  @@index([projectId, changedAt])
+}
+
+/// Связь нашего объекта с проектом реестра. Предложения НЕ хранятся (считаются на лету); хранится выбранное и отвергнутое.
+model ConstructionPropertyLink {
+  id          String                 @id @default(uuid())
+  propertyId  String
+  property    Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     ConstructionProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  state       ConstructionLinkState
+  method      ConstructionLinkMethod
+  confidence  Int                    @default(0)
+  distanceM   Int?
+  reasons     String[]
+  createdById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@unique([propertyId, projectId])
+  @@index([propertyId, state])
+  @@index([projectId])
+}
+
+/// Журнал заборов реестра: свежесть данных и сбои видны владельцу.
+model ConstructionSyncRun {
+  id             String    @id @default(uuid())
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  ok             Boolean   @default(false)
+  trigger        String
+  fetched        Int       @default(0)
+  created        Int       @default(0)
+  changed        Int       @default(0)
+  removed        Int       @default(0)
+  detailsFetched Int       @default(0)
+  linked         Int       @default(0)
+  error          String?
+
+  @@index([startedAt])
 }

@@ -68,10 +68,10 @@ describe("приветствие: «Ваалайкум ассалом!» на «
   });
 });
 
-describe("7. зона: Душанбе и район Рудаки", () => {
+describe("7. зона: клиенту только Душанбе", () => {
   it.each([["ru", "В каком городе вы работаете?"], ["tg", "Шумо дар кадом шаҳр кор мекунед?"]] as const)("%s", (language, input) => {
     const text = render(input, { language, evidence: [{ ref: "e0", value: policy("service_scope") }], decision: { refs: ["e0"] } })!;
-    expect(text).toMatch(language === "tg" ? /Душанбе ва ноҳияи Рӯдакӣ/u : /Душанбе и районе Рудаки/u);
+    expect(text).toMatch(language === "tg" ? /дар Душанбе/u : /в Душанбе\./u);
     expect(text).not.toMatch(/амвол|в городе Душанбе\./u);
   });
 });
@@ -186,7 +186,7 @@ describe("3. сторож: запрещённые владельцем слов�
     expect(BANNED.test(recruitmentPhoneLine("tg"))).toBe(false);
   });
   it("вопрос продавцу живыми словами, без «нарх бо асъор-ро»", () => {
-    expect(customerSellerIntakeQuestion([], "tg")).toBe("Хонаатон чанд ҳуҷра, чанд квадрат, дар куҷо, кадом ошёна, бо таъмир ё каробка ва нархаш чанд? Ҳамаи маълумотро дар як паём нависед.");
+    expect(customerSellerIntakeQuestion([], "tg")).toBe("Хонаатон чанд ҳуҷра, чанд квадрат, дар куҷо, кадом ошёна, бо таъмир ё каробка ва нархаш чанд?");
     expect(customerSellerIntakeQuestionLines()).toContain("Барои фурӯш шумораи ҳуҷраҳо, масоҳат, ноҳия ё нишонӣ, ошёна, ҳолати таъмир, нарх бо асъор-ро нависед. Ҳамаашро дар як паём фиристода метавонед.");
   });
   it("таджикская цена — по разговорнику", () => {

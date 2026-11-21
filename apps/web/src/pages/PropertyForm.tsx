@@ -1,4 +1,4 @@
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { usableRouteId } from "../lib/routeId";
 import { useGoBack } from "../hooks/useGoBack";
 import { PROPERTY_EDIT_LOCKED_MESSAGE, propertyEditLocked } from "@royal-home/shared";
@@ -7,6 +7,11 @@ import { PropertyFormModal } from "../components/PropertyFormModal";
 import { useCan, useCanCreateProperty } from "../lib/permissions";
 import { PropertyWizard } from "../components/property-wizard/PropertyWizard";
 import { useProperty } from "../hooks/useProperties";
+import { ApiError } from "../lib/apiError";
+import { Rh2ErrorState, Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
+import { useLookAttribute, useRoyalLook } from "../hooks/useRoyalLook";
+import { useWizardRoyalLook } from "../components/look/wizard/useWizardRoyalLook";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
  * Полноэкранная форма объекта (/properties/new и /properties/:id/edit) в облике
@@ -34,8 +39,9 @@ function FormShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const section = useRoyalSectionName();
   return (
-    <div className="rh2 screens">
+    <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -81,16 +87,28 @@ function FormShell({
  * счётчиком шагов и полосой прогресса.
  */
 export function PropertyNew() {
-  const navigate = useNavigate();
+  // «Закрыть» мастер — шаг назад туда, откуда пришли (список, карточка клиента), а не новый переход на список:
+  // иначе за списком в истории оставался мастер (21.11.2026, разбор «Назад»).
+  const closeWizard = useGoBack("/properties");
   const [searchParams] = useSearchParams();
+  // «Новый вид» (пачка wizard, 20.11.2026). Мастер живёт СНАРУЖИ AppLayout (см.
+  // App.tsx), а атрибут `data-ui-look` ставит только AppLayout и снимает при
+  // уходе с его маршрутов — без этой строки слой нового вида до мастера не
+  // доставал бы вовсе. Решение то же (сервер + чистая оболочка + личный выбор),
+  // закрыто по умолчанию: нет признака — атрибута нет, ни одного пикселя.
+  // Пока ответ сервера в пути (холодный заход), — запомненный на устройстве
+  // признак, чтобы мастер не рисовался старым и не перекрашивался.
+  const royal = useWizardRoyalLook();
+  useLookAttribute(royal);
   // A12 (владелец 02.10.2026): СБ объекты не заводит. Кнопок у неё нет, а
   // прямая ссылка /properties/new уводит на список, а не в мастер, который
   // сервер всё равно не сохранит.
   const canCreateProperty = useCanCreateProperty();
   if (!canCreateProperty) return <Navigate to="/properties" replace />;
   return (
+    <RoyalSection name={royal ? "wizard" : undefined}>
     <PropertyWizard
-      onClose={() => navigate("/properties")}
+      onClose={closeWizard}
       initialIntakeAgentId={searchParams.get("intake") ?? undefined}
       // Баннер черновика на списке объектов уже спросил «продолжить?» — сюда
       // ведёт кнопкой «Продолжить», и в мастере вопрос повторять не за чем
@@ -103,13 +121,26 @@ export function PropertyNew() {
       // PropertyWizard.tsx::startFromClient.
       fromClientId={searchParams.get("fromClient") ?? undefined}
     />
+    </RoyalSection>
   );
 }
 
 /** Полноэкранное редактирование объекта (/properties/:id/edit) — та же страница-раздел. */
 export function PropertyEdit() {
+  // «Новый вид»: метка раздела wizard на странице и на окнах формы (подтверждение
+  // закрытия, выбор района) — без признака метки нет, разметка прежняя.
+  const royal = useRoyalLook();
+  return (
+    <RoyalSection name={royal ? "wizard" : undefined}>
+      <PropertyEditScreen />
+    </RoyalSection>
+  );
+}
+
+function PropertyEditScreen() {
+  const section = useRoyalSectionName();
   const id = usableRouteId(useParams().id);
-  const { data: property, isLoading } = useProperty(id);
+  const { data: property, isLoading, isError, error, fetchStatus, refetch, isFetching } = useProperty(id);
   const can = useCan();
   // Запасной путь — карточка того же объекта: человек пришёл править именно её,
   // и при прямом заходе (уведомление, закладка, обновление страницы) шаг назад
@@ -118,7 +149,7 @@ export function PropertyEdit() {
 
   if (isLoading) {
     return (
-      <div className="rh2 screens">
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="list">
@@ -136,9 +167,34 @@ export function PropertyEdit() {
       </div>
     );
   }
+  // Нет связи (запрос на паузе) — не «объект не найден»: «Нет связи», загрузится сам (ревью #346).
+  if (loadView({ data: property, isError, fetchStatus }) === "offline") {
+    return (
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
+        <div className="scr">
+          <div className="card">
+            <Rh2OfflineState onRetry={() => void refetch()} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // Обрыв связи или сбой сервера — это не «объект не найден»: словами и с «Повторить» (К14, аудит 20.11.2026).
+  const notFoundLike = isError && !property && error instanceof ApiError && (error.status === 404 || error.status === 403);
+  if (isError && !property && !notFoundLike) {
+    return (
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
+        <div className="scr">
+          <div className="card">
+            <Rh2ErrorState message="Не удалось загрузить объект. Проверьте связь и нажмите «Повторить»." onRetry={() => void refetch()} retrying={isFetching} />
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!property) {
     return (
-      <div className="rh2 screens">
+      <div className={section ? "rh2 screens ry-wiz-edit" : "rh2 screens"} data-ry-section={section}>
         <div className="scr">
           <div className="card">
             <div className="empty">

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { createNotificationsStrict } from "./notifications.js";
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
 import { silentTurnReason } from "../messengers/silentTurn.js";
 import type { ChatMessage } from "../ai/client.js";
@@ -12,6 +14,9 @@ import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { loadBotAnswersItself, staffSignalAllowed, type StaffSignalKind } from "./botAnswersItself.js";
+import type { OperatorStaffReason } from "../ai/operator/types.js";
+import { OPERATOR_PHRASES } from "../ai/operator/phrases.js";
 
 /**
  * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов №4).
@@ -117,6 +122,35 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 export type ClientWaitingTrigger = "escalate" | "failed" | "silence" | "follow_up" | "handover";
 
 /** A person (an agent in the CRM or staff from the messenger app) answered in the chat after `since`. Pure. */
+/** Действующий сотрудник или null (уволенному пуш не шлём — следующий по лесенке). */
+async function activeAgentOrNull(agentId: string | null): Promise<string | null> {
+  if (!agentId) return null;
+  const row = await prisma.agent.findUnique({ where: { id: agentId }, select: { isActive: true } }).catch(() => null);
+  return row?.isActive ? agentId : null;
+}
+
+/** Действующие РОП, директор и админ — для строки в колокольчике без пуша. */
+async function leadershipAgentIds(): Promise<string[]> {
+  const rows = await prisma.agent.findMany({ where: { isActive: true, role: { in: [...CLIENT_WAITING_LEADERSHIP] } }, select: { id: true } });
+  return rows.map(row => row.id);
+}
+
+/** Кто из сотрудников последним писал в этой переписке из CRM (ответ из приложения Meta сотрудника не называет). */
+/**
+ * Кому из руководства доходит сигнал «клиент ждёт» (владелец 20.11.2026: «лучше такие уведомления отправлять ропу тоже»):
+ * РОП (роль HEAD_OF_SALES), директор и админ — одной очередью. Нет действующего РОПа — директор и админ, как раньше.
+ */
+export const CLIENT_WAITING_LEADERSHIP = ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"] as const;
+
+export function lastStaffWriterId(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const by = (messages[i] as { role?: string; by?: { kind?: string; agentId?: string } } | null)?.by;
+    if (by?.kind === "agent" && typeof by.agentId === "string") return by.agentId;
+  }
+  return null;
+}
+
 export function humanRepliedSince(messages: unknown, since: Date): boolean {
   if (!Array.isArray(messages)) return false;
   return messages.some(raw => {
@@ -132,7 +166,17 @@ export function humanRepliedSince(messages: unknown, since: Date): boolean {
  * IT writes the per-chat error log below (review 0e463b02 N4). `skipped` — nobody was told. `excluded` — this chat gets no
  * staff signal by design: the customer opted out, the client is in the trash, or the chat is gone (review 0e463b02 N5).
  */
-export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded";
+/** `self` — «Бот отвечает сам» (lib/botAnswersItself.ts): руководство не зовём, клиенту отвечает бот (без «передал сотруднику»). */
+export type ClientWaitingOutcome = "agent" | "director" | "already" | "skipped" | "excluded" | "self";
+
+/**
+ * Вид сигнала для двери «Бот отвечает сам». follow_up/handover — клиент уже услышал «это скажет агент / передал»;
+ * escalate/silence — клиент не получил НИЧЕГО; failed — ход сломался (техсбой). `alwaysTell` — аварийный рубильник канала.
+ */
+export function clientWaitingSignalKind(trigger: ClientWaitingTrigger, alwaysTell = false): StaffSignalKind {
+  if (alwaysTell || trigger === "failed") return "technical";
+  return trigger === "follow_up" || trigger === "handover" ? "answered_handover" : "unanswered";
+}
 
 const CHANNEL_NAME: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -168,6 +212,8 @@ interface WaitingChat {
   lastAlertAt: Date | null;
   /** Клиент CRM — чтобы звонок после сигнала считался ответом (ревью #205, С-4). */
   clientId: string | null;
+  /** У чата есть карточка (заявка уже есть) — для двери «Бот отвечает сам». */
+  hasCard: boolean;
 }
 
 const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
@@ -183,10 +229,16 @@ const OPT_OUT_SILENCES: ReadonlySet<ClientWaitingTrigger> = new Set(["silence", 
  * the bot's own «the agent will tell» / «a person is needed» signals are not sent. The mode answers such turns itself (a phone
  * ask, or a lead on a WhatsApp number). Failures (`failed`) and the 30-minute watchdog (`silence`) stay: those are faults, not
  * leads. A vacancy chat keeps the recruiter's path (`jobTopic`).
+ *
+ * Решение оператора приёма заявок «звать человека» (`staffReason`: жалоба, грубость — SPEC, случаи 22 и 26) это правило
+ * НЕ глушит: клиенту уже сказано «Ваше сообщение увидит руководитель» / «продолжит наш сотрудник», и это обещание
+ * правдиво, только если человек правда узнал (20.11.2026, живой диалог 19.11: жалоба до заявки, сигнала не было никому).
  */
 const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up", "escalate"]);
 
-async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false): Promise<WaitingChat | null> {
+
+async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false,
+  staffReason: OperatorStaffReason | null = null): Promise<WaitingChat | null> {
   const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
@@ -194,7 +246,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       select: { id: true, name: true, channel: true, messages: true, optedOutAt: true, silenceAlertFor: true, clientId: true, client },
     });
     if (!chat || chat.optedOutAt && OPT_OUT_SILENCES.has(trigger) || chat.client?.deletedAt) return null;
-    if (!chat.clientId && !jobTopic && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
+    if (!chat.clientId && !jobTopic && !staffReason && LEAD_ONLY_QUIET.has(trigger) && await leadOnlyQuietBeforeLead(chat.channel)) return null;
     const previous = chat.silenceAlertFor;
     return {
       openId: chat.id,
@@ -204,6 +256,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       replyHint: "Ответьте клиенту.",
       lastAlertAt: previous,
       clientId: chat.clientId,
+      hasCard: !!chat.clientId,
       async claim(since) {
         if (previous && previous.getTime() >= since.getTime()) return false;
         const claimed = await prisma.botConversation.updateMany({
@@ -232,6 +285,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
     lastAlertAt: null,
     // follow_up по звонку проверяется только при lastAlertAt — у Telegram-таблиц его нет.
     clientId: null,
+    hasCard: !!chat.client,
     async claim(since) {
       const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
         VALUES (${randomUUID()},${TELEGRAM_EPISODE_CLAIM},${key(since)},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
@@ -259,32 +313,88 @@ export async function alertClientWaiting(input: {
   since?: Date;
   /** Разговор о вакансии: режим «только заявки» его сигналы не глушит (ведёт рекрутер). */
   jobTopic?: boolean;
+  /** Аварийный рубильник канала (CUSTOMER_AGENT_CHANNEL_OFF): бот молчит, человек обязан узнать при любой настройке. */
+  alwaysTell?: boolean;
+  /**
+   * Человека звать обязательно при любом положении «Бот отвечает сам»: решение оператора приёма заявок (грубость, жалоба —
+   * docs/bot-operator/SPEC.md, случаи 22 и 26; оператор — один хозяин разговора) или ответ, который обещал агента и не был
+   * заменён (в нём факты или подтверждение действия). Сведение #283 с #311, 19.11.2026.
+   */
+  staffRequired?: boolean;
+  /**
+   * Оператор приёма заявок зовёт человека по делу (SPEC, случаи 22 и 26). Сигнал идёт и до заявки в режиме «только заявки»,
+   * и повторно по тому же чату; текст называет причину. Жалобу видит руководство (клиенту обещано «увидит руководитель»):
+   * агенту карточки (если он есть) и копией руководству; без агента — руководству. Срочность обычная (ночью не будит).
+   * Подразумевает `staffRequired`.
+   */
+  staffReason?: OperatorStaffReason;
+  /** Номер клиента известен, а заявки нет: при «бот отвечает сам» человек всё равно узнаёт (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean;
   now?: Date;
 }): Promise<ClientWaitingOutcome> {
   const now = input.now ?? new Date();
-  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true);
+  const staffReason = input.staffReason ?? null;
+  const chat = await loadWaitingChat(input.source ?? "bot", input.conversationId, input.trigger, input.jobTopic === true, staffReason);
   if (!chat) return "excluded";
+  /**
+   * «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026): руководство про чат без карточки и без своего агента не зовём — ни «агент
+   * уточнит», ни «передал сотруднику» (клиенту бот уже ответил). Клиент совсем без ответа (escalate/silence) — сбой, сигнал
+   * как раньше, один на эпизод. Агент своего клиента, карточка без агента, техсбой, аварийный рубильник и вакансия — как раньше.
+   */
+  const signal = { kind: clientWaitingSignalKind(input.trigger, input.alwaysTell === true || input.staffRequired === true || !!staffReason), ownAgent: !!chat.agentId, hasCard: chat.hasCard,
+    phoneKnown: input.phoneKnown === true };
+  // Настройку читаем, только когда она может что-то решить (техсбой, свой агент и карточка проходят при любом положении).
+  const selfAnswer = !input.jobTopic && staffSignalAllowed({ on: true, ...signal }) === false &&
+    !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal });
+  if (selfAnswer) return "self";
   const episode = waitingEpisodeOf(chat.messages);
   // Ядро держит ход ДО записи ответа, но реплика клиента к этому моменту уже в
   // истории; нет её (или нет времени) — для эскалации начало эпизода «сейчас».
-  const since = input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
+  // Сигнал оператора (жалоба, «не понял», переписка сотрудника…) — ключ эпизода = начало неотвеченной серии сообщений
+  // клиента, а не время этого сообщения: пять сообщений подряд — один сигнал (ревью #333, второй круг).
+  const since = (staffReason ? episode?.since : null) ?? input.since ?? episode?.since ?? (input.trigger !== "silence" ? now : null);
   if (!since) return "skipped";
   // «Агент уточнит» — one CRITICAL per chat until a person answers in the chat (re-review #201, Н-нов-3; owner: rarely
   // disturb people): three empty searches in a row are one signal, not three.
   // A completed CALL after the previous signal is an answer too (review #205, С-4): the agent who phoned the customer learns
   // about the NEXT promise "the agent will tell", instead of never hearing of this chat again.
-  if (input.trigger === "follow_up" && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) {
+  // Жалоба и грубость — новый повод, а не повтор «агент уточнит»: прошлый неотвеченный сигнал их не глушит.
+  if (input.trigger === "follow_up" && !staffReason && chat.lastAlertAt && !humanRepliedSince(chat.messages, chat.lastAlertAt)) {
     const called = chat.clientId ? (await fetchLastCallContactByClient([chat.clientId])).get(chat.clientId) : undefined;
     if (!called || called.getTime() <= chat.lastAlertAt.getTime()) return "skipped";
   }
+
+  // Выключатель «Клиент молчит 30 минут» (19.11.2026) гасит ТОЛЬКО напоминание сторожа молчания.
+  // Сигналы о поломке бота и передаче сотруднику (escalate, failed, handover) и «агент уточнит»
+  // (follow_up) идут всегда: клиенту уже сказали «передал сотруднику» или ответ не ушёл, это не напоминание.
+  if (input.trigger === "silence" && !(await automationSwitchOn("notifyClientWaitingEnabled"))) return "skipped";
 
   // Атомарная метка эпизода ДО отправки: два одновременных вызова не пройдут оба. Проигравший — «уже сказали» (R1-2).
   if (!(await chat.claim(since))) return "already";
 
   const name = chat.name;
   const waitedMin = Math.max(0, Math.round((now.getTime() - since.getTime()) / 60_000));
+  const answerHint = chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint;
   const body =
-    input.trigger === "follow_up"
+    // Фраза клиенту — из того же набора, откуда её берёт оператор (ai/operator/phrases.ts): разговор закрыт после неё,
+    // поэтому звучал первый вариант.
+    staffReason === "complaint"
+      ? `${name}: клиент жалуется. Бот ответил «${OPERATOR_PHRASES.complaint_ack.ru[0]}» и дальше молчит. ${answerHint}`
+      : staffReason === "rude"
+      ? `${name}: клиент написал грубо. Бот ответил «${OPERATOR_PHRASES.rude_calm.ru[0]}» и дальше молчит. ${answerHint}`
+      : staffReason === "staff_thread"
+      ? `${name}: клиент написал в переписку, которую вы ведёте. Бот не вмешивается, ответьте клиенту.`
+      : staffReason === "unclear"
+      ? `${name}: бот дважды не понял, что нужно клиенту, и замолчал. ${answerHint}`
+      : staffReason === "attachments"
+      ? `${name}: клиент присылает вложения без слов, бот ответил один раз и дальше молчит. ${answerHint}`
+      : staffReason === "closed_followup"
+      ? `${name}: клиент снова пишет после жалобы или грубости; бот молчит. ${answerHint}`
+      : staffReason === "repeat_question"
+      ? `${name}: клиент повторяет тот же вопрос (где работаем, часы, кто мы); бот второй раз отвечать не стал. ${answerHint}`
+      : staffReason === "no_phone"
+      ? `${name}: клиент пишет, но номер не оставил; бот дал номер офиса и больше не просит. ${answerHint}`
+      : input.trigger === "follow_up"
       // Подсказка, где отвечать (Telegram Direct: из CRM нельзя), потерялась при своде #201 с #198 — возвращена 16.11.
       ? `${name}: бот ответил клиенту, что это уточнит агент. ${chat.replyHint === "Ответьте клиенту." ? "Ответьте клиенту или позвоните." : chat.replyHint}`
       : input.trigger === "escalate"
@@ -303,6 +413,45 @@ export async function alertClientWaiting(input: {
   const agent = chat.agentId;
 
   try {
+    if (staffReason) {
+      // ЛЕСЕНКА СИГНАЛОВ (владелец 20.11.2026: «бот полностью со всеми сам справлялся и руководителя просто так не дергал»;
+      // «лучше такие уведомления отправлять ропу тоже»). ИНВАРИАНТ: клиент никогда не остаётся без ответа бота И без сигнала
+      // живому человеку. Первым — действующий агент: сотрудник, который сам ведёт эту переписку, иначе агент карточки. Нет
+      // агента — руководство (РОП, директор, админ): жалоба и грубость (клиенту обещан сотрудник/руководитель) — очередью
+      // тревог, несрочно (`info`, ночью не будит); «не понял», вложения, «клиент пишет в переписку сотрудника» — только строкой
+      // в колокольчике, без пуша (общий список «ждут человека»; дневная сводка — ветка Б). Жалоба — ещё и копией руководству.
+      const writer = staffReason === "staff_thread" ? await activeAgentOrNull(lastStaffWriterId(chat.messages)) : null;
+      const target = writer ?? agent;
+      const promisedPerson = staffReason === "complaint" || staffReason === "rude";
+      const toLeadership = staffReason === "complaint" || (!target && promisedPerson);
+      if (!target && !toLeadership) {
+        const leaders = await leadershipAgentIds();
+        if (!leaders.length) throw new Error("нет ни агента, ни руководства для сигнала");
+        await createNotificationsStrict(leaders, { kind: "message", title: "💬 Клиент ждёт человека", body, url, tag });
+        return "director";
+      }
+      const queued = toLeadership ? await enqueueDirectorAlert({ title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
+        body, url, kind: "message", level: "CRITICAL", severity: "info", tag, recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
+        ...(target ? { excludeAgentId: target } : {}) }) : false;
+      let agentTold = false;
+      if (target) {
+        try {
+          await sendPushToAgent(target, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа",
+            body, url, tag });
+          agentTold = true;
+        } catch (err) {
+          // Руководство уже в очереди — эпизод не снимаем (повтор продублировал бы копию); без копии — общий путь сбоя ниже.
+          if (!queued) throw err;
+        }
+      }
+      if (!queued && !agentTold) throw new Error("очередь тревог руководству недоступна");
+      if (staffReason === "complaint" && !queued) {
+        // Агент узнал, а копия руководству не встала: обещание «увидит руководитель» под угрозой — запись в журнал.
+        void logSystemError("api", `Жалоба клиента: копия руководству не встала в очередь (переписка ${chat.openId}).`,
+          { dedupKey: `client-complaint-copy-failed:${chat.openId}`, url });
+      }
+      return agentTold ? "agent" : "director";
+    }
     if (agent) {
       await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент ждёт ответа", body, url, tag });
       return "agent";
@@ -315,7 +464,7 @@ export async function alertClientWaiting(input: {
       level: "CRITICAL",
       severity: "critical",
       tag,
-      recipientRoles: ["DIRECTOR", "ADMIN"],
+      recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
     });
     if (!queued) throw new Error("очередь тревог руководству недоступна");
     return "director";
@@ -348,6 +497,8 @@ export interface ClientSilenceSweepResult {
  */
 export async function runClientSilenceSweep(now: Date = new Date()): Promise<ClientSilenceSweepResult> {
   if (!(await isWithinWorkingHours(now))) return { checked: 0, alerted: 0, skippedOffHours: true };
+  // Выключатель «Клиент ждёт ответа» (19.11.2026): выключено — сторож молчания (и повтор) не ходит.
+  if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return { checked: 0, alerted: 0, skippedOffHours: false };
   const bot = await sweepBotConversations(now);
   // Telegram-бот и Telegram Direct — тот же сторож и та же дверь (15.11.2026, В4); свой рубильник.
   const telegram = await sweepTelegramConversations(now);
@@ -554,6 +705,7 @@ const REPEAT_SENT = "client-waiting-repeat";
 
 export async function repeatClientWaiting(input: { conversationId: string; since: Date; now?: Date }): Promise<"sent" | "armed" | "skipped"> {
   const now = input.now ?? new Date();
+  if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return "skipped";
   const key = `${input.conversationId}:${input.since.toISOString()}`;
   // Armed once: the timer starts when the sweep first sees the signalled episode, so a night message signalled at the
   // first morning tick is not repeated ten minutes later.
@@ -584,7 +736,7 @@ export async function repeatClientWaiting(input: { conversationId: string; since
   try {
     if (agent) { await sendPushToAgent(agent, { kind: "message", level: "CRITICAL", title: "💬 Клиент всё ещё ждёт ответа", body, url, tag }); agentPushed = true; }
     const queued = await enqueueDirectorAlert({ title: "💬 Клиент ждёт ответа после передачи сотруднику", body, url, kind: "message",
-      level: "CRITICAL", severity: "critical", tag, recipientRoles: ["DIRECTOR", "ADMIN"], ...(agent ? { excludeAgentId: agent } : {}) });
+      level: "CRITICAL", severity: "critical", tag, recipientRoles: [...CLIENT_WAITING_LEADERSHIP], ...(agent ? { excludeAgentId: agent } : {}) });
     if (!queued && !agent) throw new Error("очередь тревог руководству недоступна");
     return "sent";
   } catch (err) {

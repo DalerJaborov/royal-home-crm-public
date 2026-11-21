@@ -18,16 +18,18 @@ describe("предел попыток хода", () => {
     expect(assistantTurnAttemptCap(30)).toBeGreaterThan(30);
   });
 
-  it("исчерпание хода — scope «turn», отказ учёта — scope «budget»; remaining считает остаток", async () => {
+  // Причина — одна шкала с #316 (limitNotice.ts): предел хода — «attempt_cap», дневной счётчик —
+  // «attempts_daily» (сведено 22.11.2026; прежнее поле scope «turn»/«budget» убрано).
+  it("исчерпание хода — reason «attempt_cap», дневной счётчик — «attempts_daily»; remaining считает остаток", async () => {
     const gate = createAssistantAttemptLimit(async () => true, 2);
     expect(gate.remaining()).toBe(2);
     await gate();
     expect(gate.remaining()).toBe(1);
     await gate();
     expect(gate.remaining()).toBe(0);
-    await expect(gate()).rejects.toMatchObject({ code: "assistant_attempt_limit", scope: "turn" });
-    await expect(createAssistantAttemptLimit(async () => false)()).rejects.toMatchObject({ code: "assistant_attempt_limit", scope: "budget" });
-    expect(new AssistantAttemptLimitError().scope).toBe("budget");
+    await expect(gate()).rejects.toMatchObject({ code: "assistant_attempt_limit", reason: "attempt_cap" });
+    await expect(createAssistantAttemptLimit(async () => false)()).rejects.toMatchObject({ code: "assistant_attempt_limit", reason: "attempts_daily" });
+    expect(new AssistantAttemptLimitError().reason).toBe("attempt_cap");
   });
 });
 

@@ -207,6 +207,25 @@ export async function setYouTubeCommentHidden(commentId: string, hide: boolean):
   }
 }
 
+/**
+ * Убрать комментарий «на проверку» (heldForReview) — обратимо, в отличие от rejected (18.11.2026, номер из комментария:
+ * владелец «скрой, это возможно спам»). Тот же метод API и тот же маркер, что у отклонения выше (setModerationStatus
+ * владельцем канала; документация YouTube Data API: moderationStatus = heldForReview | published | rejected). Живьём на
+ * нашем канале не проверено — отказ виден в журнале и примечании комментария, заявку не отменяет.
+ */
+export async function holdYouTubeCommentForReview(commentId: string): Promise<void> {
+  try {
+    await youtubeApiRequest(
+      "POST",
+      `https://www.googleapis.com/youtube/v3/comments/setModerationStatus?id=${encodeURIComponent(commentId)}&moderationStatus=heldForReview`,
+      undefined, true
+    );
+  } catch (err) {
+    reportYoutubeApiError(err, "перевод комментария YouTube «на проверку» не подтверждён");
+    throw err;
+  }
+}
+
 export async function hideYouTubeComment(commentId: string): Promise<void> {
   await setYouTubeCommentHidden(commentId, true);
 }

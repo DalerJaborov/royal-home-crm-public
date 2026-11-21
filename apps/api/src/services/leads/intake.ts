@@ -1,7 +1,7 @@
 import { Prisma, type Client } from "../../generated/prisma/client.js";
 import { adPropertyForLead } from "../../lib/adPropertyRule.js";
 import { prisma, type TxClient } from "../../db.js";
-import { changeClientAgent } from "../../lib/changeClientAgent.js";
+import { changeClientAgent, ClientOwnerRaceError } from "../../lib/changeClientAgent.js";
 import { reactivationResetData } from "../../lib/clientLifecycle.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { noticeInterestInOtherAgentProperty } from "../../lib/propertyInterestNotice.js";
@@ -23,9 +23,8 @@ import { assignAgentForLead, recordAssignReason, recordAssignReasonTx, type Lead
 import { INTENT_UNKNOWN_NOTE } from "./intentUnknown.js";
 import { findStaffPhone, staffPhoneError, loadStaffPhoneChecker, StaffPhoneLeadError } from "../../lib/staffPhoneGuard.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { logSystemAudit } from "../../lib/audit.js";
+import { openScope } from "../../lib/transactionScope.js";
 import { canAutomationChangeKind } from "../../lib/kindChangePolicy.js";
-import { closeOwnershipSatellites } from "../../lib/ownershipSatellites.js";
 import { returnAcceptDueFromNow } from "../../lib/workingDue.js";
 import { customerIntakeProgressSchema } from "../../lib/customerIntakeContext.js";
 
@@ -96,6 +95,12 @@ export interface ChannelLeadInput {
   /// (assignPendingLeads, вызывается кроном при входе в рабочее окно). Молча,
   /// без пуша руководству — это ожидаемая ночная норма, а не сбой.
   deferAssignment?: boolean;
+  /**
+   * НОМЕР ИЗ КОММЕНТАРИЯ (18.11.2026, messengers/commentPhoneLead.ts): новая карточка ждёт ответа клиента боту в личных
+   * до этого срока и лишь потом идёт в раздачу (снимает lib/commentPhoneHold.ts). Только вместе с deferAssignment;
+   * существующую карточку не трогает.
+   */
+  commentPhoneHoldUntil?: Date;
 }
 
 /**
@@ -405,6 +410,61 @@ async function resumeExistingChannelLead(
   return result;
 }
 
+/**
+ * ПОЛЯ, КОТОРЫЕ НЕ ПРОПАДАЮТ ВМЕСТЕ С НЕСОСТОЯВШЕЙСЯ СМЕНОЙ ВЛАДЕЛЬЦА
+ * (19.11.2026, ревью починки аудита переназначения). Повторное обращение
+ * дозаписывает способы связи и отметку «вернулся»; если смену владельца
+ * отклонила дверь (гонка с ручным назначением, закон П-3), сами способы связи
+ * от этого не перестают быть фактом — пишем их отдельно.
+ */
+const CONTACT_ENRICH_KEYS = [
+  "telegramChatId",
+  "telegramUsername",
+  "whatsappPhone",
+  "socialUsername",
+  "socialChannel",
+  "extraPhones",
+  "returnedAt",
+] as const;
+
+const BUDGET_KEYS = ["budgetMin", "budgetMax"] as const;
+
+function pickKeys(data: Prisma.ClientUncheckedUpdateInput, keys: readonly string[]): Prisma.ClientUncheckedUpdateInput {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (k in data) out[k] = (data as Record<string, unknown>)[k];
+  return out as Prisma.ClientUncheckedUpdateInput;
+}
+
+/**
+ * Смена владельца + остальные поля обращения: владелец и всё прочее — через
+ * дверь `changeClientAgent`, бюджет — отдельным `client.update` после неё.
+ * Дверь пишет `updateMany`, а сторож перевёрнутого бюджета (`db.ts::budgetGuard`)
+ * ловит только `update`/`create`; так смена типа на покупателя с новым бюджетом
+ * проходит под сторожем, как до перевода на дверь. Отказ двери — способы связи
+ * всё равно записываются (см. CONTACT_ENRICH_KEYS), назначение — нет.
+ */
+async function writeEnrichThroughDoor(
+  clientId: string,
+  enrich: Prisma.ClientUncheckedUpdateInput,
+  door: Omit<Parameters<typeof changeClientAgent>[0], "data" | "clientId">
+): Promise<boolean> {
+  const budget = pickKeys(enrich, BUDGET_KEYS);
+  const doorData: Record<string, unknown> = { ...enrich };
+  for (const k of BUDGET_KEYS) delete doorData[k];
+  const changed = await changeClientAgent({ ...door, clientId, data: doorData });
+  if (!changed.ok) {
+    const contact = pickKeys(enrich, CONTACT_ENRICH_KEYS);
+    if (Object.keys(contact).length > 0) {
+      await prisma.client.update({ where: { id: clientId }, data: contact });
+    }
+    return false;
+  }
+  if (Object.keys(budget).length > 0) {
+    await prisma.client.update({ where: { id: clientId }, data: budget });
+  }
+  return true;
+}
+
 async function resumeExistingChannelLeadInner(
   existing: Client,
   input: ChannelLeadInput
@@ -562,8 +622,22 @@ async function resumeExistingChannelLeadInner(
      */
     // Срок — в рабочих минутах (решение владельца 02.10.2026, B4): ночь не съедает его.
     const returnAcceptDueAt = assignedAgentId && !offerAgentId ? await returnAcceptDueFromNow() : null;
+    const offeredAt = new Date();
+    // Владелец меняется только через changeClientAgent (ниже в той же транзакции) —
+    // из данных типа его убираем, сам тип и остальные поля пишутся как раньше.
+    const { assignedAgentId: _kindAgentId, ...revivedKindData } = kindChange.data;
+    /**
+     * ПРЕДЛОЖЕНИЕ ПРЕЖНЕМУ АГЕНТУ — ПОСЛЕ СПУТНИКОВ ДВЕРИ (ревью 19.11.2026).
+     * Дверь снимает карточку с прежнего агента (А → никто), и её спутники после
+     * фиксации гасят уведомления А по этому клиенту. Пуш «вернуть карточку себе?»
+     * адресован тому же А и уходил сразу после транзакции — наперегонки со
+     * спутниками: свежее предложение могло оказаться погашенным «клиент снят с
+     * агента». Поэтому пуш встаёт в ту же очередь `afterCommit` ПОСЛЕ двери —
+     * она идёт по порядку. Области нет (не должно быть) — шлём, как раньше.
+     */
+    let offerPushQueued = false;
     const revived = await prisma.$transaction(async (tx) => {
-      const updated = await tx.client.update({
+      const restored = await tx.client.update({
         where: { id: existing.id },
         data: {
           // Сброс полей светофора и «Потерянных» (23.09.2026). Раньше писался
@@ -582,9 +656,6 @@ async function resumeExistingChannelLeadInner(
           escalatedAt: null,
           reassignCount: 0,
           assignedAt: new Date(),
-          // LAW-A2-PENDING: возврат из Корзины (Х1, ownership policy 17.09.2026) —
-          // прямая запись мимо changeClientAgent; перевод — пачка А2.
-          assignedAgentId,
           // Возврат из Корзины — новый заход клиента: старые отказы и круги
           // передачи к нему отношения не имеют. С 16.11.2026 сбрасываются ВСЕГДА,
           // без оглядки на статус: отказ теперь уводит карточку в Корзину, не
@@ -605,7 +676,7 @@ async function resumeExistingChannelLeadInner(
                 // читает GET /clients/reactivation-offers (routes/clients/reactivationOffers.ts).
                 workStatus: "INACTIVE" as const,
                 reactivationOfferedToAgentId: offerAgentId,
-                reactivationOfferedAt: new Date(),
+                reactivationOfferedAt: offeredAt,
               }
             : {}),
           ...(input.telegramChatId && !existing.telegramChatId
@@ -622,9 +693,46 @@ async function resumeExistingChannelLeadInner(
           ...(route.kind === "queue" && input.deferAssignment && input.propertyId
             ? { requestedPropertyId: input.propertyId }
             : {}),
-          ...kindChange.data,
+          ...revivedKindData,
         },
       });
+      /**
+       * СМЕНА ВЛАДЕЛЬЦА — ЧЕРЕЗ ЕДИНУЮ ДВЕРЬ (аудит 18.11.2026, находка №3;
+       * бывшая отметка «пачка А2», Х1). Раньше `assignedAgentId` писался строкой выше мимо
+       * `changeClientAgent`: без закона П-1/П-3, без гашения спутников прежнего
+       * агента (его уведомления и задачи по клиенту оставались висеть), без
+       * переезда объектов продавца, а AuditLog шёл отдельной фоновой записью с
+       * ключами `from`/`to`, которых не видят читатели `fromAgentId`/`toAgentId`.
+       * Корзина и `acceptedAt` сняты строкой выше в этой же транзакции — снимок
+       * закона видит уже вернувшуюся непринятую заявку (как у `/restore`).
+       * Хронологию пишет этот код сам (ниже) — системную строку не дублируем.
+       */
+      if (assignedAgentId !== restored.assignedAgentId) {
+        const changed = await changeClientAgent({
+          clientId: restored.id,
+          toAgentId: assignedAgentId,
+          source: "intake.basket-return",
+          reason: assignedAgentId
+            ? "Клиент из Корзины снова обратился — карточка восстановлена и назначена по очереди"
+            : offerAgentId
+              ? "Клиент из Корзины снова обратился — карточка восстановлена, предложена прежнему агенту"
+              : "Клиент из Корзины снова обратился — карточка восстановлена и ждёт назначения",
+          skipInteraction: true,
+          // Предложение прежнему агенту поставлено строкой выше — дверь не должна его гасить.
+          data: offerAgentId ? { reactivationOfferedToAgentId: offerAgentId, reactivationOfferedAt: offeredAt } : {},
+          auditMeta: { from: restored.assignedAgentId, to: assignedAgentId },
+          tx,
+        });
+        if (!changed.ok) throw new ClientOwnerRaceError(changed.reason);
+      }
+      if (!assignedAgentId && offerAgentId) {
+        const scope = openScope();
+        if (scope) {
+          scope.afterCommit.push(() => sendReactivationOfferPush(offerAgentId, restored));
+          offerPushQueued = true;
+        }
+      }
+      const updated = { ...restored, assignedAgentId };
       if (assignedAgentId) {
         const base = "Клиент из Корзины снова обратился — карточка восстановлена автоматически";
         // Актор — клиент (его обращение вернуло карточку), не агент (П-10,
@@ -653,22 +761,6 @@ async function resumeExistingChannelLeadInner(
       }
       return updated;
     });
-    /**
-     * П-1/П-10 (17.09.2026, Х1 из `docs/audit/recon-17-09/02-auto-transfer-mechanisms.md`):
-     * та же ситуация, что у ветки реактивации из «Неактивных» ниже по файлу —
-     * `assignedAgentId` в транзакции выше пишется мимо `changeClientAgent`
-     * (переводить всю "воскресительную" транзакцию на неё рискованнее, чем
-     * добавить видимость отдельной записью). Пишем только когда владелец
-     * РЕАЛЬНО поменялся против того, что было до Корзины.
-     */
-    if (assignedAgentId && assignedAgentId !== existing.assignedAgentId) {
-      logSystemAudit("CLIENT_AGENT_CHANGE", "Client", revived.id, {
-        source: "intake.basket-return",
-        from: existing.assignedAgentId,
-        to: assignedAgentId,
-        reason: "Клиент из Корзины снова обратился — карточка восстановлена и назначена по очереди",
-      });
-    }
     // Причина назначения (свой объект, пост) — в карточку, как у новой заявки (B5).
     if (assignedAgentId && revivedQueueAssignment) {
       await recordAssignReason(revived.id, assignedAgentId, revivedQueueAssignment).catch((err) =>
@@ -685,13 +777,8 @@ async function resumeExistingChannelLeadInner(
         url: `/clients/${revived.shortId}`,
         tag: `lead-${revived.id}`,
       }).catch((err) => console.error("[push] восстановление клиента:", err));
-    } else if (offerAgentId) {
-      sendPushToAgent(offerAgentId, {
-        title: "🔔 Прежний клиент снова написал",
-        body: `${revived.fullName} — вернуть карточку себе?`,
-        url: `/clients/${revived.shortId}`,
-        tag: `reactivation-offer-${revived.id}`,
-      }).catch((err) => console.error("[push] предложение реактивации:", err));
+    } else if (offerAgentId && !offerPushQueued) {
+      void sendReactivationOfferPush(offerAgentId, revived);
     }
     return { clientId: revived.id, created: false };
   }
@@ -722,7 +809,18 @@ async function resumeExistingChannelLeadInner(
   });
   if (freshExtra.length > 0) enrich.extraPhones = { set: [...existing.extraPhones, ...freshExtra] };
   const kindChange = kindChangeUpdate(existing, input);
-  Object.assign(enrich, kindChange.data);
+  /**
+   * НОВЫЙ ВЛАДЕЛЕЦ — ОТДЕЛЬНОЙ ПЕРЕМЕННОЙ, НЕ ПОЛЕМ `enrich` (аудит 18.11.2026,
+   * находка №3; бывшая отметка «пачка А2», Х2). `enrich` пишется одним `update`, и
+   * `assignedAgentId` в нём обходил `changeClientAgent`: ни закона П-3, ни
+   * спутников прежнего агента, ни переезда объектов продавца. Здесь копим
+   * только решение «кому», записывает его дверь (см. запись `enrich` ниже).
+   * `undefined` — владелец этим обращением не меняется.
+   */
+  const { assignedAgentId: kindAgentId, ...kindData } = kindChange.data;
+  let nextAgentId: string | null | undefined =
+    kindAgentId === undefined ? undefined : (kindAgentId as string | null);
+  Object.assign(enrich, kindData);
   /**
    * ВОЗВРАЩЕНИЕ НЕАКТИВНОГО (ТЗ п. 26-27, переработка 12.08.2026, доделка
    * 31.08.2026 — разбор жалобы владельца, п.12): клиент, которого агент отложил в
@@ -798,14 +896,11 @@ async function resumeExistingChannelLeadInner(
      * у него же. Отдавать её другому нельзя — объект и так продаётся всей
      * компанией, и продавец, дожидаясь своего человека, ничего не теряет.
      */
-    // LAW-A2-PENDING: реактивация, ветка keepAgentId (Х2, ownership policy
-    // 17.09.2026) — прямая запись мимо changeClientAgent; перевод — пачка А2.
     enrich.workStatus = "ACTIVE";
-    enrich.assignedAgentId = keepAgentId;
+    nextAgentId = keepAgentId;
   } else if (returnsAsFreshLead) {
-    // LAW-A2-PENDING: та же ветка, fallback-агент — см. комментарий выше.
     enrich.workStatus = "ACTIVE";
-    enrich.assignedAgentId = reactivationFallbackAgentId;
+    nextAgentId = reactivationFallbackAgentId;
     enrich.acceptedAt = null;
     enrich.assignedAt = new Date();
     enrich.escalatedAt = null;
@@ -854,10 +949,7 @@ async function resumeExistingChannelLeadInner(
     !reactivating &&
     !lostHolderId;
   if (lostHolderUnavailable) {
-    // LAW-A2-PENDING: та же ветка enrich, что keepAgentId/fallback выше, —
-    // прямая запись мимо changeClientAgent; в AuditLog уходит строкой
-    // CLIENT_AGENT_CHANGE (source intake.lost-holder-unavailable) ниже.
-    enrich.assignedAgentId = null;
+    nextAgentId = null;
     enrich.escalatedAt = existing.kind === "OTHER" ? new Date() : null;
     enrich.acceptedAt = null;
     enrich.assignedAt = new Date();
@@ -935,68 +1027,58 @@ async function resumeExistingChannelLeadInner(
     // Срок — в рабочих минутах (решение владельца 02.10.2026, B4): ночь не съедает его.
     enrich.returnAcceptDueAt = await returnAcceptDueFromNow();
   }
-  if (Object.keys(enrich).length > 0) {
+  /**
+   * НЕПРИНЯТЫЙ ЛИД СТАЛ «ПРОЧИМ ОБРАЩЕНИЕМ» (B11, 02.10.2026): kindChangeUpdate
+   * снимает агента — у агента оставались уведомление и пуш «новый лид» и
+   * открытые задачи. Своя причина и гашение спутников, как при любой смене
+   * владельца (теперь — самой дверью changeClientAgent).
+   */
+  const kindOtherDropped =
+    kindChange.changed && input.kind === "OTHER" && !!existing.assignedAgentId && nextAgentId === null;
+  const ownerChanges = nextAgentId !== undefined && nextAgentId !== existing.assignedAgentId;
+  /**
+   * ЗАКОН П-3 ЗАЩИЩАЕТ ЖИВОГО ДЕРЖАТЕЛЯ. Реактивация «по очереди», «оставить
+   * своему» с другим агентом и «держатель потерянной недоступен» случаются,
+   * только когда текущий владелец пуст или выбыл (уволен/заморожен/не продажник:
+   * `preferredReturningOwnerId` его пропустил) — это законный случай «держателя
+   * нет», как у снятия предложения при увольнении (lib/reactivationOffers.ts,
+   * agent_unavailable). Только тогда вердикт «можно» передаётся двери готовым;
+   * если держатель жив — закон проверяет сама дверь и может эскалировать.
+   */
+  const holderGone = existing.assignedAgentId === null || returningHolderId !== existing.assignedAgentId;
+  if (Object.keys(enrich).length > 0 || ownerChanges) {
     if (lostHistoricalOwnerId) {
-      const changed = await changeClientAgent({
-        clientId: existing.id,
+      const ok = await writeEnrichThroughDoor(existing.id, enrich, {
         toAgentId: lostHistoricalOwnerId,
         source: "intake.lost-historical-owner",
         reason: "Клиент снова обратился — возвращён прежнему активному агенту",
-        data: enrich,
         guardWhere: { assignedAgentId: existing.assignedAgentId, assignedAt: existing.assignedAt, status: "LOST" },
       });
-      if (!changed.ok) return { clientId: existing.id, created: false };
+      if (!ok) return { clientId: existing.id, created: false };
+    } else if (ownerChanges) {
+      const ok = await writeEnrichThroughDoor(existing.id, enrich, {
+        toAgentId: nextAgentId ?? null,
+        source: kindOtherDropped
+          ? "intake.kind-other"
+          : lostHolderUnavailable
+            ? "intake.lost-holder-unavailable"
+            : "intake.reactivation-fallback",
+        reason: kindOtherDropped
+          ? "Обращение оказалось не про покупку или продажу (прочее обращение) — карточка снята с агента"
+          : lostHolderUnavailable
+            ? "Потерянный клиент написал сам — прежний держатель недоступен, карточка возвращена в очередь раздачи"
+            : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
+        // Хронологию повторного обращения этот код пишет сам ниже — без дубля.
+        skipInteraction: true,
+        // Владелец из снимка: за время разбора его мог сменить руководитель.
+        guardWhere: { assignedAgentId: existing.assignedAgentId },
+        ...(!kindOtherDropped && holderGone ? { policyVerdict: { allowed: true as const } } : {}),
+        auditMeta: { from: existing.assignedAgentId, to: nextAgentId ?? null },
+      });
+      if (!ok) return { clientId: existing.id, created: false };
     } else {
       await prisma.client.update({ where: { id: existing.id }, data: enrich });
     }
-  }
-  /**
-   * П-1/П-10 (17.09.2026, `docs/audit/lead-ownership-17-09.md` §2, §4, Х2 из
-   * `docs/audit/recon-17-09/02-auto-transfer-mechanisms.md`): `enrich`
-   * выше — прямая запись `assignedAgentId` мимо `changeClientAgent`, оставлена
-   * НЕ переведённой на неё намеренно (весь блок enrich копит десяток полей
-   * одним `update`, разбивать транзакцию ради одного поля рискованнее, чем
-   * оставить как есть). Но смена владельца (keepAgentId/reactivationFallbackAgentId
-   * — реактивация из «Неактивных», прежнего агента предложить не вышло) без
-   * этой строки была не видна в AuditLog вовсе. Пишется только когда владелец
-   * РЕАЛЬНО поменялся — обычное «тот же агент» (route.kind==="keep" на своего
-   * же lastAgentId) писать незачем.
-   */
-  /**
-   * НЕПРИНЯТЫЙ ЛИД СТАЛ «ПРОЧИМ ОБРАЩЕНИЕМ» (B11, 02.10.2026): kindChangeUpdate
-   * снял агента прямой записью — у агента оставались уведомление и пуш «новый
-   * лид» и открытые задачи, а аудит записывал чужую причину «Возврат из
-   * Неактивных». Своя причина и гашение спутников, как при любой смене владельца.
-   */
-  const kindOtherDropped =
-    kindChange.changed && input.kind === "OTHER" && !!existing.assignedAgentId && enrich.assignedAgentId === null;
-  if (
-    (typeof enrich.assignedAgentId === "string" || enrich.assignedAgentId === null) &&
-    enrich.assignedAgentId !== existing.assignedAgentId
-  ) {
-    logSystemAudit("CLIENT_AGENT_CHANGE", "Client", existing.id, {
-      source: kindOtherDropped
-        ? "intake.kind-other"
-        : lostHolderUnavailable
-          ? "intake.lost-holder-unavailable"
-          : "intake.reactivation-fallback",
-      from: existing.assignedAgentId,
-      to: enrich.assignedAgentId,
-      reason: kindOtherDropped
-        ? "Обращение оказалось не про покупку или продажу (прочее обращение) — карточка снята с агента"
-        : lostHolderUnavailable
-          ? "Потерянный клиент написал сам — прежний держатель недоступен, карточка возвращена в очередь раздачи"
-          : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
-    });
-  }
-  if (kindOtherDropped) {
-    await closeOwnershipSatellites({
-      clientId: existing.id,
-      clientShortId: existing.shortId,
-      fromAgentId: existing.assignedAgentId,
-      toAgentId: null,
-      reason: "Обращение оказалось прочим — карточка снята с агента",
-    });
   }
 
   /**
@@ -1249,7 +1331,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
     if (!(await supervisorsNeedRepeatPush(existing, input))) return null;
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "🔔 Обращение стало лидом — нужен агент",
+      title: "🔔 Обращение стало заявкой — нужен агент",
       body: `${existing.fullName} — назвал(а) свой запрос, назначьте агента`,
       url: `/clients/${existing.shortId}`,
       tag: `lead-${existing.id}`,
@@ -1280,7 +1362,7 @@ async function assignKindChangedLead(existing: Client, input: ChannelLeadInput):
   });
   await recordAssignReason(existing.id, agentId, assignment);
   sendLeadPush(agentId, existing.id, {
-    title: `🔔 Новый лид: ${label}`,
+    title: `🔔 Новая заявка: ${label}`,
     body: `${existing.fullName} — примите заявку, иначе её передадут другому агенту`,
     url: `/clients/${existing.shortId}`,
     tag: `lead-${existing.id}`,
@@ -1329,6 +1411,7 @@ function channelLeadCreateData(input: ChannelLeadInput, kind: ClientKind, extraP
     requirementsNotes: input.requirementsNotes, telegramChatId: input.telegramChatId,
     telegramUsername: input.telegramUsername, whatsappPhone: input.whatsappPhone,
     socialUsername: input.socialUsername, socialChannel: input.socialChannel, extraPhones,
+    ...(input.commentPhoneHoldUntil && input.deferAssignment ? { commentPhoneHoldUntil: input.commentPhoneHoldUntil } : {}),
     ...(includeCriteria ? { budgetMin: input.budgetMin, budgetMax: input.budgetMax,
       desiredDistrictId: input.desiredDistrictId, desiredRooms: input.desiredRooms, desiredType: input.desiredType as never,
       ...(kind === "BUYER" ? { requirementsFieldsKind: "BUYER" as const } : {}),
@@ -1403,7 +1486,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    */
   const staffMatch = await findStaffPhone([input.phone, input.whatsappPhone]);
   if (staffMatch) {
-    void logSystemError("api", `Лид из канала (${input.source}) на номер сотрудника не заведён: ${staffPhoneError(staffMatch)}`, {
+    void logSystemError("api", `Заявка из канала (${input.source}) на номер сотрудника не заведена: ${staffPhoneError(staffMatch)}`, {
       dedupKey: `staff-phone-lead:${staffMatch.agentId}`,
     });
     throw new StaffPhoneLeadError(staffMatch);
@@ -1589,7 +1672,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
         const changed = await changeClientAgent({
           clientId: created.id,
           toAgentId: agentId,
-          reason: `Лид создан автоматически: ${label}`,
+          reason: `Заявка создана автоматически: ${label}`,
           source: "intake.createNewChannelLead",
           tx,
           skipInteraction: true,
@@ -1604,7 +1687,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
           clientId: updated.id,
           actor: { kind: "system", source: "intake-new-channel-lead", subjectAgentId: agentId },
           type: "SYSTEM",
-          notes: `Лид создан автоматически: ${label}`,
+          notes: `Заявка создана автоматически: ${label}`,
           tx,
         });
         if (ownedPending) {
@@ -1646,7 +1729,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
 
   if (agentId) {
     sendLeadPush(agentId, client.id, {
-      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новый лид: ${label}`,
+      title: input.source === "WEBSITE" ? "🔔 Новая заявка с сайта" : `🔔 Новая заявка: ${label}`,
       body: `${client.fullName}${leadGist(input.requirementsNotes)} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -1658,7 +1741,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
     // молча зависнуть навсегда, никто её не увидит.
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${client.id}`,
@@ -1748,7 +1831,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
       const changed = await changeClientAgent({
         clientId,
         toAgentId: agentId,
-        reason: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        reason: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         source: "intake.assignHeldLead",
         tx,
         skipInteraction: true,
@@ -1760,7 +1843,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
         clientId,
         actor: { kind: "system", source: "intake-held-lead", subjectAgentId: agentId },
         type: "SYSTEM",
-        notes: "Лид назначен по очереди — проверка на дубль закрыта (разные люди)",
+        notes: "Заявка назначена по очереди — проверка на дубль закрыта (разные люди)",
         tx,
       });
       return true;
@@ -1771,7 +1854,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
     if (!claimed) return;
     await recordAssignReason(clientId, agentId, assignment);
     sendLeadPush(agentId, clientId, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${clientId}`,
@@ -1779,7 +1862,7 @@ export async function assignHeldLead(clientId: string): Promise<void> {
   } else {
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⏳ Лид ждёт назначения",
+      title: "⏳ Заявка ждёт назначения",
       body: `${client.fullName} — назначьте агента вручную`,
       url: `/clients/${client.shortId}`,
       tag: `lead-unassigned-${clientId}`,
@@ -1832,4 +1915,17 @@ export function leadGist(notes: string | null | undefined): string {
   const flat = (notes ?? "").replace(/\s*\n+\s*/g, "; ").replace(/\s{2,}/g, " ").trim();
   if (!flat) return "";
   return `: ${flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat}`;
+}
+
+/** Пуш «прежний клиент снова написал — вернуть карточку себе?» (возврат из Корзины). */
+async function sendReactivationOfferPush(
+  agentId: string,
+  client: { id: string; fullName: string; shortId: number }
+): Promise<void> {
+  await sendPushToAgent(agentId, {
+    title: "🔔 Прежний клиент снова написал",
+    body: `${client.fullName} — вернуть карточку себе?`,
+    url: `/clients/${client.shortId}`,
+    tag: `reactivation-offer-${client.id}`,
+  }).catch((err) => console.error("[push] предложение реактивации:", err));
 }

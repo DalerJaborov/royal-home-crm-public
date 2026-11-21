@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Check, Clock, Film, Image as ImageIcon, Loader2, Plus, RotateCw, Upload, X } from "lucide-react";
+import { WizIcon } from "../look/wizard/WizIcon";
 import { formatUploadSize } from "../UploadTaskRow";
 import {
   addDraftPhotos,
@@ -133,7 +134,7 @@ export function StepMedia({
             onDrop={photoDrop.onDrop}
           >
             <span className="ico">
-              <ImageIcon width={24} height={24} aria-hidden />
+              <WizIcon icon={ImageIcon} width={24} height={24} aria-hidden />
             </span>
             <span className="t">
               <span className="only-touch">Добавить фото из галереи</span>
@@ -202,7 +203,7 @@ export function StepMedia({
             onDrop={videoDrop.onDrop}
           >
             <span className="ico">
-              <Film width={24} height={24} aria-hidden />
+              <WizIcon icon={Film} width={24} height={24} aria-hidden />
             </span>
             <span className="t">
               <span className="only-touch">Добавить видео из галереи</span>
@@ -443,7 +444,7 @@ function PhotoTile({
           <img className="im" src={item.previewUrl ?? item.thumbUrl ?? ""} alt="" style={{ objectFit: "cover", width: "100%", height: "100%" }} />
         ) : (
           <span className="im" style={{ display: "grid", placeItems: "center", color: "var(--muted)" }}>
-            <ImageIcon width={16} height={16} aria-hidden />
+            <WizIcon icon={ImageIcon} width={16} height={16} aria-hidden />
           </span>
         )}
         <span className="badge">Обложка</span>
@@ -529,6 +530,16 @@ function PhotoTile({
   );
 }
 
+/**
+ * Имя файла для одной строки с обрезкой в ЗАДНЕЙ части основы: «IMG_1210.MOV» на узком экране —
+ * «IMG_12…» + «.MOV», расширение остаётся видно (iPhone владельца, 21.11.2026: имя шло столбиком).
+ */
+function splitFileName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || name.length - dot > 6) return { stem: name, ext: "" };
+  return { stem: name.slice(0, dot), ext: name.slice(dot) };
+}
+
 function VideoRow({
   item,
   index,
@@ -546,6 +557,7 @@ function VideoRow({
   const uploading = item.status === "uploading";
   const percent = percentOf(item);
   const picker = useReplacePicker(item);
+  const { stem, ext } = splitFileName(item.name);
   // ГЛАВНОЕ — СТАТУС ЗАГРУЗКИ, А НЕ ЧИП (задание, пункт 4: раньше при
   // «uploading» строка показывала только чип «Исходник монтажёру», и агент
   // видел его вместо честного прогресса — жалоба «видео не видно, что грузится»).
@@ -562,13 +574,16 @@ function VideoRow({
         ) : item.status === "ready" ? (
           <Check width={16} height={16} aria-hidden />
         ) : item.status === "queued" ? (
-          <Clock width={16} height={16} aria-hidden />
+          <WizIcon icon={Clock} width={16} height={16} aria-hidden />
         ) : (
-          <Film width={16} height={16} aria-hidden />
+          <WizIcon icon={Film} width={16} height={16} aria-hidden />
         )}
       </span>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div className="nm">{item.name}</div>
+      <div className="info">
+        <div className="nm fn" title={item.name}>
+          <span className="stem">{stem}</span>
+          {ext && <span className="ext">{ext}</span>}
+        </div>
         <div className="mt">{meta}</div>
         {(uploading || bad) && (
           <div style={{ marginTop: 4 }}>
@@ -576,7 +591,8 @@ function VideoRow({
           </div>
         )}
       </div>
-      <span className={bad ? "chip warn" : offSite ? "chip ok" : "chip acc"} style={{ marginLeft: "auto" }}>
+      <div className="act">
+      <span className={bad ? "chip warn" : offSite ? "chip ok" : "chip acc"}>
         {bad
           ? "не ушло"
           : index === 0
@@ -599,6 +615,7 @@ function VideoRow({
       <button className="ghost" type="button" data-testid="wizard-video-remove" onClick={() => void removeDraftMedia(item.uploadKey)}>
         {item.status === "uploading" ? "Отменить" : "Убрать"}
       </button>
+      </div>
     </div>
   );
 }

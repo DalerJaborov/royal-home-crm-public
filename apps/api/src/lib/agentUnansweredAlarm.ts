@@ -6,6 +6,7 @@ import { startOfWorkingDayAtOrAfter, workingDaysBetween, type DaysOffCalendar } 
 import { calendarFor, loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { upsertAutoTask } from "./autoTasks.js";
 import { reportCronRowError } from "./cronHeartbeat.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 
 /**
  * «ПРОДАВЕЦ ПИШЕТ, А АГЕНТ НЕ ОТВЕЧАЕТ» (владелец 09.09.2026).
@@ -272,7 +273,14 @@ export async function findUnansweredClients(now: Date = new Date()): Promise<Una
 export async function runAgentUnansweredAlarmTick(now: Date = new Date()): Promise<{ alerted: number }> {
   if (!(await isWithinAlarmHours(now))) return { alerted: 0 };
 
-  const items = await findUnansweredClients(now);
+  /**
+   * Выключатель владельца «агент не отвечает продавцу» (14.11.2026,
+   * lib/sellerSwitches.ts) гасит ТОЛЬКО продавцов: покупатели — не автоматика по
+   * продавцам и идут как раньше. Список для дашборда (findUnansweredClients) не
+   * трогаем — выключатель про напоминание и задачу, а не про то, что видно.
+   */
+  const sellersOn = await sellerSwitchOn("agentUnansweredAlarmEnabled");
+  const items = (await findUnansweredClients(now)).filter((i) => sellersOn || i.clientKind !== "SELLER");
   if (items.length === 0) return { alerted: 0 };
 
   let alerted = 0;

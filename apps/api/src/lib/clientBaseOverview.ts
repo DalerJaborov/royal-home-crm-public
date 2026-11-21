@@ -23,8 +23,8 @@ import { noContactWhere } from "./noContact.js";
  * CLIENT_IN_WORK_WHERE — то, что показывает список «Клиенты»), либо со сделкой,
  * либо в Архиве, либо работа по нему завершена и ждёт решения руководителя, либо
  * в Корзине. «Не активный» в разговоре директора — это всё, что не «в работе»,
- * плюс те, кто в работе, но без контакта (lib/noContact.ts — то же правило, что
- * плитка «Без контакта»). Новых состояний здесь не придумывается: только счёт
+ * плюс те, кто в работе, но с ними ни разу не связывались (lib/noContact.ts — то же
+ * правило, что плитка «Не связывались»). Новых состояний здесь не придумывается: только счёт
  * по тем же условиям, что у экрана.
  *
  * Границы видимости — как у GET /clients/summary (routes/clients/summary.ts):
@@ -113,7 +113,7 @@ export interface ClientBaseOverview {
     other: number | null;
     /** Из них ещё не принял агент. */
     awaitingAcceptance: number;
-    /** Из них без контакта по общему правилу (плитка «Без контакта»). */
+    /** Из них «не связывались» по общему правилу (плитка «Не связывались»). */
     noContact: number;
     /** Из них без агента (только при видимости всей компании). */
     withoutAgent: number | null;
@@ -193,7 +193,7 @@ export async function loadClientBaseOverview(
       where: { AND: [base, { assignmentCompletedAt: { not: null }, status: { notIn: ["DEAL_CLOSED", "ARCHIVED"] } }] },
     }),
     prisma.client.count({ where: awaitingAcceptanceWhere(base) }),
-    prisma.client.count({ where: { AND: [base, noContactWhere(now)] } }),
+    prisma.client.count({ where: { AND: [base, noContactWhere()] } }),
   ]);
 
   // Волна 2: заявки на удаление, отказы, Корзина.
@@ -238,7 +238,7 @@ export async function loadClientBaseOverview(
       }),
       prisma.client.groupBy({
         by: ["assignedAgentId"],
-        where: { AND: [base, noContactWhere(now)] },
+        where: { AND: [base, noContactWhere()] },
         _count: { _all: true },
       }),
       prisma.client.count({ where: { AND: [inWorkWhere, { assignedAgentId: null }] } }),

@@ -43,7 +43,7 @@ vi.mock("../../lib/aiSounds", () => ({ playNewLead: () => {}, playNewMessage: ()
 vi.mock("../../lib/pultSound", () => ({ pultSoundEnvironmentAllows: () => false }));
 
 import type { AppNotification } from "../../types";
-import { useAutoReadNotifications } from "../useNotifications";
+import { badgeCountOf, pickUnseenIds, useAutoReadNotifications, useSeenOnShow } from "../useNotifications";
 
 function n(id: string, level: AppNotification["level"], read = false): AppNotification {
   return {
@@ -93,5 +93,48 @@ describe("useAutoReadNotifications", () => {
     vi.advanceTimersByTime(5000);
 
     expect(apiCalls).toEqual([]);
+  });
+});
+
+/**
+ * ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ (владелец 21.11.2026): «просмотрено» уходит без
+ * таймера и включает «Ждёт решения»/«Критичное» (они остаются в ленте, read не трогаем).
+ */
+describe("useSeenOnShow", () => {
+  it("сразу, без ожидания, отмечает показанные непросмотренные, в том числе срочные", () => {
+    useSeenOnShow([n("info-1", "OTHER"), n("approval-1", "APPROVAL"), n("crit-1", "CRITICAL")], true);
+
+    expect(apiCalls).toEqual([
+      { path: "/me/notifications/seen", body: { ids: ["info-1", "approval-1", "crit-1"] } },
+    ]);
+    // Прочитанность не трогаем: ни read-many, ни read-all.
+    expect(apiCalls.map((c) => c.path)).not.toContain("/me/notifications/read-many");
+  });
+
+  it("с listedAt шлёт before (всё до выборки), а не только показанное", () => {
+    useSeenOnShow([n("a", "OTHER")], true, { listedAt: "2026-11-21T10:00:00.000Z", unseenCount: 50 });
+    expect(apiCalls).toEqual([{ path: "/me/notifications/seen", body: { before: "2026-11-21T10:00:00.000Z" } }]);
+  });
+
+  it("с listedAt и нулевой меткой ничего не шлёт", () => {
+    useSeenOnShow([], true, { listedAt: "2026-11-21T10:00:00.000Z", unseenCount: 0 });
+    expect(apiCalls).toEqual([]);
+  });
+
+  it("уже просмотренное и прочитанное повторно не шлётся; закрытый список ничего не шлёт", () => {
+    const seen = { ...n("approval-1", "APPROVAL"), seenAt: new Date().toISOString() };
+    useSeenOnShow([seen, n("done", "OTHER", true)], true);
+    useSeenOnShow([n("info-1", "OTHER")], false);
+
+    expect(apiCalls).toEqual([]);
+    expect(pickUnseenIds([seen])).toEqual([]);
+  });
+});
+
+describe("badgeCountOf", () => {
+  it("метка считает непросмотренное; ответ старого сервера без поля — прежний счёт", () => {
+    expect(badgeCountOf({ unreadCount: 9, unseenCount: 0 })).toBe(0);
+    expect(badgeCountOf({ unreadCount: 9 })).toBe(9);
+    expect(badgeCountOf(undefined)).toBe(0);
   });
 });

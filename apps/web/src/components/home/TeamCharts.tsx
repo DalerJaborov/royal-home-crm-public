@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ClientSource } from "@royal-home/shared";
+import { monthShort, monthTitle, type ClientSource } from "@royal-home/shared";
 import { useCan } from "../../lib/permissions";
 import { useDashboardCharts } from "../../hooks/useCharts";
 import { useDashboardInsights } from "../../hooks/useDashboard";
@@ -9,6 +9,7 @@ import { Rh2BarChart } from "../rh2/Rh2BarChart";
 import { Rh2Bars } from "../rh2/Rh2Bars";
 import { Rh2Inline } from "../rh2/Rh2Scope";
 import { MhNoData, MhSection } from "./mh/MhScreen";
+import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection } from "../look/ui";
 
 /**
  * ГРАФИКИ И ПОДСКАЗКИ ПО КОМАНДЕ НА ГЛАВНОЙ (28.09.2026, «сделанное — на экран»).
@@ -31,25 +32,10 @@ import { MhNoData, MhSection } from "./mh/MhScreen";
  * в «Деньгах» и пульта, и телефонной главной.
  */
 
-type Host = "screen" | "pult" | "phone";
+/** `royal` — главная «Нового вида» (components/look/home, 20.11.2026): разделы и строки нового вида. */
+type Host = "screen" | "pult" | "phone" | "royal";
 
-const MONTH_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-const MONTH_NOM = [
-  "Январь",
-  "Февраль",
-  "Март",
-  "Апрель",
-  "Май",
-  "Июнь",
-  "Июль",
-  "Август",
-  "Сентябрь",
-  "Октябрь",
-  "Ноябрь",
-  "Декабрь",
-];
-const monthIdx = (ym: string) => Math.max(0, Math.min(11, Number(ym.slice(5, 7)) - 1));
-const monthTitle = (ym: string) => `${MONTH_NOM[monthIdx(ym)]} ${ym.slice(0, 4)}`;
+// Подписи месяца — одно правило на сервер и сайт (packages/shared/src/monthLabels.ts).
 const num = (n: number) => n.toLocaleString("ru-RU");
 
 interface Block {
@@ -59,7 +45,11 @@ interface Block {
   body: ReactNode;
 }
 
-export function TeamCharts({ host, showCommission = true }: { host: Host; showCommission?: boolean }) {
+/**
+ * `showWorkload: false` — у главной РОП «Нагрузка агентов» уже есть в «Распределении заявок»
+ * (components/look/home/blocks/rop.tsx, 20.11.2026): второй такой же график рядом не нужен.
+ */
+export function TeamCharts({ host, showCommission = true, showWorkload = true }: { host: Host; showCommission?: boolean; showWorkload?: boolean }) {
   const can = useCan();
   const enabled = can("dashboard.analytics");
   const charts = useDashboardCharts(enabled);
@@ -69,6 +59,11 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   if (!charts.data && !insights.data) {
     if (charts.isError && insights.isError) {
       const text = "Графики по команде не загрузились. Обновите страницу чуть позже.";
+      if (host === "royal") return (
+        <RhSection title="Графики по команде">
+          <RhBlockState kind="error" onRetry={() => { void charts.refetch(); void insights.refetch(); }} />
+        </RhSection>
+      );
       if (host === "phone") return <MhNoData tone="warn">{text}</MhNoData>;
       return (
         <p className={host === "pult" ? "hint" : "quiet"}>
@@ -98,7 +93,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
           lastValueLabel={num(last.commission ?? 0)}
           items={commission.map((m) => ({
             key: m.month,
-            label: MONTH_SHORT[monthIdx(m.month)],
+            label: monthShort(m.month),
             value: m.commission ?? 0,
             tip: `${monthTitle(m.month)}|${num(m.commission ?? 0)} сомони · ${m.deals} ${pluralizeRu(m.deals, ["сделка", "сделки", "сделок"])}`,
           }))}
@@ -122,7 +117,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
           lastValueLabel={num(props[props.length - 1]?.added ?? 0)}
           items={props.map((m) => ({
             key: m.month,
-            label: MONTH_SHORT[monthIdx(m.month)],
+            label: monthShort(m.month),
             value: m.added,
             tip: `${monthTitle(m.month)}|добавлено ${num(m.added)} · продано ${num(m.sold)}`,
           }))}
@@ -160,7 +155,7 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   // показываются нигде (владелец).
 
   // Нагрузка: у кого сколько клиентов в работе.
-  const workload = ins?.workload ?? [];
+  const workload = showWorkload ? ins?.workload ?? [] : [];
   if (workload.length > 0) {
     const max = Math.max(1, ...workload.map((w) => w.activeClients));
     blocks.push({
@@ -184,6 +179,27 @@ export function TeamCharts({ host, showCommission = true }: { host: Host; showCo
   const weakText = weak ? `Слабое место недели: у ${weak.agentName} меньше всего баллов за «${weak.categoryLabel}».` : null;
 
   if (blocks.length === 0 && !weakText) return null;
+
+  if (host === "royal") {
+    return (
+      <>
+        {weakText && (
+          <RhSection title="Как идут дела у команды" className="ry-col-b">
+            <RhGroup><RhRow lead={<RhCircle icon="circle-alert" tone="warn" />} title={weakText} /></RhGroup>
+          </RhSection>
+        )}
+        {/* Графики по очереди в левую и правую колонку ПК (ядро главной закрепляет колонки). */}
+        {blocks.map((b, i) => (
+          <RhSection key={b.key} title={b.title} className={i % 2 === 0 ? "ry-col-a" : "ry-col-b"}>
+            <div className="ry-home-chart">
+              {b.note && <p className="ry-home-chart-note">{b.note}</p>}
+              <Rh2Inline>{b.body}</Rh2Inline>
+            </div>
+          </RhSection>
+        ))}
+      </>
+    );
+  }
 
   if (host === "phone") {
     return (

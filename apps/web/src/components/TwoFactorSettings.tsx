@@ -4,6 +4,7 @@ import { useMyProfile } from "../hooks/useMe";
 import { useSetupTotp, useConfirmTotp, useDisableTotp } from "../hooks/useTwoFactor";
 import { ApiError } from "../lib/api";
 import { StepUpDialog } from "./StepUpDialog";
+import { useRoyalLook } from "../hooks/useRoyalLook";
 
 /**
  * Двухфакторная защита.
@@ -15,6 +16,7 @@ import { StepUpDialog } from "./StepUpDialog";
  * вставляется в общую секцию «Вход и безопасность» профиля.
  */
 export function TwoFactorSettings() {
+  const royal = useRoyalLook();
   // Своё окно подтверждения — общее (GlobalStepUpHost) не открывается поверх.
   useEffect(() => claimStepUp(), []);
   const { data: profile, isLoading } = useMyProfile();
@@ -185,7 +187,8 @@ export function TwoFactorSettings() {
             )}
             <span className="wrap">
               <button
-                className="pill sm"
+                // Новый вид: отключение защиты — опасное действие (красное), а не главная синяя.
+                className={royal ? "pill sm danger" : "pill sm"}
                 type="button"
                 onClick={doDisable}
                 disabled={disablePassword.length !== 6 || disable.isPending}

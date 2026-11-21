@@ -44,7 +44,7 @@ function render(inputText: string, opts: { decision?: Partial<Decision>; evidenc
 const FORBIDDEN = /выше|дар\s+боло|такрор|повтор|уже\s+пис|уже\s+напис|номафҳум/iu;
 const COMMISSION_TG = "Ҳаққи хизмат барои фурӯшанда 2%, барои харидор 0% аст.";
 const SERVICE_TG = "Барои хариду фурӯши хона дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем. Дар шаҳрҳои дигар кор намекунем.";
-const SELLER_Q_TG = "Хонаатон чанд ҳуҷра, чанд квадрат, дар куҷо, кадом ошёна, бо таъмир ё каробка ва нархаш чанд? Ҳамаи маълумотро дар як паём нависед.";
+const SELLER_Q_TG = "Хонаатон чанд ҳуҷра, чанд квадрат, дар куҷо, кадом ошёна, бо таъмир ё каробка ва нархаш чанд?";
 const ASK_TG = "Инро аниқ агенти мо мегӯяд. Рақами телефонатонро нависед, то агенти мо занг занад.";
 const ASKS_PHONE = /рақами\s+телефон|номер\s+телефона/iu;
 
@@ -190,12 +190,13 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
   const scope: CustomerAgentEvidence[] = [{ ref: "e0", value: policy("service_scope") }];
   it("a Dushanbe seller hears the area once, never «other cities»", () => {
     const first = render("Мехоҳам хонаамро фурӯшам", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" } })!;
-    expect(first).toContain("Барои хариду фурӯши хона дар Душанбе ва ноҳияи Рӯдакӣ кӯмак мекунем.");
+    expect(first).toContain("Барои хариду фурӯши хона дар Душанбе кӯмак мекунем.");
+    expect(first).not.toMatch(/Рӯдак|Рудак/iu);
     expect(first).not.toContain("шаҳрҳои дигар");
   });
   it("a seller whose flat is in Qayroqqum gets a short apology and no questionnaire", () => {
     expect(render("Мо дар шахри Кайрокум гулистон", { evidence: scope, decision: { refs: ["e0"], question: "seller_details" },
-      turns: [user("Мехоҳам хонаамро фурӯшам"), bot(`Салом!\n${SELLER_Q_TG}`)] })).toBe("Мутаассифона, мо танҳо дар Душанбе ва ноҳияи Рӯдакӣ кор мекунем.");
+      turns: [user("Мехоҳам хонаамро фурӯшам"), bot(`Салом!\n${SELLER_Q_TG}`)] })).toBe("Мутаассифона, мо танҳо дар Душанбе кор мекунем.");
   });
   it.each([["Ман аз Хуҷанд ҳастам, барои писарам хона мехарам", "tg"], ["Я живу в Худжанде, хочу купить квартиру сыну", "ru"]] as const)(
     "a buyer from elsewhere is our client, not refused: %s", (text, language) => {
@@ -204,7 +205,7 @@ describe("the service area: «only Dushanbe» only for an object outside (live c
       expect(out).toBeTruthy();
     });
   // Owner 16.11.2026 verbatim: «Загород не берём, только Душанбе» — a buyer looking OUTSIDE the area hears the area and an offer.
-  it.each([["Хона дар Ваҳдат мехарам", "tg", "Дар Душанбе ё ноҳияи Рӯдакӣ"], ["Хочу купить дачу в Варзобе", "ru", "Можем подобрать в Душанбе или районе Рудаки"]] as const)(
+  it.each([["Хона дар Ваҳдат мехарам", "tg", "Дар Душанбе интихоб карда метавонем."], ["Хочу купить дачу в Варзобе", "ru", "Можем подобрать в Душанбе."]] as const)(
     "a buyer looking in the suburbs: the area and an offer — %s", (text, language, offer) => {
       const out = render(text, { language, evidence: scope, decision: { refs: ["e0"], question: "budget" } })!;
       expect(out).toMatch(/Мутаассифона|К сожалению/u);

@@ -75,7 +75,7 @@ export function AiDigest({ month }: { month: string | undefined }) {
                 onClick={() => month && refresh.mutate(month)}
                 disabled={refresh.isPending}
               >
-                {refresh.isPending ? "Пробуем…" : "Попробовать снова"}
+                {refresh.isPending ? "Пробуем…" : "Повторить"}
               </button>
             </div>
           ) : (

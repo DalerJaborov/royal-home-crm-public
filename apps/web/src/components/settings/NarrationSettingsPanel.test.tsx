@@ -28,12 +28,28 @@ function render(data: NarrationSettingsView) {
 describe("Настройки CRM: озвучка роликов", () => {
   it("директор видит всю технику и кнопку сохранения", () => {
     const html = render(view());
-    for (const part of ["Модель озвучки", "Подготовить образцы голосов", "Готово образцов: 4", "Автоозвучка", "Голос накладывает CRM",
+    for (const part of ["Модель озвучки", "Подготовить образцы голосов", "Готово образцов: 4", "Автоозвучка", "Голос на ролик кладём мы",
       "Символов в сутки", "Шаблоны текста", "Словарь произношения", "проверить носителем", "Сохранить настройки озвучки"]) expect(html).toContain(part);
+    // Ревью 18.11: подпись текста на ролике не обещает того, чего код не делает (монтажёру CRM ничего не пишет).
+    expect(html).toContain("при перемонтаже CRM сама кладёт плашку с ценой");
+    expect(html).not.toContain("не вписывать");
     expect(html).toContain("1200 из 20000 символов");
     expect(html).toContain("f1 | Мадина | ж\nm1 | Фирӯз | м");
     expect(html).not.toContain("может директор или администратор");
     expect(html).not.toMatch(/<fieldset[^>]*disabled/);
+  });
+  it("слово со звуками без проверки носителем: простыми словами, что оно не применяется (20.11.2026)", () => {
+    const note = "Это чтение пока не применяется";
+    const rules = (list: NonNullable<NarrationSettingsView["config"]["pronunciationRules"]>) => render(view({ config: { ...view().config, pronunciationRules: list } }));
+    // Звуки + пометка: подсказка видна, терминов нет; метка для снятия на месте.
+    const held = rules([{ word: "ошёна", phoneme: "/oʃˈɵna/", needsNative: true }]);
+    expect(held).toContain(note);
+    expect(held).toContain("проверить носителем");
+    const text = held.slice(held.indexOf(note), held.indexOf(note) + 200);
+    expect(text).not.toMatch(/IPA|фонем|синхрониз/i);
+    // Замена-алиас с пометкой всё ещё уходит в озвучку, звуки без пометки (носитель проверил) — тоже.
+    expect(rules([{ word: "Сино", alias: "Сино", needsNative: true }])).not.toContain(note);
+    expect(rules([{ word: "ошёна", phoneme: "/oʃˈɵna/" }])).not.toContain(note);
   });
   it("маркетинг видит, но не меняет: поля заблокированы, сохранения нет", () => {
     const html = render(view({ canConfigure: false }));
@@ -48,8 +64,8 @@ describe("Настройки CRM: озвучка роликов", () => {
       endings: [{ id: "end-a", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] }, { id: "end-b", lang: "tg", text: "Ба мо занг занед." }] } }));
     for (const part of ["Концовки", "Добавить концовку", "Текст концовки", "Язык концовки", "Только вручную", "Подходит для", "Квартира", "Дом", "Участок", "Коммерция", "(любой объект)"]) expect(html).toContain(part);
     // Отмечено только то, что сохранено: у «Квартира 1» одна галочка типа, у «Кӯтоҳ» «только вручную», у концовки А две; плюс три общих рубильника
-    // (третий — «Озвучка текста в помощнике» из #214, по умолчанию включён) и четвёртый — «CRM сама убирает
-    // старый голос» (#219, по умолчанию включён).
+    // (третий — «Озвучка текста в помощнике» из #214, по умолчанию включён) и четвёртый — «Новую озвучку сначала
+    // слушает агент» (по умолчанию включён). «CRM сама убирает старый голос» (#219) убран 18.11.2026.
     expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1 + 1 + 2 + 4);
     expect(html).toContain("Ба мо дар Директ нависед ё занг занед.");
   });

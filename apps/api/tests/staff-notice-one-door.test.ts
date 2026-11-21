@@ -33,10 +33,13 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/montageObservers.ts": { calls: 3, why: "задание монтажёру и копия наблюдателю — рабочий канал монтажа" },
   "lib/videoHandoff.ts": { calls: 3, why: "передача исходников монтажёру — рабочий канал монтажа" },
   "lib/videoHandoffStaleAlarm.ts": { calls: 1, why: "копия напоминания монтажа наблюдателям (sendMontageCopies) — рабочий канал монтажа" },
-  "lib/narrationDelivery.ts": { calls: 1, why: "файлы озвучки монтажёру — рабочий канал монтажа" },
-  "telegram/assistantNarration.ts": { calls: 13, why: "озвучка агенту на одобрение — рабочая карточка с кнопками, раз на версию без напоминаний (#149, решение владельца 10.11)" },
+  "lib/narrationDelivery.ts": { calls: 4, why: "файл озвучки и её текст монтажёру (текст длиннее подписи — отдельным сообщением) и их копия наблюдателям через sendMontageCopies — рабочий канал монтажа" },
+  "telegram/assistantNarration.ts": { calls: 14, why: "озвучка агенту на одобрение — рабочая карточка с кнопками, раз на версию без напоминаний (#149, решение владельца 10.11); ответы на «Править текст», включая «отмену»" },
   "telegram/assistantFreeNarration.ts": { calls: 12, why: "«озвучь текст»: кнопки голосов и файл в ответ на просьбу самого человека, без напоминаний (16.11.2026)" },
-  "telegram/staffClip.ts": { calls: 11, why: "ответы сотруднику на присланный им ролик и кнопки выбора объекта (#149)" },
+  "telegram/staffClip.ts": { calls: 18, why: "ответы сотруднику на присланный им ролик и кнопки выбора объекта (#149), распознанные кандидаты и «без объекта», сбой долгой части из очереди чата (21.11.2026)" },
+  "telegram/staffSocialPost.ts": { calls: 19, why: "пост без объекта: превью (длинная подпись отдельным сообщением), кнопки и ответы на присланный сотрудником ролик или альбом, «пост убран» на нажатую кнопку (21.11.2026)" },
+  "lib/staffSocialPostSweep.ts": { calls: 1, why: "одна строка сотруднику, чьё нажатие («Опубликовать», «Готов», подготовка поста) сорвал перезапуск сервера: что нажать ещё раз (21.11.2026)" },
+  "telegram/staffSocialPostResult.ts": { calls: 1, why: "итог публикации тому, кто сам нажал «Опубликовать» у Шабнам (21.11.2026)" },
   "lib/somonLeads/sendReserved.ts": { calls: 2, why: "заявка с Somon за агентом: выключить = потерять клиента; отдельное решение владельца" },
   "lib/askCandidatePhone.ts": { calls: 1, why: "кандидат на вакансию, не сотрудник" },
   "lib/conversationDelivery.ts": { calls: 4, why: "ответ клиенту в его переписке" },
@@ -47,13 +50,13 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "routes/expenseWorkspace.ts": { calls: 1, why: "выгрузка CSV по кнопке самого человека" },
   "routes/reportPdf.ts": { calls: 1, why: "PDF-отчёт себе в Telegram по кнопке самого человека (#189)" },
   "lib/reportPdf/monthlyFinance.ts": { calls: 1, why: "месячный финансовый PDF директору 1–3 числа: рубильник в Настройках, по умолчанию выключен (#189)" },
-  "telegram/bot.ts": { calls: 11, why: "ответы на сообщения и кнопки человека" },
-  "telegram/assistantBot.ts": { calls: 35, why: "ответы помощницы на просьбу человека" },
+  "telegram/bot.ts": { calls: 15, why: "ответы на сообщения и кнопки человека (включая просьбу номера клиенту и снятие кнопки)" },
+  "telegram/assistantBot.ts": { calls: 38, why: "ответы помощницы на просьбу человека (включая снятие клиентской кнопки номера на /start, /new и своём контакте)" },
   "telegram/assistantDelivery.ts": { calls: 7, why: "доставка ответа помощницы на просьбу" },
   "telegram/assistantVoice.ts": { calls: 6, why: "голосовой ответ на просьбу" },
   "telegram/assistantReadResults.ts": { calls: 3, why: "карточка/список в ответ на просьбу" },
   "telegram/assistantStaffPropertyCard.ts": { calls: 3, why: "карточка объекта по просьбе" },
-  "telegram/assistantPropertyDraft.ts": { calls: 36, why: "мастер объекта — ответы на шаги человека, в том числе на присланный файл с описанием" },
+  "telegram/assistantPropertyDraft.ts": { calls: 38, why: "мастер объекта — ответы на шаги человека, в том числе на присланный файл с описанием и на «готово / создавай» словами (21.11)" },
   "telegram/assistantPhotoQuality.ts": { calls: 2, why: "мастер объекта — ответ на присланное человеком сжатое фото (вопрос раз на черновик, #148)" },
   "telegram/assistantConfirmationPhotos.ts": { calls: 2, why: "фото к подтверждению, которое человек запросил" },
   "telegram/assistantExpenseAlbum.ts": { calls: 1, why: "ответ на присланный альбом чеков" },
@@ -83,7 +86,8 @@ function telegramSendCalls(source: string, file: string): number {
     if (!fromApi) continue;
     for (const part of m[1]!.split(",")) {
       const [orig, alias] = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
-      if (orig && /^send/.test(orig)) names.add((alias ?? orig).trim());
+      // removeKeyboard и requestContact — тоже sendMessage (21.11.2026: привязка сотрудника снимает клиентскую кнопку).
+      if (orig && /^(send|removeKeyboard$|requestContact$)/.test(orig)) names.add((alias ?? orig).trim());
     }
   }
   let count = 0;

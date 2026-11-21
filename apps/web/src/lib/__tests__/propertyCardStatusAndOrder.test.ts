@@ -43,17 +43,20 @@ describe("карточка объекта: статус, порядок, одн�
   });
 
   it("порядок: фото, цена с действиями, кто ведёт, ролик, что решить, сделка, затем вкладки", () => {
-    const order = [
-      "<PropertyGallery",
-      "<PropertyPriceCard",
-      "{fieldsBlock}",
-      'data-testid="property-video-stage"',
-      "{showSolve && viewSolve}",
-      "{dealSlot}",
-      'id="rh-pcard-tabs"',
-    ].map((tag) => view.indexOf(tag));
-    expect(order.every((i) => i >= 0)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Рабочие блоки собраны одним узлом `workBlocks` (пачка D1, 20.11.2026): внутри него
+    // порядок прежний, а сам узел стоит после цены в прежней раскладке и первым во вкладке
+    // «Обзор» в «Новом виде» (вкладки — сразу под главным блоком).
+    const inOrder = (tags: string[]) => {
+      const order = tags.map((tag) => view.indexOf(tag));
+      expect(order.every((i) => i >= 0), tags.join(" → ")).toBe(true);
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
+    };
+    // Озвучка (20.11.2026, владелец: «первым выходит, как будто не часть карточки») — внутри рабочих блоков сразу после
+    // строки «Ролик»; наверху карточки только строка-напоминание, когда озвучка ждёт одобрения этого человека.
+    inOrder(["{fieldsBlock}", 'data-testid="property-video-stage"', "{narrationBlock}", "{showSolve && viewSolve}", "{dealSlot}", "{changeRequestBlock}", "if (legacyAgentMobile)"]);
+    inOrder(["{narrationNudge}", "<PropertyGallery", "<PropertyPriceCard", "{!royal && workBlocks}", 'id="rh-pcard-tabs"', "{royal && workBlocks}", 'title="Сведения"']);
+    expect(view).not.toContain("{!royal && narrationBlock}");
+    expect(view).not.toContain("{royal && narrationBlock}");
   });
 
   it("описание на телефоне уходит за главные блоки, на ПК стоит под фото", () => {

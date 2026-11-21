@@ -31,6 +31,7 @@ import { districtsRouter } from "./routes/districts.js";
 import { geoRouter } from "./routes/geo.js";
 import { landmarksRouter } from "./routes/landmarks.js";
 import { propertiesRouter } from "./routes/properties.js";
+import { constructionRegistryRouter } from "./routes/constructionRegistry.js";
 import { transferRequestsRouter } from "./routes/transferRequests.js";
 import { clientsRouter } from "./routes/clients.js";
 import { dealsRouter } from "./routes/deals.js";
@@ -106,6 +107,7 @@ import { verifyAccessToken } from "./auth/jwt.js";
 import { isTransientDbError } from "./lib/concurrency.js";
 import { verifyPending2faToken } from "./lib/pending-2fa.js";
 import { deepHealth } from "./lib/deepHealth.js";
+import { clientBuildWatchMiddleware } from "./lib/clientBuildWatch.js";
 // Побочный эффект: подписка модерации в Telegram на «объект ждёт проверки».
 import "./lib/telegramModeration.js";
 
@@ -147,17 +149,22 @@ app.use(cors({ origin: CORS_ORIGIN, credentials: true, exposedHeaders: ["X-App-B
  * и не переходя между разделами — оба триггера автообновления в
  * UpdatePrompt.tsx тогда молчат, а API тем временем уже сменил контракт).
  *
- * Момент запуска процесса, а не версия из package.json/git — каждый деплой
- * перезапускает процесс, значения хватает ровно на то, чтобы отличить «до
- * этого деплоя» от «после», без git/CI-плюмбинга. Фронт запоминает первое
- * увиденное значение за сессию и требует полной перезагрузки, если оно
- * поменялось — см. lib/appVersion.ts на фронте.
+ * Момент запуска процесса, а не версия фронта — и поэтому С 21.11.2026 ЭТО
+ * ТОЛЬКО ПОДСКАЗКА. Процесс перезапускается и без смены фронта (выкат одного
+ * сервера, рестарт контейнера); раньше фронт считал каждую смену отметки
+ * новой версией, перезагружал вкладку в ту же сборку, и после трёх таких раз
+ * обновление глохло для вкладки навсегда (iPhone владельца, сутки на старой
+ * сборке). Теперь смена отметки лишь будит проверку /version.json, а решает
+ * только она — см. apps/web/src/lib/appVersion.ts.
  */
 const APP_BUILD_MARK = String(Date.now());
 app.use((_req, res, next) => {
   res.setHeader("X-App-Build", APP_BUILD_MARK);
   next();
 });
+// Сторож вкладок, застрявших на старой сборке (заголовки X-Client-Build*):
+// раз в час тихая сводка в журнал ошибок — см. lib/clientBuildWatch.ts.
+app.use(clientBuildWatchMiddleware());
 // JSON-боди ограничен явно: самые большие легитимные тела (описания объектов) — единицы КБ.
 app.use(
   express.json({
@@ -720,6 +727,8 @@ app.use("/api/v1/geo", geoRouter);
 app.use("/api/v1/landmarks", landmarksRouter);
 app.use("/api/v1/property-offers", propertyOffersRouter);
 app.use("/api/v1/properties", propertiesRouter);
+// Реестр разрешённых строек (memor.pro, 20.11.2026): только сотрудникам, под requireAuth внутри.
+app.use("/api/v1/construction-registry", constructionRegistryRouter);
 app.use("/api/v1/transfer-requests", transferRequestsRouter);
 app.use("/api/v1/clients", clientsRouter);
 app.use("/api/v1/deals", dealsRouter);

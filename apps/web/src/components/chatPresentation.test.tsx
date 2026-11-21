@@ -15,12 +15,14 @@ describe("chat source labels and legacy timestamps", () => {
     expect(desktopLabels(["TELEGRAM", "WHATSAPP", "TELEGRAM"])).toEqual(["Telegram 1", "WhatsApp", "Telegram 3"]);
   });
 
-  it("labels missing legacy timestamps as unknown without manufacturing a time", () => {
+  it("shows nothing for a missing legacy timestamp and never manufactures a time (one rule, three screens)", () => {
     for (const label of [desktopTime, mobileTime, clientTime]) {
-      expect(label(undefined)).toBe("Время сообщения неизвестно");
-      expect(label(null)).toBe("Время сообщения неизвестно");
-      expect(label("2026-10-26T09:00:00.000Z")).not.toBe("Время сообщения неизвестно");
+      expect(label(undefined)).toBe("");
+      expect(label(null)).toBe("");
+      expect(label("2026-10-26T09:00:00.000Z")).toMatch(/^\d{2}:\d{2}$/);
     }
+    expect(desktopTime).toBe(mobileTime);
+    expect(mobileTime).toBe(clientTime);
   });
 
   it("scopes duplicate message mids to their source conversation in all renderers", () => {

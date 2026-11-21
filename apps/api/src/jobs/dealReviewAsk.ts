@@ -4,6 +4,7 @@ import { logSystemError } from "../lib/systemError.js";
 import { findClientDeliveryTarget, deliverToConversation } from "../lib/conversationDelivery.js";
 import { createDealReviewAsk, deleteUnansweredDealReviewAsk } from "../lib/dealReviews.js";
 import { isDealStillClosed } from "../lib/dealStillClosed.js";
+import { sellerSwitchOn } from "../lib/sellerSwitches.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -85,7 +86,14 @@ export const dealReviewAskJob: JobHandler<z.infer<typeof schema>> = {
     if (!isDealStillClosed(deal)) return;
 
     await askSide(deal.id, deal.clientId);
-    if (deal.property.sellerClientId && deal.property.sellerClientId !== deal.clientId) {
+    // Выключатель владельца «сообщения после сделки» (14.11.2026, lib/sellerSwitches.ts)
+    // касается только ПРОДАВЦА: покупателя «как всё прошло» спрашиваем всегда, иначе
+    // главный выключатель «автоматика по продавцам» молча гасил бы и покупателей.
+    if (
+      deal.property.sellerClientId &&
+      deal.property.sellerClientId !== deal.clientId &&
+      (await sellerSwitchOn("dealAfterCloseMessagesEnabled"))
+    ) {
       await askSide(deal.id, deal.property.sellerClientId);
     }
   },

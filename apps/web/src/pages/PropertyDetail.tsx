@@ -1,4 +1,8 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalObjectBack, RoyalPropertySummary } from "../components/look/objects/RoyalPropertySummary";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
@@ -46,6 +50,7 @@ import { VoiceNotePlayer } from "../components/VoiceNotePlayer";
 import { PropertyAdBadge } from "../components/ads/PropertyAdBadge";
 import { PropertyPhotoManager } from "../components/PropertyPhotoManager";
 import { PropertyVideoManager } from "../components/PropertyVideoManager";
+import { NarrationApprovalNudge, PropertyNarrationManager } from "../components/PropertyNarrationManager";
 import { PropertyClipVideoCard } from "../components/PropertyClipVideoCard";
 import { PropertyCardSkeleton } from "../components/rh2/Skeleton";
 import { PropertyShareOpensCard } from "../components/PropertyShareOpensCard";
@@ -65,6 +70,7 @@ import { PropertyPriceCard } from "../components/property/PropertyPriceCard";
 import { PropertyActionSheet, type ActionSheetItem } from "../components/property/PropertyActionSheet";
 import { Button } from "../components/rh2/Button";
 import { Card } from "../components/rh2/Card";
+import { ConstructionPermitCard } from "../components/ConstructionPermitCard";
 import { PageHeader } from "../components/rh2/PageHeader";
 import { List, Row } from "../components/rh2/Row";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
@@ -542,6 +548,8 @@ function PropertyViewCard({
   const canMarkGroupShare = !accountReadOnly && !isTrashed && canMarkFacebookGroupShare(can("marketing.access"), myId, property);
 
   const legacyAgentMobile = useLegacyAgentMobile();
+  // «Новый вид» (облик royal): та же карточка, другая раскладка главного блока; без признака — прежняя.
+  const royal = useRoyalLook() && clean;
   const photos = property.photos ?? [];
   // ОДНА КАРТОЧКА НА ПК И ТЕЛЕФОН (контракт 06.10.2026, раздел 6). Раньше было две
   // раскладки (`useMobileUx()` рисовал отдельное дерево с лентой, плитками и
@@ -644,7 +652,7 @@ function PropertyViewCard({
       />
     ) : (
       <div className="card">
-        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} />
+        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} showOwner={!royal} />
         {canInlineEdit && <InlineEditLink label="Изменить" onClick={() => setEditingFields(true)} />}
       </div>
     );
@@ -762,6 +770,8 @@ function PropertyViewCard({
           title: "Кто ведёт объект и контакты",
           line: "Ответственный агент, телефон собственника, ссылка на ролик",
           onSelect: () => {
+            // «Новый вид»: блок живёт во вкладке «Обзор» — открыть её, иначе прокручивать некуда.
+            setTab("short");
             setEditingFields(true);
             jumpTo("rh-people");
           },
@@ -856,6 +866,7 @@ function PropertyViewCard({
     </div>
   );
   const promotionBlock = <>
+    {!isTrashed && <ConstructionPermitCard propertyId={property.shortId} />}
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
     {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}
@@ -863,26 +874,64 @@ function PropertyViewCard({
     <PriceHistoryBlock property={property} />
   </>;
   const shareOpensBlock = canEdit && !isTrashed && <PropertyShareOpensCard propertyId={property.id} />;
+  // Один блок озвучки на обе раскладки и телефон (18.11.2026). С 20.11.2026 он стоит рядом со строкой «Ролик», после
+  // фото, цены и «кто ведёт», а не первым в карточке (владелец: «как будто это не часть карточки»).
+  const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration" className="scroll-mt-24"><PropertyNarrationManager propertyId={property.id} placement="card"
+    factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency].join("|")} /></div> : null;
+  // Блок ниже первого экрана — наверху короткая строка-ссылка к нему, только когда одобрить должен этот человек (ревью #334).
+  const narrationNudge = canEdit && !property.offSite ? <NarrationApprovalNudge propertyId={property.id} onOpen={() => setTab("short")} /> : null;
   const matchDialog = matchOpen && <MatchPanel mode="property" property={property} open={matchOpen} onClose={() => setMatchOpen(false)} />;
   const deleteDialog = !accountReadOnly && deleteOpen && <DeletePropertyDialog propertyId={property.id} onClose={() => setDeleteOpen(false)} />;
   const requestDeleteDialog = !accountReadOnly && requestDeleteOpen && <RequestDeletePropertyModal propertyId={property.id} propertyTitle={property.title} onClose={() => setRequestDeleteOpen(false)} />;
 
+  // Рабочие блоки карточки: описание, кто ведёт, ролик, «Решить сейчас», сделка, заявки на
+  // изменение. В прежней раскладке — правой колонкой рядом с ценой, в «Новом виде» — первыми
+  // во вкладке «Обзор»; озвучка — среди них, рядом со строкой «Ролик» (служебное ниже главного, пачка D1; 20.11.2026).
+  const workBlocks = (
+    <>
+      {clean && descriptionContent}
+
+      {/* Кто ведёт и собственник. Тем, кому собственник закрыт, его блока нет:
+          остаётся «кто ведёт» (PropertyPeople). */}
+      <CleanPropertySlot enabled={clean && !royal} area="people"><div id="rh-people">{fieldsBlock}</div></CleanPropertySlot>
+
+      <CleanPropertySlot enabled={clean && !royal} area="work">{videoLine && (
+        <Card tight title="Ролик" data-testid="property-video-stage">
+          <div className="quiet">
+            <span className={videoLine.tone === "neutral" ? "dot" : `dot ${videoLine.tone}`} />
+            <span className="txt">{videoLine.text}</span>
+          </div>
+        </Card>
+      )}</CleanPropertySlot>
+
+      {/* ОЗВУЧКА РОЛИКА (20.11.2026): рядом со строкой «Ролик», после фото, цены и «кто ведёт». Один адаптивный
+          блок для нового облика и прежней раскладки, ПК и телефона; спокойное состояние — короткая строка. */}
+      <CleanPropertySlot enabled={clean && !royal} area="work">{narrationBlock}</CleanPropertySlot>
+
+      <CleanPropertySlot enabled={clean && !royal} area="work">{showSolve && viewSolve}</CleanPropertySlot>
+      <CleanPropertySlot enabled={clean && !royal} area="work">{dealSlot}</CleanPropertySlot>
+      <CleanPropertySlot enabled={clean && !royal} area="work">{changeRequestBlock}</CleanPropertySlot>
+    </>
+  );
+
   if (legacyAgentMobile) {
     return <LegacyAgentPropertyView
       {...{ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine, canSchedule }}
-      slots={{ trashedNotice, addressNotice, lockedNotice, reelsBlock, promotionBlock, shareOpensBlock, matchDialog, deleteDialog, requestDeleteDialog }}
+      slots={{ trashedNotice, addressNotice, lockedNotice, narrationNudge, narrationBlock, reelsBlock, promotionBlock, shareOpensBlock, matchDialog, deleteDialog, requestDeleteDialog }}
       parts={{ InlineDoneButton, InlineEditLink, DemandLine, DescriptionBlock }}
     />;
   }
 
+  // Метка раздела «Объекты» (data-ry-section) — экран и все окна, открытые из него; без признака вида пусто.
   return (
-    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions}>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen title={`Объект №${property.shortId}`} back="/properties" actions={headerActions} className={royal ? "ry-object-page" : undefined}>
       <MutationError mutation={updateProperty} fallback="Не удалось сохранить изменение" />
       {trashedNotice}
 
       {/* Заголовок страницы только на компьютере: на телефоне его несёт шапка оболочки. */}
       <div className="only-wide">
-        {clean ? <CleanPropertyDetailHeader code={formatPropertyCode(property.shortId)} place={placeLine(property)} /> : <PageHeader
+        {royal ? <RoyalObjectBack code={formatPropertyCode(property.shortId)} /> : clean ? <CleanPropertyDetailHeader code={formatPropertyCode(property.shortId)} place={placeLine(property)} /> : <PageHeader
           title={`Объект №${property.shortId}`}
           sub={placeLine(property)}
           actions={
@@ -896,15 +945,19 @@ function PropertyViewCard({
 
       {addressNotice}
       {lockedNotice}
+      {/* ОЗВУЧКА (20.11.2026): блок стоит среди рабочих блоков рядом со строкой «Ролик» (workBlocks) — в прежней
+          раскладке правой колонкой после цены, в «Новом виде» во вкладке «Обзор» (пачка D1). Наверху — только
+          строка-ссылка, когда озвучка ждёт одобрения именно этого человека. */}
+      {narrationNudge}
 
       <CleanPropertyDetailLayout enabled={clean}>
         <div className="rh-pcard-main" style={clean ? { display: "contents" } : undefined}>
-          <CleanPropertySlot enabled={clean} area="gallery"><PropertyGallery photos={photos} /></CleanPropertySlot>
+          <CleanPropertySlot enabled={clean} area="gallery"><PropertyGallery photos={photos} thumbs={royal} /></CleanPropertySlot>
           {!clean && descriptionContent}
         </div>
 
         <div className="rh-pcard-side" style={clean ? { display: "contents" } : undefined}>
-          {clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
+          {royal ? <RoyalPropertySummary {...summaryProps} place={placeLine(property)} viewerRole={role} onAddSeller={canInlineEdit ? () => { setTab("short"); setEditingFields(true); jumpTo("rh-people"); } : null}>{demandContent}</RoyalPropertySummary> : clean ? <CleanPropertySummary {...summaryProps}>{demandContent}</CleanPropertySummary> : <PropertyPriceCard
             property={property}
             onSchedule={canSchedule ? () => setShowingOpen(true) : null}
             onEdit={canEnterEdit ? () => setEditMenuOpen(true) : null}
@@ -913,24 +966,7 @@ function PropertyViewCard({
             {demandContent}
           </PropertyPriceCard>}
 
-          {clean && descriptionContent}
-
-          {/* Кто ведёт и собственник. Тем, кому собственник закрыт, его блока нет:
-              остаётся «кто ведёт» (PropertyPeople). */}
-          <CleanPropertySlot enabled={clean} area="people"><div id="rh-people">{fieldsBlock}</div></CleanPropertySlot>
-
-          <CleanPropertySlot enabled={clean} area="work">{videoLine && (
-            <Card tight title="Ролик" data-testid="property-video-stage">
-              <div className="quiet">
-                <span className={videoLine.tone === "neutral" ? "dot" : `dot ${videoLine.tone}`} />
-                <span className="txt">{videoLine.text}</span>
-              </div>
-            </Card>
-          )}</CleanPropertySlot>
-
-          <CleanPropertySlot enabled={clean} area="work">{showSolve && viewSolve}</CleanPropertySlot>
-          <CleanPropertySlot enabled={clean} area="work">{dealSlot}</CleanPropertySlot>
-          <CleanPropertySlot enabled={clean} area="work">{changeRequestBlock}</CleanPropertySlot>
+          {!royal && workBlocks}
         </div>
       </CleanPropertyDetailLayout>
 
@@ -942,6 +978,7 @@ function PropertyViewCard({
         <div className="rh-pcard-tabbody">
           {tab === "short" && (
             <>
+              {royal && workBlocks}
               {/* Сведения, которым не место на первом экране: когда принят, номер,
                   сайт (review-mobile.md, п. 4 «Меньше информации: что под раскрытие»). */}
               <Card title="Сведения">
@@ -1079,6 +1116,7 @@ function PropertyViewCard({
       {deleteDialog}
       {requestDeleteDialog}
     </Rh2Screen>
+    </RoyalSection>
   );
 }
 
@@ -1986,7 +2024,7 @@ function AgentFieldsCard({
               // оставалось со старым значением.
               onSave={(v) => updateProperty.mutate({ ownerContact: v || null })}
             />
-            <span className="msg">Номер видят руководитель и агент этого объекта. Исправите номер — он поправится и в карточке продавца.</span>
+            <span className="msg">Номер видит только директор. Исправите номер — он поправится и в карточке продавца.</span>
           </div>
         )}
 
@@ -2016,8 +2054,7 @@ function AgentFieldsCard({
 
         <label className="fld">
           <span className="lab">Дата принятия объекта</span>
-          <input
-            type="date"
+          <RuDateField
             // День по Душанбе, а не по UTC: вечерний приём (после 19:00 UTC)
             // иначе показывался в поле вчерашним числом.
             defaultValue={property.listingAcceptedAt ? dushanbeDayKey(property.listingAcceptedAt) : undefined}
@@ -2175,6 +2212,7 @@ function EditorPropertyDetail({
         <PropertyVideoManager
           propertyId={property.id}
           readOnly
+          withNarration
           handoffStatus={property.videoHandoffStatus}
           inPipeline={!!property.pipeline?.inPipeline}
         />

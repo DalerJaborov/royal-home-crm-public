@@ -7,7 +7,7 @@ import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPubl
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -18,6 +18,7 @@ import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
+import { attachedFileHiddenTools, attachedRequest } from "./assistantAttachedRequest.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
@@ -26,11 +27,13 @@ import { deleteSentReply, deleteSentScope, isDeleteSentRequest, isVoiceReplayReq
 import { deletableSentMessages, forgetSentMessages, mergeSentEntries } from "./sentMessageLog.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
-import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
+import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, isPropertyDraftStartText } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
+import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleFreeNarrationCallback, handleFreeNarrationMessage, looksLikeNarrationDictation, narrationDictationReply } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
+import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
 import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, isExpiredExpenseBatch, sendExpenseBatchCard, showExpiredExpenseCard } from "./assistantExpenseCard.js";
@@ -52,6 +55,7 @@ import { claimCallback } from "../lib/telegramModeration.js";
 import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
 import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
 import { handleTrashRestoreCallback } from "./trashRestoreNotice.js";
+import { migrateAssistantGroupChat } from "../lib/assistantGroupMigration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
@@ -76,6 +80,7 @@ import {
   getBotUsername,
   editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
+  removeKeyboard,
   sendMessageWithButtons,
   setMessageReaction,
   TelegramApiError,
@@ -176,6 +181,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_missed_calls",
   "get_team_load",
   "get_stuck_work",
+  // Реестр строек (21.11.2026, tools/registryReadTool.ts): только сотрудникам и только в личке.
+  "get_construction_registry",
   // Разбор клиентской базы (17.11.2026, tools/clientBaseOverviewTool.ts): числа по агентам — только личка.
   "get_client_base_overview",
   // Сообщение коллеге от имени просящего (17.11.2026, tools/sendStaffMessageTool.ts): текст и получатель — только личка.
@@ -188,6 +195,9 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "complete_property_editing",
   // Смена статуса объекта (17.11.2026): теперь меняется сразу (снять с продажи, продано) и закрывает показы и посты — только в личке.
   "change_property_status",
+  // Озвучка объекта словами (18.11.2026, tools/narrationTools.ts): текст озвучки, файлы и одобрение (ролик уходит в соцсети) — только в личке.
+  // Список буквами (не импортом): сверку с реестром держит tests/assistant-narration-tools.test.ts.
+  "narration_status", "send_narration_audio", "request_narration", "approve_narration",
   // Удаление клиента (15.11.2026): карточка клиента и подтверждение — только в личке.
   "delete_client",
   // Возврат клиента из Корзины (17.11.2026): та же карточка клиента — только личка.
@@ -235,17 +245,20 @@ function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: bo
 // ───────────────────────────── рендер ─────────────────────────────
 
 const FIELD_MAX = 120;
-function field(value: unknown): string {
+function field(value: unknown, max = FIELD_MAX): string {
   const text = typeof value === "string" ? value : value === null || value === undefined ? "—" : String(value);
   const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > FIELD_MAX ? `${flat.slice(0, FIELD_MAX - 1)}…` : flat;
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function lines(record: Record<string, unknown>): string {
+function lines(record: Record<string, unknown>, max = FIELD_MAX): string {
   return Object.entries(record)
-    .map(([k, v]) => `${k}: ${field(v)}`)
+    .map(([k, v]) => `${k}: ${field(v, max)}`)
     .join("; ");
 }
+
+/** Текст озвучки в карточке читается целиком (было → станет): 120 знаков хватает на цену, но не на текст ролика. */
+const NARRATION_FIELD_MAX = 1300;
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
 /**
@@ -291,10 +304,11 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
     if (a.tool === "send_staff_message" && typeof p.becomes.Сообщение === "string") {
       return [head, `   ${p.becomes.Сообщение}`, `   ⚠️ ${p.risk ?? frame.irreversible}`].join("\n");
     }
+    const max = (a.tool === "request_narration" || a.tool === "approve_narration") ? NARRATION_FIELD_MAX : FIELD_MAX;
     return [
       head,
-      `   ${frame.was}: ${lines(p.was)}`,
-      `   ${frame.becomes}: ${lines(p.becomes)}`,
+      `   ${frame.was}: ${lines(p.was, max)}`,
+      `   ${frame.becomes}: ${lines(p.becomes, max)}`,
       p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? `   ⚠️ ${frame.irreversible}` : null,
     ]
       .filter(Boolean)
@@ -342,6 +356,10 @@ interface TurnParams {
   showWorking?: () => void;
   /** Ключ хода (`tg:<чат>:<сообщение>`): повторная доставка того же сообщения не повторяет записи. */
   turnKey?: string;
+  /** Прямое обращение в группе: даёт модели инструмент set_group_quiet (ai/assistant/tools/groupQuietTool.ts). */
+  groupChat?: { chatId: string; registeredAt: number };
+  /** К запросу приложен текст файла: записи без карточки подтверждения закрыты (attachedFileHiddenTools). */
+  attachedFile?: boolean;
 }
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
@@ -487,6 +505,16 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (params.readOnlyGroup || params.onlyGroupConfirmation || (params.scope === "group" && params.forwardedEvidence)) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
+  if (params.attachedFile) actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...attachedFileHiddenTools()]);
+  // Мастер объекта (уровень A, но пишет в черновик) — только на собственную просьбу сотрудника: пересланный
+  // текст продавца, файл или ход «только читать» не открывают мастер и не льют чужие данные в черновик.
+  if (params.forwardedEvidence || params.readOnlyGroup || params.onlyGroupConfirmation || params.attachedFile) {
+    actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), "start_property_draft"]);
+  }
+  // «Помолчи» словами модели — только на прямое обращение: ни пересылка, ни автоответ его не включают.
+  if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
+    actor.groupChat = params.groupChat;
+  }
   if (params.onlyGroupConfirmation) {
     actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...listAssistantToolPlugins()
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
@@ -539,7 +567,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           return { reply: roster, pending: [], done: [], structured: true };
         }
       }
-      const fast = await tryAssistantFastPath(last.content, actor);
+      const fast = await tryAssistantFastPath(last.content, actor, assistantLanguage(params.history) === "tg" ? "tg" : "ru");
       if (fast) {
         void logAssistantToolCall({
           agentId: actor.id,
@@ -762,6 +790,16 @@ async function replyWithMoreProperties(scope: CardScope, count: number, request:
 
 // ───────────────────────────── личка ─────────────────────────────
 
+/**
+ * Контакт из Telegram («Поделиться номером» или визитка) → строка для помощницы (21.11.2026).
+ * Имя из чужой визитки — данные, а не команда: переводы строк и длина урезаны.
+ */
+export function staffContactPrompt(contact: { phone_number: string; first_name?: string }): string {
+  const digits = contact.phone_number.replace(/[^\d]/g, "");
+  const name = (contact.first_name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return `Контакт: ${name ? `${name}, ` : ""}+${digits}`;
+}
+
 const HELP_TEXT =
   "Я помощник CRM. Напишите или надиктуйте просьбу: «найди клиента …», «покажи ОБ-123», «снизь цену ОБ-123 до 90000». " +
   "Всё, что меняет данные, я показываю карточкой «было → станет» и жду вашего «Подтвердить». «Добавь объект» — открыть мастер в личке. /new — начать разговор заново.";
@@ -835,7 +873,9 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
     standalone ? "assistant-telegram-group-standalone-voice" : "assistant-telegram-voice",
     standalone ? ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT : ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
-  const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
+  const media = await handleAssistantMedia(msg, agentId, {
+    allowGroup: msg.chat.type !== "private", wallet, language: () => stepUpLanguageOf(String(msg.chat.id), agentId),
+  });
   if (media.error) return { error: media.text };
   const text = media.extraction?.transcript;
   if (!text?.trim() || media.extraction?.incomplete) {
@@ -895,51 +935,71 @@ export async function handleAssistantPrivate(
     }
     const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
     const forwardedPlain = isForwarded && Boolean((msg.text ?? msg.caption)?.trim());
+    // Контакт сотрудника: свой номер — уже подключён, лишнюю кнопку «Поделиться номером» снимаем;
+    // чужая визитка — слова для помощницы («найди или заведи клиента»), а не общая подсказка.
+    let contactText = "";
+    if (msg.contact) {
+      if (msg.contact.user_id != null && String(msg.contact.user_id) === String(msg.from?.id ?? "")) {
+        await removeKeyboard(chatId, "Это ваш номер, вы уже подключены к CRM. Пишите просьбу словами.");
+        return;
+      }
+      contactText = staffContactPrompt(msg.contact);
+    }
     const moneyWallet = createAssistantMoneyWallet();
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
-    if (!isForwarded && await handleNarrationTextReply(msg, agent)) return;
+    // Голосовое в эти 15 минут — тоже новый текст озвучки: расшифровка той же дверью, что у обычного голосового.
+    if (!isForwarded && await handleNarrationTextReply(msg, agent, (m) => transcribeVoice(m, agent.id, moneyWallet))) return;
     // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
     if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
+    // Новая подпись поста без объекта (10 минут после «Изменить подпись») — telegram/staffSocialPost.ts.
+    if (!isForwarded && await handleStaffSocialText(msg, agent)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
     if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
+    // Фото или альбом с «опубликуй» — пост в соцсети без объекта (21.11.2026). ПОСЛЕ мастера объекта:
+    // сотрудник в мастере, фото с «выложи» — это фото объекта. Без этих слов фото идут дальше (расходы).
+    if (!isForwarded && await handleStaffSocialPhoto(msg, agent)) return;
     // Ролик от СММщика или другого сотрудника (12.11.2026): сам находит объект, дальше
     // «Готов к выпуску» или «Нужен монтаж». В мастере объекта видео остаётся исходником (выше).
     if (await handleStaffClipMessage(msg, agent)) return;
     if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
-    let text = (msg.text ?? msg.caption ?? "").trim();
+    let text = (msg.text ?? msg.caption ?? "").trim() || contactText;
     const fromVoice = Boolean(msg.voice || msg.audio);
     let forwardedEvidence = forwardedPlain;
+    let attachedFileText = "";
     if (!forwardedPlain && (text === "/new" || text === "/reset")) {
       await clearHistory(chatId);
       clearStaffPropertyPage(cardScope);
-      await send("Начали заново.");
+      // remove_keyboard: у давно привязанных кнопка клиентского бота исчезает при первом /new.
+      await removeKeyboard(chatId, "Начали заново.");
       return;
     }
     if (!forwardedPlain && text.startsWith("/")) {
-      await send(HELP_TEXT);
+      if (text === "/start" || text.startsWith("/start@")) await removeKeyboard(chatId, HELP_TEXT);
+      else await send(HELP_TEXT);
       return;
     }
-    // Фото или файл с подписью СВОИМИ словами (17.11.2026, журнал прода 10–11.11): подпись — просьба
-    // сотрудника, текст файла — цитата-данные в границах недоверенного содержимого (UNTRUSTED_CONTENT_RULE:
-    // указания внутри не исполняются). Раньше текст только пересказывался и ход кончался без истории —
-    // «внеси их» следующим сообщением модель выполнить не могла. Запись по-прежнему только карточкой.
-    let fileQuoted = false;
+    // Фото или файл с подписью СВОИМИ словами (17.11.2026, журнал прода 10–11.11; одна дверь с #268 —
+    // telegram/assistantAttachedRequest.ts): подпись — просьба сотрудника, текст файла — цитата-данные в
+    // границах недоверенного содержимого, записи без карточки на таком ходе закрыты. Раньше текст только
+    // пересказывался и ход кончался без истории — «внеси их» следующим сообщением модель выполнить не могла.
     if ((msg.photo?.length || msg.document) && text) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       const access = await loadAgentAccess(agent.id);
       if (!access?.isActive) { await send("Ваша учётка отключена."); return; }
       void sendChatAction(chatId).catch(() => {});
-      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
+      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet, language: () => stepUpLanguageOf(chatId, agent.id) });
       const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
-      if (media.error || isForwarded) {
-        // Пересланный файл — чужие слова и в подписи: только пересказ, как прежде.
+      if (forwardedPlain || media.error || !media.extraction) {
+        // File text is quoted evidence, never a request that may authorize CRM writes.
         for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
         return;
       }
-      text = `${text.slice(0, 400)}\n${wrapUntrusted("document", extracted, 3400)}`;
-      fileQuoted = true;
+      // Подпись — слова сотрудника, а не часть файла (17.11.2026): «оплатил рекламу 300» раньше терялась,
+      // человеку возвращали только распознанный текст. Теперь подпись идёт обычным ходом помощницы,
+      // текст файла приложен к нему недоверенным документом (как у пересланных сообщений).
+      attachedFileText = extracted;
     }
     if (fromVoice) {
       const voice = await transcribeVoice(msg, agent.id, moneyWallet);
@@ -947,6 +1007,10 @@ export async function handleAssistantPrivate(
         await send(voice.error);
         return;
       }
+      // «Добавь объект» голосом (21.11.2026): мастер выше видит только текст, и голосовая просьба
+      // уходила в общий ответ, где помощница отвечала «не могу». Расшифровка — тот же разбор фразы.
+      if (!isForwarded && isPropertyDraftStartText(voice.text)
+        && await handleTelegramPropertyDraft({ ...msg, voice: undefined, audio: undefined, text: voice.text, caption: undefined }, agent, transcribeVoice)) return;
       const forwarded = forwardedVoicePrompt(msg, voice.text);
       forwardedEvidence = forwarded !== null;
       text = forwarded ?? voice.text;
@@ -983,8 +1047,9 @@ export async function handleAssistantPrivate(
       return;
     }
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
-    // Свои слова человека (не пересланное и не подпись с цитатой файла) — для разборов кодом ниже.
-    const ownWords = !forwardedEvidence && !fileQuoted;
+    // Свои слова человека (не пересланное и не подпись с цитатой файла) — для разборов кодом ниже:
+    // подпись к файлу идёт модели вместе с файлом, иначе разбор списка расходов съел бы подпись без файла.
+    const ownWords = !forwardedEvidence && !attachedFileText.trim();
     if (ownWords && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = ownWords && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
@@ -1017,8 +1082,9 @@ export async function handleAssistantPrivate(
     }
     const showTyping = fromVoice ? undefined : () => void sendChatAction(chatId).catch(() => {});
     showTyping?.();
-    const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
+    const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+      attachedFile: Boolean(attachedFileText.trim()),
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });
@@ -1190,6 +1256,20 @@ async function groupMontageReply(
  */
 export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") return false;
+  // Группа стала супергруппой: регистрация переезжает на новый id. ДО проверки «группа подключена»
+  // (на новом id её ещё нет) и без отправителя-сотрудника: это служебное сообщение Telegram, в чат ничего не пишем.
+  const migration = groupMigrationEvent(msg.chat.id, msg.migrate_to_chat_id, msg.migrate_from_chat_id);
+  if (migration) {
+    try {
+      await migrateAssistantGroupChat(migration.oldChatId, migration.newChatId);
+    } catch (err) {
+      // Событие Telegram второй раз не пришлёт; регистрацию дотянет сторож (lib/assistantGroupWatchdog.ts).
+      await logSystemError("telegram", `Шабнам: не удалось перенести подключённую группу в супергруппу: ${describeError(err)}`, {
+        dedupKey: "assistant-group-migration-failed",
+      });
+    }
+    return true;
+  }
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
   const chatId = String(msg.chat.id);
@@ -1727,6 +1807,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         agentId: sender.id,
         moneyWallet,
         scope: "group",
+        groupChat: addressed ? { chatId, registeredAt } : undefined,
         allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
         readOnlyGroup: Boolean(continuationRef),
         validateQueueAudience, forwardedEvidence,
@@ -1822,8 +1903,17 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (await handlePropertyOfferCallback(query)) return true;
   if (await handleNarrationCallback(query)) return true;
+  if (await handleNarrationPreviewCallback(query)) return true;
   if (await handleFreeNarrationCallback(query)) return true;
-  if (await handleStaffClipCallback(query)) return true;
+  // Ролик и пост без объекта: долгое (скачать, ИИ, публикация) — в очереди этого чата, как ход
+  // помощницы в личке; разбор остальных апдейтов нажатие не держит, кнопка отвечает сразу.
+  const chatLane: DeferWork = async (work) => {
+    void runInAssistantLane(`private:${query.message?.chat.id ?? query.from?.id}`, work, async (err) => {
+      await logSystemError("telegram", `Кнопка ролика или поста в Telegram: ${describeError(err)}`);
+    });
+  };
+  if (await handleStaffClipCallback(query, chatLane)) return true;
+  if (await handleStaffSocialCallback(query, chatLane)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {

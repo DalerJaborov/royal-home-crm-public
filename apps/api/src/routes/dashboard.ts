@@ -16,7 +16,7 @@ import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
 import { buildDashboardInsights } from "../lib/dashboardInsights.js";
 import { withMaskedClient, clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import { presentInteractions, transcriptAccess } from "../lib/callTranscripts.js";
-import { firstCallCandidateWindow, firstCallStatus } from "../leads.js";
+import { firstCallAfterDue, firstCallCandidateWindow, firstCallStatus } from "../leads.js";
 import { activeBuyersLoadWhere } from "../lib/agentLoad.js";
 import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
@@ -742,7 +742,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    * эскалирован (эскалированный уже «требует внимания» в другом месте, а не
    * ждёт звонка от этого агента).
    */
-  let firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string }[] = [];
+  let firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string; afterDue: string }[] = [];
   if (ownAgentId) {
     /**
      * ТО ЖЕ ОКНО КАНДИДАТОВ, ЧТО У КРОНА (19.09.2026, жалоба владельца: «клиент
@@ -767,7 +767,13 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
         deletedAt: null,
         escalatedAt: null,
       },
-      select: { id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true },
+      select: {
+        id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true,
+        // Что будет после срока (firstCallAfterDue): по своему объекту и с
+        // ненабираемым номером клиент не уходит — Главная говорит то же, что крон.
+        ownPropertyLead: true, assignReason: true,
+        matchedProperty: { select: { deletedAt: true, intakeAgentId: true, assignedAgentId: true, createdById: true } },
+      },
       orderBy: { acceptedAt: "asc" },
       // Тот же потолок за проход, что у самого крона (firstCall.ts) — очередь у
       // одного агента реалистично не разрастётся до сотен непрозвоненных карточек.
@@ -799,6 +805,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
             fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
             phone: clientPhoneFor(c.phone, canSeePhone),
             dueAt: s.dueAt.toISOString(),
+            afterDue: firstCallAfterDue(c, !!settings?.leadReassignOnMissedCallEnabled).text,
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -981,7 +988,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
       commissionScope: ownAgentId ? ("own" as const) : ("company" as const),
     },
     funnel: [
-      { key: "leads", label: "Новые лиды", count: newLeads },
+      { key: "leads", label: "Новые заявки", count: newLeads },
       { key: "contacted", label: "На контакте", count: contactedClientIds.length },
       { key: "showings", label: "Показы", count: showingsThisMonth.length },
       { key: "negotiations", label: "Переговоры", count: negotiations },

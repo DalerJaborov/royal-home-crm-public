@@ -1,0 +1,159 @@
+﻿<!DOCTYPE html>
+<html lang="tg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="icon" href="https://memor.pro/sokhtmon/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="https://memor.pro/sokhtmon/style.css?v=1791258412">
+
+    
+    
+    
+    
+    
+    
+    
+    <title>Биноҳои истиқоматии баландошёна – Сарраёсати меъморӣ ва шаҳрсозии шаҳри Душанбе</title>
+    
+    <link rel="stylesheet" href="https://www.memor.pro/sokhtmon/libs/css/leaflet.css" />
+    
+</head>
+<body>
+    <div class="container">
+
+        <div class="project-top-header">
+            <a href="https://memor.pro/sokhtmon/" title="Ба саҳифаи асосии харита">
+                <img src="https://memor.pro/sokhtmon/logo.png" alt="Нишони шаҳри Душанбе" class="coat-of-arms">
+            </a>
+            <h1 class="main-org-title">Сарраёсати меъморӣ ва шаҳрсозии шаҳри Душанбе</h1>
+            <h2 class="project-main-title">Биноҳои истиқоматии баландошёна</h2>
+            <p class="customer-info"><strong>Фармоишгар:</strong> ҶДММ «Сохтмон-2017»</p>
+            
+            
+        </div>
+
+        <div class="project-description-section">
+            <p><strong>Тавсифи лоиҳа:</strong> Лоиҳакашии биноҳои баландошёнаи истиқоматӣ, блокҳои Б1-16 (шонздаҳ) ошёна бо ҷойгиронии марказҳои савдову хизматрасонӣ, гушаи ҳунарҳои мардумӣ, утоқҳои тибби оилавӣ ва сохтори идоракунии манзилҳо дар ошёнаҳои аввал ва таваққуфгоҳи наклиёти автомобилӣ дар таҳхонаи онҳо, дар заминаи бино ва иншооти мавҷуда, воқеъ дар кӯчаҳои М. Назаршоев №№114, 86-А, 88 ва Қутби Киром</p>
+        </div>
+        <div class="project-address-section" style="margin-top: 15px;">
+            <p><strong>📍 Суроға:</strong> М. Назаршоев №№114, 86-А, 88 ва Қутби Киром</p>
+        </div>
+
+        <div class="warning-box" style="margin-top: 20px; padding: 15px; background-color: #fff5f5; border: 1px solid #dc3545; border-radius: 8px; color: #dc3545; font-weight: bold; text-align: center; font-size: 1.1em;">
+                ⚠️ То омода шудани ҳуҷҷатҳои иҷозатдиҳанда, бастани шартномаи ҳиссагузорӣ тавсия дода намешавад!
+            </div>
+
+        <hr class="section-divider">
+        
+        
+        
+        <h3 class="subtitle" style="margin-top: 2rem;">Макони лоиҳа дар харита</h3>
+        <div id="project-map"></div>
+        
+        
+
+        <h3 class="subtitle" style="margin-top: 2rem;">Ҳуҷҷатҳои лоиҳа</h3>
+        <div class="docs">
+            <a href="qaror-loihakashi.html" class="card uploaded">Қарори Раиси ш. Душанбе оиди лоиҳакашӣ</a>
+<a href="angora.html" class="card uploaded">Нақшаи кулли бино ва иншоот</a>
+<a href="javascript:void(0)" class="card disabled">Шиносномаи Бино</a>
+<a href="javascript:void(0)" class="card disabled">Хулосаи экспертизаи давлатӣ</a>
+<a href="javascript:void(0)" class="card disabled">Қарори Раиси ш. Душанбе оиди сохтмон</a>
+<a href="javascript:void(0)" class="card disabled">Иҷозат барои оғози корҳои сохтмонӣ</a>
+
+        </div>
+
+        <div class="complaint-section" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 30px; text-align: center; padding-bottom: 30px;">
+            
+            <button id="complaint-toggle-btn" onclick="toggleComplaintForm()" style="
+                background: white; 
+                border: 2px solid #dc3545; 
+                color: #dc3545; 
+                padding: 12px 25px; 
+                border-radius: 30px; 
+                font-weight: bold; 
+                cursor: pointer; 
+                font-size: 16px; 
+                display: inline-flex; 
+                align-items: center; 
+                gap: 10px;
+                transition: all 0.3s ease;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                Шикоят ё Пешниҳод
+            </button>
+
+            
+
+            <div id="complaint-form-container" style="display: none; margin-top: 20px;">
+                <div style="background: #fff5f5; padding: 25px; border-radius: 12px; border: 1px solid #ffc9c9; text-align: left; max-width: 600px; margin: 0 auto;">
+                    <h3 style="margin-top: 0; color: #dc3545;">Муроҷиати шаҳрванд</h3>
+                    <p style="font-size: 0.95em; color: #333; margin-bottom: 20px; line-height: 1.5;">
+                        Агар шикоят, эрод ё пешниҳод нисбати фаъолияти ин ширкат ё иншооти зикршуда дошта бошед, марҳамат нависонед.<br>
+                        <span style="color: #666; font-size: 0.9em;">Паёми шумо мустақиман ба Сарраёсати меъморӣ ва шаҳрсозӣ фиристода мешавад.</span><br>
+                        <strong>Барои тамос бо шумо, лутфан рақамҳои ҳақиқии худро дарҷ намоед.</strong>
+                    </p>
+                    
+                    <div class="complaint-notice" style="background:#fff8e1;border:1px solid #ffe08a;border-radius:8px;padding:12px 14px;margin:0 0 20px;font-size:0.9em;line-height:1.55;color:#5f4b00;"><strong>Диққат:</strong> шикоят ва пешниҳодҳое, ки дар ин ҷо сабт мешаванд, хусусияти иттилоотӣ доранд. Роҳбарият ба онҳо ҷавоб намедиҳад, балки онҳоро барои ба ҳисоб гирифтани шикоятҳо нисбати ширкатҳои сохтмонӣ ва корбарии дохилӣ истифода мебарад.<br>Барои муроҷиати расмӣ ва гирифтани ҷавоб аз Сарраёсати меъморӣ ва шаҳрсозӣ, лутфан аз саҳифаи <a href="https://www.memori.tj/citizens_appeal/" target="_blank" rel="noopener" style="color:#b45309;font-weight:700;">https://www.memori.tj/citizens_appeal/</a> истифода баред.</div>
+
+                    <form id="project-complaint-form">
+                        <input type="hidden" id="hidden_project_name" value="524-2024">
+                        
+                        <div style="display: none; visibility: hidden;">
+                            <label>Website</label>
+                            <input type="text" id="honey_website" name="website" tabindex="-1" autocomplete="off">
+                        </div>
+
+                        <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label style="font-size: 12px; font-weight: bold; color: #555;">Номи Шумо <span style="color:red">*</span></label>
+                                <input type="text" id="comp_name" required style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px;">
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label style="font-size: 12px; font-weight: bold; color: #555;">Телефон <span style="color:red">*</span></label>
+                                <input type="text" id="comp_phone" required placeholder="+992..." style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px;">
+                            </div>
+                        </div>
+                        
+                        <label style="font-size: 12px; font-weight: bold; color: #555;">Матни муроҷиат <span style="color:red">*</span></label>
+                        <textarea id="comp_message" rows="5" maxlength="3000" required style="width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px; margin-bottom: 15px; font-family: inherit; resize: vertical;"></textarea>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button type="submit" style="flex: 2; background: #dc3545; color: white; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 16px;">Фиристодан</button>
+                            <button type="button" onclick="toggleComplaintForm()" style="flex: 1; background: #eee; color: #333; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">Бекор</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <footer>
+            <p>🏢 Сарраёсати меъморӣ ва шаҳрсозии шаҳри Душанбе</p>
+            <p>📞 Маълумот барои тамос: (+992•••••0507</p>
+        </footer>
+    </div>
+
+    
+    
+    
+    
+
+    <div id="bottom-nav">
+        <a href="#" onclick="history.back(); return false;" class="nav-tab">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            <span>Бозгашт</span>
+        </a>
+        <a href="https://memor.pro/sokhtmon/" class="nav-tab">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"/>
+            </svg>
+            <span>Асосӣ</span>
+        </a>
+    </div>
+</body>
+</html>

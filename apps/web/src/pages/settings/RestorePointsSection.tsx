@@ -36,7 +36,7 @@ const FIELD_AREAS: { prefix: string; area: string }[] = [
   { prefix: "asterisk", area: "Телефония" },
   { prefix: "telephony", area: "Телефония" },
   { prefix: "incoming", area: "Входящие звонки" },
-  { prefix: "lead", area: "Лиды" },
+  { prefix: "lead", area: "Заявки" },
   { prefix: "property", area: "Объекты" },
   { prefix: "own", area: "Свои объекты" },
   { prefix: "match", area: "Подбор" },
@@ -62,8 +62,8 @@ const FIELD_AREAS: { prefix: string; area: string }[] = [
   { prefix: "deal", area: "Сделки" },
   { prefix: "work", area: "Рабочие часы" },
   { prefix: "callback", area: "Обратные звонки" },
-  { prefix: "hot", area: "Лиды" },
-  { prefix: "refusal", area: "Лиды" },
+  { prefix: "hot", area: "Заявки" },
+  { prefix: "refusal", area: "Заявки" },
   { prefix: "sales", area: "Бот" },
   { prefix: "agentPause", area: "Дисциплина" },
   { prefix: "call", area: "Обязательные окна" },
@@ -202,7 +202,7 @@ export function RestorePointsSection() {
           <span className="txt">
             Перед каждым сохранением настроек CRM запоминает, как они выглядели до правки. Если что-то
             настроили неудачно, вернитесь к точке, на которой всё работало, — сбрасывать настройки «на
-            заводские» нельзя: заводские здесь ПУСТЫЕ, без ключей, паролей АТС и промта бота. Возврат тоже
+            заводские» нельзя: заводские здесь пустые, без ключей, паролей АТС и промта бота. Возврат тоже
             запоминается отдельной точкой, поэтому неудачный откат обратим.
             {data && (
               <>

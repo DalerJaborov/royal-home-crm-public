@@ -113,7 +113,8 @@ describe("Срыв первого звонка при включённом ту�
     const lead = await prisma.client.create({
       data: {
         fullName: `Лид гонки первого звонка ${runId}`,
-        phone: `+992982${runId}`,
+        // Настоящий таджикский номер (12 цифр): иначе срыв считается «номер не набирается» (19.11.2026).
+        phone: `+992982${String(runId).slice(-6)}`,
         source: "PHONE_CALL",
         kind: "BUYER",
         assignedAgentId: agentAId,
@@ -142,7 +143,7 @@ describe("Срыв первого звонка при включённом ту�
     expect(after?.acceptedAt).not.toBeNull();
     expect(after?.reassignCount).toBe(0);
     const trace = await prisma.interaction.findFirst({
-      where: { clientId: lead.id, notes: { contains: "Лид снят и переназначен" } },
+      where: { clientId: lead.id, notes: { contains: "Заявка снята и переназначена" } },
     });
     expect(trace).toBeNull();
   });

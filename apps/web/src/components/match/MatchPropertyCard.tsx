@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
-import { CalendarCheck, CalendarPlus, House } from "lucide-react";
+import { CalendarCheck, CalendarPlus } from "lucide-react";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 import { rh2AvatarTone } from "../../lib/rh2Avatar";
 import { dushanbeDateTime } from "../../lib/date";
 import { formatMoney } from "../../lib/format";
@@ -39,6 +40,7 @@ export function MatchPropertyCard({
   bookedShowingAt,
   onScheduleShowing,
   onClosePanel,
+  hideCommon,
 }: {
   property: Property & { match?: ClientPropertyMatchEvidence };
   /** Чекбокс отбора для массовой отправки рисуется, только когда передан
@@ -57,6 +59,8 @@ export function MatchPropertyCard({
   onScheduleShowing?: () => void;
   /** Панель закрывается при переходе на страницу объекта (как в прежнем окне). */
   onClosePanel?: () => void;
+  /** Общие для всего списка «не знаем / спросить»: показаны один раз над списком, на карточке их нет. */
+  hideCommon?: ReadonlySet<string>;
 }) {
   const navigate = useNavigate();
   /**
@@ -82,9 +86,9 @@ export function MatchPropertyCard({
           title={canPick ? selectionDisabled ? "Можно выбрать до пяти объектов за раз" : "Выбрать для отправки клиенту" : "Объект продан или снят с продажи — клиенту не отправляется"}
         />
       )}
-      <span className="ph">
-        {p.photos?.[0] ? <img src={p.photos[0].thumbUrl} alt={p.title} loading="lazy" decoding="async" /> : <><House className="i" strokeWidth={1.5} /><span>Фото пока нет</span></>}
-      </span>
+      {/* Фото подбора — общая дверь PropertyPhoto: 4:3, не шире 480 px, битая ссылка → «Фото недоступно»
+          (раньше здесь был голый <img> с alt-текстом на сером поле ~1000×570, critic-uiux P0-5). */}
+      <PropertyPhoto className="ph" sources={[p.photos?.[0]?.thumbUrl, p.photos?.[0]?.url]} />
       <div className="t">
         {/* Две строки названия, а не одна с многоточием (28.09.2026): на
             телефоне «3-комнатная у парка…» не отличить от соседнего объекта. */}
@@ -121,7 +125,7 @@ export function MatchPropertyCard({
             </span>
           )}
         </span>
-        {p.match && <MatchEvidenceLines match={p.match} />}
+        {p.match && <MatchEvidenceLines match={p.match} hide={hideCommon} />}
       </div>
       <div className="who">
         {agentOf(p) ? (

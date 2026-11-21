@@ -3,6 +3,11 @@ import type { PropertyRemovalInput } from "@royal-home/shared";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { ChevronDown, LayoutGrid, List, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalObjectsHead } from "../components/look/objects/RoyalObjectsHead";
+import { PropertyPhoto } from "../components/property/PropertyPhoto";
+import { royalCatalogFilterCount } from "../lib/royalCatalogFilters";
 import { CButton } from "../components/clean/ui";
 import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -27,6 +32,7 @@ import { usePropertiesHealth } from "../hooks/usePropertiesHealth";
 import type { PropertyHealthBrief } from "@royal-home/shared";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
+import { Rh2ErrorState, Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
 
 import { Pagination } from "../components/Pagination";
 import { formatMoney, PROPERTY_TYPE_LABELS, pluralizeRu } from "../lib/format";
@@ -66,13 +72,16 @@ const BULK_CONFIRM: Record<BulkAction, { title: string; confirmLabel: string; da
 
 export function Properties() {
   const clean = useCleanShell();
+  // «Новый вид» (облик royal) — только поверх чистой оболочки; без признака разметка прежняя.
+  const royal = useRoyalLook() && clean;
   const can = useCan();
   // A12 (владелец 02.10.2026): СБ объекты не заводит — кнопки «Объект» у неё нет.
   const canCreateProperty = useCanCreateProperty();
   const canPublish = can("properties.publish");
   // Вкладка «Изменения на сайте» (перенос меню 15.09.2026) — тот же счётчик и
   // право, что в lib/navigation.ts.
-  const { data: siteNotifications } = useSiteNotifications({ enabled: can("siteChanges.view") });
+  const siteQuery = useSiteNotifications({ enabled: can("siteChanges.view") });
+  const siteNotifications = siteQuery.data;
   // Удаление партией — то же право, что у одиночной корзины на карточке
   // (properties.delete). Галочки в списке нужны обеим кнопкам, поэтому выбор
   // показывается тому, у кого есть хотя бы одна из них.
@@ -83,13 +92,16 @@ export function Properties() {
   // тем же эндпоинтом (properties?status=PENDING_REVIEW), не новым: total даёт
   // честное число без выдумывания, а enabled=canModerate не гоняет его зря.
   const canModerate = can("properties.moderate");
-  const { data: pendingReview } = useProperties({ status: "PENDING_REVIEW" }, canModerate);
+  const pendingQuery = useProperties({ status: "PENDING_REVIEW" }, canModerate);
+  const pendingReview = pendingQuery.data;
   // Сводная плашка (показы за 30 дней, просрочка этапа по всему каталогу) —
   // отдельный лёгкий запрос, не завязан на текущий фильтр списка.
-  const { data: summary } = usePropertiesSummary();
+  const summaryQuery = usePropertiesSummary();
+  const summary = summaryQuery.data;
   // Объекты, переданные мне и ещё не принятые (PropertyOwnerCard.tsx на карточке
   // объекта показывает то же самое, здесь — сводкой над списком и чипом на строке).
-  const { data: handoverPending } = useHandoverPendingProperties();
+  const handoverQuery = useHandoverPendingProperties();
+  const handoverPending = handoverQuery.data;
   const handoverPendingCount = handoverPending?.length ?? 0;
   // Телефон/планшет с пальцем получает экран прототипа design_handoff
   // (mobile-06-objects), десктоп остаётся на таблице — раскладки принципиально
@@ -179,6 +191,12 @@ export function Properties() {
     if (Number.isFinite(areaMin) && searchParams.get("areaMin")) initial.areaMin = areaMin;
     const areaMax = Number(searchParams.get("areaMax"));
     if (Number.isFinite(areaMax) && searchParams.get("areaMax")) initial.areaMax = areaMax;
+    // Цена — в сомони (валюта по умолчанию на сервере, priceCurrency): сервер сравнивает
+    // каждую цену в её валюте (lib/money.ts, priceRangeBranches), доллары с сомони не смешиваются.
+    const priceMin = Number(searchParams.get("priceMin"));
+    if (Number.isFinite(priceMin) && searchParams.get("priceMin")) initial.priceMin = priceMin;
+    const priceMax = Number(searchParams.get("priceMax"));
+    if (Number.isFinite(priceMax) && searchParams.get("priceMax")) initial.priceMax = priceMax;
     const sort = searchParams.get("sort");
     if (sort) initial.sort = sort;
     if (searchParams.get("noVideo") === "1") initial.noVideo = "1";
@@ -206,21 +224,26 @@ export function Properties() {
   // и список успевал дважды опустеть до «нет объектов» на промежуточных «1» и «12».
   const debouncedAreaMin = useDebouncedValue(filters.areaMin, 350);
   const debouncedAreaMax = useDebouncedValue(filters.areaMax, 350);
-  const { data, isLoading, error, refetch } = useProperties({
+  const debouncedPriceMin = useDebouncedValue(filters.priceMin, 350);
+  const debouncedPriceMax = useDebouncedValue(filters.priceMax, 350);
+  const { data, isLoading, error, fetchStatus, refetch, failureCount } = useProperties({
     ...filters,
     q: debouncedQuery,
     areaMin: debouncedAreaMin,
     areaMax: debouncedAreaMax,
+    priceMin: debouncedPriceMin,
+    priceMax: debouncedPriceMax,
   });
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): копим
   // выданные страницы в ленту, сбрасываем при смене любого условия выдачи
   // кроме самой страницы. Один `data` на обе ветки — мобильную и широкую —
   // они делят один и тот же запрос строкой выше.
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
-  const { data: headPage } = useProperties(
-    { ...filters, page: 1, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax },
+  const headQuery = useProperties(
+    { ...filters, page: 1, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax, priceMin: debouncedPriceMin, priceMax: debouncedPriceMax },
     (filters.page ?? 1) > 1
   );
+  const headPage = headQuery.data;
   /**
    * Удалённые в Корзину — прячем из ленты сразу (02.10.2026). После удаления
    * перечитываются только открытая страница и первая; средние накопленные
@@ -232,7 +255,7 @@ export function Properties() {
   const accumulated = useAccumulatedPages(
     data?.items,
     filters.page ?? 1,
-    JSON.stringify({ ...filters, page: undefined, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax }),
+    JSON.stringify({ ...filters, page: undefined, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax, priceMin: debouncedPriceMin, priceMax: debouncedPriceMax }),
     headPage?.items
   );
   const feedItems = useMemo(
@@ -242,7 +265,14 @@ export function Properties() {
   const feedData = data ? { ...data, items: feedItems } : data;
   // Светофор у каждого объекта ленты — пачками, не по строке (24.09.2026).
   const health = usePropertiesHealth(feedItems.map((p) => p.id));
-  const { data: districts } = useDistricts();
+  const districtsQuery = useDistricts();
+  const districts = districtsQuery.data;
+  // Побочные запросы каталога (счётчики, сводка, районы, первая страница): упали — одна строка словами и «Повторить»,
+  // сам список работает. Есть данные — их не трогаем (loadView даёт error только когда данных нет).
+  const sideViews = [loadView(siteQuery), loadView(pendingQuery), loadView(summaryQuery), loadView(handoverQuery), loadView(headQuery), loadView(districtsQuery)];
+  const retrySide = () => {
+    for (const q of [siteQuery, pendingQuery, summaryQuery, handoverQuery, headQuery, districtsQuery]) if (loadView(q) === "error") void q.refetch();
+  };
   const syncToSite = useSyncToSite();
   const bulkTrash = useBulkTrashProperties();
   const navigate = useNavigate();
@@ -281,6 +311,8 @@ export function Properties() {
       type: filters.type,
       areaMin: debouncedAreaMin != null ? String(debouncedAreaMin) : undefined,
       areaMax: debouncedAreaMax != null ? String(debouncedAreaMax) : undefined,
+      priceMin: debouncedPriceMin != null ? String(debouncedPriceMin) : undefined,
+      priceMax: debouncedPriceMax != null ? String(debouncedPriceMax) : undefined,
       sort: filters.sort,
       // «Мои»/«Все» — тоже в адресе: ссылку с чужим ?agentId= можно переслать
       // коллеге и он увидит ровно тот же срез, а не свой список поверх неё.
@@ -434,6 +466,7 @@ export function Properties() {
     filters.districtIds?.length ? "1" : undefined,
     filters.areaMin != null ? "1" : undefined,
     filters.areaMax != null ? "1" : undefined,
+    filters.priceMin != null || filters.priceMax != null ? "1" : undefined,
     filters.sort,
     filters.noVideo,
     filters.overdue,
@@ -442,7 +475,7 @@ export function Properties() {
   const searchField = <input
       className="inp"
       type="search"
-      placeholder="Номер, название, адрес"
+      placeholder={royal ? "Район, улица или №" : "Номер, название, адрес"}
       aria-label="Поиск по объектам"
       value={filters.q ?? ""}
       onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value || undefined, page: 1 }))}
@@ -502,6 +535,20 @@ export function Properties() {
       </span>
     </>}
   </>;
+  // «Новый вид» (пачка D1, 20.11.2026): до первого объекта — не больше двух рядов управления.
+  // Ряд 1 — заголовок с числом и «+ Объект»; ряд 2 — поиск и одна кнопка «Фильтры (n)».
+  // Стадии, «Мои / Все», «Без видео», просрочка, вид и «Карта» уехали в шторку фильтров.
+  const royalActiveFilters = royalCatalogFilterCount(filters, scope.isMine);
+  const royalToolbar = (
+    <div className="ry-catalog-bar">
+      {searchField}
+      <button className="ry-btn ry-catalog-filters" data-variant="secondary" type="button" aria-haspopup="dialog"
+        aria-label={`Фильтры${royalActiveFilters ? `, выбрано: ${royalActiveFilters}` : ""}`} onClick={() => setFiltersOpen(true)}>
+        <SlidersHorizontal size={18} aria-hidden />
+        Фильтры{royalActiveFilters > 0 && <b className="ry-catalog-count">{royalActiveFilters}</b>}
+      </button>
+    </div>
+  );
   // Тихая строка под панелью (clean): счётчик и «Выбрать все» — вместо
   // отдельной висящей строки над плиткой и счётчика, сползавшего в столбик.
   const catalogMeta = clean && <div className="clean-catalog-meta">
@@ -514,10 +561,12 @@ export function Properties() {
     <span>{data ? `Показаны ${shown} из ${data.total}` : "Загрузка…"}</span>
   </div>;
 
+  // Метка раздела «Объекты»: экран ставит её сам, окна (фильтры, подтверждения) берут из RoyalSection.
   return (
-    <div className={clean ? "rh2 screens clean-properties-page" : "rh2 screens"}>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <div className={clean ? `rh2 screens clean-properties-page${royal ? " ry-objects-page" : ""}` : "rh2 screens"} data-ry-section={royal ? "objects" : undefined}>
       <div className="scr">
-        {clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
+        {royal ? <RoyalObjectsHead total={data?.total} pendingReview={canModerate ? pendingReview?.total : undefined} onShowPending={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))} overdue={summary?.overduePipelineCount} onShowOverdue={() => setFilters((f) => ({ ...f, overdue: "1", page: 1 }))} canCreate={canCreateProperty} onCreate={() => navigate("/properties/new")} /> : clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">Объекты</h1><p className="mt-2 text-[16px] text-gray-500">{data ? `Найдено: ${data.total}` : "Каталог агентства"}<span className="clean-property-catalog-hint"> · фотографии, цена и состояние работы</span></p>{canModerate && !!pendingReview?.total && <button type="button" className="mt-2 text-[14px] text-blue" onClick={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))}>Ждут вашей проверки: {pendingReview.total}</button>}</div>
           {canCreateProperty && <div className="flex flex-wrap items-center gap-2"><PropertyDraftShortcut /><CButton aria-label="Добавить объект" onClick={() => navigate("/properties/new")}><Plus size={18} aria-hidden /><span>Добавить объект</span></CButton></div>}
         </div> : <div className="pg-h">
@@ -576,7 +625,7 @@ export function Properties() {
           </div>
         </div>}
 
-        <ObjectsTabs />
+        {!royal && <ObjectsTabs />}
 
 
         {/* Объекты переданы мне и ждут «Принять» (PropertyOwnerCard.tsx на самой
@@ -605,7 +654,7 @@ export function Properties() {
             Просрочка остаётся: по ней есть действие (ссылка открывает именно
             этих виновников, требование владельца 15.09.2026), и плашка
             появляется ТОЛЬКО когда просроченные есть. */}
-        {!!summary && summary.overduePipelineCount > 0 && (
+        {!royal && !!summary && summary.overduePipelineCount > 0 && (
           <div className={clean ? "clean-catalog-overdue" : "card tight"}>
             <div className="quiet">
               <span className="dot crit" />
@@ -625,7 +674,7 @@ export function Properties() {
           {/* Сегменты по стадиям. Ключи и подписи — из enums.ts и format.ts,
               порядок тот же, что в эталоне. Счётчиков `.n` нет: ответ списка
               отдаёт только total текущего среза, выдуманных цифр не рисуем. */}
-          <div className="hscroll">
+          {!royal && <div className="hscroll">
             <div className="seg" role="tablist" aria-label="Стадии объектов">
               {/* «В подготовке» — тот же список, что и на телефоне: у сегмента
                   пустое `value` и признак `inPrep`, поэтому выбранность
@@ -650,9 +699,9 @@ export function Properties() {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
-          <div className={clean ? "clean-catalog-toolbar" : "filters"} style={clean ? undefined : { marginTop: 16 }}>
+          {royal ? royalToolbar : <div className={clean ? "clean-catalog-toolbar" : "filters"} style={clean ? undefined : { marginTop: 16 }}>
             {/* На ПК — плоская строка: `<details>` с display: contents Chrome
                 не раскрывает, и инструменты вставали столбиком (12.11.2026).
                 Раскрывашка — только на касании. */}
@@ -672,8 +721,8 @@ export function Properties() {
                 <div className="clean-catalog-tool-content">{catalogTools}</div>
               </details>
             </> : catalogTools}
-          </div>
-          {catalogMeta}
+          </div>}
+          {!royal && catalogMeta}
 
           {canSelect && selectedIds.size > 0 && (
             <div className="bulk" style={{ marginTop: 16 }}>
@@ -709,6 +758,11 @@ export function Properties() {
                 </button>
               )}
               <span className="spacer" />
+              {royal && !allOnPageSelected && (
+                <button className="lnk" type="button" onClick={toggleSelectAllOnPage}>
+                  Выбрать все
+                </button>
+              )}
               <button className="lnk" type="button" onClick={() => setSelectedIds(new Set())}>
                 Снять выбор
               </button>
@@ -724,8 +778,16 @@ export function Properties() {
             </div>
           )}
 
+          {/* Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): сразу сказать словами, а не молча
+              крутить серые плитки (съёмка экранов 20.11). */}
+          {sideViews.includes("error") && !error && (
+            <Rh2ErrorState message="Часть данных каталога (счётчики, сводка, районы) не загрузилась. Список ниже работает." onRetry={retrySide} />
+          )}
+          {isLoading && !error && failureCount > 0 && (
+            <Rh2RetryingNote onRetry={() => void refetch()} />
+          )}
           {isLoading && !error && clean && view === "cards" && (
-            <div className="clean-property-grid" aria-hidden="true">
+            <div className={royal ? "ry-obj-grid" : "clean-property-grid"} data-view={royal ? "cards" : undefined} aria-hidden="true">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="clean-property-tile-skeleton">
                   <span className="ph" />
@@ -751,7 +813,8 @@ export function Properties() {
             </div>
           )}
 
-          {error && (
+          {loadView({ data, isError: !!error, fetchStatus }) === "offline" && <Rh2OfflineState onRetry={() => void refetch()} />}
+          {loadView({ data, isError: !!error, fetchStatus }) === "error" && (
             <div className="empty">
               <span className="ic">
                 <svg className="i" viewBox="0 0 24 24">
@@ -768,7 +831,7 @@ export function Properties() {
           )}
 
           {data && view === "table" && feedItems.length > 0 && (
-            <div className="list">
+            <div className={royal ? "list ry-obj-grid" : "list"} data-view={royal ? "rows" : undefined}>
               {canSelect && !clean && (
                 <label className="chk">
                   <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
@@ -780,6 +843,7 @@ export function Properties() {
                   key={p.id}
                   property={p}
                   clean={clean}
+                  royal={royal}
                   myId={currentAgent?.id}
                   selected={selectedIds.has(p.id)}
                   onToggleSelect={canSelect ? toggleSelect : undefined}
@@ -791,13 +855,12 @@ export function Properties() {
           )}
 
           {data && view === "cards" && feedItems.length > 0 && (
-            <div className={clean ? "clean-property-grid" : "pgrid"}>
+            <div className={royal ? "ry-obj-grid" : clean ? "clean-property-grid" : "pgrid"} data-view={royal ? "cards" : undefined}>
               {feedItems.map((p) => (
-                clean ? <PropertyRow key={p.id} property={p} clean cleanVariant="card" myId={currentAgent?.id} selected={selectedIds.has(p.id)} onToggleSelect={canSelect ? toggleSelect : undefined} onTogglePublish={canPublish ? handleRowPublishToggle : undefined} health={health.get(p.id)} /> : <PropertyCard
+                clean ? <PropertyRow key={p.id} property={p} clean royal={royal} cleanVariant="card" myId={currentAgent?.id} selected={selectedIds.has(p.id)} onToggleSelect={canSelect ? toggleSelect : undefined} onTogglePublish={canPublish ? handleRowPublishToggle : undefined} health={health.get(p.id)} /> : <PropertyCard
                   key={p.id}
                   property={p}
                   health={health.get(p.id)}
-                  onClick={() => navigate(`/properties/${p.shortId}`)}
                 />
               ))}
             </div>
@@ -850,7 +913,8 @@ export function Properties() {
               className="pill ghost"
               type="button"
               onClick={() =>
-                setFilters((f) => ({
+                // В «Новом виде» стадии и «Мои/Все» тоже живут в шторке — сбрасываются вместе с остальным.
+                setFilters((f) => (royal ? { q: f.q, page: 1 } : {
                   status: f.status,
                   agentId: f.agentId,
                   q: f.q,
@@ -867,6 +931,34 @@ export function Properties() {
         }
       >
         <div className="fgrid" style={{ gridTemplateColumns: "1fr" }}>
+          {royal && (
+            <>
+              {/* «Новый вид»: всё, что раньше стояло рядами над списком, — здесь (пачка D1). */}
+              <div className="fld">
+                <span className="lab">Что показать</span>
+                <div className="wrap" role="group" aria-label="Стадии объектов">
+                  {STAGE_SEGMENTS.map((s) => {
+                    const on = (filters.status ?? "") === s.value && !!filters.inPrep === !!s.inPrep;
+                    return (
+                      <button key={s.inPrep ? "in-prep" : s.value || "all"} type="button" className={on ? "pill sm" : "pill ghost sm"} aria-pressed={on}
+                        onClick={() => setFilters((f) => ({ ...f, status: s.value || undefined, inPrep: s.inPrep ? "1" : undefined, page: 1 }))}>
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {currentAgent && (
+                <div className="fld">
+                  <span className="lab">Чьи объекты</span>
+                  <div className="wrap" role="group" aria-label="Чьи объекты показывать">
+                    <button type="button" className={!scope.isMine ? "pill sm" : "pill ghost sm"} aria-pressed={!scope.isMine} onClick={scope.showAll}>Все объекты</button>
+                    <button type="button" className={scope.isMine ? "pill sm" : "pill ghost sm"} aria-pressed={scope.isMine} onClick={scope.showMine}>Мои объекты</button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
           <label className="fld">
             <span className="lab">Тип объекта</span>
             <select
@@ -910,6 +1002,30 @@ export function Properties() {
             </div>
           </div>
           <div className="fld">
+            <span className="lab">Цена, сомони</span>
+            <div className="pair">
+              <input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                placeholder="от"
+                aria-label="Цена от, сомони"
+                value={filters.priceMin ?? ""}
+                onChange={(e) => setFilters((f) => ({ ...f, priceMin: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
+              />
+              <input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                placeholder="до"
+                aria-label="Цена до, сомони"
+                value={filters.priceMax ?? ""}
+                onChange={(e) => setFilters((f) => ({ ...f, priceMax: e.target.value ? Number(e.target.value) : undefined, page: 1 }))}
+              />
+            </div>
+            <span className="msg">Объекты в долларах сравниваются по курсу.</span>
+          </div>
+          <div className="fld">
             <span className="lab">Площадь, м²</span>
             <div className="pair">
               <input
@@ -943,9 +1059,6 @@ export function Properties() {
                 }
               />
             </div>
-            <span className="msg">
-              Цену фильтром пока не сужаем: на сервере она хранится без валюты.
-            </span>
           </div>
           <label className="fld">
             <span className="lab">Порядок</span>
@@ -966,11 +1079,37 @@ export function Properties() {
             />
             Только без видео
           </label>
+          {royal && !!summary && summary.overduePipelineCount > 0 && (
+            <label className="chk">
+              <input
+                type="checkbox"
+                checked={!!filters.overdue}
+                onChange={() => setFilters((f) => ({ ...f, overdue: f.overdue ? undefined : "1", page: 1 }))}
+              />
+              Только с задержкой подготовки ({summary.overduePipelineCount})
+            </label>
+          )}
+          {royal && (
+            <>
+              <div className="fld">
+                <span className="lab">Как показать</span>
+                <div className="wrap" role="group" aria-label="Вид списка">
+                  <button type="button" className={view === "cards" ? "pill sm" : "pill ghost sm"} aria-pressed={view === "cards"} onClick={() => setView("cards")}><LayoutGrid size={18} aria-hidden />Плиткой</button>
+                  <button type="button" className={view === "table" ? "pill sm" : "pill ghost sm"} aria-pressed={view === "table"} onClick={() => setView("table")}><List size={18} aria-hidden />Строками</button>
+                </div>
+              </div>
+              <div className="wrap">
+                <Link className="pill ghost sm" to="/properties/map">Объекты на карте</Link>
+                {can("siteChanges.view") && <Link className="pill ghost sm" to="/site-changes">Изменения на сайте{siteNotifications?.total ? ` (${siteNotifications.total})` : ""}</Link>}
+              </div>
+            </>
+          )}
         </div>
       </Rh2Sheet>
 
       {bulkConfirmDialog}
     </div>
+    </RoyalSection>
   );
 }
 
@@ -978,39 +1117,40 @@ export function Properties() {
  * Плитка галереи. Вида «галерея» в прототипе нет (там только список), поэтому
  * плитка собрана из его же частей: ячейка `.pgrid .cell` со снимком, цена
  * `.money` и пилюля состояния под ней.
+ *
+ * НАСТОЯЩАЯ ССЫЛКА, А НЕ КНОПКА (20.11.2026). С 12.11 плитка — вид каталога по
+ * умолчанию (#159), а была `div role=button` с переходом по onClick: ни открыть
+ * объект в новой вкладке, ни вернуться к нему из истории ссылкой, а чтецу экрана
+ * доставалась одна цена без названия. Теперь `<Link>` с тем же адресом и подписью,
+ * что у строки (`PropertyRow`): «Открыть объект: <название>». Внутри плитки нет
+ * своих кнопок, так что ссылка ничего не перекрывает.
  */
 function PropertyCard({
   property: p,
   health,
-  onClick,
 }: {
   property: Property;
   health: PropertyHealthBrief | undefined;
-  onClick: () => void;
 }) {
+  const price = formatMoney(p.price, p.currency);
   return (
-    <div className="cell" onClick={onClick} data-property-row="" role="button" tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
+    <Link
+      to={`/properties/${p.shortId}`}
+      className="cell"
+      data-property-row=""
+      aria-label={`Открыть объект: ${p.title}, ${price}`}
+      style={{ textDecoration: "none" }}
     >
       {p.photos[0] ? (
-        <img
-          src={p.photos[0].thumbUrl}
-          alt=""
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-        />
+        <PropertyPhoto fill sources={[p.photos[0].thumbUrl, p.photos[0].url]} style={{ position: "absolute", inset: 0 }} />
       ) : (
-        <svg className="i" viewBox="0 0 24 24">
+        <svg className="i" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M3 11 12 3l9 8v10H3z" />
           <path d="M9 21v-6h6v6" />
         </svg>
       )}
       <PropertyHealthDot health={health} />
-      <span className="lead">{formatMoney(p.price, p.currency)}</span>
-    </div>
+      <span className="lead">{price}</span>
+    </Link>
   );
 }

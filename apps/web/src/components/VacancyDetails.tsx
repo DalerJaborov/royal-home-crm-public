@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 import { useState, type ReactNode } from "react";
 import { ExternalLink, FileText } from "lucide-react";
 import { RECRUITMENT_FACT_LABELS, type RecruitmentResumeFacts } from "@royal-home/shared";
@@ -160,6 +161,6 @@ export function VacancyOriginals({ item }: { item: JobApplication }) {
 function InviteCallRecording({ applicationId }: { applicationId: string }) {
   const recording = useInviteCallRecordingUrl();
   const [url, setUrl] = useState<string | null>(null), [failed, setFailed] = useState(false);
-  if (url) return <audio controls preload="none" src={url} className="w-full max-w-[480px]" />;
+  if (url) return <RhAudioPlayer src={url} speeds preload="none" label="Запись разговора" className="w-full max-w-[480px]" />;
   return <div><button type="button" className="pill ghost sm" disabled={recording.isPending} onClick={() => { setFailed(false); recording.mutate(applicationId, { onSuccess: response => setUrl(response.url), onError: () => setFailed(true) }); }}>{recording.isPending ? "Загружаем запись…" : "Послушать разговор"}</button>{failed && <p role="alert" className="text-[14px] text-red">Запись не открылась. Попробуйте ещё раз.</p>}</div>;
 }

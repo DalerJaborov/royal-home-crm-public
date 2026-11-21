@@ -10,7 +10,11 @@ import { BotTrainer } from "../components/trainer/BotTrainer";
 import { useBotLearning } from "../hooks/useBotLearning";
 import { useBotAuditList } from "../hooks/useBotAudit";
 import { useSettings } from "../hooks/useSettings";
+import { Rh2ErrorState, Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
 import { StatTile } from "../components/ui/StatTile";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
 
 function scrollTo(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -79,6 +83,7 @@ function isLearningTab(value: string | null): value is LearningTab {
 
 export function AiLearning() {
   const can = useCan();
+  const royal = useRoyalLook();
   const canView = can("settings.view");
   // Предупреждение сверху (макет) — счётчик вопросов, на которые бот ждёт
   // подсказку, честный (data.questionsTotal, тот же источник, что и у секции
@@ -122,7 +127,7 @@ export function AiLearning() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -138,15 +143,18 @@ export function AiLearning() {
             </div>
           </div>
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
   const data = learning.data;
   const canDecideTraining = can("settings.manage");
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const questionsWaiting = !!data && data.questionsGroupsTotal > 0;
+  const auditOpen = !!audit.data && audit.data.unresolvedTotal > 0;
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -179,18 +187,23 @@ export function AiLearning() {
          * разных клиентов раздувал бы плитку сильнее, чем реально нужно
          * ответов). Сырое число — рядом в скобках, честно, не спрятано.
          */}
+        {/* Сводка не пришла — словами и «Повторить», а не вечные «…» в плитках (К14, аудит 20.11.2026). */}
+        {loadView(learning) === "error" && (
+          <Rh2ErrorState message="Не удалось загрузить обучение бота. Проверьте связь и нажмите «Повторить»." onRetry={() => { void learning.refetch(); void audit.refetch(); }} retrying={learning.isFetching} />
+        )}
+        {loadView(learning) === "offline" && <Rh2OfflineState onRetry={() => { void learning.refetch(); void audit.refetch(); }} />}
         <div className="tiles">
           <StatTile
-            icon={HelpCircle}
+            {...(royal ? controlTile("lightbulb", questionsWaiting) : { icon: HelpCircle })}
             label="Ждут подсказки"
             value={data ? data.questionsGroupsTotal : "…"}
             line={data ? `разных вопросов (случаев — ${data.questionsTotal})` : "разговоров бот не понял"}
-            critical={!!data && data.questionsGroupsTotal > 0}
+            critical={questionsWaiting}
             onClick={() => goTo("rules", "ai-learning-questions")}
             title="Список вопросов ниже, во вкладке «Правила»"
           />
           <StatTile
-            icon={GraduationCap}
+            {...(royal ? controlTile("bot") : { icon: GraduationCap })}
             label="В промте"
             value={data ? `${data.promptCount} из ${data.rulesGroupsTotal}` : "…"}
             line={data ? `включённых — ${data.activeCount}, потолок промта — ${data.promptLimit}` : undefined}
@@ -198,11 +211,11 @@ export function AiLearning() {
             title="Список правил ниже, во вкладке «Правила»"
           />
           <StatTile
-            icon={ShieldAlert}
+            {...(royal ? controlTile("shield-check", auditOpen) : { icon: ShieldAlert })}
             label="Находки судьи не разобраны"
             value={audit.data ? audit.data.unresolvedTotal : "…"}
             line="за случайные переписки"
-            critical={!!audit.data && audit.data.unresolvedTotal > 0}
+            critical={auditOpen}
             onClick={() => goTo("audit", "ai-learning-audit")}
             title="Находки судьи во вкладке «Аудит диалогов»"
           />
@@ -308,6 +321,6 @@ export function AiLearning() {
           </div>
         )}
       </div>
-    </div>
+    </ControlRoot>
   );
 }

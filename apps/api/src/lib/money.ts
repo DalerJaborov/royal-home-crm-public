@@ -37,6 +37,8 @@ export interface MoneyContext {
   usdToTjs: number;
   /** Курс прочитан из Настроек (не FALLBACK_USD_TO_TJS) — им можно записывать доллар. */
   verified?: true;
+  /** Курса в Настройках нет — подставлен FALLBACK_USD_TO_TJS (для отчётов). Цену для людей по нему не пишем (ревью #348). */
+  fallback?: true;
 }
 
 /** Keep the supplied/captured rate for new entries; never claim it is a recovered historical rate. */
@@ -53,7 +55,7 @@ export async function loadMoneyContext(db: Pick<typeof prisma, "settings"> = pri
     select: { usdToTjsRate: true },
   });
   const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
-  return { usdToTjs: rate && rate > 0 ? rate : FALLBACK_USD_TO_TJS };
+  return rate && rate > 0 ? { usdToTjs: rate } : { usdToTjs: FALLBACK_USD_TO_TJS, fallback: true };
 }
 
 /**

@@ -25,14 +25,16 @@ import {
   SECONDARY_CONDITIONS, UPLOAD_VIDEO_MAX_BYTES, fieldsForNewBuildPhase, formatClientCode, formatPropertyCode, parseShortCode,
   propertyCreateSchema, propertyDetailFieldLabel, propertyDetailOptionLabel, propertyDetailShown, propertyDuplicateCheckQuerySchema,
   propertyFieldShown, propertyFinishSummary, propertyHasCondition, propertyHasMarket, propertyWizardDraftValuesSchema,
-  propertyWizardErrors, propertyWizardTypeChange, narrationDraftText,
+  propertyWizardErrors, propertyWizardTypeChange, propertyWizardWarnings, narrationDraftText,
   type PermissionId, type PropertyDetailKey, type PropertyDuplicateMatch, type PropertyType, type PropertyWizardDraftValues,
 } from "@royal-home/shared";
 import { z } from "zod";
 import { BW, EW } from "../ai/wordBoundary.js";
 import { isAiAssistantEnabled } from "../ai/assistant.js";
+import { registerPropertyDraftOpener, type PropertyDraftOpenResult } from "./propertyDraftOpener.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
+import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { can, canBindClient, invalidateAgentAccess, loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { prisma, type TxClient } from "../db.js";
 import { findActiveAgentByName } from "../lib/agentNameLookup.js";
@@ -64,13 +66,14 @@ import {
 } from "./assistantPhotoQuality.js";
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { narrationRate } from "../lib/propertyNarration.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
 const kind = "property-draft";
 const expiresAt = () => new Date(Date.now() + 12 * 60 * 60_000);
 /** Что вносим: объект, квартира, дом, участок, коммерция (рус./тадж.). */
-const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис)`;
+const NEW_THING = String.raw`(?:объект|квартир\p{L}*|дом|домик|частн\p{L}*\s+дом|участ\p{L}*|коммерц\p{L}*|помещени\p{L}*|офис|объявлени\p{L}*)`;
 const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳавлии|квартира(?:и)?|замин(?:и)?)`;
 /**
  * Начало мастера. Три вида фразы (14–15.11.2026):
@@ -84,24 +87,51 @@ const TJ_THING = String.raw`(?:объект(?:и)?|хона(?:и)?|ҳавлӣ|ҳ
  * У явной фразы следующие строки и текст после двоеточия — уже данные объекта
  * («Добавь объект», дальше строка «Цена: 750000»); у «голой» — нет.
  */
-const RU_START_VERB = String.raw`(?:(?:давай(?:те)?|хочу|надо|нужно|можно|могу)\s+)?${BW}(?:добавь(?:те)?|добавим|добавить|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести)\s+(?:нов\p{L}*\s+)?${NEW_THING}${EW}`;
-const TJ_START_VERB = String.raw`${TJ_THING}\s+(?:нав\s+)?илова\s+кун(?:ам|ем|ед|им|)?|(?:мехоҳам|биёед)\s+${TJ_THING}(?:\s+нав)?\s+илова\s+кун(?:ам|ем|ед|им|)?`;
+/**
+ * 21.11.2026 (владелец: «чтобы любые похожие все можно было использовать»): ещё «можешь / помоги /
+ * хотела», «запиши / занеси / оформи», «добавь мне ещё один объект», «объявление». Всё, что
+ * регулярка не узнаёт, понимает модель инструментом start_property_draft
+ * (ai/assistant/tools/startPropertyDraftTool.ts) — она открывает этот же мастер.
+ */
+const RU_START_VERB = String.raw`(?:(?:давай(?:те)?|хочу|хотел[аи]?|надо|нужно|можно|могу|можешь|можете|сможешь|сможете|помоги(?:те)?)\s+(?:мне\s+|нам\s+)?)?${BW}(?:добавь(?:те)?|добавим|добавить|добавляй(?:те)?|создай(?:те)?|создадим|создать|внеси(?:те)?|внесём|внесем|внести|заведи(?:те)?|завести|запиши(?:те)?|запишем|записать|занеси(?:те)?|занести|оформи(?:те)?|оформим|оформить)\s+(?:мне\s+|нам\s+)?(?:ещё\s+|еще\s+)?(?:один\s+|одну\s+)?(?:нов\p{L}*\s+)?${NEW_THING}${EW}`;
+const TJ_START_VERB = String.raw`(?:мумкин\s+)?${TJ_THING}\s+(?:нав\s+)?илова\s+кун(?:ам|ем|ед|им|)?|(?:мехоҳам|биёед)\s+${TJ_THING}(?:\s+нав)?\s+илова\s+кун(?:ам|ем|ед|им|)?`;
 const START_SLASH = String.raw`\/(?:new_property|object)(?:@[A-Za-z0-9_]+)?`;
 const START_BARE = String.raw`${BW}нов\p{L}*\s+${NEW_THING}${EW}|${TJ_THING}\s+нав(?:\s+илова\s+кун(?:ам|ем|ед|им|)?)?`;
 const START_TAIL = String.raw`[\s,;—–-]+(?:и|а|да|потом|затем|чтобы|сразу|ва|баъд|сипас|фавран)${EW}[^?\n]{0,100}`;
 const isExplicitStart = new RegExp(`^(?:${START_SLASH}|${RU_START_VERB}|${TJ_START_VERB})[.!?]*$`, "iu");
-const isBareStart = new RegExp(`^(?:${START_BARE})[.!?]*$`, "iu");
+// Без «?»: «Шабнам, новые квартиры?» — вопрос о новостройках, а не начало мастера (ревью 21.11).
+const isBareStart = new RegExp(`^(?:${START_BARE})[.!]*$`, "iu");
 const isStartWithTail = new RegExp(`^(?:${RU_START_VERB}|${TJ_START_VERB})(?:${START_TAIL})[.!?]*$`, "iu");
+
+/**
+ * Обращение и вежливость вокруг просьбы (21.11.2026): «Шабнам, добавь объект», «Привет! Пожалуйста,
+ * внеси квартиру», «лутфан, объект илова кунед». Срезаются только имя помощницы, приветствие и
+ * «пожалуйста» — сама просьба по-прежнему проверяется целиком.
+ */
+const COURTESY_LEAD = /^(?:(?:шабнам(?:джон|ҷон)?|shabnam|привет|салом|ассалому\s+алейкум|здравствуй(?:те)?|добрый\s+(?:день|вечер)|ну|так|слушай(?:те)?)[\s,!.:—–-]+)*(?:(?:пожалуйста|лутфан|илтимос)[\s,!]+)?/iu;
+/** «пожалуйста» в середине или в конце: «Добавь, пожалуйста, объект.» — так расшифровываются голосовые. */
+const COURTESY_INNER = /[\s,]*,?\s*(?<!\p{L})(?:пожалуйста|лутфан|илтимос)(?!\p{L})\s*,?/giu;
+function stripCourtesy(line: string): string {
+  const stripped = line.replace(COURTESY_LEAD, "").replace(COURTESY_INNER, " ").replace(/\s+([.!?])/gu, "$1").replace(/\s{2,}/gu, " ").trim();
+  return stripped || line;
+}
+
+/** Есть ли в сообщении просьба открыть мастер объекта (тот же разбор, что у текста; нужен голосовым). */
+export function isPropertyDraftStartText(text: string): boolean {
+  const flat = text.trim();
+  return startIntent(flat).start || fromClientStart.test(stripCourtesy(flat));
+}
 
 /** Начало мастера в сообщении; `rest` — то, что идёт после первой строки или двоеточия, данные объекта. */
 function startIntent(text: string): { start: boolean; rest: string } {
   const [first = "", ...others] = text.trim().split(/\r?\n/u);
-  const line = first.trim();
+  const line = stripCourtesy(first.trim());
   const below = others.join("\n").trim();
   if (isExplicitStart.test(line)) return { start: true, rest: below };
   if (!others.length && isBareStart.test(line)) return { start: true, rest: "" };
   // Хвост-просьба не должен прятать вопрос о другом объекте или клиенте.
-  if (isStartWithTail.test(line) && !OTHER_REQUEST.test(line)) return { start: true, rest: below };
+  // «Добавь дом и квартиру в подборку Алишеру» — подборка клиенту, а не новый объект.
+  if (isStartWithTail.test(line) && !OTHER_REQUEST.test(line) && !/подборк|интихоб/iu.test(line)) return { start: true, rest: below };
   const colon = /^([^:\n]{3,60}):\s*(\S.*)$/u.exec(line);
   if (colon && isExplicitStart.test(colon[1].trim())) return { start: true, rest: [colon[2].trim(), below].filter(Boolean).join("\n") };
   return { start: false, rest: "" };
@@ -134,11 +164,23 @@ const OTHER_REQUEST = new RegExp(
   + `|^(?:пожалуйста[,\\s]+)?(?:найди(?:те)?|найти|поищи(?:те)?|покажи(?:те)?\\s+(?:мне\\s+)?(?:клиент|задач|встреч|показ|сделк|расход|список|мои)\\p{L}*|напомни(?:те)?|позвони(?:те)?|ҷустуҷӯ\\s+кун(?:ед)?|ёфта\\s+деҳ(?:ед)?)${EW}`,
   "iu");
 
+/**
+ * «Готово, создавай» без модели (21.11.2026): короткие слова целиком. Всё длиннее и любые другие
+ * слова понимает модель флагом submit в разборе полей (assistantPropertyFields.ts).
+ */
+const SUBMIT_WORDS = new RegExp(
+  String.raw`^(?:ну\s+|всё[,\s]+|все[,\s]+|ладно[,\s]+)?(?:`
+  + String.raw`готово|создай(?:те)?|создавай(?:те)?|сохрани(?:те)?|сохраняй(?:те)?|отправь(?:те)?|отправляй(?:те)?`
+  + String.raw`|добавляй(?:те)?|выпускай(?:те)?|публикуй(?:те)?|можно\s+создавать|создать|отправить`
+  + String.raw`|тайёр|тамом|сохт(?:ан|ед)|фирист(?:ед|он)?|нашр\s+кун(?:ед)?`
+  + String.raw`)(?:[,\s]+(?:пожалуйста|лутфан))?[.!]*$`, "iu");
+
 /** Для тестов: что мастер понимает по фразе без модели. */
-export function draftPhraseForTests(text: string): "start" | "exit" | "other" | null {
+export function draftPhraseForTests(text: string): "start" | "exit" | "submit" | "other" | null {
   const flat = text.trim();
-  if (startIntent(flat).start || fromClientStart.test(flat)) return "start";
+  if (isPropertyDraftStartText(flat)) return "start";
   if (isExit.test(flat)) return "exit";
+  if (SUBMIT_WORDS.test(flat)) return "submit";
   if (OTHER_REQUEST.test(flat)) return "other";
   return null;
 }
@@ -155,7 +197,7 @@ const stateSchema = z.object({
   draftId: z.guid(),
   lang: z.enum(["ru", "tg"]).optional(),
   /** dupIds — дубли, о которых сотрудник уже предупреждён кнопкой «Всё равно создать». */
-  preview: z.object({ token: z.guid(), revision: z.number().int(), media: z.string(), dupIds: z.array(z.guid()).max(10).optional() }).optional(),
+  preview: z.object({ token: z.guid(), revision: z.number().int(), media: z.string(), dupIds: z.array(z.guid()).max(10).optional(), at: z.number().int().optional() }).optional(),
   /** Поле, которое агент выбрал кнопкой «Исправить поле»: следующий текст или голос — его значение. */
   editing: z.string().max(24).optional(),
   /** Карточка продавца, импорт которой ждёт ответа «заменить / оставить». */
@@ -174,6 +216,8 @@ const copy = {
     stale: "Черновик изменился. Нажмите «Проверить» ещё раз или откройте мастер командой /new_property.",
     exited: "Вышли из мастера. Черновик сохранён. Вернуться можно командой /new_property.",
     busy: "Сначала завершите текущее действие в чате.",
+    submitCheckFirst: "Проверьте карточку: если всё верно — нажмите «Создать» или напишите «готово». Не хватает данных — допишите любыми словами.",
+    submitDuplicate: "Похожий объект уже есть — проверьте и нажмите «Всё равно создать», если это другой.",
     unavailable: "Мастер объектов сейчас недоступен.",
     photoAdded: "Фото добавлено.",
     photoTooLarge: (mb: number) => `Пришлите фото размером до ${mb} МБ.`,
@@ -258,6 +302,8 @@ const copy = {
     stale: "Сиёҳнавис тағйир ёфт. «Санҷидан»-ро боз пахш кунед ё бо фармони /new_property кушоед.",
     exited: "Аз иловаи объект баромадем. Сиёҳнавис нигоҳ дошта шуд. Бо фармони /new_property баргаштан мумкин аст.",
     busy: "Аввал амали ҷориро дар чат анҷом диҳед.",
+    submitCheckFirst: "Кортро санҷед: агар ҳама дуруст бошад — «Сохтан»-ро пахш кунед ё «тайёр» нависед. Маълумот намерасад — бо ҳар сухане илова кунед.",
+    submitDuplicate: "Объекти монанд аллакай ҳаст — санҷед ва агар дигар бошад, «Ба ҳар ҳол сохтан»-ро пахш кунед.",
     unavailable: "Иловаи объект ҳоло дастрас нест.",
     photoAdded: "Акс илова шуд.",
     photoTooLarge: (mb: number) => `Лутфан акси то ${mb} МБ фиристед.`,
@@ -582,6 +628,8 @@ async function review(ctx: Context, draft: DraftRecord) {
     type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
     price: values.price ? String(values.price) : null, currency: values.currency ?? null,
+    // Цена в озвучке только в сомони (21.11.2026): долларовую переводит общий курс из Настроек.
+    usdToTjs: values.currency === "USD" ? await narrationRate() : null,
   }).text : null;
   const lines = [
     c.title,
@@ -616,6 +664,9 @@ async function review(ctx: Context, draft: DraftRecord) {
       first.distanceM != null && first.matchedBy !== "address" && `${first.distanceM} м`].filter(Boolean).join(", ");
     lines.push(`\n⚠️ ${c.duplicate(formatPropertyCode(first.shortId), facts, duplicates.length - 1)}`);
   }
+  // Предупреждения мастера (21.11.2026, объект №213; ревью #348): валюта похожа на перепутанную, адрес из одного
+  // слова. Создать объект они НЕ мешают — те же правила, что у мастера CRM, но там под полем кнопка «Цена верная».
+  for (const warning of Object.values(propertyWizardWarnings(values))) lines.push(`\n⚠️ ${warning}`);
   // Монтаж стартует сам, когда у объекта есть фото и видео (проверка исходников выключена): без видео объект ждёт.
   if (!readyMedia(draft, "VIDEO").length && !queuedFiles.length) lines.push(`\n${c.videoHint}`);
   lines.push(missing.size ? `\n${c.needMore}: ${[...missing.values()].join(", ")}.\n${c.howTo}` : `\n${c.ready}`);
@@ -651,7 +702,7 @@ async function sendReview(ctx: Context, draft: DraftRecord, prefix?: string) {
       const current = await assertActiveDraft(tx, ctx.agentId, { draftId: draft.id, revision: draft.revision });
       const media = draftMediaFingerprint(draft);
       if (draftMediaFingerprint(current) !== media) return false;
-      await writeState(tx, ctx, { draftId: draft.id, lang: ctx.lang, preview: { token, revision: draft.revision, media, dupIds: info.duplicates.map(match => match.id).slice(0, 10) } });
+      await writeState(tx, ctx, { draftId: draft.id, lang: ctx.lang, preview: { token, revision: draft.revision, media, dupIds: info.duplicates.map(match => match.id).slice(0, 10), at: Date.now() } });
       return true;
     });
     if (!ready) { await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, buttons); return; }
@@ -758,7 +809,7 @@ type DescriptionOutcome = "applied" | "cancel" | "other";
 
 async function updateDescription(
   ctx: Context, draft: DraftRecord, text: string, wallet: AssistantMoneyWallet,
-  options: { prefix?: string; silent?: boolean; handOff?: boolean; document?: boolean } = {},
+  options: { prefix?: string; silent?: boolean; handOff?: boolean; document?: boolean; submitState?: State } = {},
 ): Promise<DescriptionOutcome> {
   const lang = ctx.lang;
   const buttons = controls(draft.id, lang);
@@ -770,7 +821,13 @@ async function updateDescription(
     if (!options.silent) await sendReview(ctx, saved, withPrefix());
     return "applied";
   }
+  // «Готово / создавай / отправляй» без новых данных — без модели (21.11.2026).
+  if (options.submitState && SUBMIT_WORDS.test(text.trim())) {
+    await submitByWords(ctx, draft, options.submitState);
+    return "applied";
+  }
   let extracted;
+  let submit = false;
   try {
     const turn = options.document
       ? await extractPropertyDocument(text, ctx.agentId, wallet)
@@ -781,8 +838,11 @@ async function updateDescription(
     }
     if (options.handOff && turn.intent !== "field_update") return turn.intent === "cancel" ? "cancel" : "other";
     extracted = turn.fields;
+    submit = Boolean(turn.submit && options.submitState);
   } catch (error) {
-    await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit : t(lang).parseFailed, buttons);
+    // Отказ денежной защиты — правдой: «не разобрала поля, напишите иначе» отправил бы перепечатывать зря.
+    await sendMessageWithButtons(ctx.chatId, error instanceof Error && error.message === "draft_daily_limit" ? t(lang).dailyLimit
+      : assistantLimitText(error, lang) ?? t(lang).parseFailed, buttons);
     return "applied";
   }
   const { districtName: foundDistrict, intakeAgentName, placement: place, documents: foundDocuments, details: foundDetails, ...patch } = extracted;
@@ -835,12 +895,16 @@ async function updateDescription(
     notes.push(t(lang).sellerLinked);
   }
   if (!Object.keys(values).length) {
-    if (options.prefix) await sendReview(ctx, draft, withPrefix(notes.join("\n")));
+    // «Создавай» без новых данных: создаём только из карточки, которую человек уже видел.
+    if (submit && options.submitState && !notes.length) await submitByWords(ctx, draft, options.submitState);
+    else if (options.prefix) await sendReview(ctx, draft, withPrefix(notes.join("\n")));
     else if (!options.silent || notes.length) await sendMessageWithButtons(ctx.chatId, notes.join("\n") || t(lang).nothingNew, buttons);
     return "applied";
   }
   const saved = await saveFields(ctx, draft, values);
-  if (!options.silent) await sendReview(ctx, saved, withPrefix(notes.join("\n")));
+  // Новые данные вместе с «создавай» — сначала карточка: человек должен увидеть, что получилось.
+  if (submit) await sendReview(ctx, saved, withPrefix([...notes, t(lang).submitCheckFirst].join("\n")));
+  else if (!options.silent) await sendReview(ctx, saved, withPrefix(notes.join("\n")));
   else if (notes.length) await sendMessageWithButtons(ctx.chatId, notes.join("\n"), buttons);
   return "applied";
 }
@@ -1326,18 +1390,18 @@ async function handleInDraft(
     else if (!editing && isExit.test(voice.text.trim())) await exitDraft(ctx, state.draftId);
     else {
       // Голос о другом отдаём помощнице целиком: она сама распознает его ещё раз.
-      const outcome = await updateDescription(ctx, draft, asField(voice.text), wallet, { handOff: true });
+      const outcome = await updateDescription(ctx, draft, asField(voice.text), wallet, { handOff: true, ...(editing ? {} : { submitState: state }) });
       if (outcome === "cancel") await exitDraft(ctx, state.draftId);
-      else if (outcome === "other") return false;
+      else if (outcome === "other") return await forgetPreview(ctx, state.draftId);
     }
   } else if (text && !text.startsWith("/")) {
     if (/^(?:черновик|проверь черновик|покажи черновик|сиёҳнавис)$/iu.test(text)) await sendReview(ctx, draft);
     // Явный вопрос о другом (номер другого объекта, «найди клиента …») — помощнице, без модели разбора.
-    else if (!editing && OTHER_REQUEST.test(text)) return false;
+    else if (!editing && OTHER_REQUEST.test(text)) return await forgetPreview(ctx, state.draftId);
     else {
-      const outcome = await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet(), { handOff: !started });
+      const outcome = await updateDescription(ctx, draft, asField(text), createAssistantMoneyWallet(), { handOff: !started, ...(editing || started ? {} : { submitState: state }) });
       if (outcome === "cancel") await exitDraft(ctx, state.draftId);
-      else if (outcome === "other") return false;
+      else if (outcome === "other") return await forgetPreview(ctx, state.draftId);
     }
   } else {
     await sendMessageWithButtons(chatId, t(lang).howTo, controls(draft.id, lang));
@@ -1352,7 +1416,7 @@ export async function handleTelegramPropertyDraft(
   if (msg.chat.type !== "private" || !msg.from || msg.from.id !== msg.chat.id) return false;
   const chatId = String(msg.chat.id);
   const text = (msg.text ?? msg.caption ?? "").trim();
-  const sellerCode = fromClientStart.exec(text)?.[1];
+  const sellerCode = fromClientStart.exec(stripCourtesy(text))?.[1];
   const intent = startIntent(text);
   const start = intent.start || Boolean(sellerCode);
   const state = await getState(prisma, chatId, agent.id);
@@ -1561,57 +1625,7 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
       });
       return true;
     }
-    const claimed = await withDraftLock(agent.id, async tx => {
-      const current = await getState(tx, chatId, agent.id);
-      const preview = current?.preview;
-      if (!current || preview?.token !== id) return null;
-      const draft = await assertActiveDraft(tx, agent.id, { draftId: current.draftId, revision: preview.revision });
-      if (draftMediaFingerprint(draft) !== preview.media) throw new DraftConflictError(draft);
-      await writeState(tx, ctx, { draftId: draft.id, lang });
-      return { draft, media: preview.media, dupIds: preview.dupIds ?? [] };
-    });
-    if (!claimed) return true;
-    const info = await review(ctx, claimed.draft);
-    if (info.missing.length) { await sendReview(ctx, claimed.draft); return true; }
-    // Дубль проверяется ещё раз в момент создания: между показом карточки и
-    // нажатием в CRM мог появиться объект, о котором сотрудник не предупреждён.
-    if (info.duplicates.some(match => !claimed.dupIds.includes(match.id))) {
-      await sendReview(ctx, claimed.draft, t(lang).newDuplicate);
-      return true;
-    }
-    const result = await createProperty({
-      agent: ctx.access, source: "telegram", expectedDraftMedia: claimed.media,
-      body: { ...info.body, draftId: claimed.draft.id, draftRevision: claimed.draft.revision, ...(info.values.narrationOff ? { narration: { none: true } } : {}) },
-    });
-    if (result.status !== 201) {
-      const body: Record<string, unknown> = result.body as Record<string, unknown>;
-      const existingShortId = typeof body.existingShortId === "number" ? body.existingShortId : null;
-      const reply = body.code === "DRAFT_CONFLICT" ? t(lang).stale
-        : existingShortId ? t(lang).duplicateHard(formatPropertyCode(existingShortId))
-        : result.status === 403 ? t(lang).rejected403
-        : t(lang).rejected;
-      await sendMessageWithButtons(chatId, reply, controls(claimed.draft.id, lang));
-      return true;
-    }
-    await withDraftLock(agent.id, async tx => {
-      if ((await getState(tx, chatId, agent.id))?.draftId === claimed.draft.id) {
-        await tx.telegramDialogState.deleteMany({ where: { chatId, agentId: agent.id, kind } });
-      }
-    });
-    const created = z.object({ id: z.guid(), shortId: z.number().int() }).parse(result.body);
-    const number = formatPropertyCode(created.shortId);
-    const base = process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj";
-    const buttons = [[{ text: `${t(lang).open} ${number}`, url: `${base}/properties/${created.id}` }]];
-    const media = "media" in result.body ? result.body.media : undefined;
-    const skipped = (media?.skipped.photos ?? 0) + (media?.skipped.videos ?? 0);
-    const baseText = media?.error || skipped
-      ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
-      : t(lang).created;
-    const createdText = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
-    try { await editMessageText(chatId, messageId, createdText, buttons); }
-    catch { await sendMessageWithButtons(chatId, createdText, buttons); }
-    // Кому подходит объект — одно сообщение, клиентам ничего не уходит.
-    await sendPropertyMatchesCard(chatId, { agent: ctx.access }, created.id, lang);
+    await createFromPreview(ctx, id, messageId);
   } catch (error) {
     if (error instanceof DraftConflictError) {
       await sendMessageWithButtons(chatId, t(lang).stale, controls(state.draftId, lang));
@@ -1622,3 +1636,136 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
   }
   return true;
 }
+
+/**
+ * Сообщение ушло помощнице (вопрос о другом) — показанная готовая карточка больше не «только что
+ * увиденная»: следующее «готово» про другое не должно создать объект (ревью 21.11). Возвращает false —
+ * «не обработано мастером», как прежний `return false`.
+ */
+async function forgetPreview(ctx: Context, draftId: string): Promise<false> {
+  await patchState(ctx, draftId, current => ({ draftId: current.draftId })).catch(() => false);
+  return false;
+}
+
+/** Сколько живёт показанная готовая карточка для «готово» словами. */
+const SUBMIT_PREVIEW_TTL_MS = 30 * 60_000;
+
+/**
+ * «Готово / создавай / отправляй» словами (21.11.2026). Создаём ТОЛЬКО из готовой карточки, которую
+ * человек уже видел: после неё черновик не менялся, прошло не больше 30 минут, похожих объектов в
+ * ней не было. Иначе — карточка с подсказкой: «готово» на чужую тему или к забытому черновику
+ * объект не создаёт (ревью перед выкаткой, 21.11).
+ */
+async function submitByWords(ctx: Context, draft: DraftRecord, state: State): Promise<void> {
+  const preview = state.preview;
+  const seen = Boolean(preview && preview.revision === draft.revision && preview.media === draftMediaFingerprint(draft)
+    && preview.at !== undefined && Date.now() - preview.at <= SUBMIT_PREVIEW_TTL_MS);
+  if (seen && preview && !preview.dupIds?.length) { await createFromPreview(ctx, preview.token); return; }
+  await sendReview(ctx, draft, seen ? t(ctx.lang).submitDuplicate : t(ctx.lang).submitCheckFirst);
+}
+
+/**
+ * Создать объект из карточки проверки с токеном `token` — общий путь кнопки «Создать» и слов
+ * «готово / создавай / отправляй» (21.11.2026). Без `messageId` ответ уходит новым сообщением.
+ */
+async function createFromPreview(ctx: Context, id: string, messageId?: number): Promise<void> {
+  const chatId = ctx.chatId;
+  const lang = ctx.lang;
+  const claimed = await withDraftLock(ctx.agentId, async tx => {
+    const current = await getState(tx, chatId, ctx.agentId);
+    const preview = current?.preview;
+    if (!current || preview?.token !== id) return null;
+    const draft = await assertActiveDraft(tx, ctx.agentId, { draftId: current.draftId, revision: preview.revision });
+    if (draftMediaFingerprint(draft) !== preview.media) throw new DraftConflictError(draft);
+    await writeState(tx, ctx, { draftId: draft.id, lang });
+    return { draft, media: preview.media, dupIds: preview.dupIds ?? [] };
+  });
+  if (!claimed) {
+    // Карточка уже использована (двойное нажатие, объект создан) — молчим, как раньше; черновик
+    // жив, но карточка устарела — говорим об этом с кнопками ЭТОГО черновика.
+    const current = await getState(prisma, chatId, ctx.agentId);
+    if (current) await sendMessageWithButtons(chatId, t(lang).stale, controls(current.draftId, lang));
+    return;
+  }
+  const info = await review(ctx, claimed.draft);
+  if (info.missing.length) { await sendReview(ctx, claimed.draft); return; }
+  // Дубль проверяется ещё раз в момент создания: между показом карточки и
+  // нажатием в CRM мог появиться объект, о котором сотрудник не предупреждён.
+  if (info.duplicates.some(match => !claimed.dupIds.includes(match.id))) {
+    await sendReview(ctx, claimed.draft, t(lang).newDuplicate);
+    return;
+  }
+  const result = await createProperty({
+    agent: ctx.access, source: "telegram", expectedDraftMedia: claimed.media,
+    body: { ...info.body, draftId: claimed.draft.id, draftRevision: claimed.draft.revision, ...(info.values.narrationOff ? { narration: { none: true } } : {}) },
+  });
+  if (result.status !== 201) {
+    const body: Record<string, unknown> = result.body as Record<string, unknown>;
+    const existingShortId = typeof body.existingShortId === "number" ? body.existingShortId : null;
+    const reply = body.code === "DRAFT_CONFLICT" ? t(lang).stale
+      : existingShortId ? t(lang).duplicateHard(formatPropertyCode(existingShortId))
+      : result.status === 403 ? t(lang).rejected403
+      : t(lang).rejected;
+    await sendMessageWithButtons(chatId, reply, controls(claimed.draft.id, lang));
+    return;
+  }
+  await withDraftLock(ctx.agentId, async tx => {
+    if ((await getState(tx, chatId, ctx.agentId))?.draftId === claimed.draft.id) {
+      await tx.telegramDialogState.deleteMany({ where: { chatId, agentId: ctx.agentId, kind } });
+    }
+  });
+  const created = z.object({ id: z.guid(), shortId: z.number().int() }).parse(result.body);
+  const number = formatPropertyCode(created.shortId);
+  const base = process.env.CRM_PUBLIC_URL?.trim().replace(/\/+$/, "") || "https://crm.royalhome.tj";
+  const buttons = [[{ text: `${t(lang).open} ${number}`, url: `${base}/properties/${created.id}` }]];
+  const media = "media" in result.body ? result.body.media : undefined;
+  const skipped = (media?.skipped.photos ?? 0) + (media?.skipped.videos ?? 0);
+  const baseText = media?.error || skipped
+    ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
+    : t(lang).created;
+  const createdText = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
+  if (messageId) {
+    try { await editMessageText(chatId, messageId, createdText, buttons); }
+    catch { await sendMessageWithButtons(chatId, createdText, buttons); }
+  } else await sendMessageWithButtons(chatId, createdText, buttons);
+  // Кому подходит объект — одно сообщение, клиентам ничего не уходит.
+  await sendPropertyMatchesCard(chatId, { agent: ctx.access }, created.id, lang);
+}
+
+/* ─────────────────────────── по просьбе помощницы ─────────────────────────── */
+
+/**
+ * Открыть мастер объекта по решению модели (21.11.2026, владелец: «чтобы любые похожие все можно
+ * было использовать»). Регулярка начала знает десятки фраз, но не все: «у меня новая хата на
+ * продажу, занеси», «оформим двушку?». Раньше такое уходило в общий ответ, у которого не было
+ * инструмента, и помощница отвечала «не могу добавить объект». Теперь модель зовёт
+ * start_property_draft (ai/assistant/tools/startPropertyDraftTool.ts), а здесь мастер открывается
+ * ТЕМ ЖЕ входом, что у фразы «/new_property», в личке сотрудника: права, рубильник помощницы,
+ * занятый чат и черновик — одни и те же. `details` — данные объекта, уже названные сотрудником;
+ * они идут строками после команды и разбираются как у явной фразы.
+ */
+export async function openPropertyDraftForAssistant(
+  agentId: string, details: string,
+): Promise<PropertyDraftOpenResult> {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { fullName: true, isActive: true, telegramChatId: true, role: true } });
+  if (!agent?.isActive) return { opened: false, reason: "inactive" };
+  // Тот же отказ, что у POST /properties и у фразы: СБ и роли «только просмотр» объекты не заводят.
+  const denied = propertyCreateDeniedReason({ agent: { role: agent.role } } as Parameters<typeof propertyCreateDeniedReason>[0]);
+  if (denied) return { opened: false, reason: "denied", text: denied };
+  const chatId = Number(agent.telegramChatId ?? "");
+  if (!Number.isSafeInteger(chatId) || chatId <= 0) return { opened: false, reason: "no_telegram" };
+  const body = details.trim().slice(0, 3000);
+  const msg: TelegramIncomingMessage = {
+    chat: { id: chatId, type: "private" },
+    from: { id: chatId },
+    text: body ? `/new_property\n${body}` : "/new_property",
+  };
+  // Голоса здесь не бывает: голосовое уже расшифровано до хода модели.
+  const noVoice: Transcribe = async () => ({ error: t("ru").genericError });
+  await handleTelegramPropertyDraft(msg, { id: agentId, fullName: agent.fullName }, noVoice);
+  // «Открыт» — только если черновик правда открыт: занятый чат, выключенная помощница или сбой
+  // мастер уже объяснил сотруднику в личке, а помощнице нельзя говорить «готово» (ревью 21.11).
+  if (!(await getState(prisma, String(chatId), agentId))) return { opened: false, reason: "unavailable" };
+  return { opened: true };
+}
+registerPropertyDraftOpener(openPropertyDraftForAssistant);

@@ -1,5 +1,5 @@
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useServerSyncedFields } from "../hooks/useServerSyncedForm";
 import { useNavigate } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUiPrefs } from "../store/uiPrefs";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
-import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { Tabs } from "../components/rh2/Tabs";
 import { useInstallPrompt } from "../hooks/useInstallPrompt";
 import {
@@ -45,6 +44,12 @@ import { dushanbeDateTime } from "../lib/date";
 import { VoiceNotePlayer } from "../components/VoiceNotePlayer";
 import { MhQuiet } from "../components/home/mh/MhScreen";
 import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { AdminScreen } from "../components/look/admin/AdminRoot";
+import { RhAvatar } from "../components/look/ui";
+import { lazyWithReload } from "../lib/lazyWithReload";
+// Выключатели блоков главной — только «Новому виду», отдельным куском: без признака ни байта.
+const HomeBlocksSettings = lazyWithReload(() => import("../components/look/home/HomeBlocksSettings").then((m) => ({ default: m.HomeBlocksSettings })));
 
 /**
  * «Мой профиль»: личные данные, вход и вид приложения.
@@ -152,7 +157,7 @@ export function Profile() {
             <div className="mod">
               <div className="t">
                 <b>Настройки CRM</b>
-                <span>Комиссия, лиды, бот, ИИ. Общие правила агентства, а не личные.</span>
+                <span>Комиссия, заявки, бот, ИИ. Общие правила агентства, а не личные.</span>
               </div>
               <div className="acts">
                 <button className="pill ghost sm" type="button" onClick={() => navigate("/settings")}>
@@ -192,15 +197,17 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
   onLogout: () => void;
 }) {
   const [section, setSection] = useState<ProfileSection>("details");
+  // Новый вид (пачка admin): тот же экран, класс `ry-admin` и метка раздела — оформление в слое.
+  const royal = useRoyalLook();
   const [visited, setVisited] = useState(() => new Set<ProfileSection>(["details"]));
   const navigate = useNavigate();
   const selectSection = (next: ProfileSection) => {
     setSection(next);
     setVisited((previous) => previous.has(next) ? previous : new Set([...previous, next]));
   };
-  return <Rh2Screen title="Мой профиль" className="clean-profile-page">
+  return <AdminScreen royal={royal} title="Мой профиль" className="clean-profile-page">
     <header className="pg-h">
-      <div><h1>Мой профиль</h1><p className="sub">Личные данные, приложение и безопасность. Видно только вам.</p></div>
+      <div><h1 data-dup={royal ? "" : undefined}>Мой профиль</h1><p className="sub">Личные данные, приложение и безопасность. Видно только вам.</p></div>
       <button className="pill ghost" type="button" onClick={onLogout}>Выйти из CRM</button>
     </header>
     <Tabs options={PROFILE_SECTIONS} value={section} onChange={selectSection} idPrefix="profile-section" aria-label="Разделы профиля" className="clean-profile-tabs" />
@@ -212,16 +219,16 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
         <PersonalInfoSection />
         {profile?.role === "AGENT" && royalScoreEnabled && <RoyalScoreCard />}
         {profile?.role === "AGENT" && <LeadPauseSection />}
-        {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, лиды и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
+        {canSettings && <div className="card tight"><div className="mod"><div className="t"><b>Настройки CRM</b><span>Общие правила агентства: комиссия, заявки и ИИ.</span></div><button className="pill ghost" type="button" onClick={() => navigate("/settings")}>Открыть</button></div></div>}
       </>}
-      {id === "appearance" && <><AppearanceSettings /><section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
+      {id === "appearance" && <><AppearanceSettings />{royal && <Suspense fallback={null}><HomeBlocksSettings /></Suspense>}<section className="card"><div className="sec-h stack"><h2>Приложение на устройстве</h2><span className="note">Быстрый запуск CRM с рабочего стола</span></div><InstallAppSection showStatus /></section></>}
       {id === "notifications" && <><NotifyKindsSection /><PushNotificationsSection showUnavailable /></>}
       {id === "security" && <section className="card"><div className="sec-h stack"><h2>Вход и безопасность</h2><span className="note">Двухфакторная защита, вход по отпечатку, автовыход</span></div><TwoFactorSettings /><PasskeySettings /><AutoLogoutSection /></section>}
       {id === "sessions" && <><ActiveSessionsSection /><LoginHistorySection /></>}
       {id === "connections" && <section className="card"><div className="sec-h stack"><h2>Служебные подключения</h2><span className="note">Личные привязки для работы, не клиентские каналы</span></div>{canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}{(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) ? <TelegramLinkSection /> : <p className="state">Для вашей роли нет дополнительных служебных подключений.</p>}</section>}
       </>}
     </section>)}
-  </Rh2Screen>;
+  </AdminScreen>;
 }
 
 // Та же область, что в TeamMemberDetail.tsx / components/home/mh/MhScreen.tsx:
@@ -452,7 +459,7 @@ function ProfileMobile() {
                   />
                 </div>
               )}
-              <MhQuiet>Нет данных: отдельного тумблера «звук на новый лид» в CRM нет, есть только общий звук браузера.</MhQuiet>
+              <MhQuiet>Нет данных: отдельного тумблера «звук на новую заявку» в CRM нет, есть только общий звук браузера.</MhQuiet>
             </div>
           </section>
 
@@ -472,6 +479,7 @@ function AvatarSection() {
   const uploadAvatar = useUploadMyAvatar();
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const royal = useRoyalLook();
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -489,14 +497,21 @@ function AvatarSection() {
   return (
     <section className="card">
       <div className="prof-h">
-        <span className="av xl" style={AVATAR_TONES[2]}>
-          {profile?.avatarUrl ? (
-            <img src={profile.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-          ) : (
-            initials(profile?.fullName ?? "")
-          )}
-          <i className="pres on" />
-        </span>
+        {royal ? (
+          <span className="ry-adm-av">
+            <RhAvatar name={profile?.fullName ?? ""} src={profile?.avatarUrl} size={64} />
+            <i className="ry-adm-pres" aria-hidden="true" />
+          </span>
+        ) : (
+          <span className="av xl" style={AVATAR_TONES[2]}>
+            {profile?.avatarUrl ? (
+              <img src={profile.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+            ) : (
+              initials(profile?.fullName ?? "")
+            )}
+            <i className="pres on" />
+          </span>
+        )}
         <div className="who">
           <h1>{profile?.fullName ?? ""}</h1>
           <p className="sub">
@@ -808,7 +823,7 @@ function PushNotificationsSection({ showUnavailable = false }: { showUnavailable
           <span>
             {denied
               ? "Уведомления заблокированы в настройках браузера: разрешите их для этого сайта, чтобы включить."
-              : "Новые лиды, переназначения и смена этапа сделки приходят сразу, даже если CRM свёрнута."}
+              : "Новые заявки, переназначения и смена этапа сделки приходят сразу, даже если CRM свёрнута."}
           </span>
           {testState === "failed" && <span>Тестовое уведомление не отправилось. Проверьте, что уведомления включены.</span>}
           {testState === "sent" && (
@@ -987,7 +1002,7 @@ function PersonalInfoSection() {
         <h2>Личные данные</h2>
         <span className="note">Телефон служит логином</span>
       </div>
-      <form onSubmit={handleSave} className="fgrid">
+      <form onSubmit={handleSave} className="fgrid ry-fgrid-pair">
         <label className="fld">
           <span className="lab">Имя</span>
           <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} aria-label="Имя" />
@@ -1063,7 +1078,7 @@ function LeadPauseSection() {
   return (
     <section className="card">
       <div className="sec-h stack">
-        <h2>Приём новых лидов</h2>
+        <h2>Приём новых заявок</h2>
         <span className="note">Текущие клиенты остаются за вами в любом случае</span>
       </div>
 
@@ -1075,7 +1090,7 @@ function LeadPauseSection() {
           <div className="quiet warn">
             <span className="dot warn" />
             <span className="txt">
-              Выдача лидов остановлена руководителем.
+              Выдача заявок остановлена руководителем.
               {profile?.frozenReason ? ` Причина: ${profile.frozenReason}.` : ""} Текущие клиенты остаются у вас,
               новые не назначаются. Снять может только руководитель.
             </span>
@@ -1088,7 +1103,7 @@ function LeadPauseSection() {
         <div className="quiet warn">
           <span className="dot warn" />
           <span className="txt">
-            {profile.leadsPausedBy.fullName} остановил вам выдачу новых лидов до{" "}
+            {profile.leadsPausedBy.fullName} остановил вам выдачу новых заявок до{" "}
             {dushanbeDateTime(pausedUntil!.toISOString())}.
             {profile.leadsPausedReason ? ` Причина: ${profile.leadsPausedReason}.` : ""} Текущие клиенты остаются у
             вас. Снять паузу может только руководитель.
@@ -1097,9 +1112,9 @@ function LeadPauseSection() {
       ) : isPaused ? (
         <div className="mod">
           <div className="t">
-            <b>Пауза «не принимаю лиды» включена</b>
+            <b>Пауза «не принимаю заявки» включена</b>
             <span>
-              Новые лиды вам не назначаются до {dushanbeDateTime(pausedUntil!.toISOString())}. Текущие клиенты
+              Новые заявки вам не назначаются до {dushanbeDateTime(pausedUntil!.toISOString())}. Текущие клиенты
               остаются за вами, KPI считается как обычно.
             </span>
           </div>
@@ -1113,7 +1128,7 @@ function LeadPauseSection() {
       ) : (
         <div className="mod">
           <div className="t">
-            <b>Пауза «не принимаю лиды»</b>
+            <b>Пауза «не принимаю заявки»</b>
             <span>
               Заболели или заняты: временно не получайте новых клиентов. KPI продолжает считаться, пауза не
               снимает просрочки. Между паузами должно пройти время.
@@ -1135,7 +1150,7 @@ function LeadPauseSection() {
               disabled={pause.isPending}
               onClick={() => pause.mutate(Number(hours))}
             >
-              Не принимать лиды
+              Не принимать заявки
             </button>
           </div>
           <MutationError mutation={pause} fallback="Не удалось включить паузу" />
@@ -1145,7 +1160,7 @@ function LeadPauseSection() {
       <div className="quiet warn">
         <span className="dot warn" />
         <span className="txt">
-          Остановить выдачу лидов может и руководитель. Тогда снять паузу самому нельзя, причина будет написана
+          Остановить выдачу заявок может и руководитель. Тогда снять паузу самому нельзя, причина будет написана
           здесь.
         </span>
       </div>

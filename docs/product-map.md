@@ -10,11 +10,11 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 70 |
+| Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 33 |
-| Модулей сервера | 87 |
-| Адресов сервера всего | 771 |
-| Задач по расписанию | 134 |
+| Модулей сервера | 88 |
+| Адресов сервера всего | 787 |
+| Задач по расписанию | 137 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -46,10 +46,12 @@
 | `/dev/calls-port` | — | только по ссылке | — |
 | `/dev/design-lab` | — | только по ссылке | — |
 | `/dev/event-feed` | — | только по ссылке | — |
+| `/dev/narration-preview` | — | только по ссылке | — |
 | `/dev/pult-actions` | — | только по ссылке | — |
 | `/dev/pult-tiles` | — | только по ссылке | — |
 | `/dev/sheets-port` | — | только по ссылке | — |
 | `/dev/system-sheets-port` | — | только по ссылке | — |
+| `/director` | DirectorDashboard | только по ссылке | `apps/web/src/pages/DirectorDashboard.tsx` |
 | `/finance` | Finance | **Финансы** | `apps/web/src/pages/Finance.tsx` |
 | `/funnel` | Funnel | **Воронка** | `apps/web/src/pages/Funnel.tsx` |
 | `/hall-of-fame` | Team | только по ссылке | `apps/web/src/pages/Team.tsx` |
@@ -88,11 +90,12 @@
 | `/settings/roles` | RolesMatrix | только по ссылке | `apps/web/src/pages/settings/RolesMatrix.tsx` |
 | `/site-changes` | SiteChanges | **Изменения на сайте** | `apps/web/src/pages/SiteChanges.tsx` |
 | `/social-videos` | SocialVideos | **Публикации в соцсети** | `apps/web/src/pages/SocialVideos.tsx` |
-| `/sources` | Sources | **Источники лидов** | `apps/web/src/pages/Sources.tsx` |
+| `/sources` | Sources | **Источники заявок** | `apps/web/src/pages/Sources.tsx` |
 | `/stuck-work` | StuckWork | **Что не доехало** | `apps/web/src/pages/StuckWork.tsx` |
 | `/team` | Team | **Команда** | `apps/web/src/pages/Team.tsx` |
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
 | `/telephony` | Telephony | **Телефония** | `apps/web/src/pages/Telephony.tsx` |
+| `/ui-check` | UiCheck | только по ссылке | `apps/web/src/pages/UiCheck.tsx` |
 | `/vacancies` | Vacancies | **Вакансии** | `apps/web/src/pages/Vacancies.tsx` |
 | `/vacancies/:id` | VacancyDetail | только по ссылке | `apps/web/src/pages/VacancyDetail.tsx` |
 
@@ -119,7 +122,7 @@
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
 | money | Отчёты | `/reports` | всем |
-| money | Источники лидов | `/sources` | всем |
+| money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
 | ads | Реклама | `/ads` | всем |
 | ads | Публикации в соцсети | `/social-videos` | всем |
@@ -147,39 +150,40 @@
 | `/api/v1/auth` | Вход, двухфакторная проверка, сессии устройств | 13 | да (6 мест) | `apps/api/src/routes/auth.ts` |
 | `/api/v1/events` | Живая лента событий в браузере агента | 2 | да (1 мест) | `apps/api/src/routes/events.ts` |
 | `/api/v1/me` | Свой профиль, настройки, устройства | 36 | да (12 мест) | `apps/api/src/routes/me.ts` |
-| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 4 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
+| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 5 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 19 | да (8 мест) | `apps/api/src/routes/agents.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 2 | да (8 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 133 | да (35 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 140 | да (37 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 61 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 1 | да (4 мест) | `apps/api/src/routes/dealAnnul.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 10 | да (8 мест) | `apps/api/src/routes/dashboard.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (8 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/pultModules.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/briefing.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 10 | да (9 мест) | `apps/api/src/routes/dashboard.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (9 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (9 мест) | `apps/api/src/routes/pultModules.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (9 мест) | `apps/api/src/routes/briefing.ts` |
 | `/api/v1/calendar` | Календарь задач и показов | 1 | да (1 мест) | `apps/api/src/routes/calendar.ts` |
 | `/api/v1/interactions` | Звонки, показы, встречи — всё, что агент отмечает | 10 | да (4 мест) | `apps/api/src/routes/interactions.ts` |
 | `/api/v1/calls` | Журнал звонков и расшифровки | 6 | да (1 мест) | `apps/api/src/routes/calls.ts` |
 | `/api/v1/live-voice` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/liveVoiceListen.ts` |
 | `/api/v1/ai` | Запросы к ИИ из интерфейса | 13 | да (3 мест) | `apps/api/src/routes/ai.ts` |
 | `/api/v1/transcribe` | Диктовка голосом в полях CRM | 1 | да (1 мест) | `apps/api/src/routes/transcribe.ts` |
-| `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
+| `/api/v1/reports` | Отчёты за период | 24 | да (5 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/report-pdf` | **без подписи** | 2 | нет | `apps/api/src/routes/reportPdf.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
 | `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
 | `/api/v1/settings` | Настройки CRM и точки возврата | 61 | да (11 мест) | `apps/api/src/routes/settings.ts` |
-| `/api/v1/ui-shell` | **без подписи** | 3 | да (2 мест) | `apps/api/src/routes/uiShell.ts` |
+| `/api/v1/ui-shell` | **без подписи** | 1 | нет | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
-| `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (2 мест) | `apps/api/src/routes/push.ts` |
+| `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (3 мест) | `apps/api/src/routes/push.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 11 | нет | `apps/api/src/routes/webhooks.ts` |
 | `/api/v1/public` | Витрина для сайта royalhome.tj | 4 | нет | `apps/api/src/routes/publicFeed.ts` |
 | `/api/v1/expenses` | Расходы агентства | 32 | да (3 мест) | `apps/api/src/routes/expenses.ts` |
@@ -205,7 +209,7 @@
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
 | `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 12 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 14 | да (4 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |
@@ -241,6 +245,7 @@
 | `agent-unanswered-alarm` | `0 * * * *` | Продавец пишет, а агент молчит день-два |
 | `approved-owner-verification` | `25 * * * *` | **без подписи** |
 | `assistant-actions-sweep` | `35 * * * *` | **без подписи** |
+| `assistant-group-sweep` | `12 * * * *` | **без подписи** |
 | `assistant-log-retention` | `25 4 * * *` | **без подписи** |
 | `assistant-telegram-context-cleanup` | `*/30 * * * *` | **без подписи** |
 | `background-jobs` | `* * * * *` | Тик очереди фоновых заданий |
@@ -256,13 +261,13 @@
 | `candidate-phone-ask` | `*/15 * * * *` | Просит у кандидатов на вакансию телефон, как откроется окно Meta |
 | `chunked-uploads-cleanup` | `17 * * * *` | Убирает брошенные загрузки файлов частями (ролики, файлы в переписку) |
 | `client-follow-ups` | `*/10 * * * *` | Напоминания клиентам, переставшим отвечать в переписке |
-| `client-property-count-alarm` | `0 * * * *` | Сравнивает заявленное клиентом число объектов со сделанным в CRM |
 | `client-scoring` | `0 2 * * *` | Ночная оценка ИИ всех активных клиентов |
 | `client-silence-sweep` | `*/10 * * * *` | **без подписи** |
 | `clip-owner-autopublish` | `*/5 * * * *` | **без подписи** |
 | `clip-review-resend` | `*/5 * * * *` | **без подписи** |
 | `clip-review-stale-alarm` | `15 * * * *` | **без подписи** |
 | `comment-needs-human-sweep` | `6-59/10 * * * *` | **без подписи** |
+| `construction-registry-sync` | `30 4 * * 1` | Раз в неделю забирает реестр разрешённых строек Душанбе и связывает с нашими объектами |
 | `contact-link-sweep` | `10 3 * * *` | **без подписи** |
 | `customer-agent-auto-refresh` | `* * * * *` | **без подписи** |
 | `customer-inbox-jobs` | `*/5 * * * * *` | **без подписи** |
@@ -300,19 +305,19 @@
 | `market-buyer-alerts` | `12,27,42,57 * * * *` | **без подписи** |
 | `market-median-history` | `30 6 * * *` | **без подписи** |
 | `market-own-match` | `*/30 * * * *` | **без подписи** |
-| `market-paydo-daily` | `0 3 * * *` | **без подписи** |
+| `market-paydo-daily` | `30 2 * * *` | **без подписи** |
 | `market-paydo-incremental` | `*/10 * * * *` | **без подписи** |
 | `market-somon-incremental` | `7,22,37,52 * * * *` | **без подписи** |
-| `market-weekly-crawl` | `30 2 * * 0` | **без подписи** |
 | `meeting-reminders` | `*/5 * * * *` | Напоминания о встречах и показах, сигналы о непроведённых показах и просроченных задачах |
 | `meta-ads-stale-watch` | `10 * * * *` | **без подписи** |
 | `meta-ads-sync` | `*/15 * * * *` | Тянет из рекламного кабинета объявления и расходы |
 | `meta-inbox-reconcile` | `3-59/10 * * * *` | **без подписи** |
+| `missed-call-task-whatsapp-close` | `*/2 * * * *` | **без подписи** |
 | `monthly-problem-report` | `10 9 1 * *` | Разбор проблемных мест за прошедший месяц |
 | `monthly-report` | `0 9 1 * *` | Месячный отчёт руководству |
 | `morning-report` | `0 8 * * *` | Утренний дайджест директорам |
 | `narration-auto-flow` | `* * * * *` | **без подписи** |
-| `narration-auto-master` | `* * * * *` | **без подписи** |
+| `narration-preview-due` | `* * * * *` | **без подписи** |
 | `narration-version-delivery` | `* * * * *` | **без подписи** |
 | `operator-queue-presence` | `*/5 * * * *` | Сверяет очередь входящих на станции с реальным статусом агентов |
 | `outgoing-media-cleanup` | `58 3 * * *` | Удаляет исходящие фото и видео оператора старше недели |
@@ -342,6 +347,7 @@
 | `somon-owner-leads` | `* * * * *` | **без подписи** |
 | `somon-owner-leads-silence` | `47 * * * *` | **без подписи** |
 | `staff-notice-cleanup` | `40 3 * * *` | **без подписи** |
+| `staff-social-post-sweep` | `*/15 * * * *` | **без подписи** |
 | `stale-property-videos-cleanup` | `50 3 * * *` | Удаляет сырое видео объектов, зависшее после публикации |
 | `stale-video-uploads-cleanup` | `55 3 * * *` | Убирает брошенные загрузки видео, за которые платится хранение |
 | `station-outage-probe` | `*/5 * * * *` | Зондирует телефонную станцию, записывает окна недоступности |
@@ -365,6 +371,7 @@
 | `weekly-problem-report` | `10 9 * * 1` | Недельный разбор проблемных мест агентства |
 | `weekly-reactivation-campaign` | `0 10 * * 1` | Ставит рассылку старым клиентам для возврата |
 | `weekly-security-review-digest` | `20 9 * * 1` | Недельная сводка безопасности: отказы, похожие на сделку на стороне |
+| `whatsapp-calling-health` | `23 * * * *` | **без подписи** |
 | `whatsapp-webhook-watch` | `8-59/20 * * * *` | **без подписи** |
 | `whisper-sync` | `*/5 * * * *` | Заранее озвучивает подсказку о звонящем и кладёт её на станцию |
 | `working-hours-daily-alerts` | `35 9 * * *` | Утром показывает директору перерасход бюджета и сигналы по рекламе |
@@ -423,6 +430,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `customer-unrecorded-summary`, `daily-stories`, `disk-cleanup`, `finance-pdf-monthly`, `free-narration-purge`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `narration-auto-flow`, `narration-auto-master`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `somon-owner-leads-silence`, `staff-notice-cleanup`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `transfer-request-tick`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-webhook-watch`
-- Модулей сервера: `/api/v1/property-offers`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
+- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-group-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `customer-unrecorded-summary`, `daily-stories`, `disk-cleanup`, `finance-pdf-monthly`, `free-narration-purge`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `missed-call-task-whatsapp-close`, `narration-auto-flow`, `narration-preview-due`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `somon-owner-leads-silence`, `staff-notice-cleanup`, `staff-social-post-sweep`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `transfer-request-tick`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-calling-health`, `whatsapp-webhook-watch`
+- Модулей сервера: `/api/v1/property-offers`, `/api/v1/construction-registry`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

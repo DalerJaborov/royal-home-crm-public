@@ -19,6 +19,7 @@ import { previewWeeklyOperations } from "../lib/weeklyOperationalPreview.js";
 import { previewAgencyLabelCoincidences } from "../lib/agencyLabelPreview.js";
 import { investigationSeveritySchema } from "@royal-home/shared";
 import { setInvestigationSeverity } from "../lib/investigationSeverity.js";
+import { sellerSwitchOn } from "../lib/sellerSwitches.js";
 
 export const investigationCasesRouter = Router();
 investigationCasesRouter.use(requireAuth, requireInvestigations, requirePermission("clients.securityReview"));
@@ -82,11 +83,16 @@ function presentEvidencePayload(value: unknown, canSeePhone: boolean): unknown {
 }
 
 investigationCasesRouter.get("/automation-preview", async (req, res) => {
+  // «Робот звонит собственнику» выключен и скрыт (владелец 18.11.2026) — его старые
+  // черновики в предпросмотре не показываем, чтобы не было путаницы.
+  const ownerProbeOn = await sellerSwitchOn("sellerProbeCallEnabled");
   const [buyers, sellers] = await Promise.all([
     prisma.postShowingCall.findMany({ where: { previewOnly: true }, take: 25, orderBy: { createdAt: "desc" },
       select: { id: true, scheduledFor: true, client: { select: { fullName: true } } } }),
-    prisma.sellerProbeCall.findMany({ where: { previewOnly: true }, take: 25, orderBy: { createdAt: "desc" },
-      select: { id: true, scheduledFor: true, seller: { select: { fullName: true } } } }),
+    ownerProbeOn
+      ? prisma.sellerProbeCall.findMany({ where: { previewOnly: true }, take: 25, orderBy: { createdAt: "desc" },
+          select: { id: true, scheduledFor: true, seller: { select: { fullName: true } } } })
+      : Promise.resolve([]),
   ]);
   res.json({ mode: "PREVIEW", items: [
     ...buyers.map(row => ({ id: row.id, kind: "BUYER", name: clientNamePhoneSafe(row.client.fullName, can(req, "clients.viewPhone")), scheduledFor: row.scheduledFor })),

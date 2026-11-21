@@ -128,6 +128,15 @@ export function isBusy(): boolean {
   return registry.size > 0;
 }
 
+/**
+ * Последний шанс досохранить — зовёт автообновление, когда ждать работу дольше
+ * потолка нельзя (store/appUpdate.ts, MAX_WORK_DEFER_MS): та же `flush()`, что
+ * при уходе вкладки в фон.
+ */
+export function flushWork(): void {
+  flushAll();
+}
+
 /** Есть ли работа, при которой закрытие вкладки обязано переспросить. */
 export function isBlockingUnload(): boolean {
   for (const item of registry.values()) if (item.blocksUnload) return true;

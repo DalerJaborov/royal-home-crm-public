@@ -422,13 +422,40 @@ beforeAll(async () => {
   const pairTransfer = await prisma.interaction.create({
     data: {
       clientId: transferPairClient.id,
-      agentId: agentToId,
+      // Запись в хронологии подписана НАЖАВШИМ (с 19.11.2026), а не получателем:
+      // по ней пару восстановить нельзя, она берётся из журнала двери ниже.
+      agentId: limitAgentId,
       type: "SYSTEM",
       notes: "Передан другому агенту: Не может дозвониться",
       createdAt: new Date(now - 2 * DAY),
     },
   });
   interactionIds.push(pairTransfer.id);
+  // Пара берётся из журнала единой двери смены владельца (ревью 19.11.2026):
+  // «Передать» нажал третий человек (limitAgentId), и он НЕ получатель.
+  await prisma.auditLog.create({
+    data: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      entityId: transferPairClient.id,
+      agentId: limitAgentId,
+      agentName: "Нажавший «Передать»",
+      meta: { source: "transfer", reason: "Не может дозвониться", fromAgentId: agentFromId, toAgentId: agentToId },
+      createdAt: new Date(now - 2 * DAY),
+    },
+  });
+  // Автоматическая смена (не решение человека) в пары не идёт.
+  await prisma.auditLog.create({
+    data: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      entityId: transferPairClient.id,
+      agentId: null,
+      agentName: "Система",
+      meta: { source: "intake.basket-return", reason: "тест", fromAgentId: agentToId, toAgentId: limitAgentId },
+      createdAt: new Date(now - 1 * DAY),
+    },
+  });
 
   // ─── «Вечные переговоры» (владелец 01.09.2026, порог теста — 2 круга) ───
 
@@ -593,6 +620,7 @@ afterAll(async () => {
   }
   await prisma.pendingSummary.deleteMany({ where: { id: { in: pendingSummaryIds } } });
   await prisma.interaction.deleteMany({ where: { id: { in: interactionIds } } });
+  await prisma.auditLog.deleteMany({ where: { action: "CLIENT_AGENT_CHANGE", entityId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
   await prisma.$disconnect();
@@ -684,13 +712,18 @@ describe("GET /oversight/*", () => {
     expect(names).not.toContain(`Отказ уже в СБ ${runId}`);
   });
 
-  it("/transfer-pairs восстанавливает пару «от кого → кому» по записи перед передачей", async () => {
+  it("/transfer-pairs берёт пару «от кого → кому» из журнала смены владельца; нажавший и автоматика в пары не попадают", async () => {
     const res = await request(app).get("/api/v1/oversight/transfer-pairs").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.windowDays).toBe(30);
     const pair = res.body.pairs.find((p: { from: { id: string }; to: { id: string } }) => p.from.id === agentFromId && p.to.id === agentToId);
     expect(pair).toBeTruthy();
     expect(pair.count).toBeGreaterThanOrEqual(1);
+    // Нажавший «Передать» (limitAgentId) — не получатель; автоматическая смена — не передача.
+    const ghost = res.body.pairs.find(
+      (p: { from: { id: string }; to: { id: string } }) => (p.from.id === agentFromId || p.from.id === agentToId) && p.to.id === limitAgentId
+    );
+    expect(ghost).toBeUndefined();
   });
 
   it("/endless-negotiations находит клиента с 2+ кругами «Переговоры» подряд, отсеивает одиночный круг", async () => {

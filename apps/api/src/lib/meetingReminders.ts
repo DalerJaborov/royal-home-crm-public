@@ -29,10 +29,10 @@ import {
   dushanbeWallClock,
   isWithinDushanbeWindow,
 } from "./dushanbeTime.js";
-import { formatClientName, type ClientKind } from "@royal-home/shared";
+import { formatClientName, isMessagingWindowClosedFor, type ClientKind } from "@royal-home/shared";
 import { TASK_WHERE } from "./tasks.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { deliverToConversation, findClientDeliveryTargets } from "./conversationDelivery.js";
+import { deliverToConversation, findClientDeliveryTargets, lastClientMessageAt } from "./conversationDelivery.js";
 import { CONFIRM_ASK_STAGE, CONFIRM_NUDGE_STAGE } from "./showingConfirmation.js";
 // Имя из карточки годится для обращения далеко не всегда: у клиента из Instagram
 // там лежит ник. Правило одно на весь проект — см. ai/replyGuards.ts.
@@ -641,6 +641,11 @@ export async function sendShowingConfirmationRequests(now: Date = new Date()): P
       const target = targets.get(showing.clientId);
       if (!target) continue;
 
+      // Окно Meta закрыто — не пытаемся и отметку не ставим (21.11.2026): иначе каждый
+      // тик (раз в 5 минут) занимал бы показ, получал отказ и снимал отметку. Как только
+      // клиент напишет сам, окно откроется и просьба уйдёт на ближайшем тике.
+      if (isMessagingWindowClosedFor(target.kind === "bot" ? target.channel : "", await lastClientMessageAt(target))) continue;
+
       const text = confirmationText(showing.client.fullName, showing.nextActionDate, showing.property?.title ?? null, now);
       const claimed = await prisma.interaction.updateMany({
         where: { id: showing.id, confirmAskedAt: null },
@@ -652,7 +657,8 @@ export async function sendShowingConfirmationRequests(now: Date = new Date()): P
         error: err instanceof Error ? err.message : String(err),
       }));
       if (!result.ok) {
-        console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
+        // Окно закрылось между проверкой и отправкой — штатно, не ошибка.
+        if (!("code" in result && result.code === "window_closed")) console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
         // Снять отметку: следующий тик попробует снова (см. докстринг).
         const current = await prisma.interaction.findUnique({ where: { id: showing.id }, select: { remindersSent: true } });
         await prisma.interaction.update({

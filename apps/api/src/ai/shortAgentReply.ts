@@ -11,6 +11,7 @@ import { cleanOutgoingReply, clientSelfStatedName, looksLikeRealName, stripRepea
 import { detectClientLanguage, type ClientLanguage } from "./clientLanguage.js";
 import { TIME_AWARENESS_RULE, withTimeGaps } from "./conversationTime.js";
 import { brandForConversation, brandize, guardBrandLeak } from "./brandName.js";
+import { isCustomerAgentConversationOff } from "../lib/customerAgentChannelOff.js";
 
 /** Язык ПОСЛЕДНЕГО сообщения клиента — считается кодом (см. ai/clientLanguage.ts).
  *  Вынесено отдельно от languageLine, чтобы им мог пользоваться и щит цен/скидок
@@ -236,6 +237,10 @@ export async function shortAgentReply(
   /** Диалог (Conversation.id) — см. QualifyTurnOptions.conversationId выше. */
   conversationId?: string | null
 ): Promise<string | null> {
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (lib/customerAgentChannelOff.ts): на выключенном канале модель не
+  // пишет и короткие реплики. null — как «модель не ответила»: «заявка принята» и ответ кандидату берут готовую фразу,
+  // напоминание молчащему, просьба номера и «ещё уточняю» не уходят. Пусто — без запроса к базе.
+  if (await isCustomerAgentConversationOff(conversationId)) return null;
   // Именем из профиля мессенджера БОЛЬШЕ НЕ обращаемся — только тем, которое
   // клиент сам написал в переписке (решение владельца 18.08.2026, см. replyGuards).
   // `buildShortReplySystem` сам по себе не знает про источник имени (его тестируют

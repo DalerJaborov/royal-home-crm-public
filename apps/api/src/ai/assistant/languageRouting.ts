@@ -1,20 +1,59 @@
 import { detectClientLanguage, languageInstruction, type ClientLanguage } from "../clientLanguage.js";
 import type { GeminiRuntime } from "../geminiSettings.js";
+import { customerDmLanguagePreference } from "../customerDmLanguage.js";
 import { clientOwnWords } from "../untrustedContent.js";
 
 // Supported by the existing generateContent transport; review preview availability before release.
 export const ASSISTANT_TAJIK_MODEL = "gemini-3.1-pro-preview";
 
+/** Сколько последних сообщений сотрудника просмотреть в поисках явной просьбы о языке. */
+const LANGUAGE_REQUEST_LOOKBACK = 6;
+
+// Only bounded style adjectives inside a positive command; never infer a switch from a language name alone.
+const RUSSIAN_FORM_COMMAND = /^(?:\s*пожалуйста[, ]*)?\s*(?:ответь|отвечай|напиши|пиши|переведи)\s+(?:пожалуйста\s+)?(?:на\s+(?:(?:прост(?:ой|ом)|разговорн(?:ый|ом))\s+){0,2}(таджикск(?:ом|ий)|русск(?:ом|ий))|по-(таджикски|русски))(?=[:\s]|$)/iu;
+// «Бо русӣ нависед», «Ба забони тоҷикӣ ҷавоб деҳ», «Тоҷикӣ гап зан» (17.11.2026): так просят по-таджикски, и
+// предложение на таджикском раньше само читалось как просьба писать по-таджикски — наоборот тому, что просили.
+const TAJIK_ASK = String.raw`(?:нависед|навис|[ҷч]авоб\s+де[ҳх](?:ед)?|[ҷч]авоб\s+диҳед|гап\s+зан(?:ед)?|бигӯед|бигӯ|гӯед)`;
+const TAJIK_LANGUAGE = String.raw`(рус[ӣи]|то[ҷч]ик[ӣи])`;
+const TAJIK_FORM_BEFORE = new RegExp(String.raw`^(?:лутфан,?\s+)?(?:(?:бо|ба)\s+)?(?:забони\s+)?${TAJIK_LANGUAGE}\s+${TAJIK_ASK}(?=\s|$)`, "iu");
+const TAJIK_FORM_AFTER = new RegExp(String.raw`^(?:лутфан,?\s+)?${TAJIK_ASK}\s+(?:бо|ба)\s+(?:забони\s+)?${TAJIK_LANGUAGE}(?=\s|$)`, "iu");
+
+// «Переведи на таджикский: …», «напиши по-таджикски объявление», «напишите клиенту по-таджикски» — разовая работа
+// над текстом: язык меняется у содержимого этого хода, а не у самого разговора, и закреплять его нельзя.
+const ONE_OFF_LANGUAGE_TASK = /(?<!\p{L})(?:перевед\p{L}*|перевод\p{L}*|тар[ҷч]ума\p{L}*|клиент\p{L}*|покупател\p{L}*|продавц\p{L}*|объявлени\p{L}*|текст\p{L}*|пост\p{L}*|сообщени\p{L}*|эълон\p{L}*|матн\p{L}*|паём\p{L}*|мизо[ҷч]\p{L}*|муштар\p{L}*)(?!\p{L})/iu;
+
+/**
+ * Явная просьба сотрудника об языке ответа в ОДНОМ сообщении: русские обороты («ответь по-таджикски»),
+ * таджикские («Бо русӣ нависед») и ответ «не понимаю по-русски» (общий разбор клиентского бота:
+ * ai/customerDmLanguage.ts). Название языка само по себе не просьба.
+ */
+export function explicitAssistantLanguageRequest(message: string, options: { pinnable?: boolean } = {}): "ru" | "tg" | null {
+  // Цитата — не просьба: «Как сказать «ответь на таджикском» по-английски?».
+  const text = clientOwnWords(message).replace(/«[^»]*»|"[^"]*"|“[^”]*”/gu, " ");
+  // Разовая работа над текстом («переведи на таджикский: …») задаёт язык только своему ходу.
+  if (options.pinnable && ONE_OFF_LANGUAGE_TASK.test(text)) return null;
+  for (const clause of text.split(/[,.!?;\n]/u).reverse()) {
+    const russian = RUSSIAN_FORM_COMMAND.exec(clause);
+    if (russian) return /таджик/iu.test(russian[0]) ? "tg" : "ru";
+    const tajik = TAJIK_FORM_BEFORE.exec(clause.trim()) ?? TAJIK_FORM_AFTER.exec(clause.trim());
+    if (tajik) return /^рус/iu.test(tajik[1]) ? "ru" : "tg";
+  }
+  return customerDmLanguagePreference(text);
+}
+
+/**
+ * Язык разговора. Просьба «отвечай по-русски» живёт, пока сотрудник не попросит иначе (в пределах последних
+ * LANGUAGE_REQUEST_LOOKBACK его сообщений): раньше она действовала один ход, и следующий ответ снова
+ * шёл на языке, которым человек писал. Нет просьбы — язык последнего сообщения с понятным языком.
+ */
 export function assistantLanguage(messages: readonly { role: string; content: string }[]): ClientLanguage {
-  for (const message of [...messages].reverse()) {
-    if (message.role !== "user") continue;
-    const text = clientOwnWords(message.content);
-    for (const clause of text.split(/[,.!?;\n]/u).reverse()) {
-      // Only bounded style adjectives inside a positive command; never infer a switch from a language name alone.
-      const command = /^(?:\s*пожалуйста[, ]*)?\s*(?:ответь|отвечай|напиши|пиши|переведи)\s+(?:пожалуйста\s+)?(?:на\s+(?:(?:прост(?:ой|ом)|разговорн(?:ый|ом))\s+){0,2}(таджикск(?:ом|ий)|русск(?:ом|ий))|по-(таджикски|русски))(?=[:\s]|$)/iu.exec(clause);
-      if (command) return /таджик/iu.test(command[0]) ? "tg" : "ru";
-    }
-    const language = detectClientLanguage(text);
+  const own = [...messages].reverse().filter(message => message.role === "user");
+  for (const [index, message] of own.slice(0, LANGUAGE_REQUEST_LOOKBACK).entries()) {
+    const requested = explicitAssistantLanguageRequest(message.content, { pinnable: index > 0 });
+    if (requested) return requested;
+  }
+  for (const message of own) {
+    const language = detectClientLanguage(clientOwnWords(message.content));
     if (language !== "unknown") return language;
   }
   return "unknown";

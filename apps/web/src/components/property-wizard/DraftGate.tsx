@@ -7,6 +7,8 @@ import {
   type PropertyType,
 } from "@royal-home/shared";
 import { Film, Image as ImageIcon } from "lucide-react";
+import { WizIcon } from "../look/wizard/WizIcon";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 import type { District } from "../../types";
 import { draftDaysLeft, draftMediaCounts, formatDraftSavedRelative } from "../../hooks/usePropertyDraft";
 import { useClient } from "../../hooks/useClients";
@@ -83,6 +85,7 @@ export function DraftGate({
   restartError?: string | null;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const section = useRoyalSectionName();
   const values: Partial<WizardValues> =
     offer.source === "server" ? ((offer.draft.values ?? {}) as Partial<WizardValues>) : offer.values;
   const full: WizardValues = { ...EMPTY_WIZARD_VALUES, ...values };
@@ -154,7 +157,7 @@ export function DraftGate({
   const continueTarget = firstIncompleteStep(full, { requireIntakeAgent });
 
   return (
-    <div className="rh2">
+    <div className="rh2" data-ry-section={section}>
       <div className="wiz">
         <div className="whead">
           <div className="line1">
@@ -216,7 +219,7 @@ export function DraftGate({
                       <img className="im" src={m.thumbUrl} alt="" loading="lazy" style={{ objectFit: "cover", width: "100%", height: "100%" }} />
                     ) : (
                       <span className="im" style={{ display: "grid", placeItems: "center", color: "var(--muted)" }}>
-                        {m.kind === "VIDEO" ? <Film width={18} height={18} aria-hidden /> : <ImageIcon width={18} height={18} aria-hidden />}
+                        {m.kind === "VIDEO" ? <WizIcon icon={Film} width={18} height={18} aria-hidden /> : <WizIcon icon={ImageIcon} width={18} height={18} aria-hidden />}
                       </span>
                     )}
                     {i === 0 && <span className="badge">Обложка</span>}

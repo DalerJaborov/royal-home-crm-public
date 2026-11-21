@@ -13,6 +13,8 @@ import type { Interaction } from "../types";
 import { useCounters } from "../hooks/useCounters";
 import { useOversightSummary } from "../hooks/useOversight";
 import { TeamTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { Pagination } from "../components/Pagination";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
 
@@ -99,6 +101,8 @@ function groupFeed(items: Interaction[]): DaySection[] {
 
 export function Activity() {
   const can = useCan();
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
   /**
    * ДВА РАЗНЫХ РАЗДЕЛА ПОД ОДНИМ АДРЕСОМ — тот же приём, что в pages/Calls.tsx
    * («Звонки» руководству, «Мои звонки» агенту).
@@ -174,7 +178,8 @@ export function Activity() {
 
 
   return (
-    <div className="rh2 screens">
+    <RoyalSection name={royal ? "team" : undefined}>
+    <div className={royal ? "rh2 screens ry-activity" : "rh2 screens"} data-ry-section={royal ? "team" : undefined}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -495,5 +500,6 @@ export function Activity() {
         )}
       </Rh2Sheet>
     </div>
+    </RoyalSection>
   );
 }

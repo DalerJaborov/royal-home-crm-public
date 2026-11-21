@@ -5,8 +5,9 @@ import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { GEMINI_RETRY_DELAYS_MS, sleep } from "../ai/geminiTransport.js";
-import { rememberOutgoingMid } from "./outgoingMids.js";
-import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
+import { outgoingContentKey, rememberOutgoingMid, rememberOutgoingText } from "./outgoingMids.js";
+import { pauseBotForOtherThreadOwner } from "../lib/threadOwnerPause.js";
+import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import type { AttachmentSource } from "./attachments.js";
 import type { BotIngressShape } from "@royal-home/shared";
 import { traceObserveSend, traceProviderAccepted, traceKnownSecrets } from "../lib/botTurnTrace.js";
@@ -17,6 +18,27 @@ import { projectBotIngressShape } from "../lib/botTurnTraceIngress.js";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { beforeCustomerPropertyPost, customerPropertyProviderAccepted } from "../lib/customerPropertyTransport.js";
 import { currentCustomerDeliveryTransport } from "../lib/customerDeliveryTransport.js";
+import {
+  assertMetaSendNotBlocked,
+  gateMetaSend,
+  isMetaSendBlockError,
+  META_SEND_OPEN,
+  MetaGraphCallError,
+  MetaSendBlockedError,
+  metaPolicyBlockOf,
+  metaSendRecipientOf,
+  metaSendSurfaceOf,
+  MetaSendPolicyError,
+  MetaSendWarningError,
+  parseMetaGraphError,
+  recordMetaSendPolicyBlock,
+  recordMetaSendWarning,
+  releaseMetaSendProbe,
+  resolveMetaSendAccount,
+  settleMetaSendAccepted,
+  type MetaSendAccount,
+} from "../lib/metaSendBlock.js";
+import type { MetaSendBlock } from "../generated/prisma/client.js";
 import { bindCustomerMetaSendCredentials, resolveLegacyMetaSendTransport } from "../lib/customerMetaTransport.js";
 import type { CustomerTransportReference } from "../lib/customerConversationScope.js";
 import type { MetaCredentials, MetaChannel } from "./metaTypes.js";
@@ -28,11 +50,14 @@ import {
   forgetPageToken,
   instagramReadRequest,
   pageRouteFailed,
+  pageRoutePolicyRefused,
   recordEternalSendSuccess,
+  sendErrorKind,
   routeMetaMessagingCall,
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
+import { instagramAccountPageRouted, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "../lib/instagramAccountAccess.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -605,6 +630,13 @@ export interface MetaIncoming {
    * её для них (messengers/metaPeerMemory.ts) и сам ход не запускает.
    */
   referralOnly?: boolean;
+  /**
+   * Записать в переписку CRM, но без хода бота и без ответа (18.11.2026). Сейчас —
+   * только WhatsApp `unsupported`: Meta сама не смогла передать сообщение (опрос,
+   * «просмотр один раз»), отвечать «не открывается вложение» нечего, а след
+   * обращения в переписке нужен. Вебхук передаёт его ходу как `silent`.
+   */
+  recordOnly?: boolean;
   /** Клиент ответил на нашу историю: тут её адрес. Без этого признака ответ на
    *  историю выглядел пустым сообщением, и бот молчал. */
   replyToStoryUrl?: string;
@@ -646,6 +678,8 @@ export interface MetaIncoming {
    * recipient — клиент. Поэтому senderId ниже заполняется из recipient.
    */
   isEcho?: boolean;
+  /** Эхо: приложение, из которого ушло сообщение (Meta: `message.app_id`; входящие Страницы — 263902037430900). */
+  echoAppId?: string;
 }
 
 interface WhatsAppValue {
@@ -675,8 +709,19 @@ interface WhatsAppValue {
      *  (там профиль ОТПРАВИТЕЛЯ, здесь — тот, кем он поделился). */
     contacts?: { name?: { formatted_name?: string }; phones?: { phone?: string }[] }[];
     /** Ответ на конкретное сообщение: WhatsApp кладёт сюда идентификатор того,
-     *  на что человек ответил. */
-    context?: { id?: string };
+     *  на что человек ответил. У ответа на запрос разрешения звонить — id ЗВОНКА
+     *  (`wacid.…`), а не сообщения (`wamid.…`). */
+    context?: { id?: string; from?: string };
+    /** Ответ на интерактивное сообщение (18.11.2026): кнопка/строка списка — слова
+     *  человека; `call_permission_reply` — служебный ответ «можно ли звонить». */
+    interactive?: {
+      type?: string;
+      button_reply?: { id?: string; title?: string };
+      list_reply?: { id?: string; title?: string; description?: string };
+      nfm_reply?: { body?: string; name?: string };
+    };
+    /** Заказ из каталога WhatsApp: своих слов может не быть, позиции — по id товара. */
+    order?: { catalog_id?: string; text?: string; product_items?: { product_retailer_id?: string; quantity?: number | string }[] };
     /** Человек пришёл по click-to-WhatsApp рекламе — Meta кладёт сюда creative
      *  объявления (17.09.2026, до этого поле не читалось вовсе: у Instagram та же
      *  реклама уже различалась по referral.ref — см. adRef выше, — а у WhatsApp
@@ -737,13 +782,18 @@ export interface DeliveryStatusUpdate {
 export function parseStatusUpdates(body: unknown): DeliveryStatusUpdate[] {
   const payload = body as {
     object?: string;
-    entry?: { changes?: { value?: WhatsAppValue }[] }[];
+    entry?: { changes?: { field?: string; value?: WhatsAppValue }[] }[];
   };
   if (payload?.object !== "whatsapp_business_account") return [];
   const out: DeliveryStatusUpdate[] = [];
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
+      // Статусы ЗВОНКА (поле `calls`: RINGING/ACCEPTED/REJECTED, `type: "call"`, id —
+      // WACID) лежат в том же `value.statuses`, но это не доставка сообщения: их
+      // разбирает messengers/whatsappCalls.ts (18.11.2026).
+      if (change.field === "calls") continue;
       for (const s of change.value?.statuses ?? []) {
+        if ((s as { type?: string }).type === "call") continue;
         if (!s.id || !s.status || !s.recipient_id) continue;
         const reason = (s.errors ?? [])
           .map((e) => [e.title, e.message, e.error_data?.details].filter(Boolean).join(" — "))
@@ -803,6 +853,8 @@ interface MessagingEvent {
     mid?: string;
     text?: string;
     is_echo?: boolean;
+    /** Эхо: приложение-отправитель (Messenger Platform, message_echoes). */
+    app_id?: string | number;
     /** «Сообщение недоступно» в Instagram: Meta не может показать, что прислано. */
     is_unsupported?: boolean;
     /** У вложения есть не только тип, но и адрес: у пересланного поста/рилса это
@@ -942,6 +994,76 @@ export function templateAttachmentText(payload: unknown): string {
  * СПИСОК, А НЕ ОДНО ЗНАЧЕНИЕ (30.08.2026): номеров у агентства может быть
  * несколько, и раньше все, кроме указанного в Настройках, отбрасывались молча.
  */
+type WhatsAppIncomingMessage = NonNullable<WhatsAppValue["messages"]>[number];
+
+/**
+ * ПОЧЕМУ СООБЩЕНИЕ WHATSAPP — НЕ РЕПЛИКА ДЛЯ БОТА (18.11.2026). null — обычная реплика.
+ *
+ * Класс поломки один: событие без слов человека уходило боту «вложением», и бот
+ * отвечал «не получается открыть вложение». По типам (ФАКТ — webhook reference
+ * WhatsApp Cloud API и calling/callback-permissions):
+ *  - `interactive.call_permission_reply`;
+ *  - ответ на ЗВОНОК (`context.id` начинается с `wacid.`), в котором НЕТ слов и
+ *    содержимого человека. Текст, голосовое или фото, присланные «ответом» на
+ *    пузырь звонка («почему не берёте?»), — обычная реплика и идут боту;
+ *  - `system` — Meta сообщает о смене номера/личности пользователя, не он пишет;
+ *  - `request_welcome` — человек впервые открыл чат и ещё ничего не написал;
+ *  - `reaction` отсекается выше отдельно (01.08.2026).
+ * `unsupported` — не здесь: его след нужен в переписке, он идёт с `recordOnly`.
+ * Ответы кнопкой и строкой списка (`button_reply`/`list_reply`) — реплики, не сюда.
+ */
+export function whatsappServiceEventReason(msg: WhatsAppIncomingMessage): string | null {
+  if (msg.type === "interactive" && msg.interactive?.type === "call_permission_reply") return "разрешение на звонок";
+  if (msg.context?.id?.startsWith("wacid.") && !whatsappMessageHasHumanContent(msg)) return "ответ на звонок";
+  if (msg.type === "system") return "системное уведомление Meta";
+  if (msg.type === "request_welcome") return "человек открыл чат, ещё не написал";
+  return null;
+}
+
+/** Есть ли в сообщении то, что сказал или прислал сам человек: слова, файл, геометка, визитка. */
+function whatsappMessageHasHumanContent(msg: WhatsAppIncomingMessage): boolean {
+  const words = [
+    msg.text?.body,
+    msg.button?.text,
+    whatsappInteractiveReplyText(msg),
+    whatsappOrderText(msg),
+    msg.image?.caption,
+    msg.video?.caption,
+    msg.document?.caption,
+  ].some((v) => typeof v === "string" && v.trim().length > 0);
+  const media = !!(msg.image ?? msg.audio ?? msg.voice ?? msg.video ?? msg.document ?? msg.sticker);
+  return words || media || !!msg.location || !!msg.contacts?.length;
+}
+
+/** `unsupported`: причина Meta — в журнал ошибок (22.09.2026), без неё «не дошло» не объяснить. */
+function logWhatsappUnsupported(msg: WhatsAppIncomingMessage): void {
+  const reason = msg.errors?.[0];
+  void logSystemError(
+    "meta",
+    `WhatsApp не доставил сообщение клиента ${msg.from ?? "?"}: ${reason?.title ?? "тип не поддерживается"}` +
+      `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
+  );
+}
+
+/** Слова человека из ответа на интерактивное сообщение; undefined — слов нет. */
+export function whatsappInteractiveReplyText(msg: WhatsAppIncomingMessage): string | undefined {
+  if (msg.type !== "interactive") return undefined;
+  const i = msg.interactive;
+  const list = [i?.list_reply?.title, i?.list_reply?.description].filter((v) => v && v.trim()).join(". ");
+  const text = i?.button_reply?.title?.trim() || list || i?.nfm_reply?.body?.trim();
+  return text ? text : undefined;
+}
+
+/** Заказ из каталога словами: текст человека и позиции. undefined — пустой заказ. */
+export function whatsappOrderText(msg: WhatsAppIncomingMessage): string | undefined {
+  if (msg.type !== "order" || !msg.order) return undefined;
+  const items = (msg.order.product_items ?? [])
+    .map((p) => (p.product_retailer_id ? `${p.product_retailer_id}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}` : null))
+    .filter(Boolean);
+  const parts = [msg.order.text?.trim(), items.length ? `🛒 Заказ из каталога: ${items.join(", ")}` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""),
   options: { captureCustomerReferences?: true } = {}): MetaIncoming[] {
   // Capturing original public references grants no property read or execution
@@ -988,9 +1110,31 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           // получил «Расмро надидам, бубахшед». Со стороны это выглядит так, будто
           // на том конце неисправный автомат.
           if (msg.type === "reaction") continue;
+          /**
+           * СЛУЖЕБНЫЕ СОБЫТИЯ WHATSAPP — НЕ РЕПЛИКА КЛИЕНТА (18.11.2026, живой случай:
+           * после голосового звонка Meta прислала ответ на запрос разрешения звонить —
+           * `interactive.call_permission_reply` с `context.id = wacid.…`, CRM записала
+           * «[вложение: interactive]», и бот ответил «не получается открыть вложение»).
+           * Такие события молча мимо бота: ни хода, ни ответа, одна строка в журнале.
+           * Решение — whatsappServiceEventReason (рядом), одно место на оба пути приёма.
+           */
+          const serviceReason = whatsappServiceEventReason(msg);
+          if (serviceReason) {
+            console.log(
+              `[вебхук] WHATSAPP: служебное событие мимо бота (${serviceReason}) type=${msg.type ?? "?"}` +
+                ` id=${msg.id ?? "?"} context=${msg.context?.id ?? "-"}`
+            );
+            continue;
+          }
           // Кнопка под одобренным текстом — это ответ словами («Да, присылайте»), а
           // не вложение: без этого в переписке лёг бы пустой пузырь «[вложение: button]».
-          const isText = (msg.type ?? "text") === "text" || msg.type === "button";
+          // Ответ кнопкой/строкой списка интерактивного сообщения и заказ из каталога —
+          // тоже слова человека, а не файл (18.11.2026; раньше «[вложение: interactive]»).
+          const isText =
+            (msg.type ?? "text") === "text" ||
+            msg.type === "button" ||
+            (msg.type === "interactive" && whatsappInteractiveReplyText(msg) !== undefined) ||
+            (msg.type === "order" && whatsappOrderText(msg) !== undefined);
           const media = msg.image ?? msg.audio ?? msg.voice ?? msg.video ?? msg.document ?? msg.sticker;
           // Подпись к фото — это слова клиента («вот такую ищу»), а не служебное поле:
           // без неё до модели доходило только само изображение, без вопроса к нему.
@@ -1029,25 +1173,18 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
                 .filter(Boolean)
                 .join(", ")}`
             : undefined;
-          const text = msg.text?.body ?? msg.button?.text ?? caption ?? locationText ?? contactsText ?? "";
+          const interactiveText = whatsappInteractiveReplyText(msg);
+          const orderText = whatsappOrderText(msg);
+          const text = msg.text?.body ?? msg.button?.text ?? interactiveText ?? orderText ?? caption ?? locationText ?? contactsText ?? "";
           // ATTACHMENT_HINTS (sharedMedia.ts) знает "location"/"contact" в единственном
           // числе; WhatsApp шлёt тип "contacts" во множественном — приводим к общему ключу.
           const attachmentType = isText ? undefined : msg.type === "contacts" ? "contact" : msg.type;
-          /**
-           * «unsupported» — это отказ САМОЙ META, а не наша неудача с файлом
-           * (22.09.2026, живой случай продавца дачи: бот ответил «ин
-           * вложенияро кушода наметавонам», хотя открывать было нечего).
-           * Причину Meta пишет в errors[] — кладём её в журнал, иначе в CRM
-           * остаётся одно слово «unsupported» и разобраться нельзя.
-           */
-          if (msg.type === "unsupported") {
-            const reason = msg.errors?.[0];
-            void logSystemError(
-              "meta",
-              `WhatsApp не доставил сообщение клиента ${from}: ${reason?.title ?? "тип не поддерживается"}` +
-                `${reason?.code ? ` (код ${reason.code})` : ""}${reason?.message ? `. ${reason.message}` : ""}`
-            );
-          }
+          // «unsupported» — отказ САМОЙ META, а не наша неудача с файлом (22.09.2026,
+          // живой случай: бот ответил «ин вложенияро кушода наметавонам», хотя
+          // открывать было нечего). Причина — в журнал ошибок; в переписку CRM —
+          // след (recordOnly), но без хода бота и без ответа (18.11.2026).
+          const recordOnly = msg.type === "unsupported";
+          if (recordOnly) logWhatsappUnsupported(msg);
           out.push({
             channel: "WHATSAPP",
             ...(includeTraceShape ? { traceIngressShape: projectBotIngressShape(null, msg, !!msg.referral) } : {}),
@@ -1064,6 +1201,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             // ctwa_clid клика (04.10.2026): только для будущей отдачи событий в Meta, пока лишь хранится.
             adClickId: msg.referral?.ctwa_clid || undefined,
             adRef: [msg.referral?.headline, msg.referral?.body].filter(Boolean).join(" ") || undefined,
+            ...(recordOnly ? { recordOnly: true } : {}),
           });
         }
       }
@@ -1172,6 +1310,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           attachmentType: event.message.attachments?.[0]?.type,
           messageId: event.message.mid,
           isEcho: true,
+          ...(event.message.app_id != null ? { echoAppId: String(event.message.app_id) } : {}),
         });
         continue;
       }
@@ -1862,7 +2001,14 @@ function graphErrorSubcode(text: string): number | undefined {
  */
 function logMetaSendError(label: string, err: unknown): void {
   if (err instanceof Error && isMessagingWindowClosedError(err.message)) return;
-  void logSystemError("meta", `${label}: ${describeError(err)}`);
+  // Запрет Meta по правилам журналирует lib/metaSendBlock.ts — один раз на эпизод, с кодом и подкодом отдельными полями.
+  if (isMetaSendBlockError(err)) return;
+  // Код и подкод — в начале строки: хвост текста журнал обрезает, а подкод — это и есть причина.
+  // fbtrace (свой у каждого запроса) — в конце: в начале он сломал бы склейку повторов журнала.
+  const g = err instanceof MetaGraphCallError ? err.graph : null;
+  const codes = g && g.code !== null ? `[код ${g.code}${g.subcode !== null ? `, подкод ${g.subcode}` : ""}] ` : "";
+  const trace = g?.fbtraceId ? ` (fbtrace ${g.fbtraceId})` : "";
+  void logSystemError("meta", `${label}: ${codes}${describeError(err)}${trace}`);
 }
 
 /**
@@ -1897,10 +2043,43 @@ export async function callGraph<T = unknown>(
   // смена пути между попытками (Страница ↔ личный маркер) дала бы другое тело и
   // одно и то же сообщение сошло бы за новое.
   const legacyTarget = method === "POST" ? legacyMetaPhysicalTarget(url, body, legacyTransport) : undefined;
+  /**
+   * META НЕ ПРОПУСКАЕТ ОТПРАВКУ ПО ПРАВИЛАМ (18.11.2026, lib/metaSendBlock.ts). Здесь,
+   * у физического вызова, — чтобы метку аккаунта видели ВСЕ пути отправки разом.
+   * Нет меток — проверка не делает ни одного запроса.
+   */
+  const sendSurface = method === "POST" ? metaSendSurfaceOf(url, body) : null;
+  const recipientId = sendSurface ? metaSendRecipientOf(body) : null;
+  let sendAccount: Promise<MetaSendAccount> | undefined;
+  const resolveSendAccount = () =>
+    (sendAccount ??= resolveMetaSendAccount({ token, url, body, transport: legacyTransport }));
+  const gate = sendSurface ? await gateMetaSend({ surface: sendSurface, resolveAccount: resolveSendAccount, recipientId }) : META_SEND_OPEN;
+  let gateSettled = false;
+  try {
   const personal: RoutedCall = { url, token, body, route: "unchanged" };
   let routed: RoutedCall = method === "POST" ? await routeMetaMessagingCall(url, token, body) : personal;
   traceKnownSecrets([routed.token]);
+  /**
+   * ЭХО С ДРУГОГО ПУТИ (21.11.2026). Отправка через Страницу, эхо — по подписке входа через
+   * Instagram. Помним «кому + что» ДО отправки (эхо обгоняет ответ Meta), чтобы эхо узнавалось
+   * своим даже при незнакомом mid (routes/webhooks.ts::handleOutgoingEcho, окно 2 минуты).
+   */
+  if (routed.route === "instagram_page" && sendSurface === "dm") {
+    const message = (routed.body as { message?: { text?: unknown; attachment?: { type?: unknown } } } | null)?.message;
+    await rememberOutgoingText({
+      channel: "INSTAGRAM",
+      peer: recipientId,
+      content: outgoingContentKey({
+        text: typeof message?.text === "string" ? message.text : null,
+        attachmentType: typeof message?.attachment?.type === "string" ? message.attachment.type : null,
+      }),
+    });
+  }
   let req = instagramRequest(routed.url, routed.token);
+  /** Повтор личным ключом после отказа пути Страницы: отказ личного — это «запасной ключ», а не «аккаунт закрыт». */
+  let fellBackFromPage = false;
+  /** Страница отказала как ПУТЬ (не «про этого клиента»): при отказе и личного — «оба пути не отвечают». */
+  let pageRouteRefused = false;
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
@@ -1909,6 +2088,45 @@ export async function callGraph<T = unknown>(
     }, CALL_TIMEOUT_MS, beforePost, legacyTarget);
     const text = await res.text();
     if (!res.ok) {
+      const graphError = parseMetaGraphError(res.status, text);
+      const policy = sendSurface && sendSurface !== "action" ? metaPolicyBlockOf(graphError) : null;
+      /**
+       * ЗАПРЕТ НА ПУТИ СТРАНИЦЫ — ЕЩЁ НЕ ЗАПРЕТ АККАУНТА (21.11.2026). Meta отказала по правилам
+       * запросу ключом компании (например 100/2534029) — личный путь аккаунта может работать:
+       * один повтор личным ключом, Страница на скамейке. Метка «Meta не пропускает отправку»
+       * ставится ниже, только если откажет и личный путь. Предупреждение (не запрет) идёт как было.
+       */
+      /**
+       * ПЕРЕПИСКУ ВЕДЁТ ДРУГОЕ ПРИЛОЖЕНИЕ (ревью #344, третий круг): сотрудник забрал её во «Входящих»
+       * или ведёт другой бот. Никаких повторов; бот в этой переписке на паузу, как после ручного ответа.
+       */
+      if (sendSurface === "dm" && sendErrorKind(graphError.code, graphError.subcode) === "thread_owner") {
+        await pauseBotForOtherThreadOwner({ accountId: routed.accountId ?? (await resolveSendAccount().catch(() => null))?.accountId,
+          peer: recipientId, code: graphError.code, subcode: graphError.subcode });
+      }
+      if (policy && !policy.warning && pageRoutePolicyRefused(routed, res.status, graphError)) {
+        fellBackFromPage = true;
+        pageRouteRefused = true;
+        routed = personal;
+        traceKnownSecrets([routed.token]);
+        req = instagramRequest(routed.url, routed.token);
+        continue;
+      }
+      /**
+       * ОТКАЗ ПО ПРАВИЛАМ — НЕ ПОВТОРЯТЬ НИКАКИМ ПУТЁМ (18.11.2026). Ни личным
+       * ключом после пути Страницы, ни «Upload failed»-повтором: каждый лишний
+       * запрос к заблокированному аккаунту только продлевает запрет. Метка ставится
+       * до ветки нового ядра — она тоже должна её увидеть.
+       */
+      let policyBlock: MetaSendBlock | null = null;
+      let policyWarning: MetaSendBlock | null = null;
+      if (policy && sendSurface && sendSurface !== "action") {
+        gateSettled = true;
+        const record = { account: await resolveSendAccount(), surface: sendSurface, graph: graphError, policy, gate, recipientId };
+        // 613/2018338 — предупреждение: первое за час метку не ставит (бот работает), второе — ставит.
+        if (policy.warning) policyWarning = await recordMetaSendWarning(record);
+        if (!policyWarning) policyBlock = await recordMetaSendPolicyBlock(record);
+      }
       /**
        * ОТКАТ НА ЛИЧНЫЙ КЛЮЧ (ревью #161). Путь Страницы получил ЧЁТКИЙ отказ
        * Meta (4xx с телом error) — сообщение не принято, поэтому один повтор
@@ -1916,8 +2134,10 @@ export async function callGraph<T = unknown>(
        * сюда не доходит. Учёт физической отправки отметил первую попытку
        * «отклонено», вторая допускается заново по тому же логическому сообщению.
        */
-      if (routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
+      if (!policyBlock && !policyWarning && routed.route !== "unchanged" && pageRouteFailed(routed, res.status, text)) {
         if (isMetaAuthFailure(res.status, text)) forgetPageToken(routed.token);
+        fellBackFromPage = true;
+        pageRouteRefused = sendErrorKind(graphError.code, graphError.subcode) !== "recipient";
         routed = personal;
         traceKnownSecrets([routed.token]);
         req = instagramRequest(routed.url, routed.token);
@@ -1927,21 +2147,58 @@ export async function callGraph<T = unknown>(
       if (isMetaAuthFailure(res.status, text)) {
         const failedToken = routed.token;
         forgetPageToken(failedToken);
-        void describeMetaToken(failedToken).then((who) =>
-          raiseChannelKeyAlarm({ ...who, detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}` })
-        );
+        const afterPage = fellBackFromPage;
+        const pageRefused = pageRouteRefused;
+        void describeMetaToken(failedToken).then(async (who) => {
+          // Повтор личным после отказа Страницы (ревью #344, второй круг): Страница на паузе, но путь
+          // у аккаунта есть — «Meta закрыла доступ» здесь была бы ложной. Запасной ключ, раз в сутки.
+          if (who.instagramAccountId && afterPage) {
+            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`, { pageRefused });
+            return;
+          }
+          // Meta закрыла сам аккаунт Instagram (21.11.2026, Arvan): одна отметка и одна
+          // тревога на случай (lib/instagramAccountAccess.ts), а не тревога на каждый вызов.
+          if (who.instagramAccountId && isInstagramAccountLockedText(text)) {
+            await noteInstagramAccountLocked(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`);
+            return;
+          }
+          if (who.accessLost) return;
+          // Аккаунт отвечает через Страницу — умер только запасной личный ключ (ревью #344):
+          // не «ключ канала перестал работать», а «переподключите аккаунт», раз в сутки.
+          if (who.instagramAccountId && (await instagramAccountPageRouted(who.instagramAccountId))) {
+            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`);
+            return;
+          }
+          await raiseChannelKeyAlarm({
+            key: who.key,
+            label: who.label,
+            audience: who.audience,
+            detail: `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`,
+          });
+        });
       }
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);
+        // Запрет по правилам уже записан и передан людям (lib/metaSendBlock.ts) — для исходящего
+        // нового ядра это задержание, а не «сбой при отправке» второй строкой в журнале.
+        if (policyBlock) throw new MetaSendBlockedError(policyBlock);
+        if (policyWarning) throw new MetaSendWarningError(`Graph API HTTP ${res.status}: managed delivery rejected (Meta warning)`, graphError, policyWarning);
         throw new Error(`Graph API HTTP ${res.status}: managed delivery rejected`);
       }
+      const message = `Graph API HTTP ${res.status}: ${readableGraphBody(text).slice(0, 300)}`;
+      if (policyBlock) throw new MetaSendPolicyError(message, graphError, policyBlock);
+      if (policyWarning) throw new MetaSendWarningError(message, graphError, policyWarning);
       if (graphErrorSubcode(text) === UPLOAD_FAILED_SUBCODE && attempt < UPLOAD_FAILED_RETRY_DELAYS_MS.length) {
         await sleep(UPLOAD_FAILED_RETRY_DELAYS_MS[attempt]);
         continue;
       }
-      throw new Error(`Graph API HTTP ${res.status}: ${readableGraphBody(text).slice(0, 300)}`);
+      // Код, подкод и fbtrace — полями ошибки: обрезка текста до 300 знаков их больше не съедает.
+      throw new MetaGraphCallError(message, graphError);
     }
+    // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
+    gateSettled = true;
+    await settleMetaSendAccepted(gate);
     // Тело успешного ответа Meta не гарантировано (у sender_action оно пустое) —
     // отсутствие JSON здесь не ошибка.
     let parsed: T | null;
@@ -1970,6 +2227,10 @@ export async function callGraph<T = unknown>(
       traceProviderAccepted(null);
       return null;
     }
+  }
+  } finally {
+    // Проба не состоялась не по правилам (сеть, 5xx, окно 24 ч, щит ядра) — замок отпускаем, ступень прежняя.
+    if (!gateSettled) await releaseMetaSendProbe(gate);
   }
 }
 
@@ -2013,6 +2274,9 @@ async function sendMessageImpl(
   const loaded = await loadCredentials();
   const captured = outbound?.transport ?? await resolveLegacyMetaSendTransport(loaded, channel, recipientId, tokenOverride);
   const bound = await bindCustomerMetaSendCredentials(loaded, channel, recipientId, tokenOverride, captured);
+  // Meta не пропускает отправку этого аккаунта (lib/metaSendBlock.ts) — решаем ДО щита:
+  // невыпущенная отправка не должна попадать в его счёт «бот написал N раз подряд».
+  await assertMetaSendNotBlocked({ account: { accountId: captured.accountId, channel }, recipientId });
   const verdict = await admitOutbound({
     channel,
     subscriberId: recipientId,
@@ -2030,7 +2294,10 @@ async function sendMessageImpl(
   const c = bound?.credentials ?? loaded;
   const { token: fallbackToken, url, body } = buildSendRequest(c, channel, recipientId, text);
   const token = bound?.token || tokenOverride || fallbackToken;
-  if (!token) throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
+  if (!token) {
+    void noteOutboundUndelivered(verdict); // не ушло вовсе: в счёт щита «подряд» не идёт (18.11.2026)
+    throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
+  }
 
   const principal = outbound?.customerReplyPrincipal;
   try {
@@ -2045,8 +2312,21 @@ async function sendMessageImpl(
     // Отказ отправки = клиент не получил ответ. Это обязано быть видно на
     // экране здоровья, а не только в логе контейнера.
     if (!(err instanceof CustomerReplyHeldError)) logMetaSendError(`Сообщение в ${channel} не отправлено`, err);
+    // В счёт щита «бот написал N подряд» идут только доставленные (18.11.2026, Арван 17.11: три отказа Meta 368 дали
+    // паузу и ложную тревогу «4 раза подряд»). Явный отказ провайдера или запрет до отправки — счёт возвращается;
+    // таймаут/обрыв (могло уйти) — нет.
+    if (isDefinitiveSendRejection(err)) void noteOutboundUndelivered(verdict);
     throw err;
   }
+}
+
+/** Сообщение точно НЕ ушло: Meta ответила ошибкой (HTTP-ответ с телом error) или отправку остановили до запроса. */
+export function isDefinitiveSendRejection(err: unknown): boolean {
+  // Блокировка Meta (#273): не отправляли вовсе, отказ по правилам или предупреждение — сообщение у клиента не появилось.
+  if (err instanceof CustomerReplyHeldError || isMetaSendBlockError(err)) return true;
+  // Только 4xx: Meta отклонила запрос. 5xx и таймаут — исход неизвестен (могло дойти), счёт щита не возвращаем, иначе
+  // повтор того же текста пройдёт щит и клиент получит дубль (ревью #283, Н1).
+  return /^Graph API HTTP 4\d{2}:/.test(err instanceof Error ? err.message : "");
 }
 
 /**

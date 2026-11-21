@@ -10,6 +10,7 @@ import { callAiText } from "../ai/client.js";
 import { loadMorningNumbers, type MorningNumbers } from "./morningNumbers.js";
 import { dushanbeWallClock } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
+import { sellerSwitchOn } from "./sellerSwitches.js";
 import { ensureCachedWav, privateVoiceRoot, voiceCacheKey } from "./voiceCache.js";
 
 /**
@@ -44,12 +45,12 @@ function money(n: number): string {
 }
 
 /** Только те числа, что действительно уходят в текст и на экран. */
-export function pickBriefingNumbers(n: MorningNumbers): BriefingNumbers {
+export function pickBriefingNumbers(n: MorningNumbers, seesCompanyMoney = true): BriefingNumbers {
   return {
     tasksToday: n.tasksToday,
     leadsYesterday: n.leadsYesterday,
     dealsYesterday: n.dealsYesterday,
-    commissionMonth: n.commissionMonth,
+    commissionMonth: seesCompanyMoney ? n.commissionMonth : null,
     errorsYesterday: n.errorsYesterday,
     incomingYesterday: n.incomingYesterday,
     missedYesterday: n.missedYesterday,
@@ -74,10 +75,10 @@ export function buildFallbackBriefingText(n: BriefingNumbers): string {
     `Сегодня у команды ${n.tasksToday} ${pluralizeRu(n.tasksToday, ["задача", "задачи", "задач"])}.`
   );
   sentences.push(
-    `Вчера пришло ${n.leadsYesterday} ${pluralizeRu(n.leadsYesterday, ["новый лид", "новых лида", "новых лидов"])}` +
+    `Вчера пришло: ${n.leadsYesterday} ${pluralizeRu(n.leadsYesterday, ["новая заявка", "новые заявки", "новых заявок"])}` +
       ` и закрыто ${n.dealsYesterday} ${pluralizeRu(n.dealsYesterday, ["сделка", "сделки", "сделок"])}.`
   );
-  sentences.push(`Комиссия с начала месяца — ${money(n.commissionMonth)}.`);
+  if (n.commissionMonth !== null) sentences.push(`Комиссия с начала месяца — ${money(n.commissionMonth)}.`);
 
   sentences.push(
     n.incomingYesterday > 0
@@ -86,7 +87,7 @@ export function buildFallbackBriefingText(n: BriefingNumbers): string {
   );
 
   if (n.firstTouchMedianMin === null) {
-    sentences.push(`Первое касание по вчерашним лидам: ${NO_DATA}.`);
+    sentences.push(`Первое касание по вчерашним заявкам: ${NO_DATA}.`);
   } else {
     sentences.push(
       `Первое касание вчера в среднем за ${n.firstTouchMedianMin} ${pluralizeRu(n.firstTouchMedianMin, ["минуту", "минуты", "минут"])}` +
@@ -130,19 +131,24 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-async function generateBriefingText(n: BriefingNumbers): Promise<{ text: string; source: BriefingSource }> {
+async function generateBriefingText(
+  n: BriefingNumbers,
+  sellerLinesOn = true
+): Promise<{ text: string; source: BriefingSource }> {
   const facts = [
     `Задач у команды сегодня: ${n.tasksToday}`,
-    `Новых лидов вчера: ${n.leadsYesterday}`,
+    `Новых заявок вчера: ${n.leadsYesterday}`,
     `Закрытых сделок вчера: ${n.dealsYesterday}`,
-    `Комиссия с начала месяца, сомони: ${Math.round(n.commissionMonth)}`,
+    ...(n.commissionMonth !== null ? [`Комиссия с начала месяца, сомони: ${Math.round(n.commissionMonth)}`] : []),
     `Входящих звонков вчера: ${n.incomingYesterday}, потеряно: ${n.missedYesterday}`,
     `Разговоров, не разобранных оператором: ${n.unqualifiedNow}`,
     `Медиана первого касания, минут: ${n.firstTouchMedianMin === null ? NO_DATA : n.firstTouchMedianMin}`,
-    `Лидов вчера без первого касания: ${n.firstTouchNoneCount}`,
+    `Заявок вчера без первого касания: ${n.firstTouchNoneCount}`,
     `Первых касаний дольше часа: ${n.firstTouchSlowCount}`,
     `Итогов показов просрочено больше 48 часов: ${n.showingSummariesOverdue48h}`,
-    `Продавцов без объекта дольше 7 дней: ${n.sellersWithoutPropertyOver7Days}`,
+    // Выключатель «Продавцы в утренней сводке» (lib/sellerSwitches.ts) гасит строку
+    // и здесь, в голосовом брифинге, — те же числа, что у push-сводки в cron.ts.
+    ...(sellerLinesOn ? [`Продавцов без объекта дольше 7 дней: ${n.sellersWithoutPropertyOver7Days}`] : []),
     `Неразобранных ошибок системы за вчера: ${n.errorsYesterday}`,
   ].join("\n");
 
@@ -186,6 +192,8 @@ export interface CachedBriefing {
   text: string;
   source: BriefingSource;
   numbers: BriefingNumbers;
+  /** Положение выключателя «Продавцы в утренней сводке» при сборке: сменили — текст собирается заново. */
+  sellerLinesOn: boolean;
   /** Момент сборки — нужен, чтобы запасной текст не залипал на сутки. */
   builtAt: number;
 }
@@ -196,8 +204,14 @@ export interface CachedBriefing {
  * Отдельной таблицы нет намеренно — текст восстановим из чисел в любой момент,
  * а перезапуск API за сутки случается чаще, чем стоит одна генерация Haiku.
  */
-let cached: CachedBriefing | null = null;
-let inFlight: Promise<CachedBriefing> | null = null;
+/**
+ * ДВА КЭША (21.11.2026): с комиссией компании (finance.view) и без неё. Раньше кэш
+ * был один, и руководитель с dashboard.analytics, но без finance.view, получал текст
+ * с комиссией, построенный для директора, — и наоборот.
+ */
+type BriefingVariant = "money" | "plain";
+const cached: Record<BriefingVariant, CachedBriefing | null> = { money: null, plain: null };
+const inFlight: Record<BriefingVariant, Promise<CachedBriefing> | null> = { money: null, plain: null };
 
 /**
  * Шаблонный текст в кеше держим не сутки, а десять минут: отказ модели обычно
@@ -208,8 +222,10 @@ const FALLBACK_RETRY_MS = 10 * 60 * 1000;
 
 /** Только для тестов: сбросить дневной кеш. */
 export function resetBriefingCache(): void {
-  cached = null;
-  inFlight = null;
+  cached.money = null;
+  cached.plain = null;
+  inFlight.money = null;
+  inFlight.plain = null;
 }
 
 function cacheUsable(entry: CachedBriefing | null, dushanbeDate: string, now: number): boolean {
@@ -218,24 +234,35 @@ function cacheUsable(entry: CachedBriefing | null, dushanbeDate: string, now: nu
   return true;
 }
 
-export async function loadBriefing(at: Date = new Date()): Promise<CachedBriefing> {
+export async function loadBriefing(
+  at: Date = new Date(),
+  options: { seesCompanyMoney: boolean } = { seesCompanyMoney: false }
+): Promise<CachedBriefing> {
+  const variant: BriefingVariant = options.seesCompanyMoney ? "money" : "plain";
   const dushanbeDate = briefingDateKey(at);
-  if (cacheUsable(cached, dushanbeDate, at.getTime())) return cached!;
+  // Выключатель читается до кэша: владелец выключил строки продавцов днём — директор
+  // не должен до полуночи слушать прежний текст (ревью 18.11.2026).
+  const sellerLinesOn = await sellerSwitchOn("morningSellerLinesEnabled");
+  const hit = cached[variant];
+  if (cacheUsable(hit, dushanbeDate, at.getTime()) && hit!.sellerLinesOn === sellerLinesOn) return hit!;
   // Директор открывает главную на ПК и телефоне почти одновременно — второй
   // запрос обязан ждать первый, а не платить за вторую генерацию.
-  if (inFlight) return inFlight;
+  const pending = inFlight[variant];
+  if (pending) return pending;
 
-  inFlight = (async (): Promise<CachedBriefing> => {
+  const run = (async (): Promise<CachedBriefing> => {
     try {
-      const numbers = pickBriefingNumbers(await loadMorningNumbers());
-      const { text, source } = await generateBriefingText(numbers);
-      cached = { dushanbeDate, text, source, numbers, builtAt: Date.now() };
-      return cached;
+      const numbers = pickBriefingNumbers(await loadMorningNumbers(), options.seesCompanyMoney);
+      const { text, source } = await generateBriefingText(numbers, sellerLinesOn);
+      const entry: CachedBriefing = { dushanbeDate, text, source, numbers, sellerLinesOn, builtAt: Date.now() };
+      cached[variant] = entry;
+      return entry;
     } finally {
-      inFlight = null;
+      inFlight[variant] = null;
     }
   })();
-  return inFlight;
+  inFlight[variant] = run;
+  return run;
 }
 
 /**
@@ -266,8 +293,11 @@ export function existingBriefingAudioPath(text: string): string | null {
 }
 
 /** Готовый ответ эндпоинта, включая ссылку на озвучку. */
-export async function buildBriefingResponse(at: Date = new Date()): Promise<MorningBriefing> {
-  const briefing = await loadBriefing(at);
+export async function buildBriefingResponse(
+  at: Date = new Date(),
+  options: { seesCompanyMoney: boolean } = { seesCompanyMoney: false }
+): Promise<MorningBriefing> {
+  const briefing = await loadBriefing(at, options);
   const audioPath = await ensureBriefingAudio(briefing.text);
   return {
     dushanbeDate: briefing.dushanbeDate,

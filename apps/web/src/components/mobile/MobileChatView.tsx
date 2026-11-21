@@ -1,3 +1,4 @@
+import { messageTimeText } from "../../lib/messageTime";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -27,6 +28,7 @@ import {
 } from "../../hooks/useConversations";
 import type { ConversationMessage } from "../../types";
 import { channelMeta, initialsFromName } from "../../lib/channelMeta";
+import { chatQuickReplies } from "../../lib/chatQuickReplies";
 
 export function replySourceLabels(channels: Array<string | null>): string[] {
   return channels.map((channel, index) => {
@@ -36,15 +38,14 @@ export function replySourceLabels(channels: Array<string | null>): string[] {
   });
 }
 
-export function messageTimeText(at: string | null | undefined): string {
-  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
-}
+// Одно правило на три экрана чата — lib/messageTime.ts (пачка D1).
+export { messageTimeText };
 
 export function messageRenderKey(message: ConversationMessage, index: number): string {
   const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;
   return message.sourceConversationId ? `${message.sourceConversationId}:${localKey}` : message.mid ?? `msg-${index}`;
 }
-import { isMessagingWindowClosed, lastInboundMessageAt } from "../../lib/messagingWindow";
+import { isMessagingWindowClosedForMessages } from "../../lib/messagingWindow";
 import { ContactProfilePanel } from "../ContactProfilePanel";
 import { ConversationClientLink } from "../ConversationClientLink";
 import { CallClientButton } from "../CallClientButton";
@@ -205,6 +206,8 @@ const MobileMessageList = memo(function MobileMessageList({
         // человек не станет, он ищет по тому, что видит.
         const content = humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, {
           outgoing: m.role !== "user",
+          hasAttachments: !!m.attachments?.length,
+          channel: m.sourceChannel,
         });
         if (!content && !m.attachments?.length) return null;
         const prevAt = visibleMessages[i - 1]?.at;
@@ -381,10 +384,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
     () => isGrouped && replyTargetId ? allMessages.filter((message) => message.sourceConversationId === replyTargetId) : allMessages,
     [allMessages, isGrouped, replyTargetId],
   );
-  const windowClosed = isMessagingWindowClosed(
-    replyChannel ?? undefined,
-    sourceMessages.length ? lastInboundMessageAt(sourceMessages) : null,
-  );
+  const windowClosed = sourceMessages.length > 0 && isMessagingWindowClosedForMessages(replyChannel ?? undefined, sourceMessages);
   // Продавец: полоса под шапкой (21.09.2026) и «Добавить объект» в просмотрщике
   // фото — тот же приём, что в десктопном ConversationView (Messages.tsx),
   // второго похода на сервер не заводит (общий queryKey useSellerObject).
@@ -596,24 +596,8 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
   // `?? []`, то есть НОВЫЙ пустой массив на каждый рендер, и мемоизация с ним
   // не работала бы вовсе (правило react-hooks/exhaustive-deps об этом и
   // предупреждает).
-  const quickReplies = useMemo(() => {
-    const source = conversation?.messages ?? [];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (let i = source.length - 1; i >= 0 && out.length < 3; i--) {
-      const m = source[i];
-      if (m.role !== "assistant") continue;
-      if (m.by?.kind !== "agent" && m.by?.kind !== "manual") continue;
-      const t = m.content.trim();
-      // Длинные ответы в чип не помещаются и обрезкой теряют смысл.
-      if (!t || t.length > 80) continue;
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-    }
-    return out;
-  }, [conversation?.messages]);
+  // Правило сбора — общее с «Новым видом» инбокса (lib/chatQuickReplies.ts).
+  const quickReplies = useMemo(() => chatQuickReplies(conversation?.messages ?? []), [conversation?.messages]);
 
   // Стабильная ссылка на функцию (06.09.2026, вынос ленты в MobileMessageList) —
   // инлайн-стрелка в JSX создавалась бы заново на каждый рендер (в том числе на
@@ -927,7 +911,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
           <div className="suggest">
             <span className="dot warn"></span>
             <span className="txt">
-              Клиент не писал больше суток — WhatsApp/Instagram не пропустят свободный текст. Позвоните
+              Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
               {conversation?.clientPhone ? (
                 <>
                   {" "}
@@ -943,6 +927,7 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
                 " с личного телефона"
               )}{" "}
               или дождитесь его сообщения.
+              {replyChannel === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
             </span>
           </div>
         )}

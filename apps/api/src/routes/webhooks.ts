@@ -1,3 +1,4 @@
+import { isWhatsAppWindowFailure } from "../lib/messagingWindow.js";
 import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../lib/serviceArea.js";
 import { customerDmRoutingForIncoming, inspectCustomerDmRouting } from "../lib/customerAgentIngressRouting.js";
 import { createHash } from "node:crypto";
@@ -90,15 +91,17 @@ import {
   whatsAppMediaSource,
   type MetaChannel,
 } from "../messengers/meta.js";
+import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
 import { emojiThanksReply, ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { brandForAccount } from "../ai/brandName.js";
-import { wasSentByUs } from "../messengers/outgoingMids.js";
+import { outgoingContentKey, wasRecentlySentText, wasSentByUs } from "../messengers/outgoingMids.js";
 import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlightEcho.js";
 import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
-import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply } from "../lib/conversationDelivery.js";
+import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
+import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply, staffRelayPauseMs } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
   noteFirstContactReply,
@@ -1469,6 +1472,33 @@ const DOWNLOADABLE_ATTACHMENTS = new Set(["image", "audio", "voice", "video", "d
  * из CRM) мало: бот возвращался в разговор, который директор ещё вёл с телефона
  * (жалоба владельца 28.09.2026) — поэтому 12 часов, OPERATOR_ECHO_PAUSE_MS.
  */
+/** Входящие Страницы Facebook (живой человек в Page inbox): `app_id` эха по документации Meta (Graph API v12.0+). */
+export const META_PAGE_INBOX_APP_ID = "263902037430900";
+/** Документация Meta печатает этот же идентификатор и без последнего нуля (14 цифр) — принимаем обе записи. */
+const META_PAGE_INBOX_APP_IDS: ReadonlySet<string> = new Set([META_PAGE_INBOX_APP_ID, "26390203743090"]);
+
+/**
+ * Эхо — НЕ ответ сотрудника, только если его `app_id` в явном списке автоматов (ревью #333). Неясно по документации Meta:
+ * какой `app_id` у мгновенного ответа и «нет на месте» из Business Suite — список пополняется по журналу.
+ */
+export function echoIsAutomatic(input: { appId?: string; at: number; lastClientAt: number | null }): boolean {
+  // Безопасное умолчание (ревью #333, второй круг): автоответ — ТОЛЬКО по явному списку известных автоматов (пока пуст);
+  // всё неизвестное — человек, бот на паузе. Ошибка в другую сторону пустила бы бота поверх живого сотрудника.
+  // `app_id` каждого ручного эха пишется в журнал — по замеру список пополняется.
+  return !!input.appId && KNOWN_AUTOMATION_APP_IDS.has(input.appId) && !META_PAGE_INBOX_APP_IDS.has(input.appId);
+}
+/**
+ * Наши приложения Meta, их эхо отправила CRM, а не сотрудник руками (21.11.2026):
+ *  1684679092586215 — Royal Home Reels (ключ компании, путь через Страницу): ФАКТ, прод 21.11 —
+ *    `debug_token` ключа системного пользователя royalhome-crm называет это приложение;
+ *  1353986909508972 — «ID приложения Instagram» у Royal Home Reels (кабинет Meta → Instagram →
+ *    «Настройка API для входа в Instagram»; записано при подключении 31.07.2026 и видно на экране
+ *    кабинета 21.11.2026, координатор). Это приложение входа через Instagram, нынешний путь ответов.
+ */
+export const OWN_META_APP_IDS: ReadonlySet<string> = new Set(["1684679092586215", "1353986909508972"]);
+/** Приложения-автоматы Meta (мгновенный ответ, «нет на месте»), чьё эхо — не человек. Пополнять только по замеру. */
+export const KNOWN_AUTOMATION_APP_IDS: ReadonlySet<string> = new Set<string>();
+
 export async function handleOutgoingEcho(msg: {
   channel: MessengerChannel;
   senderId: string;
@@ -1476,6 +1506,7 @@ export async function handleOutgoingEcho(msg: {
   attachmentType?: string;
   messageId?: string;
   accountExternalId?: string;
+  echoAppId?: string;
 }): Promise<void> {
   /**
    * СНАЧАЛА — память об отправке, и только потом переписка.
@@ -1488,6 +1519,26 @@ export async function handleOutgoingEcho(msg: {
    * Отметка ставится в момент отправки, поэтому здесь она уже есть всегда.
    */
   if (await wasSentByUs(msg.messageId)) { traceEchoReason("known_mid"); return; }
+  /**
+   * СТРАХОВКА ОТ ДВУХ ПУТЕЙ (21.11.2026). Instagram отвечает через Страницу (ключ компании),
+   * а эхо приходит по подписке входа через Instagram. Эхо, отправленное НАШИМ приложением, —
+   * своё, даже если mid не узнан; без app_id — совпадение «тот же текст тому же человеку
+   * за 2 минуты» с нашей отправкой. Ручной ответ сотрудника из Instagram идёт другим приложением
+   * и текстом, который CRM не отправляла, — его пауза не теряется.
+   */
+  if (msg.echoAppId && OWN_META_APP_IDS.has(msg.echoAppId)) {
+    traceEchoReason("known_mid");
+    console.log(`[вебхук] ${msg.channel}: эхо нашего приложения (app ${msg.echoAppId}) с незнакомым mid — не ручной ответ`);
+    return;
+  }
+  // По тексту — ТОЛЬКО когда app_id нет (ревью #344, второй круг): эхо чужого приложения — это
+  // человек с телефона, и его «Здравствуйте!» или фото через минуту после бота обязано ставить паузу.
+  if (!msg.echoAppId && await wasRecentlySentText({ channel: msg.channel, peer: msg.senderId,
+    content: outgoingContentKey({ text: msg.text, attachmentType: msg.attachmentType }) })) {
+    traceEchoReason("known_mid");
+    console.log(`[вебхук] ${msg.channel}: эхо совпало с нашей отправкой по тексту и времени — не ручной ответ`);
+    return;
+  }
 
   const scoped = await findScopedBotConversation({ channel: msg.channel, subscriberId: msg.senderId, accountExternalId: msg.accountExternalId });
   const conv = scoped ? await prisma.botConversation.findUnique({ where: { id: scoped.id }, select: { id: true, messages: true } }) : null;
@@ -1551,6 +1602,14 @@ export async function handleOutgoingEcho(msg: {
     return;
   }
 
+  // Автоответ Страницы или другого приложения — не человек: ни паузы, ни записи «вручную» (ревью #333).
+  const lastClient = [...history].reverse().find((m) => (m as { role?: string }).role === "user") as { at?: string } | undefined;
+  if (echoIsAutomatic({ appId: msg.echoAppId, at: Date.now(), lastClientAt: lastClient?.at ? Date.parse(lastClient.at) : null })) {
+    traceEchoReason("template");
+    console.log(`[вебхук] ${msg.channel}: эхо автоответа (app ${msg.echoAppId ?? "?"}) — не ручной ответ (диалог ${conv.id})`);
+    return;
+  }
+
   // Пауза — РАНЬШЕ записи в переписку (26.08.2026). Это два независимых запроса, и
   // при прежнем порядке сбой второго оставлял реплику сотрудника в истории, а бота —
   // БЕЗ паузы: он продолжал отвечать поверх живого человека (ровно баг 17.08, ради
@@ -1560,13 +1619,17 @@ export async function handleOutgoingEcho(msg: {
   // Короткая пауза не укорачивает действующую длинную (23.09.2026): свой агент
   // ответил из CRM — бот молчит годами, и сотрудник, дописавший с телефона, не
   // должен возвращать бота в разговор через 10 минут (applyDeliveryPause).
-  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + OPERATOR_ECHO_PAUSE_MS), true);
+  // Режим «только заявки»: эстафета, а не 12 часов (владелец 20.11.2026, lib/conversationDelivery.ts::staffRelayPauseMs).
+  const echoPauseMs = (await staffRelayPauseMs({ kind: "bot", id: conv.id })) ?? OPERATOR_ECHO_PAUSE_MS;
+  await applyDeliveryPause({ kind: "bot", id: conv.id }, new Date(Date.now() + echoPauseMs), true);
   traceEchoReason("manual");
   const written = msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}]` : "");
   if (written) {
     await appendConversationMessages(conv.id, [{ role: "assistant", content: written, by: { kind: "manual" } }]);
   }
-  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера — бот на паузе (диалог ${conv.id})`);
+  // app_id в журнале — чтобы после подписки Messenger на message_echoes сверить живым ответом из Business Suite, что он
+  // считается человеком (документация Meta не называет app_id Business Suite).
+  console.log(`[вебхук] ${msg.channel}: ответ вручную из мессенджера (app ${msg.echoAppId ?? "—"}) — бот на паузе (диалог ${conv.id})`);
 }
 
 /** Тот же принцип, что у metaChatLimiter — ключуем по chat_id, не по IP: весь
@@ -1699,6 +1762,12 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
     }
     lateHanded = incoming;
   }
+  // ЗВОНКИ WHATSAPP (18.11.2026, messengers/whatsappCalls.ts): поле `calls` раньше
+  // пропускалось молча. Сам звонок CRM записывает со стороны станции; здесь — одна
+  // строка в журнал контейнера на событие (connect/terminate), без записи в базу и
+  // без ответа клиенту. До сохранения входящих — чтобы событие было видно, даже если
+  // сохранение ответит 503 (повтор Meta даст лишь повтор строки).
+  handleWhatsappCallEvents(req.body);
   // Short durable intake precedes the provider ACK when the scoped rollout
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
@@ -1837,7 +1906,12 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
          * шаблон, лимит. `dedupKey` по причине, а не по сообщению: пачка
          * однотипных отказов должна читаться одной строкой, а не сотней.
          */
-        if (s.status === "failed") {
+        if (s.status === "failed" && isWhatsAppWindowFailure(s.errorCode, s.error)) {
+          // Вне окна 24 часов (131047): правило WhatsApp, а не поломка. Сообщение
+          // уже помечено «не доставлено» в переписке (markMessageDeliveryStatus), в
+          // Журнал ошибок руководства оно не идёт (21.11.2026).
+          console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCode ?? "?"})`);
+        } else if (s.status === "failed") {
           void logSystemError(
             "meta",
             `WhatsApp не доставил наш ответ на ${s.recipientId}` + (s.error ? `: ${s.error}` : " (причину Meta не назвала)"),
@@ -2599,8 +2673,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // (QA 02.10.2026). Окончательно спам решает ход (conversation.ts), здесь —
       // та же проверка заранее, только ради «прочитано».
       const looksSpam = Boolean(detectSpam(text, spamContext));
+      // WhatsApp `unsupported` (meta.ts, recordOnly): след в переписке, без хода и без «прочитано».
+      const recordOnly = msg.recordOnly === true;
       if (
         bot.channels[msg.channel] &&
+        !recordOnly &&
         !reactionOnly &&
         !moneyRequestOnly &&
         !guardSilentOnly &&
@@ -2679,7 +2756,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         // дальше до карточки (ROMI по объявлению). Раньше выбрасывался здесь.
         adExternalId: msg.adId,
         adClickId: msg.adClickId,
-        silent: reactionOnly || moneyRequestOnly || silentForeignShare,
+        silent: reactionOnly || moneyRequestOnly || silentForeignShare || recordOnly,
         name: msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.id, customerTransport)),
         attachments,
         // Для цитат в переписке CRM: чем это сообщение было у Meta и на что клиент
@@ -2809,6 +2886,20 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       if (isOutboundBlockedError(err)) {
         traceOutcome("blocked");
         console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);
+        continue;
+      }
+      /**
+       * META НЕ ПРОПУСКАЕТ ОТПРАВКУ АККАУНТА ПО ПРАВИЛАМ (18.11.2026, lib/metaSendBlock.ts).
+       * Тоже решение, а не поломка: ответ помечаем «не дошло», но замок дубля НЕ
+       * снимаем (повторная доставка Meta иначе прогнала бы ход заново и снова
+       * упёрлась в запрет) и общий пуш «доставка требует проверки» не шлём — человеку
+       * уже ушёл «клиент ждёт ответа» с настоящей причиной, руководству — тревога.
+       */
+      if (isMetaSendBlockError(err)) {
+        traceOutcome("blocked");
+        if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId);
+        if (providerAcceptedReply) replySent = true;
+        console.warn(`[метка Meta] ${msg.channel}: ответ не отправлен — ${err.message.slice(0, 200)}`);
         continue;
       }
       console.error("[meta] обработка сообщения упала:", err);

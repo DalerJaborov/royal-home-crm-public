@@ -99,6 +99,21 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     errorSources: ["ai"],
   },
   {
+    key: "bot-channel-off",
+    title: "Аварийное выключение бота по каналам",
+    what: "Бот молчит на выбранных каналах (или только на аккаунтах «Арвана», ключ arvan) и не вызывает ИИ: клиенту одна строка «передал сотруднику», сотруднику — сигнал «клиент ждёт ответа». Пусто — бот работает как обычно.",
+    group: "bot",
+    env: ["CUSTOMER_AGENT_CHANNEL_OFF"],
+    errorSources: ["ai"],
+  },
+  {
+    key: "meta-send-blocks",
+    title: "Отправка в Instagram, Facebook и WhatsApp",
+    what: "Пропускает ли Meta ответы каждого аккаунта. Если Meta временно запретила отправку по правилам, бот туда не пишет, клиентов передаёт сотрудникам и сам пробует снова.",
+    group: "bot",
+    errorSources: ["meta"],
+  },
+  {
     key: "bot-photos",
     title: "Фото объектов в чате",
     what: "Бот присылает клиенту фотографии объекта прямо в переписке.",
@@ -143,6 +158,22 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     group: "voice",
     settingsTab: "channels",
     cron: ["live-voice-spend-ceiling", "live-voice-orphan-sweep", "live-calls-sweep", "post-showing-call", "seller-probe-call", "interview-invite-call"],
+    errorSources: ["telephony"],
+  },
+  {
+    key: "missed-call-sms",
+    title: "СМС со ссылкой на WhatsApp после пропущенного звонка",
+    what: "Звонивший, которому не ответили, сразу получает одну СМС: «напишите нам в WhatsApp».",
+    group: "voice",
+    settingsTab: "channels",
+    errorSources: ["sms"],
+  },
+  {
+    key: "missed-call-callback-task",
+    title: "Задача «перезвонить» по пропущенному с незнакомого номера",
+    what: "Незнакомый номер без ответа получает карточку и общую задачу для руководителя отдела продаж.",
+    group: "voice",
+    settingsTab: "channels",
     errorSources: ["telephony"],
   },
   {
@@ -245,7 +276,7 @@ export const FUNCTION_REGISTRY: readonly FunctionDef[] = [
     title: "Сбор объявлений с Somon и Paydo",
     what: "CRM сама собирает объявления рынка и сопоставляет их с нашими объектами.",
     group: "market",
-    env: ["MARKET_CRAWL_ENABLED"],
+    env: ["MARKET_CRAWL_ENABLED", "MARKET_SOMON_CRAWL_SCHEDULE"],
     cron: ["market-weekly-crawl", "market-paydo-daily", "market-paydo-incremental", "market-somon-incremental", "market-own-match"],
   },
   // ─── ИИ и ключи ───
@@ -287,6 +318,8 @@ export const functionCronSchema = z.object({
   lastRunAt: isoDate.nullable(),
   lastOkAt: isoDate.nullable(),
   lastError: z.string().nullable(),
+  /** Та же ошибка по-человечески (что за сервис и что делать); сырой текст — только для блока «Для разработчика». */
+  humanError: z.string().nullable().optional(),
   /** Давно не запускался (по расписанию должен был) или последний запуск упал. */
   health: z.enum(["ok", "failing", "stale", "never"]),
 });
@@ -308,7 +341,7 @@ export const functionStatusItemSchema = z.object({
   envNames: z.array(z.string()),
   settingsTab: z.enum(FUNCTION_SETTINGS_TABS).nullable(),
   crons: z.array(functionCronSchema),
-  lastError: z.object({ at: isoDate, message: z.string() }).nullable(),
+  lastError: z.object({ at: isoDate, message: z.string(), humanMessage: z.string().nullable().optional() }).nullable(),
 });
 export type FunctionStatusItem = z.infer<typeof functionStatusItemSchema>;
 

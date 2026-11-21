@@ -3,6 +3,8 @@ import { usePropertyAds } from "../../hooks/useAds";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { describeLeadStats, formatLeadCount, formatPct } from "../../lib/adsView";
 import { AdLeadStatsLine } from "./AdLeadStatsLine";
+import { EmptyValue, lenBucket } from "../EmptyValue";
+import type { ReactNode } from "react";
 
 /**
  * «ЭТОТ ОБЪЕКТ В ПРОДВИЖЕНИИ» — плашка в карточке объекта.
@@ -48,12 +50,12 @@ export function PropertyAdBadge({ propertyId }: { propertyId: string }) {
       {/* Четыре цифры — плитки `.tiles` эталона: на телефоне они сами встают
           в две колонки, а `.trio` из трёх ячеек четвёртую выдавливала за край. */}
       <div className="tiles">
-        <Stat label="Потрачено" value={formatMoneyExact(data.spendTjs ?? 0, "TJS")} />
-        <Stat label="Показов" value={(data.impressions ?? 0).toLocaleString("ru-RU")} />
-        <Stat label="Обращений" value={String(data.conversations ?? 0)} />
+        <Stat label="Потрачено" value={data.spendTjs != null ? formatMoneyExact(data.spendTjs, "TJS") : null} />
+        <Stat label="Показов" value={data.impressions != null ? data.impressions.toLocaleString("ru-RU") : null} />
+        <Stat label="Обращений" value={data.conversations != null ? String(data.conversations) : null} />
         <Stat
           label="За обращение"
-          value={perConversation !== null ? formatMoneyExact(perConversation, "TJS") : "нет данных"}
+          value={perConversation !== null ? formatMoneyExact(perConversation, "TJS") : null}
         />
         {/* Реальная цена (волна 1): клиенты, попавшие в CRM с рекламы объекта. Плитки
             появляются, только когда сервер прислал поле и есть о чём сказать. */}
@@ -69,7 +71,7 @@ export function PropertyAdBadge({ propertyId }: { propertyId: string }) {
               value={
                 data.leadStats?.costPerLeadTjs != null
                   ? formatMoneyExact(data.leadStats.costPerLeadTjs, "TJS")
-                  : "клиентов в CRM нет"
+                  : null
               }
             />
           </>
@@ -112,12 +114,12 @@ export function PropertyAdBadge({ propertyId }: { propertyId: string }) {
   );
 }
 
-/** Одна цифра рекламы: плитка `.tile` эталона (подпись сверху, число снизу). */
-function Stat({ label, value }: { label: string; value: string }) {
+/** Одна цифра рекламы: плитка `.tile` эталона (подпись сверху, число снизу). Нет значения — «нет» (EmptyValue). */
+function Stat({ label, value }: { label: string; value: ReactNode | null }) {
   return (
-    <div className="tile">
+    <div className="tile rh-fit-host">
       <div className="hd">{label}</div>
-      <b style={{ fontSize: "var(--fs-23)" }}>{value}</b>
+      <b className="rh-fit" data-len={typeof value === "string" ? lenBucket(value) : undefined} style={{ fontSize: "var(--fs-23)" }}>{value ?? <EmptyValue />}</b>
     </div>
   );
 }

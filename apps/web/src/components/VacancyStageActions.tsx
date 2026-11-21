@@ -1,3 +1,4 @@
+import { RuDateTimeField } from "./look/fields/RuFields";
 import { useState, type ReactNode } from "react";
 import { Archive, Ban, CalendarDays, FileText, MoreHorizontal, NotebookPen, Phone, RotateCcw, Sparkles, Trash2, UserRoundCheck, UserX } from "lucide-react";
 import type { RecruitmentPosition } from "@royal-home/shared";
@@ -140,7 +141,7 @@ export function VacancyStageActions({ item, positions, positionsLoading = false,
         else mutation.mutate({ id: item.id, ...(mode === "note" ? { interviewNote: note.trim() || null } : { rejectionReason: note.trim() || null,
           ...(voice ? { rejectionReasonVoiceUrl: voice.url, rejectionReasonVoiceTranscript: voice.transcript } : {}) }) }, { onSuccess: closeForm });
       }} footer={<><button type="button" className="pill ghost" disabled={busy} onClick={closeForm}>Отмена</button><button type="submit" className="pill" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить"}</button></>}>
-      {mode === "schedule" ? <><label className="fld"><span className="lab">Дата и время собеседования</span><input type="datetime-local" value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><span className="msg">Время Душанбе, UTC+5</span></label>
+      {mode === "schedule" ? <><label className="fld"><span className="lab">Дата и время собеседования</span><RuDateTimeField value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><span className="msg">Время Душанбе, UTC+5</span></label>
         <p className="quiet warn"><span className="dot warn" /><span className="txt">Сохранится только дата в CRM. Кандидат не получит SMS или звонок.</span></p></>
         : mode === "phone" ? <label className="fld"><span className="lab">Телефон кандидата</span><input type="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} maxLength={40} /></label>
           : <><label className="fld"><span className="lab">{mode === "reject" ? "Причина отказа" : "Внутренняя заметка"}</span><textarea rows={5} value={note} maxLength={4000} onChange={event => setNote(event.target.value)} /><span className="msg">Видно только сотрудникам. Кандидату не отправляется.</span></label>

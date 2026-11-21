@@ -27,6 +27,7 @@ import {
   sourceBranch,
   waitForMergeReadiness,
   waitCloudWorkflow,
+  holdProcessUntilSettled,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -723,4 +724,50 @@ test("вливание не повторяется само: второй PUT м
     return true;
   });
   assert.deepEqual(methods, ["PUT"], "ровно одна попытка вливания");
+});
+
+// ── Процесс не умирает молча посреди ожидания (18.11.2026, четыре выката с кодом 0 без вливания) ──
+test("holdProcessUntilSettled: ожидание на неудерживающем таймере доживает до итога", () => {
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  const child = (useHold) => spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { holdProcessUntilSettled } = await import(${JSON.stringify(shipUrl)});
+    // Как повисший запрос с AbortSignal.timeout: таймер есть, но процесс он не держит.
+    const pending = new Promise((res) => setTimeout(() => res("итог"), 300).unref());
+    const run = ${useHold ? "holdProcessUntilSettled(pending)" : "pending"};
+    run.then((v) => { console.log("решено:" + v); process.exit(7); });
+  `], { encoding: "utf8" });
+  // Без защиты Node тихо выходит с кодом 0, не дождавшись итога: ровно сбой 18.11.
+  const bare = child(false);
+  assert.equal(bare.status, 0);
+  assert.doesNotMatch(bare.stdout, /решено/);
+  // С защитой процесс живёт, пока обещание не решено.
+  const held = child(true);
+  assert.equal(held.status, 7, held.stderr);
+  assert.match(held.stdout, /решено:итог/);
+});
+
+test("holdProcessUntilSettled: отказ пробрасывается и интервал снимается", async () => {
+  await assert.rejects(holdProcessUntilSettled(Promise.reject(new Error("стоп"))), /стоп/);
+  assert.equal(await holdProcessUntilSettled(Promise.resolve(5)), 5);
+});
+
+test("holdProcessUntilSettled: process.exit(0) посреди ожидания даёт код 1 и строку (19.11, #291 на этапе 7)", () => {
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { holdProcessUntilSettled } = await import(${JSON.stringify(shipUrl)});
+    holdProcessUntilSettled(new Promise(() => {}));
+    setTimeout(() => process.exit(0), 50);
+  `], { encoding: "utf8" });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /Выкат оборвался/);
+});
+
+test("holdProcessUntilSettled: после итога exit не трогает код", () => {
+  const shipUrl = new URL("./ship.mjs", import.meta.url).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { holdProcessUntilSettled } = await import(${JSON.stringify(shipUrl)});
+    holdProcessUntilSettled(Promise.resolve(0)).then((c) => process.exit(c));
+  `], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /оборвался/);
 });

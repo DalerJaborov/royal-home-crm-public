@@ -1,3 +1,4 @@
+import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useMemo, useRef, useState } from "react";
 import { useServerSyncedFields, useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
@@ -857,7 +858,7 @@ export function AgentsSection() {
       {confirmRow?.kind === "deactivate" && (
         <ConfirmDialog
           title={`Отключить ${confirmRow.name}?`}
-          description="Сотрудник выйдет из всех сеансов и перестанет получать уведомления. Непринятые лиды вернутся в общую очередь. Его снимут с дежурств в настройках — после включения их придётся назначить заново. Клиенты в работе останутся за ним."
+          description="Сотрудник выйдет из всех сеансов и перестанет получать уведомления. Непринятые заявки вернутся в общую очередь. Его снимут с дежурств в настройках — после включения их придётся назначить заново. Клиенты в работе останутся за ним."
           confirmLabel={updateAgent.isPending ? "Отключаем…" : "Отключить"}
           confirmDisabled={updateAgent.isPending}
           onCancel={() => setConfirmRow(null)}
@@ -904,13 +905,13 @@ export function AgentsSection() {
  * объяснимость — обязательное требование спецификации.
  */
 const KPI_WEIGHT_LABELS: { key: string; label: string; hint: string }[] = [
-  { key: "response", label: "Скорость ответа", hint: "как быстро агент связался с новым лидом" },
+  { key: "response", label: "Скорость ответа", hint: "как быстро агент связался с новой заявкой" },
   { key: "crm", label: "Работа с CRM", hint: "задачи дня закрыты вовремя" },
   { key: "discipline", label: "Дисциплина", hint: "нет просроченных хвостов" },
   { key: "contract", label: "Договоры", hint: "сделка закрыта и оформлена правильно" },
   { key: "photo", label: "Фотографии", hint: "у опубликованных объектов не меньше 15 снимков" },
   { key: "video", label: "Видео", hint: "у опубликованных объектов есть ссылка на обзор" },
-  { key: "personalLeads", label: "Личные лиды", hint: "клиент, которого агент привёл сам" },
+  { key: "personalLeads", label: "Личные заявки", hint: "клиент, которого агент привёл сам" },
   { key: "cards", label: "Карточки", hint: "карточки принятых клиентов заполнены" },
 ];
 
@@ -1261,6 +1262,44 @@ function CompanyDaysOffBlock() {
   );
 }
 
+/**
+ * НАЧАЛО РАБОЧЕГО ДНЯ СОТРУДНИКОВ (20.11.2026) — отдельно от часов раздачи заявок выше.
+ * С этого часа главная руководителя помечает агента «сегодня не заходил» (только в его
+ * рабочий день: выходные компании и личные выходные не в счёт). Сохраняется сразу.
+ */
+function WorkdayStartBlock() {
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings({ silent: true });
+  const [value, setValue] = useState("");
+  const [saved, setSaved] = useState(false);
+  useServerSyncedFields(settings && { start: settings.workdayStart ?? "09:30" }, { start: [value, setValue] });
+  async function save(next: string) {
+    setValue(next);
+    setSaved(false);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next) || next === (settings?.workdayStart ?? "09:30")) return;
+    await updateSettings.mutateAsync({ workdayStart: next });
+    setSaved(true);
+  }
+  return (
+    <div className="mod">
+      <div className="t">
+        <b>Начало рабочего дня</b>
+        <span>
+          С этого часа на главной руководителя агент без единого дела и без захода в CRM помечается «сегодня не
+          заходил». В выходные компании и в личные выходные агента пометки нет. На раздачу заявок не влияет.
+        </span>
+      </div>
+      <div className="acts">
+        <span className="nf">
+          <RuTimeField value={value} onChange={(e) => void save(e.target.value)} aria-label="Начало рабочего дня" style={{ width: 112 }}
+            disabled={!settings || updateSettings.isPending} />
+        </span>
+        {saved && <span className="saved on">Сохранено</span>}
+      </div>
+    </div>
+  );
+}
+
 export function LeadDistributionSection() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
@@ -1302,9 +1341,9 @@ export function LeadDistributionSection() {
   return (
     <section className="card">
       <div className="sec-h stack">
-        <h2>Распределение лидов</h2>
+        <h2>Распределение заявок</h2>
         <span className="note">
-          Как выбирается агент для нового лида: сайт, Instagram/WhatsApp-бот, Telegram
+          Как выбирается агент для новой заявки: сайт, Instagram/WhatsApp-бот, Telegram
         </span>
       </div>
 
@@ -1355,8 +1394,8 @@ export function LeadDistributionSection() {
             <span className="dot" />
             <span className="txt">
               {Number(kpiThreshold) > 0
-                ? "Агенты с KPI ниже порога временно не получают новых лидов. Поставьте 0, чтобы лиды доходили до всех."
-                : "0 — отсева нет: лиды получают все агенты. Сильные первыми, слабые позже, когда у сильных наберётся предел активных лидов. Даже агент с низким KPI дождётся своей очереди."}
+                ? "Агенты с KPI ниже порога временно не получают новых заявок. Поставьте 0, чтобы заявки доходили до всех."
+                : "0 — отсева нет: заявки получают все агенты. Сильные первыми, слабые позже, когда у сильных наберётся предел активных заявок. Даже агент с низким KPI дождётся своей очереди."}
             </span>
           </div>
         </>
@@ -1365,7 +1404,7 @@ export function LeadDistributionSection() {
       <form onSubmit={handleSave}>
         <div className="mod">
           <div className="t">
-            <b>Когда лиды уходят агентам</b>
+            <b>Когда заявки уходят агентам</b>
             <span>
               Бот работает круглосуточно и без ограничений: отвечает, читает фото и голосовые, принимает заявки в любое
               время суток. Главное, что задают эти часы: когда готовая заявка попадает агенту. Принятая ночью дожидается
@@ -1380,8 +1419,7 @@ export function LeadDistributionSection() {
           </div>
           <div className="acts">
             <span className="nf">
-              <input
-                type="time"
+              <RuTimeField
                 value={start}
                 onChange={(e) => setStart(e.target.value)}
                 aria-label="Раздавать с"
@@ -1389,8 +1427,7 @@ export function LeadDistributionSection() {
               />
             </span>
             <span className="nf">
-              <input
-                type="time"
+              <RuTimeField
                 value={end}
                 onChange={(e) => setEnd(e.target.value)}
                 aria-label="Раздавать до"
@@ -1408,6 +1445,7 @@ export function LeadDistributionSection() {
       </form>
 
       <CompanyDaysOffBlock />
+      <WorkdayStartBlock />
     </section>
   );
 }

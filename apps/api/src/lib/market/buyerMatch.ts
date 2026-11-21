@@ -28,7 +28,7 @@
  */
 
 import {
-  isMarketRealtorListing, MARKET_BUYER_RULE_DEFAULTS, propertyFieldShown, type MarketBuyerListing, type MarketOwnersOnlyInfo,
+  isMarketRealtorListing, MARKET_BUYER_PLACED_MAX_DAYS, MARKET_BUYER_RULE_DEFAULTS, propertyFieldShown, type MarketBuyerListing, type MarketOwnersOnlyInfo,
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -44,7 +44,6 @@ import { marketCatalogWhere } from "./somonRubrics.js";
  * в предел упирается только очень широкий запрос; тогда ответ честно помечается «не меньше N».
  */
 export const BUYER_FETCH_LIMIT = 2000;
-const MAX_AGE_YEARS = 2;
 const DAY_MS = 24 * 3600_000;
 const LISTING_TYPES = ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] as const;
 /** Порядок: объявление без района ниже любого с районом (дистанция по цене, площади и свежести меньше этого). */
@@ -142,6 +141,12 @@ export function marketBudgetWindowTjs(
   return { min: lo != null ? lo * (1 - t) : null, max: hi != null ? hi * (1 + t) : null };
 }
 
+/** Размещено ли объявление не раньше N суток назад: по дате размещения, а без неё — по дате, когда нашли. */
+export function placedRecently(row: Pick<BuyerRow, "publishedAt" | "firstSeenAt">, now = Date.now()): boolean {
+  const placedAt = (row.publishedAt ?? row.firstSeenAt).getTime();
+  return placedAt >= now - MARKET_BUYER_PLACED_MAX_DAYS * DAY_MS;
+}
+
 /** Видел ли сбор объявление за последние N суток. Одно правило для запроса в базу и для строки в памяти. */
 export function seenRecently(lastSeenAt: Date, rules: Pick<MarketBuyerRules, "freshDays">, now = Date.now()): boolean {
   return lastSeenAt.getTime() >= now - rules.freshDays * DAY_MS;
@@ -195,6 +200,7 @@ export function matchesBuyer(row: BuyerRow, w: BuyerWants, now = Date.now()): bo
   const type = row.propertyType ?? w.propertyType ?? "APARTMENT";
   if (!isPlausibleSale(row, type)) return false;
   if (!seenRecently(row.lastSeenAt, w.rules, now)) return false;
+  if (!placedRecently(row, now)) return false;
   const window = marketBudgetWindowTjs(w.budgetMinTjs, w.budgetMaxTjs, w.rules);
   if ((window.min != null && row.priceTjs < window.min) || (window.max != null && row.priceTjs > window.max)) return false;
   if (w.rooms != null && propertyFieldShown(type, "rooms") && row.rooms != null && !roomsWithinTolerance(row.rooms, w.rooms, w.rules)) return false;
@@ -217,6 +223,8 @@ function toPublic(r: BuyerRow): MarketBuyerListing {
     districtUnknown: r.districtName == null,
     publishedAt: (r.publishedAt ?? r.firstSeenAt).toISOString(),
     lastSeenAt: r.lastSeenAt.toISOString(),
+    // Отметку «уже связывались» добавляет вызывающий (routes/clients/matching.ts, lib/market/listingContacts.ts).
+    contact: null,
   };
 }
 
@@ -240,13 +248,13 @@ export function rankBuyerListings(
 
 export function buyerListingsWhere(w: BuyerWants, now = Date.now()): Prisma.MarketListingWhereInput {
   const freshSince = new Date(now - w.rules.freshDays * DAY_MS);
-  const oldest = new Date(now - MAX_AGE_YEARS * 365 * DAY_MS);
+  const placedSince = new Date(now - MARKET_BUYER_PLACED_MAX_DAYS * DAY_MS);
   const window = marketBudgetWindowTjs(w.budgetMinTjs, w.budgetMaxTjs, w.rules);
   const price: Prisma.DecimalFilter = {};
   if (window.min != null) price.gte = window.min;
   if (window.max != null) price.lte = window.max;
   const and: Prisma.MarketListingWhereInput[] = [
-    { OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] },
+    { OR: [{ publishedAt: { gte: placedSince } }, { publishedAt: null, firstSeenAt: { gte: placedSince } }] },
     ...plausibleSaleWhere(w.propertyType),
     marketCatalogWhere(),
   ];

@@ -21,7 +21,7 @@ export const customerIntakeNotifyJob: JobHandler<z.infer<typeof schema>> = {
     if (!client || client.deletedAt || client.customerIntakeActionId) return;
     if (outcome.mode === "assigned") {
       if (!outcome.agentId || client.assignedAgentId !== outcome.agentId) return;
-      await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
+      await sendLeadPush(outcome.agentId, client.id, { title: "🔔 Новая заявка", body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
         url: `/clients/${client.shortId}`, tag: `lead-${client.id}` });
     } else if (outcome.mode === "other") {
       const recipients = await findAgentsWithPermission("otherInquiries.view");
@@ -31,7 +31,7 @@ export const customerIntakeNotifyJob: JobHandler<z.infer<typeof schema>> = {
     } else if (outcome.mode === "unassigned" && !client.assignedAgentId) {
       const recipients = await findAgentsWithPermission("clients.assign");
       if (!recipients.length) throw new Error("Customer unassigned intake has no supervisors");
-      await sendPushToAgents(recipients, { title: "⏳ Лид ждёт назначения", body: `${client.fullName} — назначьте агента вручную`,
+      await sendPushToAgents(recipients, { title: "⏳ Заявка ждёт назначения", body: `${client.fullName} — назначьте агента вручную`,
         url: `/clients/${client.shortId}`, tag: `lead-unassigned-${client.id}` });
     }
     // Stable existing tags bound duplicates; no customer-facing delivery receipt

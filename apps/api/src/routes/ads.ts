@@ -158,7 +158,12 @@ adsRouter.get("/report", requireAdsRead, async (req, res) => {
 
   const freshness = await adsFreshness();
   const report = await buildAdSpendReport({ from: period.from, to: period.to });
-  res.json({ ...report, label: period.label, ...freshness });
+  // Прибыль по проданному объекту — доля компании в комиссии: без finance.view её нет
+  // (раздел открыт маркетингу; расход на рекламу им виден, деньги компании — нет).
+  const rows = req.agent!.permissions.has("finance.view")
+    ? report.rows
+    : report.rows.map((r) => ({ ...r, profitTjs: null, commissionTjs: null }));
+  res.json({ ...report, rows, label: period.label, ...freshness });
 });
 
 const unmatchedQuerySchema = z.object({
@@ -521,6 +526,8 @@ adsRouter.get("/board", requireAdsRead, async (req, res) => {
   const { from, to, label } = period;
 
   const BOARD_LIMIT = 500;
+  /** Комиссия компании и окупаемость — только с finance.view (раздел открыт маркетингу). */
+  const seesCompanyMoney = req.agent!.permissions.has("finance.view");
   const freshness = await adsFreshness();
   const [ads, foreignCount, asOf] = await Promise.all([
     prisma.ad.findMany({
@@ -741,18 +748,20 @@ adsRouter.get("/board", requireAdsRead, async (req, res) => {
       row.leadStats = leadStatsOf(
         toCents(row.period.spendTjs),
         found.total,
-        row.period.conversations
+        row.period.conversations,
+        { seesCompanyMoney }
       );
       // Те же доли денег и обращений, что в чипах объектов, — клиенты по тем же весам.
       for (const p of row.properties) {
         const counts = found.byProperty.get(p.id);
-        if (counts) p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true });
+        if (counts) p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true, seesCompanyMoney });
       }
     }
     totalLeadStats = leadStatsOf(
       rows.reduce((acc, r) => acc + toCents(r.period.spendTjs), 0),
       sum,
-      rows.reduce((acc, r) => acc + r.period.conversations, 0)
+      rows.reduce((acc, r) => acc + r.period.conversations, 0),
+      { seesCompanyMoney }
     );
   } catch (err) {
     void logSystemError("ads", `Клиенты объявлений не посчитаны (доска рекламы): ${describeError(err)}`, {
@@ -1085,7 +1094,7 @@ adsRouter.get("/property/:id", async (req, res) => {
       mine ?? { leads: 0, showings: 0, deals: 0, commissionCents: 0 },
       conversations,
       // Клиенты объекта из общих объявлений — доли (0.25 клиента), а не целые люди.
-      { shares: true }
+      { shares: true, seesCompanyMoney: req.agent!.permissions.has("finance.view") }
     );
   } catch (err) {
     void logSystemError("ads", `Клиенты объекта по рекламе не посчитаны: ${describeError(err)}`, {
@@ -1119,7 +1128,10 @@ adsRouter.get("/insights", requireAdsRead, async (req, res) => {
     return res.status(400).json({ error: "Неверный месяц", details: parsed.error.flatten() });
   }
   const month = parsed.data ?? currentMonth();
-  const result = await buildAdInsights(month, req.query.force === "1");
+  const result = await buildAdInsights(month, req.query.force === "1", {
+    // Прибыль и комиссия компании — только с finance.view (раздел открыт маркетингу).
+    seesCompanyMoney: req.agent!.permissions.has("finance.view"),
+  });
   // reason отличает «разбирать нечего» от «модель не ответила» — экран пишет
   // разное, и второе не должно выглядеть как отсутствие расходов.
   res.json(result ?? { text: null, reason: "empty" });

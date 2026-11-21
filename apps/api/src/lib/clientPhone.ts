@@ -13,9 +13,14 @@
  * урок уже был с контактами собственников (см. lib/ownerContact.ts): правило,
  * записанное в одном маршруте, не является правилом.
  *
- * Маска оставляет начало и две последние цифры (`+992•••••57`) намеренно: сотруднику
- * нужно отличать двух Мадин в списке и видеть, что номер вообще есть, а карточка не
- * пустая. Восстановить по ней номер нельзя.
+ * Маска прячет СЕРЕДИНУ номера (`+9929300••456`, владелец 19.11.2026: «укажи всё,
+ * кроме середины»): сотруднику нужно узнавать номер на глаз — оператор (93/90/88…)
+ * и хвост, — отличать двух Мадин в списке и видеть, что номер вообще есть.
+ *
+ * Скрыто ДВЕ цифры — решение владельца 19.11.2026 («Сделать 2»), принятое после
+ * предупреждения: две цифры — это сто вариантов, их можно перебрать через WhatsApp.
+ * Захочется строже — меняется одна константа ниже. Закрытый номер не набирается и
+ * не уходит в СМС: `isDialableTajikNumber` и `tajikNationalNumber` маску не принимают.
  */
 
 import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
@@ -25,11 +30,74 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
  *  всё равно приходили бы открытыми. */
 export type CanSeeFullPhone = boolean;
 
+/** Сколько цифр в середине номера закрыто и сколько видно в конце. */
+const MASK_HIDDEN_DIGITS = 2;
+const MASK_TAIL_DIGITS = 3;
+
+/**
+ * ПОЗИЦИИ СЧИТАЮТСЯ ПО ЦИФРАМ, А НЕ ПО ЗНАКАМ (ревью 19.11.2026). Номер в базе
+ * лежит «как набрали»: с пробелами, скобками, иногда с подписью после цифр. Счёт
+ * по знакам на `+992 931 234 567` закрывал пробел и ОДНУ цифру (десять вариантов
+ * вместо ста), а на `+992931234456 Мадина` — две буквы имени, и номер был открыт
+ * целиком. Тот же номер в тексте маскировался по чистым цифрам, то есть закрывал
+ * другие позиции: две маски накладывались и оставляли десять вариантов.
+ *
+ * Уже закрытый знак считается занятой позицией цифры — повторная маска ничего не
+ * сдвигает и не закрывает лишнего. Разделители и подпись остаются на месте.
+ */
 export function maskClientPhone(phone: string): string {
-  if (phone.length <= 6) return phone;
+  const digitAt: number[] = [];
+  for (let i = 0; i < phone.length; i++) {
+    const c = phone[i];
+    if ((c >= "0" && c <= "9") || c === CLIENT_PHONE_MASK_CHAR) digitAt.push(i);
+  }
+  // Внутренние номера (1006) и служебные коды — не личные данные клиента.
+  if (digitAt.length <= 6) return phone;
   // Символ маски — общий с @royal-home/shared: по нему и сервер, и форма
   // «Изменить клиента» узнаю́т закрытый номер и не принимают его за набранный.
-  return phone.slice(0, 4) + CLIENT_PHONE_MASK_CHAR.repeat(5) + phone.slice(-2);
+  const hidden = new Set(digitAt.slice(-(MASK_TAIL_DIGITS + MASK_HIDDEN_DIGITS), -MASK_TAIL_DIGITS));
+  let out = "";
+  for (let i = 0; i < phone.length; i++) out += hidden.has(i) ? CLIENT_PHONE_MASK_CHAR : phone[i];
+  return out;
+}
+
+/**
+ * НОМЕР ВНУТРИ ТЕКСТА: ГДЕ ОН КОНЧАЕТСЯ (19.11.2026, облачный прогон поймал утечку).
+ *
+ * Разбор текста берёт цепочку цифр с разделителями, а за номером в тексте часто
+ * идут ещё цифры: номер и «2 комнаты», имя карточки с меткой времени после номера.
+ * Маска «две цифры перед тремя последними» по такой цепочке закрывала чужие цифры
+ * в хвосте, а сам номер оставляла открытым целиком. Сдвиг на одну цифру не лучше:
+ * в поле закрыты одни две цифры, в тексте соседние, вместе остаётся десять
+ * вариантов. Прежняя маска (пять и больше закрытых знаков) этого не замечала.
+ *
+ * Поэтому маска «кроме середины» ставится только там, где границы номера известны:
+ *   · 992 и девять цифр — таджикский, первые двенадцать цифр;
+ *   · «+7» и десять цифр — первые одиннадцать;
+ *   · ровно девять цифр без плюса или десять с ведущим нулём — местная запись.
+ * Хвост после номера: короткий остаётся как есть (это не номер), от семи цифр
+ * закрывается целиком (может быть вторым номером). Границы неизвестны — видны
+ * только две первые и две последние цифры, остальное закрыто.
+ */
+export function maskPhoneRun(digits: string, withPlus: boolean): string {
+  const sign = withPlus ? "+" : "";
+  let phoneLength = 0;
+  if (digits.startsWith("992") && digits.length >= 12) phoneLength = 12;
+  else if (withPlus && digits.startsWith("7") && digits.length >= 11) phoneLength = 11;
+  // Девять цифр — местная запись, только если начинается как таджикский номер (мобильные
+  // 5, 7, 8, 9; городские 3 и 4): иначе это может быть короткий городской с приписанными цифрами.
+  else if (!withPlus && digits.length === 9 && /^[345789]/.test(digits)) phoneLength = 9;
+  else if (!withPlus && digits.length === 10 && digits.startsWith("0")) phoneLength = 10;
+  if (phoneLength === 0) {
+    // Две первые и две последние: по ним цепочку ещё можно узнать (журнал помощника,
+    // имя карточки), а закрытые в поле цифры в них не попадают ни у одной записи —
+    // у номера из семи цифр закрыты третья и четвёртая, у длинных — пятая с конца и дальше.
+    return sign + digits.slice(0, 2) + CLIENT_PHONE_MASK_CHAR.repeat(Math.max(digits.length - 4, MASK_HIDDEN_DIGITS)) + digits.slice(-2);
+  }
+  const masked = maskClientPhone(sign + digits.slice(0, phoneLength));
+  const rest = digits.slice(phoneLength);
+  if (!rest) return masked;
+  return `${masked} ${rest.length >= 7 ? CLIENT_PHONE_MASK_CHAR.repeat(rest.length) : rest}`;
 }
 
 /** Телефон в том виде, в каком его можно показать этому сотруднику. */
@@ -126,7 +194,7 @@ export function maskPhoneNumbersInText(text: string): string {
   return text.replace(PHONE_IN_TEXT_RE, (match) => {
     const digits = match.replace(/\D/g, "");
     if (digits.length < 9) return match;
-    return maskClientPhone(match.trim().startsWith("+") ? `+${digits}` : digits);
+    return maskPhoneRun(digits, match.trim().startsWith("+"));
   });
 }
 
@@ -147,7 +215,7 @@ export function maskPhonesInFreeText(text: string): string {
   // Порядок важен: узкий разбор оставляет после себя «•», и добивка уже не видит
   // в замаскированном номере длинную цепочку цифр.
   return maskPhonesInText(text).replace(DIGIT_RUN_IN_TEXT_RE, (match) =>
-    maskClientPhone(match.replace(/\D/g, ""))
+    maskPhoneRun(match.replace(/\D/g, ""), false)
   );
 }
 
@@ -156,6 +224,22 @@ export function maskPhonesInFreeText(text: string): string {
 export function phoneSafeText<T extends string | null | undefined>(text: T, canSeeFull: CanSeeFullPhone): T {
   if (canSeeFull || typeof text !== "string") return text;
   return maskPhonesInFreeText(text) as T;
+}
+
+/**
+ * СВОБОДНЫЙ ТЕКСТ СДЕЛКИ (18.11.2026): заметка, причина отмены, отметка выплаты.
+ * Тот же номер «не в том поле», что в заметках клиента. Одна функция для всех
+ * мест, где Deal уходит наружу целиком: список «Сделки» и сделки в карточке клиента.
+ */
+export function dealTextPhoneSafe<
+  T extends { notes?: string | null; annulReason?: string | null; realtorPayoutNote?: string | null },
+>(deal: T, canSeeFull: CanSeeFullPhone): T {
+  if (canSeeFull) return deal;
+  const out = { ...deal };
+  for (const key of ["notes", "annulReason", "realtorPayoutNote"] as const) {
+    if (typeof out[key] === "string") (out as Record<string, unknown>)[key] = maskPhonesInFreeText(out[key] as string);
+  }
+  return out;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { MarketingBrandMark } from "../look/marketing/MarketingSection";
 import type { ChannelsStatus } from "../../hooks/useMarketing";
 
 /**
@@ -67,6 +68,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
       <div className="chn-grid" style={{ marginTop: 16 }}>
         <div className="chn">
           <h3>
+            <MarketingBrandMark channel="INSTAGRAM" />
             Instagram <span className="n">{channels.INSTAGRAM.connected ? "подключён" : "не подключён"}</span>
           </h3>
           <ChannelRow
@@ -86,6 +88,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
 
         <div className="chn">
           <h3>
+            <MarketingBrandMark channel="FACEBOOK" />
             Facebook <span className="n">{channels.FACEBOOK.connected ? "подключён" : "не подключён"}</span>
           </h3>
           <ChannelRow
@@ -101,6 +104,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
 
         <div className="chn">
           <h3>
+            <MarketingBrandMark channel="TELEGRAM" />
             Telegram <span className="n">{channels.TELEGRAM.crosspostConnected ? "подключён" : "не подключён"}</span>
           </h3>
           <ChannelRow
@@ -128,6 +132,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
 
         <div className="chn">
           <h3>
+            <MarketingBrandMark channel="YOUTUBE" />
             YouTube Shorts <span className="n">{channels.YOUTUBE.connected ? "подключён" : "не подключён"}</span>
           </h3>
           <ChannelRow
@@ -140,6 +145,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
 
       <div className="chn">
         <h3>
+          <MarketingBrandMark channel="TIKTOK" />
           TikTok <span className="n">{channels.TIKTOK.connected ? `подключён${channels.TIKTOK.username ? ` (@${channels.TIKTOK.username})` : ""}` : "не подключён"}</span>
         </h3>
         <ChannelRow
@@ -160,6 +166,7 @@ export function ChannelsStatusPanel({ data }: { data: ChannelsStatus | undefined
 
       <div className="chn">
         <h3>
+          <MarketingBrandMark channel="THREADS" />
           Threads{" "}
           <span className="n">
             {channels.THREADS.connected ? `подключён${channels.THREADS.username ? ` (@${channels.THREADS.username})` : ""}` : "не подключён"}

@@ -55,7 +55,7 @@ const apiPort = new URL(apiUrl).port || "4000";
 export default defineConfig({
   // This suite changes a global rollout setting and owns a separate serial config.
   // assistant-confirm-card — своя конфигурация (кадры П4а, вход кодом на каждом прогоне).
-  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts", "**/assistant-confirm-card.spec.ts"],
+  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts", "**/assistant-confirm-card.spec.ts", "**/native-controls.spec.ts"],
   testDir: "./tests/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -74,10 +74,19 @@ export default defineConfig({
     // проекта наперегонки обновляют один токен — проигравший улетает на /login.
     { name: "setup-chromium", testMatch: /.*\.setup\.ts/ },
     { name: "setup-mobile", testMatch: /.*\.setup\.ts/ },
+    // WebKit как у iPhone — только для вёрстки, которую ломает именно Safari (клавиатура,
+    // safe-area, шторки). Гоняет лишь свои спеки (testMatch ниже): весь набор на WebKit не нужен.
+    { name: "setup-webkit", use: { ...devices["iPhone 13"] }, testMatch: /.*\.setup\.ts/ },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"], storageState: "playwright/.auth/chromium.json" },
       dependencies: ["setup-chromium"],
+    },
+    {
+      name: "webkit",
+      use: { ...devices["iPhone 13"], storageState: "playwright/.auth/webkit.json" },
+      dependencies: ["setup-webkit"],
+      testMatch: /(look-chat-sheets|look-overlays-keyboard|agent-phone-every-screen|mobile-app-feel)\.spec\.ts/,
     },
     {
       // Мобильный проход: половина замечаний владельца была именно про телефон,

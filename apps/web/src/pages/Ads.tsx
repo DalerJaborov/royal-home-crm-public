@@ -8,6 +8,7 @@ import {
   useAdSpendReport,
   useAdTrend,
   useAdsBoard,
+  useAdsBoardRange,
   useForeignAds,
   useSyncAds,
   useUnmatchedAds,
@@ -28,10 +29,15 @@ import { AdsTrendChart } from "../components/ads/AdsTrendChart";
 import { AdsLeaderboard } from "../components/ads/AdsLeaderboard";
 import { AdsCreatives } from "../components/ads/AdsCreatives";
 import { AdsPacing } from "../components/ads/AdsPacing";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 import { PropertySpendTable } from "../components/ads/PropertySpendTable";
 import { formatMoneyExact, pluralizeRu } from "../lib/format";
 import { AdsSourcesTable, AiDigest, ForeignList, type Tab } from "../components/ads/AdsShared";
 import { MarketingTabs } from "../components/SectionTabs";
+import { Link } from "react-router-dom";
+import { AdsDirectorTiles } from "../components/ads/AdsDirectorTiles";
+import { previousAdPeriod, previousAdPeriodLabel } from "../lib/adsCompare";
+import { dushanbeTodayKey } from "../lib/date";
 
 /**
  * РЕКЛАМА — куда уходят деньги и что они приносят.
@@ -66,9 +72,14 @@ import { MarketingTabs } from "../components/SectionTabs";
  * `.state`, как в макете.
  */
 export function Ads() {
+  return <MarketingSection><AdsScreen /></MarketingSection>;
+}
+
+function AdsScreen() {
+  const section = useMarketingSectionMark();
   const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
-  if (role !== "MARKETING" && !can("finance.view") && !can("marketing.access")) return <div className="rh2 screens"><div className="scr">
+  if (role !== "MARKETING" && !can("finance.view") && !can("marketing.access")) return <div className="rh2 screens" data-ry-section={section}><div className="scr">
     <div className="pg-h"><h1>Реклама</h1></div>
     <div className="card tight"><p>Недостаточно прав для просмотра расходов на рекламу.</p></div>
   </div></div>;
@@ -97,6 +108,17 @@ function AdsContent() {
   const can = useCan();
   const role = useAuthStore((s) => s.agent?.role);
   const canSync = canWriteAds(role, can);
+  const section = useMarketingSectionMark();
+  // Новый вид (метка раздела есть только при признаке): главные цифры директора
+  // и одна строка «не подключено» вместо пяти нулевых плиток.
+  const royal = !!section;
+  const notConnected = !!board.data && !board.data.enabled;
+  // Кабинет отключили, а история объявлений есть — её не прячем (ревью PR 336):
+  // одной строкой «не подключено» заменяются только пустые плитки и списки.
+  const hasHistory = (board.data?.totals.total ?? 0) > 0 || (board.data?.totals.foreign ?? 0) > 0;
+  const bareNotConnected = royal && notConnected && !hasHistory;
+  const prevRange = royal ? previousAdPeriod(period, dushanbeTodayKey()) : null;
+  const previousBoard = useAdsBoardRange(prevRange, royal && !!board.data && (!notConnected || hasHistory));
 
   const totals = board.data?.totals;
   // Свежесть данных читаем с дашборда: он грузится на любой вкладке, а отчёт по
@@ -133,12 +155,12 @@ function AdsContent() {
     ["properties", "По объектам", null],
     // Именно «ждут привязки», без рекламы самого агентства: у неё объекта нет и
     // не будет, и в очереди работы ей не место.
-    ["unmatched", "Привязать", totals?.pending ?? null],
+    ["unmatched", royal ? "Без объекта" : "Привязать", totals?.pending ?? null],
     ["foreign", "Чужая реклама", totals?.foreign ?? null],
   ];
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -148,7 +170,8 @@ function AdsContent() {
               рекламного кабинета.
             </p>
           </div>
-          <div className="acts">
+          {/* Не подключено — период и сверка не к чему: в новом виде их нет. */}
+          {!bareNotConnected && <div className="acts">
             <label className="field">
               <span className="vh">Период</span>
               <select
@@ -170,7 +193,7 @@ function AdsContent() {
                 Сверить с кабинетом
               </button>
             )}
-          </div>
+          </div>}
         </div>
 
         <MarketingTabs />
@@ -179,7 +202,25 @@ function AdsContent() {
             обращений пришло, столько стоило одно. Всё остальное — в списке. */}
         {/* Ошибка запроса — не нули (F10, 02.10.2026): «потрачено 0,00 TJS ·
             0 обращений» при упавшем сервере читалось как «реклама стоит». */}
-        {board.isError && !board.data ? (
+        {royal && notConnected && (
+          /* Реклама не подключена — одна строка вместо нулевых плиток и пустых списков.
+             Подключить может только тот, кто меняет настройки; остальным — к кому идти. */
+          <div className="card tight">
+            <div className="quiet">
+              <span className="dot" />
+              <span className="txt">
+                {hasHistory ? "Реклама сейчас не подключена: ниже — то, что было раньше." : "Реклама не подключена, поэтому цифр по ней нет."}
+                {!can("settings.manage") && " Подключить может директор — попросите его."}
+              </span>
+              {can("settings.manage") && (
+                <Link className="pill ghost sm" to="/settings?tab=channels">
+                  Подключить
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
+        {bareNotConnected ? null : board.isError && !board.data ? (
           <div className="card tight">
             <div className="quiet crit" role="alert">
               <span className="dot crit" />
@@ -189,6 +230,17 @@ function AdsContent() {
               </button>
             </div>
           </div>
+        ) : (
+        royal ? (
+          <AdsDirectorTiles
+            totals={totals}
+            previous={previousBoard.data?.enabled ? previousBoard.data.totals : undefined}
+            previousLabel={previousAdPeriodLabel(period)}
+            pacing={pacing.data}
+            syncedAt={syncedAt}
+            periodLabel={board.data?.label ?? "период"}
+            seesMoney={can("finance.view")}
+          />
         ) : (
         /* ПЯТЬ ПЛИТОК (компактная версия по макету владельца, 13.10.2026): деньги за период,
            обращения Meta, клиенты CRM, сегодня против обычного дня и прогноз месяца — всё, что
@@ -228,7 +280,7 @@ function AdsContent() {
             sub={pacing.data ? (describeForecast(pacing.data.forecastState, pacing.data.forecast).range ?? "") : ""}
           />
         </div>
-        )}
+        ))}
 
         {/* Сверка денег CRM с кабинетом Meta — на виду над всем остальным: если
             цифры разошлись, остальной экран читать бессмысленно. */}
@@ -236,7 +288,7 @@ function AdsContent() {
           <AdsReconcileBanner preset={period} onFixAd={fixAd} onGoUnmatched={() => setTab("unmatched")} />
         )}
 
-        {board.data && !board.data.enabled && (
+        {board.data && !board.data.enabled && !royal && (
           <div className="card tight">
             <div className="empty">
               <span className="ic">
@@ -348,6 +400,7 @@ function AdsContent() {
           </>
         )}
 
+        {!bareNotConnected && <>
         <AiDigest month={digestMonth} />
 
         <div className="sec-h">
@@ -470,6 +523,7 @@ function AdsContent() {
             )}
           </div>
         </div>
+        </>}
       </div>
 
       {/* Окно привязки: key по объявлению — у каждого объявления своё состояние

@@ -15,6 +15,11 @@ import { SETTINGS_TABS } from "../../lib/settingsTabs";
 import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Skeleton } from "../../components/rh2/Skeleton";
 import { scrollableRegion } from "../../lib/a11y";
+import { useRoyalLook } from "../../hooks/useRoyalLook";
+import { AdminRoot } from "../../components/look/admin/AdminRoot";
+import { RhCircle } from "../../components/look/ui";
+import type { RoyalIconName } from "../../components/look/royalIconData";
+import { pillTone, type PillTone } from "../../components/look/tileTone";
 
 /**
  * «Состояние функций» (14.11.2026): один экран про все скрытые рубильники CRM — что работает, что идёт
@@ -25,6 +30,13 @@ import { scrollableRegion } from "../../lib/a11y";
 
 const STATE_CHIP: Record<FunctionState, string> = { working: "chip ok", preview: "chip warn", off: "chip mute" };
 const STATE_DOT: Record<FunctionState, string> = { working: "dot ok", preview: "dot warn", off: "dot" };
+/** Новый вид: круг 48 по смыслу, цвет — из общей функции тона (К13): норма зелёная, «только проверка» и выключено спокойные;
+ *  «Обратите внимание» — жёлтый значок «внимание» (красный остаётся только для реально просроченного и потерянного). */
+const STATE_CIRCLE: Record<FunctionState, { icon: RoyalIconName; tone: PillTone | "a0" }> = {
+  working: { icon: "list-checks", tone: pillTone("good") },
+  preview: { icon: "eye", tone: pillTone("info") },
+  off: { icon: "x-circle", tone: "a0" },
+};
 
 const CRON_HEALTH_TEXT: Record<FunctionCron["health"], { label: string; chip: string }> = {
   ok: { label: "в порядке", chip: "chip ok" },
@@ -67,30 +79,52 @@ function tabLabel(id: string): string {
   return SETTINGS_TABS.find((t) => t.id === id)?.label ?? "Настройки";
 }
 
+/** Причина по-человечески — её формирует сервер; сырой текст, имена переменных и задач — только в «Для разработчика». */
+const HUMAN_ERROR_FALLBACK = "Сбой в работе. Подробности — в блоке «Для разработчика».";
+
+function DevBlock({ lines }: { lines: Array<[string, string]> }) {
+  const shown = lines.filter(([, value]) => value);
+  if (shown.length === 0) return null;
+  return (
+    <details className="fs-dev">
+      <summary>Для разработчика</summary>
+      <dl>
+        {shown.map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd><code className="fs-code">{value}</code></dd></div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 function CronLine({ cron }: { cron: FunctionCron }) {
   const h = CRON_HEALTH_TEXT[cron.health];
   return (
     <li className="fs-cron">
       <span className="fs-cron-name">
-        {CRON_TITLES[cron.name] ?? cron.name}
-        {CRON_TITLES[cron.name] ? <code className="fs-code"> {cron.name}</code> : null}
+        {CRON_TITLES[cron.name] ?? "Фоновая задача"}
       </span>
       <span className="fs-cron-when">последний запуск: {when(cron.lastRunAt)}</span>
       <span className={h.chip}>{h.label}</span>
-      {cron.lastError ? <span className="fs-err">Ошибка: {cron.lastError}</span> : null}
+      {cron.lastError ? <span className="fs-err">Ошибка: {cron.humanError ?? HUMAN_ERROR_FALLBACK}</span> : null}
+      <DevBlock lines={[["Имя задачи", cron.name], ["Сырой текст ошибки", cron.lastError ?? ""]]} />
     </li>
   );
 }
 
-function FunctionRow({ item }: { item: FunctionStatusItem }) {
+function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean }) {
   return (
     <div className="row fs-item" data-state={item.state}>
-      <span className={STATE_DOT[item.state]} aria-hidden="true" />
+      {royal ? (
+        item.attention ? <RhCircle icon="circle-alert" tone={pillTone("today")} /> : <RhCircle icon={STATE_CIRCLE[item.state].icon} tone={STATE_CIRCLE[item.state].tone} />
+      ) : (
+        <span className={STATE_DOT[item.state]} aria-hidden="true" />
+      )}
       <div className="t fs-body">
         <b>{item.title}</b>
         <div className="fs-chips">
-          <span className={STATE_CHIP[item.state]}>{FUNCTION_STATE_LABELS[item.state]}</span>
-          {item.attention ? <span className="chip crit">Обратите внимание</span> : null}
+          <span className={royal && item.state === "preview" ? "chip mute" : STATE_CHIP[item.state]}>{FUNCTION_STATE_LABELS[item.state]}</span>
+          {item.attention ? <span className={royal ? "chip warn" : "chip crit"}>Обратите внимание</span> : null}
         </div>
         <p className="fs-what">{item.what}</p>
         <p className="fs-reason">{item.reason}</p>
@@ -104,19 +138,15 @@ function FunctionRow({ item }: { item: FunctionStatusItem }) {
         ) : null}
         {item.lastError ? (
           <p className="fs-err">
-            Последняя ошибка ({exactDateTime(item.lastError.at)}): {item.lastError.message}
+            Последняя ошибка ({exactDateTime(item.lastError.at)}): {item.lastError.humanMessage ?? HUMAN_ERROR_FALLBACK}
           </p>
         ) : null}
+        <DevBlock lines={[
+          ["Сырой текст последней ошибки", item.lastError?.message ?? ""],
+          ["Переменные сервера", item.envNames.join(", ")],
+          ["Фоновые задачи", item.crons.map((c) => c.name).join(", ")],
+        ]} />
         <div className="fs-foot">
-          {item.envNames.length > 0 ? (
-            <span className="fs-env">
-              Управляет сервер: {item.envNames.map((n) => (
-                <code className="fs-code" key={n}>
-                  {n}
-                </code>
-              ))}
-            </span>
-          ) : null}
           {item.settingsTab ? (
             <Link className="lnk" to={`/settings?tab=${item.settingsTab}`}>
               Открыть: Настройки, «{tabLabel(item.settingsTab)}»
@@ -135,10 +165,11 @@ export function FunctionStatus() {
   const allowed = canViewFunctionStatus(agent?.role);
   const query = useFunctionStatus(allowed);
   const [filter, setFilter] = useState<Filter>("all");
+  const royal = useRoyalLook();
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <AdminRoot royal={royal} title="Состояние функций">
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -147,7 +178,7 @@ export function FunctionStatus() {
             </div>
           </div>
         </div>
-      </div>
+      </AdminRoot>
     );
   }
 
@@ -166,7 +197,7 @@ export function FunctionStatus() {
     : [];
 
   return (
-    <div className="rh2 screens">
+    <AdminRoot royal={royal} title="Состояние функций">
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -233,7 +264,7 @@ export function FunctionStatus() {
                     <div className="card tight">
                       <div className="list">
                         {rows.map((i) => (
-                          <FunctionRow key={i.key} item={i} />
+                          <FunctionRow key={i.key} item={i} royal={royal} />
                         ))}
                       </div>
                     </div>
@@ -269,7 +300,7 @@ export function FunctionStatus() {
           </>
         )}
       </div>
-    </div>
+    </AdminRoot>
   );
 }
 

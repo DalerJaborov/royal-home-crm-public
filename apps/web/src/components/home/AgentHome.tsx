@@ -15,6 +15,7 @@ import { AgentFocusCard } from "./agent/AgentFocusCard";
 import { AgentQueue } from "./agent/AgentQueue";
 import { AgentAskSheet, AiButton } from "./agent/AgentAsk";
 import "./agent/agentHome.css";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 /**
  * ГЛАВНАЯ АГЕНТА: один экран на ПК и телефон (контракт оболочки 06.10.2026,
@@ -57,7 +58,7 @@ export function AgentHome() {
   });
   // Тот же серверный фильтр и ключ кэша, что у IncomingLeadWindow: общий список, не второй.
   const { data: pendingPage, isLoading: pendingLoading, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
-  // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  // «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
   const { data: noContactPage } = useClients({ pageSize: 20, noContact: true });
   const { data: offers, isLoading: offersLoading, isError: offersError, refetch: refetchOffers } = useReactivationOffers();
   const { data: duplicates, isLoading: duplicatesLoading, isError: duplicatesError, refetch: refetchDuplicates } = useDuplicateReviews();
@@ -101,7 +102,7 @@ export function AgentHome() {
   const sub = [
     todayLabel(),
     [
-      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новый лид", "новых лида", "новых лидов"])}`,
+      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новая заявка", "новых заявки", "новых заявок"])}`,
       data && showings.length > 0 && `${showings.length} ${pluralizeRu(showings.length, ["показ", "показа", "показов"])}`,
     ]
       .filter(Boolean)
@@ -212,8 +213,8 @@ export function AgentHome() {
               {data ? (
                 <>
                   <Tile tone="lime" value={showings.length} label="показов сегодня" href="/calendar" />
-                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="лидов за месяц" href="/clients" />
-                  <Tile tone="lav" value={noContactPage?.total ?? noContact.length} label="без контакта" href="/clients" />
+                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="заявок за месяц" href="/clients" />
+                  <Tile tone="lav" value={noContactPage?.total ?? noContact.length} label={NO_CONTACT_TEXT.tile} href="/clients?slice=noContact" />
                 </>
               ) : (
                 <>

@@ -57,8 +57,11 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
     // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
     "./assistantNarration.js": { handleNarrationCallback: async () => false },
+    "./narrationPreviewBot.js": { handleNarrationPreviewCallback: async () => false },
     "./assistantFreeNarration.js": { handleFreeNarrationCallback: async () => false },
     "./staffClip.js": { handleStaffClipCallback: async () => false },
+    // Пост без объекта от Шабнам (21.11.2026) — свои кнопки spub:, к кнопкам связок не относятся.
+    "./staffSocialPost.js": { handleStaffSocialCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },

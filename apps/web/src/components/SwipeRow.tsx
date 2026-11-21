@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { touchFromOwnDom } from "../lib/touchScrollTrap";
 import { Phone, ChevronRight } from "lucide-react";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { EDGE_BACK_ZONE_PX } from "../hooks/useEdgeSwipeBack";
@@ -159,6 +160,8 @@ export function SwipeRow({
         // Отдаём касание ему: два горизонтальных жеста из одной точки — это
         // строка, уезжающая вбок одновременно с уходом на предыдущий экран.
         if (!t || t.clientX <= EDGE_BACK_ZONE_PX) return;
+        // Окно, открытое из строки (портал), шлёт свои касания сюда по дереву React — строку под ним не двигаем.
+        if (!touchFromOwnDom(e)) { drag.current = null; return; }
         setSpringing(false);
         drag.current = { x: t.clientX, y: t.clientY, locked: "none", dx: 0, samples: [], crossed: false };
       }}

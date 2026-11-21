@@ -34,7 +34,6 @@ let pendingLeadId: string;
 let acceptedShortId: number;
 let acceptedId: string;
 let otherAcceptedId: string;
-let disputeId: string;
 
 async function login(phone: string) {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
@@ -73,18 +72,12 @@ beforeAll(async () => {
   acceptedId = accepted.id;
   acceptedShortId = accepted.shortId;
   otherAcceptedId = (await makeClient(3, { acceptedAt: new Date() })).id;
-  disputeId = (
-    await prisma.propertyCountDispute.create({
-      data: { clientId: acceptedId, requestedById: agent.id, role: "BUYER", aiCount: 1, proposedCount: 2, reason: "проверка A11" },
-    })
-  ).id;
 
   agentToken = await login(agent.phone);
   managerToken = await login(manager.phone);
 });
 
 afterAll(async () => {
-  await prisma.propertyCountDispute.deleteMany({ where: { id: disputeId } });
   await prisma.pushActionToken.deleteMany({ where: { agentId } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
@@ -115,16 +108,6 @@ describe("A11: имя-номер не уходит тем, кому номер �
       expect(res.body as string).toContain("Входящий");
       expect(res.body as string).not.toContain(NAME_DIGITS);
     }
-  });
-
-  it("очередь споров о числе объектов у руководителя без права на номера", async () => {
-    const res = await request(app)
-      .get("/api/v1/clients/property-count-disputes")
-      .set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-    const row = (res.body.items as { id: string }[]).find((r) => r.id === disputeId);
-    expect(row).toBeDefined();
-    expect(JSON.stringify(row)).not.toContain(NAME_DIGITS);
   });
 
   it("пересечение показов в ответе на новую запись", async () => {

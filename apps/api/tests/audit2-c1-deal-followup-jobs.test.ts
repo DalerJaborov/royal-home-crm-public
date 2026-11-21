@@ -30,6 +30,17 @@ vi.mock("../src/lib/conversationDelivery.js", async (importOriginal) => ({
   deliverToConversation,
 }));
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 import { prisma } from "../src/db.js";
 import { dealCloseFollowupJob } from "../src/jobs/dealCloseFollowup.js";
 import { dealReviewAskJob } from "../src/jobs/dealReviewAsk.js";
@@ -184,5 +195,59 @@ describe("JOB-03: отказ доставки вопроса об отзыве",
     deliverToConversation.mockResolvedValueOnce({ ok: false, status: 400, error: "окно", code: "window_closed" });
     await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
     expect(await rowsCount()).toBe(1);
+  });
+});
+
+describe("выключатель «сообщения после сделки» (14.11.2026)", () => {
+  it("выключен — покупателя спрашиваем, продавца нет; включили — продавца тоже", async () => {
+    // Выключатель касается только продавца: главный «автоматика по продавцам» не
+    // должен молча гасить вопрос «как всё прошло» у покупателя (ревью 18.11.2026).
+    const sellerId = (
+      await prisma.client.create({
+        data: {
+          fullName: `Продавец c1 ${runId}`,
+          phone: `+992973${String(runId).slice(-9)}`,
+          source: "PHONE_CALL",
+          assignedAgentId: agentId,
+          acceptedAt: new Date(),
+        },
+      })
+    ).id;
+    await prisma.property.update({ where: { id: propertyId }, data: { sellerClientId: sellerId } });
+    try {
+      findClientDeliveryTarget.mockResolvedValue({ kind: "telegram", id: "c1" });
+      deliverToConversation.mockResolvedValue({ ok: true });
+      switchesOff.add("dealAfterCloseMessagesEnabled");
+      try {
+        await expect(dealReviewAskJob.run({ dealId })).resolves.toBeUndefined();
+      } finally {
+        switchesOff.delete("dealAfterCloseMessagesEnabled");
+      }
+      expect(findClientDeliveryTarget.mock.calls.map((c) => c[0])).toEqual([buyerId]);
+      expect(deliverToConversation).toHaveBeenCalledOnce();
+      const asked = await prisma.$queryRaw<{ clientId: string }[]>`SELECT "clientId" FROM "DealReview" WHERE "dealId" = ${dealId}`;
+      expect(asked.map((r) => r.clientId)).toEqual([buyerId]);
+
+      findClientDeliveryTarget.mockClear();
+      await dealReviewAskJob.run({ dealId });
+      expect(findClientDeliveryTarget.mock.calls.map((c) => c[0])).toEqual([buyerId, sellerId]);
+      expect(deliverToConversation).toHaveBeenCalledTimes(2);
+    } finally {
+      await prisma.property.update({ where: { id: propertyId }, data: { sellerClientId: null } });
+      await prisma.$executeRaw`DELETE FROM "DealReview" WHERE "dealId" = ${dealId}`;
+      await prisma.client.deleteMany({ where: { id: sellerId } });
+    }
+  });
+
+  it("выключен — закрытие сделки не ломается: объект снимается с сайта, сторона продавца пересчитана", async () => {
+    switchesOff.add("dealAfterCloseMessagesEnabled");
+    try {
+      await dealCloseFollowupJob.run(closePayload());
+    } finally {
+      switchesOff.delete("dealAfterCloseMessagesEnabled");
+    }
+    expect(notifySellerSideOfSale).toHaveBeenCalledOnce();
+    expect(syncPropertiesToSite).toHaveBeenCalledOnce();
+    expect(syncPropertiesToSite.mock.calls[0][1]).toBe("sold");
   });
 });

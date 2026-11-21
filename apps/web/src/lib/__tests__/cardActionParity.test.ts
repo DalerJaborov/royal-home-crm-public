@@ -52,6 +52,8 @@ const CARD_ACTION_PARITY: CardParity[] = [
       { id: "whatsapp-first", label: "Написать в WhatsApp первыми", marker: { component: "WhatsAppFirstContact" } },
       { id: "more", label: "Ещё (редкие действия)", marker: { component: "ClientMoreMenu" } },
       { id: "history", label: "История", marker: { component: "InteractionTimeline" } },
+      // Объявления с площадок под покупателем: WhatsApp продавцу, «Показать номер», ссылка, отметка «уже связывались» (17.11.2026).
+      { id: "market-listings", label: "С площадок (объявления под покупателя)", marker: { component: "MarketBuyerListings" } },
     ],
   },
   {

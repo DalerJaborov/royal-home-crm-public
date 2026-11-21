@@ -106,7 +106,13 @@ export async function exportClaudeExpenses(filters: ClaudeExpenseFilters) {
 }
 export const CLAUDE_METHOD_LABELS = EXPENSE_METHOD_LABELS;
 export const CLAUDE_CATEGORY_TONES = { OFFICE: "office", ADVERTISING: "ads", SALARY: "salary", OTHER: "other" };
-export function claudeMoney(amount: number, currency: Currency = "TJS") { return `${amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${currency === "USD" ? "$" : "с."}`; }
+/** Целые — без дробной части («0 с.», «500 с.»); с дирамами — всегда два знака: «1 615,20 с.»,
+ *  а не «1 615,2 с.» рядом с «146,19 с.» (кадр владельца 20.11). */
+export function claudeMoney(amount: number, currency: Currency = "TJS") {
+  const whole = Number.isInteger(Math.round(amount * 100) / 100);
+  const digits = whole ? 0 : 2;
+  return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${currency === "USD" ? "$" : "с."}`;
+}
 export function expenseTjs(expense: Pick<ClaudeExpense, "amount" | "currency" | "exchangeRate">, fallbackRate?: number): number | null {
   const amount = Number(expense.amount); if (!Number.isFinite(amount)) return null;
   if (expense.currency === "TJS") return amount;

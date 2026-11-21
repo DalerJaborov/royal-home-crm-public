@@ -52,6 +52,7 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
 import { computeHiddenReason, foreignWriteDenied, normalizePhone, phoneOwnershipError, presentClient, restoreMaskedNotes } from "./shared.js";
 import { findFuzzyDuplicateCandidate } from "../../lib/duplicateReview.js";
 import { phoneTail } from "../../lib/clientPhones.js";
+import { dealTextPhoneSafe } from "../../lib/clientPhone.js";
 import { clientPhoneSelectionTokens } from "../../lib/clientPhoneSelection.js";
 import { presentExtraPhoneOrigins } from "../../lib/clientPhoneOrigins.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
@@ -418,7 +419,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    */
   const dealsOwnAgentId = scopeDealsToOwnAgent(req);
   const visibleDeals = dealsOwnAgentId ? client.deals.filter((d) => d.agentId === dealsOwnAgentId) : client.deals;
-  const scopedDeals = visibleDeals.map((d) => serializeDealMoney(d, seesDealMoney(req, d)));
+  // Заметки сделок — свободный текст: номер в них закрыт тем же правом (18.11.2026).
+  const scopedDeals = visibleDeals.map((d) =>
+    serializeDealMoney(dealTextPhoneSafe(d, can(req, "clients.viewPhone")), seesDealMoney(req, d))
+  );
 
   /**
    * ФАКТЫ ИСТОРИИ — ПО ПОЛНОЙ ТАБЛИЦЕ, А НЕ ПО 200 ЗАПИСЯМ КАРТОЧКИ (аудит
@@ -682,7 +686,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   // открыть то, что закрыто экрану — до приёма лида и после передачи клиента.
   const access = await resolveClientCardAccess(req, client);
   if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
-  if (access === "nameOnly") return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Заявка ещё не принята — переписка не открыта" });
   if (access === "transferred") {
     return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
   }
@@ -1123,7 +1127,7 @@ cardRouter.post("/", requireAuth, async (req, res) => {
   // проворонил окно до автопереназначения (Настройки → leadAcceptMinutes).
   if (!acceptedAt) {
     sendLeadPush(assignedAgentId, client.id, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -1145,7 +1149,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !existing.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   // Правка чужой карточки — только закреплённому агенту и руководству, см.
   // foreignWriteDenied: «видеть все» само по себе права писать не даёт.

@@ -51,6 +51,8 @@ notificationsRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
   }
   const { page } = parsed.data;
+  // Время выборки снимаем ДО запросов: всё, что создано позже, клиент не «видел».
+  const listedAt = new Date();
   const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
 
   /**
@@ -63,7 +65,7 @@ notificationsRouter.get("/", async (req, res) => {
    */
   const pinnedWhere = { ...where, read: false, level: { in: ["APPROVAL", "CRITICAL"] } };
 
-  const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([
+  const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([
     prisma.notification.findMany({
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -72,6 +74,10 @@ notificationsRouter.get("/", async (req, res) => {
     }),
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { ...where, read: false } }),
+    // МЕТКА НА КОЛОКОЛЬЧИКЕ: не прочитанное и при этом ещё не показанное человеку
+    // (владелец 21.11.2026). «Ждёт решения» остаётся в ленте до действия, но после
+    // просмотра в метку уже не входит.
+    prisma.notification.count({ where: { ...where, read: false, seenAt: null } }),
     // Только на первой странице: это шапка ленты, а не её часть, и повторять её
     // над каждой следующей страницей незачем.
     page === 1
@@ -101,6 +107,8 @@ notificationsRouter.get("/", async (req, res) => {
   res.json({
     items: itemsWithOffers,
     unreadCount,
+    unseenCount,
+    listedAt: listedAt.toISOString(),
     pinned: pinnedWithOffers,
     approvalCount,
     criticalCount,
@@ -141,11 +149,43 @@ notificationsRouter.post("/read-many", async (req, res) => {
   res.json({ ok: true, count: result.count });
 });
 
+const seenSchema = z.object({
+  ids: z.array(z.guid()).min(1).max(200).optional(),
+  /** Время выборки из GET (`listedAt`): отмечается всё своё, созданное не позже него. */
+  before: z.iso.datetime().optional(),
+});
+
+/**
+ * ОТКРЫЛ СПИСОК — УВИДЕЛ (владелец 21.11.2026). Ставит «просмотрено» (seenAt), НЕ
+ * трогая read: строка «Ждёт решения»/«Не отвечает» остаётся в ленте и в закрепе, пока
+ * по ней не сделано действие, но метку на колокольчике больше не держит.
+ * `before` (время выборки `listedAt`) — всё своё созданное не позже него, а не только
+ * показанные строки: пришедшее после выборки позже `before` и метку зажигает снова
+ * (повтор по tag получает новый createdAt в upsertByTag). `ids` — прежняя форма для
+ * открытых старых вкладок. Без обоих — всё непросмотренное. Только свои записи.
+ */
+notificationsRouter.post("/seen", async (req, res) => {
+  const parsed = seenSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
+
+  const result = await prisma.notification.updateMany({
+    where: {
+      ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)),
+      seenAt: null,
+      read: false,
+      ...(parsed.data.ids ? { id: { in: parsed.data.ids } } : {}),
+      ...(parsed.data.before ? { createdAt: { lte: new Date(parsed.data.before) } } : {}),
+    },
+    data: { seenAt: new Date() },
+  });
+  res.json({ ok: true, count: result.count });
+});
+
 /** Отметить всю ленту прочитанной — кнопка «Прочитать всё». */
 notificationsRouter.post("/read-all", async (req, res) => {
   await prisma.notification.updateMany({
     where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), read: false },
-    data: { read: true },
+    data: { read: true, seenAt: new Date() },
   });
   res.json({ ok: true });
 });

@@ -22,6 +22,7 @@ import {
   DEAL_STAGES,
   DEAL_DOCUMENT_KINDS,
   LOOK_IDS,
+  TEXT_SIZE_IDS,
   ABSENCE_KINDS,
   type AbsenceKind,
 } from "./enums.js";
@@ -137,6 +138,18 @@ export const meUpdateSchema = z
 /** Тумблер «модерация в Telegram» в профиле (22.09.2026) — PATCH /me/telegram-moderation. */
 export const meTelegramModerationSchema = z.object({ enabled: z.boolean() }).strict();
 
+const homeBlockIdSchema = z.string().trim().min(1).max(48);
+/** Раскладка главной одной роли: свой порядок id и выключенные id. */
+export const homeBlocksLayoutSchema = z.object({
+  order: z.array(homeBlockIdSchema).max(40).optional(),
+  hidden: z.array(homeBlockIdSchema).max(40).optional(),
+}).strict();
+export type HomeBlocksLayout = z.infer<typeof homeBlocksLayoutSchema>;
+export const homePreferencesSchema = z.object({
+  blocks: z.partialRecord(z.enum(ROLES), homeBlocksLayoutSchema).optional(),
+}).strict();
+export type HomePreferences = z.infer<typeof homePreferencesSchema>;
+
 /** Настройки оформления, хранятся в Agent.preferences (JSON). Сохраняются целиком (PUT-семантика). */
 export const uiPreferencesSchema = z
   .object({
@@ -150,6 +163,8 @@ export const uiPreferencesSchema = z
       .transform((v) => (v === undefined ? undefined : migrateLegacyTheme(v))),
     /** Облик интерфейса (компоновка), независим от темы (цвета). См. LOOK_IDS. */
     look: z.enum(LOOK_IDS).optional(),
+    /** Личный размер текста нового вида (TEXT_SIZE_IDS): только оформление, на права не влияет. */
+    textSize: z.enum(TEXT_SIZE_IDS).optional(),
     effects: z
       .object({
         /** Декоративный анимированный фон-«аврора». */
@@ -178,6 +193,13 @@ export const uiPreferencesSchema = z
     onboardingCompletedAt: z.string().datetime().nullable().optional(),
     /** Идентификаторы разово скрытых подсказок/баннеров (например, промо живой темы). */
     dismissedHints: z.array(z.string().max(48)).max(50).optional(),
+    /**
+     * Главная «Нового вида» (20.11.2026): личный порядок и выключенные блоки — по роли,
+     * чтобы смена роли не тащила чужую раскладку. Только оформление: какие блоки роли
+     * вообще разрешены, решает реестр на клиенте (components/look/home/registry.tsx),
+     * сохранённый список прав не расширяет. Нет записи — все блоки роли включены.
+     */
+    home: homePreferencesSchema.optional(),
     security: z
       .object({
         /**
@@ -596,7 +618,7 @@ export const propertyCreateSchema = propertyBaseSchema.superRefine((data, ctx) =
     !hasValidPhoneDigitCount(data.ownerContact)
   ) {
     // Та же проверка формата, что и у телефона клиента (clientPhoneSchema) — девять
-    // значащих цифр после кода страны. Маску («+992•••••18», сервер сам подставит
+    // значащих цифр после кода страны. Маску («+9929300••456», сервер сам подставит
     // настоящий номер из выбранной карточки продавца) не отвергаем — это не мусор.
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ownerContact"], message: "Введите корректный номер телефона" });
   }
@@ -707,7 +729,7 @@ export const propertyUpdateSchema = propertyBaseSchema
 })
   // Тот же формат-чек, что и при создании (propertyCreateSchema.superRefine) — не
   // дублируем правило «что такое телефон» второй раз буквально, дублируем только
-  // вызов. Маска («+992•••••18») и null (очистка поля) проходят без проверки формата.
+  // вызов. Маска («+9929300••456») и null (очистка поля) проходят без проверки формата.
   .superRefine((data, ctx) => {
     coordsPairIssue(data, ctx);
     if (
@@ -733,7 +755,7 @@ export const clientPhoneSchema = z
   .string()
   .min(5)
   // Скрытый маской номер отвергаем ОТДЕЛЬНО и раньше проверки длины: цифр в нём
-  // тоже мало, но «введите корректный номер» на `+992•••••18` читается как поломка
+  // тоже мало, но «введите корректный номер» на `+9929300••456` читается как поломка
   // CRM — сотрудник видит в поле ровно то, что ему показала сама CRM.
   .refine((v) => !isMaskedClientPhone(v), "Номер скрыт — менять его может только тот, кому он виден")
   .refine(hasValidPhoneDigitCount, "Введите корректный номер телефона");
@@ -764,7 +786,7 @@ const clientBaseSchema = z.object({
    * Проверка та же, что у главного (clientPhoneSchema): второй номер должен быть
    * настоящим номером, иначе он бесполезен — по нему всё равно никого не узнать.
    * Заодно оттуда же приезжает запрет на замаскированный номер: сотрудник без
-   * права видеть телефон не должен «сохранить» карточку с «+992•••••18» внутри.
+   * права видеть телефон не должен «сохранить» карточку с «+9929300••456» внутри.
    *
    * Потолок в десять штук — не бизнес-правило, а предохранитель: поле уходит в
    * массив Postgres и в поиск по входящему звонку, и вставленная целиком
@@ -1116,8 +1138,8 @@ export type SecurityReviewState = (typeof SECURITY_REVIEW_STATES)[number];
 
 export const SECURITY_REVIEW_LABELS: Record<SecurityReviewState, string> = {
   PENDING: "Ждёт проверки СБ",
-  CLEARED: "Закрыт после проверки СБ",
-  CONFIRMED: "Закрыт: нарушение подтверждено",
+  CLEARED: "Проверено СБ: вопросов нет",
+  CONFIRMED: "Нарушение подтверждено",
 };
 
 /**
@@ -1427,32 +1449,6 @@ export const propertyDeleteRequestRejectSchema = z.object({
 
 /** Одобрение — комментарий необязателен: решение и так видно по Корзине. */
 export const propertyDeleteRequestApproveSchema = z.object({
-  decisionNote: z.string().trim().max(1000).optional(),
-});
-
-/**
- * ЗАЯВКА НА ПЕРЕСМОТР ЧИСЛА ОБЪЕКТОВ (владелец 06.09.2026, разбор слепых зон
- * п.3; роль добавлена 07.09.2026 для симметрии с покупателем) — зеркало
- * clientDeleteRequestSchema выше: число пишет ИИ, агент может только
- * предложить своё и объяснить почему, решает руководитель. role различает
- * сторону: SELLER — sellerDeclaredPropertyCount, BUYER — buyerDesiredPropertyCount
- * (у клиента с dualIntent это разные, независимые заявки).
- */
-export const propertyCountDisputeRoleSchema = z.enum(["SELLER", "BUYER"]);
-
-export const propertyCountDisputeSchema = z.object({
-  role: propertyCountDisputeRoleSchema,
-  proposedCount: z.number().int().min(0).max(999),
-  reason: z.string().trim().min(1, "Объясните, почему число ИИ неверное").max(1000),
-});
-
-/** Отказ — причина обязательна, см. clientDeleteRequestRejectSchema. */
-export const propertyCountDisputeRejectSchema = z.object({
-  decisionNote: z.string().trim().min(1, "Напишите, почему заявка отклонена").max(1000),
-});
-
-/** Одобрение — комментарий необязателен. */
-export const propertyCountDisputeApproveSchema = z.object({
   decisionNote: z.string().trim().max(1000).optional(),
 });
 

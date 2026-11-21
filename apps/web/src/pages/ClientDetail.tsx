@@ -2,6 +2,7 @@ import { PropertyChoiceList } from "../components/PropertyChoiceList";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { Rh2OfflineState, loadView } from "../components/rh2/Rh2ErrorState";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
@@ -21,12 +22,7 @@ import { NewDealSheet } from "../components/NewDealSheet";
 import { MergeClientModal } from "../components/MergeClientModal";
 import { useSimilarNotes, useDismissSimilarClient, type SimilarNotesClient } from "../hooks/useDuplicates";
 import { RequestDeleteClientModal } from "../components/RequestDeleteClientModal";
-import {
-  usePendingDeleteRequest,
-  usePendingPropertyCountDisputes,
-  useDisputePropertyCount,
-  type PropertyCountDisputeRole,
-} from "../hooks/useDeleteRequests";
+import { usePendingDeleteRequest } from "../hooks/useDeleteRequests";
 import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind, robotCallClientReasonsRu } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
@@ -48,6 +44,7 @@ import { canCallOnTransferredCard, transferBannerOf } from "../lib/clientTransfe
 import {
   clientKindLabel,
   CLIENT_KIND_LABELS,
+  CLIENT_SOURCE_LABELS,
   formatClientCode,
   formatClientName,
   matchScoreBand,
@@ -68,11 +65,14 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalClientFacts, RoyalClientTabs, royalPhoneFact, type RoyalClientFact } from "../components/look/clients/RoyalClients";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
 import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
 import { MarketBuyerListings } from "../components/MarketBuyerListings";
-import { ClientNextStep, clientPropertyCountVisible } from "../components/ClientCardContext";
+import { ClientNextStep } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
 
@@ -155,6 +155,7 @@ function ClientDetailCard() {
     isLoading,
     isError,
     error: clientError,
+    fetchStatus: clientFetch,
     refetch: refetchClient,
   } = useClient(id, { pollConversations: chat.open });
   // «Подбор · N» (17.09.2026, docs/match-policy-plan-17-09.md §6) — грузится,
@@ -173,6 +174,8 @@ function ClientDetailCard() {
    */
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид»: меняются только вкладки (разметка) и оформление слоя, функции те же.
+  const royal = useRoyalLook() && clean;
   // Роут теперь короткий числовой shortId (/clients/1042) — все мутации ниже адресуют
   // настоящий UUID с уже загруженной карточки, а не парсят его заново из URL.
   const updateClient = useUpdateClient(client?.id ?? "");
@@ -471,8 +474,19 @@ function ClientDetailCard() {
    * «клиента передали или удалили» и шёл искать его заново вместо того, чтобы
    * обновить страницу. 404 — это и есть «не найдена», а не 500/таймаут.
    */
-  const notFoundError = isError && clientError instanceof ApiError && clientError.status === 404;
-  if (isError && !notFoundError) {
+  const notFoundError = isError && !client && clientError instanceof ApiError && clientError.status === 404;
+  // Нет связи и нет данных: не «карточка не найдена» (запрос на паузе), а «Нет связи» — загрузится сам, когда она вернётся.
+  if (loadView({ data: client, isError, fetchStatus: clientFetch }) === "offline") {
+    return (
+      <Rh2Screen>
+        <div className="card">
+          <Rh2OfflineState onRetry={() => void refetchClient()} />
+        </div>
+      </Rh2Screen>
+    );
+  }
+  // Данные уже есть — фоновая ошибка обновления их НЕ прячет (ревью #346): карточка остаётся на экране.
+  if (isError && !client && !notFoundError) {
     /* Ранние ответы живут в области темы (`Rh2Screen`): прежний `EmptyState`
        со Tailwind-классами рисовался вне `.rh2`, и кнопке приходилось брать
        собственную обёртку. Тексты и действие те же. */
@@ -651,6 +665,16 @@ function ClientDetailCard() {
     `Последний контакт ${relativeTime(client.lastContactAt)}`,
     client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен",
   ].join(". ");
+  /** «Новый вид»: те же сведения короткими фактами со значками + источник (в строке списка на телефоне его нет). */
+  // Номер — первым фактом под именем (пачка D1): какой номер наберёт «Позвонить», видно
+  // до нажатия. Строку отдаёт сервер по правам: полный номер — директору, остальным маской.
+  const headFacts: RoyalClientFact[] = [
+    ...royalPhoneFact(client.phone, locked),
+    { icon: "calendar-days", text: dushanbeDate(client.createdAt, { day: "numeric", month: "long" }), label: `Пришёл ${dushanbeDate(client.createdAt, { day: "numeric", month: "long" })}` },
+    { icon: "clock", text: relativeTime(client.lastContactAt), label: `Последний контакт ${relativeTime(client.lastContactAt)}` },
+    { icon: "users", text: client.assignedAgent?.fullName ?? "Агент не назначен", label: client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен" },
+    ...(client.source ? [{ icon: "inbox" as const, text: CLIENT_SOURCE_LABELS[client.source] ?? client.source, label: `Откуда пришёл: ${CLIENT_SOURCE_LABELS[client.source] ?? client.source}` }] : []),
+  ];
 
   /**
    * «Решить сейчас» — только то, на что у человека есть право и эндпоинт
@@ -662,8 +686,8 @@ function ClientDetailCard() {
     solveRows.push(
       <div className="solve" key="accept">
         <span className="t">
-          <b>Новый лид назначен вам.</b> Телефон и работа с карточкой откроются после принятия. Не примете
-          вовремя, лид уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
+          <b>Новая заявка назначена вам.</b> Телефон и работа с карточкой откроются после принятия. Не примете
+          вовремя, заявка уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
           {client.leadReason && (
             <>
               {" "}
@@ -719,7 +743,7 @@ function ClientDetailCard() {
             </>
           ) : (
             <>
-              <b>Лид ждёт принятия.</b> Назначен агенту {client.assignedAgent?.fullName}. Можно назначить
+              <b>Заявка ждёт принятия.</b> Назначена агенту {client.assignedAgent?.fullName}. Можно назначить
               агента вручную: заявка сразу станет принятой, без таймера.
             </>
           )}
@@ -865,7 +889,7 @@ function ClientDetailCard() {
   // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
   const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
   const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
-    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></>}
+    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
     {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
       canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
   </div> : null;
@@ -1111,8 +1135,8 @@ function ClientDetailCard() {
    */
   const commonMiddle = (
     <>
-      <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />
-      <MutationError mutation={declineLead} fallback="Не удалось отклонить лид" />
+      <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" />
+      <MutationError mutation={declineLead} fallback="Не удалось отклонить заявку" />
       <MutationError mutation={updateClient} fallback="Не удалось сохранить изменение" />
       {deleteError && (
         <div className="card tight">
@@ -1233,7 +1257,7 @@ function ClientDetailCard() {
           initialType={showingMode === "schedule" ? "SHOWING" : undefined}
           initialPropertyId={showingPropertyId}
           sellerClientId={sells && !buys ? client.id : undefined}
-          selectedClientName={clean ? client.displayName ?? client.fullName : undefined}
+          // Имя клиента не передаём: оно уже в шапке этой страницы, повтор внутри шторки лишний (аудит К08.3).
           isSeller={isSeller}
           onClose={() => setShowInteraction(false)}
           onSaved={(outcome) => {
@@ -1308,8 +1332,8 @@ function ClientDetailCard() {
       )}
       {!accountReadOnly && confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={() => {
             setConfirmDecline(false);
@@ -1418,12 +1442,6 @@ function ClientDetailCard() {
             overviewProperties={overviewProperties}
             intentConfirmation={clientIntentConfirmation}
             overviewNextStep={overviewNextStep}
-            propertyCounts={
-              <>
-                <PropertyCountRow client={client} role="SELLER" />
-                <PropertyCountRow client={client} role="BUYER" />
-              </>
-            }
             similarWarning={
               similarNotes && similarNotes.length > 0 ? (
                 <SimilarNotesWarning clients={similarNotes} onMerge={(c) => setShowMerge(c)} dismissSimilar={dismissSimilar} />
@@ -1486,7 +1504,10 @@ function ClientDetailCard() {
   }
 
   return (
-    <div className="rh2 screens">
+    // «Новый вид»: метка раздела на карточке и на всех её окнах (порталы Rh2Portal
+    // берут её из RoyalSection) — слой theme-look-royal-clients.css действует только на неё.
+    <RoyalSection name={royal ? "clients" : undefined}>
+    <div className="rh2 screens" data-ry-section={royal ? "clients" : undefined}>
       <div className={clean ? "scr clean-client-detail" : "scr"} style={clean ? cleanClientDetailScale : undefined}>
         <div className="wrap" style={{ marginBottom: 4 }}>
           {/* Прототип рисует крошку строкой `.lk mut` со стрелкой; на широком
@@ -1523,11 +1544,13 @@ function ClientDetailCard() {
         {/* Шапка: аватар, имя, плашки, агент */}
         <CleanClientDetailHeader enabled={clean}>
           <div className={mobile ? "cd-h cd-h-m" : "cd-h"} style={clean ? { display: "grid", gridTemplateColumns: "64px minmax(0, 1fr)", gap: 16, alignItems: "start", textAlign: "left" } : undefined}>
-            <span className={mobile ? "av lg" : "av xl"} style={clean ? { width: 64, height: 64 } : undefined}>
+            <span className={mobile ? "av lg" : "av xl"} style={royal ? { width: 56, height: 56 } : clean ? { width: 64, height: 64 } : undefined}>
               <ClientAvatar
                 fullName={client.fullName}
                 avatarUrl={client.avatarUrl}
-                size={mobile ? 56 : clean ? 64 : 96}
+                size={royal ? 56 : mobile ? 56 : clean ? 64 : 96}
+                // Новый вид: круг без кольца пола, как в строке списка (пол остаётся в подписи для чтеца).
+                palette={royal ? "tokens" : undefined}
               />
             </span>
             <div className="who">
@@ -1589,7 +1612,7 @@ function ClientDetailCard() {
                     {client.kind && !isOther && <span className="chip mute">{clientKindLabel(client)}</span>}
                     {client.isPersonalLead && (
                       <span className="chip" title="Агент привёл клиента сам, не через каналы компании">
-                        Личный лид
+                        Личная заявка
                       </span>
                     )}
                     {lastPropertiesSent && (
@@ -1598,7 +1621,9 @@ function ClientDetailCard() {
                       </span>
                     )}
                   </div>
-                  <p className="sub" style={clean ? { fontSize: 14, lineHeight: 1.6, margin: 0 } : undefined}>{headSub}</p>
+                  {royal
+                    ? <RoyalClientFacts facts={headFacts} />
+                    : <p className="sub" style={clean ? { fontSize: 14, lineHeight: 1.6, margin: 0 } : undefined}>{headSub}</p>}
             </div>
             {!mobile && (
               <div className="acts" style={clean ? { gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "flex-start" } : undefined}>
@@ -1616,7 +1641,7 @@ function ClientDetailCard() {
                       title="Позвонить через CRM, разговор запишется и попадёт в хронологию"
                       className={clean ? "pill" : "pill ghost"}
                     />
-                    {!locked && (
+                    {!locked && !(royal && conversations.length === 0) && (
                       <button
                         className="pill ghost"
                         type="button"
@@ -1689,7 +1714,9 @@ function ClientDetailCard() {
             )}
             {!locked && (
               <>
-                <button
+                {/* «Новый вид»: бледная «Написать» без причины читалась поломкой (critic-agent-newbie) —
+                    нет переписки, нет и кнопки; написать первым можно блоком WhatsApp ниже. */}
+                {!(royal && conversations.length === 0) && <button
                   className="cd-act"
                   type="button"
                   disabled={conversations.length === 0}
@@ -1698,7 +1725,7 @@ function ClientDetailCard() {
                 >
                   <MessageSquare className="i" />
                   Написать
-                </button>
+                </button>}
                 <button className="cd-act" type="button" onClick={openOverviewProperties}>
                   <Home className="i" />
                   {sells && !buys ? "Объекты" : "Подбор"}
@@ -1719,13 +1746,18 @@ function ClientDetailCard() {
           </div>
         )}
 
+        {/* «Следующий шаг» — сразу под кнопками звонка (пачка D1): на телефоне он был в самом низу
+            «Обзора», на ПК — после подбора и площадок. Тот же узел, второй копии нет. */}
+        {royal && overviewNextStep}
+
         {commonMiddle}
 
         {/* Разделы карточки: на ПК — вкладки с переключателем (как было), на
             телефоне — плоский стек секций (макет c99db05f), gating по `tab`
             снят полностью для mobile, все пять блоков видны подряд. */}
         <div className={clean ? "card clean-client-sections" : "card"} ref={tabsCardRef} style={clean ? { border: 0, padding: 24 } : undefined}>
-          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
+          {royal ? <RoyalClientTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} />
+            : clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
             <div className="tabs" role="tablist" aria-label="Разделы карточки">
               {tabs.map((t) => (
                 <button
@@ -1760,7 +1792,7 @@ function ClientDetailCard() {
                   «Телефоны» и «Что ИИ предлагал раньше» убраны — всё это ИИ
                   вплетает в сводку, а номер выбирается в кнопке «Позвонить». */}
               <ClientInsight client={client} />
-              {clean && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
+              {clean && !royal && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
                 <p>Краткая сводка по этому клиенту ещё не подготовлена.</p>
                 <p className="sub">Предыдущие действия и договорённости доступны в истории карточки.</p>
                 <button type="button" className="pill ghost" onClick={() => setTab("hist")}>Открыть историю</button>
@@ -1768,16 +1800,15 @@ function ClientDetailCard() {
 
               {clientIntentConfirmation}
               {overviewProperties}
-              {overviewNextStep}
-
-              {/* Число объектов от ИИ — тихой строкой, не карточкой-уведомлением
-                  (решение владельца 03.09.2026). Обе стороны независимы: у клиента
-                  с dualIntent показываются обе. */}
-              <PropertyCountRow client={client} role="SELLER" />
-              <PropertyCountRow client={client} role="BUYER" />
+              {/* «С площадок» под покупателем — свой узел у каждой карточки (телефон агента рисует его в
+                  MobileClientCard), сторож cardActionParity сверяет обе. */}
+              {buys && !(pending && locked) && (
+                <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
+              )}
+              {!royal && overviewNextStep}
 
               {pending && locked ? (
-                <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете лид.</p>
+                <p className="state">Запрос клиента, бюджет и история откроются, когда вы примете заявку.</p>
               ) : (
                 <>
                   {/* «Где ищет» (12.09.2026, docs/geo-match-plan-12-09.md) — карта мест,
@@ -1816,7 +1847,7 @@ function ClientDetailCard() {
             >
               {mobile && <div className="sec-t">Переписка</div>}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : conversations.length > 0 ? (
                 <ClientChatCard
                   conversations={conversations}
@@ -1851,7 +1882,7 @@ function ClientDetailCard() {
             >
               {mobile && <div className="sec-t">Звонки</div>}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : callsCount > 0 ? (
                 <InteractionTimeline
                   interactions={interactions.filter((i) => i.type === "CALL")}
@@ -1900,7 +1931,7 @@ function ClientDetailCard() {
                   этой подписи агент увидел бы обычное «Взаимодействий пока нет» и
                   решил, что у клиента и правда пусто. */}
               {pending && locked ? (
-                <p className="state">История и переписка откроются, когда вы примете лид.</p>
+                <p className="state">История и переписка откроются, когда вы примете заявку.</p>
               ) : (
                 <InteractionTimeline
                   interactions={interactions}
@@ -1916,6 +1947,7 @@ function ClientDetailCard() {
 
       {sharedModals}
     </div>
+    </RoyalSection>
   );
 }
 
@@ -1928,138 +1960,6 @@ function ClientDetailCard() {
  * там (десктоп, без изменений), и внутри MobileActionSheet (телефон, «Ещё» → «Похожая
  * карточка») — общий код, чтобы предупреждение не разошлось между двумя местами.
  */
-/**
- * ЧИСЛО ОБЪЕКТОВ ОТ ИИ — ТИХОЙ СТРОКОЙ (владелец 06.09.2026, разбор слепых зон
- * п.3; покупатель добавлен 07.09.2026 — «вдруг решит купить не одну, а две»).
- *
- * «Не агент решает, сколько у клиента объектов — ИИ сам понимает это из разговора
- * и вносит. Агент может оспорить, решение с подтверждением руководителя.»
- *
- * Строка `.quiet`, а не цветная карточка-баннер: правило владельца 03.09.2026 —
- * карточек-уведомлений в интерфейсе нет, даже срочное показывается тихой строкой.
- * Форма спора уезжает в правую шторку, как отклонение заявки в «Архиве», а не
- * разворачивается прямо в карточке: это редкое действие, и место под него в
- * самом читаемом блоке карточки было бы занято всегда.
- *
- * Показываем только когда число по ЭТОЙ роли уже есть — не по `kind`:
- * клиент с dualIntent, ставший покупателем, но всё ещё продающий, должен видеть
- * и строку продавца.
- */
-export function PropertyCountRow({ client, role }: { client: Client; role: PropertyCountDisputeRole }) {
-  const accountReadOnly = useIsReadOnly();
-  const isSeller = role === "SELLER";
-  const aiCount = isSeller ? client.sellerDeclaredPropertyCount : client.buyerDesiredPropertyCount;
-  const hasCount = clientPropertyCountVisible(client, role);
-  const { data } = usePendingPropertyCountDisputes(client.id, hasCount);
-  const [open, setOpen] = useState(false);
-
-  if (!hasCount) return null;
-  const pending = data?.requests.find((r) => r.role === role);
-
-  return (
-    <>
-      <div className="quiet">
-        <span className="txt">
-          ИИ насчитал объектов {isSeller ? "на продажу" : "на покупку"}: <b>{aiCount}</b>
-          {pending && ` · заявка на пересмотр (${pending.proposedCount}) ждёт решения руководства`}
-        </span>
-        {!accountReadOnly && !pending && (
-          <button className="pill ghost sm" type="button" onClick={() => setOpen(true)}>
-            Оспорить
-          </button>
-        )}
-      </div>
-      {!accountReadOnly && open && <PropertyCountDisputeSheet client={client} role={role} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-/** Шторка спора — то же устройство, что у RejectSheet в «Архиве». */
-function PropertyCountDisputeSheet({
-  client,
-  role,
-  onClose,
-}: {
-  client: Client;
-  role: PropertyCountDisputeRole;
-  onClose: () => void;
-}) {
-  const accountReadOnly = useIsReadOnly();
-  const dispute = useDisputePropertyCount(client.id);
-  const [proposedCount, setProposedCount] = useState("");
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit() {
-    if (accountReadOnly) return;
-    setError(null);
-    const n = Number(proposedCount);
-    if (proposedCount.trim() === "" || !Number.isInteger(n) || n < 0) {
-      setError("Введите целое число, ноль или больше");
-      return;
-    }
-    if (!reason.trim()) {
-      setError("Объясните, почему число ИИ неверное");
-      return;
-    }
-    try {
-      await dispute.mutateAsync({ role, proposedCount: n, reason: reason.trim() });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось отправить заявку");
-    }
-  }
-
-  const title = role === "SELLER" ? "Оспорить число объектов на продажу" : "Оспорить число объектов на покупку";
-
-  // Общий корпус окон CRM, а не своя разметка: ловушки фокуса у ручной шторки
-  // не было. Кнопки действий остаются в теле, а не переезжают в подвал
-  // `.sheet-f`: задача — дать окну ловушку фокуса, а не переверстать его.
-  return (
-    <Rh2Sheet onClose={onClose} title={title}>
-      <p className="sub" style={{ fontSize: "var(--fs-14)", color: "var(--muted)" }}>
-        Число меняет не агент, а руководитель — вы предлагаете своё и объясняете почему.
-      </p>
-      <div className={proposedCount.trim() ? "fld" : "fld bad"} style={{ marginTop: 16 }}>
-        <span className="lab">Сколько объектов на самом деле</span>
-        <input
-          autoFocus
-          className="inp"
-          type="number"
-          min={0}
-          max={999}
-          value={proposedCount}
-          onChange={(e) => setProposedCount(e.target.value)}
-        />
-      </div>
-      <div className={reason.trim() ? "fld" : "fld bad"} style={{ marginTop: 16 }}>
-        <span className="lab">Почему число ИИ неверное</span>
-        <textarea
-          rows={3}
-          maxLength={1000}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Увидит руководитель"
-        />
-      </div>
-      {error && (
-        <div className="state err" style={{ marginTop: 12 }}>
-          <span className="dot crit" />
-          {error}
-        </div>
-      )}
-      <div className="act" style={{ marginTop: 20, display: "flex", gap: 8 }}>
-        <button className="pill sm" type="button" disabled={dispute.isPending} onClick={() => void submit()}>
-          Отправить
-        </button>
-        <button className="pill ghost sm" type="button" onClick={onClose}>
-          Отмена
-        </button>
-      </div>
-    </Rh2Sheet>
-  );
-}
-
 export function SimilarNotesWarning({
   clients,
   onMerge,
@@ -2130,9 +2030,9 @@ function MobileActionSheet({
  *
  * Конфиденциальный блок: доступен только руководству с правом проверки.
  *
- * Два исхода, и оба закрывают карточку. Разница в том, что остаётся в истории:
- * «вопросов нет» — обычное закрытие, «нарушение подтверждено» — запись, по которой
- * потом разбираются с человеком.
+ * Два исхода (18.11.2026): «вопросов нет» карточку не закрывает никогда;
+ * «нарушение подтверждено» убирает её в Корзину, только если автоматика СБ
+ * включена и карточка не в работе (сервер: lib/securityAutomation.ts).
  */
 function SecurityReviewPanel({ client }: { client: Client }) {
   const can = useCan();
@@ -2284,9 +2184,9 @@ function LiveVoiceCallSheet({ clientId, onClose }: { clientId: string; onClose: 
         />
         <PropertyChoiceList items={pickerOptions} value={propertyId} onChange={setPropertyId}
           emptyLabel="Без объекта" disabled={call.isPending} loading={picker.isLoading || chosen.isLoading}
-          error={picker.isError || chosen.isError}
+          error={(picker.isError && !picker.properties) || (chosen.isError && !chosen.data)}
           onRetry={() => { void picker.refetch(); if (chosenMissing) void chosen.refetch(); }} />
-        {!picker.isFetching && !picker.isError && propertyQ && !pickerList.length && chosen.data && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
+        {!picker.isFetching && !(picker.isError && !picker.properties) && propertyQ && !pickerList.length && chosen.data && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
       </div>
       <MutationError mutation={call} variant="rh2" fallback="Робот не смог позвонить. Попробуйте позже." />
     </Rh2Sheet>

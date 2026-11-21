@@ -718,7 +718,7 @@ describe("расписание", () => {
   it("запланировать → тик запускает в свой час → публикуется; «вернуть в черновик» снимает", async () => {
     const row = await makeRow({ channels: ["INSTAGRAM"] });
     const at = new Date(Date.now() + 10 * 60_000).toISOString();
-    const scheduled = await request(app).post(`/api/v1/social-videos/${row.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at });
+    const scheduled = await request(app).post(`/api/v1/social-videos/${row.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at, acceptSlotConflict: true });
     expect(scheduled.status).toBe(202);
     expect(scheduled.body.status).toBe("SCHEDULED");
     expect(scheduled.body.scheduledAt).toBe(at);
@@ -735,7 +735,7 @@ describe("расписание", () => {
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("DONE");
 
     const second = await makeRow({ channels: ["INSTAGRAM"] });
-    await request(app).post(`/api/v1/social-videos/${second.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at });
+    await request(app).post(`/api/v1/social-videos/${second.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at, acceptSlotConflict: true });
     const back = await request(app).post(`/api/v1/social-videos/${second.id}/unschedule`).set(auth("MARKETING"));
     expect(back.status).toBe(200);
     expect(back.body).toMatchObject({ status: "DRAFT", scheduledAt: null });

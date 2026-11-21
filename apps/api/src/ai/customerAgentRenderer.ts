@@ -32,10 +32,11 @@ import { customerStaffFollowUpLine, customerStaffFollowUpFixedLines, customerTha
   PHONE_ASK_TEXT, CUSTOMER_SELLER_WORDS, type FollowUpMemory } from "./customerAgentStaffFollowUp.js";
 import { detectOutsideCoverage } from "./coverageGuard.js";
 import { customerReplyLink } from "../lib/customerReplyLink.js";
-import { serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
+import { RUDAKI_ERA_SERVICE_AREA_LINES, serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
+import { customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
-  customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerLegalAsked, customerRentalAsked, customerInputHasLink,
+  customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerInputHasLink,
   customerSubstantiveInput, GREETING_REPLY_LINES, RECEIPT_AGAIN } from "./customerAgentLiveWording.js";
 
 export type CustomerReceiptOutcome = CustomerMutationReceipt["outcome"];
@@ -365,7 +366,7 @@ function policySegment(value: CustomerAgentCompanyPolicyObservation, language: "
   const k = value.knowledge, tg = language === "tg";
   if (value.topic === "commission") return tg
     ? `Ҳаққи хизмат барои фурӯшанда ${k.commission.sellerPercent}%, барои харидор ${k.commission.buyerPercent}% аст.`
-    : `Комиссия для продавца — ${k.commission.sellerPercent}%, для покупателя — ${k.commission.buyerPercent}%.`;
+    : `Комиссия для продавца ${k.commission.sellerPercent}%, для покупателя ${k.commission.buyerPercent}%.`;
   if (value.topic === "rental") return k.rent
     ? tg ? "Хизматрасонии иҷора дастрас аст; шартҳоро бояд дақиқ кунем." : "Услуги аренды доступны; условия нужно уточнить."
     : tg ? "Мутаассифона, мо бо иҷора кор намекунем." : "Сейчас арендой не занимаемся: не сдаём и не подбираем в аренду.";
@@ -437,9 +438,9 @@ function serviceScopeLines(value: CustomerAgentCompanyPolicyObservation, languag
   const area = tg ? `Барои хариду фурӯши хона ${where} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости ${where}.`;
   const other = k.otherCities ? "" : tg ? " Дар шаҳрҳои дигар кор намекунем." : " Другие города не обслуживаем.";
   if (asked) return { outside: false, lines: [area + other] };
-  // Строка до 16.11.2026 (без района Рудаки) в старых переписках — тоже «уже сказано»: второй раз зону не повторяем.
+  // Строки до 16.11.2026 (без района Рудаки) и до 19.11.2026 (с ним) в старых переписках — тоже «уже сказано»: второй раз зону не повторяем.
   const legacyArea = tg ? `Барои хариду фурӯши амвол дар ${k.city} кӯмак мекунем.` : `Помогаем с покупкой и продажей недвижимости в городе ${k.city}.`;
-  const said = [area, area + other, legacyArea, legacyArea + other].some(saidBefore);
+  const said = [area, area + other, legacyArea, legacyArea + other, ...RUDAKI_ERA_SERVICE_AREA_LINES].some(saidBefore);
   return { outside: false, lines: said ? [] : [area] };
 }
 // Word-bounded so "участок" is not "час" and "суроға" is an address question (not hours).
@@ -615,7 +616,7 @@ function renderDecisionCore(input: {
   const lines: string[] = [];
   let experienceInvitationIncluded = false;
   let furnitureAnswerIncluded = false;
-  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, jobScheduleAsked = false, nozaAlreadyGiven = false, receiptSaidBefore = false;
+  let outsideRefusal = false, emptySearch = false, scopeAlreadySaid = false, unaskedPolicySkipped = false, unaskedPolicyEcho = false, jobScheduleAsked = false, nozaAlreadyGiven = false, receiptSaidBefore = false;
   const nozaSaidBefore = input.surface === "dm" && recruitmentPhoneSaidBefore(input.verifiedContext);
   // Noza's number goes once per conversation (audit 16.11.2026: the same line 2-7 times in 18 chats).
   const pushRecruitmentPhone = () => { if (nozaSaidBefore) nozaAlreadyGiven = true; else if (!lines.includes(recruitmentPhoneLine(lang))) lines.push(recruitmentPhoneLine(lang)); };
@@ -729,11 +730,18 @@ function renderDecisionCore(input: {
       if (!isPinnedCompanyPolicy(item.value, input.knowledgeSourceHash)) return null;
       // A barter question is not a discount question: the agent answers it (renderCustomerAgentDecision), never this line.
       if (item.value.topic === "negotiation" && input.surface === "dm" && customerTradeInQuestion(input.inputText ?? "")) continue;
-      // «Не могу гарантировать юридическую чистоту» to «Хочу продать квартиру» (5 chats) and «арендой не занимаемся» to a
-      // word that is not about rent: these lines answer only their own question (audit 16.11.2026).
+      // «Не могу гарантировать юридическую чистоту» to «Хочу продать квартиру» (5 chats), «арендой не занимаемся» to a word that
+      // is not about rent, the bargaining rule to an address question: a company term answers only the customer's own question
+      // about it (audit 16.11.2026; one door customerPolicyTermAsked). A voice message counts by its transcript.
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
-      if (input.surface === "dm" && input.inputText !== undefined && (item.value.topic === "legal" && !customerLegalAsked(input.inputText) ||
-          item.value.topic === "rental" && !item.value.knowledge.rent && !customerRentalAsked(input.inputText))) { scopeAlreadySaid = true; continue; }
+      if (input.surface === "dm" && input.inputText !== undefined &&
+          !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"),
+            customerRecentUserTexts(input.verifiedContext))) {
+        unaskedPolicySkipped = true;
+        // The term was already said in this chat: the customer reacts to it («фаҳмидам»), the topic question would be off.
+        if (lineSentBefore(input.verifiedContext, policySegment(item.value, lang))) unaskedPolicyEcho = true;
+        continue;
+      }
       if (item.value.topic === "service_scope" && input.surface === "dm") {
         const scope = serviceScopeLines(item.value, lang, input, line => lineSentBefore(input.verifiedContext, line));
         lines.push(...scope.lines);
@@ -914,6 +922,13 @@ function renderDecisionCore(input: {
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&
       !evidence.length && question === "none") return null;
+  // Only company terms the customer did not ask about were read: neither dump them nor go silent. Next step of a known
+  // role, else the one topic question (attack job-unknown-003, 14.11.2026; old PR #173). A reaction to a term already said
+  // («фаҳмидам» after the commission) keeps the acknowledgement it got before the gate (review С1, customer-bot-8-chats-15-11).
+  if (unaskedPolicySkipped && !lines.some(line => line && !isSocialLine(line))) {
+    lines.push(intakeProgress(input).role === "unknown" && !unaskedPolicyEcho ? questions.topic[lang]
+      : nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""))));
+  }
   // The only content was the service area said before ("Хона дар Душанбе аст", 15.11.2026): the next step, never silence.
   if (scopeAlreadySaid && !lines.some(line => line && !isSocialLine(line))) {
     lines.push(nothingNewLine(input, new Set(splitLines(input.verifiedContext?.turns.filter(turn => turn.role === "assistant").at(-1)?.text ?? ""))));

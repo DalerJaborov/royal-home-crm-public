@@ -162,3 +162,15 @@ describe("startCronJobs — зовётся ровно из одного проц
     expect(index.includes("startCronJobs")).toBe(false);
   });
 });
+
+describe("сторож групп помощницы (20.11.2026)", () => {
+  it("стоит в расписании раз в час и при старте worker-процесса", () => {
+    const task = tasks.find((t) => t.name === "assistant-group-sweep");
+    expect(task?.expr).toBe("12 * * * *");
+    expect(cronIntervalMs(task!.expr)).toBe(3_600_000);
+    // Тот же сторож один раз сразу после выката: пропущенный переезд в супергруппу не ждёт целый час.
+    const worker = stripComments(read("src/worker.ts"));
+    expect(worker.includes('import("./lib/assistantGroupWatchdog.js")')).toBe(true);
+    expect(worker.includes("sweepAssistantGroups()")).toBe(true);
+  });
+});

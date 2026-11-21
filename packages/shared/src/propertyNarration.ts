@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
-import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
+import { numberToWords, russianOrdinal } from "./spokenNumber.js";
+import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
 /**
  * ОЗВУЧКА РОЛИКА ОБЪЕКТА — ОДИН ИСТОЧНИК ПРАВИЛ ТЕКСТА (11.11.2026).
@@ -13,8 +14,17 @@ import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.j
  * набор положила миграция `narration_flow_11_11`, в коде их нет.
  *
  * ЦЕНУ ГОВОРИМ (решение владельца 11.11.2026: «Да, говорить цену»): слово `{цена}`
- * произносит цену словами с валютой карточки, без цены — «договорная». Поэтому
- * цена входит в факты озвучки: смена цены даёт новую версию и новое одобрение.
+ * произносит цену словами, без цены — «договорная». Поэтому цена входит в факты
+ * озвучки: смена цены даёт новую версию и новое одобрение.
+ *
+ * ТОЛЬКО В СОМОНИ (владелец 21.11.2026: «озвучивать цены в долларах нельзя, брать
+ * только в сомони, там у нас автоматическая конвертация»). Долларовая цена карточки
+ * переводится общим правилом `convertToTjs` по курсу, который сервер кладёт в
+ * `facts.usdToTjs` (курс сохраняется в снимке версии и в хэш фактов не входит —
+ * ежедневная смена курса не делает озвучку «устаревшей»). Курса нет или валюта
+ * карточки выглядит перепутанной — предложение с `{цена}` выпадает целиком: лучше
+ * без цены, чем неверная цена или доллары. Сторож `narrationCurrencyError` не
+ * пропускает доллары в текст, который уходит в ElevenLabs.
  */
 
 export const NARRATION_LANGS = ["tg", "ru"] as const;
@@ -76,6 +86,9 @@ export const narrationVoiceSchema = z.object({
 export const narrationPronunciationDictionarySchema = z.object({
   id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/),
   versionId: z.string().trim().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+  /** Отпечаток правил, которые РЕАЛЬНО ушли в эту версию словаря (20.11.2026; lib/narrationPronunciation.ts).
+   *  Нет или не совпал с нынешними правилами — словарь устарел и обновится сам. Старые настройки без поля читаются. */
+  rulesFingerprint: z.string().trim().regex(/^[a-f0-9]{16,128}$/).optional(),
 }).strict();
 
 const narrationConfigBase = z.object({
@@ -94,7 +107,10 @@ const narrationConfigBase = z.object({
   autoGenerate: z.boolean().optional(),
   /** Пауза после последней правки, прежде чем платить за новую озвучку. */
   debounceMinutes: z.number().int().min(0).max(120).optional(),
-  /** Потолок расхода ElevenLabs за сутки по Душанбе: 0 — генерация остановлена. */
+  /** «▶ Прослушать» в мастере и карточке: новых звуков на человека в сутки (повтор того же бесплатен); по умолчанию 100. */
+  narrationListenPerPersonDaily: z.number().int().min(1).max(1000).optional(),
+  /** Дневной предел расхода ElevenLabs по Душанбе. Озвучку роликов он НЕ останавливает (владелец 21.11.2026: «не нужно
+   *  лимит жёсткий»): сверх предела она идёт, руководству одно уведомление в сутки. 0 — озвучка остановлена совсем. */
   dailyCharLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyGenerationLimit: z.number().int().min(0).max(1000).optional(),
   templates: z.array(narrationTemplateSchema).max(100).optional(),
@@ -111,10 +127,25 @@ const narrationConfigBase = z.object({
   /** Рубильник (12.11.2026): озвучка к роликам, которые уже стоят в монтаже, на одобрение владельцу.
    *  По умолчанию ВЫКЛЮЧЕН и сам с автоозвучкой не включается (решение владельца — завтра). */
   backfillMontageQueue: z.boolean().optional(),
-  /** Рубильник (16.11.2026, решение владельца «старый голос убирает ИИ, монтажёр не нужен»): у вышедшего
-   *  ролика нет версии без голоса, а озвучка поменялась — CRM сама отделяет старый голос от музыки
-   *  (сервис voice-separator) и накладывает новый. По умолчанию ВКЛЮЧЁН; false — как раньше, монтажёру. */
-  autoSeparateVoice: z.boolean().optional(),
+  /** УСТАРЕЛО 18.11.2026: «прослушать перед выпуском» убрано — человек слушает озвучку и утверждает один раз,
+   *  ролик выходит сразу. Поле остаётся только затем, чтобы старые сохранённые настройки читались; CRM его не смотрит. */
+  previewBeforeRepublish: z.boolean().optional(),
+  /** Рубильник (18.11.2026, владелец): новая озвучка вышла — старые посты этого объекта CRM снимает сама, в каждой сети
+   *  только ПОСЛЕ того, как там вышел новый. По умолчанию ВКЛЮЧЁН; false — старые посты остаются рядом с новыми. */
+  removeOldPostsOnNarration: z.boolean().optional(),
+  /** Промежуток между роликами после новой озвучки, минуты (18.11.2026): утвердили пять сразу — выходят по очереди
+   *  через этот промежуток, а не залпом и не через обычные 90 минут. По умолчанию 15. */
+  narrationPublishGapMin: z.number().int().min(5).max(180).optional(),
+  /** Рубильник (18.11.2026, «своя музыка при перемонтаже»): у вышедшего ролика нет ролика без голоса, а озвучка
+   *  поменялась — CRM снимает со старого ролика весь звук и кладёт случайный трек библиотеки (Настройки → Озвучка)
+   *  и новый голос. По умолчанию ВЫКЛЮЧЕН: треки подбирает владелец; выключен или треков нет — монтажёру. */
+  ownMusicRemix: z.boolean().optional(),
+  /** Когда «своя музыка» включена (ставит сервер при включении, ревью 18.11): сама CRM перемонтирует только
+   *  озвучки, одобренные ПОСЛЕ этого момента — без волны перевыпуска старых роликов. Экран это поле не шлёт. */
+  ownMusicRemixSince: z.string().datetime().optional(),
+  /** Рубильник (18.11.2026, «изменяемый текст на ролике»): при каждой сборке ролика CRM сама рисует плашку с ценой из
+   *  карточки объекта и субтитры по тексту озвучки (lib/video/narrationOverlay.ts). По умолчанию ВЫКЛЮЧЕН. */
+  textOverlay: z.boolean().optional(),
   /** Словарь произношения: «слово → как читать» (alias; phoneme — если модель его понимает). Правит
    *  владелец; синхронизация с ElevenLabs — только для моделей из NARRATION_PRONUNCIATION_MODELS. */
   pronunciationRules: z.array(z.object({
@@ -162,6 +193,16 @@ export function narrationPronunciationSupported(modelId: string | null | undefin
   return !!modelId && NARRATION_PRONUNCIATION_MODELS.includes(modelId);
 }
 
+/**
+ * ПРАВИЛО-ЗВУКИ БЕЗ ПРОВЕРКИ НОСИТЕЛЕМ В ElevenLabs НЕ УХОДИТ (20.11.2026, ФАКТ на слух владельца: словарь с такими
+ * правилами даёт акцент — «ошёна» звучит как «ашёна», а без словаря eleven_v4 читает таджикский верно). Правило остаётся
+ * в CRM, но в озвучку не идёт, пока носитель не снял пометку «проверить носителем». Одно место: этим решением пользуются
+ * словарь ElevenLabs (api: lib/narrationPronunciation.ts) и подсказка в Настройках (web).
+ */
+export function narrationPronunciationRuleHeldBack(rule: { phoneme?: string | null; needsNative?: boolean | null }): boolean {
+  return !!rule.phoneme && rule.needsNative === true;
+}
+
 export function narrationTtsOptions(config: Pick<NarrationConfig, "voices" | "voiceSettings" | "languageCodes" | "pronunciationDictionaries"> & { modelId?: string }, voiceId: string, lang: NarrationLang | null | undefined): Record<string, unknown> {
   const merged: NarrationVoiceSettings = { ...(config.voiceSettings ?? {}), ...(config.voices.find((v) => v.id === voiceId)?.settings ?? {}) };
   const noStyle = NARRATION_MODELS_WITHOUT_STYLE.includes(config.modelId ?? "");
@@ -185,9 +226,35 @@ export function narrationMixByCrm(config: Pick<NarrationConfig, "mixByCrm">): bo
   return config.mixByCrm === true;
 }
 
-/** Старый голос из вышедшего ролика убирает CRM (16.11.2026): включено, пока руководство не выключило. */
-export function narrationAutoSeparate(config: Pick<NarrationConfig, "autoSeparateVoice">): boolean {
-  return config.autoSeparateVoice !== false;
+/** Цена и субтитры на ролике рисует CRM (18.11.2026): только если руководство включило. */
+export function narrationTextOverlay(config: Pick<NarrationConfig, "textOverlay">): boolean {
+  return config.textOverlay === true;
+}
+
+/**
+ * Момент включения «своей музыки» при сохранении настроек (ревью 18.11): включили сейчас — сейчас; уже было
+ * включено — прежний момент; выключили — нет момента. Присланное с экрана значение не принимается.
+ */
+export function ownMusicRemixSinceAfterSave(prev: Pick<NarrationConfig, "ownMusicRemix" | "ownMusicRemixSince">,
+  next: Pick<NarrationConfig, "ownMusicRemix">, now: Date): string | undefined {
+  if (next.ownMusicRemix !== true) return undefined;
+  if (prev.ownMusicRemix === true && prev.ownMusicRemixSince) return prev.ownMusicRemixSince;
+  return now.toISOString();
+}
+
+/** Своя музыка при перемонтаже (18.11.2026): только если руководство включило. */
+export function narrationOwnMusicRemix(config: Pick<NarrationConfig, "ownMusicRemix">): boolean {
+  return config.ownMusicRemix === true;
+}
+
+/** Снимать старые посты при новой озвучке (18.11.2026): включено, пока не выключили. */
+export function narrationRemovesOldPosts(config: Pick<NarrationConfig, "removeOldPostsOnNarration">): boolean {
+  return config.removeOldPostsOnNarration !== false;
+}
+/** Промежуток между роликами после новой озвучки, минуты (18.11.2026): по умолчанию 15. */
+export const NARRATION_PUBLISH_GAP_DEFAULT_MIN = 15;
+export function narrationPublishGapMin(config: Pick<NarrationConfig, "narrationPublishGapMin">): number {
+  return config.narrationPublishGapMin ?? NARRATION_PUBLISH_GAP_DEFAULT_MIN;
 }
 
 /**
@@ -222,6 +289,11 @@ export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "t
 }
 
 export const NARRATION_LIMIT_DEFAULTS = { debounceMinutes: 3, dailyCharLimit: 20_000, dailyGenerationLimit: 40 } as const;
+/** Прослушиваний нового звука на человека в сутки по умолчанию (владелец 21.11.2026: предел не должен мешать работе). */
+export const NARRATION_LISTEN_PER_PERSON_DEFAULT = 100;
+export function narrationListenPerPersonDaily(config: Pick<NarrationConfig, "narrationListenPerPersonDaily">): number {
+  return config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT;
+}
 export function narrationLimits(config: Pick<NarrationConfig, "debounceMinutes" | "dailyCharLimit" | "dailyGenerationLimit">) {
   return {
     debounceMs: (config.debounceMinutes ?? NARRATION_LIMIT_DEFAULTS.debounceMinutes) * 60_000,
@@ -234,13 +306,16 @@ export type NarrationFacts = {
   type: string; rooms: number | null; areaSqm: string; floor: number | null; totalFloors: number | null; district: string | null;
   /** Цена как хранится в карточке (строка десятичного числа) и её валюта: TJS или USD. */
   price?: string | null; currency?: string | null;
+  /** Курс доллара для `{цена}` (21.11.2026). Только для сборки текста: в хэш фактов не входит. */
+  usdToTjs?: number | null;
 };
 
 /** Прежний текст по фактам — остаётся, пока владелец не завёл ни одного шаблона. */
 export function suggestedNarration(facts: NarrationFacts): string {
   const types: Record<string, string> = { APARTMENT: "Квартира", HOUSE: "Дом", LAND: "Участок", COMMERCIAL: "Коммерческое помещение" };
   return [types[facts.type] ?? "Объект недвижимости", facts.rooms ? `${facts.rooms} комнат.` : "", `Площадь ${facts.areaSqm} квадратных метров.`,
-    facts.floor ? `Этаж ${facts.floor}${facts.totalFloors ? ` из ${facts.totalFloors}` : ""}.` : "",
+    // Этаж без этажности дома (владелец 21.11.2026): «13 из 15» в озвучку не идёт, этажность есть под роликом.
+    facts.floor ? `Этаж ${facts.floor}.` : "",
     facts.district ? `Район: ${facts.district}.` : "",
     "Цена и номер телефона указаны в описании под видео. Поделитесь этим видео с теми, кто ищет недвижимость.",
   ].filter(Boolean).join(" ");
@@ -256,13 +331,44 @@ function rubPlural(n: number, one: string, few: string, many: string): string {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
-/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), валюта из карточки; нет цены — «договорная». */
-export function narrationPriceWords(price: string | null | undefined, currency: string | null | undefined, lang: NarrationLang): string {
-  const value = Math.round(Number(price));
-  if (!price || !Number.isFinite(value) || value <= 0) return lang === "tg" ? "бо мувофиқа" : "договорная";
-  const usd = currency === "USD";
-  if (lang === "tg") return `${tajikCardinal(value)} ${usd ? "доллар" : "сомонӣ"}`;
-  return `${numberToWords(value, "ru")} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
+/**
+ * Цена для озвучки В СОМОНИ (21.11.2026) — число; null — цену говорить нельзя (доллары без курса).
+ * Сомони карточки — как есть; доллары — общим правилом `convertToTjs`, округлённые до тысячи:
+ * сумма по курсу дня точной не бывает, а «сто сорок четыре сомони» в конце только мешают слушать.
+ */
+export function narrationSpokenPriceTjs(price: string | null | undefined, currency: string | null | undefined, usdToTjs?: number | null): number | null {
+  // Одно число на голос, монтажёра, обложку и плашку — `propertyPriceTjs` (ревью #348).
+  return propertyPriceTjs(price, currency, usdToTjs);
+}
+/** Почему `{цена}` не прозвучит (для журнала): NO_RATE — доллары без курса; CURRENCY_SUSPECT — валюта карточки похожа на перепутанную. */
+export function narrationPriceProblem(facts: NarrationFacts): "NO_RATE" | "CURRENCY_SUSPECT" | null {
+  if (!facts.price || !(Number(facts.price) > 0)) return null;
+  if (apartmentPriceCurrencySuspect({ type: facts.type, price: facts.price, currency: facts.currency, areaSqm: facts.areaSqm })) return "CURRENCY_SUSPECT";
+  if (facts.currency === "USD" && narrationSpokenPriceTjs(facts.price, facts.currency, facts.usdToTjs) === null) return "NO_RATE";
+  return null;
+}
+/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), только сомони; нет цены — «договорная»;
+ *  сказать нельзя (нет курса, валюта под сомнением) — пусто, и предложение с {цена} выпадает. */
+export function narrationPriceWords(facts: NarrationFacts, lang: NarrationLang): string {
+  if (!facts.price || !(Number(facts.price) > 0)) return lang === "tg" ? "бо мувофиқа" : "договорная";
+  if (narrationPriceProblem(facts)) return "";
+  const value = narrationSpokenPriceTjs(facts.price, facts.currency, facts.usdToTjs);
+  if (value === null) return "";
+  return lang === "tg" ? `${tajikCardinal(value)} сомонӣ` : `${numberToWords(value, "ru")} сомони`;
+}
+/**
+ * СТОРОЖ ВАЛЮТЫ В ТЕКСТЕ ОЗВУЧКИ (21.11.2026): доллары в ElevenLabs не уходят ни из шаблона, ни из текста,
+ * который агент написал руками. Второй слой к `narrationPriceWords` (запрет «никогда» — правилом и кодом).
+ */
+// Без взгляда назад (Safari < 16.4 его не знает, сторож noRegexLookbehind): «usd»/«usdt» отдельным словом латиницы.
+// «долл» ловит и «доллар», и «долл.» без точки; «долар» — частая опечатка; «у.е.» — «условные единицы» (ревью #348).
+const DOLLAR_WORDS = /долл|долар|dollar|\$|(?:^|[^a-z])usdt?(?:[^a-z]|$)|бакс|у\.\s?е\./iu;
+/** `template` — текст шаблона или концовки в Настройках: там цену подставляет {цена}. Свой текст агента — без {цена}. */
+export function narrationCurrencyError(text: string, opts: { template?: boolean } = {}): string | null {
+  if (!DOLLAR_WORDS.test(text)) return null;
+  return opts.template
+    ? "Цену в озвучке говорим только в сомони: уберите доллары из текста, цену подставит {цена}"
+    : "Цену в озвучке говорим только в сомони: уберите доллары или напишите цену в сомони словами";
 }
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
@@ -304,11 +410,14 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
-    // По-русски этажность стоит после «из»: «пятый этаж из девяти».
-    этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
+    // Этажность дома в озвучке НЕ говорим (владелец 21.11.2026: «13 этаж из 15» не надо, «просто этаж сказать»; остальное
+    // есть под роликом). Слово остаётся в списке, чтобы старые шаблоны из Настроек читались; значение всегда пустое,
+    // обороты вокруг него снимает `withoutTotalFloors`.
+    этажей: "",
     район: facts.district?.trim() ?? "",
-    // Цена есть всегда: без неё — «договорная», поэтому фрагмент с {цена} не выпадает.
-    цена: narrationPriceWords(facts.price, facts.currency, lang),
+    // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
+    // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
+    цена: narrationPriceWords(facts, lang),
   };
 }
 
@@ -339,7 +448,7 @@ export function narrationTemplateRulesError(text: string, lang?: NarrationLang):
     : "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
   if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
   if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
-  return null;
+  return narrationCurrencyError(text, { template: true });
 }
 /** Все проверки сразу (новый или изменённый текст шаблона и концовки). */
 export function narrationTemplateError(text: string, lang?: NarrationLang): string | null {
@@ -386,8 +495,58 @@ function renderSegment(text: string, values: Record<string, string>): { out: str
   return { out, missing };
 }
 
+/** Предложение, где слово `token` («{цена}») стоит вне скобок, выпадает целиком (иначе «Нархаш .»). */
+function dropSentencesWith(text: string, token: string): string {
+  // Предложения режутся только вне [ ]: фрагмент «если есть» с {цена} выпадет и сам (renderSegment).
+  const sentences: Array<{ text: string; price: boolean }> = [];
+  let current = "", price = false, depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === "[") depth++;
+    else if (ch === "]") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && text.startsWith(token, i)) price = true;
+    current += ch;
+    // Конец предложения: «.!?» вне скобок или «[…предложение.]» — скобка, закрывшая целое предложение.
+    const ends = /[.!?]/u.test(ch) || (ch === "]" && /[.!?]/u.test(text[i - 1] ?? ""));
+    if (depth === 0 && ends && /\s/u.test(text[i + 1] ?? " ")) {
+      sentences.push({ text: current, price });
+      current = ""; price = false;
+    }
+  }
+  if (current.trim()) sentences.push({ text: current, price });
+  return sentences.filter((s) => !s.price).map((s) => s.text.trim()).join(" ");
+}
+/**
+ * ЭТАЖНОСТЬ ДОМА В ОЗВУЧКЕ НЕ ГОВОРИМ (владелец 21.11.2026, ролик №219: «ошёнаи сенздаҳуми бинои чордаҳ ошёна» — «просто
+ * этаж сказать и всё»). Шаблоны из Настроек не правим (данные прода): оборот вокруг {этажей} снимается при сборке текста,
+ * и фраза остаётся грамотной: «ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст» → «ошёнаи {этаж_пор} ҷойгир аст»
+ * (изафет «-и» перед снятым словом уходит вместе с ним), «{этаж_пор} этаж из {этажей}» → «{этаж_пор} этаж».
+ * Что осталось с {этажей} (фраза только про этажность дома: «Хона {этажей} ошёна дорад») — предложение выпадает целиком.
+ */
+export function withoutTotalFloors(text: string): string {
+  if (!text.includes("{этажей}")) return text;
+  const gap = String.raw`[ \u00a0]`;
+  const stripped = text
+    // tg: «{этаж_пор}и бинои {этажей} ошёна», «{этаж}ум бинои {этажей}-ошёна»
+    .replace(new RegExp(String.raw`(\{этаж(?:_пор)?\}(?:ум|юм)?)и?${gap}+(?:бинои|иморати|бино|ҳавлии|хонаи)${gap}+\{этажей\}[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?`, "giu"), "$1")
+    // tg: «ошёнаи {этаж_пор} аз {этажей}» и «аз {этажей} ошёна»
+    .replace(new RegExp(String.raw`${gap}+аз${gap}+\{этажей\}(?:[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?)?`, "giu"), "")
+    // ru: «этаж из {этажей}», «из {этажей} этажей»
+    .replace(new RegExp(String.raw`${gap}+из${gap}+\{этажей\}(?:[ \u00a0-]+этаж\p{L}*)?`, "giu"), "")
+    // ru: «в {этажей}-этажном доме»
+    .replace(new RegExp(String.raw`,?${gap}+(?:в|на)${gap}+\{этажей\}[ \u00a0-]*этажн\p{L}*(?:${gap}+(?:доме|здании|комплексе|новостройке|бизнес-центре|многоэтажке))?`, "giu"), "");
+  return stripped.includes("{этажей}") ? dropSentencesWith(stripped, "{этажей}") : stripped;
+}
+/** Сторож сохранения шаблона в Настройках: {этажей} в новый или изменённый текст озвучки не принимаем. */
+export function narrationTotalFloorsError(text: string): string | null {
+  return text.includes("{этажей}")
+    ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} вместе с оборотом вокруг него"
+    : null;
+}
 export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts): string {
-  const { out } = renderSegment(template.text, placeholderValues(facts, template.lang));
+  const values = placeholderValues(facts, template.lang);
+  const source = withoutTotalFloors(template.text);
+  const { out } = renderSegment(values.цена ? source : dropSentencesWith(source, "{цена}"), values);
   return out
     .replace(/[ \t]+/gu, " ")
     .replace(/ +([.,!?])/gu, "$1")
@@ -543,6 +702,8 @@ export const narrationDraftSchema = z.object({
   endingId: z.string().trim().max(40).nullable().optional(),
   /** Агент правит текст или голос и сразу просит новое аудио (только при включённой автоозвучке). */
   generate: z.boolean().optional(),
+  /** Прослушал этот текст и голос кнопкой «▶ Прослушать» (21.11.2026): совпало — звук берётся без второй оплаты. */
+  listenId: z.string().uuid().optional(),
 });
 /** Выбор агента в конце мастера (CRM и Шабнам): одно поле запроса создания объекта. */
 export const narrationWizardChoiceSchema = z.object({
@@ -554,8 +715,23 @@ export const narrationWizardChoiceSchema = z.object({
   /** Шаблон и концовку мастер предвыбрал случайно, агент их не трогал: «последним выбором» они не становятся. */
   autoPicked: z.literal(true).optional(),
   voiceId: z.string().trim().max(100).optional(),
+  /**
+   * Сотрудник прослушал озвучку прямо в мастере (21.11.2026, владелец: «разве недостаточно, что выбрали озвучку?»).
+   * Сервер сам сверяет, что текст и голос версии совпали с прослушанным, и только тогда берёт этот звук готовым и
+   * одобренным (apps/api lib/narrationListen.ts). Не совпали — обычный путь: озвучка готовится и ждёт одобрения.
+   */
+  listenId: z.string().uuid().optional(),
 });
 export type NarrationWizardChoice = z.infer<typeof narrationWizardChoiceSchema>;
+/** «▶ Прослушать» в мастере: текст, голос и язык ровно так, как их видит сотрудник. */
+export const narrationListenRequestSchema = z.object({
+  script: z.string().trim().min(10).max(5000),
+  voiceId: z.string().trim().min(1).max(100),
+  lang: z.enum(["tg", "ru"]),
+}).strict();
+export type NarrationListenRequest = z.infer<typeof narrationListenRequestSchema>;
+/** Ответ «▶ Прослушать»: id звука (уходит в запрос создания как listenId) и ссылка на файл; cached — без оплаты. */
+export type NarrationListenResult = { id: string; fileUrl: string; cached: boolean };
 /** Карточка объекта: «Без озвучки» / «Включить озвучку». */
 export const narrationModeSchema = z.object({ off: z.boolean() }).strict();
 export const narrationActionSchema = z.object({ expectedRevision: z.number().int().positive(), confirmed: z.literal(true) });
@@ -568,6 +744,12 @@ export type PropertyNarrationItem = {
   approvedAt: string | null; stale: boolean; hasAudio: boolean; errorCode: string | null; createdAt: string;
   canReconcile?: boolean;
   source?: string; templateId?: string | null; endingId?: string | null; language?: string | null; generateAfter?: string | null;
+  /** Настоящая длина готового голоса, секунды (18.11.2026): есть — кнопку «Утвердить» решает она, а не оценка по тексту. */
+  audioSec?: number | null;
+  /** Только у последней версии: ждёт утверждения человеком (не утверждена или утверждена самой CRM на вышедшем ролике). */
+  awaitsHuman?: boolean;
+  /** Когда ElevenLabs начал озвучивать эту версию (20.11.2026): «идёт N мин» в карточке считается от него. */
+  generationStartedAt?: string | null;
 };
 /** Что видит мастер: шаблоны и голоса без ключей и моделей. */
 export type NarrationOptionsView = {
@@ -577,6 +759,8 @@ export type NarrationOptionsView = {
   lastChoice?: { voiceId?: string; templateId?: string; endingId?: string; usedTemplateId?: string; usedEndingId?: string };
   /** Готовые образцы голосов (кнопка «▶ Прослушать»). */
   samples?: NarrationVoiceSampleRef[];
+  /** Курс доллара из Настроек (21.11.2026): мастер говорит долларовую цену в сомони тем же правилом, что сервер. */
+  usdToTjs?: number | null;
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;
@@ -600,7 +784,30 @@ export type PropertyNarrationView = {
   /** problem (14.11.2026): последняя озвучка не легла на вышедший ролик — VOICE_LONGER (ушла монтажёру удлинить ролик) или FAILED. */
   mix?: { hasMaster: boolean; error: string | null; problem?: "VOICE_LONGER" | "FAILED" | null;
     /** Одна строка агенту простыми словами (16.11.2026): CRM убирает старый голос, подогнала длину и т.п. */
-    note?: string | null };
+    note?: string | null;
+    /** Наложение текущей версии упало сбоем (20.11.2026): карточка предлагает «Попробовать ещё раз». Только сбой —
+     *  не «длиннее ролика» и не отказ, после которого ролик ушёл монтажёру. */
+    canRetry?: boolean };
+  /** Длина вышедшего ролика, секунды (18.11.2026): по ней карточка считает «укладывается ли текст»; null — ролика нет. */
+  clipSec?: number | null;
+  /** Скорость речи по замерам уже озвученных версий (знаков в секунду); нет замеров — постоянная из shared. */
+  charsPerSec?: Partial<Record<NarrationLang, number>>;
+  /** Ролик объекта уже вышел в соцсети: новая озвучка выйдет только после «Утвердить и выпустить». */
+  published?: boolean;
+  /** Что поменялось с последней утверждённой озвучки: «цена», «этаж»… (narrationFactsChanges). */
+  changed?: string[];
+  /** Ход выпуска новой озвучки (18.11.2026): от утверждения до «старые посты сняты». */
+  release?: NarrationReleaseView | null;
+};
+/** Канал выпуска новой озвучки: NEW — новый пост вышел; OLD_REMOVED — и старый снят; OLD_MANUAL — старый удалите сами (url);
+ *  OLD_KEPT — старый оставлен (рубильник выключен); NEW_FAILED — новый не вышел, старый остался; WAITING — ещё выходит. */
+export type NarrationReleaseChannel = { channel: string; state: "WAITING" | "NEW" | "OLD_REMOVED" | "OLD_MANUAL" | "OLD_KEPT" | "NEW_FAILED"; url?: string | null };
+export type NarrationReleaseView = {
+  /** MIXING — CRM накладывает голос; SCHEDULED — ждёт своего времени (at); PUBLISHING — уходит в сети; DONE — вышло. */
+  stage: "MIXING" | "SCHEDULED" | "PUBLISHING" | "DONE";
+  versionId: string; at: string | null; reason: string | null; channels: NarrationReleaseChannel[];
+  /** MIXING (20.11.2026): когда CRM взяла ролик в работу (метка сведения); null — ролик ждёт очереди наложения. */
+  since?: string | null;
 };
 /** Настройки CRM → «Озвучка роликов» (14.11.2026): вся техника, которую агент в карточке не видит. */
 export type NarrationSettingsView = {

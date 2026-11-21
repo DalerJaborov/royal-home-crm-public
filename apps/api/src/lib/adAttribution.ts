@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { adTopicByExternalId, isJobAdRef, isSellerAdRef, type AdTopic } from "../ai/adTemplateOpener.js";
+import { adTopicByExternalId, isAgencyBrandAd, isJobAdRef, isSellerAdRef, type AdTopic } from "../ai/adTemplateOpener.js";
 import { adReferralPropertyId } from "../messengers/sharedMedia.js";
 import { ensureMetaAdKnown } from "./ads/syncMetaAds.js";
 
@@ -44,7 +44,8 @@ export interface AdAttribution {
  *     сотрудника, который заводил кампанию;
  *  2. текст объявления, который видел человек, похож на вакансию;
  *  3. текст похож на рекламу для собственников;
- *  4. реклама опознана хоть как-то — значит про объект.
+ *  4. реклама самого агентства (`Ad.brand`) — темы нет: о чём человек, он скажет сам (20.11.2026);
+ *  5. реклама опознана хоть как-то — значит про объект.
  * Ничего нет — undefined: вызывающий код ведёт себя как без рекламы.
  */
 export async function resolveAdTopic(facts: Pick<AdReferralFacts, "adId" | "adRef">): Promise<AdTopic | undefined> {
@@ -53,6 +54,7 @@ export async function resolveAdTopic(facts: Pick<AdReferralFacts, "adId" | "adRe
   if (db === "job" || db === "seller") return db;
   if (isJobAdRef(ref)) return "job";
   if (isSellerAdRef(ref)) return "seller";
+  if (facts.adId && await isAgencyBrandAd(facts.adId)) return undefined;
   return ref || db ? "property" : undefined;
 }
 

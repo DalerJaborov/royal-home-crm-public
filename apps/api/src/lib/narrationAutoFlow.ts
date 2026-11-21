@@ -1,31 +1,42 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { narrationFitsType,
+import { narrationCurrencyError, narrationFitsType, narrationLengthCheck, narrationLengthLine, narrationTextOverlay,
   chooseNarration, hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { videoHandoffDir } from "../upload.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
 import { mixFromStoredMaster } from "./narrationMaster.js";
-import { machineMasterApplies, makeMachineMaster, runMachineMasters, type MachineMasterDeps } from "./narrationAutoMaster.js";
-import { narrationFitNote, planNarrationFit } from "./narrationMix.js";
+import { buildMusicBed, buildPictureBase, chooseMusicTrack, MUSIC_BASE_SOURCE, ownMusicReady } from "./narrationMusic.js";
+import { dropNarrationMaster, storeNarrationMaster } from "./narrationMaster.js";
+import { localVideoDelete, localVideoFilePath, localVideoUpload } from "./localVideoStorage.js";
+import { propertyPriceTjsText } from "./reelsCaptionTemplate.js";
+import os from "node:os";
+import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
+import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
+import { clipCountsAsPublished } from "./publishedClip.js";
+import { measuredNarrationCharsPerSec, narrationClipSec, narrationLengthCheckFor } from "./narrationLengthCalibration.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccept, withPropertyLock } from "./videoHandoff.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
 import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
-import { prepareNarrationDeliveryPlan } from "./narrationDelivery.js";
-import { generateNarrationVersion, loadNarrationConfiguration, narrationProviderReady, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
-import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
+import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
+import { generateNarrationVersion, loadNarrationConfiguration, NARRATION_LISTEN_SOURCE, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, narrationSoundKey, speechChars } from "./narrationGeneration.js";
+import { NARRATION_PRICE_NOT_IN_TJS, NARRATION_PRICE_NOT_IN_TJS_TEXT, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, narrationScriptError, reportNarrationPriceProblem, snapshotNarrationRate, withNarrationRate } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedProperties, setPropertyNarrationOff } from "./narrationOptOut.js";
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
+import { narrationListenKey } from "./narrationListen.js";
+import { narrationAccessForAgent, type NarrationClicker } from "./staffNarration.js";
 import { voicelessCopyHint } from "./narrationMontajerNote.js";
 import { sendToMontajer } from "./montageObservers.js";
 import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { backfillNarrationWhere, firstNarrationBaseWhere, freshNarrationWhere, narrationAutoEnabled, narrationPlannerOpen } from "./narrationPlan.js";
 
 /**
  * АВТООЗВУЧКА РОЛИКА ОБЪЕКТА (схема владельца 10.11.2026, сделано 11.11).
@@ -49,10 +60,20 @@ import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlar
  *    монтажёр не нужен»): есть ролик без голоса (мастер) — CRM сама перемикширует и
  *    заменит вышедший ролик (remixFromMaster); голос вклеен монтажёром — прежний возврат
  *    NARRATION_CHANGED, монтажёр присылает тот же ролик без голоса, дальше без него.
- *    С 16.11.2026 ролика без голоса нет — CRM делает его сама из вышедшего ролика (отделение голоса,
- *    lib/narrationAutoMaster.ts); монтажёру — только если отделить не вышло.
+ *    Машинное отделение старого голоса (16.11.2026, сервис voice-separator) убрано 18.11.2026
+ *    решением владельца: на проде ни разу не убрало голос. Ролика без голоса нет — СВОЯ МУЗЫКА
+ *    (18.11.2026, lib/narrationMusic.ts): рубильник «Своя музыка при перемонтаже» включён и в библиотеке
+ *    есть треки — со старого ролика снимается весь звук, кладётся случайный трек и новый голос
+ *    (remixFromMaster, режим MUSIC). Рубильник выключен или треков нет — монтажёру, как раньше.
  * 6. Голос длиннее ролика (16.11.2026): ускорить до 15 % → другой, более короткий шаблон (одна
  *    перегенерация на версию) → стоп-кадр до 3 с → монтажёру (remixFromMasterClaimed).
+ * 7. ОДНО УТВЕРЖДЕНИЕ (18.11.2026, владелец: «поменял, послушал, утвердил — и ролик сразу уходит»). Ролик уже
+ *    вышел — новая озвучка без человека не утверждается (autoApproveSameChoice), а утверждённая сразу ложится
+ *    на ролик и выходит: без «прослушать перед выпуском» и «оставить старый», мимо обычной сетки расписания
+ *    (короткий промежуток своей очереди, ночью — утром, lib/publishSchedule.ts::nextNarrationSlot). Старые
+ *    посты снимаются в каждой сети только после нового там же (lib/remakeOldPosts.ts).
+ * 8. Длина до оплаты (18.11.2026): текст длиннее ролика не уходит в ElevenLabs вовсе — ни по кнопке агента
+ *    (400 с понятной строкой), ни из обхода (версия «не получилась: длиннее ролика»), packages/shared/narrationLength.ts.
  *
  * Всё платное — под рубильником `autoGenerate` в настройках озвучки (по умолчанию
  * выключен) и дневным потолком; отправка монтажёру — под CRM_NARRATION_EXECUTION_MODE.
@@ -60,15 +81,16 @@ import { ELEVENLABS_QUOTA_ALARM_TAG, raiseCriticalAlarm } from "./channelKeyAlar
 
 /** BACKFILL (12.11.2026) — разовый проход по очереди монтажа: одобряет владелец, не агент. */
 export type AutoNarrationSource = "WIZARD" | "AUTO" | "AGENT" | "BACKFILL";
+/** Канал, где завели объект: CRM или Шабнам в Telegram (поле версии askVia). */
+export type NarrationAskVia = "CRM" | "TELEGRAM";
 export type AutoNarrationOutcome =
   | { status: "QUEUED"; versionId: string; revision: number; coalesced: boolean; templateId?: string | null; endingId?: string | null }
   /** DISABLED — у объекта выбрано «Без озвучки» (12.11.2026). */
   | { status: "UNCHANGED" | "BUSY" | "CONFLICT" | "OFF" | "GONE" | "DISABLED" }
   | { status: "INVALID"; error: string };
 
-export function narrationAutoEnabled(config: NarrationConfig): boolean {
-  return config.autoGenerate === true && !!config.modelId && config.voices.length > 0;
-}
+// Условия «CRM сама готовит озвучку» — одно место, lib/narrationPlan.ts (его же читает строка монтажёру).
+export { narrationAutoEnabled };
 
 export async function requestAutoNarration(input: {
   propertyId: string; actorId: string; source: AutoNarrationSource;
@@ -80,6 +102,10 @@ export async function requestAutoNarration(input: {
   /** Прошлый выбор сотрудника: у нового объекта (прошлой версии нет) повторять его не надо. */
   avoid?: { templateId?: string | null; endingId?: string | null };
   expectedRevision?: number; requestKey?: string; debounceMs?: number;
+  /** Кто одобряет версию сразу по готовности (21.11.2026, «сверх быстро»): сохранил мастер, нажал «Озвучить», поменял цену. */
+  approveAsId?: string;
+  /** Одобрить сразу нельзя — куда слать «прослушайте и одобрите» (CRM или Шабнам). Нет — в оба места, как раньше. */
+  askVia?: NarrationAskVia;
   config?: NarrationConfig; now?: Date;
 }): Promise<AutoNarrationOutcome> {
   const config = input.config ?? (await loadNarrationConfiguration()).config;
@@ -87,6 +113,14 @@ export async function requestAutoNarration(input: {
   if (input.voiceId && !config.voices.some((v) => v.id === input.voiceId)) return { status: "INVALID", error: "Выберите голос из настроек" };
   const now = input.now ?? new Date();
   const generateAfter = new Date(now.getTime() + (input.debounceMs ?? narrationLimits(config).debounceMs));
+  // Длина ролика и скорость речи — до замка (ffprobe не держит строку объекта): текст человека длиннее ролика
+  // отказывается здесь, до первой оплаты (18.11.2026).
+  const clipOf = input.source === "AGENT" || input.source === "WIZARD"
+    ? await prisma.property.findUnique({ where: { id: input.propertyId }, select: { videoMasterStorageKey: true, videoHandoffFinalPath: true } }) : null;
+  const clipSec = clipOf ? await narrationClipSec(clipOf) : null;
+  const cps = clipSec ? await measuredNarrationCharsPerSec() : null;
+  // Курс для {цена} (21.11.2026: цена в озвучке только в сомони) — до замка, как и замеры выше.
+  const usdToTjs = await narrationRate();
   const outcome = await prisma.$transaction(async (tx): Promise<AutoNarrationOutcome> => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
     const property = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
@@ -105,7 +139,8 @@ export async function requestAutoNarration(input: {
     if (latest && ["GENERATING", "UNKNOWN"].includes(latest.status)) return { status: "BUSY" };
     const facts = narrationFacts(property);
     const factsHash = narrationHash(facts);
-    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL") return { status: "UNCHANGED" };
+    // Текст с долларами (сохранён до сторожа 21.11.2026) «не изменившимся» не считается: автоозвучка пересобирает его из шаблона.
+    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL" && !narrationCurrencyError(latest.script)) return { status: "UNCHANGED" };
     // Шаблон и концовку выбирает одно ядро (shared chooseNarration, 16.11.2026): выбор человека уважается; иначе
     // шаблон и концовка прошлой версии остаются (смена цены даёт тот же текст), а у нового объекта и при «Другой
     // шаблон» они случайные и не равны прошлым. Дальше всё хранится кодами в версии, случайности больше нет.
@@ -113,10 +148,14 @@ export async function requestAutoNarration(input: {
     const noEnding = input.endingId === null || (input.script !== undefined && input.endingId === undefined);
     const chosen = chooseNarration(config, facts.type, { templateId: input.templateId, endingId: input.endingId ?? undefined, noEnding, reroll: input.reroll,
       previous: latest ? { templateId: latest.templateId, endingId: latest.endingId } : null, avoid: latest ? null : input.avoid });
-    const drafted = narrationDraftText(config, facts, chosen.templateId, chosen.endingId);
+    const priced = withNarrationRate(facts, usdToTjs);
+    const drafted = narrationDraftText(config, priced, chosen.templateId, chosen.endingId);
+    if (input.script === undefined) reportNarrationPriceProblem(property.shortId, priced);
     const script = input.script ?? drafted.text;
     const error = narrationScriptError(script);
     if (error) return { status: "INVALID", error };
+    const length = clipSec ? narrationLengthCheck(script, drafted.lang, clipSec, cps) : null;
+    if (length && !length.fits) return { status: "INVALID", error: narrationLengthLine(length) };
     // «Другой шаблон» при единственном варианте: тот же шаблон, концовка, голос и текст — платной копии не делаем.
     if (input.source === "AGENT" && input.script === undefined && latest && latest.status !== "FAILED" && narrationFactsCurrent(latest, property)
       && latest.templateId === drafted.templateId && (latest.endingId ?? null) === drafted.endingId
@@ -125,15 +164,17 @@ export async function requestAutoNarration(input: {
     if (drafted.lang === "tg" && !narrationModelSupportsTajik(config.modelId)) return { status: "INVALID", error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 или eleven_v4_turbo в настройках." };
     const voiceId = pickNarrationVoice(config, input.voiceId ?? latest?.voiceId);
     if (!voiceId) return { status: "INVALID", error: "Голоса озвучки не настроены" };
-    const data = { script, factsSnapshot: facts, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
+    // Курс хранится в снимке (сверка текста версии с шаблоном), в хэш фактов не входит.
+    const data = { script, factsSnapshot: priced, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
     // Дребезг: несколько правок подряд правят одну ожидающую версию, пауза сдвигается.
     if (input.source === "AUTO" && latest && latest.status === "DRAFT" && !latest.approvedAt && latest.source !== "MANUAL" && latest.generateAfter) {
-      await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data });
+      // Несколько правок подряд — одна версия; одобрит её последний, кто правил (если правил человек).
+      await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { ...data, ...(input.approveAsId ? { approveAsId: input.approveAsId } : {}) } });
       return { status: "QUEUED", versionId: latest.id, revision: latest.revision, coalesced: true, templateId: drafted.templateId, endingId: drafted.endingId };
     }
     await tx.propertyNarrationVersion.updateMany({ where: { propertyId: property.id, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
     const created = await tx.propertyNarrationVersion.create({ data: { ...data, propertyId: property.id, revision: (latest?.revision ?? 0) + 1,
-      createdById: input.actorId, requestKey: input.requestKey ?? randomUUID(), source: input.source } });
+      createdById: input.actorId, requestKey: input.requestKey ?? randomUUID(), source: input.source, ...(input.approveAsId ? { approveAsId: input.approveAsId } : {}), ...(input.askVia ? { askVia: input.askVia } : {}) } });
     return { status: "QUEUED", versionId: created.id, revision: created.revision, coalesced: false, templateId: drafted.templateId, endingId: drafted.endingId };
   });
   // Выбор сотрудника запоминаем на нём (lib/narrationLastChoice.ts): голос и тот шаблон с концовкой, что реально встали, —
@@ -147,8 +188,20 @@ export async function requestAutoNarration(input: {
   return outcome;
 }
 
-/** Конец мастера CRM и Шабнам (через createProperty). Никогда не роняет создание объекта. */
-export async function startNarrationForNewProperty(propertyId: string, actorId: string, rawChoice?: unknown): Promise<AutoNarrationOutcome | null> {
+/**
+ * Сколько версия ждёт после создания, если сотрудник прослушал озвучку в мастере: за это время прослушанный файл
+ * встаёт в версию (adoptListenedNarration, доли секунды). Сбой процесса посередине — обход сам озвучит версию
+ * обычным путём после паузы: объект без озвучки не останется.
+ */
+export const NARRATION_LISTEN_HOLD_MS = 2 * 60_000;
+
+/**
+ * Конец мастера CRM и Шабнам (через createProperty). Никогда не роняет создание объекта.
+ * «Сохранить» = одобрить (21.11.2026, владелец: «не прослушали — ничего страшного, это вина агента, он должен слушать.
+ * Одобрение сразу там же должно быть, чтобы сверх быстро всё»): версия одобряется этим сотрудником, как только готова
+ * (approveAsId), и сразу уходит монтажёру. Просьбы «прослушайте и одобрите» после мастера нет.
+ */
+export async function startNarrationForNewProperty(propertyId: string, actorId: string, rawChoice?: unknown, askVia?: NarrationAskVia): Promise<AutoNarrationOutcome | null> {
   try {
     const parsed = narrationWizardChoiceSchema.safeParse(rawChoice ?? {});
     const choice: NarrationWizardChoice = parsed.success ? parsed.data : {};
@@ -164,10 +217,15 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
     const last = await narrationLastChoiceFor(actorId, config);
     const filled = { ...choice, voiceId: choice.voiceId ?? last.voiceId };
     const avoid = { templateId: last.usedTemplateId ?? last.templateId, endingId: last.usedEndingId ?? last.endingId };
-    const { autoPicked, ...forRequest } = filled;
-    let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...forRequest, templateAuto: autoPicked === true, avoid, debounceMs: 0, config });
-    // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону.
-    if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: choice.templateId, endingId: choice.endingId, voiceId: filled.voiceId, avoid, debounceMs: 0, config });
+    const { autoPicked, listenId, ...forRequest } = filled;
+    let outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", ...forRequest, templateAuto: autoPicked === true, avoid,
+      debounceMs: listenId ? NARRATION_LISTEN_HOLD_MS : 0, approveAsId: actorId, config });
+    // Текст агента не прошёл проверку (например, вписал цену) — озвучка всё равно готовится по шаблону. Но этот текст
+    // человек не одобрял (ревью 21.11): approveAsId не ставится, версия ждёт его, просьба — туда, где заводили объект.
+    if (outcome.status === "INVALID" && choice.script) outcome = await requestAutoNarration({ propertyId, actorId, source: "WIZARD", templateId: choice.templateId, endingId: choice.endingId, voiceId: filled.voiceId, avoid, debounceMs: 0, askVia, config });
+    // Прослушал в мастере: тот же текст и голос — версия сразу готова на прослушанном файле и одобрена им, без второй
+    // оплаты. Не совпало — пауза снимается, версия озвучивается обычным путём и одобряется им же по готовности.
+    else if (outcome.status === "QUEUED" && listenId) await adoptListenedNarration({ propertyId, versionId: outcome.versionId, listenId, actorId });
     return outcome;
   } catch (err) {
     void logSystemError("api", `Автоозвучка после создания объекта не поставлена: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-start-failed" });
@@ -175,65 +233,258 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
   }
 }
 
-export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED";
+/**
+ * КТО ОДОБРЯЕТ «СОХРАНИЛ = ОДОБРИЛ» (21.11.2026). Права — ровно те же, что у кнопки «Утвердить» (narrationAccessForAgent),
+ * без расширения: автор объекта (createdById) уже вправе им управлять (canManagePropertyAs), значит, и одобрить
+ * озвучку, которую сам выбрал в мастере. Нет прав (ушёл в «только просмотр», уволен) — версия ждёт человека, как раньше.
+ */
+/** Текст агента из мастера, который сервер не примет (доллары, пустой, длиннее 5000): причина — сразу в ответ сохранения. */
+export function wizardNarrationTextRejection(rawChoice: unknown): string | null {
+  const parsed = narrationWizardChoiceSchema.safeParse(rawChoice ?? {});
+  return parsed.success && !parsed.data.none && parsed.data.script ? narrationScriptError(parsed.data.script) : null;
+}
+
+export async function narrationApproverFor(agentId: string, propertyId: string): Promise<NarrationClicker | null> {
+  return narrationAccessForAgent(agentId, propertyId);
+}
+
+/**
+ * ГОТОВА — ЗНАЧИТ ОДОБРЕНА (21.11.2026, владелец: «одобрение сразу там же, чтобы сверх быстро»). Версия с approveAsId
+ * (сохранил мастер, нажал «Озвучить», поменял цену) одобряется от его имени той же функцией одобрения, как только звук
+ * готов, и сразу уходит монтажёру. Цена в долларах (#348), конфликт версии, нет прав — не одобряется, ждёт человека
+ * как раньше. null — одобрять некому.
+ *
+ * РОЛИК УЖЕ ВЫШЕЛ И ЦЕНУ ПОМЕНЯЛ ЧЕЛОВЕК (решение владельца 21.11.2026, последствие сказано ему прямо, возражений нет:
+ * «не прослушали — ничего страшного, это вина агента, он должен слушать»): новая озвучка одобряется правившим, и
+ * утверждение здесь — это выпуск: CRM сразу накладывает голос и ставит ролик в сети. Правил не человек (обход фактов,
+ * импорт) — approveAsId нет, версия ждёт человека, как раньше (autoApproveSameChoice на вышедшем ролике не одобряет).
+ */
+export async function approveNarrationAsSaved(versionId: string): Promise<NarrationApproval | null> {
+  const v = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { id: true, propertyId: true, revision: true, status: true, approvedAt: true, approveAsId: true, source: true } });
+  if (!v?.approveAsId || v.status !== "READY" || v.approvedAt) return null;
+  const access = await narrationApproverFor(v.approveAsId, v.propertyId);
+  if (!access) return null;
+  const outcome = await approveNarrationVersion({ propertyId: v.propertyId, versionId: v.id, expectedRevision: v.revision, actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
+  if (outcome === "AUDIO_APPROVED") {
+    logAgentAudit(access.agentId, "PROPERTY_NARRATION_APPROVED_ON_SAVE", "Property", v.propertyId, { narrationVersionId: v.id, revision: v.revision, source: v.source });
+    await afterNarrationApproved(v.propertyId, v.id).catch((err) =>
+      logSystemError("api", `Озвучка: после одобрения при сохранении передача не подготовлена: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-approve-on-save-after" }));
+  }
+  return outcome;
+}
+
+export type NarrationListenAdoption = "APPROVED" | "AWAITS_APPROVAL" | "NOT_ADOPTED";
+/**
+ * ПРОСЛУШАЛ В МАСТЕРЕ = ОДОБРИЛ (21.11.2026, владелец: «разве недостаточно, что выбрали озвучку уже?»).
+ * Версия из мастера встаёт ГОТОВОЙ на файл, который сотрудник прослушал («▶ Прослушать», lib/narrationListen.ts),
+ * если отпечаток звука версии (текст для голоса, язык, голос, модель, словарь) совпал с прослушанным, — без второго
+ * синтеза и второй оплаты. Одобрение — та же функция approveNarrationVersionIn в той же записи, с правами
+ * сотрудника на объект (narrationAccessForAgent). Нет прав — версия готова и ждёт одобрения, как обычно.
+ * Не совпало, файла нет, версию уже взял обход — пауза снимается, озвучка идёт обычным путём. Не бросает.
+ */
+export async function adoptListenedNarration(input: { propertyId: string; versionId: string; listenId: string; actorId: string; now?: Date }): Promise<NarrationListenAdoption> {
+  const now = input.now ?? new Date();
+  // Снять паузу: версия идёт обычным путём (обход озвучит её в ближайшую минуту).
+  const release = () => prisma.propertyNarrationVersion.updateMany({ where: { id: input.versionId, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: now } });
+  let copied: string | null = null;
+  try {
+    const listen = await prisma.freeNarration.findUnique({ where: { id: input.listenId } });
+    const version = await prisma.propertyNarrationVersion.findUnique({ where: { id: input.versionId } });
+    if (!listen || !version || listen.agentId !== input.actorId || listen.source !== NARRATION_LISTEN_SOURCE || listen.status !== "READY" || !listen.storageKey
+      || !listen.requestKey || version.propertyId !== input.propertyId || version.status !== "DRAFT" || !version.voiceId) { await release(); return "NOT_ADOPTED"; }
+    const { config } = await loadNarrationConfiguration();
+    const versionSound = narrationListenKey(input.actorId, narrationSoundKey({ script: version.script, language: version.language, voiceId: version.voiceId, config }));
+    const file = localVideoFilePath(listen.storageKey);
+    if (versionSound !== listen.requestKey || !file) { await release(); return "NOT_ADOPTED"; }
+    // Своё имя файла у версии: файл прослушивания убирается через сутки, а с файлом обычной озвучки не пересечься.
+    copied = `${input.propertyId}/${randomUUID()}.mp3`;
+    await localVideoUpload(copied, await fs.promises.readFile(file));
+    const access = await narrationApproverFor(input.actorId, input.propertyId);
+    const placed = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
+      const current = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
+      const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" } });
+      if (!current || current.deletedAt || current.narrationOff || latest?.id !== version.id || latest.status !== "DRAFT" || latest.script !== version.script
+        || latest.voiceId !== version.voiceId || latest.language !== version.language || !narrationFactsCurrent(latest, current)) return "REJECTED" as const;
+      const ready = await tx.propertyNarrationVersion.updateMany({ where: { id: version.id, status: "DRAFT" },
+        data: { status: "READY", storageKey: copied, providerRequestId: listen.providerRequestId, generateAfter: null, errorCode: null } });
+      if (!ready.count) return "REJECTED" as const;
+      if (!access) return "READY" as const;
+      const approval = await approveNarrationVersionIn(tx, { propertyId: input.propertyId, versionId: version.id, expectedRevision: latest.revision,
+        actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
+      return approval === "AUDIO_APPROVED" ? "APPROVED" as const : "READY" as const;
+    });
+    if (placed === "REJECTED") {
+      await localVideoDelete(copied).catch(() => false);
+      await release();
+      return "NOT_ADOPTED";
+    }
+    logAgentAudit(input.actorId, "NARRATION_LISTENED_IN_WIZARD", "Property", input.propertyId, { versionId: version.id, listenId: listen.id, approved: placed === "APPROVED" });
+    if (placed !== "APPROVED") return "AWAITS_APPROVAL";
+    await afterNarrationApproved(input.propertyId, version.id);
+    return "APPROVED";
+  } catch (err) {
+    if (copied) await localVideoDelete(copied).catch(() => false);
+    await release().catch(() => undefined);
+    void logSystemError("api", `Прослушанная в мастере озвучка не встала в версию, озвучка пойдёт обычным путём: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-listen-adopt" });
+    return "NOT_ADOPTED";
+  }
+}
+
+/** PRICE_NOT_IN_TJS (ревью #348): в тексте версии цена в долларах — не одобряется ни текст, ни голос. */
+export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED" | "PRICE_NOT_IN_TJS";
+/** Утверждение поставила сама CRM (самоодобрение пишет approvalNotifiedAt = approvedAt одной отметкой), а не человек. */
+export function autoApprovedOnly(v: { approvedAt: Date | null; approvalNotifiedAt?: Date | null }): boolean {
+  return !!v.approvedAt && !!v.approvalNotifiedAt && v.approvedAt.getTime() === v.approvalNotifiedAt.getTime();
+}
+/**
+ * То же правило для неутверждённых версий прямо в запросе (четвёртое ревью 18.11): очереди сообщений и напоминаний не
+ * должны брать строки, которые потом пропустят без отметки, — иначе двадцать таких строк навсегда занимают голову очереди.
+ * Аудио маркетинга (MANUAL) — только на вышедшем ролике (пометки, идущая замена со снимком или перенесёнными постами).
+ */
+export const UNAPPROVED_AWAITS_HUMAN_WHERE = {
+  storageKey: { not: null },
+  OR: [
+    { source: { not: "MANUAL" } },
+    { property: { OR: [
+      { publishedChannels: { isEmpty: false } }, { instagramUrl: { not: null } },
+      { videoRemakeRequests: { some: { replaceOldPostsOnPublish: true, oldPostsReplacedAt: null } } },
+    ] } },
+  ],
+} satisfies Prisma.PropertyNarrationVersionWhereInput;
+
+/**
+ * Ждёт ли версия человека (18.11.2026): готова и не утверждена, или утверждена только самой CRM, а ролик уже вышел.
+ * Одно правило для карточки, Шабнам и перемикса.
+ */
+export async function narrationAwaitsHuman(propertyId: string, p: { publishedChannels?: readonly string[] | null; instagramUrl?: string | null },
+  v: { status: string; storageKey?: string | null; approvedAt: Date | null; approvalNotifiedAt?: Date | null; source?: string | null }): Promise<boolean> {
+  if (v.status !== "READY" || !v.storageKey) return false;
+  // Аудио по тексту маркетинга ждёт человека только на вышедшем ролике (там утверждение снимается после синтеза).
+  if (!v.approvedAt) return (v.source ?? "MANUAL") !== "MANUAL" || await clipCountsAsPublished(propertyId, p);
+  return autoApprovedOnly(v) && await clipCountsAsPublished(propertyId, p);
+}
 /** Кто одобряет озвучку разового прохода по очереди монтажа (решение владельца 12.11.2026). */
 export const NARRATION_OWNER_ROLES = ["DIRECTOR", "ADMIN"] as const;
 export function isNarrationOwnerRole(role: string | null | undefined): boolean {
   return (NARRATION_OWNER_ROLES as readonly string[]).includes(role ?? "");
 }
 
-/** ОДНА функция одобрения: маршрут approve и кнопка Шабнам. Права на объект проверяет вызывающий.
- *  Озвучку разового прохода (BACKFILL) одобряет только владелец (директор или администратор). */
-export async function approveNarrationVersion(input: { propertyId: string; versionId: string; expectedRevision: number; actorId: string; isManager: boolean; actorRole?: string }): Promise<NarrationApproval> {
-  return prisma.$transaction(async (tx): Promise<NarrationApproval> => {
+/** ОДНА функция одобрения: маршрут approve, кнопка Шабнам и помощник. Права на объект проверяет вызывающий.
+ *  Озвучку разового прохода (BACKFILL) одобряет только владелец (директор или администратор).
+ *  Ролик уже вышел (18.11.2026): это утверждение и есть выпуск — afterNarrationApproved накладывает голос
+ *  и ставит ролик в сети сразу, второго вопроса «выпустить?» нет. */
+export type NarrationApprovalInput = { propertyId: string; versionId: string; expectedRevision: number; actorId: string; isManager: boolean; actorRole?: string };
+export async function approveNarrationVersion(input: NarrationApprovalInput): Promise<NarrationApproval> {
+  return prisma.$transaction((tx) => approveNarrationVersionIn(tx, input));
+}
+/** То же одобрение внутри уже открытой транзакции: «▶ Прослушать» в мастере (lib/narrationListen.ts) ставит готовый
+ *  звук и одобряет его одной записью, чтобы обход не успел прислать «прослушайте» между ними. */
+export async function approveNarrationVersionIn(tx: TxClient, input: NarrationApprovalInput): Promise<NarrationApproval> {
+  {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
     const current = await tx.property.findUniqueOrThrow({ where: { id: input.propertyId }, include: { district: true } });
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" } });
     if (current.deletedAt || !latest || latest.id !== input.versionId || latest.revision !== input.expectedRevision || !narrationFactsCurrent(latest, current)) return "CONFLICT";
+    // Голос или текст с ценой в долларах (собран до 21.11.2026) одобрить нельзя: одобренный, он молча никуда бы не ушёл.
+    // Сама CRM его не пересобирает — это новая платная озвучка, её запускает человек «Исправить и озвучить».
+    if (narrationCurrencyError(latest.script)) return "PRICE_NOT_IN_TJS";
     if (latest.status === "DRAFT") {
       if (!input.isManager) return "FORBIDDEN";
       return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "TEXT_APPROVED" : "CONFLICT";
     }
-    if (latest.status !== "READY" || (latest.source ?? "MANUAL") === "MANUAL") return input.isManager ? "CONFLICT" : "FORBIDDEN";
+    if (latest.status !== "READY") return input.isManager ? "CONFLICT" : "FORBIDDEN";
+    // Аудио по тексту маркетинга (MANUAL) на вышедшем ролике ждёт утверждения после прослушивания (ревью 18.11):
+    // те же права, что у любой озвучки объекта (вызывающий проверил narrationAccessForAgent); сообщение — агенту.
     if (latest.source === "BACKFILL" && !isNarrationOwnerRole(input.actorRole)) return "FORBIDDEN";
+    if ((latest.source ?? "MANUAL") === "MANUAL" && !input.isManager && !(await clipCountsAsPublished(input.propertyId, current, tx))) return "FORBIDDEN";
+    // Человек утверждает версию — отметка отказа «Оставить старый» больше её не держит. ПЕРВЫМ делом (ревью 18.11):
+    // иначе уже утверждённая версия с отметкой застревала навсегда.
+    await tx.property.updateMany({ where: { id: input.propertyId, narrationPreviewDeclinedVersionId: latest.id }, data: { narrationPreviewDeclinedVersionId: null } });
+    // Утверждена автоматически, а ролик уже вышел (старый обход или окно выката): утверждение человека ставится заново —
+    // перемикс выпускает только версию, утверждённую человеком (remixWanted).
+    if (latest.approvedAt && autoApprovedOnly(latest) && await clipCountsAsPublished(input.propertyId, current, tx)) {
+      return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: latest.approvedAt }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "AUDIO_APPROVED" : "CONFLICT";
+    }
     if (latest.approvedAt) return "AUDIO_APPROVED";
-    return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: null }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "AUDIO_APPROVED" : "CONFLICT";
-  });
+    const done = (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "READY", approvedAt: null }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count;
+    return done ? "AUDIO_APPROVED" : "CONFLICT";
+  }
 }
 
 /** ADD_VOICE (12.11.2026) — ролик сдан раньше, чем одобрили озвучку, и ещё не вышел: он
  *  возвращается монтажёру «вклейте голос», музыку и монтаж не трогать. */
-export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "CRM_SEPARATE" | "ADD_VOICE" | "DISABLED";
+export type NarrationDeliveryStart = "QUEUED" | "PREVIEW" | "WAITING_FOR_MONTAGE" | "BUSY" | "ALREADY" | "NOT_READY" | "SOUND_REMAKE" | "CRM_REMIX" | "ADD_VOICE" | "DISABLED";
 /**
  * Одобренное аудио — монтажёру существующим путём. Объект ещё не в очереди монтажа —
  * обход повторит, когда он туда попадёт. Ключ запроса постоянный: повтор не плодит передач.
  */
 export async function afterNarrationApproved(propertyId: string, versionId: string): Promise<NarrationDeliveryStart> {
-  if ((await prisma.property.findUnique({ where: { id: propertyId }, select: { narrationOff: true } }))?.narrationOff) return "DISABLED";
+  const { status, refusal } = await startNarrationDelivery(propertyId, versionId);
+  // Не штатное «объект ещё не у монтажёра» — журнал ошибок, а не тишина (19.11.2026: на проде голос не ушёл
+  // монтажёру ни разу, а этот путь молчал). Ключ — объект+причина, окно шесть часов: обход зовёт каждую минуту.
+  if (refusal && !refusalIsExpected(refusal)) {
+    void logSystemError("api", `Озвучка объекта №${refusal.shortId ?? "?"}: голос монтажёру не передан — ${refusal.message}`,
+      { dedupKey: `narration-delivery-refused:${propertyId}:${refusal.code}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
+  }
+  return status;
+}
+
+/** Окно повторной записи тревог о непереданном голосе: обход идёт раз в минуту, журнал — не чаще раза в шесть часов. */
+const NARRATION_DELIVERY_ALARM_WINDOW_MS = 6 * 60 * 60_000;
+type NarrationDeliveryRefusal = { code: NarrationDeliveryRefusalCode | "UNEXPECTED"; message: string; shortId: number | null };
+const refusalIsExpected = (r: NarrationDeliveryRefusal) => r.code !== "UNEXPECTED" && narrationDeliveryRefusalIsExpected(r.code);
+
+/** Итог передачи вместе с причиной отказа подготовки (если была) — для журнала и сторожа обхода. */
+async function startNarrationDelivery(propertyId: string, versionId: string): Promise<{ status: NarrationDeliveryStart; refusal?: NarrationDeliveryRefusal }> {
+  const owner = await prisma.property.findUnique({ where: { id: propertyId }, select: { narrationOff: true, shortId: true } });
+  if (owner?.narrationOff) return { status: "DISABLED" };
   let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
   try { prepared = await prepareNarrationDeliveryPlan(propertyId, versionId, "AUDIO_ONLY"); }
-  catch {
+  catch (err) {
+    const refusal: NarrationDeliveryRefusal = err instanceof NarrationDeliveryRefused
+      ? { code: err.code, message: err.message, shortId: owner?.shortId ?? null }
+      : { code: "UNEXPECTED", message: `сбой подготовки: ${err instanceof Error ? err.message : String(err)}`, shortId: owner?.shortId ?? null };
+    // Голос с долларами (21.11.2026) не идёт и запасными путями ниже — ни перемиксом CRM, ни возвратом монтажёру.
+    if (refusal.code === "PRICE_NOT_IN_TJS") return { status: "NOT_READY", refusal };
     // Объект не у монтажёра. Есть ролик без голоса — CRM сама наложит новую озвучку и заменит
     // вышедший ролик (обход remixFromMasters, в течение минуты); монтажёр не нужен.
-    if (await crmRemixApplies(propertyId)) return "CRM_REMIX";
-    // Ролика без голоса нет: CRM сама уберёт старый голос из готового ролика (16.11.2026,
-    // обход narration-auto-master, по одному объекту) и наложит новый. Не вышло — монтажёру.
-    if (await machineMasterApplies(propertyId)) return "CRM_SEPARATE";
-    return sendNarrationToMontajer(propertyId, versionId);
+    // Ролика без голоса нет, но включена своя музыка и треки есть — то же «CRM сама», режим MUSIC (18.11.2026).
+    // Остальные причины (монтажёр отключён, без Telegram, не назначен, озвучка устарела) идут тем же запасным
+    // путём, но вызывающий пишет их в журнал ошибок.
+    if (await crmRemixApplies(propertyId) || await ownMusicRemixApplies(propertyId)) return { status: "CRM_REMIX", refusal };
+    return { status: await sendNarrationToMontajer(propertyId, versionId), refusal };
   }
+  return { status: await queueNarrationDelivery(propertyId, versionId, prepared) };
+}
+
+async function queueNarrationDelivery(propertyId: string, versionId: string, prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>): Promise<NarrationDeliveryStart> {
   // PREVIEW (ревью 12.11.2026): строку «передано» не заводим — иначе после включения LIVE обход
   // счёл бы версию отправленной и mp3 до монтажёра не дошёл бы. Одобренная версия ждёт LIVE.
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "PREVIEW";
-  const requestKey = `auto:${versionId}:${prepared.editorId}`;
   return prisma.$transaction(async (tx): Promise<NarrationDeliveryStart> => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!latest || latest.id !== versionId || latest.status !== "READY" || !latest.approvedAt) return "NOT_READY";
-    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] } } })) return "ALREADY";
+    // ПЕРЕМОНТАЖ = СВОЯ ПЕРЕДАЧА (21.11.2026, «сверх быстро»: монтажёр не ищет старый файл). Номер перемонтажа в ключе:
+    // новый перемонтаж — новая передача того же mp3 (генерации нет), повтор того же перемонтажа — тот же ключ, второй нет.
+    const remake = (await tx.property.findUnique({ where: { id: propertyId }, select: { videoRemakeCount: true } }))?.videoRemakeCount ?? 0;
+    const requestKey = narrationDeliveryKey(versionId, prepared.editorId, remake);
+    // Уже ушло — решает время, а не ключ (ревью 21.11): голос этому монтажёру ушёл любым ключом (и старым, без номера
+    // перемонтажа, и вручную) после начала текущего перемонтажа — второй раз не шлём. Первый монтаж — с начала времён.
+    const since = remake > 0 ? await currentRemakeStartedAt(tx, propertyId) : null;
+    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] },
+      ...(since ? { createdAt: { gte: since } } : {}) } })) return "ALREADY";
     if (await tx.propertyNarrationDelivery.count({ where: { propertyId, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return "BUSY";
     const existing = await tx.propertyNarrationDelivery.findUnique({ where: { requestKey } });
+    // Ждущие возврата объекта передачи (WAITING, 19.11.2026) другим ключом — гасим: голос уйдёт одной передачей.
+    await tx.propertyNarrationDelivery.updateMany({
+      where: { propertyId, status: "WAITING", ...(existing ? { id: { not: existing.id } } : {}) },
+      data: { status: "CANCELLED", lastError: "Голос передан новой передачей, когда объект вернулся к монтажёру" },
+    });
     // Строка, заведённая в PREVIEW до этой правки, — досылаем ею же, а не считаем «уже отправлено».
-    if (existing?.status === "PREVIEW") {
+    // Ждущая возврата объекта (WAITING) — тоже ею же, со свежим планом: объект снова у монтажёра.
+    if (existing?.status === "PREVIEW" || existing?.status === "WAITING") {
       await tx.propertyNarrationDelivery.update({ where: { id: existing.id }, data: { plan: prepared.plan, status: "QUEUED", executionMode: "LIVE", lastError: null } });
       return "QUEUED";
     }
@@ -244,9 +495,22 @@ export async function afterNarrationApproved(propertyId: string, versionId: stri
   });
 }
 
+/** Начало текущего перемонтажа: каждый возврат монтажёру пишет строку VideoRemakeRequest (lib/remakeRequests.ts). */
+async function currentRemakeStartedAt(db: Pick<TxClient, "videoRemakeRequest">, propertyId: string): Promise<Date | null> {
+  return (await db.videoRemakeRequest.findFirst({ where: { propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }))?.createdAt ?? null;
+}
+
+/** Ключ передачи голоса монтажёру: версия + монтажёр, с перемонтажа — ещё и его номер (Property.videoRemakeCount). */
+export function narrationDeliveryKey(versionId: string, editorId: string | null, remake: number): string {
+  return remake > 0 ? `auto:${versionId}:${editorId}:r${remake}` : `auto:${versionId}:${editorId}`;
+}
+
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
- *  «вклейте голос». Зовут одобрение (нет пути без монтажёра) и отказ машинного мастера. */
+ *  «вклейте голос». Зовёт одобрение, когда пути без монтажёра нет, и перемикс «голос длиннее ролика». */
 export async function sendNarrationToMontajer(propertyId: string, versionId: string, opts: { voiceLonger?: boolean } = {}): Promise<NarrationDeliveryStart> {
+  // Та же дверь валюты, что у prepareNarrationDeliveryPlan: голос с долларами монтажёру не возвращается.
+  const voiced = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { script: true } });
+  if (!voiced || narrationCurrencyError(voiced.script)) return "NOT_READY";
   const remake = await requestNarrationSoundRemake(propertyId, versionId, opts);
   if (remake === "QUEUED") return "SOUND_REMAKE";
   // Ролик сдан без голоса раньше одобрения и ещё не вышел — вернуть «вклейте голос».
@@ -289,7 +553,7 @@ export async function requestNarrationSoundRemake(propertyId: string, versionId:
   const longer = opts.voiceLonger ? " Новая озвучка длиннее ролика: удлините ролик под голос." : "";
   const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED", mixByCrm
     ? `Новая озвучка, версия ${version.revision}: монтаж и кадры прежние.${longer} Пришлите тот же ролик БЕЗ голоса (музыка и звуки можно) — голос CRM наложит сама. Аудио придёт следом, для длины.`
-    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом.${voicelessCopyHint(config) ? " При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама." : ""}`, null, { removeFromSocial: "on-new-video" });
+    : `Новая озвучка, версия ${version.revision}: замените в ролике только голос, музыку и монтаж не трогайте.${longer} Новый mp3 придёт следом.${voicelessCopyHint() ? " При сдаче пришлите и тот же ролик без голоса — дальше смену цены CRM сделает сама." : ""}`, null, { removeFromSocial: "on-new-video" });
   if (!sent.ok) {
     void logSystemError("api", `Озвучка: замена звука в ролике не поставлена: ${sent.error}`, { dedupKey: `narration-sound-remake:${versionId}` });
     return "REFUSED";
@@ -305,30 +569,95 @@ export async function requestNarrationSoundRemake(propertyId: string, versionId:
  * Вышедший ролик без голоса сам не возвращается: это решение владельца (волна перемонтажа).
  */
 export async function requestNarrationAddVoice(propertyId: string, versionId: string): Promise<"QUEUED" | "SKIPPED" | "REFUSED"> {
-  if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
-  const [p, version, everSent] = await Promise.all([
-    prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true, deletedAt: true, status: true, narrationOff: true, videoHandoffStatus: true, publishedChannels: true, instagramUrl: true } }),
-    prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { status: true, approvedAt: true, approvedById: true, revision: true } }),
-    prisma.propertyNarrationDelivery.count({ where: { propertyId, status: "SENT" } }),
-  ]);
-  if (!p || p.deletedAt || p.narrationOff || (CLOSED_STATUSES as readonly string[]).includes(p.status) || p.videoHandoffStatus !== "RECEIVED") return "SKIPPED";
-  if ((p.publishedChannels?.length ?? 0) > 0 || p.instagramUrl || everSent > 0) return "SKIPPED";
-  if (!version || version.status !== "READY" || !version.approvedAt || !version.approvedById) return "SKIPPED";
-  const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED",
-    `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint((await loadNarrationConfiguration()).config)}`, null, {});
-  if (!sent.ok) {
-    void logSystemError("api", `Озвучка: возврат «вклейте голос» не поставлен: ${sent.error}`, { dedupKey: `narration-add-voice:${versionId}` });
+  const result = await returnClipForNarrationVoice(propertyId, { versionId, includePublished: false, apply: true, source: "narration-add-voice" });
+  if (result.outcome === "REFUSED") {
+    void logSystemError("api", `Озвучка: возврат «вклейте голос» не поставлен: ${result.reason}`, { dedupKey: `narration-add-voice:${versionId}` });
     return "REFUSED";
   }
-  logAgentAudit(version.approvedById, "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, { reason: "NARRATION_CHANGED", narrationVersionId: versionId, source: "narration-add-voice" });
-  return "QUEUED";
+  return result.outcome === "RETURNED" ? "QUEUED" : "SKIPPED";
+}
+
+export type NarrationAddVoiceResult =
+  | { outcome: "RETURNED" | "WOULD_RETURN"; shortId: number; published: boolean; revision: number }
+  | { outcome: "SKIPPED" | "REFUSED"; shortId: number | null; reason: string };
+/**
+ * ВОЗВРАТ «ВКЛЕЙТЕ ГОЛОС» — ОДНИ УСЛОВИЯ ДЛЯ ОБХОДА И ДЛЯ РАЗОВОГО ПРОХОДА (19.11.2026).
+ * Обход (requestNarrationAddVoice): ролик сдан без голоса и ещё не вышел. Разовый проход
+ * (src/scripts/return-clips-for-voice.ts, решение владельца 19.11.2026: «Ролик который сдан отправить
+ * монтажеру») — includePublished: вышедший тоже возвращается, старые посты снимаются, КОГДА ВЫЙДЕТ
+ * НОВЫЙ ролик (removeFromSocial: "on-new-video"). Вышедший ролик возвращается только по самой новой
+ * версии, одобренной ЧЕЛОВЕКОМ: самоодобрение CRM на вышедшем ролике не считается (правило 18.11).
+ * Голос монтажёру уже уходил (передача SENT) — не возвращаем: значит, ролик сделан с голосом.
+ * apply: false — ничего не пишет: sendBackToMontajer({ dryRun }) проверяет те же отказы под тем же замком.
+ * Повтор ничего не задвоит: после возврата ролик уже не RECEIVED, а sendBackToMontajer под замком
+ * отказывает объекту, который уже у монтажёра или в очереди.
+ */
+export async function returnClipForNarrationVoice(propertyId: string, opts: { versionId?: string; includePublished: boolean; apply: boolean; source: string }): Promise<NarrationAddVoiceResult> {
+  const [p, version, everSent] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true, deletedAt: true, status: true, narrationOff: true, videoHandoffStatus: true, publishedChannels: true, instagramUrl: true } }),
+    opts.versionId
+      ? prisma.propertyNarrationVersion.findUnique({ where: { id: opts.versionId } })
+      : prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } }),
+    prisma.propertyNarrationDelivery.count({ where: { propertyId, status: "SENT" } }),
+  ]);
+  const shortId = p?.shortId ?? null;
+  const skip = (reason: string): NarrationAddVoiceResult => ({ outcome: "SKIPPED", shortId, reason });
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return skip("отправка озвучки монтажёру выключена на сервере (CRM_NARRATION_EXECUTION_MODE не LIVE)");
+  if (!p || p.deletedAt) return skip("объект удалён");
+  if ((CLOSED_STATUSES as readonly string[]).includes(p.status)) return skip("объект продан или снят с продажи");
+  if (p.narrationOff) return skip("у объекта выбрано «Без озвучки»");
+  if (p.videoHandoffStatus !== "RECEIVED") return skip(`ролик не сдан или уже у монтажёра (передача: ${p.videoHandoffStatus ?? "нет"})`);
+  const published = await clipCountsAsPublished(propertyId, p);
+  if (published && !opts.includePublished) return skip("ролик уже вышел");
+  if (everSent > 0) return skip("голос монтажёру уже уходил");
+  if (!version || version.propertyId !== propertyId) return skip("озвучки нет");
+  if (version.status !== "READY") return skip(`озвучка не готова (${version.status})`);
+  if (!version.approvedAt || !version.approvedById) return skip("озвучка не одобрена");
+  if (published) {
+    const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+    if (latest?.id !== version.id) return skip("есть более новая версия озвучки");
+    if (autoApprovedOnly(version)) return skip("озвучка одобрена только автоматически, нужен человек");
+  }
+  const comment = `Озвучка к ролику №${p.shortId} пришла после сдачи: вклейте голос в этот ролик, музыку и монтаж не трогайте. mp3 придёт следом.${voicelessCopyHint()}`;
+  const options = published ? { removeFromSocial: "on-new-video" as const } : {};
+  const sent = await sendBackToMontajer(propertyId, version.approvedById, "NARRATION_CHANGED", comment, null, opts.apply ? options : { ...options, dryRun: true });
+  if (!sent.ok) return { outcome: "REFUSED", shortId, reason: sent.error };
+  if (!opts.apply) return { outcome: "WOULD_RETURN", shortId: p.shortId, published, revision: version.revision };
+  logAgentAudit(version.approvedById, "PROPERTY_SENT_BACK_TO_MONTAJER", "Property", propertyId, {
+    reason: "NARRATION_CHANGED", narrationVersionId: version.id, source: opts.source, published, ...(published ? { removeOldPosts: "on-new-video" } : {}) });
+  return { outcome: "RETURNED", shortId: p.shortId, published, revision: version.revision };
+}
+
+/** Своя музыка (18.11.2026): перемонтаж вышедшего ролика без ролика без голоса — те же условия, что у обхода. */
+export async function ownMusicRemixApplies(propertyId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  return (await remixWanted(propertyId))?.mode === "MUSIC";
+}
+
+/**
+ * CRM САМА НАЛОЖИТ ОЗВУЧКУ НА РОЛИК (20.11.2026): то же решение, что у обхода remixFromMasters (отправка включена
+ * и remixWanted видит, что сводить). Карточка показывает «CRM накладывает» только по нему: раньше строка ставилась
+ * по признакам «ролик вышел, наложенной версии нет», и на объекте, где голос вклеил монтажёр (№209, 19.11), висела
+ * сутками, хотя накладывать было нечего.
+ */
+export async function narrationRemixPending(propertyId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  return !!(await remixWanted(propertyId));
 }
 
 /** Перемикс из мастера возможен: отправка включена, у объекта есть ролик без голоса, он не у монтажёра. */
 async function crmRemixApplies(propertyId: string): Promise<boolean> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
-  const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { videoMasterStorageKey: true, videoHandoffStatus: true, deletedAt: true, narrationOff: true } });
-  return !!p && !p.deletedAt && !p.narrationOff && !!p.videoMasterStorageKey && p.videoHandoffStatus === "RECEIVED";
+  const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { videoMasterStorageKey: true, videoMasterSource: true, videoHandoffStatus: true, deletedAt: true, narrationOff: true } });
+  return !!p && !p.deletedAt && !p.narrationOff && editorMaster(p) && p.videoHandoffStatus === "RECEIVED";
+}
+
+/**
+ * Ролик без голоса от монтажёра — основа перемикса MASTER. Мастер машины (MACHINE, в нём мог остаться старый
+ * голос) не используется вовсе; MUSIC_BASE — чистая картинка для своей музыки, звука в ней нет (ревью 18.11).
+ */
+function editorMaster(p: { videoMasterStorageKey: string | null; videoMasterSource: string | null }): boolean {
+  return !!p.videoMasterStorageKey && p.videoMasterSource !== "MACHINE" && p.videoMasterSource !== MUSIC_BASE_SOURCE;
 }
 
 /**
@@ -347,8 +676,10 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     const property = await tx.property.findUnique({ where: { id: v.propertyId }, include: { district: true } });
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: v.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (!property || property.deletedAt || latest?.id !== v.id) return null;
+    // Ролик уже вышел (18.11.2026, владелец): утверждение = выпуск в соцсети, поэтому только человек.
+    if (await clipCountsAsPublished(property.id, property, tx)) return null;
     const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, withNarrationRate(facts, snapshotNarrationRate(v.factsSnapshot)), v.templateId, v.endingId).text !== v.script) return null;
     // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
     // одобренной — одобряется на того же человека, иначе ролик ждал бы агента.
     if (v.shortenedFromId) {
@@ -389,7 +720,8 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "SKIPPED";
   // Метку ставим, только когда сведение и правда нужно (повторное ревью): иначе каждый тик
   // трогал бы updatedAt всех объектов с роликом без голоса.
-  if (!(await remixWanted(propertyId))) return "SKIPPED";
+  const wanted = await remixWanted(propertyId);
+  if (!wanted) return "SKIPPED";
   // Замок на сам ролик (ревью 12.11.2026): ffmpeg идёт до 9 минут, а задача — раз в минуту с
   // пределом 170 с; следующий тик не запускает вторую копию сведения того же ролика.
   const claimedAt = now;
@@ -400,112 +732,248 @@ export async function remixFromMaster(propertyId: string, now: Date = new Date()
   if (!claim.count) return "SKIPPED";
   try {
     return await remixFromMasterClaimed(propertyId);
+  } catch (err) {
+    // Сбой не через fail() (исключение: диск, база, сам ffmpeg) раньше не ставил отметку ошибки: обход брал ролик
+    // каждую минуту заново, а карточка вечно писала «накладываем» (20.11.2026). Теперь — отметка на версии, одна
+    // строка журнала и кнопка «Попробовать ещё раз» в карточке (retryNarrationRemix).
+    return markNarrationRemixCrashed(propertyId, wanted.latest.id, err);
   } finally {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterMixingAt: claimedAt }, data: { videoMasterMixingAt: null } }).catch(() => {});
   }
 }
 
-/** Нужно ли сводить ролик заново: одни условия и до метки, и после неё (там — свежим чтением). */
+/** Начало отметки сбоя наложения исключением: по ней карточка предлагает повтор (не «длиннее ролика»). */
+export const NARRATION_REMIX_CRASH_MARK = "Сбой при наложении озвучки";
+/** Отметка ставится на ту версию, которую сводили (id из remixWanted), а не на последнюю по номеру: пока шло сведение,
+ *  могла появиться новая версия, и сбой старой не должен её закрыть (ревью #334). */
+async function markNarrationRemixCrashed(propertyId: string, versionId: string, err: unknown): Promise<NarrationRemixOutcome> {
+  const reason = err instanceof Error ? err.message : String(err);
+  const [p, latest] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
+    prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { id: true, revision: true } }),
+  ]);
+  if (latest) {
+    await prisma.property.updateMany({ // NULL «<> id» в SQL не проходит: ролик, на который CRM ещё ничего не накладывала, — отдельным условием.
+      where: { id: propertyId, OR: [{ videoMasterNarrationVersionId: null }, { videoMasterNarrationVersionId: { not: latest.id } }] },
+      data: { videoMasterMixError: `${NARRATION_REMIX_CRASH_MARK}: ${reason}`.slice(0, 500), videoMasterMixErrorVersionId: latest.id } });
+  }
+  void logSystemError("video-handoff", `Объект №${p?.shortId ?? "?"}: новая озвучка${latest ? ` (версия ${latest.revision})` : ""} не наложена на ролик, сбой: ${reason}. Вышедший ролик остался прежним; повтор — кнопкой в карточке объекта.`,
+    { dedupKey: `narration-remix-crash:${latest?.id ?? propertyId}` });
+  return "FAILED";
+}
+
+export type NarrationRemixRetry = "QUEUED" | "NOTHING_TO_RETRY";
+/** Повтор доступен: на текущей версии стоит отметка именно сбоя наложения (не «длиннее ролика», не отказ своей музыки,
+ *  после которого ролик ушёл монтажёру). Одно правило для карточки (mix.canRetry) и двери повтора. */
+export function narrationRemixRetryable(p: { videoMasterMixError: string | null; videoMasterMixErrorVersionId: string | null }, latestId: string | undefined): boolean {
+  return !!latestId && p.videoMasterMixErrorVersionId === latestId && !!p.videoMasterMixError?.startsWith(NARRATION_REMIX_CRASH_MARK);
+}
+/**
+ * «ПОПРОБОВАТЬ ЕЩЁ РАЗ» (20.11.2026): снять отметку сбоя наложения с текущей утверждённой версии — обход
+ * перемикса возьмёт ролик в течение минуты. Только сбой (метка NARRATION_REMIX_CRASH_MARK): «голос длиннее ролика»
+ * и отказ своей музыки идут своим путём (короче текст или монтажёр), их повтор не снимает. Бесплатно: сводит ffmpeg на сервере, ElevenLabs не зовётся.
+ */
+export async function retryNarrationRemix(propertyId: string, actorId: string): Promise<NarrationRemixRetry> {
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true } });
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return "NOTHING_TO_RETRY";
+  const cleared = await prisma.property.updateMany({
+    where: { id: propertyId, videoMasterMixErrorVersionId: latest.id, videoMasterMixError: { startsWith: NARRATION_REMIX_CRASH_MARK } },
+    data: { videoMasterMixError: null, videoMasterMixErrorVersionId: null },
+  });
+  if (!cleared.count) return "NOTHING_TO_RETRY";
+  logAgentAudit(actorId, "PROPERTY_NARRATION_REMIX_RETRY", "Property", propertyId, { narrationVersionId: latest.id });
+  return "QUEUED";
+}
+
+/**
+ * Нужно ли сводить ролик заново: одни условия и до метки, и после неё (там — свежим чтением).
+ * MASTER — из ролика без голоса от монтажёра; MUSIC (18.11.2026) — ролика без голоса нет, своя музыка
+ * включена и треки есть, ролик вышел и голос в нём от CRM-озвучки (монтажёр вклеивал переданный mp3 или
+ * CRM уже клала голос сама). Ролик, вышедший вовсе без озвучки CRM, сам не перевыпускается (решение 12.11).
+ */
 async function remixWanted(propertyId: string) {
   const p = await prisma.property.findUnique({ where: { id: propertyId }, include: { district: true } });
-  if (!p || p.deletedAt || p.narrationOff || !p.videoMasterStorageKey || p.videoHandoffStatus !== "RECEIVED" || CLOSED_STATUSES.some((s) => s === p.status)) return null;
+  if (!p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "RECEIVED" || CLOSED_STATUSES.some((s) => s === p.status)) return null;
+  let mode: "MASTER" | "MUSIC" = "MASTER";
+  let musicSince: string | undefined;
+  if (!editorMaster(p)) {
+    if (!p.videoHandoffFinalPath || !(await clipCountsAsPublished(p.id, p))) return null;
+    const { config } = await loadNarrationConfiguration();
+    if (!(await ownMusicReady(config))) return null;
+    musicSince = config.ownMusicRemixSince;
+    // Без момента включения сама CRM не перемонтирует ничего (ревью 18.11: без волны старых роликов).
+    if (!musicSince) return null;
+    const voiced = p.videoMasterNarrationVersionId
+      ?? (await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, status: "SENT" }, select: { id: true } }))?.id ?? null;
+    if (!voiced) return null;
+    mode = "MUSIC";
+  }
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
+  // Голос с долларами (одобрен до сторожа 21.11.2026) в вышедший ролик не сводится.
+  if (narrationCurrencyError(latest.script)) return null;
+  // Своя музыка — только озвучки, одобренные после включения (ревью 18.11); прежние — по-старому, руками.
+  if (mode === "MUSIC" && musicSince && latest.approvedAt.getTime() < new Date(musicSince).getTime()) return null;
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
+  // Своя музыка: озвучка, которую монтажёр уже вклеил по передаче, в ролике есть — менять нечего.
+  if (mode === "MUSIC" && await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, status: "SENT" }, select: { id: true } })) return null;
+  // «Прослушать перед выпуском» и «Оставить старый» убраны 18.11.2026: утверждённая версия сводится и выходит.
+  // Отказ «Оставить старый», нажатый до выката, держится ещё один выпуск (ревью 18.11): снять его может только
+  // новое утверждение человеком этой версии (approveNarrationVersion очищает отметку). Убрать после следующего выката.
+  if (latest.id === p.narrationPreviewDeclinedVersionId) return null;
+  // ПОСТОЯННЫЙ СТОРОЖ (ревью 18.11): выкат гонит миграцию, пока старые api/worker ещё работают, — они успевают завести
+  // кандидата «прослушать» или самоодобрить версию уже после SQL. Кандидат и самоодобрение на вышедшем ролике в сеть не
+  // выходят: такую версию выпускает только утверждение человеком (approveNarrationVersion ставит его заново).
+  if (latest.id === p.narrationPreviewVersionId) return null;
+  if (autoApprovedOnly(latest) && await clipCountsAsPublished(p.id, p)) return null;
   if (await isHandoffPublishRunning(propertyId)) return null;
-  return { p: { ...p, videoMasterStorageKey: p.videoMasterStorageKey }, latest: { ...latest, storageKey: latest.storageKey } };
+  return { mode, p, latest: { ...latest, storageKey: latest.storageKey } };
 }
 
 async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemixOutcome> {
   const wanted = await remixWanted(propertyId);
   if (!wanted) return "SKIPPED";
-  const { p, latest } = wanted;
+  const { mode, p, latest } = wanted;
   const requestedById = latest.approvedById ?? propertyOwnerAgentId(p);
-  const masterKey = p.videoMasterStorageKey;
+  let masterKey = p.videoMasterStorageKey;
+  const sourceFinalPath = p.videoHandoffFinalPath;
   const seenVersionId = p.videoMasterNarrationVersionId;
-  const fail = async (error: string): Promise<NarrationRemixOutcome> => {
+  const fail = async (error: string, opts: { toMontajer?: boolean } = {}): Promise<NarrationRemixOutcome> => {
     await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey, videoMasterNarrationVersionId: seenVersionId },
       data: { videoMasterMixError: error.slice(0, 500), videoMasterMixErrorVersionId: latest.id } });
-    void logSystemError("video-handoff", `Объект №${p.shortId}: новая озвучка (версия ${latest.revision}) не наложена на ролик — ${error} Вышедший ролик остался прежним.`, { dedupKey: `narration-remix:${latest.id}` });
+    // Своя музыка не справилась (ревью 18.11): новая цена всё равно должна дойти до ролика — монтажёру прежним возвратом.
+    const toMontajer = opts.toMontajer ?? mode === "MUSIC";
+    void logSystemError("video-handoff", `Объект №${p.shortId}: новая озвучка (версия ${latest.revision}) не наложена на ролик — ${error} ${toMontajer ? "Ролик ушёл монтажёру заменить звук." : "Вышедший ролик остался прежним."}`, { dedupKey: `narration-remix:${latest.id}` });
+    if (toMontajer) {
+      await sendNarrationToMontajer(propertyId, latest.id).catch((err) =>
+        logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру после отказа своей музыки не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-music-fallback:${latest.id}` }));
+    }
     return "FAILED";
   };
   if (!requestedById) return fail("у объекта нет ответственного агента.");
+  const actorId: string = requestedById;
   const outName = `${propertyId}-${Date.now()}.mp4`;
   const outPath = path.join(videoHandoffDir, outName);
-  // Длина (16.11.2026): (а) ускорение до 15 % → (б) короче шаблон → (в) + стоп-кадр до 3 с → (г) монтажёр.
-  let mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath, fit: { allowFreeze: false } });
-  if (!mixed.ok && mixed.code === "VOICE_LONGER" && mixed.voiceSec && mixed.masterSec) {
-    const shorter = await requestShorterNarration(propertyId, latest.id, mixed.voiceSec, mixed.masterSec).catch((err) => {
-      void logSystemError("video-handoff", `Объект №${p.shortId}: короткий текст озвучки не заказан — ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-shorter:${latest.id}` });
-      return null;
-    });
-    if (shorter) {
-      // Отметка на этой версии: тик её больше не сводит; ролик сведётся из укороченной.
-      await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey },
-        data: { videoMasterMixError: `Озвучка длиннее ролика — CRM готовит текст короче (версия ${shorter.revision}).`, videoMasterMixErrorVersionId: latest.id } });
-      return "SHORTENING";
-    }
-    mixed = await mixFromStoredMaster({ masterKey, voiceKey: latest.storageKey, outPath, fit: { allowFreeze: true } });
-  }
-  if (!mixed.ok && mixed.code === "VOICE_LONGER") {
-    // Не помогли ни ускорение, ни короткий текст, ни стоп-кадр: монтажёр удлинит ролик и заменит
-    // голос. Отметка ошибки на версии не даёт тику повторять перемикс.
-    const outcome = await fail(mixed.error);
-    await sendNarrationToMontajer(propertyId, latest.id, { voiceLonger: true }).catch((err) =>
-      logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру «озвучка длиннее ролика» не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-longer:${latest.id}` }));
-    return outcome;
-  }
-  if (!mixed.ok) return fail(mixed.error);
-  const mixNote = narrationFitNote(mixed.fit);
-  const publicPath = `/uploads/handoff/${outName}`;
-  let replaced: { oldFinal: string | null; reviewPending: boolean } | null;
-  try {
-    replaced = await withPropertyLock(propertyId, async (tx) => {
-      const cur = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true, videoHandoffStatus: true, videoHandoffFinalPath: true,
-        videoMasterStorageKey: true, videoMasterNarrationVersionId: true, publishedChannels: true, instagramUrl: true, clipReviewStatus: true } });
-      const stillLatest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
-      if (!cur || cur.deletedAt || cur.videoHandoffStatus !== "RECEIVED" || cur.videoMasterStorageKey !== masterKey
-        || cur.videoMasterNarrationVersionId !== seenVersionId || stillLatest?.id !== latest.id) return null;
-      if (await isHandoffPublishRunning(propertyId, tx)) return null;
-      const published = (cur.publishedChannels?.length ?? 0) > 0 || !!cur.instagramUrl;
-      await tx.property.update({ where: { id: propertyId }, data: {
-        videoHandoffFinalPath: publicPath, videoHandoffReceivedAt: new Date(), videoMasterNarrationVersionId: latest.id,
-        videoMasterMixError: null, videoMasterMixErrorVersionId: null, scheduledPublishAt: null, scheduledPublishReason: null,
-      } });
-      // Недоделанный Reels прежнего ролика вышел бы рядом с новым (тот же шаг, что при приёме ролика).
-      await tx.pendingInstagramContainer.updateMany({ where: { propertyId, status: "PENDING", kind: "REEL" },
-        data: { status: "CANCELLED", resolvedAt: new Date(), error: "CRM наложила новую озвучку — Reels прежнего ролика отменён" } });
-      if (published && !await tx.videoRemakeRequest.findFirst({ where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null }, select: { id: true } })) {
-        await tx.videoRemakeRequest.create({ data: { propertyId, reason: "NARRATION_CHANGED", requestedById, replaceOldPostsOnPublish: true,
-          comment: `Новая озвучка, версия ${latest.revision}: CRM наложила её сама, монтажёр не нужен.` } });
+  // СВОЯ МУЗЫКА (18.11.2026): «ролик без голоса» собирается здесь же из вышедшего ролика — картинка без
+  // его звука + случайный трек библиотеки (не тот же, что в прошлый раз); дальше то же сведение, что у мастера.
+  let musicBed: { dir: string; path: string; trackId: string } | null = null;
+  if (mode === "MUSIC") {
+    const track = await chooseMusicTrack(p.narrationMusicTrackId);
+    if (!track) return fail("в библиотеке музыки нет ни одного файла трека на диске.");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "rh-music-"));
+    // Основа — чистая картинка ролика монтажёра (MUSIC_BASE); её нет — первый перемонтаж сохраняет её сейчас.
+    let basePath = p.videoMasterSource === MUSIC_BASE_SOURCE && masterKey ? localVideoFilePath(masterKey) : null;
+    if (!basePath || !fs.existsSync(basePath)) {
+      const clipPath = sourceFinalPath ? path.join(videoHandoffDir, path.basename(sourceFinalPath)) : null;
+      if (!clipPath || !fs.existsSync(clipPath)) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail("файл вышедшего ролика не найден на сервере."); }
+      const picture = path.join(dir, "picture.mp4");
+      const made = await buildPictureBase({ clipPath, outPath: picture });
+      if (!made.ok) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail(made.error); }
+      const key = await storeNarrationMaster(propertyId, picture);
+      const written = await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey, videoHandoffFinalPath: sourceFinalPath, videoHandoffStatus: "RECEIVED" },
+        data: { videoMasterStorageKey: key, videoMasterSource: MUSIC_BASE_SOURCE } });
+      if (!written.count) {
+        await dropNarrationMaster(key);
+        await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+        return "SKIPPED";
       }
-      return { oldFinal: cur.videoHandoffFinalPath, reviewPending: cur.clipReviewStatus === "PENDING" };
-    });
-  } catch (err) {
-    await fs.promises.unlink(outPath).catch(() => {});
-    throw err;
+      // Прежний мастер машины (MACHINE) больше не нужен.
+      if (masterKey && masterKey !== key) await dropNarrationMaster(masterKey);
+      masterKey = key;
+      basePath = localVideoFilePath(key);
+    }
+    const bedPath = path.join(dir, "bed.mp4");
+    const bed = await buildMusicBed({ clipPath: basePath!, trackPath: track.path, outPath: bedPath });
+    if (!bed.ok) { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); return fail(bed.error); }
+    musicBed = { dir, path: bedPath, trackId: track.id };
   }
-  if (!replaced) {
-    await fs.promises.unlink(outPath).catch(() => {});
-    return "SKIPPED";
+  // ЦЕНА И СУБТИТРЫ НА РОЛИКЕ (18.11.2026, рубильник textOverlay): цена — из карточки сейчас, в сомони (как монтажёру),
+  // субтитры — текст этой версии озвучки. Сменилась цена — новый ролик несёт новую плашку.
+  const textOverlay = narrationTextOverlay((await loadNarrationConfiguration()).config)
+    // Число — то же, что сказал голос этой версии (`propertyPriceTjs`, курс из её снимка), курс — только из
+    // Настроек: нет курса — плашки с ценой нет (ревью #348, без запасного курса).
+    ? { price: propertyPriceTjsText(p.price, p.currency, p.currency === "USD" ? snapshotNarrationRate(latest.factsSnapshot) ?? await narrationRate() : null), script: latest.script } : undefined;
+  try {
+    return await mixAndPlace();
+  } finally {
+    if (musicBed) await fs.promises.rm(musicBed.dir, { recursive: true, force: true }).catch(() => {});
   }
-  if (replaced.oldFinal && replaced.oldFinal !== publicPath) {
-    await fs.promises.unlink(path.join(videoHandoffDir, path.basename(replaced.oldFinal))).catch(() => {});
-    await fs.promises.unlink(legacyHandoffCoverPath(replaced.oldFinal)).catch(() => {});
+
+  async function mixOnto(fit: { allowFreeze: boolean }): Promise<NarrationMixResult> {
+    if (musicBed) {
+      const voicePath = localVideoFilePath(latest.storageKey);
+      if (!voicePath || !fs.existsSync(voicePath)) return { ok: false, code: "FFMPEG", error: "Файл озвучки не найден на сервере." };
+      return mixNarrationOntoMaster({ masterPath: musicBed.path, voicePath, outPath, fit, textOverlay });
+    }
+    return mixFromStoredMaster({ masterKey: masterKey!, voiceKey: latest.storageKey, outPath, fit, textOverlay });
   }
-  // Ролик на проверке модератора встанет на публикацию после «Одобрить», как обычно.
-  const scheduled = replaced.reviewPending ? null : await schedulePublishAfterAccept(propertyId);
-  await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id }, data: { mixNote } }).catch(() => {});
-  logAgentAudit(requestedById, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { narrationVersionId: latest.id, revision: latest.revision, fit: mixed.fit.tier, tempo: mixed.fit.tempo, freezeSec: mixed.fit.freezeSec,
-    scheduledPublishAt: scheduled?.scheduledPublishAt?.toISOString() ?? null, notPublishingReason: scheduled?.notPublishingReason ?? null });
-  return "REMIXED";
+
+  async function mixAndPlace(): Promise<NarrationRemixOutcome> {
+    // Длина (16.11.2026): (а) ускорение до 15 % → (б) короче шаблон → (в) + стоп-кадр до 3 с → (г) монтажёр.
+    let mixed = await mixOnto({ allowFreeze: false });
+    if (!mixed.ok && mixed.code === "VOICE_LONGER" && mixed.voiceSec && mixed.masterSec) {
+      const shorter = await requestShorterNarration(propertyId, latest.id, mixed.voiceSec, mixed.masterSec).catch((err) => {
+        void logSystemError("video-handoff", `Объект №${p.shortId}: короткий текст озвучки не заказан — ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-shorter:${latest.id}` });
+        return null;
+      });
+      if (shorter) {
+        // Отметка на этой версии: тик её больше не сводит; ролик сведётся из укороченной.
+        await prisma.property.updateMany({ where: { id: propertyId, videoMasterStorageKey: masterKey },
+          data: { videoMasterMixError: `Озвучка длиннее ролика — CRM готовит текст короче (версия ${shorter.revision}).`, videoMasterMixErrorVersionId: latest.id } });
+        return "SHORTENING";
+      }
+      mixed = await mixOnto({ allowFreeze: true });
+    }
+    if (!mixed.ok && mixed.code === "VOICE_LONGER") {
+      // Не помогли ни ускорение, ни короткий текст, ни стоп-кадр: монтажёр удлинит ролик и заменит
+      // голос. Отметка ошибки на версии не даёт тику повторять перемикс.
+      const outcome = await fail(mixed.error, { toMontajer: false });
+      await sendNarrationToMontajer(propertyId, latest.id, { voiceLonger: true }).catch((err) =>
+        logSystemError("video-handoff", `Объект №${p.shortId}: возврат монтажёру «озвучка длиннее ролика» не поставлен: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: `narration-remix-longer:${latest.id}` }));
+      return outcome;
+    }
+    if (!mixed.ok) return fail(mixed.error);
+    const mixNote = narrationFitNote(mixed.fit);
+    const publicPath = `/uploads/handoff/${outName}`;
+    // Замер длины голоса (18.11.2026) — основа оценки «укладывается ли текст» до следующей оплаты.
+    await prisma.propertyNarrationVersion.updateMany({ where: { id: latest.id }, data: { mixNote, audioSec: mixed.voiceSec } }).catch(() => {});
+    // Утверждённая озвучка на вышедшем ролике выходит сразу (18.11.2026): подмена под замком по свежей записи.
+    let placed: PlacedMix;
+    try {
+      placed = await placeMixedClip({ propertyId, publicPath, masterKey, seenVersionId, versionId: latest.id, revision: latest.revision, requestedById: actorId,
+        ...(musicBed ? { music: { sourceFinalPath: sourceFinalPath!, trackId: musicBed.trackId } } : {}) });
+    } catch (err) {
+      await fs.promises.unlink(outPath).catch(() => {});
+      throw err;
+    }
+    if (placed.kind === "SKIPPED") {
+      await fs.promises.unlink(outPath).catch(() => {});
+      return "SKIPPED";
+    }
+    await dropReplacedClipFiles(placed, publicPath);
+    const auditFit = { narrationVersionId: latest.id, revision: latest.revision, fit: mixed.fit.tier, tempo: mixed.fit.tempo, freezeSec: mixed.fit.freezeSec,
+      ...(musicBed ? { musicTrackId: musicBed.trackId } : {}) };
+    // Ролик на проверке модератора встанет на публикацию после «Одобрить», как обычно. Время — своей очередью
+    // новой озвучки (короткий промежуток, ночью — утром): schedulePublishAfterAccept узнаёт её по заявке NARRATION_CHANGED.
+    const scheduled = placed.reviewPending ? null : await schedulePublishAfterAccept(propertyId);
+    logAgentAudit(actorId, "PROPERTY_NARRATION_REMIXED", "Property", propertyId, { ...auditFit,
+      scheduledPublishAt: scheduled?.scheduledPublishAt?.toISOString() ?? null, notPublishingReason: scheduled?.notPublishingReason ?? null });
+    return "REMIXED";
+  }
 }
 
-/** Машинный мастер (lib/narrationAutoMaster.ts) с шагами этого потока: наложить и отдать монтажёру. */
-const machineMasterDeps: MachineMasterDeps = { remix: (id) => remixFromMaster(id), toMontajer: (id, versionId) => sendNarrationToMontajer(id, versionId) };
-/** Задача `narration-auto-master` (cron.ts): один объект за тик. */
-export function runMachineMastersTick(now?: Date) { return runMachineMasters(machineMasterDeps, now); }
-export function makeMachineMasterFor(propertyId: string, now?: Date) { return makeMachineMaster(propertyId, machineMasterDeps, now); }
+/** Строка агенту в карточке объекта (16.11.2026): что CRM сделала со звуком вышедшего ролика. */
+export function narrationMixNoteFor(
+  p: { videoMasterNarrationVersionId: string | null },
+  latest: { id: string; status: string; approvedAt: Date | null; shortenedFromId: string | null; mixNote: string | null } | null,
+  opts: { ownMusicPending?: boolean } = {},
+): string | null {
+  if (!latest || latest.status !== "READY" || !latest.approvedAt) return null;
+  if (latest.id === p.videoMasterNarrationVersionId) return latest.mixNote;
+  if (latest.shortenedFromId) return "Голос был длиннее ролика: CRM озвучила тот же текст короче, ролик обновится сам.";
+  if (opts.ownMusicPending) return "CRM заменит в ролике звук: своя музыка и новая озвучка. Обычно пара минут.";
+  return null;
+}
 
 /**
  * КОРОЧЕ ТЕКСТ, ЧТОБЫ ГОЛОС ВЛЕЗ В РОЛИК (16.11.2026). Ускорения на 15 % не хватает — другой шаблон
@@ -524,8 +992,8 @@ export async function requestShorterNarration(propertyId: string, versionId: str
     const property = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
     const v = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!property || property.deletedAt || property.narrationOff || !v || v.id !== versionId || v.shortenedFromId || !v.templateId || !v.voiceId) return null;
-    const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    const facts = withNarrationRate(narrationFacts(property), snapshotNarrationRate(v.factsSnapshot));
+    if (v.factsHash !== narrationHash(narrationFacts(property)) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
     const lang = v.language === "tg" || v.language === "ru" ? v.language : null;
     const nowRank = FIT_RANK[planNarrationFit(voiceSec, masterSec).tier];
     const chars = Math.max(1, speechChars(v.script, lang));
@@ -563,10 +1031,23 @@ export function setNarrationSweepBatchForTests(size: { remix?: number; facts?: n
   REMIX_BATCH = size.remix ?? 50; FACTS_BATCH = size.facts ?? 200;
 }
 
-async function remixFromMasters(): Promise<number> {
+export async function remixFromMasters(): Promise<number> {
   if (mediaExecutionMode("NARRATION") !== "LIVE") return 0;
-  const rows = await prisma.property.findMany({ where: { deletedAt: null, narrationOff: false, videoMasterStorageKey: { not: null }, videoHandoffStatus: "RECEIVED",
+  // Своя музыка (18.11.2026): в обход попадают и вышедшие ролики без ролика без голоса; остальное решает remixWanted.
+  const { config } = await loadNarrationConfiguration();
+  const music = await ownMusicReady(config);
+  // Своя музыка или текст на ролике — это перекодирование картинки, минуты на объект: ОДИН такой объект за тик,
+  // иначе задача narration-auto-flow выходит за свой предел 170 с (ревью 18.11).
+  const heavy = music || narrationTextOverlay(config);
+  // ПО ПОРЯДКУ УТВЕРЖДЕНИЯ (18.11.2026): утвердили пять роликов за минуту — сводятся и встают в очередь выпуска в
+  // том порядке, в каком их утвердили. Сначала свежие утверждения (трое суток), потом обычный круг по курсору.
+  const approvedFirst = await approvedNotMixedPropertyIds();
+  const rowsByCursor = await prisma.property.findMany({ where: { deletedAt: null, narrationOff: false, videoHandoffStatus: "RECEIVED",
+    OR: [{ videoMasterStorageKey: { not: null } }, ...(music ? [{ videoMasterStorageKey: null, videoHandoffFinalPath: { not: null },
+      narrationVersions: { some: { status: "READY", approvedAt: { not: null } } }, OR: [{ publishedChannels: { isEmpty: false } }, { instagramUrl: { not: null } }] }] : [])],
     ...(sweepCursor.remix ? { id: { gt: sweepCursor.remix } } : {}) }, select: { id: true }, orderBy: { id: "asc" }, take: REMIX_BATCH });
+  const firstIds = new Set(approvedFirst);
+  const rows = [...approvedFirst.map((id) => ({ id, first: true })), ...rowsByCursor.filter((r) => !firstIds.has(r.id)).map((r) => ({ id: r.id, first: false }))];
   let remixed = 0;
   const started = Date.now();
   let last: string | null = null;
@@ -574,15 +1055,36 @@ async function remixFromMasters(): Promise<number> {
   for (const row of rows) {
     // Перекодирование ролика бывает долгим: остаток — следующему тику, а не за пределом крона (170 с).
     if (Date.now() - started > 90_000) { stoppedEarly = true; break; }
-    try { if ((await remixFromMaster(row.id)) === "REMIXED") remixed++; }
-    catch (err) { void logSystemError("video-handoff", `Озвучка: перемикс ролика упал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-remix-crash" }); }
-    last = row.id;
+    let worked = false;
+    try { const r = await remixFromMaster(row.id); worked = r !== "SKIPPED"; if (r === "REMIXED") remixed++; }
+    catch (err) { worked = true; void logSystemError("video-handoff", `Озвучка: перемикс ролика упал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-remix-crash" }); }
+    if (!row.first) last = row.id;
+    if (heavy && worked) { stoppedEarly = true; break; }
   }
-  sweepCursor.remix = stoppedEarly || rows.length === REMIX_BATCH ? last ?? sweepCursor.remix : null;
+  // Курсор двигают только строки обычного круга; первые по утверждению его не трогают.
+  sweepCursor.remix = stoppedEarly ? last ?? sweepCursor.remix : rowsByCursor.length === REMIX_BATCH ? last ?? sweepCursor.remix : null;
   return remixed;
 }
 
+/** Объекты со свежей утверждённой озвучкой, ещё не наложенной на ролик, — по времени утверждения. */
+async function approvedNotMixedPropertyIds(now = new Date()): Promise<string[]> {
+  const rows = (await prisma.propertyNarrationVersion.findMany({
+    where: { status: "READY", approvedAt: { gte: new Date(now.getTime() - 3 * DAY_MS) }, storageKey: { not: null },
+      property: { deletedAt: null, narrationOff: false, videoHandoffStatus: "RECEIVED" } },
+    orderBy: { approvedAt: "asc" }, take: 200,
+    select: { id: true, propertyId: true, property: { select: { videoMasterNarrationVersionId: true, videoMasterMixErrorVersionId: true } } },
+  })) ?? [];
+  const ids: string[] = [];
+  for (const r of rows) {
+    if (!r.property || r.id === r.property.videoMasterNarrationVersionId || r.id === r.property.videoMasterMixErrorVersionId || ids.includes(r.propertyId)) continue;
+    ids.push(r.propertyId);
+  }
+  return ids;
+}
+
 const DAY_MS = 86_400_000;
+/** Код версии «текст длиннее ролика, озвучка не заказана» (18.11.2026): денег не потрачено. */
+export const NARRATION_TEXT_TOO_LONG = "TEXT_LONGER_THAN_CLIP";
 const GENERATION_WINDOW_MS = 60_000;
 const RETRY_429_LIMIT = 3;
 
@@ -599,7 +1101,7 @@ export async function runNarrationAutoFlow(options: { notifyAgent?: NarrationApp
   report.retired = await retireNarrationsOfClosedProperties();
   // В PREVIEW (отправка монтажёру выключена на сервере) автоозвучка не платит вовсе: аудио некуда
   // отдать, а кредиты списались бы (ревью 12.11.2026). Черновики ждут и уйдут, когда включат LIVE.
-  if (narrationAutoEnabled(config) && key && narrationProviderReady(config, key) && mediaExecutionMode("NARRATION") === "LIVE") {
+  if (narrationPlannerOpen(config, key)) {
     // Разовый проход по очереди монтажа — только своим рубильником (по умолчанию выключен).
     if (config.backfillMontageQueue === true) report.backfilled = await backfillMontageQueue(config, now);
     report.drafted = await refreshNarrationDrafts(config, now);
@@ -627,7 +1129,7 @@ export async function runNarrationAutoFlow(options: { notifyAgent?: NarrationApp
  */
 export async function backfillMontageQueue(config: NarrationConfig, now: Date): Promise<number> {
   const rows = await prisma.property.findMany({
-    where: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] }, videoHandoffManualSince: null, narrationVersions: { none: {} } },
+    where: { ...firstNarrationBaseWhere(), ...backfillNarrationWhere() },
     select: { id: true }, orderBy: [{ videoHandoffQueueOrder: "asc" }, { videoHandoffSentAt: "asc" }], take: 20,
   });
   let queued = 0;
@@ -659,6 +1161,23 @@ async function notifyEditorNarrationDelayed(now: Date): Promise<number> {
   return 1;
 }
 
+/** Пауза после правки карточки (18.11.2026): короче обычного дребезга обхода — несколько правок подряд всё ещё
+ *  сливаются в одну версию, но агент не ждёт минуты. Больше настройки «пауза» не бывает. */
+export const NARRATION_AFTER_EDIT_DEBOUNCE_MS = 30_000;
+/** Правка карточки (lib/propertyUpdateEffects.ts): факты озвучки разошлись — новый черновик сейчас. Те же условия,
+ *  что у обхода refreshNarrationDrafts (платить — только при включённой автоозвучке и отправке LIVE). */
+export async function requestNarrationAfterEdit(propertyId: string, now: Date = new Date(), editorId?: string): Promise<AutoNarrationOutcome | null> {
+  const { config, key } = await loadNarrationConfiguration();
+  if (!narrationPlannerOpen(config, key)) return null;
+  const p = await prisma.property.findUnique({ where: { id: propertyId }, include: { district: true, narrationVersions: { orderBy: { revision: "desc" }, take: 1 } } });
+  const latest = p?.narrationVersions[0];
+  if (!p || p.deletedAt || p.narrationOff || !latest || narrationFactsCurrent(latest, p)) return null;
+  const owner = p.assignedAgentId ?? p.intakeAgentId ?? p.createdById ?? "system";
+  // Поменявший цену (или другой факт озвучки) одобряет новую версию сразу (21.11.2026, «то же правило скорости»).
+  return requestAutoNarration({ propertyId, actorId: owner, source: "AUTO", config, now, debounceMs: Math.min(NARRATION_AFTER_EDIT_DEBOUNCE_MS, narrationLimits(config).debounceMs),
+    ...(editorId ? { approveAsId: editorId } : {}) });
+}
+
 export async function refreshNarrationDrafts(config: NarrationConfig, now: Date): Promise<number> {
   let drafted = 0;
   const owner = (p: { assignedAgentId: string | null; intakeAgentId: string | null; createdById: string | null }) => p.assignedAgentId ?? p.intakeAgentId ?? p.createdById ?? "system";
@@ -678,8 +1197,7 @@ export async function refreshNarrationDrafts(config: NarrationConfig, now: Date)
   // Подстраховка: объект заведён мастером CRM или Шабнам за сутки, но озвучка не поставлена (сбой).
   // Заявки с сайта на модерации сюда не попадают (ревью 12.11.2026): только мастер и очередь монтажа.
   const fresh = await prisma.property.findMany({
-    where: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, createdAt: { gte: new Date(now.getTime() - DAY_MS) }, narrationVersions: { none: {} },
-      OR: [{ createdInCrmWizard: true }, { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } }] },
+    where: { ...firstNarrationBaseWhere(), ...freshNarrationWhere(now) },
     select: { id: true, assignedAgentId: true, intakeAgentId: true, createdById: true }, take: 50,
   });
   for (const p of fresh) {
@@ -687,6 +1205,26 @@ export async function refreshNarrationDrafts(config: NarrationConfig, now: Date)
     if (outcome.status === "QUEUED") drafted++;
   }
   return drafted;
+}
+
+/**
+ * ЧЕРНОВИК С ДОЛЛАРАМИ (21.11.2026, ревью #348). Версия, собранная до сторожа валюты, падает с кодом
+ * PRICE_NOT_IN_TJS (денег не тратили), причина — в журнал, и автоозвучка тут же собирает новую версию из
+ * того же шаблона с ценой в сомони. Пересобрать нельзя (объект закрыт, курс не задан, шаблонов нет) —
+ * версия остаётся с этим кодом, карточка объясняет агенту, что делать.
+ */
+async function retireDollarNarration(row: { id: string; propertyId: string }, config: NarrationConfig, now: Date): Promise<void> {
+  const retired = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" },
+    data: { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS, generateAfter: null } });
+  if (!retired.count) return;
+  const p = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true } });
+  const actorId = p?.assignedAgentId ?? p?.intakeAgentId ?? p?.createdById ?? "system";
+  const rebuilt = await requestAutoNarration({ propertyId: row.propertyId, actorId, source: "AUTO", config, now, debounceMs: 0 })
+    .catch((err: unknown) => ({ status: "ERROR", error: err instanceof Error ? err.message : String(err) }) as const);
+  void logSystemError("ai", `Озвучка объекта №${p?.shortId ?? "?"}: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}. ${rebuilt.status === "QUEUED"
+    ? "Новая версия собрана и ждёт озвучки."
+    : `Новую собрать не вышло (${rebuilt.status}${"error" in rebuilt && rebuilt.error ? `: ${rebuilt.error}` : ""}) — агенту: «Другой шаблон» в карточке.`}`,
+    { dedupKey: `narration-price-usd:${row.id}` });
 }
 
 async function generateDueNarrations(config: NarrationConfig, key: string, now: Date): Promise<number> {
@@ -706,11 +1244,28 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
       await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { generateAfter: null } });
       continue;
     }
+    // ЦЕНА В ДОЛЛАРАХ ДО ОПЛАТЫ (21.11.2026, ревью #348): черновик, собранный до сторожа валюты, в ElevenLabs не уходит.
+    // Версия падает с честным кодом, причина — в журнал, а текст тут же пересобирается из шаблона с ценой в сомони
+    // (requestAutoNarration не считает долларовый текст «неизменным»). Агент видит в карточке новую версию.
+    if (narrationCurrencyError(row.script)) {
+      await retireDollarNarration(row, config, now);
+      continue;
+    }
+    // ДЛИНА ДО ОПЛАТЫ (18.11.2026): текст длиннее ролика в ElevenLabs не уходит — версия «не получилась», агент
+    // видит в карточке «Длиннее ролика на N с. Сократите текст». Ролика ещё нет — проверять не с чем.
+    const clipRow = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { videoMasterStorageKey: true, videoHandoffFinalPath: true } });
+    const length = clipRow ? await narrationLengthCheckFor(clipRow, row.script, row.language) : null;
+    if (length && !length.fits) {
+      await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { status: "FAILED", errorCode: NARRATION_TEXT_TOO_LONG, generateAfter: null } });
+      continue;
+    }
     // Владелец сменил модель после черновика: берём текущую, иначе версия застряла бы навсегда.
     if (row.modelId !== config.modelId) await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { modelId: config.modelId } });
     const outcome = await generateNarrationVersion({ propertyId: row.propertyId, versionId: row.id, expectedRevision: row.revision, requireApproval: false, config, key, now });
     if (outcome.status === "READY") {
       generated++;
+      // Сохранил выбор человек (мастер, «Озвучить», правка цены) — одобрено им сразу (21.11.2026).
+      if (await approveNarrationAsSaved(row.id).catch(() => null) === "AUDIO_APPROVED") continue;
       // Шаблон и голос те же, что агент уже одобрял: одобряется сама, звук в ролике меняет CRM.
       const auto = await autoApproveSameChoice(row.id, config).catch(() => null);
       if (auto) {
@@ -748,7 +1303,9 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     }
     if (outcome.status === "FAILED" || outcome.status === "UNKNOWN" || outcome.status === "PERSIST_FAILED") {
       const code = "errorCode" in outcome ? outcome.errorCode : "AUDIO_PERSISTENCE_FAILED";
-      void logSystemError("ai", `Озвучка объекта не получена (${code}). Автоповтора нет: ${outcome.status === "FAILED" ? "проверьте ключ, модель и голос" : "сверьте историю ElevenLabs в карточке объекта"}`, { dedupKey: `narration-failed:${row.id}` });
+      const why = code === NARRATION_PRICE_NOT_IN_TJS ? NARRATION_PRICE_NOT_IN_TJS_TEXT
+        : outcome.status === "FAILED" ? "автоповтора нет: проверьте ключ, модель и голос" : "автоповтора нет: сверьте историю ElevenLabs в карточке объекта";
+      void logSystemError("ai", `Озвучка объекта не получена (${code}): ${why}`, { dedupKey: `narration-failed:${row.id}` });
     }
   }
   return generated;
@@ -756,11 +1313,23 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
 
 async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise<number> {
   let notified = 0;
-  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, source: { not: "MANUAL" }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } }, orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
+  // MANUAL тоже (ревью 18.11): аудио по утверждённому тексту маркетинга на вышедшем ролике ждёт человека — одно
+  // обычное сообщение агенту «готово, послушайте». Неутверждённым READY оно бывает только так.
+  // Только то, что агент правда может утвердить — фильтром в самом запросе (четвёртое ревью 18.11).
+  const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
+    property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
+    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true, script: true, approveAsId: true } });
   for (const row of ready) {
+    // Одобрено при сохранении (21.11.2026): просить «прослушайте» некого — сначала одобрение от имени сохранившего.
+    if (row.approveAsId && await approveNarrationAsSaved(row.id).catch(() => null) === "AUDIO_APPROVED") continue;
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });
     if (!claimed.count) continue;
+    // С долларами «послушайте» не шлём (одобрить её нельзя); отметки — чтобы строка не держала голову очереди и напоминаний.
+    if (narrationCurrencyError(row.script)) {
+      await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: new Date() } });
+      continue;
+    }
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (latest?.id !== row.id) continue;
     try { await notify(row.id); notified++; }
@@ -769,20 +1338,191 @@ async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise
   return notified;
 }
 
+/**
+ * ЖДУЩИЕ ПЕРЕДАЧИ ГОЛОСА (WAITING, второй круг ревью 19.11.2026). Передача ждёт, пока объект не
+ * у монтажёра (он нажал «Сделаю позже» или взял другой). Обход берёт ВСЕ такие передачи —
+ * и автоматические, и ручные, и версии MANUAL: объект снова у монтажёра — та же строка со свежим
+ * планом встаёт в отправку (если голос этой версии уже не ушёл и не идёт другая передача).
+ * Объект сняли с монтажа («Уже сделан», «Не нужен», руководство), продали, сняли с продажи или
+ * удалили — передача гаснет (CANCELLED) с понятной причиной, а не висит вечно.
+ */
+async function resumeWaitingNarrationDeliveries(): Promise<number> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return 0;
+  const rows = await prisma.propertyNarrationDelivery.findMany({
+    where: { status: "WAITING" },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+    select: {
+      id: true, propertyId: true, versionId: true, mode: true,
+      property: { select: { deletedAt: true, status: true, narrationOff: true, videoHandoffStatus: true, videoHandoffManualSince: true } },
+    },
+  });
+  const cancel = (id: string, lastError: string) =>
+    prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "WAITING" }, data: { status: "CANCELLED", lastError } });
+  let resumed = 0;
+  for (const row of rows) {
+    const p = row.property;
+    if (!p || p.deletedAt || (CLOSED_STATUSES as readonly string[]).includes(p.status)) {
+      await cancel(row.id, "Объект продан, снят с продажи или удалён — голос монтажёру не отправлен");
+      continue;
+    }
+    if (p.narrationOff) {
+      await cancel(row.id, "Выбрано «Без озвучки» — голос монтажёру не отправлен");
+      continue;
+    }
+    if (p.videoHandoffStatus !== "QUEUED" && p.videoHandoffStatus !== "SENT_TO_EDITOR") {
+      await cancel(row.id, "Объект снят с монтажа — голос монтажёру не отправлен");
+      continue;
+    }
+    // Ещё в очереди или открыт под ручной приём готового ролика — ждём дальше.
+    if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) continue;
+    let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
+    try {
+      prepared = await prepareNarrationDeliveryPlan(row.propertyId, row.versionId, row.mode);
+    } catch (err) {
+      // Версию сменила новая или факты поменялись — эту не шлём (новую отправит обход сам).
+      if (err instanceof NarrationDeliveryRefused && (err.code === "VERSION_STALE" || err.code === "PROPERTY_GONE" || err.code === "NARRATION_OFF")) {
+        await cancel(row.id, "Озвучка этой версии устарела — голос монтажёру не отправлен");
+      } else if (err instanceof NarrationDeliveryRefused && err.code === "PRICE_NOT_IN_TJS") {
+        await cancel(row.id, err.message);
+      }
+      // Остальное (монтажёр без Telegram, отключён) — ждём; сторож ниже скажет, если затянется.
+      continue;
+    }
+    const ok = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${row.propertyId} FOR UPDATE`;
+      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, versionId: row.versionId, status: "SENT" } })) {
+        await tx.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "WAITING" }, data: { status: "CANCELLED", lastError: "Голос этой версии уже у монтажёра — второй раз не отправляю" } });
+        return false;
+      }
+      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return false;
+      const done = await tx.propertyNarrationDelivery.updateMany({
+        where: { id: row.id, status: "WAITING" },
+        data: { status: "QUEUED", plan: prepared.plan, editorId: prepared.editorId, executionMode: "LIVE", lastError: null },
+      });
+      return done.count === 1;
+    });
+    if (ok) resumed++;
+  }
+  return resumed;
+}
+
 async function deliverApprovedNarrations(): Promise<number> {
-  let delivered = 0;
+  let delivered = await resumeWaitingNarrationDeliveries().catch((err) => {
+    void logSystemError("api", `Озвучка: ждущие передачи не возобновлены: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-waiting-resume" });
+    return 0;
+  });
   const approved = await prisma.propertyNarrationVersion.findMany({
     // Строки PREVIEW (до LIVE) не считаются передачей: после включения LIVE mp3 досылается.
-    where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { none: { status: { not: "PREVIEW" } } }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR" } },
+    // WAITING (19.11.2026) — передача ждёт возврата объекта к монтажёру: тоже ещё не передача, её строку возьмёт queueNarrationDelivery.
+    where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { none: { status: { notIn: ["PREVIEW", "WAITING"] } } }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR" } },
     orderBy: { approvedAt: "asc" }, take: 20, select: { id: true, propertyId: true },
   });
+  // Перемонтаж без смены озвучки (21.11.2026): одобренный голос уже уходил раньше, а после начала ТЕКУЩЕГО перемонтажа —
+  // ещё нет. Одним запросом: последняя версия, объект у монтажёра, ни одной передачи этой версии позже начала перемонтажа.
+  approved.push(...await remakeRedeliveries());
   for (const row of approved) {
     try {
-      const result = await afterNarrationApproved(row.propertyId, row.id);
-      if (result === "QUEUED" || result === "PREVIEW") delivered++;
+      const { status, refusal } = await startNarrationDelivery(row.propertyId, row.id);
+      if (status === "QUEUED" || status === "PREVIEW") delivered++;
+      await watchUndeliveredVoice(row, status, refusal);
     } catch (err) {
       void logSystemError("api", `Озвучка: передача монтажёру не подготовлена: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-auto-delivery" });
     }
   }
+  await watchStuckVoiceDeliveries().catch((err) =>
+    logSystemError("api", `Озвучка: сторож зависших передач не отработал: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-stuck-watch" }));
   return delivered;
+}
+
+/** Одобренные последние версии объектов на перемонтаже у монтажёра, которым в этом перемонтаже голос ещё не уходил. */
+export async function remakeRedeliveries(): Promise<Array<{ id: string; propertyId: string }>> {
+  const rows = await prisma.$queryRaw<Array<{ id: string; propertyId: string }>>`
+    SELECT v.id, v."propertyId" FROM "PropertyNarrationVersion" v JOIN "Property" p ON p.id = v."propertyId"
+    WHERE v.status = 'READY' AND v."approvedAt" IS NOT NULL AND v.source <> 'MANUAL'
+      AND p."deletedAt" IS NULL AND p."narrationOff" = false AND p."videoRemakeCount" > 0
+      AND p."videoHandoffStatus"::text = 'SENT_TO_EDITOR' AND p.status::text NOT IN (${Prisma.join([...CLOSED_STATUSES])})
+      AND v.revision = (SELECT max(x.revision) FROM "PropertyNarrationVersion" x WHERE x."propertyId" = v."propertyId")
+      AND EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING'))
+      AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING')
+        AND d."createdAt" >= (SELECT max(r."createdAt") FROM "VideoRemakeRequest" r WHERE r."propertyId" = v."propertyId"))
+    ORDER BY v."approvedAt" ASC LIMIT 20`;
+  return rows ?? [];
+}
+
+/** Итоги обхода, при которых голос ушёл, уходит или уже у монтажёра — сторожу молчать (BUSY — только если не зависла). */
+const VOICE_ON_ITS_WAY: readonly NarrationDeliveryStart[] = ["QUEUED", "ALREADY", "BUSY", "PREVIEW"];
+/**
+ * СТОРОЖ «ГОЛОС НЕ УШЁЛ» (19.11.2026). Обход берёт только объекты у монтажёра (SENT_TO_EDITOR) с одобренной
+ * озвучкой без передачи — значит, если итог не «поставлено / уже / занято / ждёт LIVE», монтажёр монтирует без
+ * голоса прямо сейчас. Раньше это было видно только по жалобе. Молчит, когда версию уже сменила более новая
+ * (уйдёт она) и когда причина штатная (у объекта «Без озвучки», ручной монтаж мимо очереди).
+ * «Занято» (BUSY) — в пути, только пока мешающая передача живая: UNKNOWN или SENDING дольше бюджета попытки
+ * сама не завершится никогда и держит голос и всех следующих версий (ревью 19.11).
+ */
+async function watchUndeliveredVoice(row: { id: string; propertyId: string }, status: NarrationDeliveryStart, refusal?: NarrationDeliveryRefusal) {
+  if (status === "DISABLED" || (refusal && refusalIsExpected(refusal))) return;
+  let reason = refusal?.message ?? `передача не поставлена (итог ${status})`;
+  let key: string = refusal?.code ?? status;
+  if (VOICE_ON_ITS_WAY.includes(status)) {
+    if (status !== "BUSY") return;
+    const blockers = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: row.propertyId, status: { in: ["SENDING", "UNKNOWN"] } }, select: { id: true, status: true, claimStartedAt: true, plan: true }, take: 10 });
+    const stalled = blockers.find((d) => narrationDeliveryStalled(d));
+    if (!stalled) return;
+    reason = stalledDeliveryReason(stalled.status);
+    key = `stalled:${stalled.id}`;
+  }
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+  if (latest?.id !== row.id) return;
+  const shortId = refusal?.shortId ?? (await prisma.property.findUnique({ where: { id: row.propertyId }, select: { shortId: true } }))?.shortId ?? "?";
+  logVoiceNotSent(row.propertyId, shortId, reason, key);
+}
+
+function logVoiceNotSent(propertyId: string, shortId: number | string, reason: string, key: string) {
+  void logSystemError("api", `Озвучка объекта №${shortId} одобрена, объект у монтажёра, а голос ему не ушёл: ${reason}`,
+    { dedupKey: `narration-voice-not-sent:${propertyId}:${key}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
+}
+
+function stalledDeliveryReason(status: string): string {
+  return status === "UNKNOWN"
+    ? "передача зависла с неизвестным результатом. Сверьте в карточке («Сверка неопределённой доставки»), затем при необходимости передайте вручную"
+    : "передача идёт дольше положенного. Сверьте в карточке («Сверка неопределённой доставки»), затем при необходимости передайте вручную";
+}
+
+/**
+ * СТОРОЖ ЗАВИСШИХ И УПАВШИХ ПЕРЕДАЧ (ревью 19.11.2026). Обход берёт версии только без передач, поэтому версия,
+ * чья передача упала (FAILED) или зависла (UNKNOWN, SENDING дольше бюджета), из него выпадает навсегда, а повторное
+ * одобрение отвечает «уже». Автоповтора нет намеренно (lib/narrationDelivery.ts::reportNarrationDeliveryProblem):
+ * здесь — напоминание раз в шесть часов, пока объект у монтажёра, версия последняя и голос по ней не ушёл.
+ */
+async function watchStuckVoiceDeliveries(now: Date = new Date()): Promise<void> {
+  const rows = await prisma.propertyNarrationDelivery.findMany({
+    where: { status: { in: ["FAILED", "UNKNOWN", "SENDING", "WAITING"] }, version: { status: "READY", approvedAt: { not: null } },
+      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null } },
+    orderBy: { createdAt: "desc" }, take: 20,
+    select: { id: true, propertyId: true, versionId: true, status: true, claimStartedAt: true, plan: true, lastError: true, property: { select: { shortId: true, videoHandoffSentAt: true } } },
+  });
+  const seen = new Set<string>();
+  for (const d of rows) {
+    // Ждущая передача (WAITING, второй круг ревью): объект уже у монтажёра дольше бюджета попытки,
+    // а голос так и не ушёл (его держит другая передача или монтажёр без Telegram) — напоминание.
+    if (d.status === "WAITING") {
+      const since = d.property.videoHandoffSentAt;
+      if (!since || now.getTime() - since.getTime() <= narrationDeliveryAttemptBudgetMs(d.plan)) continue;
+      if (await prisma.propertyNarrationDelivery.count({ where: { versionId: d.versionId, status: { in: ["SENT", "QUEUED"] } } })) continue;
+      logVoiceNotSent(d.propertyId, d.property.shortId, "передача голоса ждёт, хотя объект уже у монтажёра. Проверьте Telegram монтажёра и зависшие передачи в карточке, затем при необходимости передайте вручную", `waiting:${d.id}`);
+      continue;
+    }
+    if (seen.has(d.versionId)) continue; // одна (самая свежая) передача на версию
+    seen.add(d.versionId);
+    if (d.status !== "FAILED" && !narrationDeliveryStalled(d, now)) continue;
+    const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: d.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+    if (latest?.id !== d.versionId) continue;
+    // По этой версии голос уже ушёл или уходит другой передачей (ручной повтор) — молчим.
+    if (await prisma.propertyNarrationDelivery.count({ where: { versionId: d.versionId, status: { in: ["SENT", "CANCELLED", "QUEUED"] } } })) continue;
+    const reason = d.status === "FAILED"
+      ? `передача не удалась (${d.lastError ?? "причина не записана"}). Автоповтора нет — передайте вручную: карточка объекта → «Передача монтажёру вручную»`
+      : stalledDeliveryReason(d.status);
+    logVoiceNotSent(d.propertyId, d.property.shortId, reason, `stalled:${d.id}`);
+  }
 }

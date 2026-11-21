@@ -8,9 +8,11 @@ import {
   type FunctionStatusResponse,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { describeFunctionError } from "./functionErrorText.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { customerAgentAnswerLiveChannels, customerAgentAnswerMode, customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { customerAgentCoreChannels, customerAgentShadowChannels } from "./customerAgentChannelSwitch.js";
+import { CUSTOMER_AGENT_OFF_LABELS, parseCustomerAgentChannelOff } from "./customerAgentChannelOff.js";
 import { customerPropertyMediaExecutionMode } from "./customerPropertyMedia.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { mediaExecutionMode } from "./mediaExecution.js";
@@ -24,6 +26,10 @@ import { readLiveVoiceSpend } from "./liveVoiceSpend.js";
 import { visibleCronWhere } from "./investigationOperations.js";
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { maskPhonesInFreeText } from "./clientPhone.js";
+import { somonCrawlSchedule } from "./market/somonCrawlSchedule.js";
+import { countMissedCallSmsSent } from "./telephony/missedCallFollowup.js";
+import { listMetaSendBlocksForStatus } from "./metaSendBlock.js";
+import { dushanbeDateTimeString } from "./dushanbeTime.js";
 
 /**
  * «СОСТОЯНИЕ ФУНКЦИЙ» (14.11.2026) — расчёт состояния по реестру из packages/shared/src/functionStatus.ts.
@@ -60,6 +66,12 @@ export interface FunctionStatusSettings {
   geminiSpareKeyInSettings: boolean;
   /** Рубильник OpenAI целиком (Settings.openaiEnabled, 14.11.2026). */
   openaiEnabled: boolean;
+  /** Рубильник А: СМС со ссылкой на WhatsApp после пропущенного звонка (18.11.2026). */
+  missedCallSmsEnabled: boolean;
+  /** Сколько таких СМС ушло за 7 дней (lib/telephony/missedCallFollowup.ts). */
+  missedCallSmsSent7d: number;
+  /** Рубильник Б: карточка и задача по пропущенному с незнакомого номера. */
+  missedCallCallbackTaskEnabled: boolean;
 }
 
 export interface FunctionStatusSpend {
@@ -85,19 +97,30 @@ export interface FunctionStatusInput {
     lastSkippedAt: Date | null;
   }>;
   errors: ReadonlyArray<{ source: string; message: string; createdAt: Date }>;
+  /** Метки «Meta не пропускает отправку» (lib/metaSendBlock.ts): действующие и снятые за трое суток. */
+  metaSendBlocks?: ReadonlyArray<{
+    label: string;
+    surface: string;
+    since: Date;
+    liftedAt: Date | null;
+    nextProbeAt: Date;
+    lastCode: number;
+    lastSubcode: number | null;
+  }>;
 }
 
 type Verdict = { state: FunctionState; reason: string; detail?: string | null; attention?: boolean };
 type Evaluator = (input: FunctionStatusInput, def: FunctionDef) => Verdict;
 
-const ENV_NOT_SET = (name: string) => `переменная ${name} на сервере не задана`;
+/** Имя переменной в текст не попадает: оно уходит директору в «Для разработчика» через envNames. */
+const ENV_NOT_SET = (_name: string) => "эта настройка на сервере не включена";
 
 /** Режим из трёх значений OFF/PREVIEW/LIVE → состояние (бот: фото, медиа). */
 function threeWay(mode: "OFF" | "PREVIEW" | "LIVE", name: string, toggleOn: boolean, toggleLabel: string): Verdict {
   if (!toggleOn) return { state: "off", reason: `Выключено тумблером «${toggleLabel}» в Настройках.` };
   if (mode === "LIVE") return { state: "working", reason: `Тумблер «${toggleLabel}» включён, сервер разрешает отправку.` };
   if (mode === "PREVIEW") {
-    return { state: "preview", reason: `Тумблер включён, но сервер в режиме «только проверка» (${name}=PREVIEW): клиенту ничего не уходит.`, attention: true };
+    return { state: "preview", reason: `Тумблер включён, но сервер в режиме «только проверка»: клиенту ничего не уходит.`, attention: true };
   }
   return {
     state: "off",
@@ -135,10 +158,10 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "bot-say-mode": ({ env }) =>
     customerAgentSayMode(env) === "live"
-      ? { state: "working", reason: "Свободные фразы уходят клиентам (CUSTOMER_AGENT_SAY_MODE=live)." }
+      ? { state: "working", reason: "Свободные фразы уходят клиентам." }
       : {
           state: "preview",
-          reason: "Бот проверяет свои свободные фразы, но клиенту их не отправляет: отвечает готовыми шаблонами. Чтобы включить, на сервере нужно CUSTOMER_AGENT_SAY_MODE=live.",
+          reason: "Бот проверяет свои свободные фразы, но клиенту их не отправляет: отвечает готовыми шаблонами. Чтобы включить, разработчик должен включить это на сервере.",
         },
 
   // «Один мозг», шаг 1 (#211): весь ответ своими словами вокруг проверенных фактов. Пусто — «тень».
@@ -147,13 +170,13 @@ const EVALUATORS: Record<string, Evaluator> = {
     // Live is per channel (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS): the mode alone (no channel) is never "live" any more.
     if (env.CUSTOMER_AGENT_ANSWER_MODE === "live") {
       const channels = customerAgentAnswerLiveChannels(env);
-      if (channels.length) return { state: "working", reason: `Бот отвечает клиентам своими словами вокруг проверенных фактов в каналах: ${channels.join(", ")} (CUSTOMER_AGENT_ANSWER_MODE=live). Остальные каналы — только проверка.` };
-      return { state: "preview", reason: "CUSTOMER_AGENT_ANSWER_MODE=live, но список каналов CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS пуст или без известных имён: своими словами бот не отвечает нигде, клиенту уходит готовый шаблон. Запись об этом — в журнале ошибок." };
+      if (channels.length) return { state: "working", reason: `Бот отвечает клиентам своими словами вокруг проверенных фактов в каналах: ${channels.join(", ")}. Остальные каналы — только проверка.` };
+      return { state: "preview", reason: "Ответы своими словами включены, но список каналов на сервере пуст или без известных имён: своими словами бот не отвечает нигде, клиенту уходит готовый шаблон. Запись об этом — в журнале ошибок." };
     }
-    if (mode === "off") return { state: "off", reason: "Выключено на сервере (CUSTOMER_AGENT_ANSWER_MODE=off): бот не пишет ответ своими словами, работают прежние короткие фразы." };
+    if (mode === "off") return { state: "off", reason: "Выключено на сервере: бот не пишет ответ своими словами, работают прежние короткие фразы." };
     return {
       state: "preview",
-      reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, на сервере нужно CUSTOMER_AGENT_ANSWER_MODE=live.",
+      reason: "Бот пишет ответ своими словами только для проверки, клиенту уходит готовый шаблон. Чтобы включить, разработчик должен включить это на сервере.",
     };
   },
 
@@ -163,9 +186,49 @@ const EVALUATORS: Record<string, Evaluator> = {
     const label = (set: ReadonlySet<string>) => [...set].map(key => names[key] ?? key).join(", ");
     const core = customerAgentCoreChannels(env.CUSTOMER_AGENT_CHANNEL_CORE);
     const shadow = [...customerAgentShadowChannels(env.CUSTOMER_AGENT_CHANNEL_SHADOW)].filter(key => !core.has(key));
-    if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)} (CUSTOMER_AGENT_CHANNEL_CORE).${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
-    if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))} (CUSTOMER_AGENT_CHANNEL_SHADOW). Клиенту его ответы не уходят.` };
-    return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено (CUSTOMER_AGENT_CHANNEL_CORE и CUSTOMER_AGENT_CHANNEL_SHADOW пусты)." };
+    if (core.size) return { state: "working", reason: `Новое ядро отвечает клиентам: ${label(core)}.${shadow.length ? ` Только проверка рядом со старым ботом: ${label(new Set(shadow))}.` : ""}` };
+    if (shadow.length) return { state: "preview", reason: `Отвечает старый бот; новое ядро только проверяется рядом с ним: ${label(new Set(shadow))}. Клиенту его ответы не уходят.` };
+    return { state: "off", reason: "На сайте, в Telegram и YouTube отвечает старый бот. Новое ядро там выключено на сервере." };
+  },
+
+  // Аварийный рубильник CUSTOMER_AGENT_CHANNEL_OFF (18.11.2026, lib/customerAgentChannelOff.ts). Пусто — бот отвечает как обычно.
+  "bot-channel-off": ({ env }) => {
+    const { off, unknown } = parseCustomerAgentChannelOff(env.CUSTOMER_AGENT_CHANNEL_OFF);
+    const skipped = unknown.length ? ` Неизвестные имена пропущены: ${unknown.join(", ")}.` : "";
+    if (!off.size) return { state: "working", reason: `Аварийный рубильник не включён: бот отвечает клиентам на всех каналах как обычно.${skipped}`,
+      ...(unknown.length ? { attention: true } : {}) };
+    const label = [...off].map(key => CUSTOMER_AGENT_OFF_LABELS[key]).join(", ");
+    return { state: "off", reason: `Бот выключен на каналах: ${label}. Клиенту там уходит одна строка ` +
+      `«передал сотруднику», отвечают сотрудники.${skipped}`, attention: true };
+  },
+
+  // Метки lib/metaSendBlock.ts: запрет Meta по правилам (код 368 и родня) на аккаунт и вид отправки.
+  "meta-send-blocks": ({ metaSendBlocks, now }) => {
+    const rows = metaSendBlocks ?? [];
+    const active = rows.filter((r) => !r.liftedAt);
+    const surface = (s: string) => (s === "comment" ? "ответы на комментарии" : "личные сообщения");
+    const code = (r: (typeof rows)[number]) => `код ${r.lastCode}${r.lastSubcode !== null ? `/${r.lastSubcode}` : ""}`;
+    const lifted = rows.filter((r) => r.liftedAt).map((r) =>
+      `${r.label}, ${surface(r.surface)}: запрет снят ${dushanbeDateTimeString(r.liftedAt!)}`);
+    if (!active.length) {
+      return {
+        state: "working",
+        reason: "Meta пропускает отправку со всех аккаунтов.",
+        ...(lifted.length ? { detail: `За трое суток: ${lifted.join("; ")}.` } : {}),
+      };
+    }
+    const lines = active.map((r) => {
+      const probe = r.nextProbeAt.getTime() <= now.getTime()
+        ? "проба — при следующей отправке"
+        : `следующая проба в ${dushanbeDateTimeString(r.nextProbeAt)}`;
+      return `${r.label}, ${surface(r.surface)}: Meta ограничила отправку с ${dushanbeDateTimeString(r.since)} (${code(r)}), ${probe}`;
+    });
+    return {
+      state: "working",
+      reason: `${lines.join("; ")}. Бот туда не пишет, ждущих клиентов передаёт сотрудникам — ответ из приложения; остальные аккаунты работают.`,
+      ...(lifted.length ? { detail: `Снято за трое суток: ${lifted.join("; ")}.` } : {}),
+      attention: true,
+    };
   },
 
   "bot-photos": ({ settings }) => {
@@ -224,7 +287,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     const search = env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED === "true";
     const index = env.ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED === "true";
     if (search && index) return { state: "working", reason: "Умный поиск включён, индекс пополняется." };
-    if (search) return { state: "working", reason: "Умный поиск включён, но новые материалы в индекс не попадают (ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED не включена).", attention: true };
+    if (search) return { state: "working", reason: "Умный поиск включён, но новые материалы в индекс не попадают: запись в индекс не включена на сервере.", attention: true };
     return { state: "off", reason: `Выключено: ${ENV_NOT_SET("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED")}. Шабнам ищет по базе знаний только по словам.` };
   },
 
@@ -232,6 +295,16 @@ const EVALUATORS: Record<string, Evaluator> = {
     settings.groundedSearchEnabled
       ? { state: "off", reason: "Тумблер в Настройках включён, но функция пока не работает: код не подключает справочный поиск. Включение ничего не меняет.", attention: true }
       : { state: "off", reason: "Выключено, и включить пока нельзя: функция недоделана. Вопросы про законы и налоги Шабнам оставляет без ответа." },
+
+  "missed-call-sms": ({ settings }) =>
+    settings.missedCallSmsEnabled
+      ? { state: "working", reason: `Включено: неотвеченному звонящему сразу уходит СМС. Отправлено за 7 дней: ${settings.missedCallSmsSent7d}.` }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: после пропущенного звонка клиенту ничего не уходит." },
+
+  "missed-call-callback-task": ({ settings }) =>
+    settings.missedCallCallbackTaskEnabled
+      ? { state: "working", reason: "Включено: пропущенный с незнакомого номера получает карточку и общую задачу «перезвонить»." }
+      : { state: "off", reason: "Выключено тумблером в Настройках, Каналы связи, Входящие: по незнакомому пропущенному задачи нет, руководство получает только пуш." },
 
   openai: ({ settings }) =>
     settings.openaiEnabled
@@ -243,7 +316,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (mode !== "LIVE") {
       return {
         state: "preview",
-        reason: `CRM готовит озвучку, но монтажёру не отправляет: ${ENV_NOT_SET("CRM_NARRATION_EXECUTION_MODE")} (нужно LIVE).`,
+        reason: `CRM готовит озвучку, но монтажёру не отправляет: ${ENV_NOT_SET("CRM_NARRATION_EXECUTION_MODE")} (нужен боевой режим).`,
         attention: true,
       };
     }
@@ -255,20 +328,20 @@ const EVALUATORS: Record<string, Evaluator> = {
   "owner-reports": () =>
     mediaExecutionMode("OWNER_REPORT") === "LIVE"
       ? { state: "working", reason: "Отчёты собственникам отправляются." }
-      : { state: "preview", reason: `Отчёты готовятся, но собственникам не уходят: ${ENV_NOT_SET("CRM_OWNER_REPORT_EXECUTION_MODE")} (нужно LIVE).` },
+      : { state: "preview", reason: `Отчёты готовятся, но собственникам не уходят: ${ENV_NOT_SET("CRM_OWNER_REPORT_EXECUTION_MODE")} (нужен боевой режим).` },
 
   // Условие из publicationMetadataSync.ts / publicationMetadataAdapter.ts: без LIVE — EXECUTION_DISABLED.
   "publication-metadata": ({ env }) =>
     env.PUBLICATION_METADATA_EXECUTION === "LIVE"
       ? { state: "working", reason: "Синхронизация разрешена сервером. Запускается только вручную из кода, расписания нет." }
-      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("PUBLICATION_METADATA_EXECUTION")} (нужно LIVE). Выложенные публикации не обновляются после правки объекта.` },
+      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("PUBLICATION_METADATA_EXECUTION")} (нужен боевой режим). Выложенные публикации не обновляются после правки объекта.` },
 
   // Условия из sellerControlEpisodes.ts (runSellerControlTick, enrollDueSellerIntakes).
   "seller-control": ({ env }) => {
     if (env.SELLER_CONTROL_INTERNAL_LIVE !== "explicitly-approved") {
       return {
         state: "preview",
-        reason: "Только проверка: боевой режим не разрешён сервером (SELLER_CONTROL_INTERNAL_LIVE), задача раз в минуту ничего не делает.",
+        reason: "Только проверка: боевой режим не разрешён сервером, задача раз в минуту ничего не делает.",
         attention: true,
       };
     }
@@ -281,7 +354,7 @@ const EVALUATORS: Record<string, Evaluator> = {
     if (!buyerCandidateLiveEnabled()) {
       return {
         state: "preview",
-        reason: "Только проверка: нужно, чтобы сервер разрешил и BUYER_CANDIDATE_INTERNAL_LIVE, и SELLER_CONTROL_INTERNAL_LIVE.",
+        reason: "Только проверка: нужно, чтобы сервер разрешил боевой режим и для кандидатов-покупателей, и для продавцов.",
         attention: true,
       };
     }
@@ -293,7 +366,7 @@ const EVALUATORS: Record<string, Evaluator> = {
   "owner-verification": () =>
     newOwnerProbeMode() === "LIVE"
       ? { state: "working", reason: "Проверка собственников выполняется по-настоящему." }
-      : { state: "preview", reason: `Проверки только планируются, звонков и сообщений собственникам нет: ${ENV_NOT_SET("CRM_OWNER_VERIFICATION_EXECUTION_MODE")} (нужно LIVE).` },
+      : { state: "preview", reason: `Проверки только планируются, звонков и сообщений собственникам нет: ${ENV_NOT_SET("CRM_OWNER_VERIFICATION_EXECUTION_MODE")} (нужен боевой режим).` },
 
   // Условие из routes/manualDataCorrections.ts.
   "manual-corrections": ({ env }) =>
@@ -322,8 +395,8 @@ const EVALUATORS: Record<string, Evaluator> = {
 
   "market-crawl": ({ env }) =>
     env.MARKET_CRAWL_ENABLED === "1"
-      ? { state: "working", reason: "Сбор включён: Somon раз в неделю и по минутам, Paydo ночью и частями." }
-      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} (нужно 1). Свежих объявлений рынка нет.`, attention: true },
+      ? { state: "working", reason: `Сбор включён: полный обход Somon ${somonCrawlSchedule(env).mode === "nightly" ? "каждую ночь" : "раз в неделю"} и по минутам, Paydo ночью и частями.` }
+      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("MARKET_CRAWL_ENABLED")} . Свежих объявлений рынка нет.`, attention: true },
 
   "gemini-spare-key": ({ env, settings }) =>
     settings.geminiSpareKeyInSettings || !!env.GEMINI_API_KEY_2
@@ -371,6 +444,7 @@ function toCron(row: FunctionStatusInput["heartbeats"][number], now: Date): Func
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     lastOkAt: row.lastOkAt?.toISOString() ?? null,
     lastError: row.lastError ? maskPhonesInFreeText(row.lastError).slice(0, 200) : null,
+    humanError: describeFunctionError(row.lastError),
     health: cronHealth(row, now),
   };
 }
@@ -403,7 +477,7 @@ export function evaluateFunctions(input: FunctionStatusInput): FunctionStatusRes
       envNames: [...(def.env ?? [])],
       settingsTab: def.settingsTab ?? null,
       crons: own,
-      lastError: lastError ? { at: lastError.createdAt.toISOString(), message: maskPhonesInFreeText(lastError.message).slice(0, 200) } : null,
+      lastError: lastError ? { at: lastError.createdAt.toISOString(), message: maskPhonesInFreeText(lastError.message).slice(0, 200), humanMessage: describeFunctionError(lastError.message) } : null,
     };
   });
 
@@ -427,7 +501,7 @@ const ERRORS_TAKE = 300;
 
 export async function loadFunctionStatus(viewerRole: string | undefined, now: Date = new Date()): Promise<FunctionStatusResponse> {
   const errorSources = [...new Set(FUNCTION_REGISTRY.flatMap((f) => f.errorSources ?? []))];
-  const [row, heartbeats, errors, spend] = await Promise.all([
+  const [row, missedCallSmsSent7d, heartbeats, errors, spend, metaSendBlocks] = await Promise.all([
     prisma.settings.findUnique({
       where: { id: "singleton" },
       select: {
@@ -448,8 +522,11 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         alarmHoursEnd: true,
         geminiApiKey2: true,
         openaiEnabled: true,
+        missedCallSmsEnabled: true,
+        missedCallCallbackTaskEnabled: true,
       },
     }),
+    countMissedCallSmsSent(7, now).catch(() => 0),
     prisma.cronHeartbeat.findMany({
       where: visibleCronWhere(viewerRole),
       orderBy: { name: "asc" },
@@ -463,6 +540,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
       select: { source: true, message: true, createdAt: true },
     }),
     readLiveVoiceSpend(now).catch(() => null),
+    listMetaSendBlocksForStatus(now).catch(() => []),
   ]);
 
   const narration = narrationConfigSchema.safeParse(row?.propertyNarrationConfig ?? {});
@@ -485,6 +563,9 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     alarmHoursEnd: row?.alarmHoursEnd ?? "14:45",
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
     openaiEnabled: row?.openaiEnabled ?? false,
+    missedCallSmsEnabled: row?.missedCallSmsEnabled ?? false,
+    missedCallSmsSent7d,
+    missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
   };
 
   return evaluateFunctions({
@@ -502,5 +583,6 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
       : null,
     heartbeats,
     errors,
+    metaSendBlocks,
   });
 }

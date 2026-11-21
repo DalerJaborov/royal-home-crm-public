@@ -99,20 +99,22 @@ describe("сторож ссылок: три живые фразы прода б�
 describe("предел попыток и круги по отказам", () => {
   it("кончились попытки ХОДА — честная остановка, а не «лимит ИИ достигнут»", async () => {
     callGeminiTools.mockReset();
-    callGeminiTools.mockRejectedValueOnce(new AssistantAttemptLimitError("turn"));
+    callGeminiTools.mockRejectedValueOnce(new AssistantAttemptLimitError("attempt_cap"));
     const outcome = await runAssistantDetailed([{ role: "user", content: `закрой право метка-дельта` }], actor(agent));
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.reply).toMatch(/^Не успела закончить/u);
     expect(outcome.reply).not.toContain("Лимит вызовов");
-    expect(await turnRow(`метка-дельта`)).toMatchObject({ outcome: "partial", reason: "attempt_limit" });
+    expect(outcome.reply).not.toMatch(/Сузьте/u);
+    expect(await turnRow(`метка-дельта`)).toMatchObject({ outcome: "partial", reason: "attempt_cap" });
   });
 
-  it("дневной лимит или учёт расходов (scope «budget») — по-прежнему отказ attempt_limit", async () => {
+  // Сведено с #316 (22.11.2026): дневной счётчик — своя причина и свой текст (limitText.ts), не честная остановка.
+  it("дневной предел вызовов (reason «attempts_daily») — по-прежнему отказ, код daily_limit", async () => {
     callGeminiTools.mockReset();
-    callGeminiTools.mockRejectedValueOnce(new AssistantAttemptLimitError("budget"));
+    callGeminiTools.mockRejectedValueOnce(new AssistantAttemptLimitError("attempts_daily"));
     const outcome = await runAssistantDetailed([{ role: "user", content: `проверка бюджета метка-эпсилон` }], actor(agent));
-    expect(outcome).toEqual({ ok: false, code: "attempt_limit", retryable: false });
+    expect(outcome).toEqual({ ok: false, code: "daily_limit", retryable: false });
   });
 
   it("тот же отказавший вызов по кругу: исполняется, но считается повтором — «loop» на третьем шаге", async () => {

@@ -1,0 +1,174 @@
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Pause, Play } from "lucide-react";
+import { AUDIO_SPEEDS, audioClock, audioSpeedLabel, claimAudio, nextAudioSpeed, releaseAudio, usableDuration } from "./rhAudio";
+
+/**
+ * ОДИН ПЛЕЕР ДЛЯ ВСЕХ ЗАПИСЕЙ (20.11.2026, класс К01 аудита; кадр владельца №17 — серый
+ * системный плеер iPhone с «00:27 … 00:00»). Заменяет `<audio controls>`: кнопка «слушать/пауза»,
+ * полоса перемотки, «0:12 / 0:27»; у голосовых — скорость 1× / 1,5× / 2× (`speeds`).
+ *
+ *  - Длительность берётся из файла, но Infinity/NaN (у webm из Chrome) не показываем:
+ *    лечится известным приёмом — прыжок в конец, и браузер считает настоящую длину.
+ *    Пока длины нет, показывается `knownSec` от сервера, а если и его нет — только текущее время.
+ *    Прыжок делается только на паузе (во время игры он обрывал бы звук); у играющей записи длину берём
+ *    из durationchange или, в крайнем случае, из конца воспроизведения.
+ *  - Одновременно играет один звук: общий реестр `claimAudio` (rhAudio.ts), им пользуются и плееры на `new Audio`.
+ *  - Файл не открылся — честная строка и ссылка на сам файл, а не вечный «00:00».
+ *
+ * Сам `<audio>` скрытый и без `controls` — рисуем свои кнопки. Новый `<audio controls>`
+ * вне этого файла не пройдёт сторож `ruFieldsGuard.test.ts`.
+ */
+export function RhAudioPlayer({
+  src, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
+}: {
+  src: string;
+  autoPlay?: boolean;
+  /** Кнопка скорости 1×/1,5×/2× — для голосовых и разговоров. */
+  speeds?: boolean;
+  preload?: "none" | "metadata" | "auto";
+  /** Длина записи, если сервер её знает: показывается, пока браузер не дал свою. */
+  knownSec?: number | null;
+  className?: string;
+  style?: CSSProperties;
+  /** Подпись для экранного чтеца: «Голосовое», «Запись разговора». */
+  label?: string;
+  /**
+   * Плеер прямо в пузыре переписки, как в WhatsApp (владелец 21.11.2026: «белая карточка в синем пузыре»):
+   * без подложки, цвета берёт у пузыря — `--rh-audio-*` задаёт theme-look-royal-chats.css по стороне пузыря.
+   */
+  inBubble?: boolean;
+}) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [pos, setPos] = useState(0);
+  const [dur, setDur] = useState<number | null>(null);
+  const [speed, setSpeed] = useState<number>(AUDIO_SPEEDS[0]);
+  const [failed, setFailed] = useState(false);
+  const probing = useRef(false);
+  const scrubbing = useRef(false);
+  const stop = useRef(() => ref.current?.pause());
+
+  // Новый адрес — всё сначала.
+  useEffect(() => {
+    setPlaying(false); setPos(0); setDur(null); setFailed(false); probing.current = false;
+  }, [src]);
+
+  const syncDuration = useCallback((el: HTMLAudioElement) => {
+    const d = usableDuration(el.duration);
+    if (d) {
+      setDur(d);
+      if (probing.current) { probing.current = false; try { el.currentTime = 0; } catch { /* перемотка до загрузки */ } setPos(0); }
+      return;
+    }
+    // Infinity: просим конец файла, браузер досчитает длину и пришлёт durationchange.
+    if (el.duration === Infinity && !probing.current && el.paused) {
+      probing.current = true;
+      try { el.currentTime = 1e101; } catch { probing.current = false; }
+    }
+  }, []);
+
+  const play = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    claimAudio(stop.current);
+    el.playbackRate = speed;
+    void el.play().catch(() => setPlaying(false));
+  }, [speed]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (autoPlay && el) play();
+    const stopper = stop.current;
+    return () => releaseAudio(stopper);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- автозапуск один раз на адрес
+  }, [src, autoPlay]);
+
+  useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
+
+  const total = dur ?? usableDuration(knownSec);
+  const seekTo = (value: number) => {
+    const el = ref.current;
+    if (!el) return;
+    try { el.currentTime = value; } catch { /* ещё не загружено */ }
+    setPos(value);
+  };
+
+  if (failed) {
+    return (
+      <div className={className} style={style} data-testid="rh-audio-failed">
+        <span className="text-sm">Запись не открылась. </span>
+        <a className="text-sm underline" href={src} target="_blank" rel="noreferrer">Открыть файл</a>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`rh-audio flex min-w-0 items-center gap-1.5 ${inBubble ? "py-0.5" : "rounded-2xl bg-[var(--rh-ui-hover)] p-1 pr-2"} ${className ?? ""}`}
+      style={style}
+      data-testid="rh-audio"
+    >
+      <audio
+        ref={ref}
+        src={src}
+        preload={preload}
+        onLoadedMetadata={(e) => syncDuration(e.currentTarget)}
+        onDurationChange={(e) => syncDuration(e.currentTarget)}
+        onTimeUpdate={(e) => { if (probing.current) syncDuration(e.currentTarget); else if (!scrubbing.current) setPos(e.currentTarget.currentTime); }}
+        onPlay={() => { claimAudio(stop.current); setPlaying(true); }}
+        onPause={() => setPlaying(false)}
+        onEnded={(e) => {
+          // Длина, которую браузер так и не сообщил (webm без заголовка), теперь известна — это конец записи.
+          const endedAt = usableDuration(e.currentTarget.currentTime);
+          if (!usableDuration(e.currentTarget.duration)) setDur((d) => d ?? endedAt);
+          setPlaying(false); setPos(0); e.currentTarget.currentTime = 0;
+        }}
+        onError={() => setFailed(true)}
+      />
+      <button
+        type="button"
+        aria-label={playing ? `${label}: пауза` : `${label}: слушать`}
+        onClick={() => (playing ? ref.current?.pause() : play())}
+        /* «!» — правило `.rh2 button` (background:none; color:inherit; font:inherit) бьёт слои Tailwind */
+        className={inBubble
+          ? "grid h-11 w-11 flex-none place-items-center rounded-full bg-[var(--rh-audio-btn)]! text-lg! text-[var(--rh-audio-btn-fg)]!"
+          : "grid h-11 w-11 flex-none place-items-center rounded-full bg-blue! text-lg! text-on-accent!"}
+      >
+        {playing ? <Pause aria-hidden="true" size={20} /> : <Play aria-hidden="true" size={20} />}
+      </button>
+      <input
+        type="range"
+        className={`block min-w-14 flex-1 ${inBubble ? "rh-audio-range" : "accent-[var(--rh-ui-primary)]"}`}
+        style={inBubble ? { "--rh-audio-pos": `${total ? Math.min(100, (pos / total) * 100) : 0}%` } as CSSProperties : undefined}
+        min={0}
+        max={total ?? 0}
+        step={0.1}
+        value={Math.min(pos, total ?? 0)}
+        disabled={!total}
+        aria-label={`${label}: перемотка`}
+        aria-valuetext={`${audioClock(pos)} из ${audioClock(total)}`}
+        onPointerDown={() => { scrubbing.current = true; }}
+        onPointerUp={() => { scrubbing.current = false; }}
+        onPointerCancel={() => { scrubbing.current = false; }}
+        onBlur={() => { scrubbing.current = false; }}
+        onChange={(e) => seekTo(Number(e.target.value))}
+      />
+      <span className="flex-none whitespace-nowrap tabular-nums" style={{ fontSize: "var(--rh-fs-xs)", color: inBubble ? "var(--rh-audio-fg)" : "var(--rh-ui-hint)" }} data-testid="rh-audio-clock">
+        {total ? `${audioClock(pos)} / ${audioClock(total)}` : audioClock(pos)}
+      </span>
+      {speeds && (
+        <button
+          type="button"
+          aria-label={`Скорость ${audioSpeedLabel(speed)}, нажмите, чтобы сменить`}
+          onClick={() => setSpeed(nextAudioSpeed(speed))}
+          className={inBubble
+            ? "h-8! min-h-8! min-w-12 flex-none rounded-full bg-[var(--rh-audio-pill)]! px-2.5! font-semibold! text-[var(--rh-audio-fg)]! tabular-nums"
+            : "h-11 min-w-10 flex-none rounded-full px-1! font-semibold! tabular-nums"}
+          style={{ fontSize: "var(--rh-fs-xs)" }}
+        >
+          {audioSpeedLabel(speed)}
+        </button>
+      )}
+    </div>
+  );
+}

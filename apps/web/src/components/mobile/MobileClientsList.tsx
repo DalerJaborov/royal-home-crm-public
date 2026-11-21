@@ -28,6 +28,7 @@ import { CallClientButton } from "../CallClientButton";
 import { Pagination } from "../Pagination";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MhLane, MhListScreen, sinceLabel, type MhLaneChip } from "./mh/MhList";
+import { lastContactLabel } from "../../lib/clientRowFacts";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SORT_OPTIONS,
@@ -36,6 +37,8 @@ import {
   formatClientName,
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
+import { NoContactTile } from "./NoContactTile";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 import type { Client } from "../../types";
 
 const num = (n: number) => n.toLocaleString("ru-RU");
@@ -89,7 +92,7 @@ const num = (n: number) => n.toLocaleString("ru-RU");
  *    только тем, у кого `clients.assign`;
  *  — тихая строка «Похожих карточек: N» + «Сравнить» (useDuplicates,
  *    только `clients.merge`, только вкладка «Покупатели» — как на ПК);
- *  — четыре плитки сводки (Новые/Без агента/Без контакта/Показы), те же данные
+ *  — четыре плитки сводки (Новые/Без агента/Не связывались/Показы), те же данные
  *    `useClientsSummary`, что и плитки ПК, но в мобильной раскладке `.v`/`.l`
  *    (`.mh .tile` — другая CSS, чем эталонный `StatTile`, см. докблок в
  *    MobileCalls.tsx);
@@ -170,7 +173,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   /** Срез «Ждут принятия» — плитка «Без агента» ниже; тот же честный серверный
    *  фильтр (`pendingAcceptance`), что у ПК (pages/Clients.tsx). */
   const [pendingSlice, setPendingSlice] = useState(() => urlParams.get("slice") === "pending");
-  /** Срез «Без контакта» — плитка с тем же числом; правило одно на всю CRM
+  /** Срез «Не связывались» — плитка с тем же числом; правило одно на всю CRM
    *  (packages/shared/src/clientNoContact.ts), список даёт сервер. */
   const [noContactSlice, setNoContactSlice] = useState(() => urlParams.get("slice") === "noContact");
   /**
@@ -203,7 +206,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const filters: ClientFilters = {
     ...(isAllMineRoute
       ? { scope: "allMine" as const }
-      : { kind: pendingSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
+      // Срезы «Ждут принятия» и «Не связывались» — покупатели и продавцы разом: так
+      // считает число на плитке, и срез по вкладке давал список короче числа.
+      : { kind: pendingSlice || noContactSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
     page,
     q: debouncedQ?.trim() || undefined,
     ...(slice === "mine" && me && !isAllMineRoute ? { agentId: me.id } : {}),
@@ -443,7 +448,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       {/* Четыре плитки сводки — те же данные, что StatTile на ПК, но в
           мобильной раскладке `.v`/`.l` (не эталонный `.tile` из StatTile,
           см. докблок MobileCalls.tsx). «Горячие» удалены из CRM владельцем,
-          поэтому четвёртая плитка ПК — «Без контакта», как здесь. */}
+          поэтому третья плитка — «не связывались» (NoContactTile). */}
       {summary && (
         <div className="sec" style={{ marginTop: 14 }}>
           <div className="tiles">
@@ -483,9 +488,8 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 ждут принятия · {oldest ? `дольше всех ${oldest.fullName}` : "все приняты"}
               </div>
             </button>
-            <button
-              type="button"
-              className="tile"
+            <NoContactTile
+              count={summary.neverContacted}
               onClick={() => {
                 // Срез по тому же правилу, что и число на плитке (сервер,
                 // `/clients?noContact=1`, lib/noContact.ts), а не сортировка.
@@ -495,11 +499,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 setPage(1);
                 focusList();
               }}
-              title="Срез «Без контакта»"
-            >
-              <div className={summary.noContactOverDay > 0 ? "v crit" : "v"}>{num(summary.noContactOverDay)}</div>
-              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта</div>
-            </button>
+            />
             <Link className="tile" to="/calendar?type=SHOWING&date=today" title="Календарь показов">
               <div className="v">{num(summary.showings.today)}</div>
               <div className="l">показов сегодня · {num(summary.showings.tomorrow)} на завтра</div>
@@ -522,7 +522,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               {pendingSlice
                 ? "Никто не ждёт принятия."
                 : noContactSlice
-                  ? "Все клиенты на связи."
+                  ? NO_CONTACT_TEXT.empty
                   : q
                   ? "Никого не нашли, проверьте написание."
                   : "В этом срезе пока пусто."}
@@ -740,12 +740,12 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
   const wants = [c.desiredRooms ? `${c.desiredRooms}-комн` : null, c.desiredDistrict?.name ?? null]
     .filter(Boolean)
     .join(", ");
-  const step = c.nextStep?.nextAction?.trim();
+  // Следующий шаг в строку не выводится (владелец 21.11.2026: «зачем следующий шаг?»),
+  // он виден в карточке клиента.
   const parts = [
     showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null,
     wants || null,
     CLIENT_SOURCE_LABELS[c.source],
-    step || null,
   ].filter(Boolean) as string[];
 
   // Отметки статуса («горячий», «новый», «на контакте») убраны 16.11.2026:
@@ -842,13 +842,15 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
             <span className="block mt-2" style={{ pointerEvents: "auto" }}>
               <MutationError
                 mutation={acceptLead.isError ? acceptLead : declineLead}
-                fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+                fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
               />
             </span>
           )}
         </span>
         <span className="r relative z-10" style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>
-          <span className="tm">{sinceLabel(c.lastContactAt ?? c.assignedAt)}</span>
+          {/* Давность ПОСЛЕДНЕГО КОНТАКТА по общему правилу (lib/clientRowFacts.ts, 21.11.2026):
+              lastContactAt двигает любая заметка, а у новой карточки он равен моменту создания. */}
+          <span className="tm" title={lastContactLabel(c.lastStaffContactAt) ?? undefined}>{sinceLabel(c.lastStaffContactAt)}</span>
           {c.unread && <span className="unread dot" aria-label="Клиент написал, переписка не открыта" />}
           {/* Звонок прямо из строки — непринятому лиду кнопки нет: номер у
               него замаскирован (тот же разбор, что в ClientRow на ПК). */}
@@ -861,8 +863,8 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
       </div>
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={confirmRejection}
           onCancel={() => setConfirmDecline(false)}

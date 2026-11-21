@@ -17,10 +17,10 @@ import {
   deliverToConversation,
   lastClientMessage,
   lastClientMessageAt,
+  messagingWindowStateOfTarget,
   resolveSendTarget,
   type DeliveryTarget,
 } from "../../lib/conversationDelivery.js";
-import { isMessagingWindowOpen } from "../../lib/messagingWindow.js";
 import { asMetaChannel, isMetaChannelEnabled } from "../../messengers/meta.js";
 import { isTelegramEnabled } from "../../telegram/api.js";
 import { smsConfigured, toSmsPhone } from "../../lib/sms/index.js";
@@ -38,6 +38,7 @@ import { phoneSafeText } from "../../lib/clientPhone.js";
 import { buyerWantsFromCriteria, describeBuyerCriteria, findBuyerListings, hasBuyerCriteria } from "../../lib/market/buyerMatch.js";
 import { findBuyerMarketSummary } from "../../lib/market/buyerMarket.js";
 import { loadOwnersFilter } from "../../lib/market/ownerFilter.js";
+import { loadListingContacts } from "../../lib/market/listingContacts.js";
 
 export const matchingRouter = Router();
 
@@ -85,7 +86,7 @@ async function loadSendableClient(req: Request, res: Response): Promise<Sendable
   // До принятия лида карточка для агента закрыта (см. POST /:id/interactions) —
   // писать клиенту в мессенджер в обход этой блокировки тоже нельзя.
   if (ownAgentId && !client.acceptedAt) {
-    res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
     return null;
   }
   return client;
@@ -147,8 +148,8 @@ matchingRouter.get("/:id/send-target", requireAuth, async (req, res) => {
   }
   const channel = targetChannel(target);
   const word = CHANNEL_WORD[channel] ?? channel;
-  const [enabled, lastAt] = await Promise.all([channelEnabled(target), lastClientMessageAt(target)]);
-  const windowOpen = isMessagingWindowOpen(channel, lastAt);
+  const [enabled, lastAt, windowState] = await Promise.all([channelEnabled(target), lastClientMessageAt(target), messagingWindowStateOfTarget(target)]);
+  const windowOpen = windowState !== "closed";
   const hint = !SENDABLE_CHANNELS.has(channel)
     ? `Канал ${word} больше не поддерживается.${smsTail}`
     : !enabled
@@ -423,6 +424,8 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     findBuyerMarketSummary(wants),
   ]);
   const seesPhone = can(req, "clients.viewPhone");
+  // Кто уже связывался с продавцом (номер, WhatsApp, поиск собственников) — одним запросом на страницу.
+  const contacts = await loadListingContacts(listings.map((l) => l.sourceUrl), req.agent!.id);
   const body: MarketBuyerListingsResponse = {
     status: "ok",
     criteria,
@@ -434,7 +437,7 @@ matchingRouter.get("/:id/market-listings", requireAuth, async (req, res) => {
     offset: parsed.data.offset,
     freshDays: wants.rules.freshDays,
     clientDistrictMissing: wants.districtName == null,
-    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone) })),
+    listings: listings.map(l => ({ ...l, title: phoneSafeText(l.title, seesPhone), contact: contacts.get(l.sourceUrl) ?? null })),
   };
   return res.json(body);
 });

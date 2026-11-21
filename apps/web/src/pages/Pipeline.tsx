@@ -24,6 +24,8 @@ import { Pagination } from "../components/Pagination";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
 import { MarketingTabs } from "../components/SectionTabs";
 import { useCleanShell } from "../hooks/useCleanShell";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection, useRoyalSectionName } from "../components/look/clients/RoyalSection";
 
 /**
  * «Подготовка объектов» (до 25.09.2026 — «Конвейер объектов», переименовано
@@ -46,6 +48,13 @@ import { useCleanShell } from "../hooks/useCleanShell";
  * маркетинга/директора/админа, `AWAITING_VIDEO|EDITING` для монтажёра).
  */
 export function Pipeline() {
+  // «Новый вид» (пачка analytics): метка раздела; без признака — прежнее дерево и разметка.
+  const royal = useRoyalLook();
+  return <RoyalSection name={royal ? "analytics" : undefined}><PipelineScreen royal={royal} /></RoyalSection>;
+}
+
+function PipelineScreen({ royal }: { royal: boolean }) {
+  const section = useRoyalSectionName();
   const clean = useCleanShell();
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
@@ -54,7 +63,7 @@ export function Pipeline() {
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -74,7 +83,7 @@ export function Pipeline() {
     );
   }
 
-  return isEditor ? <EditorPipeline clean={clean} /> : <MarketingPipeline clean={clean} />;
+  return isEditor ? <EditorPipeline clean={clean} royal={royal} /> : <MarketingPipeline clean={clean} royal={royal} />;
 }
 
 type Filter = "mine" | "all";
@@ -87,7 +96,7 @@ type Filter = "mine" | "all";
  * стадии на сервере (`status=PENDING_REVIEW`), числа — `total` с сервера, лента
  * растёт кнопкой «Показать ещё».
  */
-function MarketingPipeline({ clean }: { clean: boolean }) {
+function MarketingPipeline({ clean, royal }: { clean: boolean; royal: boolean }) {
   const [filter, setFilter] = useState<Filter>("mine");
   const [page, setPage] = useState(1);
   const status = filter === "mine" ? "PENDING_REVIEW" : undefined;
@@ -105,6 +114,7 @@ function MarketingPipeline({ clean }: { clean: boolean }) {
 
   return (
     <PipelineShell
+      royal={royal}
       title="Подготовка объектов к продаже"
       mineLabel="Ждёт меня"
       mineCount={mineHead.data?.total ?? 0}
@@ -122,7 +132,7 @@ function MarketingPipeline({ clean }: { clean: boolean }) {
       }
     >
       {items.map((p) => (
-        <PipelineRow key={p.id} row={p} clean={clean} />
+        <PipelineRow key={p.id} row={p} clean={clean} royal={royal} />
       ))}
     </PipelineShell>
   );
@@ -135,7 +145,7 @@ function MarketingPipeline({ clean }: { clean: boolean }) {
  * «Все объекты» «Скоро придут» дописываются только когда «На монтаже» показан
  * целиком — иначе новые строки монтажа вставали бы в середину ленты.
  */
-function EditorPipeline({ clean }: { clean: boolean }) {
+function EditorPipeline({ clean, royal }: { clean: boolean; royal: boolean }) {
   const [filter, setFilter] = useState<Filter>("mine");
   const [editingPage, setEditingPage] = useState(1);
   const [upcomingPage, setUpcomingPage] = useState(1);
@@ -161,6 +171,7 @@ function EditorPipeline({ clean }: { clean: boolean }) {
 
   return (
     <PipelineShell
+      royal={royal}
       title="Монтаж"
       mineLabel="Ждёт меня"
       mineCount={counts?.inEditing ?? 0}
@@ -193,13 +204,14 @@ function EditorPipeline({ clean }: { clean: boolean }) {
       }
     >
       {visible.map((p) => (
-        <PipelineRow key={p.id} row={p} clean={clean} />
+        <PipelineRow key={p.id} row={p} clean={clean} royal={royal} />
       ))}
     </PipelineShell>
   );
 }
 
 function PipelineShell({
+  royal,
   title,
   mineLabel,
   mineCount,
@@ -213,6 +225,7 @@ function PipelineShell({
   footer,
   children,
 }: {
+  royal: boolean;
   title: string;
   mineLabel: string;
   mineCount: number;
@@ -230,8 +243,9 @@ function PipelineShell({
   const hasRows = Array.isArray(children) ? children.length > 0 : !!children;
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
+  const section = useRoyalSectionName();
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr" data-stagger>
         <div className="pg-h">
           <div>
@@ -290,9 +304,20 @@ function PipelineShell({
 
           {!isLoading && !isError && hasRows && (
             <>
-              <div className="list" style={{ marginTop: 8 }}>
-                {children}
-              </div>
+              {/* «Новый вид»: строка конвейера — та же карточка объекта, что в каталоге
+                  (RoyalPropertyItem), и оформление у неё общее со списком «Объектов»:
+                  вложенная метка раздела objects берёт их слой, а не копию правил. */}
+              {royal ? (
+                <div className="ry-pipe-list" data-ry-section="objects">
+                  <div className="list ry-obj-grid" data-view="rows">
+                    {children}
+                  </div>
+                </div>
+              ) : (
+                <div className="list" style={{ marginTop: 8 }}>
+                  {children}
+                </div>
+              )}
               {footer}
             </>
           )}
@@ -406,7 +431,7 @@ function stageCaption(row: MarketingQueueRow): string {
  * передвигать очередь») и «Снять с монтажа». Держателя места не двигают — его
  * снимают. Все кнопки гаснут, пока идёт любое снятие, пауза или ход.
  */
-function PipelineRow({ row, clean }: { row: MarketingQueueRow; clean: boolean }) {
+function PipelineRow({ row, clean, royal }: { row: MarketingQueueRow; clean: boolean; royal: boolean }) {
   const overdue = row.pipeline.overdue;
   const cancelHandoff = useCancelVideoHandoff();
   const move = useMoveVideoHandoff();
@@ -511,6 +536,7 @@ function PipelineRow({ row, clean }: { row: MarketingQueueRow; clean: boolean })
     <>
       <PropertyRow
         clean={clean}
+        royal={royal}
         property={row}
         hideHandoffBrief
         subline={

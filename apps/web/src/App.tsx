@@ -69,6 +69,11 @@ const EventFeedPlayground = import.meta.env.DEV
   ? lazyWithReload(() => import("./pages/dev/EventFeedPlayground"))
   : null;
 
+// Дев-стенд блока озвучки карточки (18.11.2026, «поменял, послушал, утвердил») — тот же приём, только DEV.
+const NarrationPreviewPlayground = import.meta.env.DEV
+  ? lazyWithReload(() => import("./pages/dev/NarrationPreviewPlayground"))
+  : null;
+
 // Дев-стенд задачи 5 слоя 2 (AskPanel) — только `import.meta.env.DEV`, тот же
 // приём: не собирается и не роутится в проде.
 const AskPanelPlayground = import.meta.env.DEV
@@ -149,6 +154,7 @@ const Activity = lazyWithReload(() => import("./pages/Activity").then((m) => ({ 
 const Deals = lazyWithReload(loadCleanDeals);
 const Calendar = lazyWithReload(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
 const Reports = lazyWithReload(() => import("./pages/Reports").then((m) => ({ default: m.Reports })));
+const DirectorDashboard = lazyWithReload(() => import("./pages/DirectorDashboard").then((m) => ({ default: m.DirectorDashboard })));
 const Sources = lazyWithReload(() => import("./pages/Sources").then((m) => ({ default: m.Sources })));
 const Settings = lazyWithReload(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const RolesMatrix = lazyWithReload(() =>
@@ -157,6 +163,7 @@ const RolesMatrix = lazyWithReload(() =>
 const FunctionStatus = lazyWithReload(() =>
   import("./pages/settings/FunctionStatus").then((m) => ({ default: m.FunctionStatus })),
 );
+const UiCheck = lazyWithReload(() => import("./pages/UiCheck").then((m) => ({ default: m.UiCheck })));
 const Profile = lazyWithReload(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const Finance = lazyWithReload(loadCleanFinance);
 const Archive = lazyWithReload(() => import("./pages/Archive").then((m) => ({ default: m.Archive })));
@@ -265,6 +272,16 @@ export default function App() {
       />
       {/* Дев-стенд задачи 7 слоя 2 — вне ProtectedRoute/AppLayout: своя фикстура,
           api не нужен. Маршрут существует только в DEV (см. EventFeedPlayground выше). */}
+      {NarrationPreviewPlayground && (
+        <Route
+          path="/dev/narration-preview"
+          element={
+            <Suspense fallback={<AppSkeleton />}>
+              <NarrationPreviewPlayground />
+            </Suspense>
+          }
+        />
+      )}
       {EventFeedPlayground && (
         <Route
           path="/dev/event-feed"
@@ -431,6 +448,7 @@ export default function App() {
         <Route path="comments" element={<Comments />} />
         <Route path="funnel" element={<Funnel />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="director" element={<DirectorDashboard />} />
         <Route path="sources" element={<Sources />} />
         <Route path="settings" element={<Settings />} />
         {/* «Права по ролям» — таблица роль на роль по пресетам shared/permissions.ts,
@@ -440,6 +458,8 @@ export default function App() {
             Только директор и администратор (проверка на самой странице и на сервере); вход — Настройки → Данные и система. */}
         <Route path="settings/functions" element={<FunctionStatus />} />
         <Route path="profile" element={<Profile />} />
+        {/* «Проверка экрана» — цифры окна и видимой области для разбора багов iPhone; любому вошедшему. */}
+        <Route path="ui-check" element={<UiCheck />} />
         <Route path="finance" element={<Finance />} />
         <Route path="ads" element={<Ads />} />
         {/* Студия запуска рекламы убрана 12.10.2026: старые закладки ведут на доску. */}

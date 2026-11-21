@@ -228,9 +228,9 @@ async function markAlerted(row: PausedWaitingRow, at: Date): Promise<void> {
  *  в схеме, миграция под них не нужна). */
 async function clearPause(row: PausedWaitingRow): Promise<void> {
   if (row.source === "bot") {
-    await prisma.botConversation.update({ where: { id: row.id }, data: { pausedUntil: null, botPausedAt: null } });
+    await prisma.botConversation.update({ where: { id: row.id }, data: { pausedUntil: null, botPausedAt: null, pauseAlertSentAt: null } });
   } else {
-    await prisma.telegramConversation.update({ where: { id: row.id }, data: { pausedUntil: null, botPausedAt: null } });
+    await prisma.telegramConversation.update({ where: { id: row.id }, data: { pausedUntil: null, botPausedAt: null, pauseAlertSentAt: null } });
   }
 }
 

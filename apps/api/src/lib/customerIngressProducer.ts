@@ -12,6 +12,7 @@ import { customerNonInputCode } from "./customerIngressNonInput.js";
 import { customerRoutingHoldDisposition } from "./customerRoutingHold.js";
 import { recordHeldCustomerMessage, type CustomerHeldMessage } from "./customerHeldMessage.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
+import { CUSTOMER_CHANNEL_OFF_REASON, isCustomerIngressTicketChannelOff } from "./customerAgentChannelOff.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
@@ -185,6 +186,16 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
   // their processing state would violate the payload/state SQL constraint.
   if (selected && selected.payloadVersion !== 1) return { status: "held", reason: "historical_payload_unavailable" };
   if (selected?.intakeAgentRevisionId) {
+    // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF): no core turn, no model. The ticket is HELD and the one
+    // «unanswered turn» door tells a person (episode-deduplicated). Empty switch = no extra query, the old path below.
+    if (await isCustomerIngressTicketChannelOff(eventKey)) {
+      await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
+        SET "processingState"='HELD',"errorCode"=${CUSTOMER_CHANNEL_OFF_REASON} WHERE "eventKey"=${eventKey}
+        AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
+      const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
+      void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);
+      return { status: "held", reason: CUSTOMER_CHANNEL_OFF_REASON };
+    }
     const { runCustomerDmAgentTurn } = await import("./customerDmAgentTurn.js");
     const result = await runCustomerDmAgentTurn(eventKey);
     if (result.status === "held") {

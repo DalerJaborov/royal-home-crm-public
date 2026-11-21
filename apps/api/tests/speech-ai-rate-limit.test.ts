@@ -4,6 +4,7 @@ import request from "supertest";
 vi.mock("../src/ai/transcribe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/transcribe.js")>()),
   transcribeAudio: vi.fn(async () => "текст записи"),
+  transcribeAudioResult: vi.fn(async () => ({ text: "текст записи", failed: false })),
 }));
 vi.mock("../src/lib/privateFiles.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/privateFiles.js")>()),

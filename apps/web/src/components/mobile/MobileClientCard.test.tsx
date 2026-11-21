@@ -8,6 +8,8 @@ vi.mock("../../hooks/useDuplicates", () => ({ useDismissSimilarClient: () => ({ 
 vi.mock("../rh2/ShellOwnHeader", () => ({ ShellOwnHeader: () => null }));
 vi.mock("../ClientDesiredPlacesMap", () => ({ ClientDesiredPlacesMap: () => null }));
 vi.mock("../ClientInsight", () => ({ ClientInsight: () => null }));
+// «С площадок» у покупателя (17.11.2026) — свой запрос к серверу; здесь проверяется раскладка карточки, не блок.
+vi.mock("../MarketBuyerListings", () => ({ MarketBuyerListings: () => <span>С площадок</span> }));
 // «Написать в WhatsApp первыми» (аудит F1-1, 17.11.2026): статус «готово к отправке».
 vi.mock("../../hooks/useWhatsAppFirstContact", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../hooks/useWhatsAppFirstContact")>()),
@@ -24,7 +26,7 @@ function render(client: Client, overrides: Partial<MobileClientCardProps> = {}) 
     client, locked: true, pending: !!client.pendingAcceptance, isSeller: false, canBuy: client.kind === "BUYER",
     isOther: client.kind === "OTHER", canCallTransferred: false, mainStatusChip: <ClientStateBadge client={client} />,
     propertyWorkspace: <span>Журнал объектов</span>, overviewProperties: <span>Объекты в обзоре</span>,
-    intentConfirmation: null, overviewNextStep: null, commonMiddle: null, propertyCounts: null, similarWarning: null,
+    intentConfirmation: null, overviewNextStep: null, commonMiddle: null, similarWarning: null,
     editingName: false, nameDraft: "", savingName: false, onStartEditName: noop, onNameDraftChange: noop,
     onCancelEditName: noop, onSubmitName: noop, phoneOptions: [], conversations: [], interactions: [],
     lastPropertiesSent: null, onOpenMatch: noop, matchTotal: undefined, canMerge: false, similarNotes: [],
@@ -38,7 +40,7 @@ describe("mobile client overview lifecycle integration", () => {
   it("renders acceptance once while keeping the unaccepted content gate", () => {
     const html = render({ ...base, pendingAcceptance: true });
     expect(html.match(/Ждёт принятия/g)).toHaveLength(1);
-    expect(html).toContain("когда вы примете лид");
+    expect(html).toContain("когда вы примете заявку");
     expect(html).not.toContain("Объекты в обзоре");
   });
   it("renders other-inquiry identity once and retains the new overview and activity sections", () => {

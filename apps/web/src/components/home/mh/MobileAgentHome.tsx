@@ -36,6 +36,7 @@ import {
 import { MhMoney, MhNoData, MhQuiet, MhScreen, MhSection, mmss, useSecondTick } from "./MhScreen";
 import type { Client, Interaction } from "../../../types";
 import type { DashboardSummary } from "../../../hooks/useDashboard";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 type FirstCallDueItem = DashboardSummary["firstCallDue"][number];
 
@@ -110,7 +111,7 @@ export function MobileAgentHome() {
   // это: позвонить, осталось 6:02» стояло под крупным «0, на сегодня всё сделано».
   const todayCount = tasks.length + firstCallDue.length;
   const callTick = useSecondTick(firstCallDue.length > 0);
-  // «Без контакта» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  // «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
   const { data: noContactPage, isError: noContactError, refetch: refetchNoContact } = useClients({ pageSize: 1, noContact: true });
   const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
@@ -146,7 +147,7 @@ export function MobileAgentHome() {
    */
   const summary = screenState({ data, isError });
   const pendingState = screenState({ data: pendingPage, isError: pendingError });
-  // Строка «без контакта» — серверный срез noContact (#220), а не сотня карточек.
+  // Строка «не связывались» — серверный срез noContact (#220), а не сотня карточек.
   const clientsState = screenState({ data: noContactPage, isError: noContactError });
   const pendingErrorShown = pendingState === "error";
 
@@ -233,7 +234,7 @@ export function MobileAgentHome() {
           пилюля ждущих принятия (другое число, не то же самое, что дел на
           сегодня) переехал в подпись, а не пропал.
 
-          Тревога («время принять лид вышло») считает `usePendingAcceptAlert`
+          Тревога («время принять заявку вышло») считает `usePendingAcceptAlert`
           выше — с 15.09.2026 это чистый локальный расчёт с таймером, без
           шины настроения и без звука: оба были частью удалённого знака ИИ и
           удалены вместе с ним. */}
@@ -385,8 +386,8 @@ export function MobileAgentHome() {
         ) : noContact[0] ? (
           <div className="card-s">
             <p className="hint">
-              {clientDisplayName(noContact[0].fullName)} — без контакта больше суток.
-              Короткий звонок сегодня дешевле, чем новый лид завтра.
+              {clientDisplayName(noContact[0].fullName)} — {NO_CONTACT_TEXT.item}.
+              Короткий звонок сегодня дешевле, чем новая заявка завтра.
             </p>
             <div className="chips">
               <CallClientButton
@@ -588,7 +589,7 @@ function PendingRow({
           )}
           {escalated ? " · никто не принял" : ` · ${leadHint(c)}`}
         </span>
-        {/* «Почему лид ваш» — та же строка сервера, что в окне приёма и на ПК. */}
+        {/* «Почему заявка ваша» — та же строка сервера, что в окне приёма и на ПК. */}
         {c.leadReason && <span className="s">{c.leadReason.text}</span>}
       </button>
       <button
@@ -606,7 +607,7 @@ function PendingRow({
     </div>
     {acceptLead.isError && (
       <div style={{ padding: "0 14px 12px" }}>
-        <MutationError mutation={acceptLead} fallback="Не удалось принять лид" variant="rh2" />
+        <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" variant="rh2" />
       </div>
     )}
     </>
@@ -724,7 +725,7 @@ function FirstCallFocusCard({ item, now }: { item: FirstCallDueItem; now: number
               "срок вышел, звоните сейчас"
             ) : (
               <>
-                осталось <span className="timer">{mmss(left)}</span> · иначе минус к Royal Score
+                осталось <span className="timer">{mmss(left)}</span> · {item.afterDue ?? "иначе руководитель увидит, что звонка не было"}
               </>
             )}
           </div>

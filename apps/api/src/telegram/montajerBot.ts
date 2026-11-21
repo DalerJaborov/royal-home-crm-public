@@ -29,6 +29,17 @@ import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { type TelegramInlineButton } from "./api.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import {
+  montajerCancelView,
+  montajerMarkDone,
+  montajerMoveQueued,
+  montajerQueueControlsOn,
+  montajerQueueItemView,
+  montajerSkipLater,
+  montajerSkipMenuView,
+  montajerTakeNow,
+} from "../lib/montajerQueueControl.js";
+import type { MontajerQueueMove } from "../lib/montajerQueueButtons.js";
 
 /** Полные правила передачи — по слову «помощь», а не в каждом сообщении с роликом
  *  (владелец 19.09.2026: компактный текст при передаче). */
@@ -49,6 +60,10 @@ export const MONTAJER_HELP_TEXT = [
  * было»; расширено 25.09.2026). Главное — «объект <номер>»: данные карточки по
  * запросу, в любой момент и для любого объекта, а не один раз подписью.
  */
+/** Строка про управление очередью — только при включённом рубильнике (ревью 19.11.2026). */
+const MONTAJER_MENU_CONTROL_LINE =
+  "• «пропустить» — отложить объект в работе или отметить «уже сделан»; номер в «очереди» — взять другой сейчас или передвинуть.";
+
 export const MONTAJER_MENU_TEXT = [
   "Меню монтажёра:",
   "• «очередь» — что у вас в работе и что дальше, с адресами; номер — кнопкой.",
@@ -79,6 +94,15 @@ export const MONTAJER_MENU_BUTTONS: TelegramInlineButton[][] = [
 ];
 
 export type MontajerCommand =
+  // Управление очередью (19.11.2026, lib/montajerQueueControl.ts). shortId: null — кто сейчас в работе.
+  | { kind: "skipMenu"; shortId: number | null }
+  | { kind: "skipLater"; shortId: number }
+  | { kind: "skipDone"; shortId: number; willSend: boolean }
+  | { kind: "queueItem"; shortId: number }
+  | { kind: "take"; shortId: number; holderShortId: number }
+  | { kind: "move"; shortId: number; to: MontajerQueueMove }
+  | { kind: "queuedDone"; shortId: number; willSend: boolean }
+  | { kind: "cancelControl" }
   | { kind: "menu" }
   | { kind: "help" }
   | { kind: "queue" }
@@ -119,6 +143,7 @@ export function parseMontajerText(text: string): MontajerCommand {
   if (/^(меню|\/menu|\/start)/.test(t)) return { kind: "menu" };
   if (/^(помощ|помогит|help|\/help)/.test(t)) return { kind: "help" };
   if (/^(очеред|\/queue)/.test(t)) return { kind: "queue" };
+  if (/^(пропуст|\/skip)/.test(t)) return { kind: "skipMenu", shortId: null };
   if (MONTAJER_RESEND_COMMANDS.has(t)) return { kind: "resendMissing" };
   if (/^(сдал|сдано|что я сдал|квитанци)/.test(t)) return { kind: "receipts" };
   if (/^(срок|сроки)/.test(t)) return { kind: "deadlines" };
@@ -137,6 +162,32 @@ export function parseMontajerCallback(data: string): MontajerCommand | null {
     "mj:time": { kind: "deadlines" },
   };
   if (simple[data]) return simple[data]!;
+  // Управление очередью — форматы из lib/montajerQueueButtons.ts.
+  if (data === "mj:x") return { kind: "cancelControl" };
+  const take = data.match(/^mj:tk:(\d{1,7}):(\d{1,7})$/);
+  if (take) return { kind: "take", shortId: Number(take[1]), holderShortId: Number(take[2]) };
+  const move = data.match(/^mj:mv:(\d{1,7}):([udf])$/);
+  if (move) return { kind: "move", shortId: Number(move[1]), to: move[2] === "u" ? "up" : move[2] === "d" ? "down" : "front" };
+  const control = data.match(/^mj:(sk|skl|skd|skn|qi|qd|qn):(\d{1,7})$/);
+  if (control) {
+    const shortId = Number(control[2]);
+    switch (control[1]) {
+      case "sk":
+        return { kind: "skipMenu", shortId };
+      case "skl":
+        return { kind: "skipLater", shortId };
+      case "skd":
+        return { kind: "skipDone", shortId, willSend: true };
+      case "skn":
+        return { kind: "skipDone", shortId, willSend: false };
+      case "qn":
+        return { kind: "queuedDone", shortId, willSend: false };
+      case "qi":
+        return { kind: "queueItem", shortId };
+      default:
+        return { kind: "queuedDone", shortId, willSend: true };
+    }
+  }
   const m = data.match(/^mj:(obj|ph|src|sf|pub):(\d{1,7})$/);
   if (!m) return null;
   const shortId = Number(m[2]);
@@ -175,15 +226,36 @@ async function resendMissingText(): Promise<string> {
   return "Сейчас у вас в работе ничего нет — присылать нечего.";
 }
 
-/** Выполнить команду монтажёра: ответ текстом, с кнопками или альбомом. */
-export async function runMontajerCommand(chatId: string, cmd: MontajerCommand): Promise<void> {
+/** Выполнить команду монтажёра: ответ текстом, с кнопками или альбомом.
+ *  `agentId` — кто нажал: действия с очередью проверяют его заново и пишут в аудит. */
+export async function runMontajerCommand(chatId: string, cmd: MontajerCommand, agentId: string): Promise<void> {
   switch (cmd.kind) {
-    case "menu":
-      return reply(chatId, { text: MONTAJER_MENU_TEXT, buttons: MONTAJER_MENU_BUTTONS });
+    case "skipMenu":
+      return reply(chatId, await montajerSkipMenuView(agentId, cmd.shortId));
+    case "skipLater":
+      return reply(chatId, await montajerSkipLater(agentId, cmd.shortId));
+    case "skipDone":
+      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "holder", cmd.willSend));
+    case "queuedDone":
+      return reply(chatId, await montajerMarkDone(agentId, cmd.shortId, "queued", cmd.willSend));
+    case "queueItem":
+      return reply(chatId, await montajerQueueItemView(agentId, cmd.shortId));
+    case "take":
+      return reply(chatId, await montajerTakeNow(agentId, cmd.shortId, cmd.holderShortId));
+    case "move":
+      return reply(chatId, await montajerMoveQueued(agentId, cmd.shortId, cmd.to));
+    case "cancelControl":
+      return reply(chatId, montajerCancelView());
+    case "menu": {
+      const text = (await montajerQueueControlsOn())
+        ? MONTAJER_MENU_TEXT.replace("\n• «объект 108»", `\n${MONTAJER_MENU_CONTROL_LINE}\n• «объект 108»`)
+        : MONTAJER_MENU_TEXT;
+      return reply(chatId, { text, buttons: MONTAJER_MENU_BUTTONS });
+    }
     case "help":
       return reply(chatId, { text: MONTAJER_HELP_TEXT });
     case "queue":
-      return reply(chatId, await montajerQueueView());
+      return reply(chatId, await montajerQueueView(new Date(), { controls: await montajerQueueControlsOn() }));
     case "holderCard": {
       // Кнопка отдаёт карточку объекта, который в работе; любой другой — словом
       // «объект <номер>» или кнопкой из «🗂 Очередь».

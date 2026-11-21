@@ -108,8 +108,8 @@ beforeAll(async () => {
   // CRM», поэтому рубильник включается явно и возвращается после прогона.
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
   configBefore = settings?.propertyNarrationConfig ?? null;
-  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: { mixByCrm: true } },
-    update: { propertyNarrationConfig: { ...((configBefore as Record<string, unknown> | null) ?? {}), mixByCrm: true } } });
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: { mixByCrm: true, previewBeforeRepublish: false } },
+    update: { propertyNarrationConfig: { ...((configBefore as Record<string, unknown> | null) ?? {}), mixByCrm: true, previewBeforeRepublish: false } } });
 });
 
 afterAll(async () => {

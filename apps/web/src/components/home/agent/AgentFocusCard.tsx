@@ -14,6 +14,7 @@ import {
   PendingLeadActions,
   ReactivationActions,
 } from "./AgentActions";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 /**
  * «СНАЧАЛА ЭТО» (контракт 06.10.2026, раздел 4): одна тёмная карточка с одним
@@ -53,7 +54,7 @@ function PendingTimer({ assignedAt, escalated }: { assignedAt: string; escalated
   if (!Number.isFinite(assigned)) return null;
   const waited = now - assigned;
   const left = minutes !== null ? minutes * 60_000 - waited : null;
-  if (escalated) return <span className="rh-focus-note">никто не принял, лид ждёт</span>;
+  if (escalated) return <span className="rh-focus-note">никто не принял, заявка ждёт</span>;
   if (left !== null && left <= 0) return <span className="rh-focus-note">время вышло, примите сейчас</span>;
   if (left !== null) {
     return (
@@ -109,7 +110,7 @@ function describe(todo: AgentTodoItem): FocusView {
     case "pending": {
       const c = todo.client;
       return {
-        title: `Новый лид: ${clientDisplayName(c.fullName)}`,
+        title: `Новая заявка: ${clientDisplayName(c.fullName)}`,
         to: `/clients/${c.shortId}`,
         line: [leadHint(c), c.leadReason?.text].filter(Boolean).join(". "),
         timer: <PendingTimer assignedAt={c.assignedAt} escalated={!c.acceptedAt && !!c.escalatedAt} />,
@@ -172,9 +173,9 @@ function describe(todo: AgentTodoItem): FocusView {
       const c = todo.client;
       const to = `/clients/${c.shortId}`;
       return {
-        title: `${clientDisplayName(c.fullName)}: без контакта больше суток`,
+        title: `${clientDisplayName(c.fullName)}: ${NO_CONTACT_TEXT.item}`,
         to,
-        line: `${nextStepLine(c)}. Последний контакт ${relativeTime(c.lastContactAt)}`,
+        line: `${nextStepLine(c)}. Карточка ${relativeTime(c.createdAt)}`,
         actions: <CallAndOpen clientId={c.id} phone={c.phone} to={to} />,
       };
     }

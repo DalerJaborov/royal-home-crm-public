@@ -43,6 +43,7 @@ import { logSystemError } from "./systemError.js";
 import { logTimeline } from "./timeline.js";
 import { OWN_PROPERTY_ASSIGN_REASONS, propertyOwnerAgentId } from "./propertyOwner.js";
 import { transferSellerPropertiesWithClient } from "./propertyHandover.js";
+import { isActiveTransactionClient, openScope } from "./transactionScope.js";
 
 // `prisma` — расширенный клиент (`base.$extends(...)`, см. db.ts) — стандартный
 // `Prisma.TransactionClient` с ним несовместим (тот же приём, что уже
@@ -159,6 +160,14 @@ export interface ChangeClientAgentInput {
    * обратный вызов из transferPropertyToAgent — там объект уже переехал.
    */
   skipProperties?: boolean;
+  /**
+   * Дополнительные ключи в `AuditLog.meta` записи `CLIENT_AGENT_CHANGE` — для
+   * механизмов, чьи прежние ручные записи несли свои ключи (`from`/`to` у
+   * `services/leads/intake.ts`, переведённого на эту дверь 19.11.2026).
+   * Стандартные ключи (`source`, `reason`, `fromAgentId`, `toAgentId`) не
+   * перекрываются.
+   */
+  auditMeta?: Record<string, string | number | boolean | null>;
 }
 
 export interface ChangeClientAgentResult {
@@ -478,6 +487,7 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
       agentId: input.actorId ?? null,
       agentName,
       meta: {
+        ...(input.auditMeta ?? {}),
         source: input.source,
         reason: input.reason,
         fromAgentId: before.assignedAgentId,
@@ -553,42 +563,80 @@ export async function changeClientAgent(input: ChangeClientAgentInput): Promise<
   if (result.ok && result.client && !input.skipSatellites) {
     const fromAgentId = result.fromAgentId ?? null;
     if (fromAgentId !== input.toAgentId) {
-      // «Коротко от ИИ» называет текущего агента (ai/scoring.ts, факт «агент: …») —
-      // владелец сменился, сводка обязана перегенерироваться и назвать нового,
-      // а не молчать до следующего звонка/сообщения (найдено 18.09.2026). Тот же
-      // фоновый, best-effort вызов, что и у остальных мест автопилота — сюда же
-      // стекаются ВСЕ механизмы переназначения, это единый вход.
-      runClientAutopilotInBackground(input.clientId, "agent_changed");
-      const satellites = closeOwnershipSatellites({
-        clientId: input.clientId,
-        clientShortId: result.client.shortId ?? null,
-        fromAgentId,
-        toAgentId: input.toAgentId,
-        reason: `[${input.source}] ${input.reason}`,
-        // Карточка вышла из очереди (владельца не было): задачи последнего держателя поедут
-        // к новому, как объекты выше (аудит 04.10.2026, CRM-02).
-        queueReturnFromAgentId: fromAgentId ? null : result.lastAgentIdBefore ?? null,
-      });
+      const shortId = result.client.shortId ?? null;
+      const lastAgentIdBefore = result.lastAgentIdBefore ?? null;
+      const fireSatellites = async (): Promise<void> => {
+        /**
+         * УСТАРЕВШИЙ СПУТНИК (19.11.2026). Спутники идут после фиксации и в
+         * фоне — за это время карточку могли передать ещё раз. Где она сейчас —
+         * читаем заново; задачи поедут туда, а не к устаревшему `toAgentId`
+         * (см. `currentOwnerAgentId` в lib/ownershipSatellites.ts). Гасить пуши
+         * и уведомления прежнего — по-прежнему.
+         */
+        const now = await prisma.client.findUnique({ where: { id: input.clientId }, select: { assignedAgentId: true } });
+        // «Коротко от ИИ» называет текущего агента (ai/scoring.ts, факт «агент: …») —
+        // владелец сменился, сводка обязана перегенерироваться и назвать нового,
+        // а не молчать до следующего звонка/сообщения (найдено 18.09.2026). Тот же
+        // фоновый, best-effort вызов, что и у остальных мест автопилота — сюда же
+        // стекаются ВСЕ механизмы переназначения, это единый вход.
+        runClientAutopilotInBackground(input.clientId, "agent_changed");
+        await closeOwnershipSatellites({
+          clientId: input.clientId,
+          clientShortId: shortId,
+          fromAgentId,
+          toAgentId: input.toAgentId,
+          reason: `[${input.source}] ${input.reason}`,
+          // Карточка вышла из очереди (владельца не было): задачи последнего держателя поедут
+          // к новому, как объекты выше (аудит 04.10.2026, CRM-02).
+          queueReturnFromAgentId: fromAgentId ? null : lastAgentIdBefore,
+          ...(now ? { currentOwnerAgentId: now.assignedAgentId } : {}),
+        });
+      };
+      const guarded = async (): Promise<void> => {
+        try {
+          await fireSatellites();
+        } catch (err) {
+          void logSystemError(
+            "api",
+            `Спутники смены владельца не погашены (${input.clientId}, ${input.source}): ${
+              err instanceof Error ? err.message : err
+            }`
+          );
+        }
+      };
       if (input.tx) {
         /**
-         * ВЫЗЫВАЮЩИЙ КОД УЧАСТВУЕТ В ЧУЖОЙ, ЕЩЁ НЕ ЗАКОММИЧЕННОЙ ТРАНЗАКЦИИ —
-         * НЕ ДОЖИДАЕМСЯ closeOwnershipSatellites ЗДЕСЬ.
-         *
-         * Найдено 11.09.2026 на `lib/agentHandover.ts::handoverAgentWork`: там
-         * `changeClientAgent` вызывается ВНУТРИ `prisma.$transaction(...)` с
-         * дефолтным таймаутом 5000мс, и синхронный `await` спутников (пуш +
-         * лента + требования + заявка + задачи + живое событие — несколько
-         * дополнительных походов в базу) съедал время самой транзакции и
-         * валил её по таймауту. closeOwnershipSatellites использует обычный
-         * `prisma` (не переданный `tx`), поэтому ждать её из ЧУЖОЙ транзакции
-         * незачем и вредно — гасим спутников в фоне (`void`), они всё равно
-         * best-effort и не участвуют в атомарности самой передачи владельца.
+         * СПУТНИКИ — ТОЛЬКО ПОСЛЕ ФИКСАЦИИ ЧУЖОЙ ТРАНЗАКЦИИ (аудит 18.11.2026,
+         * находка №4). Раньше они запускались сразу, обычным `prisma` мимо `tx`:
+         * при откате (`throwIfNotClaimed`, таймаут, ошибка следующего шага)
+         * задачи и требования уже уезжали «новому» агенту, у прежнего гасли
+         * уведомления по его же клиенту, а сводка ИИ читала ещё старого
+         * владельца. Теперь — в очередь `afterCommit` той же области, что пишет
+         * журнал переходов (`db.ts::scopedTransaction`): после фиксации по
+         * порядку, при откате выбрасываются. Не ждём их здесь — синхронное
+         * ожидание съедало бы таймаут самой транзакции (11.09.2026,
+         * `lib/agentHandover.ts`).
          */
-        void satellites;
+        const scope = openScope();
+        if (scope && isActiveTransactionClient(input.tx)) {
+          scope.afterCommit.push(guarded);
+        } else {
+          // Транзакция не наша интерактивная (нет области) — дождаться фиксации
+          // нечем. Не теряем спутников молча: запускаем, как раньше, и оставляем след.
+          void logSystemError(
+            "api",
+            `changeClientAgent: tx без активной области транзакции — спутники запущены до фиксации (${input.source})`,
+            { dedupKey: `change-client-agent-no-scope-${input.source}` }
+          );
+          void guarded();
+        }
       } else {
         // Своя транзакция уже закоммичена (await выше) — дожидаемся спутников
-        // здесь безопасно, лишней транзакции они не удлиняют.
-        await satellites;
+        // здесь безопасно, лишней транзакции они не удлиняют. Через `guarded`:
+        // смена владельца уже зафиксирована, и сбой спутника (или перечитывания
+        // владельца перед ним) не должен отвечать вызывающему ошибкой — след
+        // остаётся в журнале ошибок (ревью 19.11.2026).
+        await guarded();
       }
     }
   }

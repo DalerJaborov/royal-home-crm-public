@@ -10,6 +10,7 @@ import { ChannelsTab } from "../../pages/settings/ChannelsTab";
 import { lazyWithReload } from "../../lib/lazyWithReload";
 import { Skeleton } from "../rh2/Skeleton";
 import { CustomerAgentRolloutSection } from "./CustomerAgentRolloutSection";
+import { SettingsLoadError } from "./SettingsLoadError";
 import {
   AssistantAuditSection,
   ImportSection,
@@ -27,7 +28,6 @@ import { SmsSection } from "../../pages/settings/SmsSection";
 import { WhatsAppTemplatesSection } from "../../pages/settings/WhatsAppTemplatesSection";
 import { SettingsGroupLabel } from "./SettingsSection";
 import type { CleanSettingsTask } from "../../lib/cleanSettingsTasks";
-import { UiShellRolloutSection } from "./UiShellRolloutSection";
 import { SomonRecipientsSection } from "./SomonRecipientsSection";
 
 // BotTab — 295 КБ (3,9 тыс. строк форм бота): грузим только когда открыта вкладка «Бот»,
@@ -44,6 +44,10 @@ function BotTab(props: ComponentProps<typeof BotTabChunk>) {
 
 /** Same forms as legacy, composed by employee task rather than implementation history. */
 export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSettingsTask; agentRole?: string }) {
+  return <><SettingsLoadError /><CleanSettingsTaskBody task={task} agentRole={agentRole} /></>;
+}
+
+function CleanSettingsTaskBody({ task, agentRole }: { task: CleanSettingsTask; agentRole?: string }) {
   switch (`${task.tab}/${task.id}`) {
     case "agency/company": return <CompanySection />;
     case "agency/locations": return <><DistrictsSection /><LandmarksSection /></>;
@@ -67,7 +71,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "bot/models": return <BotTab area="models" />;
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
     case "system/monitoring": return <><FunctionStatusEntry /><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
-    case "system/workspace": return <><UiShellRolloutSection /><PultModulesSection /></>;
+    case "system/workspace": return <PultModulesSection />;
     case "system/security": return <PasskeyToggleSection />;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
     case "system/website": return agentRole === "DIRECTOR" ? <SiteAdminSection /> : null;
@@ -84,6 +88,10 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
  * Settings.tsx до выноса.
  */
 export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; agentRole: string | undefined }) {
+  return <><SettingsLoadError /><SettingsTabBody tab={tab} agentRole={agentRole} /></>;
+}
+
+function SettingsTabBody({ tab, agentRole }: { tab: SettingsTabId; agentRole: string | undefined }) {
   if (tab === "agency") {
     return (
       <>

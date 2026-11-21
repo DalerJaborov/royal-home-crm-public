@@ -6,7 +6,17 @@ import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { loadCleanPult } from "../lib/cleanRouteChunks";
+import { useRoyalLook } from "../hooks/useRoyalLook";
 const PultClean = lazyWithReload(loadCleanPult);
+// «Новый вид» (облик royal): своя главная для директора/админа, РОПа и агента —
+// своим куском, только тем, кому вид включён (hooks/useRoyalLook.ts).
+const TodayRoyal = lazyWithReload(() => import("./TodayRoyal").then((m) => ({ default: m.TodayRoyal })));
+const ROYAL_HOME_ROLES = new Set(["DIRECTOR", "ADMIN", "HEAD_OF_SALES", "AGENT"]);
+// Остальные роли в «Новом виде» (пачка home, 20.11.2026): одно ядро главной на
+// реестре блоков (components/look/home/registry.tsx) — монтажёр, маркетинг, СБ,
+// менеджер и все прочие роли (акционер), как в прежней развилке ниже. Тот же
+// кусок сборки на все пять ролей: блоки общие, роль лишь выбирает их набор.
+const RoyalRoleHome = lazyWithReload(() => import("../components/look/home/registry").then((m) => ({ default: m.RoyalRoleHome })));
 
 /**
  * КАЖДАЯ ГЛАВНАЯ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -86,6 +96,7 @@ const MobileEditorHome = lazyWithReload(() =>
  */
 export function Dashboard() {
   const clean = useCleanShell();
+  const royal = useRoyalLook();
   const legacyAgentMobile = useLegacyAgentMobile();
   const role = useAuthStore((s) => s.agent?.role);
   // Телефон и планшет с пальцем — по устройству, а не по ширине окна
@@ -96,7 +107,11 @@ export function Dashboard() {
   return (
     <Suspense fallback={<div role="status" aria-busy="true" className="min-h-48 rounded-2xl bg-row-alt p-6 text-[16px]">Загружаем рабочий экран…</div>}>
       {/* У монтажёра Главная — очередь монтажа, не дашборд продавца. */}
-      {role === "EDITOR" ? (
+      {royal && role && ROYAL_HOME_ROLES.has(role) ? (
+        <TodayRoyal />
+      ) : royal && role ? (
+        <RoyalRoleHome />
+      ) : role === "EDITOR" ? (
         mobile ? (
           <MobileEditorHome />
         ) : (

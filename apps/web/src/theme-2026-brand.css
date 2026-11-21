@@ -620,6 +620,12 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .fs-err { display: block; margin-top: 4px; font-size: var(--fs-13); color: var(--crit); overflow-wrap: anywhere; }
 .rh2 .fs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
 .rh2 .fs-env { font-size: var(--fs-13); color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+/* Подпись полей даты (RuFields): выключенное поле, в том числе внутри <fieldset disabled>, тускнеет вместе с подписью. */
+.ru-field:has(input:disabled) > .ru-field-text { opacity: .55; }
+.rh2 .fs-dev { margin-top: 6px; font-size: var(--fs-13); color: var(--muted); }
+.rh2 .fs-dev summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.rh2 .fs-dev dl { margin: 4px 0 0; }
+.rh2 .fs-dev dd { margin: 0 0 6px; overflow-wrap: anywhere; }
 .rh2 .fs-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted);
   background: var(--soft); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
 .rh2 .fs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
@@ -634,3 +640,15 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .fs-all > summary { cursor: pointer; padding: 10px 4px; font-size: var(--fs-14); color: var(--ink); min-height: 44px; display: flex; align-items: center; }
 .rh2 .quiet.fs-entry { margin-bottom: 12px; flex-wrap: wrap; }
 .rh2 .quiet.fs-entry .txt { flex: 1; min-width: 200px; }
+
+/* Строка файла в мастере объекта (.vrow, блок «Видео»; iPhone владельца 21.11.2026: «IMG_1210.MOV» и
+   «109.4 МБ · Готово» стояли столбиком по букве — чип «Исходник монтажёру» и «Убрать» не сжимались).
+   Имя — одна строка с многоточием в основе и видимым расширением (.fn > .stem + .ext), значок и текст
+   держат минимум 9em, а чип с кнопками (.act) целиком уходят на вторую строку, не сжимая имя. Лежит здесь,
+   а не в theme-2026-wizard.css (тот собирается скриптом) — действует и в старом, и в новом виде. */
+.rh2 .wiz .vrow { flex-wrap: wrap; }
+.rh2 .wiz .vrow .info { flex: 1 1 9em; min-width: 9em; }
+.rh2 .wiz .vrow .nm.fn { display: flex; min-width: 0; overflow-wrap: normal; word-break: normal; }
+.rh2 .wiz .vrow .nm.fn .stem { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh2 .wiz .vrow .nm.fn .ext { flex: none; white-space: nowrap; }
+.rh2 .wiz .vrow .act { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; flex: 0 0 auto; max-width: 100%; }

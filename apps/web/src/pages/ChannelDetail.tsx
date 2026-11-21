@@ -10,6 +10,11 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { PageHeader } from "../components/rh2/PageHeader";
 import { CButton, CCard, CChip } from "../components/clean/ui";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { AdminRoot, AdminScreen } from "../components/look/admin/AdminRoot";
+import { RhButton, RhCircle } from "../components/look/ui";
+import { RoyalIcon } from "../components/look/RoyalIcon";
+import { pillTone } from "../components/look/tileTone";
 
 // Тот же приём, что apps/web/src/pages/TeamMemberDetail.tsx: макет
 // `renderChannelDetail` рисует шапку/быстрые действия классами `.chead`/`.qa`,
@@ -49,6 +54,7 @@ export function ChannelDetail() {
   const can = useCan();
   const allowed = can("auditLog.view");
   const { data, isLoading, isError, isFetching, refetch } = useIntegrations(allowed);
+  const royal = useRoyalLook();
 
   // Router parameters are already decoded, including a literal '%' in a name.
   const decodedName = name ?? "";
@@ -59,7 +65,7 @@ export function ChannelDetail() {
 
   if (!allowed) {
     return (
-      <div className="rh2 screens">
+      <AdminRoot royal={royal} title="Интеграции и каналы">
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -72,10 +78,52 @@ export function ChannelDetail() {
             </div>
           </div>
         </div>
-      </div>
+      </AdminRoot>
     );
   }
 
+  // Новый вид (пачка admin): тот же снимок, те же действия и состояния — деталями нового вида.
+  if (clean && royal) {
+    const state = channel ? (channel.ok === true ? "ok" : channel.ok === false ? "crit" : "off") : null;
+    return (
+      <AdminScreen royal title="Канал интеграции" back="/integrations" onBack={goBack} className="clean-channel-detail">
+        <PageHeader title={decodedName || "Канал"} sub="Снимок ночной проверки. Открытие страницы не запускает проверку внешнего сервиса."
+          actions={<RhButton variant="soft" className="clean-channel-back" onClick={goBack}><ChevronLeft size={22} strokeWidth={2} aria-hidden />Назад к списку каналов</RhButton>} />
+        {isLoading && <div className="ry-adm-card" role="status" aria-busy="true"><p className="ry-adm-text">Загружаем снимок канала…</p></div>}
+        {isError && <div className="ry-adm-card" role="alert">
+          <div className="ry-adm-head"><RhCircle icon="circle-alert" tone={pillTone("info")} /><h2>Не удалось обновить снимок</h2></div>
+          <p className="ry-adm-text">{channel ? "Ниже показаны последние доступные данные." : "Статус канала неизвестен. Попробуйте ещё раз."}</p>
+          <div className="ry-adm-acts"><RhButton variant="secondary" onClick={() => void refetch()}>Повторить</RhButton></div>
+        </div>}
+        {!isLoading && !isError && !channel && <div className="ry-adm-card">
+          <div className="ry-adm-head"><RhCircle icon="plug" /><h2>Канал не найден в снимке</h2></div>
+          <p className="ry-adm-text">Такого канала нет в последней ночной проверке. Это не подтверждает ошибку подключения.</p>
+          <div className="ry-adm-acts"><RhButton variant="secondary" onClick={goBack}>Все каналы</RhButton></div>
+        </div>}
+        {channel && <div className="ry-adm-grid">
+          <div className="ry-adm-card">
+            <div className="ry-adm-head">
+              <RhCircle icon={state === "ok" ? "plug" : state === "crit" ? "circle-alert" : "x-circle"} tone={state === "ok" ? pillTone("good") : state === "crit" ? pillTone("overdue") : "a0"} />
+              <div className="ry-adm-head-t">
+                <h2>Состояние канала</h2>
+                <span className="ry-adm-state" data-tone={state}>{channel.ok === true ? "Работает" : channel.ok === false ? "Есть ошибка" : "Не настроен"}</span>
+              </div>
+            </div>
+            <p className="ry-adm-text ry-adm-hint">По снимку от {exactDateTime(channel.checkedAt)}.</p>
+          </div>
+          <div className="ry-adm-card">
+            <h2>Результат проверки</h2>
+            <p className="ry-adm-text" data-tone={state === "crit" ? pillTone("overdue") : undefined}>{channel.detail || "Ночная проверка не оставила пояснения для этого канала."}</p>
+            <div className="ry-adm-acts">
+              {can("settings.view") && <RhButton variant="primary" onClick={() => navigate("/settings?tab=channels")}><RoyalIcon name="settings" />Настройки канала</RhButton>}
+              <RhButton variant="secondary" onClick={() => navigate("/health")}><RoyalIcon name="circle-alert" />Журнал ошибок</RhButton>
+              <RhButton variant="secondary" disabled={isFetching} onClick={() => void refetch()}>Обновить снимок</RhButton>
+            </div>
+          </div>
+        </div>}
+      </AdminScreen>
+    );
+  }
   if (clean) return (
     <Rh2Screen title="Канал интеграции" back="/integrations" onBack={goBack} className="clean-channel-detail">
       <PageHeader title={decodedName || "Канал"} sub="Снимок ночной проверки. Открытие страницы не запускает проверку внешнего сервиса."

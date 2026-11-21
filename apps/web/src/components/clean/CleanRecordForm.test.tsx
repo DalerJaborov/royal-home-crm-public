@@ -9,15 +9,11 @@ describe("record form presentation boundary", () => {
     expect(html).toContain('<fieldset disabled=""');
     expect(html).toContain('role="status"');
   });
-  it("keeps the selected client visible through loading and errors without invented contact details", () => {
-    const html = renderToStaticMarkup(<CleanInteractionContext name="Мадина Каримова · очень длинное имя" isLoading isError onRetry={() => {}} scheduling />);
+  it("shows the selected client without invented contact details", () => {
+    const html = renderToStaticMarkup(<CleanInteractionContext name="Мадина Каримова · очень длинное имя" scheduling />);
     expect(html).toContain("Показ для клиента");
     expect(html).toContain("Мадина Каримова");
     expect(html).not.toContain("Повторить");
-    const failure = renderToStaticMarkup(<CleanInteractionContext isLoading={false} isError onRetry={() => {}} scheduling />);
-    expect(failure).toContain('role="alert"');
-    expect(failure).toContain("Повторить");
-    expect(failure).not.toContain("Мадина");
   });
   it("uses pressed semantics for clean choices and retains legacy selected styling", () => {
     expect(cleanRecordChoiceProps(true, true)).toEqual({ "aria-pressed": true });

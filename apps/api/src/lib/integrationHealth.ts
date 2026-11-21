@@ -5,9 +5,12 @@ import { resolveGeminiRuntime } from "../ai/geminiSettings.js";
 import { checkGeminiModel } from "../ai/geminiCheck.js";
 import { getChatTitle, getChatMemberStatus, isTelegramEnabled, canBotWriteToChat } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
+import { inspectTelegramChat, isBasicGroupChatId } from "./telegramChatInspect.js";
+import { migrateSettingsTelegramChat } from "./settingsTelegramChatMigration.js";
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
 import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { clearInstagramAccountLocked, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "./instagramAccountAccess.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -117,6 +120,31 @@ async function probeTelegramChatWrite(
 }
 
 /**
+ * ОБЫЧНАЯ ГРУППА СТАЛА СУПЕРГРУППОЙ (20.11.2026, тот же класс, что #317). Писать в чат нельзя, а чат — обычная
+ * группа: Telegram мог выдать ей новый id. Тогда адрес в Настройках заменяется той же дверью, что у живого события
+ * и почасового сторожа, и проверка не кричит «бот не может писать» о беде, которая уже исправлена. Каналы и
+ * супергруппы не переезжают — для них ничего не спрашиваем.
+ */
+async function migratedChatHint(chatId: string): Promise<{ healed: boolean; text: string } | null> {
+  if (!isBasicGroupChatId(chatId)) return null;
+  try {
+    const verdict = await inspectTelegramChat(chatId);
+    if (verdict.kind !== "migrated") return null;
+    try {
+      const outcome = await migrateSettingsTelegramChat(chatId, verdict.newChatId);
+      if (outcome.kind === "done" && outcome.moved.length > 0) {
+        return { healed: true, text: `группа стала супергруппой, адрес в Настройках заменён на ${verdict.newChatId} автоматически` };
+      }
+    } catch (err) {
+      return { healed: false, text: `группа стала супергруппой (новый адрес ${verdict.newChatId}), но заменить его в Настройках не удалось: ${describeError(err)}. Впишите новый адрес в Настройки → Каналы вручную.` };
+    }
+    return { healed: false, text: `группа стала супергруппой (новый адрес ${verdict.newChatId}). Впишите новый адрес в Настройки → Каналы.` };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Кросспост в Telegram-канал. Бота могли исключить из канала или снять с него
  * права админа — публикация ролика тогда молча не доходит, а в CRM объект
  * помечен «опубликован». `getChat` ничего не отправляет в канал.
@@ -133,6 +161,12 @@ export async function checkTelegramChannelHealth(): Promise<IntegrationCheck> {
 
   const probe = await probeTelegramChatWrite(channelId);
   if (probe.ok) return { name, ok: true, detail: probe.title ?? channelId };
+  const moved = await migratedChatHint(channelId);
+  if (moved?.healed) return { name, ok: true, detail: moved.text };
+  if (moved) {
+    await report("telegram", `Telegram-канал ${channelId}: ${moved.text}`);
+    return { name, ok: false, detail: moved.text };
+  }
   await report(
     "telegram",
     `Бот не имеет доступа к Telegram-каналу ${channelId} — кросспост роликов не дойдёт: ${probe.detail}. ` +
@@ -163,8 +197,13 @@ export async function checkTelegramExtraChatsHealth(): Promise<IntegrationCheck[
     if (probe.ok) {
       results.push({ name, ok: true, detail: probe.title ?? chatId });
     } else {
-      await report("telegram", `Бот не может писать в чат ${chatId}: ${probe.detail}`);
-      results.push({ name, ok: false, detail: probe.detail });
+      const moved = await migratedChatHint(chatId);
+      if (moved?.healed) {
+        results.push({ name, ok: true, detail: moved.text });
+        continue;
+      }
+      await report("telegram", moved ? `Чат публикации роликов ${chatId}: ${moved.text}` : `Бот не может писать в чат ${chatId}: ${probe.detail}`);
+      results.push({ name, ok: false, detail: moved?.text ?? probe.detail });
     }
   }
   return results;
@@ -347,7 +386,7 @@ export async function checkInstagramAccountsHealth(
 ): Promise<IntegrationCheck[]> {
   const rows = await prisma.messengerAccount.findMany({
     where: { channel: "INSTAGRAM", ...(onlyIds ? { id: { in: onlyIds } } : {}) },
-    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true },
+    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true, accessLostAt: true },
   });
   if (rows.length === 0) return [{ name: "Instagram", ok: null, detail: "не настроен" }];
 
@@ -375,7 +414,7 @@ export async function checkInstagramAccountsHealth(
         } else {
           await report("meta", `Ключ Страницы у Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${r.detail}. Войдите через Facebook заново в Настройках → Каналы.`);
           if (isMetaAuthFailureText(r.detail)) {
-            await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (ключ Страницы)`, detail: r.detail });
+            await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (ключ Страницы)`, detail: r.detail, audience: "management" });
           }
           out.push({ name, ok: false, detail: r.detail });
         }
@@ -393,16 +432,16 @@ export async function checkInstagramAccountsHealth(
       continue;
     }
     if (route.kind === "page") {
+      // Путь Страницы отвечает (выдача и проверка Instagram прошли) — отметка «Meta закрыла
+      // доступ» неправда, снимаем её (ревью #344): закрытым считается только аккаунт без пути.
+      if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "page_route_ok");
       const backup = await instagramPersonalKeyAlive(token);
       if (backup.ok) {
         out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; запасной личный жив` });
       } else {
-        await logSystemError(
-          "meta",
-          `Предупреждение: запасной личный маркер Instagram «${row.title}» не работает (${backup.detail}). ` +
-            `Переписка идёт ключом компании через Страницу; если она откажет, отвечать будет нечем.`,
-          { dedupKey: `ig-backup-key-dead:${row.id}`, dedupWindowMs: DAY_MS, silent: true }
-        );
+        // Ответы идут, но входящие держатся на подписке личного ключа — руководству «к сведению»,
+        // раз в сутки (lib/instagramAccountAccess.ts, одна дверь с отказом личного ключа при отправке).
+        await noteInstagramBackupKeyDead(row.id, backup.detail);
         out.push({ name, ok: true, detail: `вечный ключ через Страницу ${route.pageId}; предупреждение: запасной личный не работает` });
       }
       continue;
@@ -415,7 +454,15 @@ export async function checkInstagramAccountsHealth(
       let body: { username?: string; error?: { message?: string } } = {};
       try { body = JSON.parse(raw); } catch { body = {}; }
       if (res.ok) {
+        if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "probe_ok");
         out.push({ name, ok: true, detail: body.username ? `@${body.username}` : `HTTP ${res.status}` });
+      } else if (row.accessLostAt || isInstagramAccountLockedText(raw)) {
+        // Meta закрыла сам аккаунт (21.11.2026, lib/instagramAccountAccess.ts): одна отметка
+        // и одна тревога на случай; ежедневная проверка дальше молчит, пока доступ не вернётся.
+        const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
+        if (!row.accessLostAt) await noteInstagramAccountLocked(row.id, detail);
+        out.push({ name, ok: null, detail: `Meta закрыла доступ к аккаунту с ${(row.accessLostAt ?? new Date()).toISOString().slice(0, 10)}` });
+        continue;
       } else {
         const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
         await report(
@@ -424,7 +471,7 @@ export async function checkInstagramAccountsHealth(
             `Проверить в Настройках → Каналы.`
         );
         if (isMetaAuthFailure(res.status, raw)) {
-          await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (личный маркер)`, detail });
+          await raiseChannelKeyAlarm({ key: `account:${row.id}`, label: `Instagram «${row.title}» (личный маркер)`, detail, audience: "management" });
         }
         out.push({ name, ok: false, detail });
       }

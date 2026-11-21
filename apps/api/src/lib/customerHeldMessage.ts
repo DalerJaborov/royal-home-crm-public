@@ -9,6 +9,8 @@
 // with the client's name and a link to the chat, at most once per chat per
 // window. Failing to write is transient (the webhook answers 503 and Meta
 // retries); a scope denial is permanent and is reported without the text.
+import { BARE_MESSAGE_MARKER, NO_TEXT_NOTE, describeForStaff } from "@royal-home/shared";
+import { loadBotAnswersItself, staffSignalAllowed } from "./botAnswersItself.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
 import { decryptSecret, encryptSecret } from "../crypto.js";
@@ -49,6 +51,8 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   sender_read_unavailable: "не удалось прочитать данные собеседника",
   original_context_changed: "переписка изменилась, пока бот готовил ответ, и ответ не ушёл",
   consume_job_gave_up: "бот не смог обработать сообщение после повторов",
+  // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
+  customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
@@ -57,7 +61,7 @@ function contentOf(input: CustomerNormalizedIngressInput): string {
   const text = input.inputText.trim();
   if (text) return text;
   const kinds = [...new Set(input.media.map(item => item.kind))];
-  return kinds.length ? `[вложение: ${kinds.join(", ")}]` : "[сообщение без текста]";
+  return kinds.length ? `[вложение: ${kinds.join(", ")}]` : BARE_MESSAGE_MARKER;
 }
 
 /** Pre-ACK. Throws only on a transient failure (caller answers 503). */
@@ -134,14 +138,14 @@ export async function notifyHeldCustomerMessages(holds: readonly CustomerHeldMes
         // A chat staff deleted stays deleted (their decision); every other unrecorded message reaches a person (15.11.2026, task 5).
         if (hold.unrecorded !== "chat_deleted") {
           await queueUnrecordedCustomer({ channel: hold.channel, peer: hold.peer, accountExternalId: hold.accountExternalId,
-            excerpt: hold.excerpt, why: `бот не ответит: ${plainReason(hold.reason)}` });
+            excerpt: describeForStaff(hold.excerpt), why: `бот не ответит: ${plainReason(hold.reason)}` });
         }
         continue;
       }
       if (seen.has(hold.conversationId)) continue;
       seen.add(hold.conversationId);
       await pushStaffAboutChat({ conversationId: hold.conversationId, channel: hold.channel,
-        body: `«${hold.excerpt}». Бот не ответит: ${plainReason(hold.reason)}.` });
+        body: `«${describeForStaff(hold.excerpt)}». Бот не ответит: ${plainReason(hold.reason)}.` });
     } catch (error) {
       void logSystemError("meta", `Уведомление о непереданном сообщении клиента не отправлено: ${error instanceof Error ? error.message : String(error)}`,
         { dedupKey: "customer-dm-routing-held-notify-failed", quietPult: true });
@@ -187,14 +191,25 @@ async function pushStaffAboutChat(input: { conversationId: string; channel: stri
  */
 export async function notifyEscalatedCustomerTurn(input: { conversationId: string; channel: string; text: string;
   /** Разговор о вакансии: его ведёт рекрутер прежним путём, режим «только заявки» его не глушит. */
-  jobTopic?: boolean }): Promise<"sent" | "skipped"> {
+  jobTopic?: boolean;
+  /** Клиенту уже ушла безопасная строка (дверь ядра planSafetyLine): при «бот отвечает сам» — ни пуша, ни журнала. */
+  answered?: boolean;
+  /** Номер клиента известен, а заявку этим ходом не оформили: сигнал идёт при любой настройке (lib/botAnswersItself.ts). */
+  phoneKnown?: boolean }): Promise<"sent" | "skipped"> {
   try {
     const chat = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: { clientId: true } });
     if (!chat) return "skipped";
     // Режим «только заявки» (решение владельца 13.11.2026): до заявки людей не зовут вовсе — ни ботом, ни общими
     // уведомлениями. Сюда это доходит, только если режим включили посреди хода (иначе ответ даёт сам режим).
     if (!chat.clientId && !input.jobTopic && await leadOnlyQuietBeforeLead(input.channel)) return "skipped";
-    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || "[сообщение без текста]";
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): клиенту уже ушла безопасная строка, а карточки (значит, и
+    // своего агента) нет — руководство не зовём. Клиент ответа не получил — сбой, сигнал как раньше (ревью 1b, №1).
+    const signal = { kind: input.answered ? "answered_handover" as const : "unanswered" as const, hasCard: !!chat.clientId,
+      phoneKnown: input.phoneKnown === true };
+    if (!input.jobTopic && !staffSignalAllowed({ on: true, ...signal }) && !staffSignalAllowed({ on: await loadBotAnswersItself(), ...signal })) {
+      return "skipped";
+    }
+    const raw = clientOwnWords(input.text ?? "").replace(/\s+/gu, " ").trim() || NO_TEXT_NOTE;
     const excerpt = (await scrubMentionedClientPhonesInText(raw, chat.clientId)).text.slice(0, 160);
     return await pushStaffAboutChat({ conversationId: input.conversationId, channel: input.channel,
       body: `«${excerpt}». Бот передал разговор человеку: ответьте клиенту сами.` });
@@ -331,7 +346,7 @@ export async function runUnrecordedCustomerSummary(): Promise<UnrecordedSummaryR
   // 198-5: a staff member without the phone permission sees the number masked, so time, account and text are the clues too.
   const who = (p: UnrecordedPending) => p.channel === "WHATSAPP" && /^\d{8,15}$/.test(p.peer) ? `номер +${p.peer}` : p.displayName?.trim() || "клиент";
   const first = people[0]!;
-  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${p.excerpt || "[сообщение без текста]"}»`;
+  const line = (p: UnrecordedPending) => `${who(p)}, ${where(p)}, в ${DUSHANBE_TIME.format(new Date(p.at))}: «${describeForStaff(p.excerpt)}»`;
   const places = [...new Set(people.map(where))].join(", ");
   try {
     await sendPushToAgents(recipients, { kind: "message", level: "CRITICAL",

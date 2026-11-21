@@ -2,6 +2,8 @@ import { prisma } from "../db.js";
 import { requestPultSnapshot } from "../lib/pultCacheHook.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
+import { botOffCommentsStored } from "../lib/commentBotOffHook.js";
 import type { MessengerChannel } from "./turnTypes.js";
 import type { PublicResult, PublicSourceRef } from "../lib/publicCommentTypes.js";
 
@@ -107,6 +109,12 @@ export async function enqueueComments(items: IncomingComment[], enabled: boolean
     }));
     const { count } = await prisma.instagramComment.createMany({ data: rows, skipDuplicates: true });
     if (count > 0) requestPultSnapshot(); // пульт: новый комментарий
+    // Бот выключен — номер из комментария всё равно заявка, без текстов и скрытия (второе ревью 1b, №1). В фоне: приём
+    // (вебхук) отвечает Meta быстро; повторная доставка строку не пересоздаст, а дверь номера идемпотентна.
+    if (!enabled && count > 0) {
+      const ids = rows.map((r) => r.commentId);
+      void trackBackgroundTask(botOffCommentsStored(ids));
+    }
     return count;
   } catch (err) {
     void logSystemError("meta", `Комментарии (${items[0]?.channel ?? "?"}) не приняты: ${describeError(err)}`);

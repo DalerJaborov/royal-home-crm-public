@@ -62,21 +62,74 @@ const CANT_TG = [
   new RegExp(`${BW}точик\\p{L}*${GAP}(?:намефам|намефахм|намедон|наметавон)\\p{L}*${EW}`, "u"),
 ];
 
+// A request for a reply language is read inside ONE sentence, not only as the whole message (audit 17.11.2026:
+// «Пожалуйста, пишите по-таджикски», «Можно на таджикском?», «русӣ нависед» were answered in the old language).
+// Conservative on purpose: an imperative/request verb (or a bare «на русском») + the language phrase; a negation
+// («не пишите»), a choice («по-русски или по-таджикски?») and a plain mention («я знаю русский») are no request.
+const W = String.raw`(?<!\p{L})`, E = String.raw`(?!\p{L})`;
+const RU_PHRASE = String.raw`(?:на\s+(?<a>русском|таджикском)(?:\s+языке)?|по[-\s](?<b>русски|таджикски))`;
+const RU_WRITE = "(?:ответь(?:те)?|отвечайте|пиши(?:те)?|напиши(?:те)?|говори(?:те)?|общайтесь|переходите|переключитесь)";
+const RU_ASK = String.raw`(?:можно(?:\s+ли)?|можете|можешь|могли\s+бы|давайте|лучше|а\s+можно|хотелось\s+бы|хочу|прошу)`;
+const RU_FILL = "(?:ли|мне|вам|вы|нам|пожалуйста|все|всё|общаться|писать|говорить|отвечать|переписываться|общение|вести)";
+const RU_REQUEST = [
+  new RegExp(String.raw`${W}(?<neg>не\s+)?${RU_WRITE}(?:[,\s]+\p{L}+){0,2}[,\s]+${RU_PHRASE}${E}`, "u"),
+  new RegExp(String.raw`${W}(?<neg>не\s+)?${RU_ASK}(?:[,\s]+${RU_FILL}){0,3}[,\s]+${RU_PHRASE}${E}`, "u"),
+  new RegExp(String.raw`^(?:(?:пожалуйста|давайте|лучше|а)[,\s]+)?${RU_PHRASE}(?:,?\s+пожалуйста)?$`, "u"),
+];
+const TG_LANG = String.raw`(?:(?:бо|ба)\s+)?(?:забони\s+)?(?<l>рус[ӣи]|то[ҷч]ик[ӣи])(?:ш|ша)?`;
+const TG_VERB_IMPERATIVE = String.raw`(?:навис(?:ед|ен|[ие]н)|гап\s+зан(?:ед|ен)?|гуфтугу\s+кун(?:ед|ен)|сухан\s+кун(?:ед|ен)|[ҷч]авоб\s+(?:дихед|диҳед|дихен|диҳен))`;
+const TG_VERB_QUESTION = String.raw`(?:мегу?[ӯу]ед|мегед|метавонед|мешавад|шавад|мегрифт[ӣи])`;
+const tgRequests = (verb: string) => [
+  new RegExp(String.raw`${W}${TG_LANG}(?:\s+\p{L}+){0,2}\s+${verb}${E}`, "u"),
+  new RegExp(String.raw`${W}${verb}(?:\s+\p{L}+){0,2}\s+${TG_LANG}${E}`, "u"),
+];
+const TG_REQUEST = tgRequests(`(?:${TG_VERB_IMPERATIVE}|${TG_VERB_QUESTION})`);
+const TG_REQUEST_PINNED = tgRequests(TG_VERB_IMPERATIVE);
+const LANG_RU_WORD = /(?<!\p{L})(?:русск\p{L}*|рус[ӣи])(?!\p{L})/u;
+const LANG_TG_WORD = /(?<!\p{L})(?:таджикск\p{L}*|то[ҷч]ик[ӣи]\p{L}*)(?!\p{L})/u;
+
+/** `pinned`: only an explicit imperative («пишите по-таджикски», «нависед»); a question form («Вы говорите по-таджикски?»,
+ * «можно на русском?», «…бо русӣ мешавад?») acts for its own turn only and is never remembered for later turns. */
+function languageRequestIn(sentence: string, pinned = false): "ru" | "tg" | null {
+  const ru = LANG_RU_WORD.test(sentence), tg = LANG_TG_WORD.test(sentence);
+  if (ru === tg) return null; // none, or a choice between both
+  for (const [index, pattern] of RU_REQUEST.entries()) {
+    if (pinned && index === 1) continue;
+    const match = pattern.exec(sentence);
+    const groups = match?.groups;
+    if (!match || !groups) continue;
+    if (groups.neg) return null;
+    if (pinned && /(?:^|[\s,])(?:вы|ты)\s+$/u.test(sentence.slice(0, match.index))) return null;
+    const lang = groups.a ?? groups.b;
+    return lang ? (lang.startsWith("рус") ? "ru" : "tg") : null;
+  }
+  for (const pattern of pinned ? TG_REQUEST_PINNED : TG_REQUEST) {
+    const lang = pattern.exec(sentence)?.groups?.l;
+    if (lang) return lang.startsWith("рус") ? "ru" : "tg";
+  }
+  return null;
+}
+
 /** A requested reply language is different from the language of the sentence
  * requesting it. Scope this to customer DM, leaving voice/legacy routing alone. */
-export function customerDmLanguagePreference(input: string): "ru" | "tg" | null {
+function scanLanguageRequest(input: string, pinned: boolean): "ru" | "tg" | null {
   const own = clientOwnWords(input);
-  const text = own.normalize("NFKC").trim().toLowerCase().replace(/[.!?]+$/gu, "").trim();
-  const requested = /^(?:ответь(?:те)?|пиши(?:те)?|напиши(?:те)?|говори(?:те)?)(?:,?\s+пожалуйста)?\s+(?:на\s+(русском|таджикском)|по[-\s](русски|таджикски))(?:\s|,|$)/u.exec(text);
-  if (requested) return /рус/u.test(requested[1] ?? requested[2]) ? "ru" : "tg";
-  if (/^(?:на русском|по[-\s]русски)(?:,?\s+пожалуйста)?$/u.test(text) || /^(?:бо|ба)\s+(?:забони\s+)?рус[ӣи]\s+(?:нависед|гап занед)$/u.test(text)) return "ru";
-  if (/^(?:на таджикском|по[-\s]таджикски)(?:,?\s+пожалуйста)?$/u.test(text) ||
-      /^то[ҷч]ик[ӣи](?:ш|ша)?\s+(?:мегрифт[ӣи]|гап\s+зан(?:ед)?|навис(?:ед)?)(?:\s|$)/u.test(text)) return "tg";
+  const text = own.normalize("NFKC").trim().toLowerCase();
+  for (const part of text.matchAll(/[^.!?;\n]+[.!?;\n]*/gu)) {
+    const sentence = part[0].replace(/[.!?;\n]+$/u, "").trim();
+    if (!sentence || (pinned && part[0].includes("?"))) continue;
+    const found = languageRequestIn(sentence, pinned);
+    if (found) return found;
+  }
   const folded = foldCustomerText(own);
   if (CANT_RU.some(pattern => pattern.test(folded))) return "tg";
   if (CANT_TG.some(pattern => pattern.test(folded))) return "ru";
   return null;
 }
+export function customerDmLanguagePreference(input: string): "ru" | "tg" | null { return scanLanguageRequest(input, false); }
+/** The requests that stay in force for later turns: explicit imperatives and «не понимаю…», never question forms. */
+export function customerDmPinnedLanguageRequest(input: string): "ru" | "tg" | null { return scanLanguageRequest(input, true); }
+
 export function detectCustomerDmLanguage(input: string) {
   return customerDmLanguagePreference(input) ?? detectClientLanguage(input);
 }
@@ -132,6 +185,10 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
   // The ad button text («Привет! Можно узнать об этом подробнее?») is not the customer's words (audit 16.11.2026:
   // «Салом» after it was answered in Russian). It is never evidence; its own language is the last resort only.
   const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(value => value && !isAdTemplateOpener(value));
+  // An explicit request of an earlier turn stays in force until the client asks otherwise (nothing is stored for DM:
+  // the history is the memory, like the dialogue language below).
+  const requestedEarlier = prior.map(customerDmPinnedLanguageRequest).find((value): value is "ru" | "tg" => value !== null);
+  if (requestedEarlier) return requestedEarlier;
   const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
   // Window evidence is fresher than the stored value; the stored one keeps the language across a revision
   // change (the window drops older tickets) and in long dialogues.
@@ -146,12 +203,39 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
 }
 
 /**
+ * ЯЗЫК, ЗА КОТОРЫЙ КОД РУЧАЕТСЯ (20.11.2026, оператор приёма заявок). Детектор выше по умолчанию считает таджикским любой
+ * латинский текст без английских слов («Skolko stoit kvartira?» — русский транслит), поэтому перекрывать им ответ модели
+ * можно не всегда. Код ручается, только когда у него есть настоящее основание: явная просьба о языке или текст кириллицей
+ * с найденными признаками языка — таджикские буквы (ғ ӣ қ ӯ ҳ ҷ) или слова-маркеры для таджикского, слова-маркеры для
+ * русского. Латиница, кнопка рекламы, короткое «ок/салом», текст без маркеров — null: решает модель (живой случай 19.11:
+ * «телефон номера нависед» модель назвала русским, а у кода тут маркер «нависед»).
+ */
+export function groundedCustomerDmLanguage(input: string): "ru" | "tg" | null {
+  const text = customerHistoryOwnWords(input);
+  const preference = customerDmLanguagePreference(text);
+  if (preference) return preference;
+  if (!text || isAdTemplateOpener(text) || isNeutralShortReply(text)) return null;
+  const own = stripNonLanguage(clientOwnWords(text));
+  if (!/[а-яёҳҷӣӯқғ]/iu.test(own)) return null;
+  const decided = decisiveLanguage(text);
+  if (!decided) return null;
+  const { tajik, russian } = clientLanguageScores(own);
+  if (decided === "tg") return /[ҳҷӣӯқғ]/iu.test(own) || tajik > 0 || customerColloquialTajikLanguage(text) ? "tg" : null;
+  return russian > 0 ? "ru" : null;
+}
+
+/**
  * Language of the whole dialogue so far (audit 16.11.2026, chats 5a5de705 and 5e961b62): the six-turn memory holds ~3 customer
  * turns, so a dot, a phone number or a pack of photos pushed the Tajik words out and the reply fell back to Russian. This reads
  * the customer's own words of the wider history (the loader passes up to 50 inputs, oldest first) and returns the language of
  * the last decisive one. The ad button text and short neutral words never decide. Null when nothing decided yet.
  */
 export function customerDmDialogueLanguage(userTextsOldestFirst: readonly string[]): "ru" | "tg" | null {
+  // The latest explicit request («пишите по-таджикски») outlives any later full sentence in the other language.
+  for (const raw of [...userTextsOldestFirst].reverse()) {
+    const requested = customerDmPinnedLanguageRequest(customerHistoryOwnWords(raw));
+    if (requested) return requested;
+  }
   for (const raw of [...userTextsOldestFirst].reverse()) {
     const text = customerHistoryOwnWords(raw);
     if (!text || isAdTemplateOpener(text)) continue;

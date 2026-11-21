@@ -18,6 +18,7 @@ import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { loadAssistantLogRetentionDays, logAssistantFastPathTurn, logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
@@ -137,7 +138,8 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     if (lastMessage?.role === "user") {
       try {
         const fastStartedAt = Date.now();
-        const fast = await tryAssistantFastPath(lastMessage.content, actor);
+        const fast = await tryAssistantFastPath(lastMessage.content, actor,
+          assistantLanguage(parsed.data.messages) === "tg" ? "tg" : "ru");
         if (fast) {
           void logAssistantToolCall({
             agentId: actor.id,
@@ -446,7 +448,7 @@ aiRouter.post("/card-fill/:clientId", requireAuth, aiGenerationLimiter, async (r
   // До принятия лида карточка агенту закрыта (PATCH /clients/:id ответил бы 403) —
   // подсказывать заполнение того, что он всё равно не сохранит, смысла нет.
   if (scopeToOwnAgent(req) && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   // Цитаты клиента, заметка — его же слова, номер в них звучит открыто. Тем же
@@ -489,7 +491,7 @@ aiRouter.post("/property-draft/:clientId", requireAuth, aiGenerationLimiter, asy
   }
   // До принятия лида карточка агенту закрыта — тот же гейт, что и у card-fill.
   if (scopeToOwnAgent(req) && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   // Адрес «со слов продавца» и цитаты — свободный текст (A6, см. card-fill выше).

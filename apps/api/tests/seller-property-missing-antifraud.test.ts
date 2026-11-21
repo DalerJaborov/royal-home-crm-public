@@ -1,10 +1,33 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { escalateSellerPropertyMissing, findSellerPropertyMissing } from "../src/lib/sellerPropertyMissingAntifraud.js";
 import { dushanbeDateTimeString, dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
+
+/**
+ * Рубильник «Служба безопасности: автоматика» (18.11.2026) после выката выключен.
+ * Этот файл проверяет поведение ВКЛЮЧЁННОЙ автоматики СБ (карточка уходит «на
+ * проверку»), поэтому включает её только у себя, не трогая общую строку Settings.
+ * Выключенное положение — tests/security-automation-switch.test.ts.
+ */
+vi.mock("../src/lib/securityAutomation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/securityAutomation.js")>()),
+  securityAutomationOn: async () => true,
+}));
+
+
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
 
 /**
  * Антифрод «продавец без объекта» (владелец 21.08.2026, Settings.sellerPropertyMissingWarnDays/
@@ -179,6 +202,21 @@ describe("escalateSellerPropertyMissing", () => {
     await escalateSellerPropertyMissing(workHoursNow());
     const after = await prisma.client.findUnique({ where: { id: c.id }, select: { securityReview: true } });
     expect(after?.securityReview).toBe("CLEARED");
+  });
+
+  it("выключатель владельца выключен — случай на проверку не уходит; включили — уходит", async () => {
+    const c = await makeSeller(6);
+    switchesOff.add("sellerPropertyMissingAntifraudEnabled");
+    try {
+      expect((await escalateSellerPropertyMissing(workHoursNow())).escalated).toBe(0);
+      const off = await prisma.client.findUnique({ where: { id: c.id }, select: { securityReview: true } });
+      expect(off?.securityReview).toBeNull();
+    } finally {
+      switchesOff.delete("sellerPropertyMissingAntifraudEnabled");
+    }
+    await escalateSellerPropertyMissing(workHoursNow());
+    const on = await prisma.client.findUnique({ where: { id: c.id }, select: { securityReview: true } });
+    expect(on?.securityReview).toBe("PENDING");
   });
 
   it("вне рабочих часов молчит (директора/СБ не будим ночью, 04.09.2026)", async () => {

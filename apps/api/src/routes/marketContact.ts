@@ -1,12 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import type { Request } from "express";
-import { Prisma } from "../generated/prisma/client.js";
-import { can, requireAuth } from "../auth/middleware.js";
+import { requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { PHONE_TAIL_LEN, phoneTail } from "../lib/clientPhones.js";
-import { extractPhoneTails } from "../lib/market/ownMatch.js";
-import { stripOwnerContact } from "../lib/ownerContact.js";
+import { CRM_PHONE_HIDDEN_ERROR, isHiddenCrmPhone } from "../lib/crmContactPhones.js";
 import { fetchSomonPhoneInteractive } from "../lib/somonLeads/phone.js";
 import { SomonSourceUnavailable } from "../lib/somonLeads/sourceClient.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -22,12 +19,32 @@ export const marketContactRouter = Router();
  * кладём в каталог — повторный клик ходит уже в нашу базу. Объявление ищется по ссылке
  * ИЗ НАШЕГО каталога, адрес запроса к сайту строится из сохранённого id, а не из ввода.
  * Номер из публичного объявления, не клиентский: не маскируем (решение владельца 02.11.2026) —
- * КРОМЕ одного случая: номер совпал с контактом владельца нашего объекта, а у сотрудника нет
- * доступа к этому контакту (lib/ownerContact.ts). Тогда 403: объявление не должно становиться
- * обходным путём к закрытому телефону. Номер хранится и отдаётся единым видом +992XXXXXXXXX —
+ * КРОМЕ одного случая: номер уже записан у нас (контакт владельца любого объекта или любой номер
+ * карточки клиента), а сотрудник номера не видит (lib/crmContactPhones.ts, с 18.11.2026 — все,
+ * кроме директора). Тогда 403: объявление не должно становиться обходным путём к закрытому телефону. Номер хранится и отдаётся единым видом +992XXXXXXXXX —
  * именно такой вид ищет сверка в lib/market/ownMatch.ts.
  */
-const bodySchema = z.object({ sourceUrl: z.string().url().max(600) });
+const bodySchema = z.object({
+  sourceUrl: z.string().url().max(600),
+  /** Какой кнопкой взяли номер (17.11.2026): «Показать номер» или «Написать в WhatsApp». */
+  action: z.enum(["PHONE", "WHATSAPP"]).optional(),
+  /** Для какого покупателя (карточка клиента) — чтобы в отметке было видно, по чьему запросу звонили. */
+  clientId: z.guid().optional(),
+});
+
+/**
+ * Отметка «номер продавца получен» (17.11.2026): другие агенты видят её в блоке «С площадок» и не звонят
+ * тому же хозяину второй раз. Пишется только когда номер действительно отдан. Сбой записи не мешает
+ * агенту получить номер: отметка вторична, ошибка — в журнал.
+ */
+async function recordListingContact(listingId: string, agentId: string, action: "PHONE" | "WHATSAPP", clientId: string | undefined): Promise<void> {
+  try {
+    const client = clientId ? await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } }) : null;
+    await prisma.marketListingContact.create({ data: { listingId, agentId, action, clientId: client?.id ?? null } });
+  } catch (err) {
+    void logSystemError("api", `Отметка «номер продавца получен» не записана: ${err instanceof Error ? err.name : "ошибка"}`);
+  }
+}
 
 /** Не чаще одного запроса на сотрудника в 3 секунды: защита от залипшей кнопки. */
 const lastClickByAgent = new Map<string, number>();
@@ -37,29 +54,6 @@ const MIN_GAP_MS = 3000;
 export function normalizeListingPhone(raw: string): string | null {
   const tail = phoneTail(raw);
   return tail.length === PHONE_TAIL_LEN ? `+992${tail}` : null;
-}
-
-/**
- * Закрыт ли этому сотруднику хотя бы один наш объект, чей контакт владельца содержит этот номер.
- * Кандидатов ищем одним запросом по цифрам контакта, затем сверяем хвосты в коде (склейка цифр
- * двух номеров рядом не должна давать ложных срабатываний).
- */
-async function phoneBelongsToHiddenOwner(req: Request, normalized: string): Promise<boolean> {
-  const tail = phoneTail(normalized);
-  const rows = await prisma.$queryRaw<
-    Array<{ ownerContact: string | null; assignedAgentId: string | null; intakeAgentId: string | null; createdById: string | null }>
-  >(Prisma.sql`
-    SELECT "ownerContact", "assignedAgentId", "intakeAgentId", "createdById"
-    FROM "Property"
-    WHERE "deletedAt" IS NULL
-      AND "ownerContact" IS NOT NULL
-      AND regexp_replace("ownerContact", '[^0-9]', '', 'g') LIKE ${`%${tail}%`}
-    LIMIT 50
-  `);
-  const supervisor = can(req, "properties.viewOwners");
-  return rows.some(
-    (r) => extractPhoneTails(r.ownerContact).includes(tail) && stripOwnerContact(r, req.agent!.id, supervisor).ownerContactHidden,
-  );
 }
 
 marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
@@ -80,7 +74,8 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
   if (!listing) return res.status(404).json({ error: "Объявление не найдено в каталоге" });
   const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
   if (stored) {
-    if (await phoneBelongsToHiddenOwner(req, stored)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+    if (await isHiddenCrmPhone(req, stored)) return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+    await recordListingContact(listing.id, agentId, parsed.data.action ?? "WHATSAPP", parsed.data.clientId);
     return res.json({ phone: stored, cached: true });
   }
 
@@ -94,7 +89,8 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
     if (!phone) return res.json({ phone: null, reason: "no_phone" });
     // Сохраняем всегда: так сверка с владельцами нашла бы этот номер при следующем прогоне.
     await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
-    if (await phoneBelongsToHiddenOwner(req, phone)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+    if (await isHiddenCrmPhone(req, phone)) return res.status(403).json({ error: CRM_PHONE_HIDDEN_ERROR, code: "CRM_PHONE_HIDDEN" });
+    await recordListingContact(listing.id, agentId, parsed.data.action ?? "WHATSAPP", parsed.data.clientId);
     return res.json({ phone, cached: false });
   } catch (err) {
     if (err instanceof SomonSourceUnavailable && err.reason === "not_ready") {

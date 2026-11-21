@@ -13,6 +13,7 @@ import { expenseRowsFromTable } from "../lib/expenseTableRows.js";
 import { loadAssistantSettings } from "../ai/assistant/runtime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
+import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
 import { prisma } from "../db.js";
@@ -314,7 +315,9 @@ export async function handleTelegramExpenseReceipt(
     console.warn("[telegram:assistant] receipt preview unavailable", { kind: pdf ? "pdf" : "photo" });
     const invalidPdf = pdf && error instanceof Error
       && ["media_invalid_pdf", "media_pdf_limit", "media_size_rejected"].includes(error.message);
-    if (explicit && !hasDraft) await send(invalidPdf ? copy[language].invalidPdf : copy[language].unavailable).catch(() => {});
+    if (explicit && !hasDraft) {
+      await send(invalidPdf ? copy[language].invalidPdf : assistantLimitText(error, language) ?? copy[language].unavailable).catch(() => {});
+    }
     return explicit || hasDraft;
   }
 }

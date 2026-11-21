@@ -6,6 +6,8 @@ import type { FinanceMonth } from "../hooks/useFinance";
 
 const state = vi.hoisted(() => ({ clean: true, mobile: false, readOnly: false, data: undefined as unknown, loading: false, error: null as Error | null }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
+// «Новый вид» здесь выключен: его сверяет Finance.royal.test.tsx.
+vi.mock("../hooks/useRoyalLook", () => ({ useRoyalLook: () => false }));
 vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.mobile }));
 vi.mock("../lib/permissions", () => ({ useCan: () => () => true, useIsReadOnly: () => state.readOnly }));
 vi.mock("../hooks/useFinance", () => ({
@@ -97,11 +99,11 @@ describe("native Clean finance", () => {
   });
   it("uses server profit and operational expenses without subtracting agent shares twice", () => {
     const html = render("/finance?workspace=overview");
-    expect(html).toContain("Валовая комиссия</span><strong class=\"cef-kpi\">21 000 с.");
-    expect(html).toContain("Доход компании</span><strong class=\"cef-kpi\">14 000 с.");
-    expect(html).toContain("Операционные расходы</span><strong class=\"cef-kpi\">3 000 с.");
-    expect(html).toContain("Прибыль</span><strong class=\"cef-kpi\">11 000 с.");
-    expect(html).not.toContain("7 000 с.");
+    expect(html).toContain("Валовая комиссия</span><strong class=\"cef-kpi\">21 000\u00a0с.");
+    expect(html).toContain("Доход компании</span><strong class=\"cef-kpi\">14 000\u00a0с.");
+    expect(html).toContain("Операционные расходы</span><strong class=\"cef-kpi\">3 000\u00a0с.");
+    expect(html).toContain("Прибыль</span><strong class=\"cef-kpi\">11 000\u00a0с.");
+    expect(html).not.toContain("7 000\u00a0с.");
   });
   it("shares all native financial workspaces with the authorized Clean phone", () => {
     state.mobile = true;

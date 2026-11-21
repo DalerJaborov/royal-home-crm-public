@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
+import { NARRATION_LISTEN_PER_PERSON_DEFAULT, NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, narrationPronunciationRuleHeldBack, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
 import { api } from "../../lib/api";
+import { NarrationMusicLibrary } from "./NarrationMusicLibrary";
 
 /**
  * НАСТРОЙКИ CRM → «ОЗВУЧКА РОЛИКОВ» (14.11.2026, владелец: «всю техническую часть полностью
@@ -22,9 +23,11 @@ export function NarrationSettingsPanel() {
   const [busy, setBusy] = useState(false), [message, setMessage] = useState("");
   const [modelId, setModelId] = useState<string | null>(null), [voicesText, setVoicesText] = useState<string | null>(null);
   const [autoGenerate, setAutoGenerate] = useState<boolean | null>(null), [mixByCrm, setMixByCrm] = useState<boolean | null>(null);
-  const [autoSeparate, setAutoSeparate] = useState<boolean | null>(null);
+  const [removeOld, setRemoveOld] = useState<boolean | null>(null);
+  const [ownMusic, setOwnMusic] = useState<boolean | null>(null);
+  const [textOverlay, setTextOverlay] = useState<boolean | null>(null);
   const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
-  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string }>({});
+  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string; gap?: string; listenPerson?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
   const [rulesDraft, setRulesDraft] = useState<Rule[] | null>(null);
 
@@ -78,17 +81,23 @@ export function NarrationSettingsPanel() {
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Как работает</legend>
         <Check checked={autoGenerate ?? !!config.autoGenerate} onChange={setAutoGenerate}>Автоозвучка: аудио готовится само после создания объекта и после правки его данных, агент слушает и одобряет</Check>
-        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос накладывает CRM: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает mp3 сам</Check>
-        <Check checked={autoSeparate ?? config.autoSeparateVoice !== false} onChange={setAutoSeparate}>Новая цена у вышедшего ролика: CRM сама убирает из него старый голос и кладёт новую озвучку, монтажёр сдаёт один готовый файл. Не получилось — ролик уходит монтажёру. Выключено: монтажёра просят присылать ещё ролик без голоса</Check>
+        <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос на ролик кладём мы: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает озвучку сам</Check>
+        <Check checked={removeOld ?? config.removeOldPostsOnNarration !== false} onChange={setRemoveOld}>Снимать старые посты при новой озвучке: вышел новый ролик, старый в той же сети CRM снимает сама. Выключено: старые посты остаются рядом с новыми</Check>
+        <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>
 
+      <NarrationMusicLibrary enabled={ownMusic ?? config.ownMusicRemix === true} onEnabledChange={setOwnMusic} disabled={readOnly || busy} />
+
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Пределы расхода</legend>
+        <p className="text-sm text-[var(--muted)]">Сверх дневного предела озвучка роликов не останавливается: руководству приходит одно уведомление в сутки. Предел 0 выключает озвучку совсем.</p>
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="block text-sm">Символов в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.chars ?? String(config.dailyCharLimit ?? 20000)} onChange={(e) => setLimitsText({ ...limitsText, chars: e.target.value })} /></label>
           <label className="block text-sm">Озвучек в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gens ?? String(config.dailyGenerationLimit ?? 40)} onChange={(e) => setLimitsText({ ...limitsText, gens: e.target.value })} /></label>
+          <label className="block text-sm">Промежуток между роликами после новой озвучки, мин<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gap ?? String(config.narrationPublishGapMin ?? 15)} onChange={(e) => setLimitsText({ ...limitsText, gap: e.target.value })} /></label>
+          <label className="block text-sm">Прослушиваний в мастере на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.listenPerson ?? String(config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT)} onChange={(e) => setLimitsText({ ...limitsText, listenPerson: e.target.value })} /></label>
           <label className="block text-sm">Пауза после правки, мин<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.pause ?? String(config.debounceMinutes ?? 3)} onChange={(e) => setLimitsText({ ...limitsText, pause: e.target.value })} /></label>
         </div>
       </fieldset>
@@ -110,7 +119,7 @@ export function NarrationSettingsPanel() {
           Агент выбирает голос, и текст ставится сам: случайный шаблон этого языка, подходящий типу объекта, и случайная концовка. Новый объект
           не получает тот же шаблон и ту же концовку, что прошлый. У агента есть кнопка «Другой вариант», а выбранный им шаблон остаётся.
           Тип «ничего не отмечено» значит: подходит любому объекту. «Только вручную»: шаблон сам не выбирается и концовку не получает, его берут руками.
-          Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {сотки} {этаж} {этаж_пор} {этажей} {район} {цена}"}. {"{сотки}"}: площадь участка в сотках (дробная — в метрах), у других объектов пусто. Квадратные скобки: «если есть».
+          Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {сотки} {этаж} {этаж_пор} {район} {цена}"}. Этаж говорим без этажности дома («ошёнаи сенздаҳум», «тринадцатый этаж»): {"{этажей}"} в озвучке не звучит, в новых текстах его писать нельзя. {"{сотки}"}: площадь участка в сотках (дробная — в метрах), у других объектов пусто. Квадратные скобки: «если есть».
           Цифры в тексте писать нельзя ни по-таджикски, ни по-русски (числа только словами), «Директ» пишем по-русски, слово «брон» нельзя.
         </p>
         {templates.map((t, i) => <details key={t.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{t.name}{t.manualOnly ? " (вручную)" : ""} · {t.lang === "tg" ? "тоҷикӣ" : "рус."}</summary>
@@ -149,13 +158,14 @@ export function NarrationSettingsPanel() {
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Словарь произношения</legend>
-        <p className="text-sm text-[var(--muted)]">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено.</p>
+        <p className="text-sm text-[var(--muted)]">Слово и как его читать. Сохраните, и CRM сама обновит словарь в ElevenLabs. Пометка «проверить носителем»: чтение собрано по правилам и на слух ещё не проверено. Такое чтение в озвучку не идёт, пока носитель не проверит и вы не снимете пометку.</p>
         {rules.map((r, i) => <div key={i} className="flex flex-wrap items-center gap-2 rounded border p-2">
           <input aria-label="Слово" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.word} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, word: e.target.value } : x))} />
           <input aria-label="Как читать" placeholder="как читать" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.alias ?? ""} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, alias: e.target.value || undefined } : x))} />
           <input aria-label="Звуки IPA" placeholder="IPA, по желанию" className="min-w-0 flex-1 rounded border p-2 text-sm" value={r.phoneme ?? ""} onChange={(e) => setRulesDraft(rules.map((x, j) => j === i ? { ...x, phoneme: e.target.value || undefined } : x))} />
           {r.needsNative && <button type="button" className="chip" title="Нажмите, когда носитель проверил" onClick={() => setRulesDraft(rules.map((x, j) => j === i ? { ...x, needsNative: undefined } : x))}>проверить носителем</button>}
           <button type="button" className="pill sm" onClick={() => setRulesDraft(rules.filter((_, j) => j !== i))}>Убрать</button>
+          {narrationPronunciationRuleHeldBack(r) && <p className="basis-full text-sm text-[var(--muted)]">Это чтение пока не применяется: слово озвучивается как обычно. Когда носитель проверит его на слух, нажмите на метку «проверить носителем».</p>}
         </div>)}
         <button type="button" className="pill sm" onClick={() => setRulesDraft([...rules, { word: "", alias: "" }])}>Добавить слово</button>
       </fieldset>
@@ -168,10 +178,12 @@ export function NarrationSettingsPanel() {
         });
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const patch: Partial<NarrationConfig> = { modelId: model, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!config.ownerReportPreviewEnabled,
-          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, autoSeparateVoice: autoSeparate ?? config.autoSeparateVoice !== false,
+          autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, removeOldPostsOnNarration: removeOld ?? config.removeOldPostsOnNarration !== false,
+          narrationPublishGapMin: Math.min(180, Math.max(5, number(limitsText.gap, config.narrationPublishGapMin ?? 15) ?? 15)), ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, config.debounceMinutes),
+          narrationListenPerPersonDaily: Math.min(1000, Math.max(1, number(limitsText.listenPerson, config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT) ?? NARRATION_LISTEN_PER_PERSON_DEFAULT)),
           freeNarrationEnabled: freeEnabled ?? config.freeNarrationEnabled !== false,
           freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
           freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),

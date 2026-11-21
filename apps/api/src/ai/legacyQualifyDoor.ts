@@ -26,6 +26,9 @@ import { channelOwnWords, runChannelCoreTurn, type ChannelCoreIntake, type Chann
 import { customerAgentHandoverLine } from "./customerAgentRenderer.js";
 import { alertChannelStaff } from "../lib/channelStaffAlert.js";
 import { logSystemError } from "../lib/systemError.js";
+import { handOverChannelOffTurn, isCustomerAgentTurnOff } from "../lib/customerAgentChannelOff.js";
+import { resolveCustomerDmLanguage } from "./customerDmLanguage.js";
+import { ATTACHMENT_UNREADABLE, selfAnswerLine, selfCallbackRequested } from "./botSelfAnswerText.js";
 
 // Helpers of the old bot that callers still need. Re-exported here so that the old module has exactly one importer;
 // step 3b moves each of them to its own module and this list disappears.
@@ -95,6 +98,10 @@ export function channelCoreQualifyResult(outcome: Extract<ChannelCoreOutcome, { 
 
 export async function runLegacyQualifyTurn(history: ChatMessage[], draft: LeadDraft, options: QualifyTurnOptions,
   source: ChannelTurnSource): Promise<QualifyResult | null> {
+  // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF) comes first: it wins over legacy, shadow and core alike.
+  // The account decides the `arvan` key (brand accounts); empty switch = no read at all.
+  if (await isCustomerAgentTurnOff({ channel: options.channel ?? source.channel, accountId: options.accountId,
+    conversationId: options.conversationId })) return channelOffTurn(history, options, source);
   const key = customerAgentLegacyChannelKey(options.channel ?? source.channel, null);
   // Meta keys are never `core` here (their door is rolloutConfig): the switch refuses them.
   if (key && customerAgentChannelMode(key) === "core") {
@@ -113,6 +120,23 @@ export async function runLegacyQualifyTurn(history: ChatMessage[], draft: LeadDr
   return result;
 }
 
+/**
+ * A turn on a channel switched off by CUSTOMER_AGENT_CHANNEL_OFF (lib/customerAgentChannelOff.ts): no model at all. The
+ * customer hears the core's handover line once per episode, a person gets the «client is waiting» signal once per episode;
+ * later messages of the same episode are recorded silently. The result is never null: null makes the channels queue their
+ * AI-retry job, and a retry would come back here anyway.
+ */
+async function channelOffTurn(history: ChatMessage[], options: QualifyTurnOptions, source: ChannelTurnSource): Promise<QualifyResult | null> {
+  // A guard asking for another wording of a reply this door never wrote: its own fallback applies, no model.
+  if (source.repeat === "regeneration") return null;
+  const own = history.filter(item => item.role === "user").map(item => channelOwnWords(typeof item.content === "string" ? item.content : ""));
+  const language = resolveCustomerDmLanguage(own[own.length - 1] ?? "", own.slice(0, -1));
+  const verdict = await handOverChannelOffTurn({ channel: options.channel ?? source.channel, conversationId: options.conversationId,
+    handoverLines: [customerAgentHandoverLine("ru"), customerAgentHandoverLine("tg")] });
+  if (verdict === "silent") return { reply: [], ready: false, lead: null, silent: "intended" };
+  return { reply: [customerAgentHandoverLine(language)], ready: false, lead: null, verified: true };
+}
+
 async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOptions, source: ChannelTurnSource,
   key: NonNullable<ReturnType<typeof customerAgentLegacyChannelKey>>): Promise<QualifyResult | null> {
   const turnHistory = history.filter(item => item.role === "user" || item.role === "assistant")
@@ -128,11 +152,22 @@ async function runCoreChannelTurn(history: ChatMessage[], options: QualifyTurnOp
   const ownTexts = turnHistory.filter(item => item.role === "user").map(item => channelOwnWords(item.content)).filter(Boolean);
   if (outcome.status === "staff") {
     const lastUser = [...turnHistory].reverse().find(item => item.role === "user")?.content ?? "";
+    // Номер известен (контакт, номер в переписке): «бот отвечает сам» не ответит «позвоните нам» — человек узнаёт, как
+    // раньше (ревью #283: «позвоните мне завтра» → «позвоните нам сами», заявка потеряна).
     const alerted = await alertChannelStaff({ channel: source.channel, conversationId: options.conversationId ?? null,
-      text: lastUser, why: outcome.reason, eventId: source.eventId ?? null });
+      text: lastUser, why: outcome.reason, eventId: source.eventId ?? null, ...(options.phoneKnown === true ? { phoneKnown: true } : {}) });
     // No staff signal by design (the customer opted out, the client is in the trash): promising a person would be a lie and
     // the error log below a false alarm. Silence, as the old path did — its AI-retry job drops such chats (review 0e463b02 N5).
     if (alerted === "excluded") return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [], silent: "intended" };
+    // «Бот отвечает сам» (18.11.2026, lib/botAnswersItself.ts): человека не звали — «передал сотруднику» было бы неправдой.
+    // Бот отвечает сам одним шагом к номеру; номер уже просили — телефон офиса (ai/botSelfAnswerText.ts).
+    if (alerted === "self") {
+      const phoneAsked = turnHistory.some(item => item.role === "assistant" && mentionsPhoneRequest(item.content));
+      const line = outcome.reason === "unreadable_input" ? ATTACHMENT_UNREADABLE[outcome.language]
+        : selfAnswerLine(outcome.language, { phoneAsked, callback: selfCallbackRequested(channelOwnWords(lastUser)),
+          brandName: await (await import("../messengers/accounts.js")).accountBrandName(options.accountId) });
+      return { ...channelCoreQualifyResult(outcome, ownTexts), reply: [line], silent: undefined, verified: true };
+    }
     // The customer ALWAYS hears the core's approved handover line (the Meta receipt wording), owner 17.11.2026 (review #223
     // R1-2/R1-4): silence here kept the chat «unanswered», so the website's stuck-chat cron replayed it every 30 minutes and
     // at night nobody answered at all. `sent`/`already`: a person knows (if the earlier sender behind `already` fails, it logs

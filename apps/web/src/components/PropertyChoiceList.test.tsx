@@ -9,7 +9,7 @@ const render = (props: Partial<ComponentProps<typeof PropertyChoiceList>> = {}) 
 describe("property choice context", () => {
   it("identifies the object before selection using address, price, size and floor", () => {
     const html = render();
-    for (const text of ["ОБ-000042", "Квартира у парка", "Сино", "Тестовый адрес", "60 м²", "2 комн.", "Этаж 4/9", "500 000 с."]) expect(html).toContain(text);
+    for (const text of ["ОБ-000042", "Квартира у парка", "Сино", "Тестовый адрес", "60 м²", "2 комн.", "Этаж 4/9", "500 000 с."]) expect(html).toContain(text);
     expect(html).toContain('type="radio"');
     expect(html).not.toContain("<select");
   });

@@ -1,6 +1,7 @@
+import { RhAudioPlayer } from "../components/look/RhAudioPlayer";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { NO_CONTACT_AFTER_DAYS, REFUSAL_REASON_LABELS, lastRealContactTime } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, REFUSAL_REASON_LABELS } from "@royal-home/shared";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
 import { StatTile } from "../components/ui/StatTile";
@@ -26,6 +27,38 @@ import {
 import { TeamTabs } from "../components/SectionTabs";
 import { Pagination } from "../components/Pagination";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { ControlRoot } from "../components/look/control/ControlRoot";
+import { controlTile } from "../components/look/control/controlTileIcon";
+import { tileTone } from "../components/look/tileTone";
+import type { TileIcon } from "../components/ui/StatTile";
+
+/**
+ * Плитка нового вида по числу (tileTone, одно правило с главными руководителей):
+ * срочная (controlTile с critical) остаётся красной с пламенем; ноль — спокойная
+ * серая (`ry-tile-calm`): нули не выглядят тревогой и не спорят с настоящей.
+ */
+function calmWhenZero(tile: { icon: TileIcon; className?: string }, value: number | undefined) {
+  if (tile.className) return tile;
+  return tileTone("info", value) === "calm" ? { ...tile, className: "ry-tile-calm" } : tile;
+}
+
+/** Сколько полных дней прошло с даты — «дней без контакта» в строках срезов. */
+function daysSince(iso: string | null | undefined, now = Date.now()): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? Math.max(0, Math.floor((now - t) / 86_400_000)) : null;
+}
+
+function NoContactDays({ since }: { since: string | null | undefined }) {
+  const days = daysSince(since);
+  if (days === null) return null;
+  return (
+    <span className={days >= 3 ? "chip crit" : "chip"}>
+      {days === 0 ? "меньше дня без контакта" : `${days} ${pluralizeRu(days, ["день", "дня", "дней"])} без контакта`}
+    </span>
+  );
+}
 
 /** Плитка над сводкой прокручивает к своему срезу ниже на этом же экране —
  * маршрута с фильтром нет ни у одного из этих счётчиков, все они уже здесь. */
@@ -271,13 +304,12 @@ function OverdueTasks() {
   );
 }
 
-/* ──────────────────────────────── 3. Без контакта ─────────────────────────────── */
+/* ──────────────────────────────── 3. Не связывались ─────────────────────────────── */
 
 /**
- * «Без контакта» — ОДНО правило на всю CRM (владелец 16.11.2026,
- * packages/shared/src/clientNoContact.ts): больше суток ни разговора по телефону,
- * ни сообщения от самого клиента; новая карточка — от создания. Заметки и задачи
- * агента контактом не считаются.
+ * «Не связывались» — ОДНО правило на всю CRM (17.11.2026,
+ * packages/shared/src/clientNoContact.ts): с клиентом ни разу не связывался ни один
+ * сотрудник — ни звонка (даже без ответа), ни сообщения, ни показа.
  */
 function NoContactClients() {
   const [page, setPage] = useState(1);
@@ -286,33 +318,31 @@ function NoContactClients() {
   return (
     <Slice
       id="slice-no-contact-clients"
-      title="Без контакта"
+      title={NO_CONTACT_TEXT.title}
       note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
-      hint={`Больше ${NO_CONTACT_AFTER_DAYS === 1 ? "суток" : `${NO_CONTACT_AFTER_DAYS} дней`} ни разговора по телефону, ни сообщения от самого клиента. Заметки и задачи агента контактом не считаются.`}
+      hint={NO_CONTACT_TEXT.rule}
     >
       <SliceState
         isLoading={isLoading}
         isError={isError}
         isEmpty={!!data && items.length === 0}
-        errorText="Не удалось загрузить клиентов без контакта. Не считайте, что их нет."
-        emptyText="Все клиенты в работе на связи."
+        errorText="Не удалось загрузить список. Не считайте, что он пуст."
+        emptyText={NO_CONTACT_TEXT.empty}
         onRetry={() => refetch()}
       />
-      {items.map((c) => {
-        const last = lastRealContactTime(c);
-        return (
-          <div className="quiet" key={c.id}>
-            <span className="txt">
-              <ClientLink shortId={c.shortId} fullName={c.fullName} />.{" "}
-              {last ? `Последний контакт ${relativeTime(last.toISOString())}` : `Контакта не было, карточка ${relativeTime(c.createdAt)}`}. Агент{" "}
-              <AgentOrUnassigned agent={c.assignedAgent} />.
-            </span>
-            <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
-              Открыть
-            </Link>
-          </div>
-        );
-      })}
+      {items.map((c) => (
+        <div className="quiet" key={c.id}>
+          <span className="txt">
+            <ClientLink shortId={c.shortId} fullName={c.fullName} />. Карточка {relativeTime(c.createdAt)}
+            {c.lastClientMessageAt ? `, клиент писал ${relativeTime(c.lastClientMessageAt)}` : ""}. Агент{" "}
+            <AgentOrUnassigned agent={c.assignedAgent} />.
+          </span>
+          <NoContactDays since={c.createdAt} />
+          <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
+            Открыть
+          </Link>
+        </div>
+      ))}
       {pagerData && (
         <SlicePager
           page={page}
@@ -335,7 +365,7 @@ function SilentAfterShowing() {
   return (
     <Slice
       id="slice-silent-after-showing"
-      title="Тишина после показа"
+      title="Пропали после показа"
       note={data ? `${data.total} ${pluralizeRu(data.total, ["клиент", "клиента", "клиентов"])}` : undefined}
       hint={
         data
@@ -358,6 +388,7 @@ function SilentAfterShowing() {
             . С показа прошло: {relativeTime(c.lastContactAt)}. Агент{" "}
             <AgentOrUnassigned agent={c.assignedAgent} />.
           </span>
+          <NoContactDays since={c.lastContactAt} />
           <Link className="pill ghost sm" to={`/clients/${c.shortId}`} state={OVERSIGHT_BACK_STATE}>
             Открыть
           </Link>
@@ -445,11 +476,11 @@ function EndlessNegotiations() {
   return (
     <Slice
       id="slice-endless-negotiations"
-      title="Вечные переговоры"
+      title="Переговоры по кругу"
       note={data ? `${data.total} ${pluralizeRu(data.total, ["карточка", "карточки", "карточек"])}` : undefined}
       hint={
         data
-          ? `Итог приёмки подряд получил исход «Переговоры» ${data.maxRounds} раза и больше, без выхода в другую ветку.`
+          ? `С продавцом ${data.maxRounds} раза подряд и больше договорились «ещё подумать» — решения так и нет.`
           : undefined
       }
     >
@@ -499,11 +530,11 @@ function RefusedHighScore() {
   return (
     <Slice
       id="slice-refused-high-score"
-      title="Отказ при хорошем скоринге"
+      title="Отказались, хотя клиент был хороший"
       note={data ? `${data.total} за ${data.windowDays} дней` : undefined}
       hint={
         data
-          ? `Клиент отказался, пока оценка ИИ была не ниже ${data.threshold}. Служба безопасности эту карточку ещё не открывала.`
+          ? `Клиент отказался, хотя ИИ оценивал его шансы на ${data.threshold} баллов из 100 и выше. Служба безопасности эту карточку ещё не открывала.`
           : undefined
       }
     >
@@ -561,7 +592,7 @@ function AgentLossSeries() {
   return (
     <Slice
       id="slice-agent-loss-series"
-      title="Серия у одного агента"
+      title="Агент теряет клиентов подряд"
       note={data ? `${data.items.length} ${pluralizeRu(data.items.length, ["человек", "человека", "человек"])}` : undefined}
       hint={
         data
@@ -628,7 +659,7 @@ function EventLogSlice({
     <Slice
       id={id}
       title={title}
-      note={data ? `журнал, ${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
+      note={data && data.total > 0 ? `${data.total} ${pluralizeRu(data.total, ["запись", "записи", "записей"])}` : undefined}
       hint={hint}
     >
       <SliceState
@@ -681,7 +712,8 @@ const RED_FLAG_LABELS: Record<string, string> = {
   evasive: "уклоняется от прямых вопросов о показе",
 };
 
-function ShowingSurveyCalls() {
+/** hideWhenEmpty — новый вид: пустой журнал не занимает экран (строка «всё спокойно» выше). */
+function ShowingSurveyCalls({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const [page, setPage] = useState(1);
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const { data, pagerData, items, isLoading, isError, refetch } = useSliceFeed(
@@ -708,6 +740,8 @@ function ShowingSurveyCalls() {
       setPlayingId(null);
     }
   };
+
+  if (hideWhenEmpty && !onlyFlagged && data && data.total === 0) return null;
 
   return (
     <Slice
@@ -870,7 +904,7 @@ function ShowingSurveyCallItem({
       )}
       {playerUrl && (
         <>
-          <audio controls autoPlay preload="none" src={playerUrl} style={{ height: 34, maxWidth: 260 }} />
+          <RhAudioPlayer src={playerUrl} autoPlay speeds preload="none" label="Запись разговора" className="w-[300px] max-w-full" />
           <button className="pill ghost sm" type="button" onClick={onClosePlayer}>
             Закрыть запись
           </button>
@@ -903,17 +937,18 @@ function TransfersLog() {
 
 /* ───────────────────────── 11. Маршруты передач ────────────────────────────── */
 
-function TransferPairs() {
+function TransferPairs({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const { data, isLoading, isError, refetch } = useTransferPairs();
   const pairs = data?.pairs ?? [];
+  if (hideWhenEmpty && data && pairs.length === 0) return null;
 
   return (
     <Slice
-      title="Маршруты передач между агентами"
+      title="Кто кому чаще передаёт клиентов"
       note={data ? `за ${data.windowDays} дней` : undefined}
       hint={
         data
-          ? `Топ пар «от кого, кому». Пара, повторившаяся ${data.frequentThreshold} раза и больше, отмечена. Смотреть ли внимательнее, решает руководитель.`
+          ? `Какие пары чаще всего передают клиентов друг другу. Если пара повторилась ${data.frequentThreshold} раза и больше, она отмечена. Нужно ли присмотреться, решает руководитель.`
           : undefined
       }
     >
@@ -944,9 +979,12 @@ function TransferPairs() {
 
 export function Oversight() {
   const can = useCan();
+  const royal = useRoyalLook();
   const investigations = useCanViewInvestigations();
   const canView = can("dashboard.analytics");
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useOversightSummary(canView);
+  // Срезы, раскрытые нажатием на нулевую плитку (новый вид сворачивает пустые).
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   // Вкладки раздела «Команда» (перенос меню 15.09.2026) — тот же набор и та же
   // логика подписи, что в pages/Team.tsx / lib/navigation.ts.
   const { data: sectionCounters } = useCounters();
@@ -962,7 +1000,7 @@ export function Oversight() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <ControlRoot royal={royal}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -972,21 +1010,55 @@ export function Oversight() {
           </div>
           <TeamTabs />
         </div>
-      </div>
+      </ControlRoot>
     );
   }
 
-  const sellerMissing = summary ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical : undefined;
+  // Нет поля (нет права или старый сервер) — «неизвестно», а не ноль: NaN на плитке и
+  // «спокойно» в строке были бы враньём (ревью PR 336).
+  const sellerMissing =
+    typeof summary?.sellerPropertyMissingWarn === "number" && typeof summary?.sellerPropertyMissingCritical === "number"
+      ? summary.sellerPropertyMissingWarn + summary.sellerPropertyMissingCritical
+      : undefined;
+  // Срочность плиток — одна переменная на подпись и на круг нового вида.
+  const overdueCritical = !!summary?.overdueTasks;
+  const noContactCritical = !!summary?.noContactClients;
+  // Новый вид: пустые срезы не занимают по экрану каждый, а собираются в одну строку
+  // «Без замечаний» под срезами с проблемами. Решаем по сводке; нет сводки (грузится или
+  // сбой) — показываем все; нет числа у среза — тоже показываем: «неизвестно» не ноль.
+  const fold = royal && !!summary && !summaryError;
+  const slices: { key: string; count: number | undefined; calm: string; el: ReactNode }[] = [
+    { key: "overdue", count: summary?.overdueTasks, calm: "просроченных задач нет", el: <OverdueTasks key="overdue" /> },
+    { key: "nocontact", count: summary?.noContactClients, calm: "со всеми клиентами связывались", el: <NoContactClients key="nocontact" /> },
+    { key: "silent", count: summary?.silentAfterShowing, calm: "после показов никто не пропал", el: <SilentAfterShowing key="silent" /> },
+    ...(investigations ? [{ key: "seller", count: sellerMissing, calm: "у всех продавцов есть объект", el: <SellerPropertyMissing key="seller" /> }] : []),
+    { key: "endless", count: summary?.endlessNegotiations, calm: "переговоров по кругу нет", el: <EndlessNegotiations key="endless" /> },
+    ...(investigations ? [{ key: "refused", count: summary?.refusedHighScore, calm: "хорошие клиенты не отказывались", el: <RefusedHighScore key="refused" /> }] : []),
+    ...(investigations ? [{ key: "series", count: summary?.agentLossSeries, calm: "никто не теряет клиентов подряд", el: <AgentLossSeries key="series" /> }] : []),
+  ];
+  const calmList = fold
+    ? [
+        ...slices.filter((x) => x.count === 0 && !expanded.has(x.key)).map((x) => x.calm),
+        // Журнал передач — за всё время, а число в сводке — за окно: журнал не прячем,
+        // а в строке честно пишем, за какой срок передач не было.
+        ...(summary?.recentTransfers === 0 ? [`за ${summary.recentWindowDays} дней передач клиентов не было`] : []),
+      ]
+    : [];
+  const shown = slices.filter((x) => !fold || x.count !== 0 || expanded.has(x.key)).map((x) => x.el);
+  /** Плитка ведёт к своему срезу; свёрнутый (ноль) сперва раскрывается — не в пустоту. */
+  const go = (key: string, id: string) => {
+    setExpanded((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    window.setTimeout(() => scrollToSlice(id), 0);
+  };
 
   return (
-    <div className="rh2 screens">
+    <ControlRoot royal={royal}>
       <div className="scr">
         <div className="pg-h">
           <div>
             <h1>Контроль руководителя</h1>
             <p className="sub">
-              Сводка по тому, что уже есть в CRM: просрочки, лимиты, зависшие горячие лиды, переводы и передачи. Это не
-              уведомления, а списки: смотреть можно спокойно.
+              Где клиенты могут потеряться: просрочки, клиенты без контакта, отказы и передачи между агентами.
             </p>
           </div>
           <div className="acts">
@@ -1004,65 +1076,73 @@ export function Oversight() {
             прокручивает к нему, а не уходит на выдуманный маршрут с фильтром. */}
         <div className="tiles">
           <StatTile
+            {...(royal ? calmWhenZero(controlTile("clock", overdueCritical), summary?.overdueTasks) : {})}
             label="Просроченных задач"
             value={summary?.overdueTasks ?? "—"}
             line="сроки обещаны клиентам"
-            critical={!!summary?.overdueTasks}
-            onClick={() => scrollToSlice("slice-overdue-tasks")}
+            critical={overdueCritical}
+            onClick={() => go("overdue", "slice-overdue-tasks")}
             title="Список просроченных задач ниже на этом экране"
           />
           <StatTile
-            label="Без контакта"
+            {...(royal ? calmWhenZero(controlTile("phone-missed", noContactCritical), summary?.noContactClients) : {})}
+            label={NO_CONTACT_TEXT.title}
             value={summary?.noContactClients ?? "—"}
-            line="больше суток ни разговора, ни сообщения клиента"
-            critical={!!summary?.noContactClients}
-            onClick={() => scrollToSlice("slice-no-contact-clients")}
-            title="Клиенты без контакта — список ниже на этом экране"
+            line={summary && summary.noContactClients === 0 ? NO_CONTACT_TEXT.zero : "ни звонка, ни сообщения сотрудника"}
+            critical={noContactCritical}
+            onClick={() => go("nocontact", "slice-no-contact-clients")}
+            title="Клиенты, с кем ни разу не связывались — список ниже на этом экране"
           />
           <StatTile
-            label="Тишина после показа"
+            {...(royal ? calmWhenZero(controlTile("eye"), summary?.silentAfterShowing) : {})}
+            label="Пропали после показа"
             value={summary?.silentAfterShowing ?? "—"}
             line={summary ? `показ был больше ${summary.silentAfterShowingDays} дней назад` : ""}
-            onClick={() => scrollToSlice("slice-silent-after-showing")}
+            onClick={() => go("silent", "slice-silent-after-showing")}
             title="Список клиентов без контакта после показа ниже на этом экране"
           />
           {investigations && <StatTile
-            label="Отказ при скоринге"
+            {...(royal ? calmWhenZero(controlTile("x-circle"), summary?.refusedHighScore) : {})}
+            label="Отказ хорошего клиента"
             value={summary?.refusedHighScore ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней, мимо службы безопасности` : ""}
-            onClick={() => scrollToSlice("slice-refused-high-score")}
+            onClick={() => go("refused", "slice-refused-high-score")}
             title="Список отказов при хорошем скоринге ниже на этом экране"
           />}
           {investigations && <StatTile
+            {...(royal ? calmWhenZero(controlTile("building-2"), sellerMissing) : {})}
             label="Продавец без объекта"
             value={sellerMissing ?? "—"}
             line={
-              summary
+              summary && sellerMissing !== undefined
                 ? `критично ${summary.sellerPropertyMissingCritical} (от ${summary.sellerPropertyMissingCriticalDays} дней, в службе безопасности), предупреждение ${summary.sellerPropertyMissingWarn} (от ${summary.sellerPropertyMissingWarnDays} дней)`
                 : ""
             }
-            onClick={() => scrollToSlice("slice-seller-property-missing")}
+            onClick={() => go("seller", "slice-seller-property-missing")}
             title="Список продавцов без карточки объекта ниже на этом экране"
           />}
           <StatTile
-            label="Вечные переговоры"
+            {...(royal ? calmWhenZero(controlTile("handshake"), summary?.endlessNegotiations) : {})}
+            label="Переговоры по кругу"
             value={summary?.endlessNegotiations ?? "—"}
-            line={summary ? `${summary.sellerNegotiationMaxRounds} кругов подряд и больше` : ""}
-            onClick={() => scrollToSlice("slice-endless-negotiations")}
+            line={summary ? `${summary.sellerNegotiationMaxRounds} раза подряд без решения` : ""}
+            onClick={() => go("endless", "slice-endless-negotiations")}
             title="Список карточек с зацикленными переговорами ниже на этом экране"
           />
           {investigations && <StatTile
-            label="Серия у агента"
+            {...(royal ? calmWhenZero(controlTile("trend-up"), summary?.agentLossSeries) : {})}
+            label="Теряют подряд"
             value={summary?.agentLossSeries ?? "—"}
             line={summary ? `${summary.agentLossSeriesThreshold} и больше за ${summary.agentLossSeriesWindowDays} дней` : ""}
-            onClick={() => scrollToSlice("slice-agent-loss-series")}
+            onClick={() => go("series", "slice-agent-loss-series")}
             title="Список агентов с серией потерь ниже на этом экране"
           />}
           <StatTile
-            label="Передач"
+            {...(royal ? calmWhenZero(controlTile("users"), summary?.recentTransfers) : {})}
+            label="Передачи клиентов"
             value={summary?.recentTransfers ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней` : ""}
-            onClick={() => scrollToSlice("slice-transfers-log")}
+            onClick={() => go("transfers", "slice-transfers-log")}
             title="Журнал передач между агентами ниже на этом экране"
           />
         </div>
@@ -1083,17 +1163,21 @@ export function Oversight() {
           </div>
         )}
 
-        <OverdueTasks />
-        <NoContactClients />
-        <SilentAfterShowing />
-        {investigations && <SellerPropertyMissing />}
-        <EndlessNegotiations />
-        {investigations && <RefusedHighScore />}
-        {investigations && <ShowingSurveyCalls />}
-        {investigations && <AgentLossSeries />}
+        {shown}
+        {investigations && <ShowingSurveyCalls hideWhenEmpty={fold} />}
+
+        {calmList.length > 0 && (
+          <div className="card tight">
+            <div className="quiet ok ry-calm-line">
+              <span className="dot ok" />
+              <span className="txt">Без замечаний: {calmList.join(", ")}.</span>
+            </div>
+          </div>
+        )}
+
         <TransfersLog />
-        {investigations && <TransferPairs />}
+        {investigations && <TransferPairs hideWhenEmpty={fold} />}
       </div>
-    </div>
+    </ControlRoot>
   );
 }

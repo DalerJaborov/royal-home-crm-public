@@ -12,6 +12,7 @@ import { InteractionTimeline } from "../InteractionTimeline";
 import { WhatsAppFirstContact } from "../WhatsAppFirstContact";
 import { useDismissSimilarClient, type SimilarNotesClient } from "../../hooks/useDuplicates";
 import { relativeTime } from "../../lib/format";
+import { MarketBuyerListings } from "../MarketBuyerListings";
 import type { Client } from "../../types";
 
 /**
@@ -55,7 +56,6 @@ export interface MobileClientCardProps {
    *  разметке, просто вставленный сюда, а не второй источник. */
   commonMiddle: ReactNode;
   /** Готовые узлы из ClientDetail.tsx — см. пояснение у аргументов ниже. */
-  propertyCounts: ReactNode;
   similarWarning: ReactNode;
   phoneOptions: CallPhoneOption[];
   conversations: ClientConversation[];
@@ -108,7 +108,6 @@ export function MobileClientCard({
   // который сам подключает этот файл, и импорт обратно замыкал круг
   // (audit:deps ловит такое ошибкой — порядок инициализации становится
   // неявным, и правка на одном конце отзывается на другом).
-  propertyCounts,
   similarWarning,
   phoneOptions,
   conversations,
@@ -231,7 +230,7 @@ export function MobileClientCard({
       {pending && locked ? (
         <section className="sec">
           <div className="card-s big brief">
-            Запрос клиента, бюджет и история откроются, когда вы примете лид.
+            Запрос клиента, бюджет и история откроются, когда вы примете заявку.
           </div>
         </section>
       ) : (
@@ -249,8 +248,11 @@ export function MobileClientCard({
               <ClientInsight client={client} />
               {intentConfirmation}
               {overviewProperties}
+              {/* «С площадок» под покупателем: те же объявления и действия, что на ПК (17.11.2026). */}
+              {canBuy && (
+                <div className="client-overview-properties"><MarketBuyerListings key={`market:${client.id}`} clientId={client.id} /></div>
+              )}
               {overviewNextStep}
-              {propertyCounts}
               {canBuy && client.desiredPlaces && client.desiredPlaces.length > 0 && (
                 <details className="cd-about" style={{ marginTop: 12 }}>
                   <summary>Где ищет</summary>

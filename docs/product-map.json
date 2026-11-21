@@ -203,6 +203,13 @@
       "nav": null
     },
     {
+      "path": "/dev/narration-preview",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
       "path": "/dev/pult-actions",
       "component": "",
       "file": "",
@@ -227,6 +234,13 @@
       "path": "/dev/system-sheets-port",
       "component": "",
       "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/director",
+      "component": "DirectorDashboard",
+      "file": "apps/web/src/pages/DirectorDashboard.tsx",
       "redirect": null,
       "nav": null
     },
@@ -588,7 +602,7 @@
       "redirect": null,
       "nav": {
         "to": "/sources",
-        "label": "Источники лидов",
+        "label": "Источники заявок",
         "group": "money",
         "gate": ""
       }
@@ -635,6 +649,13 @@
         "group": "inbox",
         "gate": ""
       }
+    },
+    {
+      "path": "/ui-check",
+      "component": "UiCheck",
+      "file": "apps/web/src/pages/UiCheck.tsx",
+      "redirect": null,
+      "nav": null
     },
     {
       "path": "/vacancies",
@@ -773,7 +794,7 @@
     },
     {
       "to": "/sources",
-      "label": "Источники лидов",
+      "label": "Источники заявок",
       "group": "money",
       "gate": ""
     },
@@ -905,7 +926,7 @@
       "mount": "/api/v1/me/notifications",
       "router": "notificationsRouter",
       "file": "apps/api/src/routes/notifications.ts",
-      "endpoints": 4,
+      "endpoints": 5,
       "label": "Лента уведомлений сотрудника",
       "usedBy": 12
     },
@@ -961,9 +982,17 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 133,
+      "endpoints": 140,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 35
+      "usedBy": 37
+    },
+    {
+      "mount": "/api/v1/construction-registry",
+      "router": "constructionRegistryRouter",
+      "file": "apps/api/src/routes/constructionRegistry.ts",
+      "endpoints": 7,
+      "label": null,
+      "usedBy": 1
     },
     {
       "mount": "/api/v1/transfer-requests",
@@ -977,7 +1006,7 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 61,
+      "endpoints": 58,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
       "usedBy": 13
     },
@@ -1019,7 +1048,7 @@
       "file": "apps/api/src/routes/dashboard.ts",
       "endpoints": 10,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1027,7 +1056,7 @@
       "file": "apps/api/src/routes/dashboardMissionControl.ts",
       "endpoints": 5,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1035,7 +1064,7 @@
       "file": "apps/api/src/routes/pultModules.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1043,7 +1072,7 @@
       "file": "apps/api/src/routes/briefing.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 8
+      "usedBy": 9
     },
     {
       "mount": "/api/v1/calendar",
@@ -1097,9 +1126,9 @@
       "mount": "/api/v1/reports",
       "router": "reportsRouter",
       "file": "apps/api/src/routes/reports.ts",
-      "endpoints": 20,
+      "endpoints": 24,
       "label": "Отчёты за период",
-      "usedBy": 4
+      "usedBy": 5
     },
     {
       "mount": "/api/v1/report-pdf",
@@ -1137,9 +1166,9 @@
       "mount": "/api/v1/ui-shell",
       "router": "uiShellRouter",
       "file": "apps/api/src/routes/uiShell.ts",
-      "endpoints": 3,
+      "endpoints": 1,
       "label": null,
-      "usedBy": 2
+      "usedBy": 0
     },
     {
       "mount": "/api/v1/sms",
@@ -1163,7 +1192,7 @@
       "file": "apps/api/src/routes/push.ts",
       "endpoints": 7,
       "label": "Пуш-уведомления на телефон",
-      "usedBy": 2
+      "usedBy": 3
     },
     {
       "mount": "/api/v1/webhooks",
@@ -1369,9 +1398,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 12,
+      "endpoints": 14,
       "label": "Переписка по всем каналам",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1598,6 +1627,11 @@
       "label": null
     },
     {
+      "id": "assistant-group-sweep",
+      "expr": "12 * * * *",
+      "label": null
+    },
+    {
       "id": "assistant-log-retention",
       "expr": "25 4 * * *",
       "label": null
@@ -1673,11 +1707,6 @@
       "label": "Напоминания клиентам, переставшим отвечать в переписке"
     },
     {
-      "id": "client-property-count-alarm",
-      "expr": "0 * * * *",
-      "label": "Сравнивает заявленное клиентом число объектов со сделанным в CRM"
-    },
-    {
       "id": "client-scoring",
       "expr": "0 2 * * *",
       "label": "Ночная оценка ИИ всех активных клиентов"
@@ -1706,6 +1735,11 @@
       "id": "comment-needs-human-sweep",
       "expr": "6-59/10 * * * *",
       "label": null
+    },
+    {
+      "id": "construction-registry-sync",
+      "expr": "30 4 * * 1",
+      "label": "Раз в неделю забирает реестр разрешённых строек Душанбе и связывает с нашими объектами"
     },
     {
       "id": "contact-link-sweep",
@@ -1894,7 +1928,7 @@
     },
     {
       "id": "market-paydo-daily",
-      "expr": "0 3 * * *",
+      "expr": "30 2 * * *",
       "label": null
     },
     {
@@ -1905,11 +1939,6 @@
     {
       "id": "market-somon-incremental",
       "expr": "7,22,37,52 * * * *",
-      "label": null
-    },
-    {
-      "id": "market-weekly-crawl",
-      "expr": "30 2 * * 0",
       "label": null
     },
     {
@@ -1933,6 +1962,11 @@
       "label": null
     },
     {
+      "id": "missed-call-task-whatsapp-close",
+      "expr": "*/2 * * * *",
+      "label": null
+    },
+    {
       "id": "monthly-problem-report",
       "expr": "10 9 1 * *",
       "label": "Разбор проблемных мест за прошедший месяц"
@@ -1953,7 +1987,7 @@
       "label": null
     },
     {
-      "id": "narration-auto-master",
+      "id": "narration-preview-due",
       "expr": "* * * * *",
       "label": null
     },
@@ -2103,6 +2137,11 @@
       "label": null
     },
     {
+      "id": "staff-social-post-sweep",
+      "expr": "*/15 * * * *",
+      "label": null
+    },
+    {
       "id": "stale-property-videos-cleanup",
       "expr": "50 3 * * *",
       "label": "Удаляет сырое видео объектов, зависшее после публикации"
@@ -2216,6 +2255,11 @@
       "id": "weekly-security-review-digest",
       "expr": "20 9 * * 1",
       "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
+    },
+    {
+      "id": "whatsapp-calling-health",
+      "expr": "23 * * * *",
+      "label": null
     },
     {
       "id": "whatsapp-webhook-watch",

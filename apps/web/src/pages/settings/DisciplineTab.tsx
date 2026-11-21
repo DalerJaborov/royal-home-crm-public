@@ -3,6 +3,10 @@ import { useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { MutationError } from "../../components/MutationError";
 import { SwitchRow } from "../../components/Switch";
+import { SellerAutomationSection } from "./SellerAutomationSection";
+import { SecurityAutomationSection } from "./SecurityAutomationSection";
+import { AutomationSwitchesSection } from "./AutomationSwitchesSection";
+import { RegistrySettingsSection } from "./RegistrySettingsSection";
 
 /**
  * Числа, по которым система требует работу от агента.
@@ -80,15 +84,24 @@ export function DisciplineSection() {
 
   return (
     <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "var(--s4)" }}>
+      {/* Выключатели автоматики по продавцам (14.11.2026) — сохраняются сами, кнопка
+          «Сохранить» внизу их не касается. */}
+      <SellerAutomationSection />
+      {/* Рубильник автоматики СБ (18.11.2026) — сохраняется сам, как блок выше. */}
+      <SecurityAutomationSection />
+      {/* Выключатели автоматики ИИ и напоминаний (19.11.2026) — сохраняются сами. */}
+      <AutomationSwitchesSection />
+      {/* Реестр строек Душанбе (20.11.2026): два рубильника, статус забора и «Забрать сейчас». */}
+      <RegistrySettingsSection />
       {/* «Ждёт варианты» и «Ждёт показ» убраны с экрана 23.09.2026: блок обещал
           напоминания агенту и стоп на выдачу лидов, но ни напоминаний, ни стопа в
           коде нет — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026). Поля
           waitingCheckAfterMinutes/waitingCheckMaxRepeats остаются в базе. */}
       <section className="card">
         <div className="sec-h stack">
-          <h2>Пауза «не принимаю лиды»</h2>
+          <h2>Пауза «не принимаю заявки»</h2>
           <span className="note">
-            Агент выключает выдачу новых лидов сам — болезнь, отпуск, завал. KPI при этом идёт как обычно:
+            Агент выключает выдачу новых заявок сам — болезнь, отпуск, завал. Показатели при этом считаются как обычно:
             иначе пауза станет способом прятать просрочки
           </span>
         </div>
@@ -145,7 +158,7 @@ export function DisciplineSection() {
           <h2>Возврат клиента</h2>
           <span className="note">
             Клиент из Корзины, написавший или позвонивший сам, сначала идёт прежнему агенту. Если тот не
-            откликнулся за это время — уходит в общую очередь по KPI
+            откликнулся за это время — уходит в общую очередь по показателям
           </span>
         </div>
         <div className="fgrid">

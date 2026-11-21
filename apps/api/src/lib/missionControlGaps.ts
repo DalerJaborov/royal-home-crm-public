@@ -1,8 +1,8 @@
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { expenseCentsToTjs } from "./money.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
-import { canViewInvestigations, lastRealContactTime } from "@royal-home/shared";
-import { noContactWhere, TALKED_CALL_WHERE } from "./noContact.js";
+import { canViewInvestigations, NO_CONTACT_TEXT } from "@royal-home/shared";
+import { noContactWhere } from "./noContact.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { isOpenAiEnabled } from "../ai/openaiClient.js";
@@ -617,14 +617,13 @@ export interface McAttentionClient extends McEmptyable {
  */
 export async function loadAttentionClient(now: Date): Promise<McAttentionClient | (McEmptyable & { id: null })> {
   /**
-   * С 16.11.2026 — из «Без контакта» по общему правилу (lib/noContact.ts,
-   * packages/shared/src/clientNoContact.ts): «касание» по lastContactAt двигали
-   * заметки агента, и пульт показывал «ждёт внимания» не того клиента, что
-   * счётчик «Без контакта». Порядок: непринятые первыми, затем давно молчащие.
+   * Из «Не связывались» по общему правилу (lib/noContact.ts,
+   * packages/shared/src/clientNoContact.ts) — то же число, что плитка «Клиенты».
+   * Порядок: непринятые первыми, затем самые давние карточки.
    */
   const row = await prisma.client.findFirst({
-    where: noContactWhere(now),
-    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastClientMessageAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
+    where: noContactWhere(),
+    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
       shortId: true,
@@ -634,21 +633,14 @@ export async function loadAttentionClient(now: Date): Promise<McAttentionClient 
       source: true,
       acceptedAt: true,
       createdAt: true,
-      lastClientMessageAt: true,
-      interactions: { where: TALKED_CALL_WHERE, orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
       assignedAgent: { select: { fullName: true } },
     },
   });
 
-  if (!row) return { id: null, reason: "Клиентов без контакта нет." };
+  if (!row) return { id: null, reason: NO_CONTACT_TEXT.empty };
 
-  const last = lastRealContactTime({ createdAt: row.createdAt, lastClientMessageAt: row.lastClientMessageAt, lastTalkedCallAt: row.interactions[0]?.createdAt });
-  const hours = Math.max(0, Math.floor((now.getTime() - (last ?? row.createdAt).getTime()) / 3_600_000));
-  const why = !row.acceptedAt
-    ? "карточку ещё не принял агент"
-    : !last
-      ? "принята, но контакта с клиентом ещё не было"
-      : `последний контакт ${hours} ч назад`;
+  const hours = Math.max(0, Math.floor((now.getTime() - row.createdAt.getTime()) / 3_600_000));
+  const why = !row.acceptedAt ? "карточку ещё не принял агент" : "принята, но с клиентом ещё ни разу не связывались";
 
   return {
     id: row.id,
@@ -784,6 +776,22 @@ export interface McTeamDay extends McEmptyable {
  * схеме нет, реплики лежат JSONB внутри диалога, и считать их по агенту нечем.
  */
 export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTeamDay> {
+  return (await loadTeamDayWithCounts(now, viewerRole)).day;
+}
+
+/** Дела агента за сегодня — для его строки в «Команде» руководителя, без обрезки до 12. */
+export interface TeamDayAgentCounts {
+  calls: number;
+  total: number;
+}
+
+/**
+ * Тот же расчёт, что loadTeamDay, плюс счётчики по КАЖДОМУ агенту (20.11.2026). Список
+ * `rows` в ответе режется до 12 по числу дел, а при равенстве — по имени: агент с нулём
+ * дел и фамилией в конце алфавита в него не попадал, и главная не могла отличить «ноль»
+ * от «не попал в список». Счётчики строятся из тех же четырёх groupBy, без новых запросов.
+ */
+export async function loadTeamDayWithCounts(now: Date, viewerRole?: string): Promise<{ day: McTeamDay; counts: Map<string, TeamDayAgentCounts> }> {
   const { start, end } = dushanbeDayRange(now);
   const window = { gte: start, lt: end };
 
@@ -842,7 +850,13 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
   const sum = (f: (r: McTeamDayRow) => number) => rows.reduce((acc, r) => acc + f(r), 0);
   const total = sum((r) => r.total);
 
-  return {
+  const counts = new Map<string, TeamDayAgentCounts>();
+  for (const id of new Set([...byCalls.keys(), ...byShowings.keys(), ...byTasks.keys(), ...byMessages.keys()])) {
+    const calls = byCalls.get(id) ?? 0;
+    counts.set(id, { calls, total: calls + (byShowings.get(id) ?? 0) + (byTasks.get(id) ?? 0) + (byMessages.get(id) ?? 0) });
+  }
+
+  const day: McTeamDay = {
     rows: rows.slice(0, 12),
     calls: sum((r) => r.calls),
     showings: sum((r) => r.showings),
@@ -855,6 +869,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
           ? null
           : "С начала суток по Душанбе ни звонков, ни показов, ни закрытых задач.",
   };
+  return { day, counts };
 }
 
 // ─── Показы сегодня ──────────────────────────────────────────────────────────

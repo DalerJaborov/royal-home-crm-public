@@ -115,7 +115,7 @@ export function clusterPlaque(c: MapCluster): string {
  */
 export function priceLabel(price: number, currency: string = "TJS"): string {
   const short = shortAmount(price);
-  return currency === "USD" ? `$${short}` : `${short} с.`;
+  return currency === "USD" ? `$${short}` : `${short}\u00a0с.`;
 }
 
 function shortAmount(amount: number): string {
