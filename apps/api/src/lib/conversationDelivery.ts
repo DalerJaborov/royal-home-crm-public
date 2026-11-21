@@ -30,7 +30,7 @@ import {
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
-import { isMessagingWindowClosedFor, lastInboundAt } from "@royal-home/shared";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
@@ -322,8 +322,11 @@ async function windowClosedBeforeSend(
 ): Promise<{ ok: false; status: number; error: string; code: "window_closed" } | null> {
   if (target.kind !== "bot") return null;
   const channel = target.channel;
-  const lastAt = await lastClientMessageAt(target, justReceivedAt);
-  if (!isMessagingWindowClosedFor(channel, lastAt)) return null;
+  // Блокируем только ДОСТОВЕРНО старую реплику клиента (>24 ч). «Клиент вообще не
+  // писал» подсказка в карточке называет закрытым (messagingWindowStateOfTarget), а
+  // сама отправка не блокируется: диалог мог быть начат шаблоном, решит Meta, и её
+  // отказ журнал не засоряет.
+  if (!isMessagingWindowClosedFor(channel, await lastClientMessageAt(target, justReceivedAt))) return null;
   if (!sender || sender.kind === "system" || sender.kind === "bot") {
     console.log(`[окно] ${channel}: клиент ${target.subscriberId} не писал больше суток — сообщение не отправлено`);
   }
@@ -1277,17 +1280,33 @@ async function rememberAgentStyleExample(
  * агент видит «уйдёт / не уйдёт» до нажатия. Отказ базы — null, как у соседей.
  */
 export async function lastClientMessageAt(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<Date | null> {
+  const messages = await conversationMessagesOf(target);
+  // Максимум по времени (не последняя запись списка) — общее правило окна Meta.
+  return messages ? lastInboundAt(messages, justReceivedAt) : (justReceivedAt ?? null);
+}
+
+async function conversationMessagesOf(target: DeliveryTarget): Promise<{ role?: string; at?: string }[] | null> {
   try {
     const row =
       target.kind === "telegram"
         ? await prisma.telegramConversation.findUnique({ where: { id: target.id }, select: { messages: true } })
         : await prisma.botConversation.findUnique({ where: { id: target.id }, select: { messages: true } });
-    const messages = (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
-    // Максимум по времени (не последняя запись списка) — общее правило окна Meta.
-    return lastInboundAt(messages, justReceivedAt);
+    return (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
   } catch {
-    return justReceivedAt ?? null;
+    return null;
   }
+}
+
+/**
+ * Состояние окна Meta у диалога (общее правило packages/shared): «закрыто» —
+ * клиент не писал вовсе или его последняя реплика старше суток; «неизвестно» —
+ * отказ базы или реплики без времени (не блокирует).
+ */
+export async function messagingWindowStateOfTarget(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<MessagingWindowState> {
+  if (target.kind !== "bot") return "open";
+  const messages = await conversationMessagesOf(target);
+  if (!messages) return justReceivedAt ? "open" : "unknown";
+  return messagingWindowStateOfMessages(target.channel, messages, justReceivedAt);
 }
 
 /** Общий обход истории с конца. Отказ базы — это `null`: и подсказка про язык, и

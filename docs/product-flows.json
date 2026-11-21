@@ -17279,14 +17279,6 @@
     },
     {
      "k": "do",
-     "t": "const windowOpen = isMessagingWindowOpen(channel, lastAt);",
-     "a": [
-      "зовёт isMessagingWindowOpen()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "res.json(info);",
      "a": [
       "ответ 200"

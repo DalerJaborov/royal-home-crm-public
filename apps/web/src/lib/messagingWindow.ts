@@ -1,4 +1,4 @@
-import { isMessagingWindowClosedFor, lastInboundAt } from "@royal-home/shared";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages } from "@royal-home/shared";
 import type { ConversationMessage } from "../types";
 
 /**
@@ -27,6 +27,13 @@ export function lastInboundMessageAt(messages: ConversationMessage[]): string | 
  * Окно закрыто прямо сейчас? Правило одно с сервером (packages/shared): нет ни
  * одной отметки времени — «неизвестно», не блокируем, решит сервер при отправке.
  */
+export function isMessagingWindowClosedForMessages(
+  channel: string | null | undefined,
+  messages: ConversationMessage[],
+): boolean {
+  return messagingWindowStateOfMessages(channel, messages) === "closed";
+}
+
 export function isMessagingWindowClosed(
   channel: string | null | undefined,
   lastInboundAt: string | null,

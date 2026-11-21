@@ -14,8 +14,12 @@
  *    разойтись, а у старых реплик отметки нет вовсе);
  *  - реплика, которая только что пришла и ещё не легла в переписку, передаётся
  *    отдельно (`justReceivedAt`) и тоже участвует в максимуме;
- *  - нет ни одной отметки — состояние «неизвестно», и оно НЕ блокирует: решает
- *    сама платформа, а её отказ не считается ошибкой системы;
+ *  - клиент ВООБЩЕ не писал (в переписке нет ни одной его реплики, например
+ *    диалог начат из CRM шаблоном) — окно закрыто: свободный текст такому
+ *    человеку платформа не примет;
+ *  - реплики клиента есть, но ни у одной нет отметки времени (старые записи) —
+ *    «неизвестно», и оно НЕ блокирует: решает сама платформа, а её отказ не
+ *    считается ошибкой системы;
  *  - считать надо в пределах одного нашего номера/аккаунта: окно у каждого своё.
  */
 export const META_MESSAGING_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -68,4 +72,21 @@ export function isMessagingWindowClosedFor(
   now: number = Date.now(),
 ): boolean {
   return messagingWindowState(channel, lastInbound, now) === "closed";
+}
+
+/**
+ * То же правило по самой переписке — единственная точка, которой пользуются
+ * проверка отправки, подсказка «куда уйдёт» и экран. Нет ни одной реплики
+ * клиента — «закрыто»; реплики без времени — «неизвестно».
+ */
+export function messagingWindowStateOfMessages(
+  channel: string | null | undefined,
+  messages: readonly WindowMessage[],
+  justReceivedAt?: string | Date | null,
+  now: number = Date.now(),
+): MessagingWindowState {
+  if (!channel || !WINDOWED_CHANNELS.includes(channel)) return "open";
+  const last = lastInboundAt(messages, justReceivedAt);
+  if (last) return messagingWindowState(channel, last, now);
+  return messages.some((m) => m?.role === "user") ? "unknown" : "closed";
 }
