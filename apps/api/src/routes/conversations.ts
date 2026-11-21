@@ -22,6 +22,7 @@ import { agentSender, deliverToConversation, deliverVoiceToConversation, deliver
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
+import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
 import { ownBotConversationSql, ownBotConversationMineSql, ownBotConversationWhere } from "../lib/ownBotConversationScope.js";
 import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
@@ -344,7 +345,7 @@ function toLikePattern(q?: string): string | null {
  *  страницы, подсчёт совпадений и подсчёт сегментов (сводка ниже), чтобы число
  *  на кнопке и фактический список за ней никогда не расходились. */
 interface SegmentFilters {
-  /** Срез «Ждут человека»: последняя реплика — от клиента, ответа ещё нет. */
+  /** Срез «Ждут»: реально ждут ответа сейчас — см. lib/inboxWaiting.ts (моложе 48 ч, без контакта после, не «ок/спасибо»). */
   needsHuman?: boolean;
   /** Срез «Бот на паузе»: pausedUntil ещё не истёк. */
   paused?: boolean;
@@ -423,7 +424,7 @@ async function loadPageCandidates(
             AND (${ownBotConversationSql(ownAgentId)})
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -467,7 +468,7 @@ async function loadPageCandidates(
             )
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -560,7 +561,7 @@ async function countMatches(
             AND (${ownBotConversationSql(ownAgentId)})
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -589,7 +590,7 @@ async function countMatches(
             )
             AND (
               ${needsHumanFlag}::boolean IS NULL
-              OR (jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user')
+              OR (${waitingForHumanSql(conversationWaitingParts())})
             )
             AND (
               ${pausedFlag}::boolean IS NULL
@@ -636,7 +637,7 @@ async function loadSegmentCounts(
           SELECT
             COUNT(*) AS "all",
             COUNT(*) FILTER (
-              WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+              WHERE ${waitingForHumanSql(conversationWaitingParts())}
             ) AS "needsHuman",
             COUNT(*) FILTER (WHERE c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) AS "paused",
             COUNT(*) FILTER (
@@ -660,7 +661,7 @@ async function loadSegmentCounts(
           SELECT
             COUNT(*) AS "all",
             COUNT(*) FILTER (
-              WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+              WHERE ${waitingForHumanSql(conversationWaitingParts())}
             ) AS "needsHuman",
             COUNT(*) FILTER (WHERE c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()) AS "paused",
             COUNT(*) FILTER (
@@ -741,6 +742,7 @@ async function loadInboxAlerts(
       FROM "BotConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
       WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+        AND (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -755,6 +757,7 @@ async function loadInboxAlerts(
       FROM "TelegramConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
       WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
+        AND (${waitingForHumanSql(conversationWaitingParts())})
         AND c."lastMessageAt" IS NOT NULL
         AND c."lastMessageAt" > ${dayAgoWaiting}
         AND c."pausedUntil" IS NOT NULL AND c."pausedUntil" > now()
@@ -1099,13 +1102,22 @@ async function loadGroupedInboxRows(input: {
     countPaused: bigint;
     countMine: bigint;
   };
+  // Те же условия «ждёт человека», что у плоского списка (lib/inboxWaiting.ts), но над
+  // колонками объединённой выборки: у неё нет присоединённого `cl`, поэтому отметка
+  // последней попытки агента берётся подзапросом по id клиента.
+  const groupedWaitingParts: WaitingSqlParts = {
+    lastMessage: Prisma.sql`s."lastMessage"`,
+    activityAt: Prisma.sql`COALESCE(s."lastMessageAt", s."updatedAt")`,
+    clientId: Prisma.sql`s."clientId"`,
+    lastAgentAttemptAt: Prisma.sql`(SELECT x."lastAgentAttemptAt" FROM "Client" x WHERE x.id = s."clientId")`,
+  };
   const sourceRowsSql = Prisma.sql`${botRows} UNION ALL ${telegramRows} UNION ALL ${directRows}`;
   const now = new Date();
   const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint }[]>(Prisma.sql`
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
-        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
       FROM source_rows s
     ), grouped AS (
@@ -1124,7 +1136,7 @@ async function loadGroupedInboxRows(input: {
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
-        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
       FROM source_rows s
     ), grouped AS (

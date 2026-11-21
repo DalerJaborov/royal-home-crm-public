@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 72 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 782 |
+| Адресов сервера всего | 781 |
 | Задач по расписанию | 137 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -149,7 +149,7 @@
 | `/api/v1/auth` | Вход, двухфакторная проверка, сессии устройств | 13 | да (6 мест) | `apps/api/src/routes/auth.ts` |
 | `/api/v1/events` | Живая лента событий в браузере агента | 2 | да (1 мест) | `apps/api/src/routes/events.ts` |
 | `/api/v1/me` | Свой профиль, настройки, устройства | 36 | да (12 мест) | `apps/api/src/routes/me.ts` |
-| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 4 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
+| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 5 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 19 | да (8 мест) | `apps/api/src/routes/agents.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 2 | да (8 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
@@ -179,7 +179,7 @@
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
 | `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
 | `/api/v1/settings` | Настройки CRM и точки возврата | 61 | да (11 мест) | `apps/api/src/routes/settings.ts` |
-| `/api/v1/ui-shell` | **без подписи** | 3 | да (2 мест) | `apps/api/src/routes/uiShell.ts` |
+| `/api/v1/ui-shell` | **без подписи** | 1 | нет | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
 | `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (2 мест) | `apps/api/src/routes/push.ts` |

@@ -53,3 +53,14 @@ export function uiLookFor(value: unknown, agent: { id: string; role: Role }): Ui
   if (!isUiShellEnabled(value, agent)) return undefined;
   return (parseUiShellRollout(value).royalLookAgentIds ?? []).includes(agent.id) ? "royal" : undefined;
 }
+
+/**
+ * ОДНА ТОЧКА РЕШЕНИЯ (владелец 21.11.2026: «Удали это и включи просто новый
+ * интерфейс для всех и всё»). Новый интерфейс и «Новый вид» включены ВСЕМ
+ * сотрудникам и всем ролям, на компьютере и на телефоне, агентам тоже. Списков
+ * и настроек больше нет: сервер отвечает этим на GET /ui-shell (для вкладок,
+ * открытых до выката), а клиент берёт это же значение без запроса
+ * (apps/web/src/hooks/useCleanShell.ts). Поле `uiShellRollout` в базе больше
+ * не читается и не пишется. Личный аварийный выход — только адрес `?look=legacy`.
+ */
+export const UI_SHELL_FOR_EVERYONE = { enabled: true, look: "royal" } as const satisfies UiShellEffective;
