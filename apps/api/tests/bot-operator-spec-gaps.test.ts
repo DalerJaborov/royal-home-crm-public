@@ -65,23 +65,26 @@ describe("1. кнопка рекламы — не слова клиента: н�
     expect(next.actions).toEqual([]);
   });
 
-  it("реклама объекта с известным объектом — как раньше: строка объекта и заявка агенту объекта", () => {
+  it("реклама объекта с известным объектом: строка объекта и предложение звонка; «да» — заявка агенту объекта (21.11.2026)", () => {
     const focus = { propertyId: "6f1c2d3e-0000-4000-8000-000000000164", shortId: 164, priceText: { ru: "520 000 сомони", tg: "520 000 сомонӣ" }, sold: false };
     const c = ctx({ ad: { topic: "property", propertyId: focus.propertyId }, focus });
     const d = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" }, c);
-    expect(d.steps.map(step => step.key)).toEqual(["property_price", "lead_known_phone"]);
-    expect(d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: focus.propertyId }]);
+    expect(d.steps.map(step => step.key)).toEqual(["property_price", "offer_call"]);
+    expect(d.actions).toEqual([]);
+    const yes = decide(d.state, { ...emptyUnderstanding(), agrees: true, hasText: true, language: "ru", quote: "Да" }, c);
+    expect(yes.actions).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: focus.propertyId }]);
   });
 
-  it("настоящая реклама объекта, объект не распознался (Meta не ответила, карусель): по SPEC — покупатель объекта, заявка с пометкой", () => {
+  it("реклама объекта, объект не распознался, только кнопка: роль по словам клиента — вопрос «купить или продать?», заявки нет (владелец 20.11.2026)", () => {
+    // Прежде (SPEC 19.11) тема рекламы давала «покупателя объекта» и заявку в WhatsApp; на рекламе пишут и продавцы, и
+    // покупатели (прод 20.11: «Салом» → заявка продавца). Тема рекламы — только подсказка, роль — словами клиента.
     const d = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" }, ctx({ ad: { topic: "property", propertyId: null } }));
-    expect(d.state.role).toBe("buyer_property");
-    expect(d.actions).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: null }]);
-    expect((d.actions[0] as { note: string }).note).toContain("Спрашивал объект с рекламы, объект не определён");
-    // Instagram: номера нет — просьба номера, а не вопрос о роли.
+    expect(d.state.role).toBe("unknown");
+    expect(d.actions).toEqual([]);
+    expect(d.steps.map(step => step.key)).toEqual(["ask_role"]);
     const ig = decide(initialOperatorState(), { ...emptyUnderstanding(), adOpener: true, languageHint: "ru" },
       ctx({ channel: "INSTAGRAM", phoneKnown: false, ad: { topic: "property", propertyId: null } }));
-    expect(ig.steps.map(step => step.key)).toEqual(["ask_phone"]);
+    expect(ig.steps.map(step => step.key)).toEqual(["ask_role"]);
   });
 });
 

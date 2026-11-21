@@ -1,16 +1,17 @@
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
-import { narrationConfigSchema, narrationMixByCrm } from "@royal-home/shared";
+import { narrationConfigSchema, narrationCurrencyError, narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
 import { usableMontajerWhere } from "./montajerHandover.js";
-import { narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_TEXT, narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
 import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS } from "../telegram/api.js";
 import { VOICELESS_COPY_HINT, voicelessCopyHint } from "./narrationMontajerNote.js";
 import { logSystemError } from "./systemError.js";
+import { montageCopyNote, sendMontageCopies } from "./montageObservers.js";
 
 const fileSchema = z.object({ id: z.string(), storageKey: z.string(), filename: z.string(), caption: z.string() });
 /** mixByCrm — монтажёру сказано «пришлите ролик без голоса»: принятый ролик станет мастером (lib/narrationMaster.ts). */
@@ -48,6 +49,40 @@ function upgradeLegacyScript(files: readonly PlanFile[]): PlanFile[] {
   const voice = voiceFilesWithText({ ...audio, caption: audio.caption.replace(` ${VOICELESS_COPY_HINT}`, "") }, script.caption, script.id);
   return files.flatMap((f) => (f === audio ? voice : f === script ? [] : [f]));
 }
+/**
+ * КОПИЯ ОЗВУЧКИ НАБЛЮДАТЕЛЯМ МОНТАЖА (21.11.2026, владелец: «я получаю копию, а озвучки мне не приходят»).
+ * Голос и текст уходили монтажёру прямым sendDocumentFile/sendMessage — мимо общей двери копий
+ * (montageObservers.ts::sendMontageCopies), поэтому наблюдатель видел строку «озвучка придёт отдельным
+ * mp3», а самого mp3 не видел никогда. Копия — после квитанции монтажёра, тем же файлом и той же
+ * подписью с пометкой «Копия. Монтажёр: …»; отказ копии в журнал и не трогает передачу, квитанции
+ * и статус (наблюдатель — не адресат передачи).
+ */
+export function narrationCopyMessages(note: string, file: PlanFile, shortId: number): { caption: string | null; text: string | null } {
+  const textMessage = (script: string) => `${note}\n\nТекст озвучки №${shortId}:\n${script}`;
+  if (file.storageKey === NARRATION_TEXT_MESSAGE) return { caption: null, text: textMessage(file.caption) };
+  const full = `${note}\n\n${file.caption}`;
+  if (full.length <= TELEGRAM_CAPTION_MAX_CHARS) return { caption: full, text: null };
+  // С пометкой «Копия» подпись с текстом не влезла — текст отдельным сообщением, как у монтажёра.
+  const marker = "\n\nТекст:\n";
+  const at = file.caption.indexOf(marker);
+  const head = at >= 0 ? file.caption.slice(0, at) : file.caption;
+  return { caption: `${note}\n\n${head}`.slice(0, TELEGRAM_CAPTION_MAX_CHARS), text: at >= 0 ? textMessage(file.caption.slice(at + marker.length)) : null };
+}
+async function copyNarrationToObservers(editorId: string, montajerName: string | null, shortId: number, file: PlanFile): Promise<void> {
+  try {
+    const parts = narrationCopyMessages(montageCopyNote(montajerName), file, shortId);
+    await sendMontageCopies(editorId, `озвучка объекта №${shortId}`, async (chatId) => {
+      if (parts.caption !== null) {
+        const path = localVideoFilePath(file.storageKey);
+        if (!path) throw new Error("Invalid storage key");
+        await sendDocumentFile(chatId, await openAsBlob(path), file.filename, parts.caption, 60_000, true);
+      }
+      if (parts.text) await sendMessage(chatId, parts.text, undefined, undefined, { singleAttempt: true });
+    });
+  } catch (err) {
+    void logSystemError("video-handoff", `Копия озвучки объекта №${shortId} наблюдателям не отправилась: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 function telegramMessageId(sent: unknown): number | null {
   if (!sent || typeof sent !== "object" || !("message_id" in sent)) return null;
   return typeof sent.message_id === "number" ? sent.message_id : null;
@@ -80,7 +115,9 @@ export type NarrationDeliveryRefusalCode =
   /** У назначенного монтажёра не подключён Telegram. */
   | "MONTAJER_NO_TELEGRAM"
   /** Просили с исходниками, а исходников нет. */
-  | "NO_SOURCES";
+  | "NO_SOURCES"
+  /** В тексте версии цена в долларах (21.11.2026): такой голос монтажёру не уходит. */
+  | "PRICE_NOT_IN_TJS";
 export class NarrationDeliveryRefused extends Error {
   constructor(readonly code: NarrationDeliveryRefusalCode, message: string) {
     super(message);
@@ -107,6 +144,8 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // штатное ожидание, а не тревога директору.
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
   if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
+  // Одобренная до сторожа версия с долларами (21.11.2026) монтажёру не уходит ни одним путём.
+  if (narrationCurrencyError(version.script)) throw new NarrationDeliveryRefused("PRICE_NOT_IN_TJS", `Озвучка не отправлена: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}`);
   if (!editorId || editorId !== settings?.videoMontajerAgentId) throw new NarrationDeliveryRefused("MONTAJER_NOT_ASSIGNED", "Сначала назначьте монтажёра в существующих настройках монтажа");
   // Монтажёр — назначенный в Настройках и не отключённый; роль не важна (lib/montajerHandover.ts::usableMontajerWhere).
   const editor = await prisma.agent.findFirst({ where: usableMontajerWhere(editorId), select: { telegramChatId: true } });
@@ -143,6 +182,9 @@ export async function executeNarrationDelivery(id: string) {
   const claim = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "QUEUED", executionMode: "LIVE" }, data: { status: "SENDING", claimStartedAt } });
   if (!claim.count) return { status: "NOT_CLAIMED" };
   let attempted = false, acknowledged = 0;
+  // Копии наблюдателям — ПОСЛЕ передачи, вне её бюджета времени (сторож зависших передач меряет SENDING).
+  const copies: Array<() => Promise<void>> = [];
+  const flushCopies = async () => { for (const copy of copies.splice(0)) await copy(); };
   try {
     const row = await prisma.propertyNarrationDelivery.findUniqueOrThrow({ where: { id } });
     const plan = planSchema.parse(row.plan);
@@ -180,7 +222,7 @@ export async function executeNarrationDelivery(id: string) {
         if (!editor) return { refused: "монтажёр отключён" };
         if (!editor.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash) return { refused: "у монтажёра сменился или пропал Telegram" };
         if (narrationHash(videos.map(v => [v.id, v.storageKey])) !== plan.sourcesHash) return { refused: "исходники объекта поменялись" };
-        return { chatId: editor.telegramChatId, shortId: p.shortId };
+        return { chatId: editor.telegramChatId, shortId: p.shortId, editorId: editor.id, montajerName: editor.fullName };
       });
       if ("refused" in target) {
         const waiting = "waiting" in target && target.waiting && !acknowledged;
@@ -190,6 +232,7 @@ export async function executeNarrationDelivery(id: string) {
           : "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены.";
         const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError, ...(waiting ? { claimStartedAt: null } : {}) } });
         if (done.count && status === "FAILED" && target.refused) reportNarrationDeliveryProblem(row.propertyId, id, "FAILED", target.refused);
+        await flushCopies();
         return { status };
       }
       attempted = true;
@@ -215,11 +258,17 @@ export async function executeNarrationDelivery(id: string) {
         return active;
       });
       acknowledged++;
-      if (!stillClaimed) return { status: "UNKNOWN" };
+      // Монтажёр файл получил — копия наблюдателям (владелец). Только после квитанции и только этот файл.
+      const copied = { ...target, file };
+      copies.push(() => copyNarrationToObservers(copied.editorId, copied.montajerName, copied.shortId, copied.file));
+      if (!stillClaimed) { await flushCopies(); return { status: "UNKNOWN" }; }
     }
     const completed = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status: "SENT", deliveredAt: new Date() } });
+    await flushCopies();
     return { status: completed.count ? "SENT" : "UNKNOWN" };
   } catch (err) {
+    // Что монтажёр уже получил, наблюдатель тоже видит; копия никогда не меняет исход передачи.
+    await flushCopies().catch(() => undefined);
     const status = attempted ? "UNKNOWN" : "FAILED";
     const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: attempted ? "Проверьте Telegram монтажёра. Автоповтор отключён; квитанции успешных частей сохранены." : "Передача не началась: проверьте локальные файлы и настройки" } });
     if (done.count) {

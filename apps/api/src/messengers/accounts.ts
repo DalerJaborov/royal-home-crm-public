@@ -617,7 +617,9 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             channel: input.channel,
             externalId: input.externalId.trim(),
             title: input.title.trim(),
-            ...(token ? { token } : {}),
+            // Новый маркер = человек переподключил аккаунт: отметка «Meta закрыла доступ»
+            // снимается, проверки снова его видят (lib/instagramAccountAccess.ts, 21.11.2026).
+            ...(token ? { token, accessLostAt: null, accessLostReason: null } : {}),
             ...appSecret,
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
             ...(input.isDefault === undefined ? {} : { isDefault: input.isDefault }),

@@ -6,6 +6,7 @@ import { SettingsTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { ControlRoot } from "../components/look/control/ControlRoot";
 import { RhCircle } from "../components/look/ui";
+import { pillTone } from "../components/look/tileTone";
 
 const KIND_LABELS: Record<string, string> = {
   DB: "База данных",
@@ -111,7 +112,7 @@ export function Backups() {
                 {latestByKind.map((r) => (
                   <div className="row wrapt" key={r.kind}>
                     {royal ? (
-                      <RhCircle icon={r.success ? "shield-check" : "flame"} tone={r.success ? "ok" : "crit"} />
+                      <RhCircle icon={r.success ? "shield-check" : "flame"} tone={pillTone(r.success ? "good" : "overdue")} />
                     ) : (
                       <span className={`dot ${r.success ? "ok" : "crit"}`} aria-hidden="true" />
                     )}
@@ -138,7 +139,7 @@ export function Backups() {
                 {recent.map((r) => (
                   <div className="row wrapt" key={r.id}>
                     {royal ? (
-                      <RhCircle icon={r.success ? "list-checks" : "flame"} tone={r.success ? "ok" : "crit"} />
+                      <RhCircle icon={r.success ? "list-checks" : "flame"} tone={pillTone(r.success ? "good" : "overdue")} />
                     ) : r.success ? (
                       <CheckCircle2 className="i" style={{ color: "var(--ok)" }} aria-hidden="true" />
                     ) : (

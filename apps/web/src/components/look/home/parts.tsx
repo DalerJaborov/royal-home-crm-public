@@ -10,6 +10,8 @@ import { RoyalSection } from "../clients/RoyalSection";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
 import { RhButton, RhCircle, type RhTone } from "../ui";
+import type { PillTone } from "../tileTone";
+import { pillTone } from "../tileTone";
 
 /**
  * ГЛАВНАЯ ОСТАЛЬНЫХ РОЛЕЙ В «НОВОМ ВИДЕ» (пачка home, 20.11.2026): общие детали.
@@ -149,14 +151,14 @@ export function PropertyState({ status, stage }: { status: PropertyStatus; stage
     ? `просрочено на ${stage!.daysInStage - (stage!.limitDays ?? 0)} дн.`
     : stage?.inPipeline && stage.daysInStage > 0 ? `${stage.daysInStage} дн.` : null;
   return (
-    <span className="ry-home-state" data-tone={overdue ? "crit" : undefined}>
-      <span className="ry-home-chip" data-tone={overdue ? "crit" : "info"}>{PROPERTY_STATUS_LABELS[status]}</span>
+    <span className="ry-home-state" data-tone={overdue ? pillTone("overdue") : undefined}>
+      <span className="ry-home-chip" data-tone={overdue ? pillTone("overdue") : "info"}>{PROPERTY_STATUS_LABELS[status]}</span>
       {(owner || days) && <span className="ry-home-state-note">{[owner, days].filter(Boolean).join(" · ")}</span>}
     </span>
   );
 }
 
-/** Короткая плашка смысла справа в строке: срочное — сплошным красным, внимание — светлым янтарём. */
-export function HomeChip({ tone, children }: { tone: "crit" | "warn" | "ok" | "muted"; children: ReactNode }) {
+/** Короткая плашка смысла справа в строке; тон — только из `pillTone()` (tileTone.ts): обычное серым, сегодня янтарём, просрочено красным. */
+export function HomeChip({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return <span className="ry-home-chip" data-tone={tone}>{children}</span>;
 }

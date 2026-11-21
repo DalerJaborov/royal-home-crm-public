@@ -7,6 +7,7 @@ import { SettingsTabs } from "../components/SectionTabs";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { ControlRoot } from "../components/look/control/ControlRoot";
 import { RhCircle } from "../components/look/ui";
+import { pillTone } from "../components/look/tileTone";
 
 interface StuckWorkItem {
   id: string;
@@ -153,7 +154,7 @@ export function StuckWork() {
     return (
       <div className="row wrapt" key={item.id}>
         {royal ? (
-          <RhCircle icon={item.status === "GIVEN_UP" ? "flame" : "hourglass"} tone={item.status === "GIVEN_UP" ? "crit" : "warn"} />
+          <RhCircle icon={item.status === "GIVEN_UP" ? "flame" : "hourglass"} tone={pillTone(item.status === "GIVEN_UP" ? "overdue" : "today")} />
         ) : (
           <span className={`dot ${item.status === "GIVEN_UP" ? "crit" : "warn"}`} aria-hidden="true" />
         )}

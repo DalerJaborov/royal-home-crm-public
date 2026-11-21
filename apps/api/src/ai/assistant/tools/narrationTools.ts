@@ -6,7 +6,7 @@ import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, requestAutoNarration } from "../../../lib/narrationAutoFlow.js";
 import { loadNarrationConfiguration } from "../../../lib/narrationGeneration.js";
 import { clipCountsAsPublished } from "../../../lib/publishedClip.js";
-import { narrationFactsCurrent, narrationScriptError } from "../../../lib/propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT, narrationFactsCurrent, narrationScriptError } from "../../../lib/propertyNarration.js";
 import { logSystemError } from "../../../lib/systemError.js";
 import { matchByName, narrationAccessForAgent, narrationTemplatesFor, type NarrationClicker } from "../../../lib/staffNarration.js";
 import { narrationApprovedText, sendNarrationAudioToAgent } from "../../../telegram/assistantNarration.js";
@@ -351,6 +351,7 @@ export const approveNarrationExecutor: AssistantActionExecutor<ApproveArgs> = {
     // Одна функция одобрения с кнопкой «Одобрить» и маршрутом approve, затем та же передача дальше.
     const approval = await approveNarrationVersion({ propertyId: snap.propertyId, versionId: snap.versionId, expectedRevision: snap.revision, actorId: clicker.agentId, isManager: clicker.isManager, actorRole: clicker.role });
     if (approval === "FORBIDDEN") throw new AssistantActionError(403, "FORBIDDEN", "Эту озвучку вам одобрять нельзя");
+    if (approval === "PRICE_NOT_IN_TJS") throw new AssistantActionError(409, "PRICE_NOT_IN_TJS", NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT);
     if (approval !== "AUDIO_APPROVED") throw new AssistantActionError(409, "STALE", "Уже есть новая версия озвучки или данные объекта изменились: посмотрите актуальную.");
     let delivery: Awaited<ReturnType<typeof afterNarrationApproved>> | null = null;
     try { delivery = await afterNarrationApproved(snap.propertyId, snap.versionId); }

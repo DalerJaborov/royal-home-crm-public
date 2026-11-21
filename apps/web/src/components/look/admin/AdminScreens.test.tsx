@@ -149,12 +149,12 @@ describe("служебные экраны в новом виде: тот же т
     expect(royal).toMatch(/^<div class="rh2 screens clean-profile-page ry-admin" data-ry-section="admin">/);
   });
 
-  it("функции: «Обратите внимание» — сплошной красный круг, «только проверка» — янтарный, работает — зелёный", () => {
+  it("функции: «Обратите внимание» — жёлтый круг (красный только по смыслу), «только проверка» — спокойный, работает — зелёный", () => {
     state.royal = true;
     state.role = "DIRECTOR";
     const html = render("/settings/functions", <FunctionStatus />);
     const tones = [...html.matchAll(/class="ry-circle" data-tone="([\w-]+)"/g)].map((m) => m[1]);
-    expect(tones).toEqual(["crit", "warn", "ok"]);
+    expect(tones).toEqual(["warn", "a0", "ok"]);
   });
 
   it("интеграции: сломанный канал — красный круг с пламенем и срочная плитка", () => {

@@ -217,12 +217,16 @@ lifecycleRouter.post("/:id/bot-pause", requireAuth, async (req, res) => {
   // обоих мессенджерах бот в Telegram продолжал отвечать поверх агента, а снятие
   // паузы в Telegram не срабатывало.
   const [meta, telegram] = await prisma.$transaction([
-    prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt } }),
-    prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt } }),
+    // Новая или снятая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
+    prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } }),
+    prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { pausedUntil, botPausedAt, pauseAlertSentAt: null } }),
   ]);
   if (meta.count + telegram.count === 0) {
     return res.status(404).json({ error: "У этого клиента нет диалога с ботом" });
   }
+  // Кто, когда и на сколько — в журнале действий (21.11.2026): ручную паузу иначе не отличить от автоматической.
+  logAudit(req, pausedUntil ? "BOT_PAUSE_SET" : "BOT_PAUSE_CLEARED", "Client", client.id,
+    pausedUntil ? { pausedUntil: pausedUntil.toISOString(), minutes: Math.round((pausedUntil.getTime() - Date.now()) / 60_000) } : undefined);
   return res.json({ pausedUntil });
 });
 

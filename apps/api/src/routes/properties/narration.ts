@@ -11,10 +11,10 @@ import { estimateNarrationPublishAt } from "../../lib/videoHandoff.js";
 import { requireAuth } from "../../auth/middleware.js";
 import { hasMarketingRole } from "../marketing.js";
 import { canManageProperty } from "./shared.js";
-import { narrationFacts, narrationFactsCurrent, narrationHash, suggestedNarration, narrationScriptError } from "../../lib/propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, suggestedNarration, narrationScriptError, withNarrationRate } from "../../lib/propertyNarration.js";
 import { localVideoFilePath } from "../../lib/localVideoStorage.js";
 import { generateNarrationVersion, generateVoiceSamples, loadNarrationConfiguration, narrationBudgetUsage, narrationProviderReady, narrationQuotaExceededSince, readyVoiceSamples } from "../../lib/narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT, NARRATION_QUOTA_EXCEEDED } from "../../lib/propertyNarration.js";
 import { NARRATION_VOICE_LONGER_MARK } from "../../lib/narrationMix.js";
 import { afterNarrationApproved, approveNarrationVersion, isNarrationOwnerRole, narrationAwaitsHuman, narrationAutoEnabled, narrationMixNoteFor, narrationRemixRetryable, ownMusicRemixApplies, requestAutoNarration, retryNarrationRemix } from "../../lib/narrationAutoFlow.js";
 import { setPropertyNarrationOff } from "../../lib/narrationOptOut.js";
@@ -35,7 +35,9 @@ const idSchema = z.string().uuid();
 const manager = (agent?: { permissions: ReadonlySet<string> } | null) => hasMarketingRole(agent);
 const configuration = loadNarrationConfiguration;
 /** Образец объекта для проверки шаблона при сохранении: цена и ошибки ловятся до первой оплаты. */
-const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
+const SAMPLE_FACTS = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "790000", currency: "TJS" };
+/** Те же факты, когда цену сказать нельзя: доллары, а курса нет — `{цена}` выпадает вместе со своим предложением. */
+const SAMPLE_FACTS_NO_PRICE = { ...SAMPLE_FACTS, price: "85000", currency: "USD" };
 /** Видна ли кнопка «Утвердить»: права на объект (одна дверь с Шабнам), разовый проход — владелец, текст маркетинга — маркетинг. */
 async function canApproveAudioFor(agentId: string, role: string, propertyId: string, source: string | null): Promise<boolean> {
   const access = await narrationAccessForAgent(agentId, propertyId);
@@ -61,7 +63,7 @@ narrationRouter.get("/narration-options", async (_req, res) => {
   const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
-    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })) };
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate() };
   res.json(view);
 });
 
@@ -167,13 +169,20 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   if (modelProblem) return res.status(400).json({ error: modelProblem });
   // Сторож шаблонов и концовок (16.11.2026): цифры, «Direct», «брон», скобки, тире — одна проверка на оба списка.
   // Новые правила (цифры, Direct, брон) только к новым и изменённым текстам: старый живой шаблон не мешает сохранить остальное.
-  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+  const sameAsBefore = (item: { id: string; text: string; lang: string }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
     const old = before?.find((b) => b.id === item.id);
-    const unchanged = !!old && old.text === item.text && old.lang === item.lang;
+    return !!old && old.text === item.text && old.lang === item.lang;
+  };
+  const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
+    const unchanged = sameAsBefore(item, before);
     return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
   };
   for (const template of parsed.data.templates ?? []) {
-    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS));
+    // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
+    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
+      // Только для нового или изменённого при этом сохранении шаблона: старый, не тронутый, сохранению не мешает.
+      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE))
+        ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения: добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
@@ -210,6 +219,8 @@ narrationRouter.use("/:id/narration", async (req, res, next) => {
 narrationRouter.get("/:id/narration", async (req, res) => {
   const p = res.locals.narrationProperty;
   const facts = narrationFacts(p);
+  // Карточка собирает текст той же функцией, что сервер: с курсом, чтобы {цена} прозвучала в сомони (21.11.2026).
+  const usdToTjs = await narrationRate();
   const { config, key } = await configuration();
   const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id,
     ...(req.agent!.role === "EDITOR" ? { deliveries: { some: { editorId: req.agent!.id } } } : {}) }, orderBy: { revision: "desc" }, take: 50 });
@@ -239,7 +250,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     ...(v.id === versions[0]?.id ? { awaitsHuman: latestAwaitsHuman } : {}),
     canReconcile: v.status === "UNKNOWN" || (v.status === "GENERATING" && !!v.generationStartedAt && Date.now() - v.generationStartedAt.getTime() > 120_000),
     source: v.source, templateId: v.templateId, endingId: v.endingId, language: v.language, generateAfter: v.generateAfter, generationStartedAt: v.generationStartedAt })),
-    suggestedScript: suggestedNarration(facts), facts, config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
+    suggestedScript: suggestedNarration(facts), facts: withNarrationRate(facts, usdToTjs), config, configured: !!key && !!config.modelId && config.voices.length > 0, canApprove: manager(req.agent), canConfigure: ["ADMIN", "DIRECTOR"].includes(req.agent!.role), sendsEnabled: mediaExecutionMode("NARRATION") === "LIVE",
     deliveries: deliveries.map(d => ({ id: d.id, status: d.status, mode: d.mode, versionId: d.versionId, createdAt: d.createdAt, lastError: d.lastError, planHash: d.plan ? narrationHash(d.plan) : null })),
     ownerReportsEnabled: mediaExecutionMode("OWNER_REPORT") === "LIVE",
     ownerReport: manager(req.agent) ? { active: !!subscription?.active && subscription.sellerClientId === p.sellerClientId, revision: subscription?.revision ?? 0, executionMode: subscription?.executionMode ?? "PREVIEW", deliveries: reportViews } : undefined,
@@ -319,6 +330,7 @@ narrationRouter.post("/:id/narration/:versionId/approve", async (req, res) => {
   const outcome = await approveNarrationVersion({ propertyId: p.id, versionId: versionId.data, expectedRevision: parsed.data.expectedRevision, actorId: access.agentId, isManager: access.isManager, actorRole: access.role });
   if (outcome === "FORBIDDEN") return res.status(403).json({ error: "Эту озвучку одобряет маркетинг, руководство или владелец" });
   if (outcome === "CONFLICT") return res.status(409).json({ error: "Факты или версия изменились. Подготовьте и проверьте новый текст." });
+  if (outcome === "PRICE_NOT_IN_TJS") return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });
   const delivery = outcome === "AUDIO_APPROVED" ? await afterNarrationApproved(p.id, versionId.data) : undefined;
   // Ролик уже вышел — примерное время выхода нового (точное карточка покажет, когда голос наложен).
   const publishAt = delivery === "CRM_REMIX" ? await estimateNarrationPublishAt(p.id).catch(() => null) : null;

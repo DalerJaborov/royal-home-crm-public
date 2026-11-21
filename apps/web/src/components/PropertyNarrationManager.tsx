@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  chooseNarration, narrationAudioLengthCheck, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
+  chooseNarration, narrationAudioLengthCheck, narrationCurrencyError, narrationPriceProblem, narrationChangesLine, narrationLengthCheck, narrationLengthLine, narrationRemovesOldPosts, pickNarrationVoice,
   type NarrationReleaseChannel, type PropertyNarrationView,
 } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -31,6 +31,8 @@ import { PropertyNarrationService } from "./PropertyNarrationService";
 const QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
 /** Код «текст длиннее ролика, озвучка не заказана» (apps/api/src/lib/narrationAutoFlow.ts, NARRATION_TEXT_TOO_LONG). */
 const TEXT_TOO_LONG = "TEXT_LONGER_THAN_CLIP";
+/** Код «в тексте цена в долларах, не озвучено» (apps/api/src/lib/propertyNarration.ts, NARRATION_PRICE_NOT_IN_TJS). */
+const PRICE_NOT_IN_TJS = "PRICE_NOT_IN_TJS";
 /** После скольких минут «готовим» и «накладываем» честно говорят «дольше обычного». Наложение: метку сведения
  *  старше 15 минут сервер считает брошенной (NARRATION_MIX_CLAIM_STALE_MS) и берёт ролик заново. */
 const SLOW_GENERATION_MIN = 5;
@@ -101,7 +103,7 @@ export function narrationReleaseMoving(data: PropertyNarrationView | undefined):
  * карточке нечего (старый объект: озвучки нет, ролик давно вышел). «noAudio» — версия READY, а файла нет;
  * «unknown» — сочетание, которого блок не ждал: нейтральная строка, а не «✓ утверждена» (ревью #334).
  */
-export type NarrationCardState = "off" | "hidden" | "none" | "pending" | "uncertain" | "failed" | "tooLong" | "awaiting" | "marketingReview"
+export type NarrationCardState = "off" | "hidden" | "none" | "pending" | "uncertain" | "failed" | "tooLong" | "usdPrice" | "awaiting" | "marketingReview"
   | "draftSaved" | "noAudio" | "stale" | "mixing" | "scheduled" | "publishing" | "done" | "mixFailed" | "approved" | "unknown";
 export function narrationCardState(data: PropertyNarrationView): NarrationCardState {
   const latest = data.versions[0];
@@ -109,7 +111,9 @@ export function narrationCardState(data: PropertyNarrationView): NarrationCardSt
   if (!latest) return data.published ? "hidden" : "none";
   if (narrationIsPending(latest)) return "pending";
   if (latest.status === "UNKNOWN" || (latest.status === "GENERATING" && latest.canReconcile)) return "uncertain";
-  if (latest.status === "FAILED") return latest.errorCode === TEXT_TOO_LONG ? "tooLong" : "failed";
+  if (latest.status === "FAILED") return latest.errorCode === TEXT_TOO_LONG ? "tooLong" : latest.errorCode === PRICE_NOT_IN_TJS ? "usdPrice" : "failed";
+  // Голос с ценой в долларах (собран до 21.11.2026): монтажёру не уходит и в ролик не сводится — агенту честная причина.
+  if (latest.status === "READY" && narrationCurrencyError(latest.script)) return "usdPrice";
   if (data.release) return data.release.stage === "MIXING" ? "mixing" : data.release.stage === "SCHEDULED" ? "scheduled" : data.release.stage === "PUBLISHING" ? "publishing" : "done";
   if (latest.stale) return "stale";
   if (latest.status === "DRAFT") return "draftSaved";
@@ -329,6 +333,10 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   const templates = data.config.templates ?? [];
   const endings = data.config.endings ?? [];
   const facts = data.facts;
+  // Почему цена не звучит в голосе (ревью #348): агент видит причину, а не «цена куда-то пропала».
+  const priceProblem = facts && state !== "off" && state !== "usdPrice" ? narrationPriceProblem(facts) : null;
+  const pricePlainNote = priceProblem === "NO_RATE" ? "Цена в озвучке не звучит: в Настройках не задан курс доллара, а цену говорим только в сомони."
+    : priceProblem === "CURRENCY_SUSPECT" ? "Цена в озвучке не звучит: валюта цены похожа на перепутанную. Проверьте цену и валюту в карточке." : null;
   const canEdit = data.canDraft !== false;
   const published = data.published === true;
   const awaiting = state === "awaiting";
@@ -403,6 +411,8 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       case "uncertain": return { title: "Озвучку проверяют", line: "Результат озвучки уточняет руководство. Как только сверят, можно будет озвучить заново.", tone: "warn" };
       case "failed": return { title: "Озвучка не получилась", tone: "warn",
         line: latest?.errorCode === QUOTA_EXCEEDED ? "Закончились кредиты ElevenLabs. Руководство уже видит это." : "Попробуйте ещё раз: проверьте голос и текст и нажмите «Озвучить»." };
+      case "usdPrice": return { title: "В озвучке цена в долларах", tone: "warn",
+        line: "Такой голос не одобряем и монтажёру не отправляем: цену говорим только в сомони. Нажмите «Исправить и озвучить»: текст соберётся с ценой в сомони." };
       case "tooLong": return { title: "Текст длиннее ролика", line: "Озвучку не заказывали, кредиты не потрачены. Сократите текст и нажмите «Озвучить».", tone: "warn" };
       // Заголовок зовёт послушать, строка говорит, что будет после одобрения: два раза одно и то же не пишем (владелец 20.11).
       case "awaiting": return { title: "Послушайте новую озвучку", line: published ? "Если всё верно, утвердите: ролик с ней сразу выйдет." : "Если всё верно, одобрите: монтажёр получит её вместе с заданием на ролик." };
@@ -439,9 +449,9 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   // «Без озвучки» — только во вкладке ролика (не на главном пути), в том числе пока озвучка готовится, накладывается или
   // её сверяют (ревью #334); когда ролик с ней уже вышел или выходит — уже поздно.
   const canTurnOff = placement === "media" && canEdit && state !== "off" && state !== "scheduled" && state !== "publishing" && state !== "done";
-  const editLabel = state === "none" || state === "hidden" ? "Выбрать голос и текст" : state === "failed" || state === "tooLong" ? "Исправить и озвучить"
+  const editLabel = state === "none" || state === "hidden" ? "Выбрать голос и текст" : state === "failed" || state === "tooLong" || state === "usdPrice" ? "Исправить и озвучить"
     : state === "stale" || state === "noAudio" ? "Озвучить заново" : state === "draftSaved" ? "Открыть текст" : awaiting ? "Изменить голос или текст" : "Изменить озвучку";
-  const editIsMain = state === "none" || state === "hidden" || state === "failed" || state === "tooLong" || state === "noAudio" || state === "draftSaved" || (state === "stale" && !data.autoGenerate);
+  const editIsMain = state === "none" || state === "hidden" || state === "failed" || state === "tooLong" || state === "usdPrice" || state === "noAudio" || state === "draftSaved" || (state === "stale" && !data.autoGenerate);
 
   return (
     <section className={`card space-y-3 ${placement === "card" ? "p-4" : "p-4 sm:p-6"}`} aria-label="Озвучка ролика" data-narration-state={composerOpen ? "editing" : state}>
@@ -454,6 +464,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
           <div className="space-y-1" role="status">
             {head.line && <p className={`text-base ${head.tone === "warn" ? "rounded-xl bg-[var(--warn-bg)] p-3" : "text-[var(--muted)]"}`}>{head.line}</p>}
             {message && <p className="text-base">{message}</p>}
+            {pricePlainNote && <p className="text-[15px] text-[var(--muted)]" data-testid="narration-price-note">{pricePlainNote}</p>}
           </div>
           {changesLine && !composerOpen && (state === "pending" || awaiting) && <p className="text-base text-[var(--muted)]">{changesLine}</p>}
           {!composerOpen && (generatingMin !== null || mixingMin !== null) && <p className="text-[15px] text-[var(--muted)]" data-testid="narration-progress-note">

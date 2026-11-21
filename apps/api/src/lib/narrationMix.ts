@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { NARRATION_LOUDNESS } from "./narrationLoudness.js";
 import { NARRATION_FIT as SHARED_FIT, NARRATION_VOICE_START_SEC as SHARED_START, NARRATION_VOICE_TAIL_TOLERANCE_SEC } from "@royal-home/shared";
 import { probeDurationSec, probeMediaInfo, runFfmpeg } from "./ffmpeg.js";
 import { buildOverlayFilter, drawtextAvailable, subtitleCues } from "./video/narrationOverlay.js";
@@ -75,7 +76,8 @@ export function narrationFitNote(fit: NarrationFit): string | null {
  *  - ограничитель на выходе: сумма громкой музыки и голоса не уходит в перегруз.
  */
 export const NARRATION_MIX = {
-  voiceLoudness: "loudnorm=I=-16:TP=-1.5:LRA=11",
+  // 21.11.2026: −16 → −14 LUFS (ролик был на ~3 дБ тише ленты); источник — lib/narrationLoudness.ts.
+  voiceLoudness: NARRATION_LOUDNESS.voice,
   musicVolume: 0.8,
   ducking: "sidechaincompress=threshold=0.015:ratio=20:attack=10:release=800",
   limiter: "alimiter=limit=0.95:level=0",

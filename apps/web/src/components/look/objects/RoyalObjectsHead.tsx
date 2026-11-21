@@ -28,7 +28,7 @@ export function RoyalObjectsHead({ total, pendingReview, onShowPending, overdue,
           )}
           {!!overdue && onShowOverdue && (
             <button type="button" className="ry-objects-pending" data-tone="crit" onClick={onShowOverdue}>
-              <ObjIcon name="flame" size={18} />Задержка подготовки: {overdue}
+              <ObjIcon name="circle-alert" size={18} />Задержка подготовки: {overdue}
             </button>
           )}
         </p>

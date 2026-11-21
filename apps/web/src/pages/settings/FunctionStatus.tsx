@@ -19,6 +19,7 @@ import { useRoyalLook } from "../../hooks/useRoyalLook";
 import { AdminRoot } from "../../components/look/admin/AdminRoot";
 import { RhCircle } from "../../components/look/ui";
 import type { RoyalIconName } from "../../components/look/royalIconData";
+import { pillTone, type PillTone } from "../../components/look/tileTone";
 
 /**
  * «Состояние функций» (14.11.2026): один экран про все скрытые рубильники CRM — что работает, что идёт
@@ -29,11 +30,11 @@ import type { RoyalIconName } from "../../components/look/royalIconData";
 
 const STATE_CHIP: Record<FunctionState, string> = { working: "chip ok", preview: "chip warn", off: "chip mute" };
 const STATE_DOT: Record<FunctionState, string> = { working: "dot ok", preview: "dot warn", off: "dot" };
-/** Новый вид: круг 48 по смыслу — норма зелёная, «только проверка» янтарная, выключено спокойное;
- *  «Обратите внимание» — сплошной красный с пламенем (яркость и значок, не только оттенок). */
-const STATE_CIRCLE: Record<FunctionState, { icon: RoyalIconName; tone: "ok" | "warn" | "a0" }> = {
-  working: { icon: "list-checks", tone: "ok" },
-  preview: { icon: "eye", tone: "warn" },
+/** Новый вид: круг 48 по смыслу, цвет — из общей функции тона (К13): норма зелёная, «только проверка» и выключено спокойные;
+ *  «Обратите внимание» — жёлтый значок «внимание» (красный остаётся только для реально просроченного и потерянного). */
+const STATE_CIRCLE: Record<FunctionState, { icon: RoyalIconName; tone: PillTone | "a0" }> = {
+  working: { icon: "list-checks", tone: pillTone("good") },
+  preview: { icon: "eye", tone: pillTone("info") },
   off: { icon: "x-circle", tone: "a0" },
 };
 
@@ -115,15 +116,15 @@ function FunctionRow({ item, royal }: { item: FunctionStatusItem; royal: boolean
   return (
     <div className="row fs-item" data-state={item.state}>
       {royal ? (
-        item.attention ? <RhCircle icon="flame" tone="crit" /> : <RhCircle icon={STATE_CIRCLE[item.state].icon} tone={STATE_CIRCLE[item.state].tone} />
+        item.attention ? <RhCircle icon="circle-alert" tone={pillTone("today")} /> : <RhCircle icon={STATE_CIRCLE[item.state].icon} tone={STATE_CIRCLE[item.state].tone} />
       ) : (
         <span className={STATE_DOT[item.state]} aria-hidden="true" />
       )}
       <div className="t fs-body">
         <b>{item.title}</b>
         <div className="fs-chips">
-          <span className={STATE_CHIP[item.state]}>{FUNCTION_STATE_LABELS[item.state]}</span>
-          {item.attention ? <span className="chip crit">Обратите внимание</span> : null}
+          <span className={royal && item.state === "preview" ? "chip mute" : STATE_CHIP[item.state]}>{FUNCTION_STATE_LABELS[item.state]}</span>
+          {item.attention ? <span className={royal ? "chip warn" : "chip crit"}>Обратите внимание</span> : null}
         </div>
         <p className="fs-what">{item.what}</p>
         <p className="fs-reason">{item.reason}</p>

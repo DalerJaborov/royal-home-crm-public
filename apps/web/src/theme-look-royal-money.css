@@ -220,12 +220,13 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed { display: grid; gap: 16px; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card + .cef-card { margin-top: 0; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head ring" "legend ring" "note note"; gap: 12px 24px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head ring" "legend ring"; gap: 12px 24px; align-items: center;
 }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-head { grid-area: head; margin: 0; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { grid-area: ring; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-legend { grid-area: legend; }
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-muted { grid-area: note; }
+/* Пояснение «сводка не загрузилась» — своя строка внизу, только когда оно есть: пустая именованная область «note» оставляла дыру (К16, 16.1). */
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .cef-muted { grid-area: auto; grid-column: 1 / -1; }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend { gap: 8px; font-size: 15px; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="money"] .cef-legend button {
   gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--rh-ui-bg); color: var(--rh-ui-text); font-size: 15px;
@@ -535,7 +536,7 @@
   :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: clamp(13px, 11cqi, 26px); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: clamp(13px, 10.5cqi, 36px); }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child {
-    grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "ring" "legend" "note"; justify-items: stretch;
+    grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "ring" "legend"; justify-items: stretch;
   }
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { justify-self: center; }
 }

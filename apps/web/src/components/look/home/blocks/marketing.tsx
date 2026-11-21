@@ -5,8 +5,9 @@ import { useMarketingQueue, useMarketingSummary, type MarketingQueueRow } from "
 import { useAdsBoard } from "../../../../hooks/useAds";
 import { useAiInsights } from "../../../../hooks/useAi";
 import type { RoyalIconName } from "../../royalIconData";
-import { RhBlockState, RhCircle, RhGroup, RhRow, RhSection, RhTile } from "../../ui";
+import { RhCircle, RhGroup, RhRow, RhSection, RhTile, blockState } from "../../ui";
 import { firstPhoto, HomeMore, HomeQuick, PropertyLead, useExpandable, type HomeQuickItem } from "../parts";
+import { pillTone } from "../../tileTone";
 
 /**
  * БЛОКИ ГЛАВНОЙ МАРКЕТИНГА (ядро главной, пачка home, 20.11.2026).
@@ -30,6 +31,7 @@ const canSeePipeline = (can: ReturnType<typeof useCan>) => can("properties.moder
 function useMarketingFocus() {
   const summary = useMarketingSummary();
   const queue = useMarketingQueue(1);
+  const retry = () => { void summary.refetch(); void queue.refetch(); };
   const s = summary.data;
   const items = queue.data?.items ?? [];
   const overdueItem = s && s.overdue > 0 ? items.find((it) => it.pipeline.overdue) ?? items[0] : undefined;
@@ -38,8 +40,10 @@ function useMarketingFocus() {
   return {
     summary, queue, s, focus, overdue: !!overdueItem,
     rest: items.filter((it) => it.id !== focus?.id),
-    loading: summary.isLoading || queue.isLoading,
-    retry: () => { void summary.refetch(); void queue.refetch(); },
+    retry,
+    // Нет данных какого-то из двух запросов — фокус считать не из чего (серые плашки, «нет связи» или «не загрузилось»);
+    // есть данные — их не прячем, даже если фоновое обновление упало.
+    state: blockState(summary.data === undefined ? summary : queue, retry),
   };
 }
 
@@ -72,12 +76,11 @@ export function MarketingQuick() {
 }
 
 export function MarketingFocus() {
-  const { summary, queue, s, focus, overdue, loading, retry } = useMarketingFocus();
+  const { s, focus, overdue, state } = useMarketingFocus();
   return (
     <RhSection id="ry-home-focus" title="Горит сейчас" className="ry-col-a">
-      {loading ? <RhBlockState kind="loading" />
-        // Отказ любого из двух запросов — фокус считать не из чего, и это не «всё спокойно».
-        : summary.isError || queue.isError ? <RhBlockState kind="error" onRetry={retry} />
+      {state ? state
+        // Нет данных любого из двух запросов — фокус считать не из чего, и это не «всё спокойно».
         : <RhGroup>
           {focus && s ? (
             <RhRow to={`/properties/${focus.shortId}`}
@@ -100,12 +103,12 @@ export function MarketingFocus() {
 
 export function MarketingQueue() {
   const can = useCan();
-  const { queue, rest, loading, retry } = useMarketingFocus();
+  const { queue, rest, retry } = useMarketingFocus();
+  const queueState = blockState(queue, retry);
   const list = useExpandable(rest, rest.length);
   return (
     <RhSection title="Далее по приоритету" to={canSeePipeline(can) ? "/pipeline" : undefined} className="ry-col-a">
-      {loading ? <RhBlockState kind="loading" />
-        : queue.isError ? <RhBlockState kind="error" onRetry={retry} />
+      {queueState ? queueState
         : rest.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Очередь пуста" /></RhGroup>
         : <RhGroup>
           {list.visible.map((item) => <PriorityRow key={item.id} item={item} />)}
@@ -118,12 +121,12 @@ export function MarketingQueue() {
 export function MarketingAds() {
   const ads = useAdsBoard("7d");
   const totals = ads.data?.totals;
+  const adsState = blockState(ads);
   // Сервер отдаёт обращения из кабинета Meta, а не заявки CRM — подпись честная, как на «Рекламе».
   const perConversation = totals && totals.conversations > 0 ? totals.periodTjs / totals.conversations : null;
   return (
     <RhSection title="Реклама за неделю" to="/ads" className="ry-col-b">
-      {ads.isLoading ? <RhBlockState kind="loading" />
-        : ads.isError ? <RhBlockState kind="error" onRetry={() => void ads.refetch()} />
+      {adsState ? adsState
         : !totals || ads.data?.enabled === false ? <RhGroup><RhRow lead={<RhCircle icon="megaphone" tone="a0" />} title="Рекламный кабинет не подключён" /></RhGroup>
         : <RhGroup>
           <RhRow lead={<RhCircle icon="banknote" tone="a2" />} title="Расход за неделю" right={<b className="ry-num ry-home-value">{formatMoneyExact(totals.periodTjs, "TJS")}</b>} />
@@ -146,7 +149,7 @@ export function MarketingStale() {
       <RhGroup>
         {list.visible.map((p) => (
           <RhRow key={p.id} to={`/properties/${p.shortId}`}
-            lead={<RhCircle icon="hourglass" tone="warn" />}
+            lead={<RhCircle icon="hourglass" tone={pillTone("today")} />}
             title={`${p.title}, ${formatMoney(p.price, p.currency)}`}
             sub={`${p.daysSinceCreated} ${pluralizeRu(p.daysSinceCreated, ["день", "дня", "дней"])} без показов${p.diffPercent != null ? `, цена ${p.diffPercent > 0 ? "выше" : "ниже"} медианы на ${Math.abs(p.diffPercent)} %` : ""}`}
             subTone="warn" />

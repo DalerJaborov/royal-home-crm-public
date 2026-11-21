@@ -1,11 +1,12 @@
-import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
+import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationCurrencyError, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
 import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
 import { clipCountsAsPublished } from "./publishedClip.js";
-import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { normalizeNarrationVoice } from "./narrationLoudness.js";
+import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_PRICE_NOT_IN_TJS, NARRATION_QUOTA_EXCEEDED, type NarrationAudioResult } from "./propertyNarration.js";
 
 /** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
 export const NARRATION_QUOTA_PAUSE_MS = 60 * 60_000;
@@ -137,7 +138,13 @@ export async function generateNarrationVersion(input: {
   if (claimed.kind === "ALREADY") return { status: "ALREADY", current: claimed.current };
   const row = claimed.row;
   const script = narrationSpeechText(row.script, (row.language as NarrationLang | null) ?? null);
-  const result = await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
+  // Текст объекта с долларами в ElevenLabs не уходит (21.11.2026, владелец: цена только в сомони) — даже версия,
+  // сохранённая до сторожа: денег не тратим, версия падает с кодом PRICE_NOT_IN_TJS. Обход озвучек
+  // (narrationAutoFlow.ts::generateDueNarrations) ловит такой черновик ещё раньше и пересобирает текст из шаблона;
+  // эта проверка — вторая дверь для ручного «Озвучить».
+  const result: NarrationAudioResult = narrationCurrencyError(row.script)
+    ? { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS }
+    : await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
     // Автоозвучка при кончившихся кредитах не теряет версию: она снова ждёт (через час), агенту ничего.
@@ -148,8 +155,11 @@ export async function generateNarrationVersion(input: {
     return { status: result.status, errorCode: result.errorCode, recorded: saved.count > 0 };
   }
   const storageKey = `${input.propertyId}/${row.id}.mp3`;
+  // Голос ElevenLabs тише ленты на 8–10 дБ — выравниваем один раз здесь: этот же файл получает монтажёр (21.11.2026).
+  // Не бросает (сбой — исходный mp3 и журнал); .catch — вторая страховка: оплаченный голос не теряется.
+  const audio = await normalizeNarrationVoice(result.audio, `версии ${row.revision}`).catch(() => result.audio);
   try {
-    await localVideoUpload(storageKey, result.audio);
+    await localVideoUpload(storageKey, audio);
     const saved = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
       const changed = await tx.propertyNarrationVersion.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, generateAfter: null, errorCode: null } });

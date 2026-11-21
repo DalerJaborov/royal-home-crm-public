@@ -228,7 +228,7 @@
   background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1.2; white-space: normal;
 }
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag svg { flex: none; width: 16px; height: 16px; }
-:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="crit"] { background: var(--rh-ui-crit-soft); color: var(--rh-ui-crit-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-crit) 35%, transparent); }
 :root[data-ui-look="royal"] [data-ry-section="calls"] .ry-call-flag[data-tone="warn"] {
   background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent);
 }

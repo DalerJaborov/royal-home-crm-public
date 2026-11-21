@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { OFFLINE_TEXT, loadView, type LoadQuery } from "../rh2/Rh2ErrorState";
 import { RoyalBrandIcon, RoyalIcon } from "./RoyalIcon";
 import type { RoyalBrandName, RoyalIconName } from "./royalIconData";
 
@@ -34,7 +35,7 @@ function scrollToHash(hash: string) {
 }
 
 export function RhCircle({ icon, tone = "a0", brand, size = 48, filled, children }: {
-  icon?: RoyalIconName; tone?: RhTone; brand?: RhBrand; size?: 44 | 48 | 60; filled?: boolean; children?: ReactNode;
+  icon?: RoyalIconName; tone?: RhTone | "neutral"; brand?: RhBrand; size?: 44 | 48 | 60; filled?: boolean; children?: ReactNode;
 }) {
   const glyph = brand === "whatsapp" || brand === "telegram" || brand === "instagram"
     ? <RoyalBrandIcon name={brand} />
@@ -42,7 +43,7 @@ export function RhCircle({ icon, tone = "a0", brand, size = 48, filled, children
     : brand === "site" ? <RoyalIcon name="globe" />
     : icon ? <RoyalIcon name={icon} filled={filled} /> : null;
   return (
-    <span className="ry-circle" data-tone={brand ? undefined : tone} data-brand={brand} data-size={size} aria-hidden="true">
+    <span className="ry-circle" data-tone={brand ? undefined : tone === "neutral" ? "a0" : tone} data-brand={brand} data-size={size} aria-hidden="true">
       {glyph ?? children}
     </span>
   );
@@ -277,14 +278,28 @@ export function RhAvatar({ name, src, size = 48 }: { name: string; src?: string 
   );
 }
 
-/** Короткое состояние блока: «Не загрузилось» + «Повторить», без первого лица. */
-export function RhBlockState({ kind, onRetry }: { kind: "loading" | "error" | "empty"; onRetry?: () => void }) {
+/**
+ * Короткое состояние блока: «Не загрузилось» + «Повторить», без первого лица. Тот же текст и та же кнопка, что у
+ * общего `Rh2ErrorState` (components/rh2): внутри блока главной он стоит строкой, на экране — карточкой.
+ */
+export function RhBlockState({ kind, onRetry }: { kind: "loading" | "error" | "offline" | "empty"; onRetry?: () => void }) {
   if (kind === "loading") return <div className="ry-skeleton" role="status" aria-label="Загрузка"><span /><span /><span /></div>;
-  if (kind === "error") return (
-    <div className="ry-state" role="alert">
-      <span>Не загрузилось</span>
+  if (kind === "error" || kind === "offline") return (
+    <div className="ry-state" role={kind === "error" ? "alert" : "status"}>
+      <span>{kind === "offline" ? OFFLINE_TEXT : "Не загрузилось"}</span>
       {onRetry && <RhButton variant="secondary" onClick={onRetry}>Повторить</RhButton>}
     </div>
   );
   return <div className="ry-state">Пусто</div>;
+}
+
+/**
+ * Что показать в блоке вместо данных: серые плашки, «нет связи» или «не загрузилось» с «Повторить»; `null`, когда данные
+ * есть (в том числе при фоновой ошибке или паузе: прежние данные не прячем). Решает общая `loadView` (components/rh2).
+ * Использование: `{blockState(query) ?? <содержимое>}`. Ошибку запроса на экране нового вида читать только так.
+ */
+export function blockState(query: LoadQuery & { refetch: () => unknown }, onRetry?: () => void): ReactNode {
+  const view = loadView(query);
+  if (view === "ready") return null;
+  return <RhBlockState kind={view} onRetry={view === "loading" ? undefined : onRetry ?? (() => void query.refetch())} />;
 }

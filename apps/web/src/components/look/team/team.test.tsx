@@ -91,7 +91,9 @@ const CONSEQUENCES: [file: string, phrase: string, row: "switch" | "number"][] =
   ["pages/settings/ReelsAutoBoostSection.tsx", "Боевой режим: объявления создаются и останавливаются в рекламном кабинете, деньги тратятся.", "switch"],
   ["pages/settings/BotTab.tsx", "Каждый вопрос стоит токенов.", "switch"],
   ["pages/settings/LeadsTab.tsx", "Ниже 60 очередь по KPI фактически перестанет работать.", "number"],
-  ["pages/settings/MetaEternalKeys.tsx", "Работают только личные ключи сотрудников — их сломает смена пароля.", "switch"],
+  // 21.11.2026 (#344): Instagram отвечает своим ключом компании (рубильник в «Автоматике»), «только личные» стало неправдой;
+  // последствие то же и видно без нажатия — смена пароля ломает личные ключи Messenger и рекламы.
+  ["pages/settings/MetaEternalKeys.tsx", "Messenger и реклама — личными ключами сотрудников, их сломает смена пароля.", "switch"],
   ["pages/settings/ChannelsTab.tsx", "Бот ведёт такой диалог до заявки сам.", "switch"],
   ["pages/settings/LeadsTab.tsx", "Работает вместе с «Просить подтверждение встречи» во вкладке «Бот» — нужны оба.", "switch"],
   ["pages/settings/ChannelsTab.tsx", "Работают: ", "switch"],

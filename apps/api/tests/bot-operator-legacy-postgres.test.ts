@@ -74,7 +74,8 @@ describe("оператор приёма заявок, старый путь", ()
   it("случай 3, WhatsApp, продавец: заявка в этот же ход и вопрос о деталях; дальше заметка; модель ответа не звалась", async () => {
     const peer = digits();
     const first = await turn(peer, "Здравствуйте, хочу продать свою квартиру");
-    expect(first.reply).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передал агенту, он позвонит вам в ближайшее время, " +
+    // «Здравствуйте» клиента — приветствие в ответ (SPEC п. 4, 21.11.2026).
+    expect(first.reply).toBe("Здравствуйте! Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const conv = await conversationOf(peer);
     expect(conv.clientId).not.toBeNull();
@@ -93,7 +94,7 @@ describe("оператор приёма заявок, старый путь", ()
   it("WhatsApp, наш пост объекта: объект и цена из базы, заявка уходит агенту-хозяину объекта", async () => {
     const peer = digits();
     const result = await turn(peer, "Интересует эта квартира", { sharedPropertyId: propertyId });
-    expect(result.reply).toBe(`Это объект №${propertyShortId}, цена 450 000 сомони. Спасибо, передал агенту, он позвонит вам на этот номер в ближайшее время.`);
+    expect(result.reply).toBe(`Это объект №${propertyShortId}, цена 450 000 сомони. Спасибо, передаю агенту, он позвонит вам на этот номер в ближайшее время.`);
     const conv = await conversationOf(peer);
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
     expect(client.assignedAgentId).toBe(ownerId);

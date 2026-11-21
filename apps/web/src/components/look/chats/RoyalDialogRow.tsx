@@ -6,6 +6,7 @@ import { exactDateTime, listTime } from "../../../lib/format";
 import { RhAvatar } from "../ui";
 import { RoyalChannelBadge } from "./RoyalChannelBadge";
 import { useAuthStore } from "../../../store/auth";
+import { pillTone } from "../tileTone";
 
 /**
  * Сколько ждёт живого человека и насколько это срочно (тот же порог, что в
@@ -116,7 +117,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
           {c.paused && showBotState && (
             <span
               className="ry-chat-paused"
-              data-tone={pauseHours !== null && pauseHours >= 24 ? "crit" : undefined}
+              data-tone={pauseHours !== null && pauseHours >= 24 ? pillTone("overdue") : undefined}
               role="img"
               aria-label={`Бот на паузе${pauseHours ? ` · ${pauseHours} ч` : ""}`}
               title={`Бот на паузе${pauseHours ? ` · ${pauseHours} ч` : ""}`}

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { CallIcon, type CallGlyphName } from "./CallIcon";
+import type { PillTone } from "../tileTone";
+import { pillTone } from "../tileTone";
 
 /**
  * СТРОКА ЗВОНКА «НОВОГО ВИДА» (пачка calls, 18.11.2026) — одна разметка на пять
@@ -24,22 +26,17 @@ const DIR_ICON: Record<RoyalCallDir, CallGlyphName> = {
   missed: "phone-missed",
 };
 
-/** Метка строки: срочно — сплошная красная с пламенем, внимание — янтарная с «!», норма — зелёная. */
-export type RoyalCallFlagTone = "crit" | "warn" | "ok" | "mute";
-
-export function RoyalCallFlag({ tone, children }: { tone: RoyalCallFlagTone; children: ReactNode }) {
+/**
+ * Метка строки. Тон приходит только из `pillTone()` / `scorePillTone()` (tileTone.ts): обычное — спокойная серая,
+ * «сегодня» — янтарная с «!», просрочено — красная с «!» (огня нет: огонь — тревога, а причину называет текст), хорошее — зелёная.
+ */
+export function RoyalCallFlag({ tone, children }: { tone: PillTone; children: ReactNode }) {
   return (
     <span className="ry-call-flag" data-tone={tone}>
-      {tone === "crit" && <CallIcon name="flame" size={16} />}
-      {tone === "warn" && <CallIcon name="circle-alert" size={16} />}
+      {(tone === "crit" || tone === "warn") && <CallIcon name="circle-alert" size={16} />}
       {children}
     </span>
   );
-}
-
-/** Тон балла разбора — тот же порог, что у прежнего `scoreTone` (CallDetails.tsx). */
-export function scoreFlagTone(tone: string): RoyalCallFlagTone {
-  return tone === "ok" || tone === "warn" || tone === "crit" ? tone : "mute";
 }
 
 /**
@@ -105,7 +102,7 @@ export function RoyalCallRow({ dir, dirLabel, title, meta, note, flags, action, 
         <div className="ry-call-text">
           <span className="ry-call-title">{title}</span>
           {parts.length > 0 && (
-            <span className="ry-call-meta" data-tone={dir === "missed" ? "crit" : undefined}>
+            <span className="ry-call-meta" data-tone={dir === "missed" ? pillTone("overdue") : undefined}>
               {parts.map((part, i) => (
                 <span key={i} className="ry-call-part">{part}</span>
               ))}

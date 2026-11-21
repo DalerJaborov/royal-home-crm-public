@@ -44,6 +44,7 @@ import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedRe
 import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInput.js";
 import { customerSpamMuteGate, customerSpamTurn, SPAM_FILTERED_NO_REPLY, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
 import { noteSpamFiltered, spamFilterApplies } from "./spamFilter.js";
+import { customerForeignShareSettled } from "./customerSharedPublication.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
@@ -202,7 +203,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // токенов, до скачивания медиа и до оператора: лайки, подписки, просьбы денег, чужая реклама, пересланный чужой пост без
     // слов. Номер или слова о жилье, цене, вакансии — никогда не спам (customerSpamInterest); клиент с карточкой — не спам.
     // Ход отмечается (leadDraft.spamMute: два таких хода за неделю — месяц тишины, правило 30.10). Выключатель — реестр.
-    if (customerSpamTurn({ inputText: fullInput(), attachmentInput: prepared.attachmentInput }) &&
+    // Чужой пост или ролик без слов (21.11.2026): известен уже здесь — до скачивания медиа и модели (customerForeignShareSettled).
+    const foreignShareOnly = customerForeignShareSettled({ candidate: prepared.foreignShareCandidate === true, media: prepared.media,
+      focus: focus?.snapshot.focus, eventKey: lane.ticket.eventKey, text: fullInput(), captions: prepared.captions });
+    if ((foreignShareOnly || customerSpamTurn({ inputText: fullInput(), attachmentInput: prepared.attachmentInput })) &&
       await spamFilterApplies(lane.ticket.conversationId, planningPrincipal.scope.channel)) {
       await recordCustomerSpamTurn(lane.ticket.conversationId, { eventKey: claim.eventKey }).catch(error =>
         console.error("[spam-filter]", error instanceof Error ? error.message : error));

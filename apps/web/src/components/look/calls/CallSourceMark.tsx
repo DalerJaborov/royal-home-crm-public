@@ -1,5 +1,6 @@
 import { isWhatsappCallSource } from "@royal-home/shared";
 import { RoyalCallFlag } from "./RoyalCallRow";
+import { pillTone } from "../tileTone";
 
 /**
  * МЕТКА «WhatsApp» У ВХОДЯЩЕГО (18.11.2026). Клиент позвонил голосом через WhatsApp,
@@ -17,6 +18,6 @@ export function CallSourceMark({ source, look }: {
 }) {
   if (!isWhatsappCallSource(source)) return null;
   const title = "Клиент позвонил через WhatsApp";
-  if (look === "royal") return <span title={title}><RoyalCallFlag tone="ok">WhatsApp</RoyalCallFlag></span>;
+  if (look === "royal") return <span title={title}><RoyalCallFlag tone={pillTone("info")}>WhatsApp</RoyalCallFlag></span>;
   return <span className={look === "chip-xs" ? "chip ok xs" : "chip ok"} title={title}>WhatsApp</span>;
 }

@@ -2130,6 +2130,11 @@
       "label": null
     },
     {
+      "id": "staff-social-post-sweep",
+      "expr": "*/15 * * * *",
+      "label": null
+    },
+    {
       "id": "stale-property-videos-cleanup",
       "expr": "50 3 * * *",
       "label": "Удаляет сырое видео объектов, зависшее после публикации"

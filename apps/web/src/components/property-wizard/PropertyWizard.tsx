@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRetryKey } from "../../hooks/useRetryKey";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NarrationWizardChoice, PropertyDraftView } from "@royal-home/shared";
+import type { NarrationWizardChoice, PropertyDraftView, PropertyWizardWarningConfirmations, PropertyWizardWarningField } from "@royal-home/shared";
+import { propertyWizardStepWarnings, propertyWizardWarningSignature } from "@royal-home/shared";
 import { narrationChoiceForCreate } from "./NarrationChoice";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useCreateProperty } from "../../hooks/useProperties";
@@ -156,6 +157,8 @@ export function PropertyWizard({
   const [sellerImportPending, setSellerImportPending] = useState(false);
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // «Цена верная» / «Адрес верный» (21.11.2026, ревью #348): подтверждение для текущих значений; сохранению не мешает.
+  const [confirmedWarnings, setConfirmedWarnings] = useState<PropertyWizardWarningConfirmations>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   /** Совпадение по адресу+площади — только настоящий ответ сервера (409 при
    *  сохранении, DuplicatePropertyError в routes/properties/crud.ts). Живой
@@ -873,6 +876,9 @@ export function PropertyWizard({
   }
 
   const stepKey = WIZARD_STEPS[step].key;
+  const stepWarnings = propertyWizardStepWarnings(stepKey, values, confirmedWarnings);
+  const confirmWarning = (field: PropertyWizardWarningField) =>
+    setConfirmedWarnings((prev) => ({ ...prev, [field]: propertyWizardWarningSignature(field, values) }));
   const busy = saving || waitingUploads || sellerImportPending;
   const stepStates = wizardProgress(values, mediaSummary, errors, requireIntakeAgent);
 
@@ -1090,7 +1096,7 @@ export function PropertyWizard({
           offSite={values.offSite ?? false}
         />
       )}
-      {stepKey === "main" && <StepMain values={values} errors={errors} onChange={patch} />}
+      {stepKey === "main" && <StepMain values={values} errors={errors} onChange={patch} warnings={stepWarnings} onConfirmWarning={confirmWarning} />}
       {stepKey === "place" && (
         <StepPlace
           values={values}
@@ -1099,6 +1105,8 @@ export function PropertyWizard({
           districtsLoading={districtsLoading}
           onChange={patch}
           mapNote={photoSnapNote}
+          warnings={stepWarnings}
+          onConfirmWarning={confirmWarning}
         />
       )}
       {stepKey === "review" && (

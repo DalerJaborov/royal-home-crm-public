@@ -10,7 +10,8 @@
  * что у маршрута approve), новая версия — requestAutoNarration (та же дверь
  * генерации и тот же дневной потолок).
  */
-import { formatPropertyCode, narrationVariants, type NarrationConfig } from "@royal-home/shared";
+import { formatPropertyCode, narrationCurrencyError, narrationVariants, type NarrationConfig } from "@royal-home/shared";
+import { NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT } from "../lib/propertyNarration.js";
 import { prisma } from "../db.js";
 import { localVideoFilePath } from "../lib/localVideoStorage.js";
 import { afterNarrationApproved, approveNarrationVersion, NARRATION_OWNER_ROLES, UNAPPROVED_AWAITS_HUMAN_WHERE, requestAutoNarration, type NarrationDeliveryStart } from "../lib/narrationAutoFlow.js";
@@ -224,7 +225,7 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
     where: { status: "READY", approvedAt: null, approvalNotifiedAt: { lte: due }, approvalEscalatedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
       property: { deletedAt: null, narrationOff: false, status: { notIn: ["SOLD", "WITHDRAWN"] } } },
     orderBy: { approvalNotifiedAt: "asc" }, take: 40,
-    select: { id: true, propertyId: true, source: true, approvalRemindedAt: true, approvalNotifiedAt: true, status: true, storageKey: true, approvedAt: true,
+    select: { id: true, propertyId: true, source: true, script: true, approvalRemindedAt: true, approvalNotifiedAt: true, status: true, storageKey: true, approvedAt: true,
       property: { select: { shortId: true, publishedChannels: true, instagramUrl: true } } },
   });
   let sent = 0;
@@ -233,6 +234,8 @@ export async function remindPendingNarrationApprovals(now: Date = new Date()): P
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     // Устаревшая версия напоминаний больше не получит никогда — отметка, чтобы не стоять в голове очереди (четвёртое ревью).
     if (latest?.id !== row.id) { await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: now } }); continue; }
+    // Озвучка с ценой в долларах (ревью #348): одобрить её нельзя — не напоминаем, отметка снимает строку с очереди.
+    if (narrationCurrencyError(row.script)) { await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: now } }); continue; }
     // Ролик уже вышел: новая озвучка ждёт «Утвердить и выпустить» — одно напоминание через сутки, и всё.
     if (await clipCountsAsPublished(row.propertyId, row.property)) {
       if (row.approvalRemindedAt || !row.approvalNotifiedAt || now.getTime() - row.approvalNotifiedAt.getTime() < REMIND_PUBLISHED_AFTER_MS) continue;
@@ -347,6 +350,15 @@ export async function handleNarrationCallback(query: TelegramCallbackQuery): Pro
     const action = match[1];
     if (action === "a") {
       const result = await approveNarrationVersion({ propertyId: version.propertyId, versionId: version.id, expectedRevision: version.revision, actorId: clicker.agentId, isManager: clicker.isManager, actorRole: clicker.role });
+      if (result === "PRICE_NOT_IN_TJS") {
+        // Честная причина под самой карточкой озвучки (правкой сообщения — не новым сообщением).
+        await answer(lang === "tg" ? "Нарх бо доллар аст" : "Цена в долларах: не одобряем");
+        const messageId = query.message?.message_id;
+        if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}
+
+${NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT}`, null).catch(() => {});
+        return true;
+      }
       if (result !== "AUDIO_APPROVED") { await answer(result === "FORBIDDEN" ? c.forbidden : c.stale); return true; }
       const delivery = await afterNarrationApproved(version.propertyId, version.id);
       await answer(lang === "tg" ? "Тасдиқ шуд" : "Одобрено");
