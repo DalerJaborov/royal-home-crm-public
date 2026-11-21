@@ -24,7 +24,7 @@ import { EDITOR_HOLDER_WHERE, isHandoffPublishRunning, schedulePublishAfterAccep
 import { mediaExecutionMode } from "./mediaExecution.js";
 import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
-import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
+import { executeNarrationDelivery, NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, videoIssuedToEditorAt, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
 import { generateNarrationVersion, loadNarrationConfiguration, NARRATION_LISTEN_SOURCE, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, narrationSoundKey, speechChars } from "./narrationGeneration.js";
 import { NARRATION_PRICE_NOT_IN_TJS, NARRATION_PRICE_NOT_IN_TJS_TEXT, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, narrationScriptError, reportNarrationPriceProblem, snapshotNarrationRate, withNarrationRate } from "./propertyNarration.js";
@@ -466,21 +466,26 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!latest || latest.id !== versionId || latest.status !== "READY" || !latest.approvedAt) return "NOT_READY";
-    // ПЕРЕМОНТАЖ = СВОЯ ПЕРЕДАЧА (21.11.2026, «сверх быстро»: монтажёр не ищет старый файл). Номер перемонтажа в ключе:
-    // новый перемонтаж — новая передача того же mp3 (генерации нет), повтор того же перемонтажа — тот же ключ, второй нет.
-    const remake = (await tx.property.findUnique({ where: { id: propertyId }, select: { videoRemakeCount: true } }))?.videoRemakeCount ?? 0;
-    const requestKey = narrationDeliveryKey(versionId, prepared.editorId, remake);
-    // Уже ушло — решает время, а не ключ (ревью 21.11): голос этому монтажёру ушёл любым ключом (и старым, без номера
-    // перемонтажа, и вручную) после начала текущего перемонтажа — второй раз не шлём. Первый монтаж — с начала времён.
-    const since = remake > 0 ? await currentRemakeStartedAt(tx, propertyId) : null;
-    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] },
-      ...(since ? { createdAt: { gte: since } } : {}) } })) return "ALREADY";
+    // ГОЛОС — ОДИН РАЗ НА КАЖДУЮ ВЫДАЧУ ВИДЕО (21.11.2026, объект №211; обобщает ключ с номером перемонтажа #364).
+    // Выдача — момент, когда видео этого круга дошло до ЭТОГО монтажёра (lib/narrationDelivery.ts::videoIssuedToEditorAt).
+    // Новая выдача (очередь, «Пропустить»/«Взять другой», перемонтаж, новый монтажёр) — новая передача того же mp3
+    // без генерации; повтор той же выдачи — тот же ключ, второй передачи нет. Видео у монтажёра нет — голос ждёт.
+    const issuedAt = await videoIssuedToEditorAt(tx, propertyId, prepared.editorId);
+    if (!issuedAt) return "WAITING_FOR_MONTAGE";
+    const requestKey = narrationDeliveryKey(versionId, prepared.editorId, issuedAt);
+    // Уже ушло в этой выдаче — решает время, а не ключ (ревью 21.11): голос этой версии этому монтажёру ушёл любым
+    // ключом (старым, ручным, с исходниками) не раньше, чем дошло видео. Голос, ушедший ДО видео (№211), не в счёт.
+    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, status: { in: ["SENT", "CANCELLED"] }, ...sinceIssue(issuedAt) } })) return "ALREADY";
+    // Ждущую отправки посылку ПРЕЖНЕМУ монтажёру гасим, пока она не начата (решение владельца 11.11.2026: «когда
+    // удаляем монтажёра, всё идёт к новому»): иначе она держала бы «занято» и упала бы на сверке «монтажёра сменили».
+    await tx.propertyNarrationDelivery.updateMany({ where: { propertyId, status: "QUEUED", editorId: { not: prepared.editorId } },
+      data: { status: "CANCELLED", lastError: "Монтажёра сменили — голос уйдёт текущему монтажёру следом за его видео" } });
     if (await tx.propertyNarrationDelivery.count({ where: { propertyId, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return "BUSY";
     const existing = await tx.propertyNarrationDelivery.findUnique({ where: { requestKey } });
     // Ждущие возврата объекта передачи (WAITING, 19.11.2026) другим ключом — гасим: голос уйдёт одной передачей.
     await tx.propertyNarrationDelivery.updateMany({
       where: { propertyId, status: "WAITING", ...(existing ? { id: { not: existing.id } } : {}) },
-      data: { status: "CANCELLED", lastError: "Голос передан новой передачей, когда объект вернулся к монтажёру" },
+      data: { status: "CANCELLED", lastError: "Голос передан новой передачей следом за видео" },
     });
     // Строка, заведённая в PREVIEW до этой правки, — досылаем ею же, а не считаем «уже отправлено».
     // Ждущая возврата объекта (WAITING) — тоже ею же, со свежим планом: объект снова у монтажёра.
@@ -489,20 +494,55 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
       return "QUEUED";
     }
     if (existing) return "ALREADY";
+    // Время строки — часы этого процесса, те же, что у отметок файлов (сравнение «ушёл не раньше видео»).
     await tx.propertyNarrationDelivery.create({ data: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", requestKey,
-      createdById: latest.approvedById ?? "system", plan: prepared.plan, status: "QUEUED", executionMode: "LIVE" } });
+      createdById: latest.approvedById ?? "system", plan: prepared.plan, status: "QUEUED", executionMode: "LIVE", createdAt: new Date() } });
     return "QUEUED";
   });
 }
 
-/** Начало текущего перемонтажа: каждый возврат монтажёру пишет строку VideoRemakeRequest (lib/remakeRequests.ts). */
-async function currentRemakeStartedAt(db: Pick<TxClient, "videoRemakeRequest">, propertyId: string): Promise<Date | null> {
-  return (await db.videoRemakeRequest.findFirst({ where: { propertyId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }))?.createdAt ?? null;
+/** Передача относится к выдаче видео, если голос ушёл (или, без отметки, заведён) не раньше этой выдачи. */
+function sinceIssue(issuedAt: Date): Prisma.PropertyNarrationDeliveryWhereInput {
+  return { OR: [{ deliveredAt: { gte: issuedAt } }, { deliveredAt: null, createdAt: { gte: issuedAt } }] };
 }
 
-/** Ключ передачи голоса монтажёру: версия + монтажёр, с перемонтажа — ещё и его номер (Property.videoRemakeCount). */
-export function narrationDeliveryKey(versionId: string, editorId: string | null, remake: number): string {
-  return remake > 0 ? `auto:${versionId}:${editorId}:r${remake}` : `auto:${versionId}:${editorId}`;
+/** Ключ передачи голоса монтажёру: версия + монтажёр + выдача видео (её момент, videoIssuedToEditorAt). */
+export function narrationDeliveryKey(versionId: string, editorId: string | null, issuedAt: Date): string {
+  return `auto:${versionId}:${editorId}:v${issuedAt.getTime()}`;
+}
+
+/**
+ * ВИДЕО ВЫДАНО МОНТАЖЁРУ — ГОЛОС СЛЕДОМ (21.11.2026, владелец: «Проверь почему нет озвучки», объект №211:
+ * mp3 ушёл 20.11, а ролик дошёл до монтажёра только 21.11). Зовёт выдача видео (крючок в
+ * videoHandoff.ts::dispatchToEditorAfterClaim), когда все файлы у монтажёра и в этот раз что-то реально ушло.
+ * Последняя версия одобрена и готова — та же дверь подготовки и постановки, что у одобрения, и отправка сразу,
+ * не дожидаясь обхода. Нет одобренной — ничего: голос уйдёт, когда его одобрят (видео уже у монтажёра).
+ */
+export async function narrationAfterVideoIssued(propertyId: string, editorId: string): Promise<NarrationDeliveryStart | "NONE"> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return "PREVIEW";
+  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { id: true, status: true, approvedAt: true, source: true } });
+  // Старая ручная озвучка маркетинга (MANUAL) сама не уходит — как и в обходе.
+  if (!latest || latest.status !== "READY" || !latest.approvedAt || (latest.source ?? "MANUAL") === "MANUAL") return "NONE";
+  let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
+  try { prepared = await prepareNarrationDeliveryPlan(propertyId, latest.id, "AUDIO_ONLY"); }
+  catch (err) {
+    // Цену поменяли, новая версия ещё готовится (VERSION_STALE) — штатно: новую отправит обход, тревоги нет (ревью 21.11).
+    if (!(err instanceof NarrationDeliveryRefused && (narrationDeliveryRefusalIsExpected(err.code) || err.code === "VERSION_STALE"))) {
+      const shortId = (await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }))?.shortId ?? "?";
+      void logSystemError("api", `Озвучка объекта №${shortId}: видео у монтажёра, а голос следом не передан — ${err instanceof Error ? err.message : String(err)}`,
+        { dedupKey: `narration-delivery-refused:${propertyId}:${err instanceof NarrationDeliveryRefused ? err.code : "UNEXPECTED"}`, dedupWindowMs: NARRATION_DELIVERY_ALARM_WINDOW_MS });
+    }
+    return "NOT_READY";
+  }
+  // Файлы ушли не тому, кто назначен сейчас (сменили посреди отправки) — голос пойдёт за видео нового.
+  if (prepared.editorId !== editorId) return "NOT_READY";
+  const status = await queueNarrationDelivery(propertyId, latest.id, prepared);
+  if (status === "QUEUED") {
+    const row = await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, editorId, status: "QUEUED", executionMode: "LIVE" }, orderBy: { createdAt: "desc" }, select: { id: true } });
+    // Сразу, тем же процессом: монтажёр видит голос сразу за файлами. Не взялось (обход успел) — уйдёт им.
+    if (row) await executeNarrationDelivery(row.id);
+  }
+  return status;
 }
 
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
@@ -1391,7 +1431,10 @@ async function resumeWaitingNarrationDeliveries(): Promise<number> {
     }
     const ok = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${row.propertyId} FOR UPDATE`;
-      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, versionId: row.versionId, status: "SENT" } })) {
+      // «Уже у монтажёра» — в ТЕКУЩЕЙ выдаче видео (ревью 21.11): голос, ушедший раньше этого видео, не в счёт —
+      // иначе ждущая передача гасла бы, а голос за новым видео не уходил.
+      const issuedAt = await videoIssuedToEditorAt(tx, row.propertyId, prepared.editorId);
+      if (await tx.propertyNarrationDelivery.count({ where: { propertyId: row.propertyId, versionId: row.versionId, editorId: prepared.editorId, status: "SENT", ...(issuedAt ? sinceIssue(issuedAt) : {}) } })) {
         await tx.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "WAITING" }, data: { status: "CANCELLED", lastError: "Голос этой версии уже у монтажёра — второй раз не отправляю" } });
         return false;
       }
@@ -1412,15 +1455,9 @@ async function deliverApprovedNarrations(): Promise<number> {
     void logSystemError("api", `Озвучка: ждущие передачи не возобновлены: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-waiting-resume" });
     return 0;
   });
-  const approved = await prisma.propertyNarrationVersion.findMany({
-    // Строки PREVIEW (до LIVE) не считаются передачей: после включения LIVE mp3 досылается.
-    // WAITING (19.11.2026) — передача ждёт возврата объекта к монтажёру: тоже ещё не передача, её строку возьмёт queueNarrationDelivery.
-    where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { none: { status: { notIn: ["PREVIEW", "WAITING"] } } }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR" } },
-    orderBy: { approvedAt: "asc" }, take: 20, select: { id: true, propertyId: true },
-  });
-  // Перемонтаж без смены озвучки (21.11.2026): одобренный голос уже уходил раньше, а после начала ТЕКУЩЕГО перемонтажа —
-  // ещё нет. Одним запросом: последняя версия, объект у монтажёра, ни одной передачи этой версии позже начала перемонтажа.
-  approved.push(...await remakeRedeliveries());
+  // Одобренный голос, которого у монтажёра нет в ТЕКУЩЕЙ выдаче видео (21.11.2026): первая выдача, перемонтаж,
+  // новый монтажёр, «Пропустить»/«Взять другой» и голос, ушедший раньше видео (№211), — один запрос, одно правило.
+  const approved = await narrationsOwedToMontajer();
   for (const row of approved) {
     try {
       const { status, refusal } = await startNarrationDelivery(row.propertyId, row.id);
@@ -1435,17 +1472,34 @@ async function deliverApprovedNarrations(): Promise<number> {
   return delivered;
 }
 
-/** Одобренные последние версии объектов на перемонтаже у монтажёра, которым в этом перемонтаже голос ещё не уходил. */
-export async function remakeRedeliveries(): Promise<Array<{ id: string; propertyId: string }>> {
+/**
+ * ГОЛОС, КОТОРЫЙ МОНТАЖЁР ДОЛЖЕН ПОЛУЧИТЬ СЛЕДОМ ЗА ТЕКУЩИМ ВИДЕО (21.11.2026; заменил запрос «без передач» и
+ * remakeRedeliveries #364). Последняя одобренная версия (не ручная маркетинга) объекта, чьё видео этой выдачи
+ * целиком у назначенного монтажёра, а голоса этой версии этому монтажёру не было с момента выдачи — ни одной
+ * передачи (любым ключом, кроме ждущих и PREVIEW) с отметкой «ушёл» (или, без неё, заведённой) не раньше выдачи.
+ * Момент выдачи — то же правило, что narrationDelivery.ts::videoIssuedToEditorAt: последняя отметка файла у этого
+ * монтажёра; отметок нет вовсе — videoHandoffDeliveredAt; отметки только у другого — видео не у него, не берём.
+ * Упавшая в этой выдаче передача (FAILED) тоже «была»: автоповтора нет намеренно, о ней напоминает сторож.
+ */
+export async function narrationsOwedToMontajer(): Promise<Array<{ id: string; propertyId: string }>> {
+  const editorId = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }))?.videoMontajerAgentId;
+  if (!editorId) return [];
   const rows = await prisma.$queryRaw<Array<{ id: string; propertyId: string }>>`
-    SELECT v.id, v."propertyId" FROM "PropertyNarrationVersion" v JOIN "Property" p ON p.id = v."propertyId"
-    WHERE v.status = 'READY' AND v."approvedAt" IS NOT NULL AND v.source <> 'MANUAL'
-      AND p."deletedAt" IS NULL AND p."narrationOff" = false AND p."videoRemakeCount" > 0
-      AND p."videoHandoffStatus"::text = 'SENT_TO_EDITOR' AND p.status::text NOT IN (${Prisma.join([...CLOSED_STATUSES])})
+    WITH issued AS (
+      SELECT p.id AS "propertyId", COALESCE(
+        (SELECT max(pv."montajerDeliveredAt") FROM "PropertyVideo" pv WHERE pv."propertyId" = p.id AND pv."montajerDeliveredToId" = ${editorId}),
+        CASE WHEN EXISTS (SELECT 1 FROM "PropertyVideo" pv WHERE pv."propertyId" = p.id AND pv."montajerDeliveredAt" IS NOT NULL) THEN NULL ELSE p."videoHandoffDeliveredAt" END
+      ) AS at
+      FROM "Property" p
+      WHERE p."deletedAt" IS NULL AND p."narrationOff" = false AND p."videoHandoffStatus"::text = 'SENT_TO_EDITOR'
+        AND p."videoHandoffManualSince" IS NULL AND p."videoHandoffDeliveredAt" IS NOT NULL
+        AND p.status::text NOT IN (${Prisma.join([...CLOSED_STATUSES])})
+    )
+    SELECT v.id, v."propertyId" FROM "PropertyNarrationVersion" v JOIN issued i ON i."propertyId" = v."propertyId"
+    WHERE i.at IS NOT NULL AND v.status = 'READY' AND v."approvedAt" IS NOT NULL AND v.source <> 'MANUAL'
       AND v.revision = (SELECT max(x.revision) FROM "PropertyNarrationVersion" x WHERE x."propertyId" = v."propertyId")
-      AND EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING'))
-      AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d.status NOT IN ('PREVIEW', 'WAITING')
-        AND d."createdAt" >= (SELECT max(r."createdAt") FROM "VideoRemakeRequest" r WHERE r."propertyId" = v."propertyId"))
+      AND NOT EXISTS (SELECT 1 FROM "PropertyNarrationDelivery" d WHERE d."versionId" = v.id AND d."editorId" = ${editorId}
+        AND d.status NOT IN ('PREVIEW', 'WAITING') AND COALESCE(d."deliveredAt", d."createdAt") >= i.at)
     ORDER BY v."approvedAt" ASC LIMIT 20`;
   return rows ?? [];
 }
@@ -1498,16 +1552,17 @@ function stalledDeliveryReason(status: string): string {
 async function watchStuckVoiceDeliveries(now: Date = new Date()): Promise<void> {
   const rows = await prisma.propertyNarrationDelivery.findMany({
     where: { status: { in: ["FAILED", "UNKNOWN", "SENDING", "WAITING"] }, version: { status: "READY", approvedAt: { not: null } },
-      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null } },
+      // Видео этого круга у монтажёра (21.11.2026): пока файлы идут, голос ждёт штатно — о недошедшем видео тревожит сторож досылки.
+      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null, videoHandoffDeliveredAt: { not: null } } },
     orderBy: { createdAt: "desc" }, take: 20,
-    select: { id: true, propertyId: true, versionId: true, status: true, claimStartedAt: true, plan: true, lastError: true, property: { select: { shortId: true, videoHandoffSentAt: true } } },
+    select: { id: true, propertyId: true, versionId: true, status: true, claimStartedAt: true, plan: true, lastError: true, property: { select: { shortId: true, videoHandoffDeliveredAt: true } } },
   });
   const seen = new Set<string>();
   for (const d of rows) {
     // Ждущая передача (WAITING, второй круг ревью): объект уже у монтажёра дольше бюджета попытки,
     // а голос так и не ушёл (его держит другая передача или монтажёр без Telegram) — напоминание.
     if (d.status === "WAITING") {
-      const since = d.property.videoHandoffSentAt;
+      const since = d.property.videoHandoffDeliveredAt;
       if (!since || now.getTime() - since.getTime() <= narrationDeliveryAttemptBudgetMs(d.plan)) continue;
       if (await prisma.propertyNarrationDelivery.count({ where: { versionId: d.versionId, status: { in: ["SENT", "QUEUED"] } } })) continue;
       logVoiceNotSent(d.propertyId, d.property.shortId, "передача голоса ждёт, хотя объект уже у монтажёра. Проверьте Telegram монтажёра и зависшие передачи в карточке, затем при необходимости передайте вручную", `waiting:${d.id}`);

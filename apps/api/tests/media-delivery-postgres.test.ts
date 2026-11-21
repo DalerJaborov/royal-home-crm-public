@@ -57,7 +57,8 @@ async function property(holder = false) {
   const seller = await prisma.client.create({ data: { id: ownerId, fullName: "Synthetic consent owner", phone: `+99290${randomInt(1000000, 9999999)}`, source: "WALK_IN", kind: "SELLER", assignedAgentId: fixture.actorId } });
   const id = randomUUID(); fixture.propertyIds.push(id);
   const row = await prisma.property.create({ data: { id, title: "Synthetic media delivery property", type: "APARTMENT", areaSqm: 55, price: 350000, currency: "TJS", districtId: fixture.districtId, address: "Synthetic fixture only", condition: "GOOD", sellerClientId: seller.id,
-    ...(holder ? { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffManualSince: null } : {}) }, include: { district: true } });
+    // Держатель места, видео которого ДОШЛО до монтажёра: голос без исходников уходит только следом за видео (21.11.2026, #378).
+    ...(holder ? { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffDeliveredAt: new Date(), videoHandoffManualSince: null } : {}) }, include: { district: true } });
   return { row, seller };
 }
 async function ownerDelivery() {

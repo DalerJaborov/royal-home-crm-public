@@ -90,7 +90,7 @@ import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { dropNarrationMaster, mixFromStoredMaster, planCrmMixOnReceive, storeNarrationMaster } from "./narrationMaster.js";
-import { narrationLineForMontajer } from "./narrationMontajerNote.js";
+import { narrationLineForMontajer, narrationNextMessageLine } from "./narrationMontajerNote.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
 import { NARRATION_PREVIEW_CLEARED } from "./narrationPreviewFields.js";
 
@@ -1362,6 +1362,15 @@ async function dispatchToEditorAfterClaim(
     });
   }
 
+
+  // ГОЛОС — СЛЕДОМ ЗА ВИДЕО, В ЭТОЙ ЖЕ ВЫДАЧЕ (21.11.2026, объект №211). Видео целиком у монтажёра и в этот раз
+  // что-то реально ушло (первая отправка, очередь, «Пропустить»/«Взять другой», перемонтаж, новый монтажёр,
+  // досылка сторожа) — одобренный mp3 уходит сразу ПОСЛЕ итогового «отправлено N из N» (в нём сказано
+  // «озвучка — следующим сообщением») и после обычной паузы чата. Повтор той же выдачи файлов не шлёт (отметки),
+  // значит, и голоса второй раз не даёт; ключ передачи — момент выдачи.
+  const voiceFollows = result.delivered && result.sentVideoIds.size > 0 && !!videoIssuedToMontajerHook;
+  const voiceNext = voiceFollows ? await narrationNextMessageLine(property.id).catch(() => null) : null;
+
   // Контрольное «отправлено N из N» — только если в этот раз что-то реально ушло.
   if (result.sentVideoIds.size > 0) {
     // Кнопки «🗂 Очередь» и «⏭ Пропустить» под заданием (19.11.2026) — только
@@ -1372,10 +1381,19 @@ async function dispatchToEditorAfterClaim(
       .catch(() => false);
     await sendToMontajer(
       montajer.telegramChatId,
-      montajerDeliveryControlText(property.shortId, result.withMontajerCount, delivery.videos.length),
+      // Голос уйдёт следом — так и сказано под итогом (ревью 21.11: «следующим» должно быть правдой при любом N).
+      [montajerDeliveryControlText(property.shortId, result.withMontajerCount, delivery.videos.length), voiceNext].filter(Boolean).join("\n\n"),
       { copy: true, propertyShortId: property.shortId, ...(controls ? { replyMarkup: holderTaskButtons(property.shortId) } : {}) }
     ).catch((err) =>
       logSystemError("video-handoff", `Объект №${property.shortId}: контрольное сообщение монтажёру не ушло: ${describeError(err)}`)
+    );
+  }
+
+  if (voiceFollows && videoIssuedToMontajerHook) {
+    // Та же пауза, что между файлами одного чата (лимит Telegram): mp3 — следующее сообщение того же чата.
+    await sleep(telegramSendPauseMs);
+    await videoIssuedToMontajerHook(property.id, montajerAgentId).catch((err) =>
+      logSystemError("video-handoff", `Объект №${property.shortId}: голос следом за видео не отправлен: ${describeError(err)}`)
     );
   }
 
@@ -1438,6 +1456,18 @@ export interface DeliverSourceVideosResult {
    *  "editor-changed" — в Настройках назначили другого монтажёра (25.09.2026, А1),
    *  "mismatch" — в посылке оказался файл чужого объекта (защита, не должно быть). */
   abortReason?: "removed" | "editor-changed" | "mismatch" | "deferred";
+}
+
+/**
+ * КРЮЧОК «ВИДЕО ВЫДАНО МОНТАЖЁРУ» (21.11.2026): одобренная озвучка уходит следом за видео
+ * (lib/narrationAutoFlow.ts::narrationAfterVideoIssued). Крючок, а не импорт: narrationAutoFlow сам
+ * импортирует этот модуль, прямой импорт замкнул бы цикл. Ставят обе точки входа (index.ts, worker.ts);
+ * не поставлен — голос всё равно уйдёт обходом озвучки в течение минуты.
+ */
+type VideoIssuedToMontajerHook = (propertyId: string, montajerAgentId: string) => Promise<unknown>;
+let videoIssuedToMontajerHook: VideoIssuedToMontajerHook | null = null;
+export function setVideoIssuedToMontajerHook(fn: VideoIssuedToMontajerHook | null): void {
+  videoIssuedToMontajerHook = fn;
 }
 
 /** "deferred" — монтажёр сам вернул объект в очередь из бота (19.11.2026): штатно, не ошибка. */
