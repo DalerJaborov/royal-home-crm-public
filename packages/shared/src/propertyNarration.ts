@@ -107,7 +107,10 @@ const narrationConfigBase = z.object({
   autoGenerate: z.boolean().optional(),
   /** Пауза после последней правки, прежде чем платить за новую озвучку. */
   debounceMinutes: z.number().int().min(0).max(120).optional(),
-  /** Потолок расхода ElevenLabs за сутки по Душанбе: 0 — генерация остановлена. */
+  /** «▶ Прослушать» в мастере и карточке: новых звуков на человека в сутки (повтор того же бесплатен); по умолчанию 100. */
+  narrationListenPerPersonDaily: z.number().int().min(1).max(1000).optional(),
+  /** Дневной предел расхода ElevenLabs по Душанбе. Озвучку роликов он НЕ останавливает (владелец 21.11.2026: «не нужно
+   *  лимит жёсткий»): сверх предела она идёт, руководству одно уведомление в сутки. 0 — озвучка остановлена совсем. */
   dailyCharLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyGenerationLimit: z.number().int().min(0).max(1000).optional(),
   templates: z.array(narrationTemplateSchema).max(100).optional(),
@@ -286,6 +289,11 @@ export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "t
 }
 
 export const NARRATION_LIMIT_DEFAULTS = { debounceMinutes: 3, dailyCharLimit: 20_000, dailyGenerationLimit: 40 } as const;
+/** Прослушиваний нового звука на человека в сутки по умолчанию (владелец 21.11.2026: предел не должен мешать работе). */
+export const NARRATION_LISTEN_PER_PERSON_DEFAULT = 100;
+export function narrationListenPerPersonDaily(config: Pick<NarrationConfig, "narrationListenPerPersonDaily">): number {
+  return config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT;
+}
 export function narrationLimits(config: Pick<NarrationConfig, "debounceMinutes" | "dailyCharLimit" | "dailyGenerationLimit">) {
   return {
     debounceMs: (config.debounceMinutes ?? NARRATION_LIMIT_DEFAULTS.debounceMinutes) * 60_000,

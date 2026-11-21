@@ -178,13 +178,21 @@ describe("one paid door: generation", () => {
     s.property = { ...s.property, rooms: 4 };
     expect(await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now })).toEqual({ status: "BUSY" });
   });
-  it("daily ceiling stops spending before the provider is called", async () => {
+  it("дневной предел озвучку роликов НЕ останавливает (владелец 21.11.2026): звук делается, руководству — запись на сутки", async () => {
     s.config = { ...baseConfig(), dailyGenerationLimit: 1 };
     s.versions.push({ id: "spent-0000-4000-8000-000000000000", propertyId: "other", revision: 1, script: "x".repeat(20), status: "READY", generationStartedAt: now });
     await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
     await runNarrationAutoFlow({ now });
+    expect(s.audio).toHaveBeenCalledTimes(1);
+    expect(s.versions.find((v) => v.propertyId === propertyId)).toMatchObject({ status: "READY" });
+    expect(s.log).toHaveBeenCalledWith("ai", expect.stringContaining("Дневной предел озвучки превышен: 2 озвучек из 1"),
+      { dedupKey: "narration-daily-limit:2026-11-11", dedupWindowMs: 24 * 3_600_000 });
+  });
+  it("предел 0 — руководство выключило озвучку совсем: ElevenLabs не зовётся", async () => {
+    s.config = { ...baseConfig(), dailyGenerationLimit: 0 };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
     expect(s.audio).not.toHaveBeenCalled();
-    expect(s.log).toHaveBeenCalledWith("ai", expect.stringContaining("дневной предел"), { dedupKey: "narration-daily-budget" });
     expect(s.versions.find((v) => v.propertyId === propertyId)).toMatchObject({ status: "DRAFT" });
   });
   it("rate limit (429) retries later without messaging anyone; other failures are logged once and not retried", async () => {

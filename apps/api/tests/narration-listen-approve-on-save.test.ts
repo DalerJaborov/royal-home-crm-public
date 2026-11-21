@@ -28,7 +28,9 @@ vi.mock("../src/lib/notifications.js", async (importOriginal) => ({ ...(await im
 
 const { narrationDraftText } = await import("@royal-home/shared");
 const { prisma } = await import("../src/db.js");
-const { listenNarration, NARRATION_LISTEN_PER_PERSON_DAILY } = await import("../src/lib/narrationListen.js");
+const { listenNarration } = await import("../src/lib/narrationListen.js");
+const { waitForCount } = await import("./helpers/waitFor.js");
+const { dushanbeDayKey, NARRATION_LISTEN_PER_PERSON_DEFAULT } = await import("@royal-home/shared");
 const { startNarrationForNewProperty, approveNarrationAsSaved, requestAutoNarration, runNarrationAutoFlow, requestNarrationAfterEdit, remakeRedeliveries, wizardNarrationTextRejection } = await import("../src/lib/narrationAutoFlow.js");
 const { notifyNarrationApproval } = await import("../src/telegram/assistantNarration.js");
 const { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage } = await import("../src/lib/narrationGeneration.js");
@@ -127,8 +129,20 @@ describe("«▶ Прослушать»: тот же путь звука и бе�
     expect(out.status).toBe("INVALID");
     expect(tts.audio).not.toHaveBeenCalled();
   });
-  it("предел на человека — своя строка, озвучку своего текста не трогает", () => {
-    expect(NARRATION_LISTEN_PER_PERSON_DAILY).toBeGreaterThan(0);
+  it("предел на человека — из Настроек (по умолчанию 100); повтор того же звука в него не идёт", async () => {
+    expect(NARRATION_LISTEN_PER_PERSON_DEFAULT).toBe(100);
+    const cfg = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } })).propertyNarrationConfig as Record<string, unknown>;
+    const p = await seedProperty();
+    const listener = await makeAgent(5);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: { ...cfg, narrationListenPerPersonDaily: 1 } } });
+    try {
+      const script = await textFor(p.id);
+      expect((await listenNarration({ agentId: listener, script, voiceId: "voiceA", lang: "ru" })).status).toBe("READY");
+      expect((await listenNarration({ agentId: listener, script, voiceId: "voiceA", lang: "ru" })).status).toBe("READY");
+      expect(await listenNarration({ agentId: listener, script: `${script} Ещё.`, voiceId: "voiceA", lang: "ru" })).toMatchObject({ status: "LIMIT_PERSON", limit: 1 });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: cfg as object } });
+    }
   });
 });
 
@@ -301,24 +315,45 @@ describe("ревью 21.11", () => {
     expect((await remakeRedeliveries()).map((r) => r.id)).not.toContain(vid);
   });
 
-  it("прослушивания не берут последние 30% общего дневного предела; звук роликов идёт и дальше", async () => {
+  it("дневной предел не останавливает озвучку роликов и прослушивание: звук делается, руководству одно уведомление в сутки", async () => {
+    const cfg = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } })).propertyNarrationConfig as Record<string, unknown>;
     const used = (await narrationBudgetUsage()).usedGenerations;
-    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
-    const cfg = before.propertyNarrationConfig as Record<string, unknown>;
-    // used + 2: ролику место есть, а прослушиванию (не выше 70%) уже нет — при used ≥ 5.
-    for (let i = 0; i < 5; i++) await prisma.freeNarration.create({ data: { agentId: stranger, source: "API", status: "READY", chars: 1, generationStartedAt: new Date() } });
-    const now = (await narrationBudgetUsage()).usedGenerations;
-    expect(now).toBeGreaterThanOrEqual(used + 5);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: { ...cfg, dailyGenerationLimit: now + 2 } } });
+    const tag = `narration-daily-limit:${dushanbeDayKey(new Date())}`;
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: { ...cfg, dailyGenerationLimit: Math.max(1, used) } } });
     try {
       const p = await seedProperty();
-      expect((await listenNarration({ agentId: author, script: `${await textFor(p.id)} Новый текст.`, voiceId: "voiceB", lang: "ru" })).status).toBe("BUDGET");
-      expect(tts.audio).not.toHaveBeenCalled();
+      expect((await listenNarration({ agentId: author, script: `${await textFor(p.id)} Сверх предела.`, voiceId: "voiceB", lang: "ru" })).status).toBe("READY");
       await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
       await generate(p.id);
-      expect(tts.audio).toHaveBeenCalledTimes(1);
+      const q = await seedProperty();
+      await startNarrationForNewProperty(q.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
+      await generate(q.id);
+      expect(tts.audio).toHaveBeenCalledTimes(3);
+      // Три раза сверх предела — одна тревога за сутки.
+      await waitForCount(() => prisma.pendingDirectorAlert.count({ where: { tag } }), 1);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(await prisma.pendingDirectorAlert.count({ where: { tag } })).toBe(1);
     } finally {
+      await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
       await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: cfg as object } });
+    }
+  });
+
+  it("кончились кредиты ElevenLabs — честная ошибка и у прослушивания, и у звука ролика", async () => {
+    const p = await seedProperty();
+    tts.audio.mockResolvedValue({ status: "FAILED", errorCode: "PROVIDER_QUOTA_EXCEEDED" } as never);
+    try {
+      expect(await listenNarration({ agentId: author, script: `${await textFor(p.id)} Без кредитов.`, voiceId: "voiceB", lang: "ru" })).toMatchObject({ status: "FAILED", quota: true });
+      await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
+      const v = await latestOf(p.id);
+      await prisma.propertyNarrationVersion.update({ where: { id: v.id }, data: { generateAfter: new Date(Date.now() - 1000) } });
+      const { config, key } = await loadNarrationConfiguration();
+      const out = await generateNarrationVersion({ propertyId: p.id, versionId: v.id, expectedRevision: v.revision, requireApproval: false, config, key: key! });
+      expect(out).toMatchObject({ status: "FAILED", errorCode: "PROVIDER_QUOTA_EXCEEDED" });
+      expect((await latestOf(p.id)).approvedAt).toBeNull();
+    } finally {
+      tts.audio.mockResolvedValue({ status: "READY", audio: Buffer.from("synthetic-mp3"), requestId: "req-1" });
     }
   });
 

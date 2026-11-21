@@ -1,4 +1,4 @@
-import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationCurrencyError, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
+import { dushanbeDayKey, NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationCurrencyError, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
@@ -126,20 +126,38 @@ export async function freeNarrationUsage(db: Pick<Tx, "freeNarration">, now = ne
  * `freeSharePercent` (озвучка свободного текста): сверх общего потолка эти озвучки ещё и не выедают больше
  * этой доли знаков и озвучек за сутки, чтобы чужие тексты не оставили озвучку роликов без бюджета.
  */
-export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number, ceilingPercent?: number): Promise<boolean> {
+export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number, soft?: "VIDEO"): Promise<boolean> {
   await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('property-narration-budget'))) AS budget_lock`;
   const limits = narrationLimits(config);
   const used = await narrationBudgetUsage(tx, now);
-  if (!(used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars)) return false;
-  // `ceilingPercent` (прослушивание в мастере, ревью 21.11): берёт общий потолок только до этой доли — остаток
-  // дня остаётся звуку роликов, который идёт и после.
-  if (ceilingPercent !== undefined && !(used.usedGenerations + 1 <= Math.floor(limits.dailyGenerations * ceilingPercent / 100)
-    && used.usedChars + chars <= Math.floor(limits.dailyChars * ceilingPercent / 100))) return false;
+  const within = used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars;
+  if (!within) {
+    // ОЗВУЧКА РОЛИКОВ НЕ ОСТАНАВЛИВАЕТСЯ ПРЕДЕЛОМ (владелец 21.11.2026: «не нужно лимит жёсткий. Вдруг будут больше нам
+    // нужны для перемонтажа»): звук ролика и прослушивание в мастере идут сверх предела, руководству — одно уведомление в
+    // сутки. Настоящая стена — только кончились кредиты ElevenLabs (NARRATION_QUOTA_EXCEEDED). Предел 0 — руководство
+    // выключило озвучку совсем: стоп. Свой текст и образцы голосов (soft не передают) держат предел, как раньше.
+    if (soft !== "VIDEO" || limits.dailyGenerations <= 0 || limits.dailyChars <= 0) return false;
+    reportNarrationDailyLimitExceeded({ used: used.usedGenerations + 1, limit: limits.dailyGenerations, usedChars: used.usedChars + chars, limitChars: limits.dailyChars }, now);
+    return true;
+  }
   if (freeSharePercent === undefined) return true;
   const free = await freeNarrationUsage(tx, now);
   const maxChars = Math.floor(limits.dailyChars * freeSharePercent / 100);
   const maxGenerations = limits.dailyGenerations > 0 ? Math.max(1, Math.floor(limits.dailyGenerations * freeSharePercent / 100)) : 0;
   return free.usedGenerations + 1 <= maxGenerations && free.usedChars + chars <= maxChars;
+}
+
+/**
+ * «Дневной предел озвучки превышен: N из M» — ОДИН раз в сутки по Душанбе: журнал ошибок и тревога руководству «к
+ * сведению» (колокольчик сразу, без ночного звонка). Не бросает и не ждёт: зовётся под замком бюджета.
+ */
+export function reportNarrationDailyLimitExceeded(n: { used: number; limit: number; usedChars: number; limitChars: number }, now: Date = new Date()): void {
+  const day = dushanbeDayKey(now);
+  const line = n.used > n.limit ? `${n.used} озвучек из ${n.limit}` : `${n.usedChars} знаков из ${n.limitChars}`;
+  const text = `Дневной предел озвучки превышен: ${line}. Озвучка роликов продолжается; предел меняют в Настройках → Озвучка роликов.`;
+  void logSystemError("ai", text, { dedupKey: `narration-daily-limit:${day}`, dedupWindowMs: 24 * 3_600_000 });
+  void import("./channelKeyAlarm.js").then(({ raiseCriticalAlarm }) => raiseCriticalAlarm({ tag: `narration-daily-limit:${day}`, title: "Дневной предел озвучки превышен",
+    body: text, quiet: true, everyMs: 24 * 3_600_000, now })).catch(() => undefined);
 }
 
 export type NarrationGenerationOutcome =
@@ -170,7 +188,7 @@ export async function generateNarrationVersion(input: {
     if (!input.requireApproval && (!latest.generateAfter || latest.generateAfter > now)) return { kind: "REJECTED" as const };
     if (!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId) return { kind: "REJECTED" as const };
     if (await tx.propertyNarrationVersion.count({ where: { propertyId: input.propertyId, status: { in: ["GENERATING", "UNKNOWN"] } } })) return { kind: "REJECTED" as const };
-    if (!await budgetAllows(tx, speechChars(latest.script, latest.language), config, now)) return { kind: "BUDGET" as const };
+    if (!await budgetAllows(tx, speechChars(latest.script, latest.language), config, now, undefined, "VIDEO")) return { kind: "BUDGET" as const };
     // То же «сейчас», что у потолка и паузы «кредиты кончились»: иначе пауза считалась бы по двум часам сразу.
     const generationStartedAt = now;
     await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generationStartedAt, generationAttempts: { increment: 1 } } });

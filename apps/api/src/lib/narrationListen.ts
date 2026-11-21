@@ -1,4 +1,4 @@
-import { isReadOnlyRole, narrationModelSupportsTajik, type NarrationLang } from "@royal-home/shared";
+import { isReadOnlyRole, narrationListenPerPersonDaily, narrationModelSupportsTajik, type NarrationLang } from "@royal-home/shared";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -21,16 +21,11 @@ import { logSystemError } from "./systemError.js";
  * (synthesizeNarrationSpeech). Сохранил объект, не поменяв текст и голос, — версия встаёт готовой на этот файл и
  * одобренной им (narrationAutoFlow.ts::adoptListenedNarration): без второй генерации и второй оплаты.
  *
- * Деньги: строка FreeNarration (source LISTEN) — тот же общий дневной потолок озвучки под тем же замком, свой предел
- * на человека в сутки. Кэш: ключ запроса = сотрудник + отпечаток звука (narrationSoundKey: текст для голоса, язык,
+ * Деньги: строка FreeNarration (source LISTEN) — считается в общий дневной предел озвучки под тем же замком, но им, как и
+ * звук ролика, не останавливается; свой предел на человека в сутки — в Настройках (narrationListenPerPersonDaily, 100). Кэш: ключ запроса = сотрудник + отпечаток звука (narrationSoundKey: текст для голоса, язык,
  * голос, модель, настройки синтеза со словарём) — то же второй раз не оплачивается. Файл живёт сутки
  * (purgeFreeNarrations), версия объекта получает свою копию.
  */
-/** Сколько раз в сутки один сотрудник может прослушать НОВЫЙ звук (повтор того же бесплатен). ОЦЕНКА: на объект
- *  уходит одно-три прослушивания, в день сотрудник заводит несколько объектов. */
-export const NARRATION_LISTEN_PER_PERSON_DAILY = 30;
-/** Прослушивания берут общий дневной потолок озвучки только до этой доли: последние 30% — звуку роликов (ревью 21.11). */
-export const NARRATION_LISTEN_BUDGET_CEILING_PERCENT = 70;
 /** Генерация, не закончившаяся за это время, считается оборванной: можно попробовать снова. */
 const LISTEN_STALE_MS = 3 * 60_000;
 
@@ -79,9 +74,11 @@ export async function listenNarration(input: { agentId: string; script: string; 
   try {
     claimed = await prisma.$transaction(async (tx) => {
       // Общий замок и потолок с озвучкой роликов: две генерации разом не проскочат мимо дневного предела.
-      if (!await budgetAllows(tx, speech.length, config, now, undefined, NARRATION_LISTEN_BUDGET_CEILING_PERCENT)) return "BUDGET" as const;
+      // Прослушивание — часть озвучки ролика: считается в общий дневной предел и, как звук ролика, им не останавливается
+      // (владелец 21.11.2026: «не нужно лимит жёсткий»); сверх предела — одно уведомление руководству в сутки.
+      if (!await budgetAllows(tx, speech.length, config, now, undefined, "VIDEO")) return "BUDGET" as const;
       const used = await tx.freeNarration.count({ where: { agentId: input.agentId, source: NARRATION_LISTEN_SOURCE, generationStartedAt: { gte: dushanbeStartOfToday(now) } } });
-      if (used >= NARRATION_LISTEN_PER_PERSON_DAILY) return "LIMIT_PERSON" as const;
+      if (used >= narrationListenPerPersonDaily(config)) return "LIMIT_PERSON" as const;
       return tx.freeNarration.create({ data: { agentId: input.agentId, source: NARRATION_LISTEN_SOURCE, status: "GENERATING", script, lang: input.lang,
         voiceId: input.voiceId, chars: speech.length, requestKey, generationStartedAt: now }, select: { id: true } });
     });
@@ -91,7 +88,7 @@ export async function listenNarration(input: { agentId: string; script: string; 
     throw err;
   }
   if (claimed === "BUDGET") return { status: "BUDGET" };
-  if (claimed === "LIMIT_PERSON") return { status: "LIMIT_PERSON", limit: NARRATION_LISTEN_PER_PERSON_DAILY };
+  if (claimed === "LIMIT_PERSON") return { status: "LIMIT_PERSON", limit: narrationListenPerPersonDaily(config) };
 
   const guard = { id: claimed.id, status: "GENERATING" };
   const result = await synthesizeNarrationSpeech({ speech, voiceId: input.voiceId, lang: input.lang, config, apiKey: key, label: "прослушивания в мастере" }, input.fetcher);
