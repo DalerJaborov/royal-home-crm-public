@@ -79,11 +79,45 @@ async function runFfmpegTranscode(buffer: Buffer, ext: string, args: (inputPath:
   }
 }
 
+/**
+ * ЧТО ЗА ФАЙЛ НА САМОМ ДЕЛЕ — по содержимому, а не по расширению (21.11.2026, живая ошибка WhatsApp:
+ * «Audio file uploaded with mimetype as audio/ogg; codecs=opus, however on processing it is of type
+ * application/octet-stream»). Типы — ровно те, что принимает WhatsApp Cloud API (документация Meta,
+ * «Supported media types»: audio/aac, audio/amr, audio/mpeg, audio/mp4, audio/ogg — только opus и только моно).
+ * `audio/ogg` отдаём лишь для Ogg с заголовком OpusHead; `opusChannels` — число каналов из OpusHead.
+ */
+export type SniffedAudio = { mime: "audio/ogg" | "audio/mp4" | "audio/mpeg" | "audio/aac" | "audio/amr"; opusChannels?: number };
+export function sniffAudioMime(buffer: Buffer): SniffedAudio | null {
+  if (buffer.length < 12) return null;
+  if (buffer.subarray(0, 4).toString("latin1") === "OggS") {
+    const head = buffer.subarray(0, 512).indexOf("OpusHead", 0, "latin1");
+    if (head < 0 || head + 10 > buffer.length) return null; // Ogg, но не Opus (vorbis/speex) — WhatsApp его не примет
+    return { mime: "audio/ogg", opusChannels: buffer[head + 9] };
+  }
+  if (buffer.subarray(4, 8).toString("latin1") === "ftyp") return { mime: "audio/mp4" };
+  if (buffer.subarray(0, 6).toString("latin1") === "#!AMR\n") return { mime: "audio/amr" };
+  if (buffer.subarray(0, 3).toString("latin1") === "ID3") return { mime: "audio/mpeg" };
+  if (buffer[0] === 0xff && (buffer[1]! & 0xf6) === 0xf0) return { mime: "audio/aac" }; // ADTS
+  if (buffer[0] === 0xff && (buffer[1]! & 0xe0) === 0xe0) return { mime: "audio/mpeg" };
+  return null;
+}
+
+/** Готовый файл проверяется по содержимому до отправки: не тот формат — не шлём, а пишем в журнал. */
+function checkedOutput(buffer: Buffer | null, expect: "audio/ogg" | "audio/mp4"): Buffer | null {
+  if (!buffer) return null;
+  const sniffed = sniffAudioMime(buffer);
+  const ok = sniffed?.mime === expect && (expect !== "audio/ogg" || sniffed.opusChannels === 1);
+  if (ok) return buffer;
+  void logSystemError("ai", `Голосовое не отправлено: после перекодирования файл не ${expect === "audio/ogg" ? "моно ogg/opus" : "m4a"} (по содержимому: ${sniffed ? `${sniffed.mime}${sniffed.opusChannels ? `, каналов ${sniffed.opusChannels}` : ""}` : "не распознан"})`,
+    { dedupKey: `voice-output-not-${expect}` });
+  return null;
+}
+
 /** Keep pitch and Opus compatibility when making short bot replies a little faster. */
 export function adjustTelegramVoiceTempo(buffer: Buffer, tempo: number): Promise<Buffer | null> {
   if (!Number.isFinite(tempo) || tempo < 0.9 || tempo > 1.15) return Promise.resolve(null);
   return runFfmpegTranscode(buffer, "ogg", (inputPath, outputPath) => [
-    "-nostdin", "-loglevel", "error", "-y", "-i", inputPath, "-vn", "-filter:a", `atempo=${tempo}`,
+    "-nostdin", "-loglevel", "error", "-y", "-i", inputPath, "-vn", "-map_metadata", "-1", "-filter:a", `atempo=${tempo}`,
     "-c:a", "libopus", "-b:a", "64k", outputPath,
   ], 1_500);
 }
@@ -98,15 +132,21 @@ export async function transcodeToOggOpus(buffer: Buffer): Promise<Buffer | null>
   // -vn: во входном файле иногда есть пустой видеотрек (некоторые сборки
   // MediaRecorder кладут его в контейнер даже для чистого аудио) — без этого
   // флага ffmpeg пытается транскодировать и его, и падает на кодеке.
-  return runFfmpegTranscode(buffer, "ogg", (inputPath, outputPath) => [
+  // -map_metadata -1 (21.11.2026): запись iPhone (Safari, mp4) несла в ogg теги контейнера MP4 —
+  // major_brand, handler_name «Core Media Audio», vendor_id из нулевых байтов. WhatsApp такой файл
+  // не опознал (application/octet-stream). Тегов в голосовом не нужно ни одного.
+  // -ar 48000: родная частота Opus, явно — чтобы не зависеть от частоты записи.
+  return checkedOutput(await runFfmpegTranscode(buffer, "ogg", (inputPath, outputPath) => [
     "-y",
     "-i", inputPath,
     "-vn",
+    "-map_metadata", "-1",
     "-ac", "1",
+    "-ar", "48000",
     "-c:a", "libopus",
     "-b:a", "32k",
     outputPath,
-  ]);
+  ]), "audio/ogg");
 }
 
 /**
@@ -117,16 +157,17 @@ export async function transcodeToOggOpus(buffer: Buffer): Promise<Buffer | null>
  * пишут его в конец, и часть ридеров отказывается проигрывать файл целиком.
  */
 export async function transcodeToM4a(buffer: Buffer): Promise<Buffer | null> {
-  return runFfmpegTranscode(buffer, "m4a", (inputPath, outputPath) => [
+  return checkedOutput(await runFfmpegTranscode(buffer, "m4a", (inputPath, outputPath) => [
     "-y",
     "-i", inputPath,
     "-vn",
+    "-map_metadata", "-1",
     "-ac", "1",
     "-c:a", "aac",
     "-b:a", "64k",
     "-movflags", "+faststart",
     outputPath,
-  ]);
+  ]), "audio/mp4");
 }
 
 /** Порог тишины и минимальная длина паузы, которую считаем «тишиной», а не долгой
