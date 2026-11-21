@@ -77,6 +77,7 @@ import {
   getBotUsername,
   editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
+  removeKeyboard,
   sendMessageWithButtons,
   setMessageReaction,
   TelegramApiError,
@@ -772,6 +773,16 @@ async function replyWithMoreProperties(scope: CardScope, count: number, request:
 
 // ───────────────────────────── личка ─────────────────────────────
 
+/**
+ * Контакт из Telegram («Поделиться номером» или визитка) → строка для помощницы (21.11.2026).
+ * Имя из чужой визитки — данные, а не команда: переводы строк и длина урезаны.
+ */
+export function staffContactPrompt(contact: { phone_number: string; first_name?: string }): string {
+  const digits = contact.phone_number.replace(/[^\d]/g, "");
+  const name = (contact.first_name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return `Контакт: ${name ? `${name}, ` : ""}+${digits}`;
+}
+
 const HELP_TEXT =
   "Я помощник CRM. Напишите или надиктуйте просьбу: «найди клиента …», «покажи ОБ-123», «снизь цену ОБ-123 до 90000». " +
   "Всё, что меняет данные, я показываю карточкой «было → станет» и жду вашего «Подтвердить». «Добавь объект» — открыть мастер в личке. /new — начать разговор заново.";
@@ -876,6 +887,16 @@ export async function handleAssistantPrivate(
     }
     const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
     const forwardedPlain = isForwarded && Boolean((msg.text ?? msg.caption)?.trim());
+    // Контакт сотрудника: свой номер — уже подключён, лишнюю кнопку «Поделиться номером» снимаем;
+    // чужая визитка — слова для помощницы («найди или заведи клиента»), а не общая подсказка.
+    let contactText = "";
+    if (msg.contact) {
+      if (msg.contact.user_id != null && String(msg.contact.user_id) === String(msg.from?.id ?? "")) {
+        await removeKeyboard(chatId, "Это ваш номер, вы уже подключены к CRM. Пишите просьбу словами.");
+        return;
+      }
+      contactText = staffContactPrompt(msg.contact);
+    }
     const moneyWallet = createAssistantMoneyWallet();
     if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     // «Править текст» озвучки (15 минут после кнопки) — раньше мастера объекта и общего ответа.
@@ -895,18 +916,20 @@ export async function handleAssistantPrivate(
     // «Готов к выпуску» или «Нужен монтаж». В мастере объекта видео остаётся исходником (выше).
     if (await handleStaffClipMessage(msg, agent)) return;
     if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
-    let text = (msg.text ?? msg.caption ?? "").trim();
+    let text = (msg.text ?? msg.caption ?? "").trim() || contactText;
     const fromVoice = Boolean(msg.voice || msg.audio);
     let forwardedEvidence = forwardedPlain;
     let attachedFileText = "";
     if (!forwardedPlain && (text === "/new" || text === "/reset")) {
       await clearHistory(chatId);
       clearStaffPropertyPage(cardScope);
-      await send("Начали заново.");
+      // remove_keyboard: у давно привязанных кнопка клиентского бота исчезает при первом /new.
+      await removeKeyboard(chatId, "Начали заново.");
       return;
     }
     if (!forwardedPlain && text.startsWith("/")) {
-      await send(HELP_TEXT);
+      if (text === "/start" || text.startsWith("/start@")) await removeKeyboard(chatId, HELP_TEXT);
+      else await send(HELP_TEXT);
       return;
     }
     if ((msg.photo?.length || msg.document) && text) {
