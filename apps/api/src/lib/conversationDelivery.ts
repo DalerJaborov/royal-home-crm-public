@@ -29,7 +29,8 @@ import {
 } from "../messengers/meta.js";
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
-import { isMessagingWindowClosedError } from "./messagingWindow.js";
+import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
@@ -301,6 +302,38 @@ export type DeliveryResult =
   | { ok: false; status: number; error: string; code?: "window_closed" };
 
 /**
+ * ОКНО 24 ЧАСА ПРОВЕРЯЕТСЯ ДО ОТПРАВКИ (21.11.2026).
+ *
+ * WhatsApp Cloud API принимает свободный текст вне окна синхронно (200) и «не
+ * доставил» сообщает потом, статусом из вебхука (код 131047) — поэтому catch у
+ * отправки его не видел, а в Журнал ошибок падала запись «WhatsApp не доставил
+ * наш ответ». Теперь смотрим время последней реплики клиента заранее и не шлём.
+ * Сотруднику — понятный текст (windowClosedStaffText), автоматике — тот же
+ * `window_closed`, который её вызывающие уже умеют обрабатывать, и тихая строка
+ * в консоль вместо ошибки. Неизвестно, когда клиент писал последний раз (нет
+ * отметки времени) — не блокируем: решит Meta, а её отказ журнал не засоряет.
+ * Один дверной проём для текста, голосового и медиа.
+ */
+async function windowClosedBeforeSend(
+  target: DeliveryTarget,
+  sender: MessageSender | undefined,
+  /** Реплика клиента, пришедшая только что и ещё не записанная в переписку. */
+  justReceivedAt?: Date | null
+): Promise<{ ok: false; status: number; error: string; code: "window_closed" } | null> {
+  if (target.kind !== "bot") return null;
+  const channel = target.channel;
+  // Блокируем только ДОСТОВЕРНО старую реплику клиента (>24 ч). «Клиент вообще не
+  // писал» подсказка в карточке называет закрытым (messagingWindowStateOfTarget), а
+  // сама отправка не блокируется: диалог мог быть начат шаблоном, решит Meta, и её
+  // отказ журнал не засоряет.
+  if (!isMessagingWindowClosedFor(channel, await lastClientMessageAt(target, justReceivedAt))) return null;
+  if (!sender || sender.kind === "system" || sender.kind === "bot") {
+    console.log(`[окно] ${channel}: клиент ${target.subscriberId} не писал больше суток — сообщение не отправлено`);
+  }
+  return { ok: false, status: 409, code: "window_closed", error: windowClosedStaffText(channel) };
+}
+
+/**
  * Отправка сообщения клиенту в тот канал, откуда он писал.
  *
  * Вынесено из POST /conversations/:id/reply, чтобы тем же путём могла ходить отправка
@@ -332,6 +365,9 @@ export async function deliverToConversation(
      *  показ, напоминание) без человека за штурвалом, и «system» честнее, чем
      *  молча приписывать их боту или безымянному «кому-то». */
     sender?: MessageSender;
+    /** Время реплики клиента, пришедшей прямо сейчас и ещё не легшей в переписку:
+     *  ответ на неё всегда внутри окна (вебхук → ссылка на объект и т. п.). */
+    inboundAt?: Date;
   }
 ): Promise<DeliveryResult> {
   const isTelegram = target.kind === "telegram";
@@ -362,6 +398,9 @@ export async function deliverToConversation(
           : `Канал ${target.kind === "bot" ? target.channel : ""} больше не поддерживается: отвечать можно в WhatsApp, Instagram, Messenger и Telegram.`,
     };
   }
+
+  const windowClosed = await windowClosedBeforeSend(target, options?.sender, options?.inboundAt);
+  if (windowClosed) return windowClosed;
 
   // Снимок последней реплики бота — ДО того, как допишем ответ оператора: после
   // дописывания последним окажется сам оператор, и учиться будет не на чем.
@@ -462,8 +501,7 @@ export async function deliverToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободный текст, пока он не напишет первым. Дождитесь его сообщения или позвоните.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
@@ -665,6 +703,9 @@ export async function deliverVoiceToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   // Фоновое голосовое бота идёт ВДОГОНКУ уже отправленному тексту, и пока оно
   // готовится (перекодирование, расшифровка, проверка), оператор может взять диалог
   // (CHANNEL-NEW-09). Проверяем до дорогих шагов и ещё раз перед паузой и отправкой.
@@ -807,8 +848,7 @@ export async function deliverVoiceToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `Голосовое сотрудника не отправлено: ${describeError(err)}`);
@@ -1009,6 +1049,9 @@ export async function deliverMediaToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   const isImage = media.mimetype.startsWith("image/");
   const isVideo = media.mimetype.startsWith("video/");
   if (!isImage && !isVideo) {
@@ -1131,8 +1174,7 @@ export async function deliverMediaToConversation(
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
@@ -1237,22 +1279,34 @@ async function rememberAgentStyleExample(
  * Нужна правилу окна Meta (lib/messagingWindow.ts::isMessagingWindowOpen):
  * агент видит «уйдёт / не уйдёт» до нажатия. Отказ базы — null, как у соседей.
  */
-export async function lastClientMessageAt(target: DeliveryTarget): Promise<Date | null> {
+export async function lastClientMessageAt(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<Date | null> {
+  const messages = await conversationMessagesOf(target);
+  // Максимум по времени (не последняя запись списка) — общее правило окна Meta.
+  return messages ? lastInboundAt(messages, justReceivedAt) : (justReceivedAt ?? null);
+}
+
+async function conversationMessagesOf(target: DeliveryTarget): Promise<{ role?: string; at?: string }[] | null> {
   try {
     const row =
       target.kind === "telegram"
         ? await prisma.telegramConversation.findUnique({ where: { id: target.id }, select: { messages: true } })
         : await prisma.botConversation.findUnique({ where: { id: target.id }, select: { messages: true } });
-    const messages = (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role !== "user") continue;
-      const at = messages[i]?.at ? new Date(messages[i].at!) : null;
-      return at && !Number.isNaN(at.getTime()) ? at : null;
-    }
-    return null;
+    return (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
   } catch {
     return null;
   }
+}
+
+/**
+ * Состояние окна Meta у диалога (общее правило packages/shared): «закрыто» —
+ * клиент не писал вовсе или его последняя реплика старше суток; «неизвестно» —
+ * отказ базы или реплики без времени (не блокирует).
+ */
+export async function messagingWindowStateOfTarget(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<MessagingWindowState> {
+  if (target.kind !== "bot") return "open";
+  const messages = await conversationMessagesOf(target);
+  if (!messages) return justReceivedAt ? "open" : "unknown";
+  return messagingWindowStateOfMessages(target.channel, messages, justReceivedAt);
 }
 
 /** Общий обход истории с конца. Отказ базы — это `null`: и подсказка про язык, и
