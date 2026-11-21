@@ -59,11 +59,15 @@ import { loadDemandSupply } from "../lib/demandSupply.js";
 import { loadResponseSpeed } from "../lib/responseSpeed.js";
 import { buildSecurityReviewDigest } from "../lib/securityReviewDigest.js";
 import { logSystemError } from "../lib/systemError.js";
+import { reportsDirectorRouter } from "./reportsDirector.js";
 import { buildAgentsReport, buildFunnelCohort, buildFunnelReport, buildSourcesReport, parseReportRange, type ReportViewer } from "../lib/teamReports.js";
 
 export const reportsRouter = Router();
 
 reportsRouter.use(requireAuth, requirePermission("reports.view"));
+
+// Дашборд директора (21.11.2026): то же право reports.view, что у всех отчётов.
+reportsRouter.use("/director", reportsDirectorRouter);
 
 reportsRouter.get("/post-showing-cohort/config", requireInvestigations, requirePermission("clients.securityReview"), async (_req, res) => {
   const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingCohortConfig: true } });
