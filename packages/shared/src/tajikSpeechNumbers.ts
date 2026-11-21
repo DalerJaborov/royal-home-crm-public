@@ -20,7 +20,8 @@ function underThousand(number: number): string {
     return number % 10 === 0 ? tens : connect(tens, SMALL[number % 10]);
   }
   const hundreds = Math.floor(number / 100);
-  const word = hundreds === 1 ? "сад" : `${SMALL[hundreds]}сад`;
+  // Сотня по-таджикски — «яксад»: «саду ҳашт» звучит неграмотно (владелец 21.11.2026), «як миллиону яксаду панҷоҳ ҳазор».
+  const word = `${SMALL[hundreds]}сад`;
   return number % 100 === 0 ? word : connect(word, underThousand(number % 100));
 }
 
