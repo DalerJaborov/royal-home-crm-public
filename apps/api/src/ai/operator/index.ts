@@ -102,9 +102,16 @@ function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx
  * где вопрос ушёл за окно, счётчик не трогает.
  */
 const RECONCILE_WINDOW = 8;
-export function reconcileAskedRole(state: OperatorState, recent: OperatorTurnRequest["input"]["recent"]): void {
+/**
+ * `sent` — что бот этого разговора правда отправил ИЛИ уже отправляет (очередь READY / IN_FLIGHT, lib/customerLeadOnlyCore.ts::
+ * readCustomerLeadOnlySentTexts). Память ядра (`recent`) видит только доставленное: пост Б через секунду после поста А, пока
+ * вопрос на А ещё в очереди, иначе сбрасывал счётчик в 0, и вопрос уходил второй раз (слепое ревью #371). Вытесненный ответ
+ * (supersededAt / отмена) в `sent` не попадает — случай ea3fecb5 закрыт по-прежнему.
+ */
+export function reconcileAskedRole(state: OperatorState, recent: OperatorTurnRequest["input"]["recent"], sent: readonly string[] = []): void {
   if (!recent || recent.length >= RECONCILE_WINDOW || state.asked.role === 0 || state.leadAccepted) return;
-  const seen = recent.filter(turn => turn.role === "assistant" && /[?？]/u.test(turn.text)).length;
+  const questions = (texts: readonly string[]) => texts.filter(text => /[?？]/u.test(text)).length;
+  const seen = Math.max(questions(recent.filter(turn => turn.role === "assistant").map(turn => turn.text)), questions(sent));
   if (seen < state.asked.role) state.asked.role = seen;
 }
 
@@ -120,7 +127,7 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
     return { text, parts: [text], language, steps: [step], facts: {}, actions: [], state, stored: serializeOperatorState(state, now),
       understanding: understandFallback(request.input, state, request.ctx) };
   }
-  reconcileAskedRole(previous, request.input.recent);
+  reconcileAskedRole(previous, request.input.recent, request.input.sentBotTexts);
   const understanding = await understandTurn(request.input, previous, request.ctx, request.model, request.timeoutMs);
   try {
     const decision = decide(previous, understanding, request.ctx);

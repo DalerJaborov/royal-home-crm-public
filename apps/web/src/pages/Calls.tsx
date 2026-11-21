@@ -268,6 +268,9 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
 function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
   // Метки «без разбора» в строке нет (владелец 21.11.2026): это внутренний учёт, а не факт о звонке;
   // неразобранные входящие — отдельным срезом «Без разбора» над списком.
+  // Звонил свой сотрудник (21.11.2026) — подписываем именем, не «в базе нет».
+  const staff = call.staff ?? null;
+  const caller = staff ? `Сотрудник · ${staff.fullName}` : call.phone;
   // «Новый вид»: те же пометки и действия. У принятого входящего своей записи в
   // CRM нет — кнопки «Слушать» нет и не было; «Перезвонить» — только у
   // пропущенного (правило владельца), «Больше не звонить» — строкой меток.
@@ -276,24 +279,25 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       <RoyalCallRow
         dir={call.answered ? "in" : "missed"}
         dirLabel={call.answered ? "Входящий" : "Пропущенный входящий"}
-        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : call.phone}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : caller}
         meta={[
           call.answered ? "Входящий" : "Пропущенный",
           relativeTime(call.startedAt),
           call.answered ? formatCallDuration(call.talkSeconds) : "до оператора не дозвонился",
           call.answered ? (call.answeredByName ? `принял ${call.answeredByName}` : call.answeredBy ? `оператор ${call.answeredBy}` : null) : null,
-          call.client ? null : "в базе нет",
+          call.client || staff ? null : "в базе нет",
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
-          {!call.answered && (call.callbackAgent
+          {staff && <RoyalCallFlag tone={pillTone("info")}>свой номер, не клиент</RoyalCallFlag>}
+          {!call.answered && !staff && (call.callbackAgent
             ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
             : <RoyalCallFlag tone={pillTone("info")}>никто не перезвонил</RoyalCallFlag>)}
           {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
           {call.client && <Link className="ry-call-more" to={`/clients/${call.client.shortId}`}>Открыть клиента</Link>}
-          <BlockCallerButton callId={call.id} known={!!call.client} />
+          {!staff && <BlockCallerButton callId={call.id} known={!!call.client} />}
         </>}
         // Кнопка звонка одного вида (владелец 21.11.2026): у незнакомого номера карточки нет,
         // CRM ему не позвонит — неработающую кнопку не рисуем, «в базе нет» уже сказано.
@@ -317,7 +321,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
           ) : (
             // Номер незнакомого звонившего — не телефон клиента из карточки:
             // маскирование решает сервер, здесь показывается то, что он прислал.
-            call.phone
+            caller
           )}
         </b>
         <span>
@@ -331,7 +335,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
                     : ""
               }`
             : ". До оператора не дозвонился"}
-          {call.client ? "" : ". В базе нет"}
+          {call.client || staff ? "" : ". В базе нет"}
           {call.qualifiedBy ? `. Разобрал ${call.qualifiedBy.fullName}` : ""}
         </span>
       </div>
@@ -342,7 +346,8 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       )}
       <CallSourceMark source={call.source} look="chip" />
       {call.irrelevant && <span className="chip mute">не по делу</span>}
-      {!call.answered &&
+      {staff && <span className="chip mute">свой номер, не клиент</span>}
+      {!call.answered && !staff &&
         (call.callbackAgent ? (
           <span className="chip warn">перезвонит {call.callbackAgent.fullName}</span>
         ) : (
@@ -374,7 +379,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
             Открыть клиента
           </Link>
         )}
-        <BlockCallerButton callId={call.id} known={!!call.client} />
+        {!staff && <BlockCallerButton callId={call.id} known={!!call.client} />}
       </div>
     </div>
   );
@@ -573,7 +578,7 @@ export function Calls() {
     );
   }
 
-  const missedNobody = incoming?.items.filter((c) => !c.answered && !c.callbackAgent).length ?? 0;
+  const missedNobody = incoming?.items.filter((c) => !c.answered && !c.callbackAgent && !c.staff).length ?? 0;
   const listError = callsSlice ? error : incomingError;
   const listLoading = callsSlice ? isLoading : incomingLoading;
   const retry = callsSlice ? refetch : refetchIncoming;
