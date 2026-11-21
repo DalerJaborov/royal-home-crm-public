@@ -28,7 +28,6 @@ import { SmsSection } from "../../pages/settings/SmsSection";
 import { WhatsAppTemplatesSection } from "../../pages/settings/WhatsAppTemplatesSection";
 import { SettingsGroupLabel } from "./SettingsSection";
 import type { CleanSettingsTask } from "../../lib/cleanSettingsTasks";
-import { UiShellRolloutSection } from "./UiShellRolloutSection";
 import { SomonRecipientsSection } from "./SomonRecipientsSection";
 
 // BotTab — 295 КБ (3,9 тыс. строк форм бота): грузим только когда открыта вкладка «Бот»,
@@ -72,7 +71,7 @@ function CleanSettingsTaskBody({ task, agentRole }: { task: CleanSettingsTask; a
     case "bot/models": return <BotTab area="models" />;
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
     case "system/monitoring": return <><FunctionStatusEntry /><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
-    case "system/workspace": return <><UiShellRolloutSection /><PultModulesSection /></>;
+    case "system/workspace": return <PultModulesSection />;
     case "system/security": return <PasskeyToggleSection />;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
     case "system/website": return agentRole === "DIRECTOR" ? <SiteAdminSection /> : null;
