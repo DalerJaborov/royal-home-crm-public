@@ -1,3 +1,5 @@
+import { PROPERTY_WIZARD_WARNING_CONFIRM, type PropertyWizardWarningField, type PropertyWizardWarnings } from "@royal-home/shared";
+import { WizardWarning } from "./WizardWarning";
 import { Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { District } from "../../types";
 import { DISTRICT_COORDS, districtCenter } from "../../lib/districtCoords";
@@ -52,6 +54,8 @@ export function StepPlace({
   districtsLoading,
   onChange,
   mapNote,
+  warnings = {},
+  onConfirmWarning,
 }: {
   values: WizardValues;
   errors: Record<string, string>;
@@ -60,6 +64,9 @@ export function StepPlace({
   onChange: (patch: Partial<WizardValues>) => void;
   /** Строка под картой от мастера — «точку по фото поставили на дом …». */
   mapNote?: string | null;
+  /** Предупреждения шага (не ошибки): адрес из одного слова (21.11.2026). */
+  warnings?: PropertyWizardWarnings;
+  onConfirmWarning?: (field: PropertyWizardWarningField) => void;
 }) {
   const point = values.lat !== null && values.lng !== null ? { lat: values.lat, lng: values.lng } : null;
   const { result, status } = useReverseGeocode(point);
@@ -314,6 +321,9 @@ export function StepPlace({
           <p id={addressStatusId} style={{ marginTop: 8, fontSize: 13, color: errors.address ? "var(--warn)" : "var(--muted)" }} role="status" data-testid="wizard-address-status">
             {addressStatus}
           </p>
+        )}
+        {warnings.address && !errors.address && (
+          <WizardWarning text={warnings.address} confirmLabel={PROPERTY_WIZARD_WARNING_CONFIRM.address} testId="wizard-address-warning" onConfirm={() => onConfirmWarning?.("address")} />
         )}
         {canSuggest && (
           <button

@@ -25,7 +25,7 @@ import {
   SECONDARY_CONDITIONS, UPLOAD_VIDEO_MAX_BYTES, fieldsForNewBuildPhase, formatClientCode, formatPropertyCode, parseShortCode,
   propertyCreateSchema, propertyDetailFieldLabel, propertyDetailOptionLabel, propertyDetailShown, propertyDuplicateCheckQuerySchema,
   propertyFieldShown, propertyFinishSummary, propertyHasCondition, propertyHasMarket, propertyWizardDraftValuesSchema,
-  propertyWizardErrors, propertyWizardTypeChange, narrationDraftText,
+  propertyWizardErrors, propertyWizardTypeChange, propertyWizardWarnings, narrationDraftText,
   type PermissionId, type PropertyDetailKey, type PropertyDuplicateMatch, type PropertyType, type PropertyWizardDraftValues,
 } from "@royal-home/shared";
 import { z } from "zod";
@@ -65,6 +65,7 @@ import {
 } from "./assistantPhotoQuality.js";
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { narrationRate } from "../lib/propertyNarration.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -583,6 +584,8 @@ async function review(ctx: Context, draft: DraftRecord) {
     type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
     price: values.price ? String(values.price) : null, currency: values.currency ?? null,
+    // Цена в озвучке только в сомони (21.11.2026): долларовую переводит общий курс из Настроек.
+    usdToTjs: values.currency === "USD" ? await narrationRate() : null,
   }).text : null;
   const lines = [
     c.title,
@@ -617,6 +620,9 @@ async function review(ctx: Context, draft: DraftRecord) {
       first.distanceM != null && first.matchedBy !== "address" && `${first.distanceM} м`].filter(Boolean).join(", ");
     lines.push(`\n⚠️ ${c.duplicate(formatPropertyCode(first.shortId), facts, duplicates.length - 1)}`);
   }
+  // Предупреждения мастера (21.11.2026, объект №213; ревью #348): валюта похожа на перепутанную, адрес из одного
+  // слова. Создать объект они НЕ мешают — те же правила, что у мастера CRM, но там под полем кнопка «Цена верная».
+  for (const warning of Object.values(propertyWizardWarnings(values))) lines.push(`\n⚠️ ${warning}`);
   // Монтаж стартует сам, когда у объекта есть фото и видео (проверка исходников выключена): без видео объект ждёт.
   if (!readyMedia(draft, "VIDEO").length && !queuedFiles.length) lines.push(`\n${c.videoHint}`);
   lines.push(missing.size ? `\n${c.needMore}: ${[...missing.values()].join(", ")}.\n${c.howTo}` : `\n${c.ready}`);

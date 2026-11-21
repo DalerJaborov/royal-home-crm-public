@@ -2,6 +2,7 @@ import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
 import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
+import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
 /**
  * ОЗВУЧКА РОЛИКА ОБЪЕКТА — ОДИН ИСТОЧНИК ПРАВИЛ ТЕКСТА (11.11.2026).
@@ -13,8 +14,17 @@ import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.j
  * набор положила миграция `narration_flow_11_11`, в коде их нет.
  *
  * ЦЕНУ ГОВОРИМ (решение владельца 11.11.2026: «Да, говорить цену»): слово `{цена}`
- * произносит цену словами с валютой карточки, без цены — «договорная». Поэтому
- * цена входит в факты озвучки: смена цены даёт новую версию и новое одобрение.
+ * произносит цену словами, без цены — «договорная». Поэтому цена входит в факты
+ * озвучки: смена цены даёт новую версию и новое одобрение.
+ *
+ * ТОЛЬКО В СОМОНИ (владелец 21.11.2026: «озвучивать цены в долларах нельзя, брать
+ * только в сомони, там у нас автоматическая конвертация»). Долларовая цена карточки
+ * переводится общим правилом `convertToTjs` по курсу, который сервер кладёт в
+ * `facts.usdToTjs` (курс сохраняется в снимке версии и в хэш фактов не входит —
+ * ежедневная смена курса не делает озвучку «устаревшей»). Курса нет или валюта
+ * карточки выглядит перепутанной — предложение с `{цена}` выпадает целиком: лучше
+ * без цены, чем неверная цена или доллары. Сторож `narrationCurrencyError` не
+ * пропускает доллары в текст, который уходит в ElevenLabs.
  */
 
 export const NARRATION_LANGS = ["tg", "ru"] as const;
@@ -288,6 +298,8 @@ export type NarrationFacts = {
   type: string; rooms: number | null; areaSqm: string; floor: number | null; totalFloors: number | null; district: string | null;
   /** Цена как хранится в карточке (строка десятичного числа) и её валюта: TJS или USD. */
   price?: string | null; currency?: string | null;
+  /** Курс доллара для `{цена}` (21.11.2026). Только для сборки текста: в хэш фактов не входит. */
+  usdToTjs?: number | null;
 };
 
 /** Прежний текст по фактам — остаётся, пока владелец не завёл ни одного шаблона. */
@@ -310,13 +322,44 @@ function rubPlural(n: number, one: string, few: string, many: string): string {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
-/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), валюта из карточки; нет цены — «договорная». */
-export function narrationPriceWords(price: string | null | undefined, currency: string | null | undefined, lang: NarrationLang): string {
-  const value = Math.round(Number(price));
-  if (!price || !Number.isFinite(value) || value <= 0) return lang === "tg" ? "бо мувофиқа" : "договорная";
-  const usd = currency === "USD";
-  if (lang === "tg") return `${tajikCardinal(value)} ${usd ? "доллар" : "сомонӣ"}`;
-  return `${numberToWords(value, "ru")} ${usd ? rubPlural(value, "доллар", "доллара", "долларов") : "сомони"}`;
+/**
+ * Цена для озвучки В СОМОНИ (21.11.2026) — число; null — цену говорить нельзя (доллары без курса).
+ * Сомони карточки — как есть; доллары — общим правилом `convertToTjs`, округлённые до тысячи:
+ * сумма по курсу дня точной не бывает, а «сто сорок четыре сомони» в конце только мешают слушать.
+ */
+export function narrationSpokenPriceTjs(price: string | null | undefined, currency: string | null | undefined, usdToTjs?: number | null): number | null {
+  // Одно число на голос, монтажёра, обложку и плашку — `propertyPriceTjs` (ревью #348).
+  return propertyPriceTjs(price, currency, usdToTjs);
+}
+/** Почему `{цена}` не прозвучит (для журнала): NO_RATE — доллары без курса; CURRENCY_SUSPECT — валюта карточки похожа на перепутанную. */
+export function narrationPriceProblem(facts: NarrationFacts): "NO_RATE" | "CURRENCY_SUSPECT" | null {
+  if (!facts.price || !(Number(facts.price) > 0)) return null;
+  if (apartmentPriceCurrencySuspect({ type: facts.type, price: facts.price, currency: facts.currency, areaSqm: facts.areaSqm })) return "CURRENCY_SUSPECT";
+  if (facts.currency === "USD" && narrationSpokenPriceTjs(facts.price, facts.currency, facts.usdToTjs) === null) return "NO_RATE";
+  return null;
+}
+/** Цена для озвучки: словами на обоих языках (17.11.2026: «цифры всегда буквами»), только сомони; нет цены — «договорная»;
+ *  сказать нельзя (нет курса, валюта под сомнением) — пусто, и предложение с {цена} выпадает. */
+export function narrationPriceWords(facts: NarrationFacts, lang: NarrationLang): string {
+  if (!facts.price || !(Number(facts.price) > 0)) return lang === "tg" ? "бо мувофиқа" : "договорная";
+  if (narrationPriceProblem(facts)) return "";
+  const value = narrationSpokenPriceTjs(facts.price, facts.currency, facts.usdToTjs);
+  if (value === null) return "";
+  return lang === "tg" ? `${tajikCardinal(value)} сомонӣ` : `${numberToWords(value, "ru")} сомони`;
+}
+/**
+ * СТОРОЖ ВАЛЮТЫ В ТЕКСТЕ ОЗВУЧКИ (21.11.2026): доллары в ElevenLabs не уходят ни из шаблона, ни из текста,
+ * который агент написал руками. Второй слой к `narrationPriceWords` (запрет «никогда» — правилом и кодом).
+ */
+// Без взгляда назад (Safari < 16.4 его не знает, сторож noRegexLookbehind): «usd»/«usdt» отдельным словом латиницы.
+// «долл» ловит и «доллар», и «долл.» без точки; «долар» — частая опечатка; «у.е.» — «условные единицы» (ревью #348).
+const DOLLAR_WORDS = /долл|долар|dollar|\$|(?:^|[^a-z])usdt?(?:[^a-z]|$)|бакс|у\.\s?е\./iu;
+/** `template` — текст шаблона или концовки в Настройках: там цену подставляет {цена}. Свой текст агента — без {цена}. */
+export function narrationCurrencyError(text: string, opts: { template?: boolean } = {}): string | null {
+  if (!DOLLAR_WORDS.test(text)) return null;
+  return opts.template
+    ? "Цену в озвучке говорим только в сомони: уберите доллары из текста, цену подставит {цена}"
+    : "Цену в озвучке говорим только в сомони: уберите доллары или напишите цену в сомони словами";
 }
 const TYPE_WORDS: Record<NarrationLang, Record<string, string>> = {
   tg: { APARTMENT: "квартира", HOUSE: "ҳавлӣ", LAND: "замин", COMMERCIAL: "ҷои тиҷоратӣ" },
@@ -361,8 +404,9 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     // По-русски этажность стоит после «из»: «пятый этаж из девяти».
     этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
     район: facts.district?.trim() ?? "",
-    // Цена есть всегда: без неё — «договорная», поэтому фрагмент с {цена} не выпадает.
-    цена: narrationPriceWords(facts.price, facts.currency, lang),
+    // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
+    // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
+    цена: narrationPriceWords(facts, lang),
   };
 }
 
@@ -393,7 +437,7 @@ export function narrationTemplateRulesError(text: string, lang?: NarrationLang):
     : "В таджикском тексте цифры не пишем: числа только словами, например «се», а не «3». Цифры из объекта подставляют слова в фигурных скобках";
   if (/direct/iu.test(text)) return "Слово Direct пишем по-русски: «Директ». Латиницей озвучка прочтёт его неверно";
   if (/брон/iu.test(text)) return "Слово «брон» в текстах озвучки не используем: замените, например, на «вақт интихоб кунед»";
-  return null;
+  return narrationCurrencyError(text, { template: true });
 }
 /** Все проверки сразу (новый или изменённый текст шаблона и концовки). */
 export function narrationTemplateError(text: string, lang?: NarrationLang): string | null {
@@ -440,8 +484,30 @@ function renderSegment(text: string, values: Record<string, string>): { out: str
   return { out, missing };
 }
 
+/** Предложение, где {цена} стоит вне скобок, выпадает целиком, когда цену сказать нельзя (иначе «Нархаш .»). */
+function dropPriceSentences(text: string): string {
+  // Предложения режутся только вне [ ]: фрагмент «если есть» с {цена} выпадет и сам (renderSegment).
+  const sentences: Array<{ text: string; price: boolean }> = [];
+  let current = "", price = false, depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === "[") depth++;
+    else if (ch === "]") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && text.startsWith("{цена}", i)) price = true;
+    current += ch;
+    // Конец предложения: «.!?» вне скобок или «[…предложение.]» — скобка, закрывшая целое предложение.
+    const ends = /[.!?]/u.test(ch) || (ch === "]" && /[.!?]/u.test(text[i - 1] ?? ""));
+    if (depth === 0 && ends && /\s/u.test(text[i + 1] ?? " ")) {
+      sentences.push({ text: current, price });
+      current = ""; price = false;
+    }
+  }
+  if (current.trim()) sentences.push({ text: current, price });
+  return sentences.filter((s) => !s.price).map((s) => s.text.trim()).join(" ");
+}
 export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts): string {
-  const { out } = renderSegment(template.text, placeholderValues(facts, template.lang));
+  const values = placeholderValues(facts, template.lang);
+  const { out } = renderSegment(values.цена ? template.text : dropPriceSentences(template.text), values);
   return out
     .replace(/[ \t]+/gu, " ")
     .replace(/ +([.,!?])/gu, "$1")
@@ -637,6 +703,8 @@ export type NarrationOptionsView = {
   lastChoice?: { voiceId?: string; templateId?: string; endingId?: string; usedTemplateId?: string; usedEndingId?: string };
   /** Готовые образцы голосов (кнопка «▶ Прослушать»). */
   samples?: NarrationVoiceSampleRef[];
+  /** Курс доллара из Настроек (21.11.2026): мастер говорит долларовую цену в сомони тем же правилом, что сервер. */
+  usdToTjs?: number | null;
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;

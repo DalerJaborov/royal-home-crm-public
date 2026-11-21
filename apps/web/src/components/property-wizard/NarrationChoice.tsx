@@ -65,7 +65,7 @@ export function NarrationChoice({ facts, value, onChange }: {
       {value.none ? (
         <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
-        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={facts}
+        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={facts.currency === "USD" && data?.usdToTjs ? { ...facts, usdToTjs: data.usdToTjs } : facts}
           value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null} />
         <p className="rounded-lg bg-blue/10 p-3 text-sm">
           {data?.autoGenerate

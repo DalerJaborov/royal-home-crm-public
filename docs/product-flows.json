@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4196,
+  "forks": 4197,
   "mounts": 88,
   "cron": 143,
   "jobs": 34,
@@ -48365,6 +48365,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "outcome === \"PRICE_NOT_IN_TJS\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });",
+       "a": [
+        "ответ 409"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const delivery = outcome === \"AUDIO_APPROVED\" ? await afterNarrationApproved(p.id, versionId.data) : undefine…",
      "a": [
@@ -49914,6 +49929,14 @@
      "t": "const facts = narrationFacts(p);",
      "a": [
       "зовёт narrationFacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const usdToTjs = await narrationRate();",
+     "a": [
+      "зовёт narrationRate()"
      ],
      "c": []
     },
