@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4211,
+  "forks": 4213,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -59037,6 +59037,14 @@
     },
     {
      "k": "do",
+     "t": "void autoLinkPropertyById(updated.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…",
      "a": [
       "зовёт publishPropertyUpdated()"
@@ -93034,6 +93042,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "try",
              "t": "пробует",
              "a": [],
@@ -93098,6 +93121,21 @@
              "t": "await source.sleep(PAGE_PAUSE_MS);",
              "a": [
               "зовёт sleep()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"cron\", msg);",
+             "a": [
+              "запись в журнал ошибок"
              ],
              "c": []
             }

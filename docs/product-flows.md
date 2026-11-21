@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4211**. Модулей: **88**.
+Путей: **789**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4213**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13329,6 +13329,8 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
+- void autoLinkPropertyById(updated.id);
+  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -20958,6 +20960,9 @@
         - await prisma.constructionProject.updateMany({ where: { id: { in: goneIds } }, data: { removedAt: now } });
           · меняет в базе: constructionProject
       - для каждого: const target of needPage.slice(0, DETAILS_PER_RUN_CAP)
+        - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+          - break;
+            · прекращает перебор
         - пробует
           - const page: ParsedProjectPage = parseRegistryProjectPage(html);
             · зовёт parseRegistryProjectPage()
@@ -20972,6 +20977,9 @@
               · запись в журнал ошибок
         - await source.sleep(PAGE_PAUSE_MS);
           · зовёт sleep()
+      - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+        - void logSystemError("cron", msg);
+          · запись в журнал ошибок
       - result.linked = await autoLinkAllProperties();
         · зовёт autoLinkAllProperties()
       - если settings.notify
