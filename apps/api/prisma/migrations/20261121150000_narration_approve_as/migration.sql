@@ -1,0 +1,4 @@
+-- Озвучка одобряется сразу тем, кто сохранил выбор (21.11.2026, владелец: «одобрение сразу там же, чтобы сверх быстро»).
+-- Только добавляет пустую колонку: старые версии (null) живут как раньше.
+ALTER TABLE "PropertyNarrationVersion" ADD COLUMN "approveAsId" TEXT;
+ALTER TABLE "PropertyNarrationVersion" ADD COLUMN "askVia" TEXT;

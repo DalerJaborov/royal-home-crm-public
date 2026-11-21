@@ -38,6 +38,17 @@ export function uploadProblemTitle(failed: number, timedOut: boolean): string {
  * несёт `media: { attached, skipped }`; пока сервер этого не отдаёт (или поле
  * иное), чтение необязательное и возвращает 0 — ничего не ломается.
  */
+/** Текст озвучки агента не принят сервером (доллары и т.п., 21.11.2026): причина из ответа сохранения или null. */
+export function narrationTextRejected(response: unknown): string | null {
+  if (typeof response !== "object" || response === null || !("narrationTextRejected" in response)) return null;
+  const reason = response.narrationTextRejected;
+  return typeof reason === "string" && reason ? reason : null;
+}
+/** Что сказать агенту, если его текст озвучки не принят: озвучка соберётся по шаблону и придёт на прослушивание. */
+export function narrationTextRejectedMessage(reason: string): string {
+  return `Ваш текст озвучки не принят. ${reason}. Озвучка соберётся по шаблону и придёт вам на прослушивание.`;
+}
+
 export function skippedMediaCount(response: unknown): number {
   if (typeof response !== "object" || response === null || !("media" in response)) return 0;
   const media = response.media;
