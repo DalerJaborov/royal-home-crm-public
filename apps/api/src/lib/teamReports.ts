@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma } from "../generated/prisma/client.js";
 import { dateRangeQuerySchema, reportDateRangeError, RATED_ROLES } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
@@ -140,30 +141,57 @@ export interface FunnelCohortStep {
   count: number;
 }
 
-export async function buildFunnelCohort(range: { from: Date; to: Date }, viewer: ReportViewer): Promise<FunnelCohortStep[]> {
-  const { from, to } = range;
+/**
+ * Условия шагов когорты — ОДНО место на воронку «Отчётов» и дашборд директора
+ * (21.11.2026): плитка «Обработанные» и шаг «Связались» обязаны быть одним
+ * числом, а список под плиткой — теми же карточками.
+ */
+export function funnelCohortStepWhere(
+  step: FunnelCohortStep["key"],
+  viewer: Pick<ReportViewer, "investigationRole">
+): Prisma.ClientWhereInput {
   const visible = visibleInteractionWhere(viewer.investigationRole);
-  const cohort = { createdAt: { gte: from, lte: to }, deletedAt: null };
   const anyDeal = { deals: { some: {} } };
   const showing = { interactions: { some: { ...visible, type: "SHOWING" as const, ...COUNTED_SHOWING_WHERE } } };
   // «Связались» — общее правило CRM «с клиентом связывались» (NOT neverContactedWhere,
   // lib/noContact.ts): звонок с исходом дозвона, разговор, встреча или показ сотрудника,
   // сообщение сотрудника в переписке. Пропущенный входящий и заметка — не связь.
   const contact = { NOT: neverContactedWhere() };
-  const [leads, contacted, showings, negotiations, deals] = await Promise.all([
-    prisma.client.count({ where: cohort }),
-    prisma.client.count({ where: { ...cohort, OR: [contact, showing, anyDeal] } }),
-    prisma.client.count({ where: { ...cohort, OR: [showing, anyDeal] } }),
-    prisma.client.count({ where: { ...cohort, ...anyDeal } }),
-    prisma.client.count({ where: { ...cohort, deals: { some: { stage: "COMPLETED" } } } }),
-  ]);
-  return [
-    { key: "leads", label: "Новые заявки", count: leads },
-    { key: "contacted", label: "Связались", count: contacted },
-    { key: "showings", label: "Дошли до показа", count: showings },
-    { key: "negotiations", label: "Дошли до переговоров", count: negotiations },
-    { key: "deals", label: "Закрыли сделку", count: deals },
-  ];
+  switch (step) {
+    case "leads":
+      return {};
+    case "contacted":
+      return { OR: [contact, showing, anyDeal] };
+    case "showings":
+      return { OR: [showing, anyDeal] };
+    case "negotiations":
+      return anyDeal;
+    case "deals":
+      return { deals: { some: { stage: "COMPLETED" } } };
+  }
+}
+
+const FUNNEL_COHORT_LABELS: Record<FunnelCohortStep["key"], string> = {
+  leads: "Новые заявки",
+  contacted: "Связались",
+  showings: "Дошли до показа",
+  negotiations: "Дошли до переговоров",
+  deals: "Закрыли сделку",
+};
+
+/** `scope` — фильтры дашборда директора (ответственный, источник, тип карточки). */
+export async function buildFunnelCohort(
+  range: { from: Date; to: Date },
+  viewer: ReportViewer,
+  scope: Prisma.ClientWhereInput = {}
+): Promise<FunnelCohortStep[]> {
+  const { from, to } = range;
+  const cohort: Prisma.ClientWhereInput = { ...scope, createdAt: { gte: from, lte: to }, deletedAt: null };
+  const keys = ["leads", "contacted", "showings", "negotiations", "deals"] as const;
+  const counts = await Promise.all(
+    keys.map((key) => prisma.client.count({ where: { AND: [cohort, funnelCohortStepWhere(key, viewer)] } }))
+  );
+  return keys.map((key, i) => ({ key, label: FUNNEL_COHORT_LABELS[key], count: counts[i] }));
 }
 
 export interface AgentReportRow {

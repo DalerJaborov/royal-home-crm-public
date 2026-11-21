@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 72 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 782 |
+| Адресов сервера всего | 786 |
 | Задач по расписанию | 137 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -174,7 +174,7 @@
 | `/api/v1/live-voice` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/liveVoiceListen.ts` |
 | `/api/v1/ai` | Запросы к ИИ из интерфейса | 13 | да (3 мест) | `apps/api/src/routes/ai.ts` |
 | `/api/v1/transcribe` | Диктовка голосом в полях CRM | 1 | да (1 мест) | `apps/api/src/routes/transcribe.ts` |
-| `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
+| `/api/v1/reports` | Отчёты за период | 24 | да (4 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/report-pdf` | **без подписи** | 2 | нет | `apps/api/src/routes/reportPdf.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
 | `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
