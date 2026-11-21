@@ -3,7 +3,7 @@ import { usePropertyAds } from "../../hooks/useAds";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { describeLeadStats, formatLeadCount, formatPct } from "../../lib/adsView";
 import { AdLeadStatsLine } from "./AdLeadStatsLine";
-import { EmptyValue } from "../EmptyValue";
+import { EmptyValue, lenBucket } from "../EmptyValue";
 import type { ReactNode } from "react";
 
 /**
@@ -50,9 +50,9 @@ export function PropertyAdBadge({ propertyId }: { propertyId: string }) {
       {/* Четыре цифры — плитки `.tiles` эталона: на телефоне они сами встают
           в две колонки, а `.trio` из трёх ячеек четвёртую выдавливала за край. */}
       <div className="tiles">
-        <Stat label="Потрачено" value={data.spendTjs ? formatMoneyExact(data.spendTjs, "TJS") : null} />
-        <Stat label="Показов" value={data.impressions ? data.impressions.toLocaleString("ru-RU") : null} />
-        <Stat label="Обращений" value={String(data.conversations ?? 0)} />
+        <Stat label="Потрачено" value={data.spendTjs != null ? formatMoneyExact(data.spendTjs, "TJS") : null} />
+        <Stat label="Показов" value={data.impressions != null ? data.impressions.toLocaleString("ru-RU") : null} />
+        <Stat label="Обращений" value={data.conversations != null ? String(data.conversations) : null} />
         <Stat
           label="За обращение"
           value={perConversation !== null ? formatMoneyExact(perConversation, "TJS") : null}
@@ -119,7 +119,7 @@ function Stat({ label, value }: { label: string; value: ReactNode | null }) {
   return (
     <div className="tile rh-fit-host">
       <div className="hd">{label}</div>
-      <b className="rh-fit">{value ?? <EmptyValue />}</b>
+      <b className="rh-fit" data-len={typeof value === "string" ? lenBucket(value) : undefined} style={{ fontSize: "var(--fs-23)" }}>{value ?? <EmptyValue />}</b>
     </div>
   );
 }

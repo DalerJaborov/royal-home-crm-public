@@ -967,46 +967,55 @@
 /* ======================= СУММА И ЧИСЛО ПО ШИРИНЕ ЯЧЕЙКИ (К10, 21.11.2026) =======================
  * `.rh-fit` — крупное число или сумма в плитке (`.rh-fit-host` — сама плитка, container-type).
  * Число НИКОГДА не переносится и не рвётся посреди: «5 499 999,45 с.» (до 17 знаков) стоит одной
- * строкой, а на узкой ячейке уходит на ступень шкалы ниже (2xl → xl → lg → xs) по ширине ячейки.
- * Пороги — ≈ 10 кеглей на сумму из 16–17 знаков, для масштаба «Размера текста» 1, 1,12 и 1,25.
+ * строкой, а на узкой ячейке уходит на ступень шкалы ниже (2xl → xl → lg → sm) по ширине ячейки.
+ * Пороги — ≈ 10 кеглей на сумму из 16–17 знаков (см. ниже data-len), для масштаба «Размера текста» 1, 1,12 и 1,25.
  * Размер — с !important: у плиток разделов своё правило `… .tile b` с большей специфичностью.
  * Слова в таком месте («нет») — `.rh-empty`, обычным шрифтом, не цифровым. */
 :root[data-ui-look="royal"] .rh-fit-host { container-type: inline-size; min-width: 0; }
 :root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-2xl) !important; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-variant-numeric: tabular-nums; }
-:root[data-ui-look="royal"] .rh-note { display: block; font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh-note { display: block; font-size: var(--rh-fs-sm) !important; line-height: 1.35; color: var(--rh-ui-hint) !important; }
 :root[data-ui-look="royal"] .rh-empty { font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: var(--rh-fs-lg); font-weight: 600; letter-spacing: 0; color: var(--rh-ui-hint); white-space: normal; }
+/* Ступень по длине строки (data-len на значении: s ≤ 9 знаков, m ≤ 13, l — длиннее): короткая сумма («5 000 с.») не
+ * мельчает раньше времени — порог ≈ 6 / 8 / 10 кеглей. Без data-len — как l. Масштабы «Размера текста» 1 / 1,12 / 1,25. */
 /* масштаб 1 */
-@container (max-width: 280px) { :root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-xl) !important; } }
-@container (max-width: 200px) { :root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-lg) !important; } }
-@container (max-width: 180px) { :root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-xs) !important; } }
+@container (max-width: 280px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 224px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 168px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 160px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 144px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 120px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 108px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
 /* масштаб 1,12 */
-@container (max-width: 314px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit { font-size: var(--rh-fs-xl) !important; } }
-@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit { font-size: var(--rh-fs-lg) !important; } }
-@container (max-width: 202px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit { font-size: var(--rh-fs-xs) !important; } }
+@container (max-width: 314px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 251px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 202px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 189px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 162px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 121px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
 /* масштаб 1,25 */
-@container (max-width: 350px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit { font-size: var(--rh-fs-xl) !important; } }
-@container (max-width: 250px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit { font-size: var(--rh-fs-lg) !important; } }
-@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit { font-size: var(--rh-fs-xs) !important; } }
+@container (max-width: 350px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 280px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 250px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 210px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 150px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
 
-/* ======================= ТЕЛЕФОН: ПОЛ ТЕКСТА (К04, 21.11.2026) =======================
- * Аудит 20.11 (К04) нашёл на телефоне десятки предложений и подписей в 13–14 px: разделы
- * собираются из артефактов (theme-2026-proto.css и др., generated, руками не правятся), а
- * `theme-2026-typeset.css` (npm run gen:typeset) поднимает размер лишь до 13–15 и не знает,
- * что на телефоне вторичный текст — 15, основной — 17 (конституция, theme-look-royal.css).
- * Здесь — второй проход ТОЛЬКО по предложениям, подписям-строкам и ссылкам: абзац, пояснение,
- * строка «подпись: значение», ссылка в списке, малая кнопка. Метки, значки, счётчики, время и чипы
- * остаются на --rh-fs-xs (13): это не текст для чтения. Размеры — токены, поэтому «Размер текста»
- * растит и их. Ширина — до 767.98 (граница планшета); на ПК размеры темы остаются.
- * `!important`: правила артефактов имеют любую специфичность (до 4 классов), пол обязан её перебить;
- * больше нигде в слоях вида пол не нужен.
- */
+/* ======================= ТЕЛЕФОН: ПОДПИСИ КНОПОК И СВАЙП (К04, 21.11.2026) =======================
+ * Предложения и пояснения, которые в теме были ≤ 14 px, поднимает на телефоне генератор
+ * `npm run gen:typeset` (адресно, по селекторам темы, `theme-2026-typeset.css`, ветка ≤ 767.98).
+ * Здесь — только два узких места старой разметки: малая кнопка Clean и подпись под свайпом строки.
+ * Размеры — токены; жёсткого «пола» по имени тега (p, small, dt…) в виде нет: он сжимал крупные
+ * числа (цена объекта 32 → 15, плитка главной 20 → 15) — ревью #351. */
 @media (max-width: 767.98px) {
-  :root[data-ui-look="royal"] :is(p, small, dt, dd, .hint, .sub, .note, .lab, .lk, .nmx, .heat-note, .state, .text-\[14px\], .text-sm):not(:is(.chip, .tag, .badge, .pill, .ry-badge, .ry-obj-tag, .ry-deal-tag, .ry-home-chip, .eyebrow, .clean-avatar-fallback, .ry-avatar) *, .chip, .tag, .badge, .pill, .ry-badge, .eyebrow) { font-size: var(--rh-fs-sm) !important; }
-  /* Подписи кнопок: малая 15, обычная 17 (конституция «кнопки — основной текст»). */
-  :root[data-ui-look="royal"] [data-clean-size="sm"] { font-size: var(--rh-fs-sm) !important; }
-  :root[data-ui-look="royal"] [data-clean-size="md"] { font-size: var(--rh-fs-md) !important; }
-  /* Свайп строки клиента: «Позвонить» / «Открыть». */
-  :root[data-ui-look="royal"] .sw .under :is(.l, .r) { font-size: var(--rh-fs-sm) !important; }
-  /* Переключатель периода в отчётах («Неделя»). */
-  :root[data-ui-look="royal"] :is(.seg, .segs) button, :root[data-ui-look="royal"] label > .lab, :root[data-ui-look="royal"] .lab { font-size: var(--rh-fs-sm) !important; }
+  :root[data-ui-look="royal"] [data-clean-size="sm"] { font-size: var(--rh-fs-sm); }
+  :root[data-ui-look="royal"] [data-clean-size="md"] { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .sw .under :is(.l, .r) { font-size: var(--rh-fs-sm); }
 }

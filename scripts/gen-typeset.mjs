@@ -161,6 +161,14 @@ function build() {
     byMedia.get(key).push(r);
   }
   let css = head;
+  // ТЕЛЕФОННАЯ ВЕТКА (К04, 21.11.2026). Предложения, пояснения и подписи-строки, которые в теме были ≤ 14 px,
+  // на телефоне — 15 (вторичный текст конституции). Адресно: тот же селектор, что в теме (вес тот же,
+  // подключён после неё), без !important и без правил по имени тега для всего вида. Метки и значки
+  // (чипы, счётчики, время) сюда не попадают — только селекторы, оканчивающиеся на абзац, small, dt/dd или
+  // класс подписи. Календарь (`.note` — метка по замыслу) исключён.
+  const SENTENCE = /(?:^|[\s>+~]|\.)(?:p|small|dt|dd|hint|sub|note|lab|lk|heat-note)(?:::?[\w-]+(?:\([^)]*\))?)*$/;
+  const phone = rules.filter((r) => r.from !== null && r.from <= 14 && r.media.length === 0 && !/cal|calendar/.test(r.selector)
+    && r.selector.split(",").every((x) => SENTENCE.test(x.trim())));
   for (const [key, list] of byMedia) {
     const media = key ? key.split(" || ") : [];
     const pad = "  ".repeat(media.length);
@@ -172,6 +180,14 @@ function build() {
       css += `${pad}${r.selector} { ${decls.join("; ")}; }\n`;
     }
     for (let k = media.length - 1; k >= 0; k -= 1) css += `${"  ".repeat(k)}}\n`;
+  }
+  if (phone.length) {
+    css += `@media (max-width: 767.98px) {
+`;
+    for (const r of phone) css += `  ${r.selector} { font-size: 15px; }
+`;
+    css += `}
+`;
   }
   return { css, count: rules.length };
 }

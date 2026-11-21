@@ -578,8 +578,8 @@ export function Calendar() {
                   {MONTH_NAMES[weekRows[6].date.getMonth()].toLowerCase()}
                 </h2>
                 <span className="note">
-                  {weekRows.reduce((n, r) => n + r.showings.length, 0)} показов,{" "}
-                  {weekRows.reduce((n, r) => n + r.others.length, 0)} задач
+                  {(() => { const n = weekRows.reduce((a, r) => a + r.showings.length, 0); return `${n} ${pluralizeRu(n, ["показ", "показа", "показов"])}`; })()},{" "}
+                  {(() => { const n = weekRows.reduce((a, r) => a + r.others.length, 0); return `${n} ${pluralizeRu(n, ["задача", "задачи", "задач"])}`; })()}
                 </span>
                 <WeekNav onPrev={() => shiftWeek(-1)} onNext={() => shiftWeek(1)} onToday={goToday} />
               </div>
@@ -602,8 +602,8 @@ export function Calendar() {
                         {row.showings.length === 0 && row.others.length === 0
                           ? "Пока пусто"
                           : [
-                              row.showings.length > 0 ? `${row.showings.length} показ(ов)` : null,
-                              row.others.length > 0 ? `${row.others.length} задач(и)` : null,
+                              row.showings.length > 0 ? `${row.showings.length} ${pluralizeRu(row.showings.length, ["показ", "показа", "показов"])}` : null,
+                              row.others.length > 0 ? `${row.others.length} ${pluralizeRu(row.others.length, ["задача", "задачи", "задач"])}` : null,
                             ]
                               .filter(Boolean)
                               .join(", ")}
@@ -830,8 +830,8 @@ export function Calendar() {
                 {MONTH_NAMES[weekRows[6].date.getMonth()].toLowerCase()}
               </h2>
               <span className="note">
-                {weekRows.reduce((n, r) => n + r.showings.length, 0)} показов,{" "}
-                {weekRows.reduce((n, r) => n + r.others.length, 0)} задач
+                {(() => { const n = weekRows.reduce((a, r) => a + r.showings.length, 0); return `${n} ${pluralizeRu(n, ["показ", "показа", "показов"])}`; })()},{" "}
+                {(() => { const n = weekRows.reduce((a, r) => a + r.others.length, 0); return `${n} ${pluralizeRu(n, ["задача", "задачи", "задач"])}`; })()}
               </span>
               <WeekNav onPrev={() => shiftWeek(-1)} onNext={() => shiftWeek(1)} onToday={goToday} />
             </div>

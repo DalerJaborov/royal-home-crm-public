@@ -489,7 +489,7 @@
    сводка «Расход по дням…» — 24 px. Теперь строка ссылки — 44, ширина — не уже 44; пилюля («лучше всех»,
    «не все объекты привязаны») по возможности одной строкой (width: max-content), а длинная переносится
    в плашку со скруглением 16 — не в сжатую «пилюлю» из двух строк. Кнопки-пилюли («Привязать объекты») — одной строкой. */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] a.lk:not(.quiet *) {
+:root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] a.lk:not(:is(.quiet, p, .txt) *) {
   display: inline-flex; align-items: center; min-height: var(--rh-ctl-h); min-width: var(--rh-ctl-h); padding-inline: 4px; box-sizing: border-box;
 }
 :root[data-ui-look="royal"] .rh2.screens[data-ry-section="marketing"] details > summary { display: flex; align-items: center; min-height: var(--rh-ctl-h); }

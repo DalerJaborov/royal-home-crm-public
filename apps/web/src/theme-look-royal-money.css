@@ -536,7 +536,7 @@
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child > .ry-donut { justify-self: center; }
 }
 
-@media (max-width: 819.98px), (max-width: 1439.98px) and (pointer: coarse) {
+@media (max-width: 819.98px), (max-width: 1023.98px) and (pointer: coarse) {
   :root[data-ui-look="royal"] [data-ry-section="money"] .cef-page { padding: 8px 0 16px; }
   /* Заголовок «Деньги» на телефоне уже стоит в верхней строке оболочки — второй раз
      не печатаем (как и прежний вид: для экранного чтеца h1 остаётся). */
@@ -688,25 +688,25 @@
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 180px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 180px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 180px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 180px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 180px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 120px) {
 :root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 108px) {
-:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-sm); }
 }
 /* масштаб 1.12 */
 @container (max-width: 449px) {
@@ -725,7 +725,7 @@
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-xl); }
 }
 @container (max-width: 314px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xl); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xl); }
 }
 @container (max-width: 314px) {
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-xl); }
@@ -740,7 +740,7 @@
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-lg); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 225px) {
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-lg); }
@@ -752,25 +752,25 @@
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 202px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 202px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 202px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 202px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 202px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 135px) {
 :root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 121px) {
-:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="large"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-sm); }
 }
 /* масштаб 1.25 */
 @container (max-width: 500px) {
@@ -789,7 +789,7 @@
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-xl); }
 }
 @container (max-width: 350px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xl); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xl); }
 }
 @container (max-width: 350px) {
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-xl); }
@@ -804,7 +804,7 @@
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 250px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-lg); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 250px) {
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-lg); }
@@ -816,23 +816,23 @@
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-feed > .cef-card:first-child .cef-kpi { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] :is(.cef-sub-summary > div, .cef-founder-card) > strong, :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-sub-summary > div strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .cef-table-kpis strong { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-money-hero-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 225px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-money-tile-value { font-size: var(--rh-fs-sm); }
 }
 @container (max-width: 150px) {
 :root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-lg); }
 }
 @container (max-width: 135px) {
-:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"][data-text-size="xlarge"] [data-ry-section="money"] .ry-donut-center strong { font-size: var(--rh-fs-sm); }
 }

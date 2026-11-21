@@ -388,16 +388,24 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         const f = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
         return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
       };
-      const backdrop = (el: Element): Rgba | null => {
-        let acc: Rgba = [0, 0, 0, 0];
+      /** Возможные фоны под текстом: у градиента — цвет каждой остановки (худший случай), у обычного — один. */
+      const backdrops = (el: Element): Rgba[] | null => {
+        let acc: Rgba[] = [[0, 0, 0, 0]];
         for (let p: Element | null = el; p; p = p.parentElement) {
           const s = getComputedStyle(p);
-          if (s.backgroundImage !== "none") return null; // картинка или градиент — фон неизвестен
+          let layers: Rgba[] | null = null;
+          if (s.backgroundImage !== "none") {
+            if (/url\(/.test(s.backgroundImage)) return null; // фото: фон неизвестен
+            const stops = [...s.backgroundImage.matchAll(/rgba?\([^)]+\)|color\(srgb [^)]+\)/g)].map((m) => parse(m[0])).filter((c): c is Rgba => !!c);
+            if (stops.length) layers = stops;
+          }
           const bg = parse(s.backgroundColor);
-          if (bg && bg[3] > 0) acc = over(acc, bg);
-          if (acc[3] >= 0.999) return acc;
+          const under = bg && bg[3] > 0 ? [bg] : [];
+          const here = layers ?? under;
+          if (here.length) acc = acc.flatMap((a) => here.map((h) => over(a, h)));
+          if (acc.every((c) => c[3] >= 0.999)) return acc;
         }
-        return over(acc, [255, 255, 255, 1]);
+        return acc.map((c) => over(c, [255, 255, 255, 1]));
       };
       const seen = new Set<string>();
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -406,25 +414,25 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (!el || !(n.textContent ?? "").trim() || !visible(el) || skipped(el)) continue;
         const r = el.getBoundingClientRect();
         if (r.width <= 2 || r.height <= 2) continue;
-        if (el.closest("[disabled], [aria-disabled=\"true\"], [inert]") || el.closest("svg")) continue;
+        // Скрытый слой (подложка свайпа) и точка-метка 12×12 — не читаемый текст; отключённое — по правилам WCAG не считается.
+        if (el.closest("[disabled], [aria-disabled=\"true\"], [inert], [aria-hidden=\"true\"]") || el.closest("svg") || (r.width <= 12 && r.height <= 12)) continue;
         const s = getComputedStyle(el);
         let opacity = 1;
         for (let p: Element | null = el; p; p = p.parentElement) opacity *= parseFloat(getComputedStyle(p).opacity);
         const fg = parse(s.color);
-        const bg = backdrop(el);
-        if (!fg || !bg) continue;
-        const text = over([fg[0], fg[1], fg[2], fg[3] * opacity], bg);
-        const L1 = lum(text), L2 = lum(bg);
-        const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+        const bgs = backdrops(el);
+        if (!fg || !bgs) continue;
         const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 700;
         const need = size >= 24 || (bold && size >= 18.66) ? 3 : 4.5;
-        // Ровно 1:1 — цвет текста совпал с найденным фоном: на деле фон лежит соседним слоем (подложка
-        // свайпа, плашка за строкой) и замер его не видит. Такой текст не считается; бледный текст на
-        // своём фоне даёт 1,1:1 и выше.
-        if (ratio < 1.1) continue;
-        if (ratio < need - 0.01) {
+        let worst = Infinity;
+        for (const bg of bgs) {
+          const text = over([fg[0], fg[1], fg[2], fg[3] * opacity], bg);
+          const L1 = lum(text), L2 = lum(bg);
+          worst = Math.min(worst, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05));
+        }
+        if (worst < need - 0.01) {
           const key = name(el);
-          if (!seen.has(key)) { seen.add(key); out.push(`lowContrast: ${key} — ${ratio.toFixed(2)}:1`); }
+          if (!seen.has(key)) { seen.add(key); out.push(`lowContrast: ${key} — ${worst.toFixed(2)}:1`); }
         }
       }
     }
@@ -548,7 +556,7 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
 }
 
 /** Ряд ширин владельца (20.11.2026): телефоны, планшеты, ПК. */
-export const OWNER_WIDTHS = [320, 360, 375, 390, 414, 430, 768, 820, 1024, 1280, 1440, 1920] as const;
+export const OWNER_WIDTHS = [320, 360, 375, 390, 414, 430, 768, 820, 1024, 1280, 1366, 1440, 1920] as const;
 
 /** Телефонные отпечатки — сторож гоняется и под iPhone, и под Android. */
 export const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";

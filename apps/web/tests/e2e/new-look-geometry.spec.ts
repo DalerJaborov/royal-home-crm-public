@@ -211,6 +211,30 @@ test("новый вид, «Реклама»: выпадашки одной ши�
 });
 
 /**
+ * «Пол» текста не сжимает крупное (ревью #351): на 390 цена в карточке объекта — не мельче 20, цифра плитки
+ * главной — не мельче 20 (до пачки look-sizes стояло 20–32; жёсткое правило по тегу `p`/`small` сжимало их до 15).
+ * Сравнения с main в e2e нет, поэтому — список ключевых крупных элементов с минимумами.
+ */
+test("новый вид, крупные цифры не сжаты «полом» текста — iPhone 390 @smoke", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(390));
+  const page = await context.newPage();
+  await stubLookVisualData(page);
+  const KEY: { url: string; ready: string; selector: string; min: number }[] = [
+    { url: "/properties", ready: ".ry-objects-head", selector: ".ry-obj-price", min: 20 },
+    { url: "/", ready: ".ry-today", selector: ".ry-tile-value", min: 20 },
+  ];
+  for (const k of KEY) {
+    await open(page, { url: k.url, ready: k.ready });
+    await page.locator(k.selector).first().waitFor({ state: "visible", timeout: 20_000 });
+    const sizes = await page.locator(k.selector).evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    expect(sizes.length, `${k.selector} на ${k.url} найден`).toBeGreaterThan(0);
+    expect(Math.min(...sizes), `${k.selector} на ${k.url}: размеры ${sizes}`).toBeGreaterThanOrEqual(k.min);
+  }
+  await context.close();
+});
+
+/**
  * СТОРОЖ ПРОВЕРЕН ПОЛОМКОЙ. Зелёный прогон одинаково выглядит и когда всё хорошо, и когда
  * сломана сама проверка (CLAUDE.md, 29.09). Поэтому каждая поломка с кадров владельца
  * вносится в страницу нарочно — и каждый вид проверки обязан её назвать.
@@ -289,7 +313,8 @@ for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
   // Агенту на телефоне новый вид решает сервер по своей настройке (#329), подмена /ui-shell
   // его не включает — агент проверяется на ПК.
   // Директор — ещё и тёмная тема на телефоне: белый текст на синей кнопке ночью давал 4,2:1 (lowContrast).
-  for (const device of role === "AGENT" ? [DEVICES[3]] : role === "DIRECTOR" ? [DEVICES[0], DEVICES[1], DEVICES[3]] : [DEVICES[0], DEVICES[3]]) {
+  // ПК — обе темы, планшет 768 (в ряду телефонов) и 1024/1280/1366 (ревью #351).
+  for (const device of role === "AGENT" ? [DEVICES[3], DEVICES[4]] : role === "DIRECTOR" ? [DEVICES[0], DEVICES[1], DEVICES[3], DEVICES[4]] : [DEVICES[0], DEVICES[3]]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
@@ -297,7 +322,7 @@ for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
       // всех экранах (пачка look-sizes 21.11: раньше без неё «пока по разделам»; разделы директора
       // переведены на токены, база audit:look пуста).
       const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS }));
-      const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
+      const narrowed = { ...device, widths: device.widths.filter((w) => (process.env.GEO_WIDTHS ? process.env.GEO_WIDTHS.split(",").map(Number) : [320, 390, 768, 1024, 1280, 1366, 1440]).includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });
   }

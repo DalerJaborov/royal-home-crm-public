@@ -14,7 +14,7 @@ describe("EmptyValue — пустое значение одним словом",
     const el = container.querySelector(".rh-empty")!;
     expect(el.textContent).toBe(EMPTY_VALUE_TEXT);
     expect(el.getAttribute("title")).toBe("расхода не было");
-    expect(el.getAttribute("aria-label")).toBe("нет: расхода не было");
+    expect(el.getAttribute("aria-label")).toBeNull();
   });
   it("valueOrEmpty: null, undefined и пустая строка — «нет»; ноль остаётся числом", () => {
     for (const empty of [null, undefined, ""]) {

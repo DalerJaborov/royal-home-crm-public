@@ -1,5 +1,5 @@
 import type { AdPacingResponse } from "@royal-home/shared";
-import { EmptyValue } from "../EmptyValue";
+import { EmptyValue, lenBucket } from "../EmptyValue";
 import type { AdsBoard } from "../../hooks/useAds";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { agoRu } from "../../lib/adsView";
@@ -111,11 +111,11 @@ function Tile({ label, value, sub, delta, tone }: { label: string; value: string
   return (
     <div className="tile rh-fit-host" data-tone={tone}>
       <div className="hd">{label}</div>
-      <b className={isNumber ? "money rh-fit" : "money"}>
+      <b className={isNumber ? "money rh-fit" : "money"} data-len={isNumber ? lenBucket(value) : undefined} style={{ fontSize: "var(--fs-23)" }}>
         {value === null ? <EmptyValue reason={sub} /> : isNumber ? value : <span className="rh-empty">{value}</span>}
         {delta}
       </b>
-      <small className="rh-note">{sub}</small>
+      <span className="rh-note" style={{ fontSize: "var(--fs-13)", color: "var(--muted)" }}>{sub}</span>
     </div>
   );
 }
