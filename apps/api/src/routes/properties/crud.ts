@@ -83,6 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -896,6 +897,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
+  void autoLinkPropertyById(property.id);
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
   return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
 }
@@ -1496,6 +1498,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.json(presentProperty(published, req));
   }
 
+  void autoLinkPropertyById(updated.id);
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
   res.json(presentProperty(updated, req));
 });

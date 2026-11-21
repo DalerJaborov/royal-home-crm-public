@@ -51,6 +51,7 @@ import { isMetaChannelEnabled, isMetaEnabled } from "../messengers/meta.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { logSystemError } from "./systemError.js";
+import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
 import { instagramRouteForToken } from "./metaEternalTokens.js";
 import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 
@@ -463,6 +464,9 @@ export async function runMetaInboxReconcile(now: Date = new Date(), fetchImpl: G
       const body = await fetchPageInbox(page, fetchImpl);
       if (body.error) {
         result.failedPages++;
+        // Instagram «Meta закрыла доступ» — одна отметка через общую дверь, дальше сверка аккаунт не трогает.
+        if (page.channel === "INSTAGRAM" && (await noteInstagramKeyRefused({ token: page.token, text: body.error.message ?? "",
+          detail: `код ${body.error.code ?? "?"}: ${(body.error.message ?? "").slice(0, 160)}` })).locked) continue;
         // Код и подкод — без текста запроса: в адресе был ключ Страницы.
         void logSystemError("meta", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` +
           `(код ${body.error.code ?? "?"}/${body.error.error_subcode ?? "-"}). Не дошедшие до CRM сообщения этой Страницы сейчас не видны никому.`,

@@ -40,7 +40,7 @@ import {
   Skeleton,
 } from "../components/rh2";
 import { useAgents } from "../hooks/useAgents";
-import { NO_CONTACT_TEXT, type ClientSort } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, positiveBudget, type ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
 import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
@@ -109,7 +109,7 @@ const oneDecimal = (x: number) => (Math.round(x * 10) / 10).toLocaleString("ru-R
  */
 function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): string | null {
   const min = c.budgetMin ? Number(c.budgetMin) : null;
-  const max = c.budgetMax ? Number(c.budgetMax) : null;
+  const max = positiveBudget(c.budgetMax);
   if (!min && !max) return null;
   const ref = (max || min) as number;
   const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
