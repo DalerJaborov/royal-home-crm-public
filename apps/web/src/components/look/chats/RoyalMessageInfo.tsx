@@ -78,7 +78,8 @@ export function RoyalMessageInfo({
  */
 export function RoyalTicks({ status }: { status: ConversationMessage["deliveryStatus"] }) {
   if (!status) return null;
-  if (status === "failed") return <span className="ry-tick" data-status="failed" role="img" aria-label="Не доставлено">!</span>;
+  // Честная подпись вместо голого «!» (владелец 21.11.2026): человек видит, что именно случилось.
+  if (status === "failed") return <span className="ry-fail" role="img" aria-label="Не доставлено"><span className="ry-tick" data-status="failed" aria-hidden="true">!</span>Не доставлено</span>;
   if (status === "sent") return <Check className="ry-tick" data-status="sent" role="img" aria-label="Отправлено" strokeWidth={2.4} />;
   return <CheckCheck className="ry-tick" data-status={status} role="img" aria-label={status === "read" ? "Прочитано" : "Доставлено"} strokeWidth={2.4} />;
 }

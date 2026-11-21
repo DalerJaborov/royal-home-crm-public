@@ -1,5 +1,6 @@
 import { PropertyDraftShortcut } from "../../PropertyDraftShortcut";
 import { ObjIcon } from "./ObjIcon";
+import { pillTone } from "../tileTone";
 
 /**
  * Шапка каталога объектов — «Новый вид» (18.11.2026): заголовок 32, одна строка
@@ -22,13 +23,13 @@ export function RoyalObjectsHead({ total, pendingReview, onShowPending, overdue,
               строки и слипалась с «Продолжить черновик» (кадр владельца 20.11). */}
           <span className="ry-objects-found">{total !== undefined ? <>Найдено: <b className="ry-num">{total}</b></> : "Каталог агентства"}</span>
           {!!pendingReview && (
-            <button type="button" className="ry-objects-pending" onClick={onShowPending}>
-              <ObjIcon name="circle-alert" size={18} />Ждут вашей проверки: {pendingReview}
+            <button type="button" className="ry-objects-pending" data-tone={pillTone("today", pendingReview)} aria-label={`Ждут вашей проверки: ${pendingReview}`} onClick={onShowPending}>
+              Проверка<b className="ry-num">{pendingReview}</b>
             </button>
           )}
           {!!overdue && onShowOverdue && (
-            <button type="button" className="ry-objects-pending" data-tone="crit" onClick={onShowOverdue}>
-              <ObjIcon name="circle-alert" size={18} />Задержка подготовки: {overdue}
+            <button type="button" className="ry-objects-pending" data-tone={pillTone("overdue", overdue)} aria-label={`Задержка подготовки: ${overdue}`} onClick={onShowOverdue}>
+              Задержка<b className="ry-num">{overdue}</b>
             </button>
           )}
         </p>

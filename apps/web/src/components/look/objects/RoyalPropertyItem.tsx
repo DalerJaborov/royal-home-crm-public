@@ -55,6 +55,10 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
   // Один тон и один текст плашки на список и карточку (propertyStagePill).
   const { tone, label: stageLabel } = propertyStagePill(p, role);
   const overdue = p.pipeline?.overdue && !subline;
+  // Спокойные пометки («В очереди 6-й», «Отложен») идут той же строкой, что и счётчики, а не отдельной пилюлей;
+  // жёлтое и красное остаются чипами — они требуют внимания.
+  const quiet = handoff.filter((h) => h.tone === "mute" || h.tone === "ok");
+  const flagged = handoff.filter((h) => h.tone === "warn" || h.tone === "crit");
   const canTogglePublish = !!onTogglePublish && (p.publishedOnSite || p.status === "AVAILABLE");
   return (
     <article data-property-row="" data-list-row data-property-layout={variant} className="ry-obj-card" data-selected={selected ? "true" : undefined}>
@@ -76,11 +80,14 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
           <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
           {p.publishedOnSite && <span className="ry-obj-tag" data-tone={pillTone("info")}><ObjIcon name="globe" size={16} />На сайте</span>}
         </p>
-        <div className="ry-obj-stats"><PropertyStats property={p} /></div>
+        <div className="ry-obj-stats">
+          <PropertyStats property={p} />
+          {quiet.length > 0 && <span className="pstats">{quiet.map((item) => <span key={item.text} className="pstat"><small>{item.text}</small></span>)}</span>}
+        </div>
         {subline && <div className="ry-obj-subline">{subline}</div>}
-        {(awaitingAcceptance || handoff.length > 0) && <div className="ry-obj-tags">
+        {(awaitingAcceptance || flagged.length > 0) && <div className="ry-obj-tags">
           {awaitingAcceptance && <span className="ry-obj-tag" data-tone={pillTone("today")}><ObjIcon name="circle-alert" size={16} />Передан вам · примите</span>}
-          {handoff.map((item) => (
+          {flagged.map((item) => (
             <span key={item.text} className="ry-obj-tag" data-tone={pillToneOf(item.tone)}>
               {(item.tone === "crit" || item.tone === "warn") && <ObjIcon name="circle-alert" size={16} />}
               {item.text}
