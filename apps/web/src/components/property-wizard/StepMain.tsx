@@ -1,3 +1,5 @@
+import { PROPERTY_WIZARD_WARNING_CONFIRM, type PropertyWizardWarningField, type PropertyWizardWarnings } from "@royal-home/shared";
+import { WizardWarning } from "./WizardWarning";
 import { useId, type ReactNode } from "react";
 import { Building2, House, LandPlot, Store } from "lucide-react";
 import {
@@ -66,10 +68,15 @@ export function StepMain({
   values,
   errors,
   onChange,
+  warnings = {},
+  onConfirmWarning,
 }: {
   values: WizardValues;
   errors: Record<string, string>;
   onChange: (patch: Partial<WizardValues>) => void;
+  /** Предупреждения шага (не ошибки): валюта цены похожа на перепутанную (21.11.2026). */
+  warnings?: PropertyWizardWarnings;
+  onConfirmWarning?: (field: PropertyWizardWarningField) => void;
 }) {
   // Какие поля есть у типа — одна таблица (packages/shared/src/propertyTypeFields.ts):
   // у дома нет этажа и «новостройки», у участка — комнат, этажей, окон и состояния.
@@ -155,6 +162,9 @@ export function StepMain({
         <div className="wizard-mobile-spacer" style={{ height: 8 }} />
         <Field fieldKey="price" label="Цена" required value={values.price} error={errors.price} kind="money" onChange={(v) => onChange({ price: v })} />
         {perUnit && <div className="calc">{perUnit}</div>}
+        {warnings.price && !errors.price && (
+          <WizardWarning text={warnings.price} confirmLabel={PROPERTY_WIZARD_WARNING_CONFIRM.price} testId="wizard-price-warning" onConfirm={() => onConfirmWarning?.("price")} />
+        )}
 
         <div className="wizard-mobile-spacer" style={{ height: 8 }} />
         <div className="wizard-price-currency">

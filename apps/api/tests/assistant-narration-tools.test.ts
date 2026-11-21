@@ -222,7 +222,7 @@ describe("request_narration", () => {
   it("числа, которых не было в прежнем тексте, видны в карточке (страховка от выдуманных фактов)", async () => {
     const p = await seedProperty();
     await seedVersion(p.id);
-    const pending = await createPendingAssistantAction(act(ownerId), "request_narration", { ref: String(p.shortId), script: "В продаже квартира на пятом этаже, 5 этаж, цена 85000 долларов." });
+    const pending = await createPendingAssistantAction(act(ownerId), "request_narration", { ref: String(p.shortId), script: "В продаже квартира на пятом этаже, 5 этаж, цена 85000 сомони." });
     expect(String(pending.preview.becomes.Внимание)).toMatch(/5.*85000|85000.*5/u);
   });
   it("шаблон и голос — только из настроек: неизвестный и неоднозначный отказ с перечнем; без изменений — отказ схемы", async () => {

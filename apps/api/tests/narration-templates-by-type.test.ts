@@ -20,7 +20,7 @@ const starters = narrationTemplateSchema.array().parse(JSON.parse(readFileSync(n
   .map((t) => ({ ...t, manualOnly: true as const }));
 /** Настройки после миграции: прежние шесть («только вручную») + библиотека. */
 const config: Pick<NarrationConfig, "templates" | "endings" | "defaultTemplateId"> = { templates: [...starters, ...library.templates], endings: library.endings, defaultTemplateId: "tg-short" };
-const facts = (over: Partial<NarrationFacts> = {}): NarrationFacts => ({ type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD", ...over });
+const facts = (over: Partial<NarrationFacts> = {}): NarrationFacts => ({ type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD", usdToTjs: 9.27, ...over });
 /** Все значения «случайного» от 0 до почти 1: перебор вместо надежды на удачный бросок. */
 const sweep: NarrationRandom[] = Array.from({ length: 50 }, (_, i) => () => i / 50);
 const byId = <T extends { id: string }>(items: readonly T[] | undefined, id: string | null) => items?.find((i) => i.id === id);
@@ -142,7 +142,7 @@ describe("текст по сохранённым кодам: основная ч
   });
   it("концовка получает те же слова из объекта, что и шаблон; смена цены меняет только цену", () => {
     const withTag = { ...config, endings: [{ id: "end-x", lang: "tg" as const, text: "Нархаш {цена}, Директ кушода аст." }] };
-    expect(narrationDraftText(withTag, facts({ price: "50000" }), "tg-apt-3", "end-x").text).toContain("панҷоҳ ҳазор доллар, Директ кушода аст.");
+    expect(narrationDraftText(withTag, facts({ price: "50000" }), "tg-apt-3", "end-x").text).toContain("чорсаду шасту чор ҳазор сомонӣ, Директ кушода аст.");
   });
   it("К1 без этажа: фраза про этаж выпадает целиком, остальное на месте", () => {
     const k1 = config.templates!.find((t) => t.id === "tg-apt-1")!;
@@ -151,7 +151,7 @@ describe("текст по сохранённым кодам: основная ч
       expect(text, JSON.stringify(empty)).not.toMatch(/ошёна/u);
       expect(text).toContain("Масоҳати умумӣ ҳаштоду шаш метри мураббаъ аст.");
       expect(text).toContain("Хона аз се ҳуҷра иборат аст.");
-      expect(text).toMatch(/Нархи хона ҳаштоду панҷ ҳазор доллар\.$/u);
+      expect(text).toMatch(/Нархи хона ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ\.$/u);
     }
     const full = renderNarrationTemplate(k1, facts());
     expect(full).toContain("Хона дар ошёнаи панҷуми бинои нӯҳ ошёна ҷойгир шудааст.");
@@ -159,7 +159,7 @@ describe("текст по сохранённым кодам: основная ч
   it("дом без района, комнат и этажа: пустые фразы выпадают, предложения не рвутся", () => {
     const d1 = config.templates!.find((t) => t.id === "tg-house-1")!;
     const text = renderNarrationTemplate(d1, facts({ type: "HOUSE", district: null, rooms: null, floor: null, totalFloors: null }));
-    expect(text).toBe("Мехоҳед соҳиби ҳавлии худ шавед? Пас, ба ин пешниҳод диққат кунед! Масоҳати умумӣ ҳаштоду шаш метри мураббаъ аст. Ин пешниҳодро барои зиндагии оилавӣ дида баромадан мумкин аст. Нархи ҳавлӣ ҳаштоду панҷ ҳазор доллар.");
+    expect(text).toBe("Мехоҳед соҳиби ҳавлии худ шавед? Пас, ба ин пешниҳод диққат кунед! Масоҳати умумӣ ҳаштоду шаш метри мураббаъ аст. Ин пешниҳодро барои зиндагии оилавӣ дида баромадан мумкин аст. Нархи ҳавлӣ ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ.");
   });
 });
 
@@ -281,7 +281,7 @@ describe("библиотека владельца из данных: слово 
 
 /** 17.11.2026, владелец: участок в озвучке называем в сотках, а не в метрах («да» на «сотки»). */
 describe("{сотки}: площадь участка в сотках", () => {
-  const land = (areaSqm: string): NarrationFacts => ({ type: "LAND", rooms: null, areaSqm, floor: null, totalFloors: null, district: "Сино", price: "50000", currency: "USD" });
+  const land = (areaSqm: string): NarrationFacts => ({ type: "LAND", rooms: null, areaSqm, floor: null, totalFloors: null, district: "Сино", price: "50000", currency: "USD", usdToTjs: 9.27 });
   it("целые сотки словами на обоих языках, с правильным окончанием и родом", () => {
     expect(narrationLandAreaWords("LAND", 600, "tg")).toBe("шаш сотиқ");
     expect(narrationLandAreaWords("LAND", 100, "ru")).toBe("одна сотка");
@@ -309,10 +309,10 @@ describe("{сотки}: площадь участка в сотках", () => {
 
 /** 17.11.2026, владелец: «цифры всегда пишутся буквами, потому что ИИ не справляется». */
 describe("русская озвучка без цифр", () => {
-  const flat: NarrationFacts = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD" };
+  const flat: NarrationFacts = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD", usdToTjs: 9.27 };
   it("слова из объекта, цена и этаж по-русски словами", () => {
     const text = renderNarrationTemplate({ lang: "ru", text: "Продаётся {вид}, {комнаты} комнаты, {площадь} квадратных метров, {этаж_пор} этаж из {этажей}. Цена {цена}." }, flat);
-    expect(text).toBe("Продаётся квартира, три комнаты, восемьдесят шесть квадратных метров, пятый этаж из девяти. Цена восемьдесят пять тысяч долларов.");
+    expect(text).toBe("Продаётся квартира, три комнаты, восемьдесят шесть квадратных метров, пятый этаж из девяти. Цена семьсот восемьдесят восемь тысяч сомони.");
   });
   it("свободный русский текст: целые числа, м² и проценты словами; дата остаётся как есть", () => {
     expect(narrationSpeechText("Квартира 86 м², 3 комнаты, скидка 5%.", "ru")).toBe("Квартира восемьдесят шесть квадратных метров, три комнаты, скидка пять процентов.");

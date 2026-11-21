@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { narrationFitsType, narrationLengthCheck, narrationLengthLine, narrationTextOverlay,
+import { narrationCurrencyError, narrationFitsType, narrationLengthCheck, narrationLengthLine, narrationTextOverlay,
   chooseNarration, hasVideoHistory, narrationDraftText, narrationLimits, narrationMixByCrm, narrationModelSupportsTajik, narrationWizardChoiceSchema, pickNarrationVoice,
   type NarrationConfig, type NarrationFacts, type NarrationWizardChoice,
 } from "@royal-home/shared";
@@ -13,8 +13,7 @@ import { mixFromStoredMaster } from "./narrationMaster.js";
 import { buildMusicBed, buildPictureBase, chooseMusicTrack, MUSIC_BASE_SOURCE, ownMusicReady } from "./narrationMusic.js";
 import { dropNarrationMaster, storeNarrationMaster } from "./narrationMaster.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
-import { loadMoneyContext } from "./money.js";
-import { priceInTjsOnly } from "./reelsCaptionTemplate.js";
+import { propertyPriceTjsText } from "./reelsCaptionTemplate.js";
 import os from "node:os";
 import { mixNarrationOntoMaster, narrationFitNote, planNarrationFit, type NarrationMixResult } from "./narrationMix.js";
 import { dropReplacedClipFiles, placeMixedClip, type PlacedMix } from "./narrationPreview.js";
@@ -27,8 +26,8 @@ import { logAgentAudit } from "./audit.js";
 import { sendBackToMontajer } from "./publishedVideoFix.js";
 import { NarrationDeliveryRefused, narrationDeliveryAttemptBudgetMs, narrationDeliveryRefusalIsExpected, narrationDeliveryStalled, prepareNarrationDeliveryPlan, type NarrationDeliveryRefusalCode } from "./narrationDelivery.js";
 import { generateNarrationVersion, loadNarrationConfiguration, narrationQuotaExceededSince, NARRATION_QUOTA_PAUSE_MS, speechChars } from "./narrationGeneration.js";
-import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
-import { narrationFacts, narrationFactsCurrent, narrationHash, narrationScriptError } from "./propertyNarration.js";
+import { NARRATION_PRICE_NOT_IN_TJS, NARRATION_PRICE_NOT_IN_TJS_TEXT, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { narrationFacts, narrationFactsCurrent, narrationHash, narrationRate, narrationScriptError, reportNarrationPriceProblem, snapshotNarrationRate, withNarrationRate } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 import { NARRATION_CLOSED_STATUSES as CLOSED_STATUSES, retireNarrationsOfClosedProperties, setPropertyNarrationOff } from "./narrationOptOut.js";
 import { narrationLastChoiceFor, rememberNarrationChoice } from "./narrationLastChoice.js";
@@ -112,6 +111,8 @@ export async function requestAutoNarration(input: {
     ? await prisma.property.findUnique({ where: { id: input.propertyId }, select: { videoMasterStorageKey: true, videoHandoffFinalPath: true } }) : null;
   const clipSec = clipOf ? await narrationClipSec(clipOf) : null;
   const cps = clipSec ? await measuredNarrationCharsPerSec() : null;
+  // Курс для {цена} (21.11.2026: цена в озвучке только в сомони) — до замка, как и замеры выше.
+  const usdToTjs = await narrationRate();
   const outcome = await prisma.$transaction(async (tx): Promise<AutoNarrationOutcome> => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
     const property = await tx.property.findUnique({ where: { id: input.propertyId }, include: { district: true } });
@@ -130,7 +131,8 @@ export async function requestAutoNarration(input: {
     if (latest && ["GENERATING", "UNKNOWN"].includes(latest.status)) return { status: "BUSY" };
     const facts = narrationFacts(property);
     const factsHash = narrationHash(facts);
-    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL") return { status: "UNCHANGED" };
+    // Текст с долларами (сохранён до сторожа 21.11.2026) «не изменившимся» не считается: автоозвучка пересобирает его из шаблона.
+    if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL" && !narrationCurrencyError(latest.script)) return { status: "UNCHANGED" };
     // Шаблон и концовку выбирает одно ядро (shared chooseNarration, 16.11.2026): выбор человека уважается; иначе
     // шаблон и концовка прошлой версии остаются (смена цены даёт тот же текст), а у нового объекта и при «Другой
     // шаблон» они случайные и не равны прошлым. Дальше всё хранится кодами в версии, случайности больше нет.
@@ -138,7 +140,9 @@ export async function requestAutoNarration(input: {
     const noEnding = input.endingId === null || (input.script !== undefined && input.endingId === undefined);
     const chosen = chooseNarration(config, facts.type, { templateId: input.templateId, endingId: input.endingId ?? undefined, noEnding, reroll: input.reroll,
       previous: latest ? { templateId: latest.templateId, endingId: latest.endingId } : null, avoid: latest ? null : input.avoid });
-    const drafted = narrationDraftText(config, facts, chosen.templateId, chosen.endingId);
+    const priced = withNarrationRate(facts, usdToTjs);
+    const drafted = narrationDraftText(config, priced, chosen.templateId, chosen.endingId);
+    if (input.script === undefined) reportNarrationPriceProblem(property.shortId, priced);
     const script = input.script ?? drafted.text;
     const error = narrationScriptError(script);
     if (error) return { status: "INVALID", error };
@@ -152,7 +156,8 @@ export async function requestAutoNarration(input: {
     if (drafted.lang === "tg" && !narrationModelSupportsTajik(config.modelId)) return { status: "INVALID", error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 или eleven_v4_turbo в настройках." };
     const voiceId = pickNarrationVoice(config, input.voiceId ?? latest?.voiceId);
     if (!voiceId) return { status: "INVALID", error: "Голоса озвучки не настроены" };
-    const data = { script, factsSnapshot: facts, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
+    // Курс хранится в снимке (сверка текста версии с шаблоном), в хэш фактов не входит.
+    const data = { script, factsSnapshot: priced, factsHash, voiceId, modelId: config.modelId, templateId: drafted.templateId, endingId: drafted.endingId, language: drafted.lang, generateAfter };
     // Дребезг: несколько правок подряд правят одну ожидающую версию, пауза сдвигается.
     if (input.source === "AUTO" && latest && latest.status === "DRAFT" && !latest.approvedAt && latest.source !== "MANUAL" && latest.generateAfter) {
       await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data });
@@ -202,7 +207,8 @@ export async function startNarrationForNewProperty(propertyId: string, actorId: 
   }
 }
 
-export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED";
+/** PRICE_NOT_IN_TJS (ревью #348): в тексте версии цена в долларах — не одобряется ни текст, ни голос. */
+export type NarrationApproval = "FORBIDDEN" | "CONFLICT" | "TEXT_APPROVED" | "AUDIO_APPROVED" | "PRICE_NOT_IN_TJS";
 /** Утверждение поставила сама CRM (самоодобрение пишет approvalNotifiedAt = approvedAt одной отметкой), а не человек. */
 export function autoApprovedOnly(v: { approvedAt: Date | null; approvalNotifiedAt?: Date | null }): boolean {
   return !!v.approvedAt && !!v.approvalNotifiedAt && v.approvedAt.getTime() === v.approvalNotifiedAt.getTime();
@@ -250,6 +256,9 @@ export async function approveNarrationVersion(input: { propertyId: string; versi
     const current = await tx.property.findUniqueOrThrow({ where: { id: input.propertyId }, include: { district: true } });
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: input.propertyId }, orderBy: { revision: "desc" } });
     if (current.deletedAt || !latest || latest.id !== input.versionId || latest.revision !== input.expectedRevision || !narrationFactsCurrent(latest, current)) return "CONFLICT";
+    // Голос или текст с ценой в долларах (собран до 21.11.2026) одобрить нельзя: одобренный, он молча никуда бы не ушёл.
+    // Сама CRM его не пересобирает — это новая платная озвучка, её запускает человек «Исправить и озвучить».
+    if (narrationCurrencyError(latest.script)) return "PRICE_NOT_IN_TJS";
     if (latest.status === "DRAFT") {
       if (!input.isManager) return "FORBIDDEN";
       return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: "DRAFT" }, data: { approvedAt: new Date(), approvedById: input.actorId } })).count ? "TEXT_APPROVED" : "CONFLICT";
@@ -306,6 +315,8 @@ async function startNarrationDelivery(propertyId: string, versionId: string): Pr
     const refusal: NarrationDeliveryRefusal = err instanceof NarrationDeliveryRefused
       ? { code: err.code, message: err.message, shortId: owner?.shortId ?? null }
       : { code: "UNEXPECTED", message: `сбой подготовки: ${err instanceof Error ? err.message : String(err)}`, shortId: owner?.shortId ?? null };
+    // Голос с долларами (21.11.2026) не идёт и запасными путями ниже — ни перемиксом CRM, ни возвратом монтажёру.
+    if (refusal.code === "PRICE_NOT_IN_TJS") return { status: "NOT_READY", refusal };
     // Объект не у монтажёра. Есть ролик без голоса — CRM сама наложит новую озвучку и заменит
     // вышедший ролик (обход remixFromMasters, в течение минуты); монтажёр не нужен.
     // Ролика без голоса нет, но включена своя музыка и треки есть — то же «CRM сама», режим MUSIC (18.11.2026).
@@ -350,6 +361,9 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
  *  «вклейте голос». Зовёт одобрение, когда пути без монтажёра нет, и перемикс «голос длиннее ролика». */
 export async function sendNarrationToMontajer(propertyId: string, versionId: string, opts: { voiceLonger?: boolean } = {}): Promise<NarrationDeliveryStart> {
+  // Та же дверь валюты, что у prepareNarrationDeliveryPlan: голос с долларами монтажёру не возвращается.
+  const voiced = await prisma.propertyNarrationVersion.findUnique({ where: { id: versionId }, select: { script: true } });
+  if (!voiced || narrationCurrencyError(voiced.script)) return "NOT_READY";
   const remake = await requestNarrationSoundRemake(propertyId, versionId, opts);
   if (remake === "QUEUED") return "SOUND_REMAKE";
   // Ролик сдан без голоса раньше одобрения и ещё не вышел — вернуть «вклейте голос».
@@ -518,7 +532,7 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     // Ролик уже вышел (18.11.2026, владелец): утверждение = выпуск в соцсети, поэтому только человек.
     if (await clipCountsAsPublished(property.id, property, tx)) return null;
     const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, withNarrationRate(facts, snapshotNarrationRate(v.factsSnapshot)), v.templateId, v.endingId).text !== v.script) return null;
     // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
     // одобренной — одобряется на того же человека, иначе ролик ждал бы агента.
     if (v.shortenedFromId) {
@@ -649,6 +663,8 @@ async function remixWanted(propertyId: string) {
   }
   const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
   if (!latest || latest.status !== "READY" || !latest.approvedAt || !latest.storageKey || !narrationFactsCurrent(latest, p)) return null;
+  // Голос с долларами (одобрен до сторожа 21.11.2026) в вышедший ролик не сводится.
+  if (narrationCurrencyError(latest.script)) return null;
   // Своя музыка — только озвучки, одобренные после включения (ревью 18.11); прежние — по-старому, руками.
   if (mode === "MUSIC" && musicSince && latest.approvedAt.getTime() < new Date(musicSince).getTime()) return null;
   if (latest.id === p.videoMasterNarrationVersionId || latest.id === p.videoMasterMixErrorVersionId) return null;
@@ -727,7 +743,9 @@ async function remixFromMasterClaimed(propertyId: string): Promise<NarrationRemi
   // ЦЕНА И СУБТИТРЫ НА РОЛИКЕ (18.11.2026, рубильник textOverlay): цена — из карточки сейчас, в сомони (как монтажёру),
   // субтитры — текст этой версии озвучки. Сменилась цена — новый ролик несёт новую плашку.
   const textOverlay = narrationTextOverlay((await loadNarrationConfiguration()).config)
-    ? { price: priceInTjsOnly(p.price, p.currency, await loadMoneyContext()), script: latest.script } : undefined;
+    // Число — то же, что сказал голос этой версии (`propertyPriceTjs`, курс из её снимка), курс — только из
+    // Настроек: нет курса — плашки с ценой нет (ревью #348, без запасного курса).
+    ? { price: propertyPriceTjsText(p.price, p.currency, p.currency === "USD" ? snapshotNarrationRate(latest.factsSnapshot) ?? await narrationRate() : null), script: latest.script } : undefined;
   try {
     return await mixAndPlace();
   } finally {
@@ -827,8 +845,8 @@ export async function requestShorterNarration(propertyId: string, versionId: str
     const property = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
     const v = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!property || property.deletedAt || property.narrationOff || !v || v.id !== versionId || v.shortenedFromId || !v.templateId || !v.voiceId) return null;
-    const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    const facts = withNarrationRate(narrationFacts(property), snapshotNarrationRate(v.factsSnapshot));
+    if (v.factsHash !== narrationHash(narrationFacts(property)) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
     const lang = v.language === "tg" || v.language === "ru" ? v.language : null;
     const nowRank = FIT_RANK[planNarrationFit(voiceSec, masterSec).tier];
     const chars = Math.max(1, speechChars(v.script, lang));
@@ -1040,6 +1058,26 @@ export async function refreshNarrationDrafts(config: NarrationConfig, now: Date)
   return drafted;
 }
 
+/**
+ * ЧЕРНОВИК С ДОЛЛАРАМИ (21.11.2026, ревью #348). Версия, собранная до сторожа валюты, падает с кодом
+ * PRICE_NOT_IN_TJS (денег не тратили), причина — в журнал, и автоозвучка тут же собирает новую версию из
+ * того же шаблона с ценой в сомони. Пересобрать нельзя (объект закрыт, курс не задан, шаблонов нет) —
+ * версия остаётся с этим кодом, карточка объясняет агенту, что делать.
+ */
+async function retireDollarNarration(row: { id: string; propertyId: string }, config: NarrationConfig, now: Date): Promise<void> {
+  const retired = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" },
+    data: { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS, generateAfter: null } });
+  if (!retired.count) return;
+  const p = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { shortId: true, assignedAgentId: true, intakeAgentId: true, createdById: true } });
+  const actorId = p?.assignedAgentId ?? p?.intakeAgentId ?? p?.createdById ?? "system";
+  const rebuilt = await requestAutoNarration({ propertyId: row.propertyId, actorId, source: "AUTO", config, now, debounceMs: 0 })
+    .catch((err: unknown) => ({ status: "ERROR", error: err instanceof Error ? err.message : String(err) }) as const);
+  void logSystemError("ai", `Озвучка объекта №${p?.shortId ?? "?"}: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}. ${rebuilt.status === "QUEUED"
+    ? "Новая версия собрана и ждёт озвучки."
+    : `Новую собрать не вышло (${rebuilt.status}${"error" in rebuilt && rebuilt.error ? `: ${rebuilt.error}` : ""}) — агенту: «Другой шаблон» в карточке.`}`,
+    { dedupKey: `narration-price-usd:${row.id}` });
+}
+
 async function generateDueNarrations(config: NarrationConfig, key: string, now: Date): Promise<number> {
   const started = Date.now();
   let generated = 0;
@@ -1055,6 +1093,13 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     const owner = await prisma.property.findUnique({ where: { id: row.propertyId }, select: { deletedAt: true, status: true, narrationOff: true } });
     if (!owner || owner.deletedAt || owner.narrationOff || (CLOSED_STATUSES as readonly string[]).includes(owner.status)) {
       await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "DRAFT" }, data: { generateAfter: null } });
+      continue;
+    }
+    // ЦЕНА В ДОЛЛАРАХ ДО ОПЛАТЫ (21.11.2026, ревью #348): черновик, собранный до сторожа валюты, в ElevenLabs не уходит.
+    // Версия падает с честным кодом, причина — в журнал, а текст тут же пересобирается из шаблона с ценой в сомони
+    // (requestAutoNarration не считает долларовый текст «неизменным»). Агент видит в карточке новую версию.
+    if (narrationCurrencyError(row.script)) {
+      await retireDollarNarration(row, config, now);
       continue;
     }
     // ДЛИНА ДО ОПЛАТЫ (18.11.2026): текст длиннее ролика в ElevenLabs не уходит — версия «не получилась», агент
@@ -1107,7 +1152,9 @@ async function generateDueNarrations(config: NarrationConfig, key: string, now: 
     }
     if (outcome.status === "FAILED" || outcome.status === "UNKNOWN" || outcome.status === "PERSIST_FAILED") {
       const code = "errorCode" in outcome ? outcome.errorCode : "AUDIO_PERSISTENCE_FAILED";
-      void logSystemError("ai", `Озвучка объекта не получена (${code}). Автоповтора нет: ${outcome.status === "FAILED" ? "проверьте ключ, модель и голос" : "сверьте историю ElevenLabs в карточке объекта"}`, { dedupKey: `narration-failed:${row.id}` });
+      const why = code === NARRATION_PRICE_NOT_IN_TJS ? NARRATION_PRICE_NOT_IN_TJS_TEXT
+        : outcome.status === "FAILED" ? "автоповтора нет: проверьте ключ, модель и голос" : "автоповтора нет: сверьте историю ElevenLabs в карточке объекта";
+      void logSystemError("ai", `Озвучка объекта не получена (${code}): ${why}`, { dedupKey: `narration-failed:${row.id}` });
     }
   }
   return generated;
@@ -1120,11 +1167,16 @@ async function notifyReadyNarrations(notify: NarrationApprovalNotifier): Promise
   // Только то, что агент правда может утвердить — фильтром в самом запросе (четвёртое ревью 18.11).
   const ready = await prisma.propertyNarrationVersion.findMany({ where: { status: "READY", approvedAt: null, approvalNotifiedAt: null, ...UNAPPROVED_AWAITS_HUMAN_WHERE,
     property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] } } },
-    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true } });
+    orderBy: { createdAt: "asc" }, take: 20, select: { id: true, propertyId: true, script: true } });
   for (const row of ready) {
     // Отметка ДО отправки: два обхода подряд не пришлют агенту второе сообщение.
     const claimed = await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalNotifiedAt: null }, data: { approvalNotifiedAt: new Date() } });
     if (!claimed.count) continue;
+    // С долларами «послушайте» не шлём (одобрить её нельзя); отметки — чтобы строка не держала голову очереди и напоминаний.
+    if (narrationCurrencyError(row.script)) {
+      await prisma.propertyNarrationVersion.updateMany({ where: { id: row.id, approvalEscalatedAt: null }, data: { approvalEscalatedAt: new Date() } });
+      continue;
+    }
     const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
     if (latest?.id !== row.id) continue;
     try { await notify(row.id); notified++; }
@@ -1178,6 +1230,8 @@ async function resumeWaitingNarrationDeliveries(): Promise<number> {
       // Версию сменила новая или факты поменялись — эту не шлём (новую отправит обход сам).
       if (err instanceof NarrationDeliveryRefused && (err.code === "VERSION_STALE" || err.code === "PROPERTY_GONE" || err.code === "NARRATION_OFF")) {
         await cancel(row.id, "Озвучка этой версии устарела — голос монтажёру не отправлен");
+      } else if (err instanceof NarrationDeliveryRefused && err.code === "PRICE_NOT_IN_TJS") {
+        await cancel(row.id, err.message);
       }
       // Остальное (монтажёр без Telegram, отключён) — ждём; сторож ниже скажет, если затянется.
       continue;

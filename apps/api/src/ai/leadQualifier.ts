@@ -1,4 +1,4 @@
-import { BOT_DISTRICT_NAMES, propertyFloorsLabel, propertyHeadline, submitReplySchema } from "@royal-home/shared";
+import { BOT_DISTRICT_NAMES, meaningfulPropertyAddress, propertyFloorsLabel, propertyHeadline, submitReplySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadMoneyContext } from "../lib/money.js";
 import { botOfferLink, findMatchingProperties, matchFitNote, type PropertyMatchQuery } from "../lib/propertyMatch.js";
@@ -1372,7 +1372,8 @@ async function searchMatchingProperties(
       // не было этих слов. Адрес в карточке агенты пишут живым языком, с названиями
       // комплексов и ориентирами, и это ровно тот словарь, которым говорит город.
       const districtName = p.district?.name ?? "Без района";
-      const place = !scopedCustomer && p.address?.trim() ? `${districtName}, ${p.address.trim()}` : districtName;
+      const shownAddress = scopedCustomer ? null : meaningfulPropertyAddress(p.address);
+      const place = shownAddress ? `${districtName}, ${shownAddress.trim()}` : districtName;
       // Номер объекта (Property.shortId) — тот же, что видит агент в CRM. Модель
       // называет его в ДВУХ служебных полях: showing.propertyCode (назначить показ
       // именно на этот объект) и showPropertyNumber (прислать его фотографии).

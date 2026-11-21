@@ -43,7 +43,7 @@ async function focusOf(propertyId: string | null, channel: string): Promise<Oper
   const facts = await readCustomerPropertyFacts(propertyId, channel).catch(() => null);
   if (!facts) return null;
   return { propertyId, shortId: facts.shortId, priceText: facts.price ? operatorPriceText(facts.price, facts.currency) : null,
-    sold: facts.availability === "SOLD" };
+    sold: facts.availability === "SOLD", place: facts.availability === "SOLD" ? null : facts.publicAddress ?? null };
 }
 
 /** Открытые вакансии и включён ли приём вакансий (Настройки: botCanHandleVacancies → путь рекрутёра). */

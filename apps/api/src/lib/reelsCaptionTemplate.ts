@@ -18,8 +18,8 @@
 import { TYPE_RU, CONDITION_RU, formatPrice } from "../ai/seoGenerator.js";
 // MARKET_TYPE_LABELS — тот же словарь, что подписывает объект на карточке:
 // второго перевода «NEW_BUILD → Новостройка» в проекте быть не должно.
-import { MARKET_TYPE_LABELS, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
-import { toTjs, type MoneyContext } from "./money.js";
+import { MARKET_TYPE_LABELS, meaningfulPropertyAddress, propertyHasCondition, propertyPriceTjs, visiblePropertyFacts } from "@royal-home/shared";
+import type { MoneyContext } from "./money.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import {
   NEW_BUILD_PHASES,
@@ -352,38 +352,28 @@ export function fillReelsCaptionTemplate(template: string, values: ReelsCaptionV
 
 /** Цена в тексте для соцсетей — владелец, 17.09.2026: сделки всё равно только
  *  в сомони, значит цена в сомони обязана стоять первой строкой даже у
- *  объекта, заведённого в долларах, а сумма в долларах — рядом в скобках,
- *  а не единственным числом. Объект и так в сомони — ничего не меняется,
- *  добавлять скобки не с чем и незачем. `money` не передан (внутренние
- *  тексты вроде подписи монтажёру, где курс ни к чему) — прежнее поведение,
- *  одна валюта как есть. */
+ *  объекта, заведённого в долларах, а сумма в долларах — рядом в скобках
+ *  (решение владельца 23.09: в подписи ДВЕ валюты). Объект и так в сомони —
+ *  ничего не меняется. `money` не передан (внутренние тексты) — одна валюта как есть.
+ *  Сомони-часть — то же число, что говорит голос и пишет обложка (`propertyPriceTjs`, ревью #348):
+ *  до тысячи и только по курсу из Настроек; курса нет (`money.fallback`) — только доллары. */
 export function buildPriceDisplay(price: number | string | { toString(): string }, currency: string, money?: MoneyContext): string {
   const amount = Number(price.toString());
   const primary = formatPrice(amount, currency);
   if (currency !== "USD" || !money) return primary;
-  return `${priceInTjsOnly(price, currency, money)} (${primary})`;
+  const tjs = propertyPriceTjs(amount, "USD", money.fallback ? null : money.usdToTjs);
+  return tjs === null ? primary : `${formatPrice(tjs, "TJS")} (${primary})`;
 }
 
 /**
- * ТОЛЬКО СОМОНИ, БЕЗ СКОБОК (владелец 23.09.2026: «монтажёру пусть цена идёт
- * только в сомони, а в автопостинге и в сомони, и в $»).
- *
- * Отдельная функция, а не флаг у `buildPriceDisplay`, ровно затем, чтобы
- * пересчёт остался в ОДНОМ месте: `buildPriceDisplay` теперь зовёт её же.
- * Второй копии `toTjs` в проекте быть не должно — на этом уже расходились
- * (правка #752, «одно правило написано дважды»).
- *
- * Курса нет — отдаём цену как есть: соврать «сомони», показав доллары, хуже,
- * чем показать доллары долларами.
+ * ЦЕНА В СОМОНИ ТЕКСТОМ — монтажёру и на плашку ролика (ревью #348). Число — общее `propertyPriceTjs`
+ * (то же, что говорит голос и пишет обложка); курс — только из Настроек. null — доллары без курса:
+ * цену не пишем вовсе (вызывающий пишет причину в журнал), а не по выдуманному курсу.
+ * Подпись под постом (`buildPriceDisplay`, «сомони ($)») — отдельное решение владельца, здесь не трогается.
  */
-export function priceInTjsOnly(
-  price: number | string | { toString(): string },
-  currency: string,
-  money?: MoneyContext
-): string {
-  const amount = Number(price.toString());
-  if (currency !== "USD" || !money) return formatPrice(amount, currency);
-  return formatPrice(toTjs(amount, "USD", money), "TJS");
+export function propertyPriceTjsText(price: unknown, currency: string, usdToTjs: number | null | undefined): string | null {
+  const tjs = propertyPriceTjs(price, currency, usdToTjs);
+  return tjs === null ? null : formatPrice(tjs, "TJS");
 }
 
 /** Фаза новостройки словами для подписи; null — вторичка или фаза не выбрана. */
@@ -442,7 +432,8 @@ export function reelsCaptionValuesFromProperty(p: {
     price: buildPriceDisplay(p.price, p.currency, p.money),
     phone: p.phone,
     agentName: p.agentName ?? null,
-    address: p.address ?? null,
+    // «улица» одним словом — не адрес: строка «Адрес:» выпадает (21.11.2026, объект 213).
+    address: meaningfulPropertyAddress(p.address),
     documents: p.documents ?? null,
     windowCount: p.windowCount != null ? String(p.windowCount) : null,
     bathroom: bathroomFromDetails(p.details),

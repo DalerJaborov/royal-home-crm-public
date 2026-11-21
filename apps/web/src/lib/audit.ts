@@ -227,6 +227,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   LOST_REVIEW_RESOLVE: "Потерянный разговор разобран",
   BOT_REPLY_FEEDBACK_GOOD: "Ответ бота отмечен удачным",
   BOT_SPAM_RESTORED: "Отсеянный как спам разговор возвращён боту",
+  BOT_PAUSE_SET: "Бот поставлен на паузу",
+  BOT_PAUSE_CLEARED: "Бот возвращён в разговор",
   BOT_REPLY_FEEDBACK_BAD: "Ответ бота отмечен неудачным",
   STYLE_EXAMPLE_UPDATE: "Правка примера стиля",
   STYLE_EXAMPLE_DELETE: "Пример стиля удалён",

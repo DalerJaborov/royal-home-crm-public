@@ -150,7 +150,8 @@ describe("мастер объекта в Telegram", () => {
     await click("author", `pdt:f:area:${draft.id}`);
     await send("author", { text: "64" });
     await click("author", `pdt:f:cur:${draft.id}`);
-    await click("author", button("pdt:v:cur:")!);
+    // 780 000 за 64 м² — сомони: в долларах мастер теперь просит проверить валюту (21.11.2026, №213).
+    await click("author", lastButtons().find(b => b.text === "Сомони")!.callback_data!);
     await send("author", { text: "Продавец: Сосед\nТелефон: +992 93 555 12 34" });
 
     const card = lastText();

@@ -1,3 +1,4 @@
+import { NARRATION_LOUDNESS } from "./narrationLoudness.js";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -121,7 +122,8 @@ export async function chooseMusicTrack(lastId: string | null, random: () => numb
  * (loudnorm −18 LUFS: тогда приглушение под голосом в lib/narrationMix.ts работает одинаково для тихого и
  * громкого трека), затухание в конце MUSIC_FADE_SEC.
  */
-export const MUSIC_BED = { loudness: "loudnorm=I=-18:TP=-2:LRA=11", fadeSec: 1.5 } as const;
+// 21.11.2026: −18 → −16 LUFS вместе с голосом (lib/narrationLoudness.ts), разница с голосом прежняя.
+export const MUSIC_BED = { loudness: NARRATION_LOUDNESS.music, fadeSec: 1.5 } as const;
 export function musicBedFilter(durationSec: number): string {
   const fade = Math.min(MUSIC_BED.fadeSec, Math.max(0.2, durationSec / 4));
   const start = Math.max(0, durationSec - fade);

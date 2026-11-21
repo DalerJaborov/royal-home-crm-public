@@ -52,12 +52,12 @@ import {
   generateReelsCaptionFromTemplates,
   withPostFooter,
   applyContactFooter,
-  priceInTjsOnly,
+  propertyPriceTjsText,
   buildPriceDisplay,
 } from "./reelsCaptionTemplate.js";
 import { replaceCaptionPriceLines } from "./captionPriceLine.js";
 import { makePropertyCover } from "./video/coverOpenAi.js";
-import { loadMoneyContext } from "./money.js";
+import { loadMoneyContext, loadUsdRateInfo } from "./money.js";
 import { videoHandoffDir } from "../upload.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
@@ -84,7 +84,8 @@ import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.j
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
 import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
-import { narrationPublishGapMin, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { narrationPublishGapMin, propertyPriceTjsProblem, propertyPriceTjsProblemText, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
+import { narrationFactsCurrent, snapshotNarrationRate } from "./propertyNarration.js";
 import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
@@ -161,6 +162,14 @@ export function montajerDeliveryControlText(shortId: number, deliveredCount: num
     : `Объект №${shortId}: дошло ${deliveredCount} из ${total} ${filesAfterIz(total)}, остальное дошлю автоматически.`;
 }
 
+/** Курс доллара для цены в задании монтажёру: снимок последней версии озвучки, если её факты актуальны, иначе Настройки. */
+async function montajerPriceRate(property: Parameters<typeof narrationFactsCurrent>[1] & { id: string }): Promise<number | null> {
+  const voiced = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: property.id }, orderBy: { revision: "desc" },
+    select: { factsHash: true, factsSnapshot: true } });
+  const snapshot = voiced && narrationFactsCurrent(voiced, property) ? snapshotNarrationRate(voiced.factsSnapshot) : null;
+  return snapshot ?? (await loadUsdRateInfo()).rate;
+}
+
 export async function propertyFactsForMontajer(propertyId: string): Promise<string> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
@@ -197,7 +206,18 @@ export async function propertyFactsForMontajer(propertyId: string): Promise<stri
    * Публичная подпись под постом продолжает показывать обе (buildPriceDisplay) —
    * это разные тексты для разных людей, и различие здесь намеренное.
    */
-  const priceForMontajer = priceInTjsOnly(property.price, property.currency, await loadMoneyContext());
+  // Курс — только из Настроек (21.11.2026, владелец: цена только в сомони по нашему курсу). Нет курса —
+  // долларовую цену монтажёру не даём вовсе (он набрал бы доллары или сумму по выдуманному курсу) и пишем в журнал.
+  // Число — общее `propertyPriceTjs` (ревью #348): то же, что говорит голос и пишет обложка.
+  // Курс — из снимка актуальной озвучки объекта, если она есть (голос и задание говорят одно число, даже если курс
+  // в Настройках с тех пор сменился); иначе из Настроек (ревью #348, круг 2).
+  const rate = property.currency === "USD" ? await montajerPriceRate(property) : null;
+  const priceForMontajer = propertyPriceTjsText(property.price, property.currency, rate);
+  const priceProblem = propertyPriceTjsProblem(property.price, property.currency, rate);
+  if (priceProblem) {
+    void logSystemError("video-handoff", `Объект №${property.shortId}: монтажёру цена не передана: ${propertyPriceTjsProblemText(priceProblem)}.`,
+      { dedupKey: `montajer-price-${priceProblem}:${property.shortId}`, dedupWindowMs: 24 * 60 * 60_000 });
+  }
   // Владелец 16.09.2026 (второй заход) — назвал ровно семь фактов, каждый
   // отдельной строкой, теми же названиями, что в карточке объекта: Район,
   // Адрес, Этаж, Этажность (отдельно от этажа, не "X из Y" одной строкой),

@@ -3115,7 +3115,7 @@ model StaffClipIntake {
   caption        String?
   sizeBytes      Int?
   /// ASKING — ждём объект; CHOSEN — объект найден, ждём кнопку; READY / MONTAGE — сделано;
-  /// UNDONE — «Не тот объект»; CANCELLED; FAILED.
+  /// UNDONE — «Не тот объект»; CANCELLED; FAILED; FREE — ушёл в пост без объекта (StaffSocialPost).
   status         String    @default("ASKING")
   propertyId     String?
   /// Объекты, предложенные кнопками (shortId), и исключённые после «Не тот объект».
@@ -3124,11 +3124,59 @@ model StaffClipIntake {
   decidedAt      DateTime?
   /// Что сделал «Готов» / «Монтаж», чтобы «Не тот объект» откатил ровно это.
   result         Json?
+  /// Расшифровка звука ролика для распознавания объекта (21.11.2026, телефоны замаскированы):
+  /// второй раз за неё не платим — она же основа подписи поста без объекта.
+  transcript     String?
   expiresAt      DateTime
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   @@index([chatId, status, createdAt])
   @@index([fileUniqueId])
+}
+
+/// ПОСТ БЕЗ ОБЪЕКТА ОТ ШАБНАМ (21.11.2026, владелец: «да, а также научи…»). Сотрудник с правом
+/// маркетинга присылает Шабнам ролик или альбом фото — она готовит пост тем же кодом, что экран
+/// «Ролики» CRM (черновик SocialVideoPost, подпись lib/socialVideoAi.ts), показывает превью и
+/// публикует ТОЛЬКО по кнопке «Опубликовать» того же сотрудника. Строка держит выбор сетей,
+/// подпись и захват кнопки (двойное нажатие и повтор апдейта не публикуют дважды).
+/// telegram/staffSocialPost.ts.
+model StaffSocialPost {
+  id                String    @id @default(uuid())
+  chatId            String
+  agentId           String
+  /// VIDEO | PHOTO
+  kind              String
+  /// Ролик пришёл через «к какому объекту» (StaffClipIntake) — одна строка на ролик.
+  staffClipIntakeId String?   @unique
+  /// Альбом Telegram: один пост на альбом (повтор доставки не заводит второй).
+  mediaGroupKey     String?   @unique
+  /// Слова сотрудника к файлу (подпись к видео или альбому) — основа подписи поста.
+  request           String?
+  /// RU | TG | RU_TG — язык подписи.
+  language          String    @default("RU")
+  /// Выбранные сети (SocialVideoChannel[]).
+  channels          Json?
+  /// Черновик в «Роликах» CRM — то, что уходит в публикацию.
+  socialVideoPostId String?   @unique
+  /// PREPARING — готовим (черновик, подпись, новая подпись): публиковать нельзя; PREVIEW — превью показано,
+  /// ждём кнопку; EDIT_CAPTION — ждём новый текст; PICKING — выбор сетей; PUBLISHING — нажато «Опубликовать»;
+  /// PUBLISHED — ушло в публикацию; CANCELLED — отменено человеком; EXPIRED — сутки без решения, убрано уборкой
+  /// (lib/staffSocialPostSweep.ts, она же возвращает зависшие PREPARING / PUBLISHING после перезапуска).
+  /// Все переходы условные (updateMany из ожидаемого статуса). Подготовка не удалась — строка и черновик удаляются.
+  status            String    @default("PREPARING")
+  previewMessageId  Int?
+  /// Номер показанного превью (в кнопке «Опубликовать»): старое превью не публикует.
+  previewVersion    Int       @default(0)
+  /// Отпечаток подписи и сетей показанного превью: уходит ровно то, что человек видел.
+  previewCaptionHash String?
+  /// updatedAt черновика после НАШЕЙ последней записи: черновик позже правили в «Роликах» CRM — его не удаляем никогда.
+  draftSeenAt       DateTime?
+  publishedAt       DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  @@index([chatId, status, updatedAt])
+  @@index([status, expiresAt])
 }
 
 /// СВОЯ МУЗЫКА ДЛЯ ПЕРЕМОНТАЖА (18.11.2026, lib/narrationMusic.ts): треки без авторских прав, которые
@@ -4441,6 +4489,13 @@ model MessengerAccount {
   pageId           String?
   /// Последняя УСПЕШНАЯ отправка этого аккаунта через Страницу (ключ компании).
   eternalLastSentAt DateTime?
+  /// Meta закрыла доступ к аккаунту (21.11.2026, Arvan: «You cannot access the app till you log in to
+  /// www.instagram.com…» — проверка безопасности или блокировка). Одна запись и одна тревога на случай;
+  /// проверки здоровья, лента и сторожа подписки такой аккаунт не трогают. Снимается само при первом
+  /// успешном вызове или новом маркере. Вся логика — lib/instagramAccountAccess.ts.
+  accessLostAt     DateTime?
+  /// Что ответила Meta (без маркера), для карточки в Настройках.
+  accessLostReason String?
   /// Маркер доступа, зашифрован тем же способом, что ключи в Settings.
   token            String
   /// Выключенный аккаунт не отвечает и не принимает — но диалоги и история целы.
@@ -7331,6 +7386,13 @@ model Settings {
   botRepliesAfterLeadEnabled            Boolean @default(true)
   /// «Спам — без ответа и без модели» (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»). ВКЛ.
   botSpamFilterEnabled                  Boolean @default(true)
+  /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
+  /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
+  shabnamSocialPublishEnabled           Boolean @default(true)
+  /// «Instagram через постоянный ключ Meta» (владелец 21.11.2026: «Да, переводи»). Реестр — automationSwitches.ts. ВКЛ:
+  /// аккаунт, прошедший проверку (ключ компании, права, Страница с этим Instagram), отвечает через Страницу,
+  /// личный маркер — запасной. ВЫКЛ — все аккаунты Instagram на личных маркерах, как до 21.11.
+  instagramCompanyKeyEnabled            Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

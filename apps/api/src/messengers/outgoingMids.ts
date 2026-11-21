@@ -39,6 +39,7 @@
  * на это в чужом пространстве имён нельзя).
  */
 
+import { createHash } from "node:crypto";
 import { prisma } from "../db.js";
 
 /** Сколько помним. С запасом к реальной задержке эха (секунды) — на случай, если
@@ -129,7 +130,67 @@ export async function wasSentByUs(mid: string | null | undefined): Promise<boole
   }
 }
 
+/**
+ * СТРАХОВКА ПО ТЕКСТУ (21.11.2026, путь Instagram через Страницу). Отправка идёт
+ * через Страницу, а эхо приходит по подписке входа через Instagram. ФАКТ (прод 21.11,
+ * чтение): id сообщения на обоих путях один (наши ответы 24 из 24, входящие 32 из 34
+ * совпали с CRM). Но если Meta когда-нибудь отдаст на пути Страницы другой id, каждое
+ * наше эхо сошло бы за ручной ответ сотрудника — бот на паузе в каждой переписке.
+ * Поэтому отправка через Страницу помнит ещё и «кому + что» на 2 минуты.
+ */
+export const OUTGOING_TEXT_WINDOW_MS = 2 * 60_000;
+const OUT_TEXT_CHANNEL = "out:text";
+const textSentAt = new Map<string, number>();
+
+function textKey(channel: string, peer: string, content: string): string {
+  const digest = createHash("sha256").update(content.trim()).digest("hex").slice(0, 32);
+  return `${channel}:${peer}:${digest}`;
+}
+
+/** Что отправили собеседнику: текст или вид вложения (эхо вложения приходит без текста). */
+export function outgoingContentKey(input: { text?: string | null; attachmentType?: string | null }): string | null {
+  const text = input.text?.trim();
+  if (text) return text;
+  return input.attachmentType ? `[вложение:${input.attachmentType}]` : null;
+}
+
+export async function rememberOutgoingText(input: { channel: string; peer: string | null | undefined; content: string | null }): Promise<void> {
+  if (!input.peer || !input.content) return;
+  const key = textKey(input.channel, input.peer, input.content);
+  textSentAt.set(key, Date.now());
+  for (const [k, at] of textSentAt) if (Date.now() - at > OUTGOING_TEXT_WINDOW_MS) textSentAt.delete(k);
+  try {
+    // Тот же текст тому же человеку повторно — освежаем время, а не падаем на уникальности.
+    await prisma.processedMessage.upsert({
+      where: { channel_messageId: { channel: OUT_TEXT_CHANNEL, messageId: key } },
+      create: { channel: OUT_TEXT_CHANNEL, messageId: key },
+      update: { createdAt: new Date() },
+    });
+  } catch (err) {
+    console.error("[эхо] отметка исходящего текста не записана:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Это эхо совпадает с нашей отправкой тому же человеку за последние 2 минуты? */
+export async function wasRecentlySentText(input: { channel: string; peer: string; content: string | null }): Promise<boolean> {
+  if (!input.content) return false;
+  const key = textKey(input.channel, input.peer, input.content);
+  const at = textSentAt.get(key);
+  if (at !== undefined && Date.now() - at <= OUTGOING_TEXT_WINDOW_MS) return true;
+  try {
+    const row = await prisma.processedMessage.findUnique({
+      where: { channel_messageId: { channel: OUT_TEXT_CHANNEL, messageId: key } },
+      select: { createdAt: true },
+    });
+    return !!row && Date.now() - row.createdAt.getTime() <= OUTGOING_TEXT_WINDOW_MS;
+  } catch (err) {
+    console.error("[эхо] проверка исходящего текста в базе:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 /** Только для тестов: очистить память между сценариями. */
 export function resetOutgoingMids(): void {
   sentAt.clear();
+  textSentAt.clear();
 }

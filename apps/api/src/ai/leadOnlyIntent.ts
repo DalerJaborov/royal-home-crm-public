@@ -40,9 +40,11 @@ export function leadOnlyIntentFallback(text: string, reason?: LeadOnlyIntent["fa
   if (customerRecruitmentRequested(own)) return { role: "job", hot: false, ...base };
   const signals = customerRoleSignals(own);
   if (looksLikeRentRequest(own)) return { role: signals.landlord ? "landlord" : "renter", hot: false, ...base };
-  if (signals.sell && !signals.buyStrong) return { role: "seller", hot, ...base };
+  // «И продать, и купить» — продавец (своё жильё агенту в работу), покупка — в заметке (ai/operator, флаг bothRoles).
+  if (signals.both || (signals.sell && !signals.buyStrong)) return { role: "seller", hot, ...base };
   if (signals.landlord && !signals.buyStrong) return { role: "landlord", hot: false, ...base };
-  if (signals.buyStrong || signals.buyWeak || searchForHousing(own)) return { role: "buyer", hot, ...base };
+  // «Хона реклама / агент даркор» — нужна услуга, а не жильё: поиск жилья в этом не читаем (слепое ревью #345).
+  if (signals.buyStrong || signals.buyWeak || (searchForHousing(own) && !signals.serviceWanted)) return { role: "buyer", hot, ...base };
   return { role: "other", hot, ...base };
 }
 
