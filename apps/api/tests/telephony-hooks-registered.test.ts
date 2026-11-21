@@ -52,6 +52,15 @@ const INDEX_ONLY: Record<string, string> = {
 };
 
 /**
+ * Крючки не из телефонии, но поставленные теми же точками входа (тот же приём против цикла импортов) — с причиной.
+ * Обязаны стоять в ОБОИХ процессах; в подготовку тестов не ставятся: тест, которому крючок нужен, ставит его сам.
+ */
+const OUTSIDE_TELEPHONY: Record<string, string> = {
+  setVideoIssuedToMontajerHook:
+    "голос монтажёру следом за видео (21.11.2026, videoHandoff.ts ↔ narrationAutoFlow.ts); его тест narration-follows-video.test.ts ставит крючок сам, глобально он добавил бы mp3 в чужие подсчёты отправок",
+};
+
+/**
  * Комментарии выбрасываются ПЕРЕД подсчётом — иначе закомментированная строка
  * читается как живая регистрация. Поймано подменой: `// setPickAgentForLeadHook(…)`
  * в `worker.ts` оставлял проверку зелёной, хотя фон уже никого не назначал.
@@ -82,6 +91,13 @@ describe("Крючки телефонии зарегистрированы", () 
     });
   }
 
+  for (const [name, why] of Object.entries(OUTSIDE_TELEPHONY)) {
+    it(`${name} ставится и в index.ts, и в worker.ts (${why.split(";")[0]})`, () => {
+      expect(registrations(INDEX, name), `${name} не зарегистрирован в index.ts`).toBeGreaterThanOrEqual(1);
+      expect(registrations(WORKER, name), `${name} не зарегистрирован в worker.ts`).toBeGreaterThanOrEqual(1);
+    });
+  }
+
   for (const [name, why] of Object.entries(INDEX_ONLY)) {
     it(`${name} ставится только в index.ts (${why})`, () => {
       expect(registrations(INDEX, name)).toBeGreaterThanOrEqual(1);
@@ -93,7 +109,7 @@ describe("Крючки телефонии зарегистрированы", () 
     // Список выше — не документация, а договор: новый set…Hook обязан быть
     // либо в BOTH, либо в INDEX_ONLY с причиной. Иначе его забудут поставить в
     // worker.ts, и узнается это по тому, что фоном ничего не назначается.
-    const known = new Set([...BOTH, ...Object.keys(INDEX_ONLY)]);
+    const known = new Set([...BOTH, ...Object.keys(INDEX_ONLY), ...Object.keys(OUTSIDE_TELEPHONY)]);
     const declared = new Set<string>();
     for (const source of [INDEX, WORKER]) {
       for (const m of source.matchAll(/\bset([A-Z][A-Za-z]*)(?:Hook|Lookup)\s*\(/g)) {

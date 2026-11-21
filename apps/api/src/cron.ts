@@ -1180,6 +1180,19 @@ export function startCronJobs() {
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
   }, { timezone: "Asia/Dushanbe" });
+  /**
+   * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — ночная сверка всех карточек
+   * в 03:50 по Душанбе: копию, поменянную мимо перехвата записи (сырой SQL, откат правки,
+   * вложенная запись), чинит здесь же; та же сверка идёт при старте worker.
+   */
+  scheduleTracked("client-notes-plain-sweep", "50 3 * * *", async () => {
+    try {
+      const { sweepClientNotesPlain } = await import("./lib/clientNotesPlainSweep.js");
+      await sweepClientNotesPlain();
+    } catch (err) {
+      reportCronTickError("Сверка заметок без ярлыков", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
   /** Журнал сообщений помощницы (StaffNotice) старше 90 дней — 03:40 по Душанбе. */
   scheduleTracked("staff-notice-cleanup", "40 3 * * *", async () => {
     try {

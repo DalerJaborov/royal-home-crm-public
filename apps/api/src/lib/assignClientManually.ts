@@ -1,6 +1,8 @@
 import { canViewInvestigations } from "@royal-home/shared";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../db.js";
 import { prisma } from "../db.js";
-import { Prisma, type Client } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { closeLeadPushNotification, closeLeadPushNotifications, sendPushToAgent } from "../push.js";
 import { logAgentAudit } from "./audit.js";
 import { changeClientAgent } from "./changeClientAgent.js";
