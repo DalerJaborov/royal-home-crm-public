@@ -119,7 +119,7 @@ describe("пустые состояния", () => {
   });
 });
 
-describe("права на список и план по умолчанию (ревью #362)", () => {
+describe("права на список и план по умолчанию (ревью 362)", () => {
   it("без права на список плитки не кликабельны — ни KPI, ни скорость, ни отказы", () => {
     const { container } = wrap(<DirectorBlocks data={data(true)} order={["kpi", "speed", "reasons"]} mobile={false} onDrill={() => {}} canDrill={() => false} />);
     expect(container.querySelectorAll("button.dd-tile")).toHaveLength(0);
