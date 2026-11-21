@@ -16,14 +16,17 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 
 const transcribeAudio = vi.fn<(...args: unknown[]) => Promise<string | null>>();
-vi.mock("../src/ai/transcribe.js", () => ({
+vi.mock("../src/ai/transcribe.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/transcribe.js")>()),
   transcribeAudio,
   transcribeAudioResult: vi.fn(async () => ({ text: null, failed: false })),
   isTranscriptionEnabled: vi.fn(async () => true),
   transcribeTimeoutFor: () => 60_000,
   looksLikeModelRefusal: () => false,
 }));
-vi.mock("../src/ai/translateTranscript.js", () => ({ translateTranscript: vi.fn(async (t: string) => `ru:${t}`), looksTajik: () => false }));
+vi.mock("../src/ai/translateTranscript.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/translateTranscript.js")>()),
+  translateTranscript: vi.fn(async (t: string) => `ru:${t}`), looksTajik: () => false }));
 const extractIncomingCallLead = vi.fn();
 vi.mock("../src/ai/incomingCallLead.js", () => ({ extractIncomingCallLead }));
 
