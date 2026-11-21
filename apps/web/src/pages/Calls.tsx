@@ -266,7 +266,8 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
  * разговора перезванивать нечего, там есть карточка клиента.
  */
 function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
-  const needsQualifying = call.answered && !!call.client && !call.qualifiedAt;
+  // Метки «без разбора» в строке нет (владелец 21.11.2026): это внутренний учёт, а не факт о звонке;
+  // неразобранные входящие — отдельным срезом «Без разбора» над списком.
   // «Новый вид»: те же пометки и действия. У принятого входящего своей записи в
   // CRM нет — кнопки «Слушать» нет и не было; «Перезвонить» — только у
   // пропущенного (правило владельца), «Больше не звонить» — строкой меток.
@@ -287,16 +288,17 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
-          {needsQualifying && <RoyalCallFlag tone={pillTone("info")}>без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
             ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
-            : <RoyalCallFlag tone={pillTone("today")}>Никто не перезвонил</RoyalCallFlag>)}
+            : <RoyalCallFlag tone={pillTone("info")}>никто не перезвонил</RoyalCallFlag>)}
           {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
           {call.client && <Link className="ry-call-more" to={`/clients/${call.client.shortId}`}>Открыть клиента</Link>}
           <BlockCallerButton callId={call.id} known={!!call.client} />
         </>}
-        action={!call.answered && (
-          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
+        // Кнопка звонка одного вида (владелец 21.11.2026): у незнакомого номера карточки нет,
+        // CRM ему не позвонит — неработающую кнопку не рисуем, «в базе нет» уже сказано.
+        action={!call.answered && call.client && (
+          <CallClientButton clientId={call.client.id} phone={call.phone} variant="full" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-act" />
         )}
       />
     );
@@ -340,7 +342,6 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       )}
       <CallSourceMark source={call.source} look="chip" />
       {call.irrelevant && <span className="chip mute">не по делу</span>}
-      {needsQualifying && <span className="chip warn">без разбора</span>}
       {!call.answered &&
         (call.callbackAgent ? (
           <span className="chip warn">перезвонит {call.callbackAgent.fullName}</span>

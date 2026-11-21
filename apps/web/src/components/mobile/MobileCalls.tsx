@@ -263,7 +263,8 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
 /** Строка входящего: то же тело, но без автора и разбора — у входящего своей
  *  записи в CRM нет. Действия («Перезвонить», «больше не звонить») остаются те же. */
 function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?: boolean }) {
-  const needsQualifying = call.answered && !!call.client && !call.qualifiedAt;
+  // Метки «без разбора» в строке нет (владелец 21.11.2026): это внутренний учёт, а не факт о звонке;
+  // неразобранные входящие — отдельным срезом «Без разбора» над списком.
   const name = call.client?.fullName ?? call.phone;
   // «Новый вид»: те же пометки и действия, что у прежней строки ниже.
   if (royal) {
@@ -283,15 +284,16 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
         flags={<>
           <CallSourceMark source={call.source} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
-          {needsQualifying && <RoyalCallFlag tone={pillTone("info")}>без разбора</RoyalCallFlag>}
           {!call.answered && (call.callbackAgent
             ? <RoyalCallFlag tone={pillTone("info")}>перезвонит {call.callbackAgent.fullName}</RoyalCallFlag>
-            : <RoyalCallFlag tone={pillTone("today")}>никто не перезвонил</RoyalCallFlag>)}
+            : <RoyalCallFlag tone={pillTone("info")}>никто не перезвонил</RoyalCallFlag>)}
           {call.missingCallback && <RoyalCallFlag tone={pillTone("overdue")}>без перезвона {call.missedCallbackHours}ч+</RoyalCallFlag>}
           <BlockCallerButton callId={call.id} known={!!call.client} />
         </>}
-        action={!call.answered && (
-          <CallClientButton clientId={call.client?.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
+        // Кнопка звонка одного вида (владелец 21.11.2026): у незнакомого номера карточки нет,
+        // CRM ему не позвонит — бледной неработающей трубки не рисуем, «в базе нет» уже сказано.
+        action={!call.answered && call.client && (
+          <CallClientButton clientId={call.client.id} phone={call.phone} variant="icon" label="Перезвонить" title="Перезвонить через CRM" className="ry-call-round" />
         )}
       />
     );
@@ -324,7 +326,6 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           </span>
           <CallSourceMark source={call.source} look="chip-xs" />
           {call.irrelevant && <span className="chip lav xs">не по делу</span>}
-          {needsQualifying && <span className="chip warn xs">без разбора</span>}
           {!call.answered &&
             (call.callbackAgent ? (
               <span className="chip warn xs">перезвонит {call.callbackAgent.fullName}</span>
