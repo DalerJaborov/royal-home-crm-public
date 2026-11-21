@@ -6,11 +6,9 @@ import { useCleanShell } from "./useCleanShell";
  * Прежний телефонный интерфейс агента (MobileAgentHome, components/mobile/*,
  * LegacyAgentTopbar, LegacyAgentPropertyView, своя нижняя панель).
  *
- * Только для агента на узком экране БЕЗ чистой оболочки. «Новый вид» включает
- * чистую оболочку и на телефоне агента (hooks/shellDevicePolicy.ts, пачка B
- * 20.11.2026), поэтому при новом виде эта развилка всегда ложна: одна оболочка
- * на всех устройствах. Сторож — __tests__/useLegacyAgentMobile.test.tsx и
- * tests/e2e/one-shell.spec.ts.
+ * С 21.11.2026 новый интерфейс включён всем, и агентам на телефоне тоже
+ * (hooks/useCleanShell.ts), поэтому эта развилка истинна только под личным
+ * аварийным адресом `?look=legacy`. Сторож — hooks/__tests__/useCleanShellLook.test.tsx.
  */
 export function legacyAgentMobileActive(narrow: boolean, role: string | undefined, clean: boolean): boolean {
   return narrow && role === "AGENT" && !clean;

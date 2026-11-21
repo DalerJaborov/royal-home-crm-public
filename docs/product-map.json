@@ -1177,9 +1177,9 @@
       "mount": "/api/v1/ui-shell",
       "router": "uiShellRouter",
       "file": "apps/api/src/routes/uiShell.ts",
-      "endpoints": 3,
+      "endpoints": 1,
       "label": null,
-      "usedBy": 2
+      "usedBy": 0
     },
     {
       "mount": "/api/v1/sms",

@@ -408,6 +408,11 @@
   min-height: 52px; padding: 0 22px; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text);
   font-family: var(--ff-head); font-size: var(--rh-fs-md); font-weight: 600;
 }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot { flex-wrap: wrap; }
+/* Кнопка «Удалить и начать заново» не сжимается в две строки (К11.4 аудита 20.11): не помещается рядом
+   с главной — уходит на свою строку, подпись одной строкой. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .back { flex: 0 0 auto; max-width: 100%; white-space: nowrap; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .next { min-width: 8em; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .back:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-hint) 20%, transparent); color: var(--rh-ui-text); }
 /* Главная кнопка шага — единственная синяя на экране. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="wizard"] .wiz .wfoot .next {

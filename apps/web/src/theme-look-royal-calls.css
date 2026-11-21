@@ -128,7 +128,7 @@
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button[aria-selected="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .seg > button .n {
   display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
-  background: color-mix(in srgb, currentColor 14%, transparent); color: inherit; font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, currentColor 8%, transparent); color: inherit; font-size: var(--rh-fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
 :root[data-ui-look="royal"] .ry-calls.rh2.screens[data-ry-section="calls"] .filters {

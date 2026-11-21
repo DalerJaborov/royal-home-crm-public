@@ -911,3 +911,54 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .wiz.wizard-workspace .rev .v { font-size: 18px; }
   .rh2 .wiz.wizard-workspace .wfoot :is(.back,.next) { font-size: 18px; }
 }
+@media (max-width: 767.98px) {
+  .clean-reports .dsm-d small { font-size: 15px; }
+  html[data-shell="clean"] .clean-record-form .lab { font-size: 15px; }
+  html[data-shell="clean"] .pstats small { font-size: 15px; }
+  .clean-shell .clean .clean-queue-empty p { font-size: 15px; }
+  .rh2 .scr .prow .t .pstats .pstat small,
+.rh2 .prow .t .pstats .pstat small { font-size: 15px; }
+  .rh2 .pst-funnel .hint { font-size: 15px; }
+  .rh2 .pvc-stats dt { font-size: 15px; }
+  .rh2 .mh .urg .note { font-size: 15px; }
+  .rh2 .mh .money .sub { font-size: 15px; }
+  .rh2 .gauge .c small { font-size: 15px; }
+  .rh2 .sec02 .num small { font-size: 15px; }
+  .rh2 .sec02 .frozen-note .a small { font-size: 15px; }
+  .rh2 .sec03 .tc small { font-size: 15px; }
+  .rh2 .sec03 .row .n small { font-size: 15px; }
+  .rh2 .sec03 .stg .n small { font-size: 15px; }
+  .rh2 .sec04 .tc small { font-size: 15px; }
+  .rh2 .sec04 .pc small { font-size: 15px; }
+  .rh2 .sec05 .tc small { font-size: 15px; }
+  .rh2 .sec06 .tc small { font-size: 15px; }
+  .rh2 .sec08 .tc small { font-size: 15px; }
+  .rh2 .sec09 .tc small { font-size: 15px; }
+  .rh2 .sec09 .sy small { font-size: 15px; }
+  .rh2 .v8 .v8b .tl .who small { font-size: 15px; }
+  .rh2 .v8 .v8b .obj .ob small { font-size: 15px; }
+  .rh2 .dsr .top .sub { font-size: 15px; }
+  .rh2 .dsr .score small { font-size: 15px; }
+  .rh2 .dsr .cmp .dl small { font-size: 15px; }
+  .rh2 .dsr .cmp .v small { font-size: 15px; }
+  .rh2 .lf .lf-sh p { font-size: 15px; }
+  .rh2 .cfg p { font-size: 15px; }
+  .rh2 .rail .logo small { font-size: 15px; }
+  .rh2 .toprow .un small { font-size: 15px; }
+  .rh2 .stk .sub { font-size: 15px; }
+  .rh2 .stk .trio small { font-size: 15px; }
+  .rh2 .cmdk li button small { font-size: 15px; }
+  .rh2 .ai-list li .lk { font-size: 15px; }
+  .rh2 .arow .lk { font-size: 15px; }
+  .rh2 .scr .head p { font-size: 15px; }
+  .rh2 .rail .it.me .lbl small { font-size: 15px; }
+  .rh2 .dealbar .db small { font-size: 15px; }
+  .rh2 .qsheet .qs-h p { font-size: 15px; }
+  .rh2 .od2-f small { font-size: 15px; }
+  .rh2 .cfg .cfg-cols small { font-size: 15px; }
+  .rh2 .wiz .sub { font-size: 15px; }
+  .rh2 .client-match-evidence p { font-size: 15px; }
+  .rh2 .client-match-selected p { font-size: 15px; }
+  .rh2 .hero-face-cap small { font-size: 15px; }
+  .rh2 .scr .pg-h.rh-pg-h .sub { font-size: 15px; }
+}

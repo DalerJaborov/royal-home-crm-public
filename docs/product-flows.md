@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2512**; вместе с задачами по расписанию и фоновыми заданиями — **4219**. Модулей: **89**.
+Путей: **791**. Развилок в самих путях: **2500**; вместе с задачами по расписанию и фоновыми заданиями — **4207**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18153,87 +18153,6 @@
   · ответ 200
 
 ## /api/v1/ui-shell
-
-### GET /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage
-
-- res.setHeader("ETag", `"${version}"`);
-  · ставит заголовок ответа
-- res.json({ ...parseUiShellRollout(raw), version });
-  · ответ 200
-
-### PUT /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage, requireElevation
-
-- const parsed = uiShellRolloutSchema.safeParse(req.body);
-  · проверяет данные схемой uiShellRolloutSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректные настройки оболочки", issues: parsed.error.issues });
-    · ответ 400 — «Некорректные настройки оболочки»
-- если !expected
-  - return res.status(428).json({ error: "Обновите настройки перед сохранением.", code: "UI_SHELL_VERSION_REQUIRE…
-    · ответ 428 — «Обновите настройки перед сохранением.»
-- пробует
-  - const version = await prisma.$transaction(async (tx)
-    · ошибка ShellConflict
-    · всё внутри — одной транзакцией
-    · читает в базе: settings
-    · читает в базе: agent
-    · создаёт в базе: settings
-    · меняет в базе: settings
-    · создаёт в базе: auditLog
-    - const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { uiShellRollout: true } …
-      · читает в базе: settings
-    - если expected !== `"${versionOf(raw)}"`
-      - throw new ShellConflict();
-        · ошибка ShellConflict
-    - если keepStoredLook && storedLook.length
-      - config.royalLookAgentIds = storedLook;
-        · дословно из кода
-    - если config.royalLookAgentIds?.length === 0
-      - delete config.royalLookAgentIds;
-        · дословно из кода
-    - если selectedIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
-        · читает в базе: agent
-      - если missing.length
-        - throw new InvalidShellAgents(missing);
-          · ошибка InvalidShellAgents — «missing»
-    - если !settings
-      - пробует
-        - await tx.settings.create({ data: { id: "singleton", uiShellRollout: envelope } });
-          · создаёт в базе: settings
-      - если сорвалось
-        - если error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
-          - throw new ShellConflict();
-            · ошибка ShellConflict
-        - throw error;
-          · пробрасывает ошибку дальше
-    - иначе
-      - const updated = await tx.settings.updateMany({ where: { id: "singleton", uiShellRollout: { equals: raw == nul…
-        · меняет в базе: settings
-      - если updated.count !== 1
-        - throw new ShellConflict();
-          · ошибка ShellConflict
-    - const author = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-      · читает в базе: agent
-    - await tx.auditLog.create({ data: { action: "SETTINGS_UPDATE", entityType: "Settings", entityId: "singleton", …
-      · создаёт в базе: auditLog
-  - res.setHeader("ETag", `"${version}"`);
-    · ставит заголовок ответа
-  - res.json({ ...config, version });
-    · ответ 200
-- если сорвалось
-  - если error instanceof ShellConflict
-    - return res.status(409).json({ error: "Настройки уже изменены другим администратором. Обновите их и проверьте …
-      · ответ 409 — «Настройки уже изменены другим администратором. Обновите их и…»
-  - если error instanceof InvalidShellAgents
-    - return res.status(400).json({ error: "Некоторые сотрудники не найдены или отключены. Обновите список перед со…
-      · ответ 400 — «Некоторые сотрудники не найдены или отключены. Обновите список перед…»
-  - throw error;
-    · пробрасывает ошибку дальше
 
 ### GET /api/v1/ui-shell
 
