@@ -437,7 +437,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         focus: focus?.snapshot.focus, eventKey: lane.ticket.eventKey, text: fullInput(), captions: prepared.captions });
       const operatorTurn = () => planCustomerLeadOnlyTurn({ config: leadOnly, channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
         conversationId: lane.ticket.conversationId, eventKey: claim.eventKey, inputText: fullInput(), focusPropertyId: leadOnlyFocusId,
-        turns: remembered.context.turns, attachments: {
+        turns: remembered.context.turns, endpointScopeId: planningPrincipal.scope.endpointScopeId, attachments: {
           voice: kinds.includes("audio") ? (mediaPerception?.transcript?.trim() ? "transcribed" : "failed") : "none",
           ownPost, foreignPost, foreignQuiet,
           media: kinds.some(kind => kind === "image" || kind === "video") } });

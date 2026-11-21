@@ -110,9 +110,9 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP", igAt
   return { eventKey, peer, endpoint, io, bodies, setReplies(value: unknown[][]) { replies = value; generated = 0; },
     onGenerate(hook: (round: number) => Promise<void>) { beforeGenerate = hook; },
     /** Следующее подписанное сообщение того же собеседника (Instagram или WhatsApp). */
-    async receive(nextText: string): Promise<string> {
+    async receive(nextText: string, nextAttachments?: unknown[]): Promise<string> {
       const nextBody = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{ sender: { id: peer }, recipient: { id: externalId },
-        timestamp: Date.now(), message: { mid: randomUUID(), text: nextText } }] }] }
+        timestamp: Date.now(), message: { mid: randomUUID(), ...(nextAttachments ? { attachments: nextAttachments } : { text: nextText }) } }] }] }
         : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
           metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
           messages: [{ from: peer, id: randomUUID(), timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: nextText } }] } }] }] };
@@ -329,8 +329,12 @@ describe("оператор приёма заявок на настоящем п�
     // Язык разговора неизвестен, вложение — пересланный пост: таджикский (SPEC, случай 20). Без «Спасибо, получил», без номера.
     expect(await plannedText(f.eventKey)).toBe("Шумо хона мехаред ё мефурӯшед?");
     expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ role: "unknown", step: "role", asked: { role: 1, phone: 0 } });
-    // Повтор подряд — тишина без сигнала: проверено на решении оператора (bot-first-shared-post-21-11.test.ts) — здесь у ответа
-    // нет записи доставки, и память ядра его не видит (счётчик вопроса о роли сверяется с тем, что клиент правда получил).
+    // ГОНКА (слепое ревью #371): второй пост через секунду, вопрос на первый ещё в очереди отправки (READY, не доставлен — память
+    // ядра его не видит). Счётчик вопроса о роли учитывает и очередь: второй раз вопрос не звучит — тишина, как у повтора.
+    const queued = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: f.eventKey }, select: { status: true } });
+    expect(queued.map(part => part.status)).toEqual(["READY"]);
+    await silent(await f.receive("", share("18000000000000002")));
+    expect(await operatorStateOf(await conversationOf(f.eventKey))).toMatchObject({ asked: { role: 1 } });
     coreModelUntouched(f);
   });
 

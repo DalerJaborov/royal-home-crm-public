@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { decide, initialOperatorState } from "../src/ai/operator/decide.js";
 import { understandFallback } from "../src/ai/operator/understand.js";
 import { renderOperatorReply } from "../src/ai/operator/phrases.js";
+import { reconcileAskedRole } from "../src/ai/operator/index.js";
 import type { OperatorContext, OperatorState } from "../src/ai/operator/types.js";
 
 const ctx = (over: Partial<OperatorContext> = {}): OperatorContext => ({
@@ -69,6 +70,17 @@ describe("пересланный пост без слов первым сооб�
     // Своё фото без слов — прежнее «Спасибо, получил» и вопрос о роли.
     const own = decide(state, understandFallback({ current: "", attachments: { media: true } }, state, ctx()), ctx());
     expect(own.steps.map(step => step.key)).toEqual(["media_received", "ask_role"]);
+  });
+
+  it("сверка счётчика вопроса о роли видит и очередь отправки: недоставленный вопрос не обнуляет счётчик (гонка, ревью #371)", () => {
+    const asked = (): OperatorState => ({ ...initialOperatorState(), asked: { role: 1, details: 0, phone: 0 }, step: "role" });
+    const recent = [{ role: "user" as const, text: "{\"incomingAttachments\":[\"share\"]}" }];
+    // Прежнее поведение (ea3fecb5): вопроса нет ни в памяти, ни в очереди — счётчик падает до того, что клиент видел.
+    const lost = asked(); reconcileAskedRole(lost, recent); expect(lost.asked.role).toBe(0);
+    const lostToo = asked(); reconcileAskedRole(lostToo, recent, []); expect(lostToo.asked.role).toBe(0);
+    // Вопрос в очереди (READY / IN_FLIGHT) — счётчик остаётся, и следующий пост серии не получит второй вопрос.
+    const queued = asked(); reconcileAskedRole(queued, recent, ["Шумо хона мехаред ё мефурӯшед?"]); expect(queued.asked.role).toBe(1);
+    expect(share(queued, ctx()).d.silent).toBe(true);
   });
 
   it("после заявки пересланный пост без слов — как прежде: без вопроса о роли", () => {

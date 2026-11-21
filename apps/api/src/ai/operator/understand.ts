@@ -44,6 +44,8 @@ export interface OperatorTurnInput {
   current: string;
   /** Последние реплики обеих сторон, по порядку. */
   recent?: ReadonlyArray<{ role: "user" | "assistant"; text: string }>;
+  /** Тексты бота, отправленные или стоящие в очереди отправки (только для сверки счётчика вопроса о роли; модели не идут). */
+  sentBotTexts?: readonly string[];
   /** Вложения хода — знает сервер, не модель. */
   attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; foreignQuiet: boolean; media: boolean }>;
   conversationId?: string | null;
