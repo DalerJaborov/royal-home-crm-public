@@ -33,9 +33,15 @@ import { currentActorId } from "./lib/requestActor.js";
  *  - вложенные записи (deal.update({ client: { update: ... } })) не ловятся —
  *    в коде так статусы не меняют (проверено поиском на 26.08).
  */
+/**
+ * `source` (21.11.2026, ТЗ дашборда директора п.15 «история смены источника»):
+ * ловится только на ИЗМЕНЕНИИ. Источник задаётся при создании каждой карточки —
+ * запись «null → Instagram» на каждое создание была бы шумом, а первый источник
+ * и так лежит в самой карточке. Поэтому у полей есть отдельный список для create.
+ */
 const TRACKED = {
-  client: { entityType: "CLIENT", fields: ["status", "workStatus"] as const },
-  deal: { entityType: "DEAL", fields: ["stage"] as const },
+  client: { entityType: "CLIENT", fields: ["status", "workStatus", "source"] as const, createFields: ["status", "workStatus"] as const },
+  deal: { entityType: "DEAL", fields: ["stage"] as const, createFields: ["stage"] as const },
 } as const;
 
 /**
@@ -198,7 +204,7 @@ function makeHooks(model: keyof typeof TRACKED) {
      *  (NEW/ACTIVE без явного поля в data) журналу не нужны — они и так дефолт;
      *  пишем только явно заданные, чтобы не плодить строку на каждый сид. */
     async create({ args, query }: UpdateHook) {
-      const changes = changesOf(args.data);
+      const changes = changesOf(args.data).filter((c) => (cfg.createFields as readonly string[]).includes(c.field));
       const result = (await query(args)) as { id?: string } | null;
       if (changes.length && result && typeof result.id === "string") {
         recordEvents(

@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 788,
-  "forks": 4210,
-  "mounts": 88,
+  "endpoints": 792,
+  "forks": 4214,
+  "mounts": 89,
   "cron": 144,
   "jobs": 34,
   "hidden": 0
@@ -64903,6 +64903,353 @@
        "c": []
       }
      ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/drill",
+   "mount": "/api/v1/reports/director",
+   "full": "/api/v1/reports/director/drill",
+   "file": "apps/api/src/routes/reportsDirector.ts",
+   "router": "reportsDirectorRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = directorDrillQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой directorDrillQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return badRequest(res, parsed.error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const presentName = (client: { fullName: string; source: string })",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const shown = withHiddenOrigin({ fullName: client.fullName, source: client.source as string | null }, viewer.…",
+       "a": [
+        "зовёт withHiddenOrigin()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return { name: clientNamePhoneSafe(shown.fullName, viewer.seesPhone), source, sourceLabel: source ? (CLIENT_S…",
+       "a": [
+        "зовёт clientNamePhoneSafe()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return guarded(res, \"список\", async ()",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/export.xlsx",
+   "mount": "/api/v1/reports/director",
+   "full": "/api/v1/reports/director/export.xlsx",
+   "file": "apps/api/src/routes/reportsDirector.ts",
+   "router": "reportsDirectorRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = directorDashboardQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой directorDashboardQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return badRequest(res, parsed.error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return guarded(res, \"выгрузка\", async ()",
+     "a": [
+      "ответ 200",
+      "ставит заголовок ответа"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const data = await cachedDirectorDashboard(parsed.data, viewerOf(req));",
+       "a": [
+        "зовёт cachedDirectorDashboard()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const file = writeXlsx(exportSheets(data));",
+       "a": [
+        "зовёт writeXlsx()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const name = `director-${dushanbeDateString(new Date(data.period.from))}_${dushanbeDateString(new Date(data.p…",
+       "a": [
+        "зовёт dushanbeDateString()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Type\", \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Disposition\", `attachment; filename=\"${name}\"`);",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Cache-Control\", \"no-store\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.send(file);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/history",
+   "mount": "/api/v1/reports/director",
+   "full": "/api/v1/reports/director/history",
+   "file": "apps/api/src/routes/reportsDirector.ts",
+   "router": "reportsDirectorRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = historyQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой historyQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return badRequest(res, parsed.error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return guarded(res, \"история\", async ()",
+     "a": [
+      "ответ 200",
+      "читает в базе: stageEvent",
+      "читает в базе: auditLog",
+      "читает в базе: agent"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const [events, agentChanges] = await Promise.all([ prisma.stageEvent.findMany({ where: { entityType: \"CLIENT\"…",
+       "a": [
+        "читает в базе: stageEvent",
+        "читает в базе: auditLog"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const e of events",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "if (e.agentId) agentIds.add(e.agentId);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const a of agentChanges",
+       "a": [],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const id of [a.agentId, m.fromAgentId, m.toAgentId]",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "if (id) agentIds.add(id);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const agents = await prisma.agent.findMany({ where: { id: { in: [...agentIds] } }, select: { id: true, fullNa…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ clientId, items });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/reports/director",
+   "full": "/api/v1/reports/director",
+   "file": "apps/api/src/routes/reportsDirector.ts",
+   "router": "reportsDirectorRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = directorDashboardQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой directorDashboardQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return badRequest(res, parsed.error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return guarded(res, \"сводка\", async ()",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },
