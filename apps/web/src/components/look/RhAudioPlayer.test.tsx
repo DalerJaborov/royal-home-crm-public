@@ -147,3 +147,14 @@ describe("RhAudioPlayer (К01: серый системный плеер «00:00�
     expect(btn.hasAttribute("aria-pressed")).toBe(false);
   });
 });
+
+describe("RhAudioPlayer в пузыре (21.11.2026)", () => {
+  it("без подложки, цвета у пузыря, скорость — видимая пилюля, длина из сервера до проигрывания", () => {
+    const { container } = render(<RhAudioPlayer src="/v.ogg" speeds inBubble knownSec={5} label="Голосовое" />);
+    const root = container.querySelector("[data-testid='rh-audio']") as HTMLElement;
+    expect(root.className).not.toContain("bg-[var(--rh-ui-hover)]");
+    expect(root.innerHTML).toContain("--rh-audio-btn");
+    expect(screen.getByTestId("rh-audio-clock").textContent).toContain("0:05");
+    expect(screen.getByRole("button", { name: /Скорость/ }).className).toContain("--rh-audio-pill");
+  });
+});
