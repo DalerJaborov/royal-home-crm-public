@@ -55,7 +55,7 @@ export const startPropertyDraftTool: AssistantReadToolPlugin = {
     if (result.reason === "no_telegram") {
       return { error: "Telegram сотрудника не привязан к CRM: объект можно добавить в CRM (Объекты → Добавить объект) или сначала привязать Telegram в профиле" };
     }
-    if (result.reason === "unavailable") return { error: "Мастер объекта сейчас недоступен: объект можно добавить в CRM (Объекты → Добавить объект)" };
+    if (result.reason === "unavailable") return { error: "Мастер объекта сейчас не открылся (чат занят другим действием или мастер недоступен) — причина уже в личке сотрудника; объект можно добавить и в CRM (Объекты → Добавить объект)" };
     return { error: "Учётная запись сотрудника отключена" };
   },
 };

@@ -493,6 +493,11 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
   if (params.attachedFile) actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...attachedFileHiddenTools()]);
+  // Мастер объекта (уровень A, но пишет в черновик) — только на собственную просьбу сотрудника: пересланный
+  // текст продавца, файл или ход «только читать» не открывают мастер и не льют чужие данные в черновик.
+  if (params.forwardedEvidence || params.readOnlyGroup || params.onlyGroupConfirmation || params.attachedFile) {
+    actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), "start_property_draft"]);
+  }
   // «Помолчи» словами модели — только на прямое обращение: ни пересылка, ни автоответ его не включают.
   if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
     actor.groupChat = params.groupChat;
