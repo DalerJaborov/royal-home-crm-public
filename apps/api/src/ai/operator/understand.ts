@@ -44,8 +44,10 @@ export interface OperatorTurnInput {
   current: string;
   /** Последние реплики обеих сторон, по порядку. */
   recent?: ReadonlyArray<{ role: "user" | "assistant"; text: string }>;
+  /** Тексты бота, отправленные или стоящие в очереди отправки (только для сверки счётчика вопроса о роли; модели не идут). */
+  sentBotTexts?: readonly string[];
   /** Вложения хода — знает сервер, не модель. */
-  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; media: boolean }>;
+  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; foreignQuiet: boolean; media: boolean }>;
   conversationId?: string | null;
 }
 
@@ -204,7 +206,10 @@ function codeFacts(input: OperatorTurnInput) {
   const neutral = isNeutralShortReply(own);
   const adOpener = isAdTemplateOpener(own);
   const attachments = { voice: input.attachments?.voice ?? "none", ownPost: !!input.attachments?.ownPost,
-    foreignPost: !!input.attachments?.foreignPost, media: !!input.attachments?.media } as Understanding["attachments"];
+    foreignPost: !!input.attachments?.foreignPost,
+    // Приговор «чужой шум» — только вместе с самим чужим постом и не для своего (защита по умолчанию — ответ, а не тишина).
+    foreignQuiet: !!input.attachments?.foreignPost && !input.attachments?.ownPost && !!input.attachments?.foreignQuiet,
+    media: !!input.attachments?.media } as Understanding["attachments"];
   const abuse = customerDmAbuseKind(own);
   return {
     own, folded, phone, letters, adOpener, attachments,
