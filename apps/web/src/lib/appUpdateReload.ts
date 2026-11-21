@@ -95,6 +95,7 @@ function writeAttempts(record: AttemptRecord): void {
 export function clearUpdateAttempts(): void {
   try {
     sessionStorage.removeItem(ATTEMPTS_KEY);
+    sessionStorage.removeItem(ATTEMPTS_ALL_KEY);
   } catch {
     /* см. writeAttempts */
   }
@@ -116,11 +117,28 @@ export function resetAttemptsIfUpdated(currentVersion: string): void {
  */
 function recentAttempts(from: string, to: string, now: number): AttemptRecord {
   const record = readAttempts();
-  if (!record || record.from !== from || record.to !== to) return { from, to, times: [] };
+  if (!record || record.from !== from || !sameTarget(record.to, to)) return { from, to, times: [] };
   const times = record.times
     .map((t) => Math.min(t, now))
     .filter((t) => now - t < ATTEMPT_WINDOW_MS);
-  return { ...record, times };
+  // Неизвестная цель не затирает уже известную: пара остаётся «моя → v2».
+  return { ...record, to: isUnknownTarget(to) ? record.to : to, times };
+}
+
+/**
+ * НЕИЗВЕСТНАЯ ЦЕЛЬ СОВПАДАЕТ С ЛЮБОЙ (21.11.2026, после #379). Сигнал воркера
+ * (needRefresh) приходит раньше ответа /version.json: часть «жизней» страницы идёт
+ * с целью UNKNOWN_TARGET, часть — уже с «v2». Когда это были две разные пары, каждая
+ * смена цели перезаписывала запись и обнуляла счёт: прогон с чередованием "?"/"v2"
+ * давал 40 перезагрузок на 40 открытий. Новая лестница — только при двух РАЗНЫХ
+ * известных целях (настоящий новый выкат сайта).
+ */
+function isUnknownTarget(target: string): boolean {
+  return !target || target === UNKNOWN_TARGET;
+}
+
+function sameTarget(a: string, b: string): boolean {
+  return isUnknownTarget(a) || isUnknownTarget(b) || a === b;
 }
 
 export interface UpdateGate {
@@ -132,18 +150,58 @@ export interface UpdateGate {
   attempts: number;
 }
 
+/**
+ * ОБЩИЙ ПОТОЛОК НА СБОРКУ ВКЛАДКИ, НЕЗАВИСИМО ОТ ЦЕЛИ (22.11.2026, ревью #381).
+ * Счёт по паре обнуляется при смене известной цели — и чередование ответов
+ * «v2»/«v3» (два выката подряд, кэш прокси, разные узлы) давало перезагрузку на
+ * каждое открытие: 40 из 40 прогоном. Поверх счёта пары — общий счёт попыток этой
+ * сборки вкладки в том же окне: настоящему новому выкату после сдачи остаётся
+ * ещё одна полная лестница, но не бесконечно.
+ */
+const ATTEMPTS_ALL_KEY = "rh:update-attempts-all";
+export const MAX_TOTAL_ATTEMPTS = MAX_ATTEMPTS * 2;
+
+function recentTotalAttempts(from: string, now: number): number[] {
+  try {
+    const raw = sessionStorage.getItem(ATTEMPTS_ALL_KEY);
+    const parsed = raw ? (JSON.parse(raw) as { from?: unknown; times?: unknown }) : null;
+    if (!parsed || parsed.from !== from || !Array.isArray(parsed.times)) return [];
+    return parsed.times
+      .filter((t): t is number => typeof t === "number" && Number.isFinite(t))
+      .map((t) => Math.min(t, now))
+      .filter((t) => now - t < ATTEMPT_WINDOW_MS);
+  } catch {
+    return [];
+  }
+}
+
+function writeTotalAttempts(from: string, times: number[]): void {
+  try {
+    sessionStorage.setItem(ATTEMPTS_ALL_KEY, JSON.stringify({ from, times }));
+  } catch {
+    /* см. writeAttempts */
+  }
+}
+
 /** Можно ли сейчас ещё раз попытаться уйти с `from` на `to`. Ничего не пишет. */
 export function updateAttemptGate(from: string, to: string, now = Date.now()): UpdateGate {
   const { times } = recentAttempts(from, to, now);
-  if (times.length < MAX_ATTEMPTS) return { allowed: true, retryAt: null, attempts: times.length };
-  return { allowed: false, retryAt: Math.min(...times) + ATTEMPT_WINDOW_MS, attempts: times.length };
+  const total = recentTotalAttempts(from, now);
+  if (times.length < MAX_ATTEMPTS && total.length < MAX_TOTAL_ATTEMPTS) {
+    return { allowed: true, retryAt: null, attempts: times.length };
+  }
+  // Ждать, пока освободится место и в паре, и в общем счёте.
+  const pairFree = times.length < MAX_ATTEMPTS ? now : Math.min(...times) + ATTEMPT_WINDOW_MS;
+  const totalFree = total.length < MAX_TOTAL_ATTEMPTS ? now : Math.min(...total) + ATTEMPT_WINDOW_MS;
+  return { allowed: false, retryAt: Math.max(pairFree, totalFree), attempts: times.length };
 }
 
 /** Отметить попытку; возвращает её номер внутри окна (1 — первая). */
 export function noteUpdateAttempt(from: string, to: string, now = Date.now()): number {
   const record = recentAttempts(from, to, now);
   const times = [...record.times, now];
-  writeAttempts({ from, to, times, reported: record.reported });
+  writeAttempts({ from, to: record.to, times, reported: record.reported });
+  writeTotalAttempts(from, [...recentTotalAttempts(from, now), now]);
   return times.length;
 }
 
@@ -152,12 +210,48 @@ export function isUpdateLoopSuppressed(from: string, to: string, now = Date.now(
   return !updateAttemptGate(from, to, now).allowed;
 }
 
-/** Доложить сдачу по паре один раз: true — докладывать (и отметка уже стоит). */
-function claimGiveUpReport(from: string, to: string, now: number): boolean {
+/** Пары, доклад по которым уже в пути: второй вызов не шлёт дубль, пока первый не ответил. */
+const giveUpInFlight = new Set<string>();
+
+/**
+ * ДОКЛАД О СДАЧЕ — ОДИН РАЗ НА ПАРУ, И ТОЛЬКО ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ (22.11.2026,
+ * ревью #381). Зовёт его тот, кто видит закрытые попытки: шаг решения
+ * (lib/appUpdateFlow.ts, runUpdateStep — единственный путь в браузере) и, на гонку,
+ * applyAppUpdate. Раньше отметку «доложено» ставили ДО отправки, а отправка молча
+ * не уходит без восстановленной сессии (errorReporter: report) — на старте вкладки
+ * доклад терялся навсегда. Теперь отметка ставится, только если запись принята.
+ */
+export function reportUpdateGiveUpOnce(
+  from: string,
+  to: string,
+  now = Date.now(),
+  reporter: GiveUpReporter = defaultGiveUpReporter,
+): void {
   const record = recentAttempts(from, to, now);
-  if (record.reported) return false;
-  writeAttempts({ ...record, reported: true });
-  return true;
+  const key = `${record.from}→${record.to}`;
+  if (record.reported || giveUpInFlight.has(key)) return;
+  giveUpInFlight.add(key);
+  // Цель — из записанной пары: переданная может быть «?», записанная уже известна.
+  const message = `[update] Сдача: обновление не применилось за ${record.times.length} попытки подряд, вкладка осталась на сборке ${from} (сервер: ${record.to})`;
+  console.error(message);
+  // Снимок среды — ЯВНЫМ полем (errorReporter.reportUpdateGiveUp), а не через
+  // error.stack: Safari и Chrome на iOS кладут в stack только адреса строк, и
+  // подробности терялись ровно на тех телефонах, ради которых собираются (21.11.2026).
+  void collectUpdateDiagnostics(from)
+    .catch(() => "диагностика не собралась")
+    .then((details) => reporter(message, details))
+    .then((sent) => {
+      if (!sent) return;
+      const fresh = recentAttempts(from, to, now);
+      writeAttempts({ ...fresh, reported: true });
+    })
+    .catch(() => {})
+    .finally(() => giveUpInFlight.delete(key));
+}
+
+/** Только для тестов: забыть доклады в пути. */
+export function resetGiveUpReportsForTests(): void {
+  giveUpInFlight.clear();
 }
 
 /**
@@ -285,6 +379,36 @@ async function collectUpdateDiagnostics(currentVersion: string): Promise<string>
     facts.push(`version.json=недоступен (${error instanceof Error ? error.message : "ошибка"})`);
   }
 
+  // Сама оболочка «/» — то, что на деле получает навигация. version.json может быть
+  // свежим, а index.html прийти старым (воркер, HTTP-кэш, прокси): метка app-version
+  // (vite.config.ts) и имя главного скрипта показывают, какую сборку отдают.
+  try {
+    const res = await Promise.race([
+      fetch(`/?rh-diag=${Date.now()}`, { cache: "no-store" }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("таймаут")), DIAGNOSTICS_TIMEOUT_MS)
+      ),
+    ]);
+    const html = await res.text();
+    facts.push(
+      `«/»: код=${res.status}`,
+      `«/» app-version=${/<meta[^>]+name="app-version"[^>]+content="([^"]*)"/.exec(html)?.[1] ?? "нет метки"}`,
+      `«/» скрипт=${/<script[^>]+src="([^"]*\/index-[^"]*\.js)"/.exec(html)?.[1] ?? "?"}`
+    );
+  } catch (error) {
+    facts.push(`«/»=недоступна (${error instanceof Error ? error.message : "ошибка"})`);
+  }
+
+  // Оболочка в прекеше воркера — её отдаёт навигация, пока управляет старый воркер
+  // (fetch выше идёт мимо NavigationRoute, поэтому показывает сеть, а не прекеш).
+  try {
+    const cached = "caches" in globalThis ? await caches.match("index.html", { ignoreSearch: true }) ?? await caches.match("/index.html", { ignoreSearch: true }) : undefined;
+    const html = cached ? await cached.text() : "";
+    facts.push(`прекеш index.html app-version=${cached ? /<meta[^>]+name="app-version"[^>]+content="([^"]*)"/.exec(html)?.[1] ?? "нет метки" : "нет в кэше"}`);
+  } catch {
+    facts.push("прекеш index.html=?");
+  }
+
   return facts.join("\n");
 }
 
@@ -307,22 +431,15 @@ function reportHardReset(currentVersion: string, attempt: number): void {
 }
 
 /**
- * Лестница кончилась, обновление так и не применилось — это настоящая поломка.
- * Докладывается ОДИН раз на пару сборок (claimGiveUpReport): плашка и повтор
- * раз в десять минут — штатная работа, а не новая ошибка каждые десять минут.
+ * Куда уходит запись о сдаче: errorReporter.reportUpdateGiveUp (в тестах — подмена).
+ * Возвращает, принята ли запись: лестница или плашка повторяют шаг, и отметка
+ * «доложено» ставится только после успеха (reportUpdateGiveUpOnce).
  */
-function reportGiveUp(currentVersion: string, targetVersion: string, attempts: number): void {
-  const message = `[update] Сдача: обновление не применилось за ${attempts} попытки подряд, вкладка осталась на сборке ${currentVersion} (сервер: ${targetVersion})`;
-  console.error(message);
-  // errorReporter слушает window "error" — факт попадёт в «Здоровье системы»,
-  // а не только в консоль вкладки, до которой никто не доберётся.
-  if (typeof ErrorEvent === "undefined") return;
-  void collectUpdateDiagnostics(currentVersion)
-    .catch(() => "диагностика не собралась")
-    .then((details) => {
-      const carrier = new Error(details);
-      window.dispatchEvent(new ErrorEvent("error", { message, error: carrier }));
-    });
+export type GiveUpReporter = (message: string, details: string) => boolean | Promise<boolean>;
+
+function defaultGiveUpReporter(message: string, details: string): Promise<boolean> {
+  // Динамически: errorReporter тянет api и стор сессии, лестнице они не нужны.
+  return import("./errorReporter").then((m) => m.reportUpdateGiveUp(message, details)).catch(() => false);
 }
 
 export interface ApplyUpdateOptions {
@@ -339,6 +456,8 @@ export interface ApplyUpdateOptions {
   navigateFresh?: (url: string) => void;
   /** Подменяется в тестах — в браузере это Date.now(). */
   now?: number;
+  /** Запись о сдаче в журнал. Подменяется в тестах. */
+  reportGiveUp?: GiveUpReporter;
 }
 
 /**
@@ -444,10 +563,11 @@ export async function applyAppUpdate({
   reload = () => window.location.reload(),
   navigateFresh = hardNavigate,
   now = Date.now(),
+  reportGiveUp: reporter = defaultGiveUpReporter,
 }: ApplyUpdateOptions): Promise<"service-worker" | "reload" | "hard-reset" | "gave-up"> {
   const gate = updateAttemptGate(currentVersion, targetVersion, now);
   if (!gate.allowed) {
-    if (claimGiveUpReport(currentVersion, targetVersion, now)) reportGiveUp(currentVersion, targetVersion, gate.attempts);
+    reportUpdateGiveUpOnce(currentVersion, targetVersion, now, reporter);
     return "gave-up";
   }
   const attempt = noteUpdateAttempt(currentVersion, targetVersion, now);

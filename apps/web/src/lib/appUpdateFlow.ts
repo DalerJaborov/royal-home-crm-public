@@ -1,5 +1,5 @@
 import { useAppUpdateStore } from "../store/appUpdate";
-import { ATTEMPT_WINDOW_MS, UNKNOWN_TARGET, updateAttemptGate } from "./appUpdateReload";
+import { ATTEMPT_WINDOW_MS, type GiveUpReporter, reportUpdateGiveUpOnce, UNKNOWN_TARGET, updateAttemptGate } from "./appUpdateReload";
 
 /**
  * ОДИН ШАГ РЕШЕНИЯ «подменять сборку сейчас?» — без React и без таймеров
@@ -30,6 +30,8 @@ export interface UpdateStepInput {
   /** Мутация в полёте (lib/isMutationInFlight.ts). */
   mutationInFlight: () => boolean;
   now?: number;
+  /** Запись о сдаче в журнал (в тестах — подмена). */
+  reportGiveUp?: GiveUpReporter;
 }
 
 export interface UpdateStep {
@@ -50,6 +52,10 @@ export function runUpdateStep(input: UpdateStepInput): UpdateStep {
   const gate = updateAttemptGate(input.currentVersion, target, now);
   if (!gate.allowed) {
     store.setBlocked(true);
+    // Доклад о сдаче — ЗДЕСЬ (22.11.2026, ревью #381): при закрытом окне этот шаг
+    // включает плашку и applyAppUpdate не зовёт, так что ветка «сдача» внутри неё
+    // в браузере не случалась. Один раз на пару, отметка — после успешной отправки.
+    reportUpdateGiveUpOnce(input.currentVersion, target, now, input.reportGiveUp);
     const retryAt = gate.retryAt ?? now + ATTEMPT_WINDOW_MS;
     return { retryInMs: Math.max(1_000, retryAt - now), flushWork: false };
   }
