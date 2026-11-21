@@ -46,7 +46,9 @@ function latinWordToFolded(word: string): string {
 }
 /** Свёрнутый текст, в котором чисто латинские слова переписаны кириллицей. */
 export function foldCustomerTextForRole(text: string): string {
-  return foldCustomerText(text).split(" ").map((word) => (/^[a-z]+$/u.test(word) ? latinWordToFolded(word) : word)).join(" ");
+  return foldCustomerText(text).split(" ").map((word) => (/^[a-z]+$/u.test(word) ? latinWordToFolded(word) : word)).join(" ")
+    // Живые написания «фурӯхт / фурӯш» (третий круг ревью #345): «фурохта», «фрухтан», «форухт», латиница «furoxtan» — к одному.
+    .replace(/ф[уо]?р[уо]?хт/gu, "фурухт").replace(/ф[уо]р[уо]ш/gu, "фуруш");
 }
 
 const HOUSING = `(?:хона\\p{L}*|хавли\\p{L}*|квартир\\p{L}*|кувартир\\p{L}*|дом(?:а|у|е|ом)?|двор(?:а|у|е)?|участ\\p{L}*|котлован\\p{L}*|замин\\p{L}*|манзил\\p{L}*|жиль\\p{L}*|недвижим\\p{L}*|офис\\p{L}*|магазин\\p{L}*|имарат\\p{L}*|объект\\p{L}*)`;
@@ -70,7 +72,17 @@ const SELL_STATUS_ASK = re(`${BW}фурухта${EW}|${BW}(?:алакай|алл
 /** «Голое» слово продажи без лица и цели («фурӯш», «мефурӯш», «фурӯхтан») — слабая находка продавца. */
 const SELL_BARE = re(`${BW}(?:(?:ме)?фур[уо]ш|фурухтан\\p{L}*)${EW}`);
 /** «Хонаи маро мефурӯшед?», «продадите мою квартиру?» — своё жильё агентству на продажу: продавец. */
-const SELL_YOU = re(`${BW}(?:мефурушед|мефурушетон|мефрушед|фурухта метавонед|продадите|продаете|продать сможете|можете продать)${EW}`);
+const SELL_YOU = re(`${BW}(?:мефурушед|мефурушетон|мефрушед|фурухта метавонед|фурухтан метавонед|продадите|продаете|продать сможете|можете продать|` +
+  // «А мою квартиру купите?», «хонаамро мехаред?», «моя тоже продаётся, интересно?» — своё жильё агентству (третий круг ревью #345).
+  `купите|купишь|возьмете|мехаред|мехаретон|харидан метавонед|мегиред|продается|продаются)${EW}`);
+/** «Ман фурӯшанда», «я собственник», «соҳиби хона ҳастам» — назвался продавцом / хозяином (третий круг ревью #345). */
+const SELL_SELF = re(`${BW}(?:ман|мо|я) (?:фурушанда\\p{L}*|продав(?:ец|цы)|собственни\\p{L}*|хозя(?:ин|йка)|сохиб\\p{L}*)${EW}|${BW}сохиби (?:хона|хавли|квартира)\\p{L}* (?:хастам|хастем)${EW}`);
+/** «Ман ҳам хона дорам…», «хонаи мани ҳам…», «моя тоже…» — у клиента СВОЁ жильё рядом с нашим объектом (третий круг ревью #345). */
+const OWNER_TOO = re(`${BW}(?:ман|мо|я|у меня) (?:хам|тоже)${EW}|${BW}(?:мани|мои|моя|мой|мое|маро) (?:хам|тоже)${EW}|${BW}хонаи мани${EW}`);
+/** «Ин хона фурӯхта», «…фурӯхта ё не», «…фурӯхта ми / ку» — статус объекта и без знака вопроса (третий круг ревью #345). */
+const SELL_STATUS_PLAIN = re(`${BW}фурухта(?: (?:ё|е) не| ми| ку)?$|${BW}фурухта (?:ё|е) не${EW}|${BW}фурухта (?:ми|ку)${EW}`);
+/** «Квартира уже продана?», «Продали уже эту квартиру?» — статус по-русски (со знаком вопроса или «уже»). */
+const SELL_STATUS_RU = re(`${BW}(?:продан[аоы]?|продали)${EW}`);
 const SELL_PASSIVE = re(`${BW}(?:продается|продаются)${EW}`);
 const OWN_HOUSING = [re(`${BW}${HOUSING}${EW}.{0,25}?${BW}${HAVE}${EW}`), re(`${BW}${HAVE}${EW}.{0,25}?${BW}${HOUSING}${EW}`)];
 const HOUSING_WORD = new RegExp(`${BW}${HOUSING}${EW}`, "u");
@@ -106,7 +118,7 @@ const BUYER_WANTED = re(`${BW}харидор\\p{L}* (?:даркор|лозим|�
  * вопрос покупателя о нашем объекте (слепое ревью #345: «Хонаамро мефурушам, нархаш чанд мешавад?» читалось покупателем).
  */
 const OWN_HOUSE = re(`${BW}(?:хона|хавли|квартира|кувартира|замин|манзил|участка)(?:ам|амро|ем|емро|и ман|и маро|и моро|и худам|и худамро|и мо)${EW}(?! (?:нест|нету)${EW})` +
-  `|${BW}(?:мо(?:ю|я|ей)|сво(?:ю|я|ей|й)) (?:квартир\\p{L}*|дом\\p{L}*|участ\\p{L}*|хавли)|${BW}у меня (?:есть )?(?:квартир|дом|участ|хавли)\\p{L}*`);
+  `|${BW}(?:мо(?:ю|я|ей)|сво(?:ю|я|ей|й)) (?:квартир\\p{L}*|дом\\p{L}*|участ\\p{L}*|хавли)|${BW}у меня (?:есть )?(?:квартир|дом|участ|хавли)\\p{L}*|${BW}у меня${EW}.{0,30}?${BW}(?:квартир|дом|участ|хавли)\\p{L}*`);
 // Tajik "for sale" without a housing noun (folded alphabet: фурӯши/фурушӣ -> фуруши): "фуруши дорам", "барои фуруш", "фурушӣ ҳаст".
 const SELL_TG = re(`${BW}фуруши?${EW} ${HAVE}${EW}`);
 const FOR_SALE_TG = re(`${BW}барои фуруши?${EW}`);
@@ -224,25 +236,34 @@ export function customerRoleSignals(text: string): CustomerRoleSignals {
     (plain(norm, LANDLORD_ACTIVE) || (plain(norm, LANDLORD_PASSIVE) && !question)) && (RENT_HINT.test(norm) || HOUSING_WORD.test(norm));
   // Сильные слова продажи перекрывают вопрос о цене и месте: «Хонаамро мефурӯшам, нархаш чанд мешавад?» — продавец спрашивает
   // о СВОЁМ (слепое ревью #345). Своё жильё («хонаам», «хонаи ман») вопрос о цене тоже не делает покупательским.
-  const ownHouse = plain(norm, OWN_HOUSE);
+  const ownerToo = plain(norm, OWNER_TOO);
+  const ownHouse = plain(norm, OWN_HOUSE) || ownerToo;
   const sellStrong = plain(norm, SELL_LISTING) || plain(norm, SELL_ACTIVE) || plain(norm, SELL_TG) || plain(norm, SELL_OWN) || plain(norm, BUYER_WANTED) ||
-    (ownHouse && plain(norm, SELL_YOU));
+    (ownHouse && plain(norm, SELL_YOU)) || plain(norm, SELL_SELF);
   const buyExplicit = plain(norm, BUY_EXPLICIT) || housingWish(norm);
-  const converb = !asked && plain(norm, SELL_CONVERB);
+  // Деепричастие «фурӯхта» — продажа, только перед запятой в сыром тексте или рядом с покупкой («…фурӯхта хонаи нав мегирем»);
+  // иначе «фурӯхта» в конце фразы, «ё не», «ми» — вопрос о статусе (третий круг ревью #345).
+  // «Мегирам» — покупка, только когда берут ЖИЛЬЁ («хонаи нав мегирем»), а не деньги («пулашро нақд мегирам» — продавец).
+  const buyNear = buyExplicit || /(?:^|\s)(?:харам|харем|купить|купим|куплю)(?:\s|$)/u.test(norm) ||
+    /(?:^|\s)(?:хона|хавли|квартир)\p{L}*(?:\s\p{L}+)?\sмегир(?:ам|ем)(?:\s|$)/u.test(norm);
+  const converb = !asked && plain(norm, SELL_CONVERB) && (/ф[уоӯ]?р[уоӯ]?хта\s*,/iu.test(text) || buyNear);
+  const statusPlain = !converb && ([...norm.matchAll(SELL_STATUS_PLAIN)].length > 0 ||
+    ((asked || /(?:^|\s)уже(?:\s|$)/u.test(norm)) && [...norm.matchAll(SELL_STATUS_RU)].length > 0));
   const buyerAsk = !sellStrong && !ownHouse && (plain(norm, BUYER_ASK) || (passive && question) || (question && plain(norm, FOR_SALE)) ||
-    plain(norm, BARGAIN_ASK) || (asked && plain(norm, FOR_SALE_EXISTS)) || (asked && plain(norm, SAVDO_ANY)) || (asked && [...norm.matchAll(SELL_STATUS_ASK)].length > 0));
+    plain(norm, BARGAIN_ASK) || (asked && plain(norm, FOR_SALE_EXISTS)) || (asked && plain(norm, SAVDO_ANY)) || (asked && [...norm.matchAll(SELL_STATUS_ASK)].length > 0) || statusPlain);
   const buyWeak = plain(norm, BUY_WEAK);
   // «Хона дорам» (своё есть) рядом с «хона меҷӯям» (ищу) — покупатель: слабое «есть» не перекрывает поиск.
   // «Хона дорам, иваз мекунед?» — обмен своего на наш объект: это интерес покупателя, а не продажа агентству.
   const exchange = EXCHANGE.test(norm);
-  const sellWeak = (plain(norm, OWN_HOUSING) && !buyWeak && !exchange) || (!asked && plain(norm, SELL_PRICE_BARGAIN)) ||
+  // «Ман ҳам хона дорам, нархаш чанд?» — своё рядом с нашим объектом без слова продажи: ни продавец, ни покупатель (спор).
+  const sellWeak = (plain(norm, OWN_HOUSING) && !buyWeak && !exchange && !ownerToo) || (!asked && plain(norm, SELL_PRICE_BARGAIN)) ||
     (passive && !question && !buyerAsk) || (!question && !buyerAsk && plain(norm, FOR_SALE_TG)) || (!question && !buyerAsk && plain(norm, ON_SALE)) ||
     (!buyExplicit && plain(norm, SELL_OWN_WEAK)) || (!asked && !buyerAsk && plain(norm, SELL_BARE)) || converb;
   const sell = sellStrong || sellWeak;
   const buySoft = !sellStrong && plain(norm, BUY_SOFT);
   // «Продать и купить», «Хонаамро фурӯхта, хонаи калонтар харидан мехоҳам» — две роли сразу (экзамен 21.11.2026): отдельный исход.
   // Только явные слова: «… пулашро нақд мегирам» у продавца — деньги за своё, не покупка (слепое ревью #345).
-  const both = (sellStrong || converb) && (buyExplicit || /(?:^|\s)купить(?:\s|$)/u.test(norm));
+  const both = (sellStrong || converb) && buyNear;
   const strong = sellStrong || both ? "seller" as const : buyExplicit ? "buyer" as const : null;
   return { buyStrong: buyerAsk || buyExplicit || buySoft, buyWeak, sell, landlord, rent: plain(norm, RENT_TENANT), both, strong, ownHouse,
     serviceWanted: SERVICE_WANTED.test(norm) };

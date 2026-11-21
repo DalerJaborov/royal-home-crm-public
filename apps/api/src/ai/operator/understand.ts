@@ -73,7 +73,7 @@ const PLACE_WORD = new RegExp(`${BW}(?:кадом|кодом|кадум|чи|к�
 const SHOWING_WORD = new RegExp(`${BW}(?:показ${TAIL}|покаж${TAIL}|посмотр${TAIL}|смотрет${TAIL}|увидет${TAIL}|просмотр${TAIL}|дидан${TAIL}|` +
   `бинам|бинем|бинем|тамошо${TAIL}|нишон\\s+(?:дихед|медихед|дихетон|дод${TAIL}))${EW}`, "u");
 /** Согласие: «да», «хорошо», «ҳа», «майлаш», «позвоните», «занг занед» (сложенный алфавит; 21.11.2026). */
-const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|майлаш|хорошо|давайте|конечно|ладно|ок|окей|хуб|розиям|мехохам|можно)(?:\\s|$)` +
+const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|майлаш|хорошо|давайте|давай|майл|конечно|ладно|ок|окей|хуб|розиям|мехохам|можно)(?:\\s|$)` +
   `|${BW}(?:(?:по|пере)звон${TAIL}|занг\\s+зан${TAIL})`, "u");
 /**
  * Отказ (слепое ревью #345: «Да нет, пока не надо» считалось согласием по первому «да»): «нет», «не надо», «пока не нужно»,
@@ -246,7 +246,16 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
     showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
+    // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
+    // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
+    ...(ownHouseOnly(role, code) ? { roleConflict: true } : {}),
   };
+}
+
+function ownHouseOnly(role: Understanding["role"], code: ReturnType<typeof codeFacts>): boolean {
+  if (role || code.job || code.rent) return false;
+  const signals = customerRoleSignals(code.own);
+  return signals.ownHouse && !signals.sell && !signals.buyStrong && !signals.buyWeak && !EXCHANGE_WORD.test(foldCustomerTextForRole(code.own));
 }
 
 /** Покупатель только по вопросу («Квартира продаётся?», «нархаш чанд?»), без явных слов покупки: это ещё не интерес к звонку. */
@@ -268,7 +277,9 @@ function focusPropertyQuestion(code: ReturnType<typeof codeFacts>, ctx: Operator
   const topic = HOUSE_WORD.test(folded) || PRICE_WORD.test(folded) || STATUS_OR_BARGAIN.test(folded) ||
     customerPolicyTermAsked("negotiation", code.own);
   if (!topic) return false;
-  if (!/[?؟]/u.test(code.own) && !PRICE_WORD.test(folded) && !customerPolicyTermAsked("negotiation", code.own)) return false;
+  // Статус без «?» («ин хона фурӯхта ё не», «фурӯхта шуд ми») — тоже вопрос об объекте (третий круг ревью #345).
+  if (!/[?؟]/u.test(code.own) && !PRICE_WORD.test(folded) && !STATUS_OR_BARGAIN.test(folded) &&
+    !customerPolicyTermAsked("negotiation", code.own)) return false;
   const signals = customerRoleSignals(code.own);
   return !signals.strong && (!signals.ownHouse || EXCHANGE_WORD.test(code.folded));
 }
@@ -398,15 +409,20 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   let role: Understanding["role"] = answer.role === "none" ? null : answer.role;
   let roleConflict = false;
   if (role && !leadOnlyQuoteFound(answer.roleQuote.slice(0, 200), clientTexts)) { rejected.push("role"); role = null; }
-  // Реклама объекта: «продавца» от модели без единого слова продажи в тексте клиента не принимаем (слепое ревью #345, второй
-  // круг) — покупатель с рекламы объекта не получает комиссию 2 % и заявку продавца по догадке модели.
+  // Реклама объекта: «продавца» от модели без единого слова продажи в тексте клиента не принимаем молча и не угадываем
+  // покупателя — спрашиваем «купить или продать?» (ревью #345, второй и третий круг): так и покупатель не получит комиссию 2 %,
+  // и продавец, написавший словами, которых нет в словаре, не станет покупателем объекта.
+  let adSellerDoubt = false;
   if (role === "seller" && !strong && (ctx.focus || ctx.ad.topic === "property") && !customerRoleSignals(code.own).sell) {
-    rejected.push("role"); role = null;
+    rejected.push("role"); role = null; roleConflict = true; adSellerDoubt = true;
   }
   const side = (value: Understanding["role"]) => value === "buyer" || value === "seller";
-  if (strong && !code.job && !code.rent) { if (role && role !== strong) rejected.push("role"); role = strong; }
+  if (strong && !code.job && !code.rent) { if (role && role !== strong) rejected.push("role"); role = strong; roleConflict = false; }
+  else if (adSellerDoubt) { /* спор: роль не ставим */ }
   else if (role && side(role) && side(fallback.role) && role !== fallback.role) { rejected.push("role"); role = null; roleConflict = true; }
-  else if (!role) role = fallback.role;
+  // Своё жильё рядом с нашим объектом без слов продажи и покупки (код): «покупателя» модели не берём — спор.
+  else if (fallback.roleConflict && role === "buyer") { rejected.push("role"); role = null; roleConflict = true; }
+  else if (!role) { role = fallback.role; roleConflict = fallback.roleConflict === true; }
   role = roleWithOwnerRules(role, code);
 
   const details: Partial<OperatorDetails> = {};

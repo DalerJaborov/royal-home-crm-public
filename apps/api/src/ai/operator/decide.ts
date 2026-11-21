@@ -95,7 +95,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const said = (key: PhraseKey) => (s.spoken[key] ?? 0) > 0;
   if (u.bothRoles) s.flags.bothRoles = true;
   // Содержательный ход клиента (не «ок», не приветствие, не кнопка): по ним — пауза между просьбами номера (21.11.2026).
-  if (u.hasText && !u.ackOnly && !u.thanksOnly && !u.greetingOnly && !u.adOpener) s.flags.clientTurns = (s.flags.clientTurns ?? 0) + 1;
+  // «Давайте», «майлаш» — согласие, а не новое содержание: паузу между просьбами номера не двигает (третий круг ревью #345).
+  if (u.hasText && !u.ackOnly && !u.thanksOnly && !u.greetingOnly && !u.adOpener && !(u.agrees && !u.hasDetails && u.question === "none" && !u.phone)) {
+    s.flags.clientTurns = (s.flags.clientTurns ?? 0) + 1;
+  }
   // Продавцом клиент назвался сам (не только тема рекламы «для собственников»): комиссию сами называем только ему.
   if (u.role === "seller") s.flags.sellerByWords = true;
   else if (u.role === "buyer") s.flags.sellerByWords = false;
@@ -502,7 +505,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const wantsContact = !!u.phone || u.question === "staff" || u.botQuestion || u.bargain;
 
   if (s.role === "unknown" || s.role === "rent" || s.role === "job") {
-    if (wantsContact) { contact(); greetBack(); return finish(); }
+    // Спор модели и кода о роли без номера: сначала «купить или продать?», а не заявка без цели (третий круг ревью #345).
+    if (wantsContact && !(u.roleConflict && !u.phone)) { contact(); greetBack(); return finish(); }
     if (s.asked.role >= 2) {
       // Два непонятных ответа на вопрос о роли: молчим и один раз зовём человека (20.11.2026; кому — лесенка двери
       // «клиент ждёт»: агент, руководство поштучно не беспокоим). Через сутки тишины — заново (state.ts).

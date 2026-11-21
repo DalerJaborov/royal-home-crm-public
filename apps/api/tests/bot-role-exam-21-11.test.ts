@@ -10,7 +10,12 @@
  *  - тип карточки при приёме (services/leads/intakePolicy.ts::classifyInbound) совпадает с ролью оператора;
  *  - комиссию 2 % бот называет только продавцу по словам.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Счётчик сторожей пишет в базу «в отрыве» (ai/guardMetrics.ts::guardFired): без базы запись падает ПОСЛЕ конца теста, и её лог
+// застаёт закрытый канал воркера («Closing rpc while onUserConsoleLog was pending», третий круг ревью #345). Экзамен роли счётчик
+// не проверяет — подменяем только его.
+vi.mock("../src/ai/guardMetrics.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/guardMetrics.js")>()), guardFired: vi.fn() }));
 import { decide, initialOperatorState } from "../src/ai/operator/decide.js";
 import { understandFallback } from "../src/ai/operator/understand.js";
 import type { OperatorContext } from "../src/ai/operator/types.js";

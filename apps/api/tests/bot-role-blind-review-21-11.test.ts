@@ -10,7 +10,12 @@
  *  8. продавцу номер — «оценит и обсудит»; место объекта — район и город с сайта, «Рудаки» вслух не называем.
  * Без модели и без базы: понимание — запасные правила (или подставленный ответ модели), решение — чистая функция.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Счётчик сторожей пишет в базу «в отрыве» (ai/guardMetrics.ts::guardFired): без базы запись падает ПОСЛЕ конца теста, и её лог
+// застаёт закрытый канал воркера («Closing rpc while onUserConsoleLog was pending», третий круг ревью #345). Экзамен роли счётчик
+// не проверяет — подменяем только его.
+vi.mock("../src/ai/guardMetrics.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/guardMetrics.js")>()), guardFired: vi.fn() }));
 import { decide, initialOperatorState } from "../src/ai/operator/decide.js";
 import { understandFallback, understandingFromModel } from "../src/ai/operator/understand.js";
 import { renderOperatorReply } from "../src/ai/operator/phrases.js";
@@ -225,12 +230,15 @@ describe("второй круг слепого ревью #345", () => {
     expect(leadsOf([t!])).toMatchObject([{ type: "accept_lead", role: "buyer", propertyId: PROPERTY_ID }]);
   });
 
-  it("модель назвала «продавца» на рекламе объекта, а слов продажи нет — не принимаем: покупатель объекта", () => {
+  it("модель назвала «продавца» на рекламе объекта, а слов продажи нет — спор: вопрос «купить или продать?», без комиссии и заявки продавца", () => {
+    // Третий круг: не отбрасываем молча и не угадываем покупателя — продавец мог написать словами, которых нет в словаре.
     for (const text of ["Ин хона фурухта шуд?", "бо савдо мешавад?", "Сколько стоит?"]) {
-      const got = understandingFromModel(answer({ role: "seller", roleQuote: text }), { current: text }, initialOperatorState(), IG_AD())!;
-      expect(got.understanding.role, text).not.toBe("seller");
-      const d = decide(initialOperatorState(), got.understanding, IG_AD());
-      expect(d.state.role, text).toBe("buyer_property");
+      const got = understandingFromModel(answer({ role: "seller", roleQuote: text }), { current: text }, initialOperatorState(), WA_AD())!;
+      expect(got.understanding.role, text).toBeNull();
+      expect(got.understanding.roleConflict, text).toBe(true);
+      const d = decide(initialOperatorState(), got.understanding, WA_AD());
+      expect(d.steps.map(step => step.key), text).toContain("ask_role");
+      expect(d.actions.filter(action => action.type === "accept_lead"), text).toEqual([]);
     }
   });
 
@@ -241,7 +249,7 @@ describe("второй круг слепого ревью #345", () => {
   });
 
   it("Instagram: «хорошо / ладно / хоп» сразу на просьбу номера — одна короткая просьба «куда позвонить», дальше по правилу", () => {
-    for (const ok of ["хорошо", "ладно", "хоп", "Ок"]) {
+    for (const ok of ["хорошо", "ладно", "хоп", "Ок", "давайте", "давай", "майлаш", "хуб"]) {
       const turns = dialog(ctx(), ["Мне нужна квартира", "3 комнаты в Сино", ok, ok]);
       expect(turns[1]!.keys, ok).toEqual(["ask_phone"]);
       expect(turns[2]!.keys, ok).toEqual(["phone_where"]);
@@ -261,5 +269,24 @@ describe("второй круг слепого ревью #345", () => {
       expect(turns[1]!.u.declines, text).toBe(false);
       expect(turns[1]!.keys.some(PHONE_ASK), text).toBe(true);
     }
+  });
+});
+
+describe("третий круг ревью #345: продавец рядом с нашим объектом — не покупатель объекта", () => {
+  it.each(["Ман хам дар хамин бино хона дорам, фурухта метавонед?", "Хонаи мани хам дар хамин чо, шумо хам мефурушед?", "моя тоже продаётся, интересно?",
+    "А мою квартиру купите?", "Xonamro furoxtan mexoham", "Ман фурушанда"])("«%s» на рекламе объекта в WhatsApp — заявка продавца без объекта", text => {
+    const [t] = dialog(WA_AD(), [text]);
+    expect(leadsOf([t!]), text).toMatchObject([{ type: "accept_lead", role: "seller", propertyId: null }]);
+  });
+  it.each(["Ман хам хона дорам, нархаш чанд мешавад?", "У меня в этом же доме квартира, сколько она может стоить?"])(
+    "«%s» — своё жильё без слов продажи: вопрос «купить или продать?», заявки нет", text => {
+      const [t] = dialog(WA_AD(), [text]);
+      expect(t!.keys, text).toContain("ask_role");
+      expect(leadsOf([t!]), text).toEqual([]);
+    });
+  it.each(["ин хона фурухта", "ака ин хона фурухта ё не", "хонаи 2 хучрага фурухта шуд ми"])("«%s» без «?» — вопрос о статусе объекта, не продавец", text => {
+    const [t] = dialog(WA_AD(), [text]);
+    expect(t!.d.state.role, text).toBe("buyer_property");
+    expect(t!.text, text).not.toMatch(/2%|комисси/iu);
   });
 });
