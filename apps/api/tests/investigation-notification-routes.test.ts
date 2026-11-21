@@ -44,7 +44,8 @@ describe("notification history privacy includes counters and mutations", () => {
     for (const [query] of [...state.findMany.mock.calls, ...state.count.mock.calls]) {
       expect(query.where).toMatchObject(boundary);
     }
-    expect(state.count).toHaveBeenCalledTimes(4);
+    // total, unreadCount, unseenCount (метка колокольчика), approvalCount, criticalCount — каждый внутри границы.
+    expect(state.count).toHaveBeenCalledTimes(5);
   });
 
   it("rechecks the current role on a subsequent request", async () => {
@@ -61,6 +62,13 @@ describe("notification history privacy includes counters and mutations", () => {
     const result = await request(app).post("/notifications/123e4567-e89b-42d3-a456-426614174000/read");
     expect(result.status).toBe(404);
     expect(state.updateMany.mock.calls[0][0].where).toMatchObject(await loadVisibleNotificationsWhere("staff", "AGENT"));
+  });
+
+  it("seen (before и ids) не выходит за границу видимости", async () => {
+    await request(app).post("/notifications/seen").send({ before: new Date().toISOString() });
+    await request(app).post("/notifications/seen").send({ ids: ["123e4567-e89b-42d3-a456-426614174000"] });
+    expect(state.updateMany).toHaveBeenCalledTimes(2);
+    for (const [query] of state.updateMany.mock.calls) expect(query.where).toMatchObject(await loadVisibleNotificationsWhere("staff", "AGENT"));
   });
 
   it("read-all and read-many preserve hidden investigation history", async () => {
