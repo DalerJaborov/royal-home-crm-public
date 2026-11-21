@@ -20,6 +20,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
+import { noteLength, stripClientNoteLabels, stripClientNoteLabelsSql } from "./clientNoteLabels.js";
 
 export const FUZZY_SIMILARITY_THRESHOLD = 0.3;
 
@@ -143,60 +144,20 @@ export interface SimilarNotesCandidate {
 }
 
 /**
- * Строки-ярлыки intentLabel/callbackNote (messengers/conversation.ts:1000-1021) —
- * фиксированный текст, одинаковый у КАЖДОГО продавца/соискателя/переадресованной
- * заявки («🏷 ПРОДАВЕЦ — хочет разместить объект у нас (реклама бесплатно,
- * комиссия 2% при продаже)» и т.п.). requirementsNotes хранит его первой строкой
- * перед собственным текстом клиента, и triграммное сравнение засчитывало этот
- * общий ярлык за сходство — двум продавцам из разных районов с разной ценой
- * подсказка показывала «55-59% совпадения» на пустом месте (живой случай
- * владельца 24.08.2026: «Ака», «Варзоб», «Хикоят», «Саидчон» — четыре разных
- * человека). Вырезаем строки-ярлыки ДО сравнения — remainder это уже
- * собственные слова клиента, ради которых подсказка и задумана.
- */
-/*
- * СИСТЕМНАЯ СТРОКА = СТРОКА СО ЗНАЧКА — правило класса, а не список значков
- * (21.11.2026, снимок владельца: «Прочее обращение» показывало три «Похоже на…
- * 82-84%» с тремя разными людьми). Прежний список из пяти значков (🏷💼🔑❓📞)
- * отставал от кода: ярлык «🌍 ВНЕ ДУШАНБЕ — клиент назвал «Гиссар», мы работаем
- * только по городу» (ai/leadKind.ts) и «🚫 НЕ НАШ ПРОФИЛЬ…» в него не попали, а у
- * карточки из одного такого ярлыка отличается лишь название города. Замер прода
- * 21.11: ВСЕ 162 подсказки у 20 карточек давали именно 🌍/🚫, ни одной настоящей.
- * Каждый новый ярлык бота начинается со значка (📍 вне зоны, ⚠️, ✅…), поэтому
- * вырезается любая строка, первым знаком которой стоит значок: стрелки, символы
- * и дингбаты U+2190–U+2BFF (❓ ⚠ ✅) и эмодзи U+1F000–U+1FAFF (🏷 💼 📞 🌍 🚫 📍).
- * Буквы (кириллица, таджикские Ҳ/Ҷ, латиница), цифры, кавычки и тире в эти
- * диапазоны не входят — слова клиента и пересказ модели остаются.
+ * Служебные строки бота в заметках («🏷 ПРОДАВЕЦ — …», «🌍 ВНЕ ДУШАНБЕ — клиент назвал
+ * «…»», «📞 ПРОСИТ ПЕРЕЗВОНИТЬ: …») одинаковы у десятков разных людей и не должны
+ * считаться сходством (живые случаи владельца 24.08.2026 — «55-59%» у четырёх разных
+ * продавцов, и 21.11.2026 — «82-84%» у трёх разных «Прочих обращений»). Что считается
+ * служебным — ОДИН список в lib/clientNoteLabels.ts; здесь он только применяется: к
+ * тексту открытой карточки в JS и к кандидатам в самой таблице — той же регуляркой в
+ * Postgres (равенство обеих сторон сверяет тест на живой базе).
  *
- * Одно правило в двух видах: для JS (текст открытой карточки) и для регулярки
- * Postgres (текст кандидатов в самой таблице). Их равенство сверяет тест
- * client-similar-notes-system-lines.test.ts на живой базе — разойдись они, одна
- * сторона сравнивала бы «чистый» текст с «грязным».
- */
-const SYSTEM_LINE_JS = /^[ \t]*[\u2190-\u2BFF\u{1F000}-\u{1FAFF}]/u;
-const SYSTEM_LINE_SQL = "(^|\\n)[ \\t]*[\\u2190-\\u2BFF\\U0001F000-\\U0001FAFF][^\\n]*";
-
-/**
- * Короче этого остаток заметок — не «уникальное содержание», а общая фраза
- * пересказа («Клиент ищет дом», «Клиент хочет продать квартиру»): у двух разных
- * людей она совпадает дословно, и similarity даёт 100%. Живой случай, ради
- * которого подсказка задумана, — подробное описание объекта (сто знаков и больше).
+ * Короче SIMILAR_NOTES_MIN_LENGTH остаток заметок — не «уникальное содержание», а общая
+ * фраза пересказа («Клиент ищет дом»): у двух разных людей она совпадает дословно, и
+ * similarity даёт 100%. Живой случай, ради которого подсказка задумана, — подробное
+ * описание объекта (сто знаков и больше). Длина — в кодовых точках, как length() в Postgres.
  */
 export const SIMILAR_NOTES_MIN_LENGTH = 40;
-
-/** Заметки без системных строк — то, что сравнивается. Экспорт — для теста равенства с SQL. */
-export function stripSystemNoteLines(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !SYSTEM_LINE_JS.test(line))
-    .join("\n")
-    .trim();
-}
-
-/** Тот же остаток, посчитанный Postgres-ом, — для сверки с stripSystemNoteLines в тесте. */
-export function stripSystemNoteLinesSql(column: Prisma.Sql): Prisma.Sql {
-  return Prisma.sql`btrim(regexp_replace(${column}, ${SYSTEM_LINE_SQL}, '', 'g'), E' \\n\\t\\r')`;
-}
 
 export async function fuzzySimilarClientNotes(
   clientId: string,
@@ -212,9 +173,9 @@ export async function fuzzySimilarClientNotes(
   // четвёртую, настоящую.
   excludeIds: string[] = []
 ): Promise<SimilarNotesCandidate[]> {
-  const trimmed = stripSystemNoteLines(notes);
-  if (trimmed.length < SIMILAR_NOTES_MIN_LENGTH) return [];
-  const stripped = stripSystemNoteLinesSql(Prisma.sql`"requirementsNotes"`);
+  const trimmed = stripClientNoteLabels(notes);
+  if (noteLength(trimmed) < SIMILAR_NOTES_MIN_LENGTH) return [];
+  const stripped = stripClientNoteLabelsSql(Prisma.sql`"requirementsNotes"`);
   return prisma.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
     SELECT id, similarity
     FROM (
