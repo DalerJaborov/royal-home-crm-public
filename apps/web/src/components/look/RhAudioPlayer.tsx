@@ -19,7 +19,7 @@ import { AUDIO_SPEEDS, audioClock, audioSpeedLabel, claimAudio, nextAudioSpeed, 
  * вне этого файла не пройдёт сторож `ruFieldsGuard.test.ts`.
  */
 export function RhAudioPlayer({
-  src, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись",
+  src, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
 }: {
   src: string;
   autoPlay?: boolean;
@@ -32,6 +32,11 @@ export function RhAudioPlayer({
   style?: CSSProperties;
   /** Подпись для экранного чтеца: «Голосовое», «Запись разговора». */
   label?: string;
+  /**
+   * Плеер прямо в пузыре переписки, как в WhatsApp (владелец 21.11.2026: «белая карточка в синем пузыре»):
+   * без подложки, цвета берёт у пузыря — `--rh-audio-*` задаёт theme-look-royal-chats.css по стороне пузыря.
+   */
+  inBubble?: boolean;
 }) {
   const ref = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -99,7 +104,7 @@ export function RhAudioPlayer({
 
   return (
     <div
-      className={`rh-audio flex min-w-0 items-center gap-1.5 rounded-2xl bg-[var(--rh-ui-hover)] p-1 pr-2 ${className ?? ""}`}
+      className={`rh-audio flex min-w-0 items-center gap-1.5 ${inBubble ? "py-0.5" : "rounded-2xl bg-[var(--rh-ui-hover)] p-1 pr-2"} ${className ?? ""}`}
       style={style}
       data-testid="rh-audio"
     >
@@ -125,13 +130,16 @@ export function RhAudioPlayer({
         aria-label={playing ? `${label}: пауза` : `${label}: слушать`}
         onClick={() => (playing ? ref.current?.pause() : play())}
         /* «!» — правило `.rh2 button` (background:none; color:inherit; font:inherit) бьёт слои Tailwind */
-        className="grid h-11 w-11 flex-none place-items-center rounded-full bg-blue! text-lg! text-on-accent!"
+        className={inBubble
+          ? "grid h-11 w-11 flex-none place-items-center rounded-full bg-[var(--rh-audio-btn)]! text-lg! text-[var(--rh-audio-btn-fg)]!"
+          : "grid h-11 w-11 flex-none place-items-center rounded-full bg-blue! text-lg! text-on-accent!"}
       >
         {playing ? <Pause aria-hidden="true" size={20} /> : <Play aria-hidden="true" size={20} />}
       </button>
       <input
         type="range"
-        className="block min-w-14 flex-1 accent-[var(--rh-ui-primary)]"
+        className={`block min-w-14 flex-1 ${inBubble ? "rh-audio-range" : "accent-[var(--rh-ui-primary)]"}`}
+        style={inBubble ? { "--rh-audio-pos": `${total ? Math.min(100, (pos / total) * 100) : 0}%` } as CSSProperties : undefined}
         min={0}
         max={total ?? 0}
         step={0.1}
@@ -145,7 +153,7 @@ export function RhAudioPlayer({
         onBlur={() => { scrubbing.current = false; }}
         onChange={(e) => seekTo(Number(e.target.value))}
       />
-      <span className="flex-none whitespace-nowrap tabular-nums" style={{ fontSize: "var(--rh-fs-xs)", color: "var(--rh-ui-hint)" }} data-testid="rh-audio-clock">
+      <span className="flex-none whitespace-nowrap tabular-nums" style={{ fontSize: "var(--rh-fs-xs)", color: inBubble ? "var(--rh-audio-fg)" : "var(--rh-ui-hint)" }} data-testid="rh-audio-clock">
         {total ? `${audioClock(pos)} / ${audioClock(total)}` : audioClock(pos)}
       </span>
       {speeds && (
@@ -153,7 +161,10 @@ export function RhAudioPlayer({
           type="button"
           aria-label={`Скорость ${audioSpeedLabel(speed)}, нажмите, чтобы сменить`}
           onClick={() => setSpeed(nextAudioSpeed(speed))}
-          className="h-11 min-w-10 flex-none rounded-full px-1! font-semibold! tabular-nums" style={{ fontSize: "var(--rh-fs-xs)" }}
+          className={inBubble
+            ? "h-8! min-h-8! min-w-12 flex-none rounded-full bg-[var(--rh-audio-pill)]! px-2.5! font-semibold! text-[var(--rh-audio-fg)]! tabular-nums"
+            : "h-11 min-w-10 flex-none rounded-full px-1! font-semibold! tabular-nums"}
+          style={{ fontSize: "var(--rh-fs-xs)" }}
         >
           {audioSpeedLabel(speed)}
         </button>

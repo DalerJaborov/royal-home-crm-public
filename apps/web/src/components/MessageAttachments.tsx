@@ -82,10 +82,13 @@ const KIND_LOCKED: Record<string, string> = {
 function AttachmentItem({
   attachment,
   rh2,
+  bubble,
   onImageClick,
 }: {
   attachment: MessageAttachment;
   rh2: boolean;
+  /** Внутри пузыря переписки (инбокс и мобильный диалог) — голосовое рисуется без подложки. */
+  bubble: boolean;
   /** Открыть кадр в просмотрщике ВСЕЙ переписки, а не в одиночном Fullscreen
    *  ниже — задаётся только там, где просмотрщик есть (Messages.tsx,
    *  MobileChatView.tsx). Без него — прежнее поведение «во весь экран». */
@@ -229,10 +232,23 @@ function AttachmentItem({
      * почти до нуля: агент видел только значок микрофона без самого плеера.
      * Фиксированная ширина этого не допускает.
      */
-    <div className={rh2 ? "voice" : "mt-1 flex items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1.5"}>
-      <Mic className={rh2 ? "i" : "h-3.5 w-3.5 shrink-0 text-gray-400"} strokeWidth={1.8} />
-      <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
-    </div>
+    rh2 ? (
+      <div className="voice">
+        <Mic className="i" strokeWidth={1.8} />
+        <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
+      </div>
+    ) : bubble ? (
+      // Как в WhatsApp: плеер прямо в пузыре, без белой подложки и значка микрофона. Файл уже скачан
+      // (blob), поэтому длина читается из него сразу — вместо «0:00» до первого нажатия.
+      <div className="mt-1" data-voice-in-bubble="">
+        <RhAudioPlayer src={url} speeds preload="metadata" label="Голосовое" inBubble className="w-[280px] max-w-full" />
+      </div>
+    ) : (
+      <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1.5">
+        <Mic className="h-3.5 w-3.5 shrink-0 text-gray-400" strokeWidth={1.8} />
+        <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
+      </div>
+    )
   );
 }
 
@@ -247,10 +263,13 @@ function AttachmentItem({
 export function MessageAttachments({
   attachments,
   rh2 = false,
+  inBubble = false,
   onImageClick,
 }: {
   attachments?: MessageAttachment[];
   rh2?: boolean;
+  /** Вложения лежат в пузыре переписки (`.bub`): голосовое без белой карточки. */
+  inBubble?: boolean;
   /**
    * Открыть просмотрщик ВСЕЙ переписки (21.09.2026, «фото листаются свайпом по
    * всем фото переписки»), а не Fullscreen одного кадра. Аргумент — индекс
@@ -279,6 +298,7 @@ export function MessageAttachments({
             key={i}
             attachment={attachment}
             rh2={rh2}
+            bubble={inBubble}
             onImageClick={isImage && onImageClick ? () => onImageClick(capturedIndex) : undefined}
           />
         );
