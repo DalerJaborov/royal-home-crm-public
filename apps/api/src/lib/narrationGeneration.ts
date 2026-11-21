@@ -265,10 +265,16 @@ export function voiceSampleLangs(config: NarrationConfig): NarrationLang[] {
   return [...langs].filter((lang) => lang !== "tg" || narrationModelSupportsTajik(config.modelId));
 }
 
-/** Хэш фразы образца; при заданных настройках синтеза они входят в ключ (без них — прежний хэш). */
+/**
+ * Хэш фразы образца; при заданных настройках синтеза они входят в ключ (без них — прежний хэш).
+ * Словарь произношения в ключ НЕ входит (22.11.2026): каждая правка словаря выпускает в ElevenLabs
+ * новую версию, и с ней в ключе все образцы молча «протухали» — 21.11 правка «яксад» погасила все
+ * 18 образцов, кнопка «Прослушать» пропала в мастере, карточке и Шабнам. Образец нужен, чтобы
+ * выбрать голос на слух; слово, которое поправил словарь, этот выбор не меняет.
+ */
 function voiceSampleHash(config: NarrationConfig, voiceId: string, lang: NarrationLang): string {
   const text = NARRATION_VOICE_SAMPLE_TEXT[lang];
-  const options = narrationTtsOptions(config, voiceId, lang);
+  const { pronunciation_dictionary_locators: _dictionary, ...options } = narrationTtsOptions(config, voiceId, lang);
   return Object.keys(options).length ? narrationHash([text, options]) : narrationHash(text);
 }
 
@@ -323,14 +329,28 @@ export async function generateVoiceSamples(input: {
   return report;
 }
 
-/** Готовые образцы для текущих голосов, модели и фраз — бесплатное чтение для экранов и Шабнам. */
+/**
+ * Готовые образцы для текущих голосов и модели — бесплатное чтение для экранов и Шабнам.
+ * На голос и язык — образец по текущим настройкам, а если его нет (поменяли настройки голоса или
+ * словарь) — последний готовый того же голоса, языка и модели (22.11.2026): кнопка «Прослушать»
+ * не пропадает, пока руководство не подготовит новые. Новый образец по-прежнему готовит только
+ * кнопка в Настройках — `generateVoiceSamples` сверяет точный ключ.
+ */
 export async function readyVoiceSamples(config: NarrationConfig): Promise<Array<{ voiceId: string; lang: NarrationLang; storageKey: string }>> {
   if (!config.modelId || !config.voices.length) return [];
-  // Ключ образца — голос + фраза + настройки синтеза: поменяли настройки голоса — образец готовится заново.
-  const hashes = new Map(config.voices.flatMap((v) => NARRATION_LANGS.map((lang) => [`${v.id}|${voiceSampleHash(config, v.id, lang)}`, lang] as const)));
+  const exact = new Set(config.voices.flatMap((v) => NARRATION_LANGS.map((lang) => `${v.id}|${lang}|${voiceSampleHash(config, v.id, lang)}`)));
   const rows = await prisma.narrationVoiceSample.findMany({
-    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, textHash: { in: [...new Set([...hashes.keys()].map((k) => k.split("|")[1]))] }, storageKey: { not: null } },
-    select: { voiceId: true, textHash: true, storageKey: true }, take: 400,
+    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, lang: { in: [...NARRATION_LANGS] }, storageKey: { not: null } },
+    select: { voiceId: true, lang: true, textHash: true, storageKey: true }, orderBy: { createdAt: "desc" }, take: 400,
   });
-  return rows.flatMap((r) => { const lang = hashes.get(`${r.voiceId}|${r.textHash}`); return r.storageKey && lang ? [{ voiceId: r.voiceId, lang, storageKey: r.storageKey }] : []; });
+  const best = new Map<string, { voiceId: string; lang: NarrationLang; storageKey: string; exact: boolean }>();
+  for (const r of rows) {
+    if (!r.storageKey) continue;
+    const lang = r.lang as NarrationLang;
+    const key = `${r.voiceId}|${lang}`;
+    const isExact = exact.has(`${key}|${r.textHash}`);
+    const prev = best.get(key);
+    if (!prev || (isExact && !prev.exact)) best.set(key, { voiceId: r.voiceId, lang, storageKey: r.storageKey, exact: isExact });
+  }
+  return [...best.values()].map(({ voiceId, lang, storageKey }) => ({ voiceId, lang, storageKey }));
 }
