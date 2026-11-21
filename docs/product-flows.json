@@ -43317,7 +43317,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: itemsWithOffers, unreadCount, unseenCount, pinned: pinnedWithOffers, approvalCount, critica…",
+     "t": "res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…",
      "a": [
       "ответ 200"
      ],
