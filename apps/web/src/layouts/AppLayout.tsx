@@ -27,9 +27,9 @@ import { useCleanViewport } from "../hooks/useCleanViewport";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useScrollStripHints } from "../hooks/useScrollStripHints";
 import { useMobileUx } from "../hooks/useMobileUx";
-import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
 import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
 import { useDeviceLookMemory, useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
+import { forgetRetiredLookKeys } from "../hooks/royalLookChoice";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -84,9 +84,11 @@ function SectionFallback() {
 }
 
 export function AppLayout() {
-  const { clean, look, pending: shellPending, unavailable: appearanceUnavailable } = useCleanShellSelection(true);
-  // «Новый вид» — только с сервера и только поверх чистой оболочки (hooks/useRoyalLook.ts).
+  // Новый интерфейс и «Новый вид» — всем (21.11.2026, hooks/useCleanShell.ts): без запроса и без ожидания.
+  const { clean, look, pending: shellPending } = useCleanShellSelection(true);
   const royal = useRoyalLookChoice(clean && look === "royal");
+  // Прежние постоянные ключи выбора вида/оболочки больше ничего не решают — стираем один раз.
+  useEffect(() => { forgetRetiredLookKeys(); }, []);
   useCleanViewport(clean);
   // Клавиатура телефона на ЛЮБОМ экране с полем (аудит К07): признак `data-kb-open` на <html> прячет нижнее
   // меню (theme-2026-mobile-shell.css, п. 8). Расчёт один на приложение — lib/keyboardInset.ts.
@@ -283,7 +285,6 @@ export function AppLayout() {
         data-ry-wide={royal && isWideRoute(pathname) ? "" : undefined}
       >
         {clean ? <CleanShell royal={royal} /> : <Topbar />}
-        {appearanceUnavailable && <ShellAppearanceRecovery />}
         {/* Загрузка файлов идёт минутами, а человек за это время уходит на другие
             экраны. Указатель липнет под верхней панелью и виден отовсюду, пока
             очередь не пуста, — иначе агент решает, что всё пропало. */}

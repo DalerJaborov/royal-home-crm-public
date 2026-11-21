@@ -10,6 +10,7 @@ const at = (url: string) => ({ children }: { children: ReactNode }) => <MemoryRo
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   useAuthStore.setState({ agent: { id: "owner", fullName: "Тест Владелец", role: "ADMIN" } as never });
 });
 afterEach(() => { delete document.documentElement.dataset.uiLook; delete document.documentElement.dataset.look; });
@@ -33,17 +34,19 @@ describe("«Новый вид»: решение закрыто по умолча
   it("?look=royal у сотрудника без разрешения ничего не включает и не запоминает", () => {
     const { result } = renderHook(() => useRoyalLookChoice(false), { wrapper: at("/?look=royal") });
     expect(result.current).toBe(false);
-    expect(window.localStorage.getItem("rh-look:owner")).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("личный выход запоминается на учётку и снимается обратно", () => {
+  it("личный аварийный выход держится на вкладке (sessionStorage), не навсегда, и снимается обратно", () => {
     const off = renderHook(() => useRoyalLookChoice(true), { wrapper: at("/?look=legacy") });
     expect(off.result.current).toBe(false);
-    expect(window.localStorage.getItem("rh-look:owner")).toBe("legacy");
+    expect(window.sessionStorage.getItem("rh-look-optout:owner")).toBe("1");
+    expect(Object.keys(window.localStorage).filter((k) => k.startsWith("rh-"))).toEqual([]);
     off.unmount();
     expect(renderHook(() => useRoyalLookChoice(true), { wrapper: at("/") }).result.current).toBe(false);
     expect(renderHook(() => useRoyalLookChoice(true), { wrapper: at("/?look=royal") }).result.current).toBe(true);
-    expect(window.localStorage.getItem("rh-look:owner")).toBe("royal");
+    expect(window.sessionStorage.getItem("rh-look-optout:owner")).toBeNull();
+    expect(renderHook(() => useRoyalLookChoice(true), { wrapper: at("/") }).result.current).toBe(true);
   });
 });
 
