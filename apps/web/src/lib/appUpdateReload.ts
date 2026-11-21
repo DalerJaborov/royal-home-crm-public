@@ -44,23 +44,27 @@ const WORKER_POLL_MS = 300;
 const KEEP_CACHE = "uploads-cache";
 
 /**
- * СДАЧА НЕ НАВСЕГДА (21.11.2026, ревью #380). Раньше заглушённая вкладка не
- * пробовала больше никогда: счётчик сбрасывался только при смене версии САМОЙ
- * вкладки, а она-то и не менялась. Телефон владельца так прожил на сборке старше
- * 17.11 до 21.11. Теперь лестница начинается заново, когда на сервере появилась
- * ДРУГАЯ версия сайта, чем та, к которой шли, — или через час.
+ * СДАЧА НЕ НАВСЕГДА, НО И НЕ ПО ЧАСАМ (21.11.2026, ревью #380). Раньше заглушённая
+ * вкладка не пробовала больше никогда: счётчик сбрасывался только при смене версии
+ * САМОЙ вкладки, а она-то и не менялась. Телефон владельца так прожил на сборке
+ * старше 17.11 до 21.11. Теперь лестница начинается заново ТОЛЬКО когда на сервере
+ * появилась ДРУГАЯ ИЗВЕСТНАЯ версия сайта, чем та, к которой шли: повтор по таймеру
+ * давал до 24 записей о сдаче в сутки с одной вкладки.
+ *
+ * ПУСТАЯ ЦЕЛЬ — «ЕЩЁ НЕ ЗНАЕМ», А НЕ ОТДЕЛЬНАЯ ЛЕСТНИЦА. Ждущий воркер (needRefresh)
+ * приходит раньше ответа version.json: первая попытка идёт с целью "", следующая —
+ * уже с "v2". Если "" считать отдельной целью, каждая смена обнуляла счётчик, и
+ * вкладка перезагружалась по кругу (ревью: 40 перезагрузок на 40 открытий).
+ * Поэтому "" совпадает с любой целью, новая лестница — только при двух РАЗНЫХ
+ * известных целях.
  */
-const SUPPRESS_MS = 60 * 60_000;
-
 interface AttemptRecord {
   /** Версия сборки, из которой пытались обновиться. */
   from: string;
   /** Сколько раз уже пытались уйти именно с неё. */
   count: number;
-  /** Версия сайта на сервере, к которой шли (version.json); "" — не знали. */
+  /** Версия сайта на сервере, к которой шли (version.json); "" — пока не знали. */
   target: string;
-  /** Когда была последняя попытка. */
-  at: number;
 }
 
 function readAttempts(): AttemptRecord | null {
@@ -69,12 +73,7 @@ function readAttempts(): AttemptRecord | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AttemptRecord>;
     if (typeof parsed?.from !== "string" || typeof parsed?.count !== "number") return null;
-    return {
-      from: parsed.from,
-      count: parsed.count,
-      target: typeof parsed.target === "string" ? parsed.target : "",
-      at: typeof parsed.at === "number" ? parsed.at : 0,
-    };
+    return { from: parsed.from, count: parsed.count, target: typeof parsed.target === "string" ? parsed.target : "" };
   } catch {
     // приватный режим/переполненное хранилище — считаем, что попыток не было
     return null;
@@ -106,17 +105,29 @@ export function resetAttemptsIfUpdated(currentVersion: string): void {
   if (record && record.from !== currentVersion) clearUpdateAttempts();
 }
 
-/** Та же лестница: та же сборка вкладки, та же цель и не прошёл час с прошлой попытки. */
-function sameLadder(record: AttemptRecord | null, currentVersion: string, target: string, now: number): record is AttemptRecord {
-  return !!record && record.from === currentVersion && record.target === target && now - record.at < SUPPRESS_MS;
+/** Та же лестница: та же сборка вкладки, и цели не расходятся (пустая совпадает с любой). */
+function sameLadder(record: AttemptRecord | null, currentVersion: string, target: string): record is AttemptRecord {
+  return !!record && record.from === currentVersion && (!record.target || !target || record.target === target);
 }
 
 /** Номер текущей попытки (1 — первая) для данной версии сборки и цели обновления. */
-export function noteUpdateAttempt(currentVersion: string, targetVersion = "", now = Date.now()): number {
+export function noteUpdateAttempt(currentVersion: string, targetVersion = ""): number {
   const record = readAttempts();
-  const count = sameLadder(record, currentVersion, targetVersion, now) ? record.count + 1 : 1;
-  writeAttempts({ from: currentVersion, count, target: targetVersion, at: now });
+  const same = sameLadder(record, currentVersion, targetVersion);
+  const count = same ? record.count + 1 : 1;
+  writeAttempts({ from: currentVersion, count, target: targetVersion || (same ? record.target : "") });
   return count;
+}
+
+/**
+ * Цель стала известна — запомнить её за текущей лестницей, не трогая счётчик. Иначе
+ * вкладка, сдавшаяся при цели "", сочла бы "своей" любую следующую версию сайта
+ * (пустая совпадает с любой) и не попробовала бы снова уже никогда.
+ */
+export function rememberUpdateTarget(currentVersion: string, targetVersion: string): void {
+  const record = readAttempts();
+  if (!targetVersion || !record || record.from !== currentVersion || record.target) return;
+  writeAttempts({ ...record, target: targetVersion });
 }
 
 /**
@@ -130,13 +141,12 @@ export function noteUpdateAttempt(currentVersion: string, targetVersion = "", no
  * молча. Так и было: 21.11 вкладка Chrome на iPhone работала на сборке старше
  * 17.11 (падение главной `t.count`, починенное #319), а в журнале — ни одной сдачи.
  * Теперь три рабочие попытки, затем ровно одна запись о сдаче, затем тишина —
- * до новой версии сайта на сервере или до истечения часа (см. SUPPRESS_MS).
+ * до новой известной версии сайта на сервере.
  */
-export function isUpdateLoopSuppressed(currentVersion: string, targetVersion = "", now = Date.now()): boolean {
+export function isUpdateLoopSuppressed(currentVersion: string, targetVersion = ""): boolean {
   const record = readAttempts();
-  return sameLadder(record, currentVersion, targetVersion, now) && record.count > MAX_ATTEMPTS;
+  return sameLadder(record, currentVersion, targetVersion) && record.count > MAX_ATTEMPTS;
 }
-
 /**
  * Ждущий воркер — тот, кого можно активировать сообщением SKIP_WAITING.
  * Экспортируется: тем же ожиданием пользуется lazyWithReload.ts (там
@@ -338,8 +348,12 @@ export interface ApplyUpdateOptions {
   reload?: () => void;
   /** Уход после жёсткого сброса. Подменяется в тестах, см. hardNavigate. */
   navigateFresh?: (url: string) => void;
-  /** Версия сайта на сервере, к которой идём (version.json); пусто — не знаем. */
-  targetVersion?: string;
+  /**
+   * Как узнать версию сайта на сервере, к которой идём (version.json); "" — пока не знаем.
+   * Функция, а не значение: UpdatePrompt читает цель в двух местах (проверка заглушки и сама
+   * подмена), и между ними она может смениться — тест обязан ходить тем же путём.
+   */
+  readTargetVersion?: () => string;
   /** Запись о сдаче в журнал. Подменяется в тестах. */
   reportGiveUp?: GiveUpReporter;
 }
@@ -444,10 +458,10 @@ export async function applyAppUpdate({
   currentVersion,
   reload = () => window.location.reload(),
   navigateFresh = hardNavigate,
-  targetVersion = "",
+  readTargetVersion = () => "",
   reportGiveUp: reporter = defaultGiveUpReporter,
 }: ApplyUpdateOptions): Promise<"service-worker" | "reload" | "hard-reset" | "gave-up"> {
-  const attempt = noteUpdateAttempt(currentVersion, targetVersion);
+  const attempt = noteUpdateAttempt(currentVersion, readTargetVersion());
 
   if (attempt > MAX_ATTEMPTS) {
     reportGiveUp(currentVersion, attempt, reporter);

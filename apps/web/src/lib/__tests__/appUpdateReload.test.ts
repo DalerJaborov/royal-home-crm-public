@@ -5,6 +5,7 @@ import {
   clearUpdateAttempts,
   isUpdateLoopSuppressed,
   noteUpdateAttempt,
+  rememberUpdateTarget,
   resetAttemptsIfUpdated,
 } from "../appUpdateReload";
 
@@ -164,48 +165,77 @@ describe("applyAppUpdate", () => {
     expect(message).toContain("aaa");
     // Снимок среды — отдельным полем, а не в error.stack: iOS кладёт туда только адреса.
     expect(details).toContain("сборка вкладки=aaa");
-    expect(details).toContain("«/»");
+  });
+
+  it("в подробностях сдачи — метка версии и главный скрипт самой «/»", async () => {
+    const html = '<html><head><meta name="app-version" content="site-9"><script type="module" crossorigin src="/assets/index-Ab12.js"></script></head></html>';
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).startsWith("/version.json")
+      ? new Response(JSON.stringify({ version: "site-9" }), { status: 200 })
+      : new Response(html, { status: 200 }))));
+    try {
+      const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload: vi.fn(), navigateFresh: vi.fn(), reportGiveUp };
+      for (let i = 0; i < 4; i++) await applyAppUpdate(opts);
+      await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+      const details = reportGiveUp.mock.calls[0][1];
+      expect(details).toContain("version.json: сборка сервера=site-9");
+      expect(details).toContain("«/» app-version=site-9");
+      expect(details).toContain("«/» скрипт=/assets/index-Ab12.js");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   /**
-   * РЕАЛЬНЫЙ ПУТЬ UpdatePrompt.tryApply (21.11.2026): сначала isUpdateLoopSuppressed,
-   * потом applyAppUpdate — по разу на каждую «жизнь» страницы. Тест выше зовёт
-   * applyAppUpdate в четвёртый раз напрямую и поэтому был зелёным, хотя через
-   * настоящий путь сдача не доходила до журнала ни разу (проверка глушила раньше).
+   * РЕАЛЬНЫЙ ПУТЬ UpdatePrompt (21.11.2026): проверка заглушки `isUpdateLoopSuppressed(v,
+   * readUpdateTarget())` в tryApply и подмена `applyAppUpdate({ readTargetVersion:
+   * readUpdateTarget })` в run — по разу на «жизнь» страницы, цель читается ДВАЖДЫ тем же
+   * чтением, что у компонента (store/appUpdate.ts). Между чтениями цель может смениться.
    */
+  function pageLife(readTarget: () => string, spies: { reload: () => void; navigateFresh: (u: string) => void }) {
+    if (isUpdateLoopSuppressed("aaa", readTarget())) return Promise.resolve("suppressed");
+    return applyAppUpdate({ needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", readTargetVersion: readTarget, ...spies, reportGiveUp });
+  }
+
   it("через путь UpdatePrompt сдача доходит до журнала ровно один раз", async () => {
     const reload = vi.fn();
     const navigateFresh = vi.fn();
     const branches: string[] = [];
-    for (let pageLife = 0; pageLife < 6; pageLife++) {
-      if (isUpdateLoopSuppressed("aaa", "site-2")) continue;
-      branches.push(await applyAppUpdate({
-        needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", targetVersion: "site-2", reload, navigateFresh, reportGiveUp,
-      }));
-    }
-    expect(branches).toEqual(["reload", "hard-reset", "hard-reset", "gave-up"]);
+    for (let i = 0; i < 6; i++) branches.push(await pageLife(() => "site-2", { reload, navigateFresh }));
+    expect(branches.filter((b) => b !== "suppressed")).toEqual(["reload", "hard-reset", "hard-reset", "gave-up"]);
     await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
     expect(reportGiveUp.mock.calls[0][0]).toContain("Сдача");
   });
 
   /**
-   * СДАЧА НЕ НАВСЕГДА (ревью #380): раньше счётчик сбрасывался только сменой версии
-   * самой вкладки, то есть никогда, — телефон прожил на сборке старше 17.11 до 21.11.
+   * БЛОКЕР ПОВТОРНОГО РЕВЬЮ (ревью #380): ждущий воркер приходит раньше ответа
+   * version.json, и цель между двумя чтениями то "", то "site-2". Когда "" считалась
+   * отдельной лестницей, каждая смена обнуляла счётчик — перезагрузка на каждое открытие.
    */
-  it("новая версия сайта на сервере снова открывает лестницу; та же — нет", async () => {
-    const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload: vi.fn(), navigateFresh: vi.fn(), reportGiveUp };
-    for (let i = 0; i < 4; i++) await applyAppUpdate({ ...opts, targetVersion: "site-2" });
-    expect(isUpdateLoopSuppressed("aaa", "site-2")).toBe(true);
-    expect(isUpdateLoopSuppressed("aaa", "site-3")).toBe(false);
-    expect(await applyAppUpdate({ ...opts, targetVersion: "site-3" })).toBe("reload");
+  it("смесь пустой и известной цели за 20 жизней страницы — не больше трёх перезагрузок", async () => {
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    let reads = 0;
+    const readTarget = () => (reads++ % 3 === 0 ? "" : "site-2");
+    for (let i = 0; i < 20; i++) await pageLife(readTarget, { reload, navigateFresh });
+    expect(reload.mock.calls.length + navigateFresh.mock.calls.length).toBeLessThanOrEqual(3);
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
   });
 
-  it("заглушка снимается через час и без новой версии", () => {
-    const t0 = 1_000_000;
-    for (let i = 0; i < 4; i++) noteUpdateAttempt("aaa", "site-2", t0 + i);
-    expect(isUpdateLoopSuppressed("aaa", "site-2", t0 + 10 * 60_000)).toBe(true);
-    expect(isUpdateLoopSuppressed("aaa", "site-2", t0 + 61 * 60_000)).toBe(false);
-    expect(noteUpdateAttempt("aaa", "site-2", t0 + 61 * 60_000)).toBe(1);
+  it("сдача при неизвестной цели не открывает лестницу на ту же цель, узнанную позже", async () => {
+    const spies = { reload: vi.fn(), navigateFresh: vi.fn() };
+    for (let i = 0; i < 4; i++) await pageLife(() => "", spies);
+    rememberUpdateTarget("aaa", "site-2"); // version.json наконец ответил
+    expect(isUpdateLoopSuppressed("aaa", "site-2")).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "site-3")).toBe(false); // а вот новый выкат сайта — да
+  });
+
+  it("новая известная версия сайта снова открывает лестницу; та же — нет, и таймером тоже нет", async () => {
+    const spies = { reload: vi.fn(), navigateFresh: vi.fn() };
+    for (let i = 0; i < 4; i++) await pageLife(() => "site-2", spies);
+    expect(isUpdateLoopSuppressed("aaa", "site-2")).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "")).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "site-3")).toBe(false);
+    expect(await pageLife(() => "site-3", spies)).toBe("reload");
   });
 });
 

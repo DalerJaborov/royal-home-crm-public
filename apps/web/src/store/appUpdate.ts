@@ -78,7 +78,11 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
   targetVersion: "",
   setNeedRefresh: (value) => set({ needRefresh: value }),
   setStaleBuild: (value) => set({ staleBuild: value }),
-  noteSiteVersion: (value) => set({ staleBuild: true, targetVersion: value }),
+  noteSiteVersion: (value) => {
+    const s = get();
+    if (s.staleBuild && s.targetVersion === value) return; // опрос и заголовок сообщают одно и то же
+    set({ staleBuild: true, targetVersion: value });
+  },
   settle: () => set({ applying: false, deferStart: null }),
   requestApply: (busy, options = {}) => {
     const { now = Date.now(), navigating = false } = options;
@@ -96,3 +100,10 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
   },
   reset: () => set({ needRefresh: false, staleBuild: false, applying: false, deferStart: null, targetVersion: "" }),
 }));
+
+/**
+ * Цель обновления (версия сайта на сервере) — ОДНО чтение на всех: UpdatePrompt берёт её и в
+ * проверке заглушки, и в самой подмене (lib/appUpdateReload.ts, eadTargetVersion), тесты —
+ * тем же путём. Между двумя чтениями цель может смениться, и лестница обязана это пережить.
+ */
+export const readUpdateTarget = (): string => useAppUpdateStore.getState().targetVersion;

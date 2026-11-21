@@ -7,6 +7,7 @@ import { prepareAppUpdate } from "../lib/appUpdatePrefetch";
 import {
   applyAppUpdate,
   isUpdateLoopSuppressed,
+  rememberUpdateTarget,
   resetAttemptsIfUpdated,
   stripFreshMarker,
 } from "../lib/appUpdateReload";
@@ -14,7 +15,7 @@ import { isMutationInFlight } from "../lib/isMutationInFlight";
 import { isUserActivelyTyping, startTypingActivityTracker } from "../lib/isUserActivelyTyping";
 import { queryClient } from "../lib/queryClient";
 import { isBusy as isWorkBusy } from "../lib/workGuard";
-import { useAppUpdateStore } from "../store/appUpdate";
+import { readUpdateTarget, useAppUpdateStore } from "../store/appUpdate";
 import { toast } from "../store/toast";
 
 /**
@@ -143,6 +144,12 @@ export function UpdatePrompt() {
 
   // Готовим обновление ЗАРАНЕЕ: файлы новой сборки качаются, пока человек
   // работает, чтобы сама подмена не ждала сеть (см. lib/appUpdatePrefetch.ts).
+  // Цель стала известна — запомнить её за текущей лестницей (счётчик не трогается), чтобы
+  // попытки с целью "" и с "v2" были одной лестницей, а не перезагрузкой по кругу.
+  useEffect(() => {
+    if (targetVersion) rememberUpdateTarget(__APP_VERSION__, targetVersion);
+  }, [targetVersion]);
+
   // Заглушённая вкладка (лестница сдалась для этой цели) файлы новой сборки не качает.
   useEffect(() => {
     if (shouldRefresh && !isUpdateLoopSuppressed(__APP_VERSION__, targetVersion)) void prepareAppUpdate();
@@ -151,7 +158,7 @@ export function UpdatePrompt() {
   function tryApply(navigating = false) {
     // Обновление уже не применилось несколько раз подряд — больше не пытаемся:
     // работать на старой сборке лучше, чем крутиться в петле перезагрузок.
-    if (isUpdateLoopSuppressed(__APP_VERSION__, useAppUpdateStore.getState().targetVersion)) return;
+    if (isUpdateLoopSuppressed(__APP_VERSION__, readUpdateTarget())) return;
     // Идёт загрузка файлов (lib/workGuard.ts): перезагрузка страницы оборвала бы
     // отдачу на середине, поэтому ждём без потолка MAX_DEFER_MS — даже при
     // переходе между разделами. Файлы без обновления доедут, с обновлением —
@@ -231,7 +238,7 @@ export function UpdatePrompt() {
         needRefresh: needRefreshRef.current,
         updateServiceWorker,
         currentVersion: __APP_VERSION__,
-        targetVersion: useAppUpdateStore.getState().targetVersion,
+        readTargetVersion: readUpdateTarget,
       });
       // Сдача: страница остаётся. Снимаем «идёт подмена», иначе следующая версия
       // сайта (новая цель лестницы) не смогла бы начать заново (21.11.2026).

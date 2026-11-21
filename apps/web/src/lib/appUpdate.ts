@@ -33,6 +33,30 @@ function tabVersion(): string {
   return typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "";
 }
 
+/**
+ * ОТВЕТЫ version.json ПРИМЕНЯЮТСЯ ТОЛЬКО ПО ПОРЯДКУ (21.11.2026, ревью #380). На несколько
+ * перезапусков API подряд и на опрос уходят несколько запросов; ответ на ранний может прийти
+ * позже ответа на поздний и откатить цель v3 → v2. Номер запроса общий на оба канала: ответ
+ * старше уже применённого отбрасывается.
+ */
+let issuedSeq = 0;
+let appliedSeq = 0;
+
+/** Только для тестов: обнулить счёт запросов. */
+export function resetSiteVersionOrderForTests(): void {
+  issuedSeq = 0;
+  appliedSeq = 0;
+}
+
+/** Спросить версию сайта и отдать её, только если более свежий ответ ещё не применён. */
+async function latestSiteVersion(fetchVersion: () => Promise<string | null>): Promise<string | null> {
+  const seq = ++issuedSeq;
+  const version = await fetchVersion();
+  if (seq < appliedSeq) return null; // устаревший ответ: позже отправленный уже пришёл
+  if (version) appliedSeq = seq;
+  return version;
+}
+
 /** Версия сайта на сервере из `/version.json`; null — не узнали (сеть, ошибка ответа). */
 export async function fetchSiteVersion(fetchImpl: typeof fetch = fetch): Promise<string | null> {
   try {
@@ -65,7 +89,7 @@ export function startServerBuildWatch(
   let stopped = false;
   const off = onServerBuildStale(() => {
     acknowledgeServerBuild();
-    void fetchVersion().then((siteVersion) => {
+    void latestSiteVersion(fetchVersion).then((siteVersion) => {
       if (!stopped && siteVersion && siteVersion !== current) onStale(siteVersion);
     });
   });
@@ -78,12 +102,15 @@ export function startServerBuildWatch(
 /**
  * Опрос version.json. С 21.11.2026 не останавливается после первого расхождения:
  * вкладка, у которой лестница обновления сдалась, должна узнать о СЛЕДУЮЩЕЙ версии
- * сайта и попробовать снова (appUpdateReload.ts, isUpdateLoopSuppressed). Подписчик
- * получает версию и зовётся только при её смене.
+ * сайта и попробовать снова (appUpdateReload.ts, isUpdateLoopSuppressed). Повторы одной и
+ * той же версии гасит стор (store/appUpdate.ts, noteSiteVersion).
  */
-export function startAppVersionPoll(onStale: (siteVersion: string) => void): () => void {
+export function startAppVersionPoll(
+  onStale: (siteVersion: string) => void,
+  deps: { fetchVersion?: () => Promise<string | null> } = {},
+): () => void {
+  const fetchVersion = deps.fetchVersion ?? (() => fetchSiteVersion());
   let stopped = false;
-  let reported: string | null = null;
   let timer: number | undefined;
 
   function schedule() {
@@ -98,11 +125,8 @@ export function startAppVersionPoll(onStale: (siteVersion: string) => void): () 
   async function check() {
     if (stopped) return;
     // сеть недоступна/CORS/офлайн — null, не считается «есть обновление»
-    const siteVersion = await fetchSiteVersion();
-    if (!stopped && siteVersion && siteVersion !== tabVersion() && siteVersion !== reported) {
-      reported = siteVersion;
-      onStale(siteVersion);
-    }
+    const siteVersion = await latestSiteVersion(fetchVersion);
+    if (!stopped && siteVersion && siteVersion !== tabVersion()) onStale(siteVersion);
     schedule();
   }
 
