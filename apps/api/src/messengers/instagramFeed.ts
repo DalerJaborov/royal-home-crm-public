@@ -5,6 +5,7 @@ import { fetchWithRetry, instagramApiUrl, loadCredentials } from "./meta.js";
 import { instagramMediaRequest } from "../lib/metaEternalTokens.js";
 import { instagramQueryTokenRequest, isFacebookLoginToken } from "./metaGraph.js";
 import { describeError } from "../lib/describeError.js";
+import { noteInstagramKeyRefused } from "../lib/instagramAccountAccess.js";
 
 /**
  * Лента Instagram агентства для публичного сайта.
@@ -135,21 +136,23 @@ const allCache = new Map<number, { items: InstagramMediaItem[]; fetchedAt: numbe
  * Пусто (аккаунты ещё не заведены) — вызывающий откатывается на одиночный маркер
  * из Настроек, то есть на прежнее поведение.
  */
-async function instagramAccountTokens(): Promise<string[]> {
+async function instagramAccountTokens(): Promise<Array<{ id: string | null; token: string }>> {
   try {
     const rows = await prisma.messengerAccount.findMany({
       // Аккаунт, к которому Meta закрыла доступ (lib/instagramAccountAccess.ts), ленту не
       // отдаст: каждые 15 минут строка 401 в журнале — шум о том, что уже известно.
       where: { channel: "INSTAGRAM", accessLostAt: null },
-      select: { token: true },
+      select: { id: true, token: true },
     });
-    const tokens = rows.map((r) => decryptSecretSafe(r.token)).filter((t): t is string => !!t);
+    const tokens = rows
+      .map((r) => ({ id: r.id, token: decryptSecretSafe(r.token) }))
+      .filter((t): t is { id: string; token: string } => !!t.token);
     if (tokens.length > 0) return tokens;
   } catch (err) {
     void logSystemError("meta", `Маркеры аккаунтов Instagram не прочитаны: ${describeError(err)}`);
   }
   const { igToken } = await loadCredentials();
-  return igToken ? [igToken] : [];
+  return igToken ? [{ id: null, token: igToken }] : [];
 }
 
 /**
@@ -185,7 +188,7 @@ export async function getAllOwnMedia(
   const fields = "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp";
   const collected: InstagramMediaItem[] = [];
   let complete = true;
-  for (const token of tokens) {
+  for (const { id: accountId, token } of tokens) {
     let next: string | undefined;
     let first = true;
     let taken = 0;
@@ -204,10 +207,13 @@ export async function getAllOwnMedia(
           // рилсы аккаунта, а «Здоровье системы» оставалось зелёным — ровно сценарий,
           // от которого журнал и заводился (та же беда была с маркером WhatsApp).
           const bodyText = await res.text().catch(() => "");
-          void logSystemError(
-            "meta",
-            `Лента аккаунта Instagram: Graph API HTTP ${res.status} (${sanitizeFeedUrl(req.url)}): ${bodyText.slice(0, 300)}`
-          );
+          const detail = `Лента аккаунта Instagram: Graph API HTTP ${res.status} (${sanitizeFeedUrl(req.url)}): ${bodyText.slice(0, 300)}`;
+          // «Meta закрыла доступ» — одна отметка и одна тревога через общую дверь; ключ просто мёртв —
+          // одна строка на аккаунт в сутки, а не каждые 15 минут (прод 21.11: 66 строк за сутки).
+          const { locked } = await noteInstagramKeyRefused({ accountId, token, text: bodyText, detail: `HTTP ${res.status}: ${bodyText.slice(0, 200)}` });
+          if (!locked) {
+            void logSystemError("meta", detail, { dedupKey: `ig-feed-failed:${accountId ?? "settings"}:${res.status}`, dedupWindowMs: 24 * 60 * 60_000 });
+          }
           complete = false;
           break;
         }

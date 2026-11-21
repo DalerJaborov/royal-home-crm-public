@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4211,
+  "forks": 4212,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -58980,6 +58980,14 @@
     },
     {
      "k": "do",
+     "t": "void autoLinkPropertyById(updated.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…",
      "a": [
       "зовёт publishPropertyUpdated()"
@@ -104998,6 +105006,21 @@
              "t": "body.error",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "page.channel === \"INSTAGRAM\" && (await noteInstagramKeyRefused({ token: page.token, text: body.error.message …",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "do",
                "t": "void logSystemError(\"meta\", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` + `(код ${…",

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4211**. Модулей: **88**.
+Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4212**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13315,6 +13315,8 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
+- void autoLinkPropertyById(updated.id);
+  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -23500,6 +23502,9 @@
         - const body = await fetchPageInbox(page, fetchImpl);
           · зовёт fetchPageInbox()
         - если body.error
+          - если page.channel === "INSTAGRAM" && (await noteInstagramKeyRefused({ token: page.token, text: body.error.message …
+            - continue;
+              · переходит к следующему
           - void logSystemError("meta", `Сверка переписок: Meta не отдала переписки Страницы «${page.title}» ` + `(код ${…
             · запись в журнал ошибок
           - continue;
