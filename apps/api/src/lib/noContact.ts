@@ -1,4 +1,4 @@
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { CLIENT_IN_WORK_WHERE } from "./clientInWork.js";
 
 /**
@@ -100,4 +100,39 @@ export function noContactSinceWhere(cutoff: Date): Prisma.ClientWhereInput {
       { interactions: { none: { ...TALKED_CALL_WHERE, createdAt: { gte: cutoff } } } },
     ],
   };
+}
+
+/**
+ * ТО ЖЕ ПРАВИЛО КОНТАКТА ДЛЯ СЫРОГО SQL (21.11.2026) — «после момента `after` с клиентом
+ * связывались другим путём, не в чате»: срез «Ждут» в «Чатах» (lib/inboxWaiting.ts) —
+ * сырой запрос, и Prisma-условие `STAFF_CONTACT_INTERACTION_WHERE` ему не подставить.
+ * Живёт РЯДОМ с условием выше, чтобы две записи правила правились вместе; тест
+ * `inbox-waiting-truth.test.ts` прогоняет обе на одних и тех же записях и краснеет при
+ * расхождении. Добавили строку в `STAFF_CONTACT_INTERACTION_WHERE` — допишите её здесь.
+ *
+ * `clientId`/`after` — SQL-выражения (колонка присоединённого `Client`, время последней
+ * реплики клиента). Дополнительно `Client.lastAgentAttemptAt` позже `after`: сообщение
+ * агента из CRM и отказ станции на «Позвонить» не лежат записью хронологии.
+ */
+export function staffContactAfterSql(
+  clientId: Prisma.Sql,
+  after: Prisma.Sql,
+  lastAgentAttemptAt: Prisma.Sql,
+): Prisma.Sql {
+  return Prisma.sql`(
+    COALESCE(${lastAgentAttemptAt} > ${after}, FALSE)
+    OR EXISTS (
+      SELECT 1 FROM "Interaction" i
+      WHERE i."clientId" = ${clientId}
+        AND i."createdAt" > ${after}
+        AND i."archiveReview" = FALSE
+        AND (
+          (i."type"::text = 'CALL' AND i."callAttempt" IN ('TALKED', 'NO_ANSWER', 'CANCELLED'))
+          OR (i."type"::text = 'CALL' AND i."recordingDurationSec" > 0)
+          OR (i."type"::text = 'CALL' AND i."actorKind"::text = 'AGENT' AND i."callAttempt" IS NULL
+              AND i."notes" NOT LIKE ${INCOMING_CALL_NOTE_PREFIX + "%"})
+          OR (i."type"::text IN ('MEETING', 'SHOWING') AND i."actorKind"::text = 'AGENT')
+        )
+    )
+  )`;
 }
