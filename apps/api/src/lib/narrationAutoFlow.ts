@@ -446,12 +446,16 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
   // PREVIEW (ревью 12.11.2026): строку «передано» не заводим — иначе после включения LIVE обход
   // счёл бы версию отправленной и mp3 до монтажёра не дошёл бы. Одобренная версия ждёт LIVE.
   if (mediaExecutionMode("NARRATION") !== "LIVE") return "PREVIEW";
-  const requestKey = `auto:${versionId}:${prepared.editorId}`;
   return prisma.$transaction(async (tx): Promise<NarrationDeliveryStart> => {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!latest || latest.id !== versionId || latest.status !== "READY" || !latest.approvedAt) return "NOT_READY";
-    if (await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] } } })) return "ALREADY";
+    // ПЕРЕМОНТАЖ = СВОЯ ПЕРЕДАЧА (21.11.2026, «сверх быстро»: монтажёр не ищет старый файл). Номер перемонтажа в ключе:
+    // новый перемонтаж — новая передача того же mp3 (генерации нет), повтор того же перемонтажа — тот же ключ, второй нет.
+    const remake = (await tx.property.findUnique({ where: { id: propertyId }, select: { videoRemakeCount: true } }))?.videoRemakeCount ?? 0;
+    const requestKey = narrationDeliveryKey(versionId, prepared.editorId, remake);
+    // Первый монтаж — прежнее правило: этот голос этому монтажёру уже ушёл любым ключом (и вручную) — второй раз не шлём.
+    if (remake === 0 && await tx.propertyNarrationDelivery.count({ where: { propertyId, versionId, editorId: prepared.editorId, mode: "AUDIO_ONLY", status: { in: ["SENT", "CANCELLED"] } } })) return "ALREADY";
     if (await tx.propertyNarrationDelivery.count({ where: { propertyId, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return "BUSY";
     const existing = await tx.propertyNarrationDelivery.findUnique({ where: { requestKey } });
     // Ждущие возврата объекта передачи (WAITING, 19.11.2026) другим ключом — гасим: голос уйдёт одной передачей.
@@ -470,6 +474,11 @@ async function queueNarrationDelivery(propertyId: string, versionId: string, pre
       createdById: latest.approvedById ?? "system", plan: prepared.plan, status: "QUEUED", executionMode: "LIVE" } });
     return "QUEUED";
   });
+}
+
+/** Ключ передачи голоса монтажёру: версия + монтажёр, с перемонтажа — ещё и его номер (Property.videoRemakeCount). */
+export function narrationDeliveryKey(versionId: string, editorId: string | null, remake: number): string {
+  return remake > 0 ? `auto:${versionId}:${editorId}:r${remake}` : `auto:${versionId}:${editorId}`;
 }
 
 /** Монтажёру по-старому: голос вклеен им — заменить только голос; ролик сдан без голоса и не вышел —
@@ -1385,6 +1394,20 @@ async function deliverApprovedNarrations(): Promise<number> {
     where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { none: { status: { notIn: ["PREVIEW", "WAITING"] } } }, property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR" } },
     orderBy: { approvedAt: "asc" }, take: 20, select: { id: true, propertyId: true },
   });
+  // Перемонтаж без смены озвучки (21.11.2026): одобренный голос уже уходил раньше, но этому перемонтажу — ещё нет.
+  const remakes = await prisma.propertyNarrationVersion.findMany({
+    where: { status: "READY", approvedAt: { not: null }, source: { not: "MANUAL" }, deliveries: { some: { status: { notIn: ["PREVIEW", "WAITING"] } } },
+      property: { deletedAt: null, narrationOff: false, status: { notIn: [...CLOSED_STATUSES] }, videoHandoffStatus: "SENT_TO_EDITOR", videoRemakeCount: { gt: 0 } } },
+    orderBy: { approvedAt: "desc" }, take: 40,
+    select: { id: true, propertyId: true, revision: true, property: { select: { videoRemakeCount: true } }, deliveries: { select: { requestKey: true } } },
+  });
+  for (const row of remakes) {
+    if (approved.length >= 40) break;
+    const remake = row.property?.videoRemakeCount ?? 0;
+    if (!remake || (row.deliveries ?? []).some((d) => d.requestKey.endsWith(`:r${remake}`))) continue;
+    const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: row.propertyId }, orderBy: { revision: "desc" }, select: { id: true } });
+    if (latest?.id === row.id) approved.push({ id: row.id, propertyId: row.propertyId });
+  }
   for (const row of approved) {
     try {
       const { status, refusal } = await startNarrationDelivery(row.propertyId, row.id);

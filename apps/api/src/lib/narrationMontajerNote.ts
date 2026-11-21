@@ -51,7 +51,8 @@ export async function narrationLineForMontajer(propertyId: string): Promise<stri
   // Старая ручная озвучка маркетинга (до автоозвучки): сама она монтажёру не уходит — mp3 не обещаем
   // (ревью 12.11.2026). Если маркетинг передаст её кнопкой, она придёт отдельным сообщением.
   if ((latest.source ?? "MANUAL") === "MANUAL") return "🎙 Озвучку этого объекта ведёт маркетинг вручную: сама она сюда не придёт. Нужна — спросите маркетинг.";
-  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
+  // Одобренный голос уходит заново при каждом перемонтаже (21.11.2026): старый файл искать не нужно.
+  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт сюда отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
     return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда отдельным mp3, как только будет готова.";
   }

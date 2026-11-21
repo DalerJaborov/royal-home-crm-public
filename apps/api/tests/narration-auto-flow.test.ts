@@ -247,6 +247,24 @@ describe("approval by the property's agent and hand-over to the editor", () => {
     expect(s.deliveries).toHaveLength(1);
     expect(s.deliveries[0]).toMatchObject({ mode: "AUDIO_ONLY", status: "QUEUED", executionMode: "LIVE", requestKey: `auto:${v.id}:editor`, createdById: "agent" });
   });
+  it("перемонтаж без смены озвучки (21.11.2026): тот же mp3 уходит заново, один раз на каждый перемонтаж, без генерации", async () => {
+    const v = await readyVersion();
+    await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    s.deliveries[0].status = "SENT";
+    // Тот же монтаж: второй передачи нет.
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    // Первый перемонтаж — своя передача того же файла; повтор того же перемонтажа её не дублирует.
+    s.property!.videoRemakeCount = 1;
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    s.deliveries[1].status = "SENT";
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    // Второй перемонтаж — ещё одна.
+    s.property!.videoRemakeCount = 2;
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    expect(s.deliveries.map((d) => d.requestKey)).toEqual([`auto:${v.id}:editor`, `auto:${v.id}:editor:r1`, `auto:${v.id}:editor:r2`]);
+    expect(s.audio).toHaveBeenCalledTimes(1);
+  });
   it("a delivery row left in PREVIEW before this fix is sent once LIVE is on, not counted as sent", async () => {
     const v = await readyVersion();
     await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
