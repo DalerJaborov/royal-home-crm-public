@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   DEAL_STAGE_LABELS,
   RATED_ROLES,
   REFUSAL_REASON_LABELS,
@@ -604,7 +603,6 @@ interface RawItem {
 }
 
 const CLIENT_SELECT = { id: true, fullName: true, source: true, status: true } as const;
-const clientStatusLabel = (s: string) => CLIENT_STATUS_LABELS[s as keyof typeof CLIENT_STATUS_LABELS] ?? s;
 const INTERACTION_LABELS: Record<string, string> = { SHOWING: "Показ", MEETING: "Встреча", CALL: "Звонок", MESSAGE: "Сообщение" };
 
 async function drillRows(spec: DrillSpec, take: number, skip: number, viewer: DirectorViewer, money: MoneyContext): Promise<RawItem[]> {
@@ -624,12 +622,13 @@ async function drillRows(spec: DrillSpec, take: number, skip: number, viewer: Di
         date: lost ? c.assignmentRefusedAt : c.createdAt,
         agentId: c[spec.agentField],
         client: c,
-        status: lost ? (c.refusalReason ?? "NONE") : c.status,
+        // Статусов клиента больше нет (решение владельца 16–17.11.2026): у заявки статус пустой, у отказа — причина отказа.
+        status: lost ? (c.refusalReason ?? "NONE") : "",
         statusLabel: lost
           ? c.refusalReason
             ? (REFUSAL_REASON_LABELS[c.refusalReason as RefusalReason] ?? c.refusalReason)
             : "Отказ без причины"
-          : clientStatusLabel(c.status),
+          : "",
         amount: null,
       };
     });

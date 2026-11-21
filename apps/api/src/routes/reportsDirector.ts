@@ -2,7 +2,6 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   WORK_STATUS_LABELS,
   directorDashboardQuerySchema,
   directorDrillQuerySchema,
@@ -200,7 +199,7 @@ reportsDirectorRouter.get("/history", async (req, res) => {
   if (!can(req, "clients.viewAll")) return res.status(403).json({ error: "История доступна тем, кто видит всех клиентов" });
   return guarded(res, "история", async () => {
     const [events, agentChanges] = await Promise.all([
-      prisma.stageEvent.findMany({ where: { entityType: "CLIENT", entityId: clientId }, orderBy: { at: "desc" }, take: limit }),
+      prisma.stageEvent.findMany({ where: { entityType: "CLIENT", entityId: clientId, field: { not: "status" } }, orderBy: { at: "desc" }, take: limit }),
       prisma.auditLog.findMany({
         where: { action: "CLIENT_AGENT_CHANGE", entityType: "Client", entityId: clientId },
         orderBy: { createdAt: "desc" },
@@ -220,9 +219,7 @@ reportsDirectorRouter.get("/history", async (req, res) => {
     const valueLabel = (field: string, v: string | null) =>
       v === null
         ? null
-        : field === "status"
-          ? (CLIENT_STATUS_LABELS[v as keyof typeof CLIENT_STATUS_LABELS] ?? v)
-          : field === "source"
+        : field === "source"
             ? (CLIENT_SOURCE_LABELS[v as ClientSource] ?? v)
             : field === "workStatus"
               ? (WORK_STATUS_LABELS[v as keyof typeof WORK_STATUS_LABELS] ?? v)

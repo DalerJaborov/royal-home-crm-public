@@ -43,7 +43,7 @@ export function DirectorDrillSheet({ filters, drill, onClose }: {
             <RhGroup label={drill.label}>
               {items.map((it) => (
                 <RhRow key={`${it.entity}-${it.id}`} to={`/clients/${it.clientId}`} title={it.clientName || "Без имени"}
-                  sub={[dushanbeDate(it.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }), it.agentName ?? "без ответственного", it.sourceLabel, it.statusLabel].join(" · ")}
+                  sub={[dushanbeDate(it.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }), it.agentName ?? "без ответственного", it.sourceLabel, it.statusLabel].filter(Boolean).join(" · ")}
                   right={it.amount !== null ? <b className="ry-num">{moneyTjs(it.amount)}</b> : undefined} />
               ))}
             </RhGroup>

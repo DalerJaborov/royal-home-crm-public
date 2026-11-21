@@ -286,12 +286,13 @@ describe("история ключевых полей (ТЗ п.15)", () => {
     await prisma.client.update({ where: { id: historyClientId }, data: { status: "ARCHIVED" } });
     const sourceEvent = await waitFor(() => prisma.stageEvent.findFirst({ where: { entityId: historyClientId, field: "source" } }));
     expect(sourceEvent).toMatchObject({ from: "INSTAGRAM", to: "WEBSITE", agentId: directorId });
+    // Статус клиента в истории не отдаётся (статусов клиента больше нет), но событие пишется перехватом.
     await waitFor(() => prisma.stageEvent.findFirst({ where: { entityId: historyClientId, field: "status" } }));
     const res = await request(app).get(`/api/v1/reports/director/history?clientId=${historyClientId}`).set(auth(director));
     expect(res.status).toBe(200);
     const fields = (res.body.items as { field: string; from: string; to: string; byName: string }[]).map((i) => [i.field, i.from, i.to]);
     expect(fields).toContainEqual(["source", "INSTAGRAM", "WEBSITE"]);
-    expect(fields).toContainEqual(["status", "NEW", "ARCHIVED"]);
+    expect(fields.some(([field]) => field === "status")).toBe(false);
     expect(res.body.items.find((i: { field: string }) => i.field === "source").byName).toContain("DIRECTOR дашборд");
   });
 
