@@ -16,10 +16,10 @@
   "paths": 793,
   "cron": 144,
   "jobs": 34,
-  "conditions": 4185,
+  "conditions": 4186,
   "untranslatedUnique": 475,
   "untranslatedTotal": 611,
-  "partialUnique": 1126,
+  "partialUnique": 1127,
   "translatedShare": 85
  },
  "untranslated": [
@@ -21665,6 +21665,19 @@
     "/properties/:id"
    ],
    "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если oldest candidates количество — «0»",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
     {
      "t": "всё хорошо, отвечает данными",
      "k": "do",

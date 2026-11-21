@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 793,
-  "forks": 4224,
+  "forks": 4225,
   "mounts": 89,
   "cron": 144,
   "jobs": 34,
@@ -19727,13 +19727,43 @@
     },
     {
      "k": "do",
-     "t": "const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…",
+     "t": "const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldestCandidates, neverContacted…",
      "a": [
       "считает в базе: client",
       "читает в базе: client",
       "считает в базе: interaction"
      ],
      "c": []
+    },
+    {
+     "k": "do",
+     "t": "const oldest = await (async ()",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "oldestCandidates.length === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const contact = await lastStaffContactAtByClient(oldestCandidates);",
+       "a": [
+        "зовёт lastStaffContactAtByClient()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -20313,6 +20343,14 @@
      "t": "const leadReasons = await loadLeadReasons(items.filter((c)",
      "a": [
       "зовёт loadLeadReasons()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const lastStaffContact = await lastStaffContactAtByClient(items);",
+     "a": [
+      "зовёт lastStaffContactAtByClient()"
      ],
      "c": []
     },

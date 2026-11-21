@@ -36,6 +36,42 @@ export function readKeyboard(innerHeight: number, vv: { height: number; offsetTo
   return { open, inset: open ? raw : 0, height: Math.round(vv.height) };
 }
 
+/**
+ * ВЫСОТА LAYOUT VIEWPORT — НЕ `window.innerHeight` (21.11.2026, кадр владельца с iPhone, iOS 26).
+ *
+ * Слои `position: fixed` привязаны к layout viewport, и клавиатуру мы узнаём по тому, насколько видимая
+ * область ниже него. Раньше «высотой окна» брали `innerHeight`, но в WebKit на iPhone это высота
+ * НЕЗАКРЫТОЙ части окна: с клавиатурой она падает вместе с visualViewport, разница выходила около нуля,
+ * и клавиатура считалась закрытой. Переписка тогда вставала на `top: 0`, а Safari сдвигал видимую область
+ * вниз на offsetTop — поле ввода улетало к верху экрана, под ним до клавиатуры оставалась пустота
+ * (docs/design/oblik-2026-11-17/owner-shots-21-11-1931/04-chat-keyboard.png: отступ поля снизу 42 px —
+ * то есть признака клавиатуры на странице не было). ОЦЕНКА по кадру; цифры с телефона даёт /ui-check.
+ *
+ * `documentElement.clientHeight` — высота начального блока, клавиатура её не трогает ни в Safari, ни в
+ * Chrome (по умолчанию resizes-visual). Берём большее из двух: в Chrome без адресной строки `innerHeight`
+ * бывает выше `clientHeight`, и тогда правдой является он.
+ */
+export function layoutViewportHeight(win: { innerHeight: number } = window, doc: { documentElement?: { clientHeight?: number } | null } = document): number {
+  return Math.max(win.innerHeight || 0, doc.documentElement?.clientHeight || 0);
+}
+
+/**
+ * ГДЕ ВИДИМАЯ ОБЛАСТЬ — ОНА ЖЕ КАРКАС ПОЛНОЭКРАННОЙ ПЕРЕПИСКИ (21.11.2026).
+ *
+ * Слой `position: fixed` с `top: T` виден на экране на высоте `T − visualViewport.offsetTop`. Значит,
+ * чтобы каркас стоял ровно в видимой части, его верх — `offsetTop`, высота — `visualViewport.height`.
+ * Это верно с клавиатурой и без неё, поэтому от признака «клавиатура открыта» каркас НЕ зависит: ошибка
+ * в этом признаке (см. выше) больше не может увести переписку за экран. Отрицательный сдвиг (резиновая
+ * прокрутка) обрезаем нулём, сдвиг ниже низа окна (хвост закрывшейся клавиатуры) — до низа окна.
+ */
+export function visibleFrame(vv: { height: number; offsetTop: number } | null | undefined, layoutHeight: number): { top: number; height: number } {
+  if (!vv) return { top: 0, height: Math.round(layoutHeight) };
+  // Видимая область не может уйти ниже layout viewport: сдвиг больше «окно − видимая высота» — это хвост
+  // закрывшейся клавиатуры (iOS присылает новый offsetTop позже новой высоты), верх тогда прижимаем.
+  const maxTop = Math.max(0, layoutHeight - vv.height);
+  return { top: Math.round(Math.min(Math.max(0, vv.offsetTop), maxTop)), height: Math.round(vv.height) };
+}
+
 let subscribers = 0;
 let stop: (() => void) | null = null;
 
@@ -45,7 +81,7 @@ function start(): () => void {
   const root = document.documentElement;
   let written = "";
   const apply = () => {
-    const k = readKeyboard(window.innerHeight, vv);
+    const k = readKeyboard(layoutViewportHeight(), vv);
     const key = `${k.open}|${k.inset}|${k.height}`;
     if (key === written) return;
     written = key;
