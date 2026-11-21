@@ -145,7 +145,7 @@ describe("A: монтажёр вклеивает голос сам", () => {
     const p = await seedProperty();
     await seedVersion(p.id, { approvedAt: new Date(), approvedById: agentId });
     // Монтажёр сдаёт один готовый файл (решение владельца 16.11, подтверждено 19.11.2026).
-    expect(await narrationLineForMontajer(p.id)).toBe("🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.");
+    expect(await narrationLineForMontajer(p.id)).toBe("🎙 Озвучка одобрена и придёт сюда отдельным mp3 — вклейте её сами.");
     await setConfig({ mixByCrm: true });
     expect(await narrationLineForMontajer(p.id)).toContain("БЕЗ голоса");
     await setConfig();

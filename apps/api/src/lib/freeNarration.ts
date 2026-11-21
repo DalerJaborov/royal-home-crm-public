@@ -6,11 +6,10 @@ import { loadAgentAccess } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
-import { normalizeNarrationVoice } from "./narrationLoudness.js";
 import { localVideoDelete, localVideoFilePath, localVideoUpload } from "./localVideoStorage.js";
-import { budgetAllows, loadNarrationConfiguration, narrationProviderReady } from "./narrationGeneration.js";
+import { budgetAllows, loadNarrationConfiguration, NARRATION_LISTEN_SOURCE, narrationProviderReady, synthesizeNarrationSpeech } from "./narrationGeneration.js";
 import { rememberNarrationChoice } from "./narrationLastChoice.js";
-import { generateNarrationAudio, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -114,7 +113,8 @@ export async function cancelFreeNarration(id: string, agentId: string): Promise<
 
 /** Сколько озвучек человек уже начал сегодня (по Душанбе), включая неудачные: деньги могли списаться. */
 export async function freeNarrationUsedToday(agentId: string, now = new Date(), db: Pick<typeof prisma, "freeNarration"> = prisma): Promise<number> {
-  return db.freeNarration.count({ where: { agentId, generationStartedAt: { gte: dushanbeStartOfToday(now) } } });
+  // «▶ Прослушать» в мастере объекта (LISTEN) — свой предел (lib/narrationListen.ts), сюда не входит.
+  return db.freeNarration.count({ where: { agentId, generationStartedAt: { gte: dushanbeStartOfToday(now) }, source: { not: NARRATION_LISTEN_SOURCE } } });
 }
 
 export type FreeNarrationRunOutcome =
@@ -178,7 +178,8 @@ export async function claimFreeNarration(input: { id: string; agentId: string; v
 /** Часть вторая: вызов ElevenLabs (до минуты), сохранение файла, запись итога. Не бросает. */
 export async function executeFreeNarration(claim: FreeNarrationClaim, fetcher?: typeof fetch): Promise<Extract<FreeNarrationRunOutcome, { status: "READY" | "FAILED" }>> {
   const guard = { id: claim.id, status: "GENERATING" };
-  const result = await generateNarrationAudio({ script: claim.script, voiceId: claim.voiceId, config: claim.config, apiKey: claim.key, lang: claim.lang }, fetcher);
+  // Тот же путь звука, что у озвучки ролика (synthesizeNarrationSpeech): настройки голоса, словарь, громкость.
+  const result = await synthesizeNarrationSpeech({ speech: claim.script, voiceId: claim.voiceId, config: claim.config, apiKey: claim.key, lang: claim.lang, label: "своего текста" }, fetcher);
   if (result.status !== "READY") {
     await prisma.freeNarration.updateMany({ where: guard, data: { status: result.status, errorCode: result.errorCode } });
     const quota = result.errorCode === NARRATION_QUOTA_EXCEEDED;
@@ -187,8 +188,7 @@ export async function executeFreeNarration(claim: FreeNarrationClaim, fetcher?: 
   }
   const storageKey = `${FREE_NARRATION_FOLDER}/${claim.id}.mp3`;
   let stored: string | null = storageKey;
-  // Та же громкость, что у озвучки объекта (21.11.2026): голос ElevenLabs тише ленты на 8–10 дБ.
-  const audio = await normalizeNarrationVoice(result.audio, "своего текста").catch(() => result.audio);
+  const audio = result.audio;
   try { await localVideoUpload(storageKey, audio); } catch (err) {
     stored = null;
     void logSystemError("api", `Озвучка текста: файл не сохранён: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration:persist" });

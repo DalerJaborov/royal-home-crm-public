@@ -11,9 +11,9 @@
 | Что | Сколько |
 |---|---|
 | Экранов (адресов в интерфейсе) | 73 |
-| Из них видно в меню | 34 |
+| Из них видно в меню | 33 |
 | Модулей сервера | 88 |
-| Адресов сервера всего | 785 |
+| Адресов сервера всего | 787 |
 | Задач по расписанию | 137 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -51,7 +51,7 @@
 | `/dev/pult-tiles` | — | только по ссылке | — |
 | `/dev/sheets-port` | — | только по ссылке | — |
 | `/dev/system-sheets-port` | — | только по ссылке | — |
-| `/director` | DirectorDashboard | **Дашборд директора** | `apps/web/src/pages/DirectorDashboard.tsx` |
+| `/director` | DirectorDashboard | только по ссылке | `apps/web/src/pages/DirectorDashboard.tsx` |
 | `/finance` | Finance | **Финансы** | `apps/web/src/pages/Finance.tsx` |
 | `/funnel` | Funnel | **Воронка** | `apps/web/src/pages/Funnel.tsx` |
 | `/hall-of-fame` | Team | только по ссылке | `apps/web/src/pages/Team.tsx` |
@@ -121,7 +121,6 @@
 | team | Вакансии | `/vacancies` | всем |
 | team | Служба безопасности | `/security` | всем |
 | money | Финансы | `/finance` | всем |
-| money | Дашборд директора | `/director` | всем |
 | money | Отчёты | `/reports` | всем |
 | money | Источники заявок | `/sources` | всем |
 | money | Инсайты от ИИ | `/insights` | всем |
@@ -158,7 +157,7 @@
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 138 | да (36 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 140 | да (37 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (13 мест) | `apps/api/src/routes/clients.ts` |

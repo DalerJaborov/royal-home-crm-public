@@ -178,13 +178,21 @@ describe("one paid door: generation", () => {
     s.property = { ...s.property, rooms: 4 };
     expect(await requestAutoNarration({ propertyId, actorId: "agent", source: "AUTO", now })).toEqual({ status: "BUSY" });
   });
-  it("daily ceiling stops spending before the provider is called", async () => {
+  it("дневной предел озвучку роликов НЕ останавливает (владелец 21.11.2026): звук делается, руководству — запись на сутки", async () => {
     s.config = { ...baseConfig(), dailyGenerationLimit: 1 };
     s.versions.push({ id: "spent-0000-4000-8000-000000000000", propertyId: "other", revision: 1, script: "x".repeat(20), status: "READY", generationStartedAt: now });
     await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
     await runNarrationAutoFlow({ now });
+    expect(s.audio).toHaveBeenCalledTimes(1);
+    expect(s.versions.find((v) => v.propertyId === propertyId)).toMatchObject({ status: "READY" });
+    expect(s.log).toHaveBeenCalledWith("ai", expect.stringContaining("Дневной предел озвучки превышен: 2 озвучек из 1"),
+      { dedupKey: "narration-daily-limit:2026-11-11", dedupWindowMs: 24 * 3_600_000 });
+  });
+  it("предел 0 — руководство выключило озвучку совсем: ElevenLabs не зовётся", async () => {
+    s.config = { ...baseConfig(), dailyGenerationLimit: 0 };
+    await requestAutoNarration({ propertyId, actorId: "agent", source: "WIZARD", debounceMs: 0, now });
+    await runNarrationAutoFlow({ now });
     expect(s.audio).not.toHaveBeenCalled();
-    expect(s.log).toHaveBeenCalledWith("ai", expect.stringContaining("дневной предел"), { dedupKey: "narration-daily-budget" });
     expect(s.versions.find((v) => v.propertyId === propertyId)).toMatchObject({ status: "DRAFT" });
   });
   it("rate limit (429) retries later without messaging anyone; other failures are logged once and not retried", async () => {
@@ -246,6 +254,36 @@ describe("approval by the property's agent and hand-over to the editor", () => {
     expect(await afterNarrationApproved(propertyId, v.id)).toBe("BUSY");
     expect(s.deliveries).toHaveLength(1);
     expect(s.deliveries[0]).toMatchObject({ mode: "AUDIO_ONLY", status: "QUEUED", executionMode: "LIVE", requestKey: `auto:${v.id}:editor`, createdById: "agent" });
+  });
+  it("перемонтаж без смены озвучки (21.11.2026): тот же mp3 уходит заново, один раз на каждый перемонтаж, без генерации", async () => {
+    const { prisma } = await import("../src/db.js");
+    const remakeStart = vi.mocked(prisma.videoRemakeRequest.findFirst as (...a: unknown[]) => Promise<unknown>);
+    const at = (min: number) => new Date(now.getTime() + min * 60_000);
+    const v = await readyVersion();
+    await approveNarrationVersion({ propertyId, versionId: v.id, expectedRevision: 1, actorId: "agent", isManager: false });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    Object.assign(s.deliveries[0], { status: "SENT", createdAt: at(1) });
+    // Тот же монтаж: второй передачи нет.
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    // Первый перемонтаж (начат позже передачи) — своя передача того же файла; повтор того же перемонтажа её не дублирует.
+    s.property!.videoRemakeCount = 1;
+    remakeStart.mockResolvedValue({ createdAt: at(10) });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    Object.assign(s.deliveries[1], { status: "SENT", createdAt: at(11) });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    // Второй перемонтаж — ещё одна.
+    s.property!.videoRemakeCount = 2;
+    remakeStart.mockResolvedValue({ createdAt: at(20) });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("QUEUED");
+    expect(s.deliveries.map((d) => d.requestKey)).toEqual([`auto:${v.id}:editor`, `auto:${v.id}:editor:r1`, `auto:${v.id}:editor:r2`]);
+    // Голос в текущем перемонтаже уже ушёл СТАРЫМ ключом (до выката, без номера) — решает время: второй раз не шлём.
+    s.deliveries.splice(2);
+    s.property!.videoRemakeCount = 3;
+    remakeStart.mockResolvedValue({ createdAt: at(30) });
+    s.deliveries.push({ id: "old-key", propertyId, versionId: v.id, editorId: "editor", mode: "AUDIO_ONLY", status: "SENT", requestKey: `manual:${v.id}`, createdAt: at(31) });
+    expect(await afterNarrationApproved(propertyId, v.id)).toBe("ALREADY");
+    expect(s.audio).toHaveBeenCalledTimes(1);
+    remakeStart.mockResolvedValue(null);
   });
   it("a delivery row left in PREVIEW before this fix is sent once LIVE is on, not counted as sent", async () => {
     const v = await readyVersion();

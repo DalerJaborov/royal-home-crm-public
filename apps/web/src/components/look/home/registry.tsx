@@ -7,6 +7,8 @@ import { MarketingAds, MarketingFocus, MarketingQueue, MarketingQuick, Marketing
 import { ManagerFocus, ManagerQuick, ManagerTeam, ManagerTiles, ManagerUnread, ManagerWaiting } from "./blocks/manager";
 import { DirectorBurning, DirectorChannels, DirectorCheck, DirectorCommission, DirectorDecisions, DirectorFull, DirectorMoney, DirectorPulse, DirectorTeam } from "./blocks/director";
 import { RopFull, RopLosses, RopSpread, RopTasks, RopTeam, RopTiles } from "./blocks/rop";
+import { AttentionStrip, DashboardHomeBlock } from "./blocks/dashboardHome";
+import { DASHBOARD_HOME_ROLES, useDashboardHome } from "../../../lib/homeDashboard";
 import { AgentFirstCalls, AgentFull, AgentMonth, AgentPending, AgentShowings, AgentTiles } from "./blocks/agent";
 
 /**
@@ -35,6 +37,10 @@ function FullBlock({ role }: HomeBlockProps) {
 }
 
 export const HOME_BLOCKS: readonly HomeBlockDef[] = [
+  // Главная руководителя = дашборд (21.11.2026): полоса срочного и сам дашборд. Блоки ниже у этих
+  // ролей остаются в реестре как запас для руководителя без права на отчёты (HOME_LAYOUT).
+  { id: "attention", roles: DASHBOARD_HOME_ROLES, requires: ["dashboard.analytics"], title: "Требует внимания сейчас", component: AttentionStrip },
+  { id: "dashboard", roles: DASHBOARD_HOME_ROLES, requires: ["reports.view"], title: "Дашборд", component: DashboardHomeBlock },
   { id: "money", roles: MONEY_VIEWERS, title: "Деньги и главное за день", component: DirectorMoney },
   { id: "decisions", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
   { id: "burning", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Горит сейчас", span: "b", component: DirectorBurning },
@@ -109,9 +115,17 @@ export const HOME_LAYOUT: Readonly<Record<string, readonly string[]>> = {
 // Личная раскладка — в ./prefs.ts (её читают и блоки: РОП не ставит ссылку на выключенную «Команду»).
 export { useHomeLayoutPrefs } from "./prefs";
 
+/** Главная руководителя с правом на отчёты: полоса срочного и дашборд, без личных выключателей. */
+const DASHBOARD_LAYOUT: Readonly<Record<string, readonly string[]>> = {
+  ...HOME_LAYOUT,
+  ...Object.fromEntries(DASHBOARD_HOME_ROLES.map((role) => [role, ["attention", "dashboard"]])),
+};
+
 /** Главная «Нового вида» любой роли: ядро с реестром, раскладкой и личными выключателями. */
 export function RoyalRoleHome() {
   const role = useAuthStore((s) => s.agent?.role) ?? "default";
   const { order, hidden } = useHomeLayoutPrefs(role);
+  const dashboardHome = useDashboardHome();
+  if (dashboardHome) return <RoyalHomeCore role={role} registry={HOME_BLOCKS} layout={DASHBOARD_LAYOUT} />;
   return <RoyalHomeCore role={role} registry={HOME_BLOCKS} layout={HOME_LAYOUT} order={order} hidden={hidden} />;
 }

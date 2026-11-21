@@ -107,7 +107,10 @@ const narrationConfigBase = z.object({
   autoGenerate: z.boolean().optional(),
   /** Пауза после последней правки, прежде чем платить за новую озвучку. */
   debounceMinutes: z.number().int().min(0).max(120).optional(),
-  /** Потолок расхода ElevenLabs за сутки по Душанбе: 0 — генерация остановлена. */
+  /** «▶ Прослушать» в мастере и карточке: новых звуков на человека в сутки (повтор того же бесплатен); по умолчанию 100. */
+  narrationListenPerPersonDaily: z.number().int().min(1).max(1000).optional(),
+  /** Дневной предел расхода ElevenLabs по Душанбе. Озвучку роликов он НЕ останавливает (владелец 21.11.2026: «не нужно
+   *  лимит жёсткий»): сверх предела она идёт, руководству одно уведомление в сутки. 0 — озвучка остановлена совсем. */
   dailyCharLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyGenerationLimit: z.number().int().min(0).max(1000).optional(),
   templates: z.array(narrationTemplateSchema).max(100).optional(),
@@ -286,6 +289,11 @@ export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "t
 }
 
 export const NARRATION_LIMIT_DEFAULTS = { debounceMinutes: 3, dailyCharLimit: 20_000, dailyGenerationLimit: 40 } as const;
+/** Прослушиваний нового звука на человека в сутки по умолчанию (владелец 21.11.2026: предел не должен мешать работе). */
+export const NARRATION_LISTEN_PER_PERSON_DEFAULT = 100;
+export function narrationListenPerPersonDaily(config: Pick<NarrationConfig, "narrationListenPerPersonDaily">): number {
+  return config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT;
+}
 export function narrationLimits(config: Pick<NarrationConfig, "debounceMinutes" | "dailyCharLimit" | "dailyGenerationLimit">) {
   return {
     debounceMs: (config.debounceMinutes ?? NARRATION_LIMIT_DEFAULTS.debounceMinutes) * 60_000,
@@ -663,6 +671,8 @@ export const narrationDraftSchema = z.object({
   endingId: z.string().trim().max(40).nullable().optional(),
   /** Агент правит текст или голос и сразу просит новое аудио (только при включённой автоозвучке). */
   generate: z.boolean().optional(),
+  /** Прослушал этот текст и голос кнопкой «▶ Прослушать» (21.11.2026): совпало — звук берётся без второй оплаты. */
+  listenId: z.string().uuid().optional(),
 });
 /** Выбор агента в конце мастера (CRM и Шабнам): одно поле запроса создания объекта. */
 export const narrationWizardChoiceSchema = z.object({
@@ -674,8 +684,23 @@ export const narrationWizardChoiceSchema = z.object({
   /** Шаблон и концовку мастер предвыбрал случайно, агент их не трогал: «последним выбором» они не становятся. */
   autoPicked: z.literal(true).optional(),
   voiceId: z.string().trim().max(100).optional(),
+  /**
+   * Сотрудник прослушал озвучку прямо в мастере (21.11.2026, владелец: «разве недостаточно, что выбрали озвучку?»).
+   * Сервер сам сверяет, что текст и голос версии совпали с прослушанным, и только тогда берёт этот звук готовым и
+   * одобренным (apps/api lib/narrationListen.ts). Не совпали — обычный путь: озвучка готовится и ждёт одобрения.
+   */
+  listenId: z.string().uuid().optional(),
 });
 export type NarrationWizardChoice = z.infer<typeof narrationWizardChoiceSchema>;
+/** «▶ Прослушать» в мастере: текст, голос и язык ровно так, как их видит сотрудник. */
+export const narrationListenRequestSchema = z.object({
+  script: z.string().trim().min(10).max(5000),
+  voiceId: z.string().trim().min(1).max(100),
+  lang: z.enum(["tg", "ru"]),
+}).strict();
+export type NarrationListenRequest = z.infer<typeof narrationListenRequestSchema>;
+/** Ответ «▶ Прослушать»: id звука (уходит в запрос создания как listenId) и ссылка на файл; cached — без оплаты. */
+export type NarrationListenResult = { id: string; fileUrl: string; cached: boolean };
 /** Карточка объекта: «Без озвучки» / «Включить озвучку». */
 export const narrationModeSchema = z.object({ off: z.boolean() }).strict();
 export const narrationActionSchema = z.object({ expectedRevision: z.number().int().positive(), confirmed: z.literal(true) });

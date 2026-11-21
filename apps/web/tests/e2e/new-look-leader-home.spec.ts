@@ -28,8 +28,9 @@ const CHECK = ['[data-ry-section="home"] .ry-tile', '[data-ry-section="home"] .r
 
 /** Что обязано быть и чего быть не должно у роли. */
 const EXPECT: Record<Role, { blocks: string[]; absent: string[]; money: boolean }> = {
-  DIRECTOR: { blocks: ["money", "decisions", "burning"], absent: ["managerTiles", "ropTiles"], money: true },
-  HEAD_OF_SALES: { blocks: ["ropTiles", "ropSpread", "ropTeam", "ropTasks"], absent: ["money", "managerTiles"], money: false },
+  // Директор и РОП (21.11.2026): главная = полоса «Требует внимания сейчас» и дашборд; старых блоков нет.
+  DIRECTOR: { blocks: ["attention", "dashboard"], absent: ["money", "decisions", "burning", "team", "pulse", "managerTiles", "ropTiles"], money: true },
+  HEAD_OF_SALES: { blocks: ["attention", "dashboard"], absent: ["ropTiles", "ropSpread", "ropTeam", "ropTasks", "teamCharts", "money", "managerTiles"], money: false },
   SHAREHOLDER: { blocks: ["money", "pulse", "channels"], absent: ["managerTiles", "decisions", "managerFocus", "ropTiles"], money: true },
 };
 
@@ -52,7 +53,7 @@ for (const role of ROLES) {
 
     for (const id of EXPECT[role].blocks) await expect(home.locator(`[data-block="${id}"]`), id).toHaveCount(1);
     for (const id of EXPECT[role].absent) await expect(home.locator(`[data-block="${id}"]`), id).toHaveCount(0);
-    if (EXPECT[role].money) await expect(home.locator('[data-hero="money"]')).toBeVisible();
+    if (role === "SHAREHOLDER") await expect(home.locator('[data-hero="money"]')).toBeVisible();
     else await expect(home.locator('[data-hero="money"]')).toHaveCount(0);
     await expect(page.getByText("Не загрузилось")).toHaveCount(0);
 
