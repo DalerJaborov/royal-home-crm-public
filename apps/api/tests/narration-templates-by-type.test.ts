@@ -146,7 +146,7 @@ describe("текст по сохранённым кодам: основная ч
   });
   it("К1 без этажа: фраза про этаж выпадает целиком, остальное на месте", () => {
     const k1 = config.templates!.find((t) => t.id === "tg-apt-1")!;
-    for (const empty of [{ floor: null, totalFloors: null }, { floor: 5, totalFloors: null }, { floor: null, totalFloors: 9 }]) {
+    for (const empty of [{ floor: null, totalFloors: null }, { floor: null, totalFloors: 9 }]) {
       const text = renderNarrationTemplate(k1, facts(empty));
       expect(text, JSON.stringify(empty)).not.toMatch(/ошёна/u);
       expect(text).toContain("Масоҳати умумӣ ҳаштоду шаш метри мураббаъ аст.");
@@ -154,7 +154,10 @@ describe("текст по сохранённым кодам: основная ч
       expect(text).toMatch(/Нархи хона ҳафтсаду ҳаштоду ҳашт ҳазор сомонӣ\.$/u);
     }
     const full = renderNarrationTemplate(k1, facts());
-    expect(full).toContain("Хона дар ошёнаи панҷуми бинои нӯҳ ошёна ҷойгир шудааст.");
+    // 21.11.2026: этаж без этажности дома — «ошёнаи панҷум», без «бинои нӯҳ ошёна».
+    expect(full).toContain("Хона дар ошёнаи панҷум ҷойгир шудааст.");
+    expect(full).not.toMatch(/бинои|нӯҳ ошёна/u);
+    expect(renderNarrationTemplate(k1, facts({ floor: 5, totalFloors: null }))).toContain("Хона дар ошёнаи панҷум ҷойгир шудааст.");
   });
   it("дом без района, комнат и этажа: пустые фразы выпадают, предложения не рвутся", () => {
     const d1 = config.templates!.find((t) => t.id === "tg-house-1")!;
@@ -312,7 +315,7 @@ describe("русская озвучка без цифр", () => {
   const flat: NarrationFacts = { type: "APARTMENT", rooms: 3, areaSqm: "86", floor: 5, totalFloors: 9, district: "Сино", price: "85000", currency: "USD", usdToTjs: 9.27 };
   it("слова из объекта, цена и этаж по-русски словами", () => {
     const text = renderNarrationTemplate({ lang: "ru", text: "Продаётся {вид}, {комнаты} комнаты, {площадь} квадратных метров, {этаж_пор} этаж из {этажей}. Цена {цена}." }, flat);
-    expect(text).toBe("Продаётся квартира, три комнаты, восемьдесят шесть квадратных метров, пятый этаж из девяти. Цена семьсот восемьдесят восемь тысяч сомони.");
+    expect(text).toBe("Продаётся квартира, три комнаты, восемьдесят шесть квадратных метров, пятый этаж. Цена семьсот восемьдесят восемь тысяч сомони.");
   });
   it("свободный русский текст: целые числа, м² и проценты словами; дата остаётся как есть", () => {
     expect(narrationSpeechText("Квартира 86 м², 3 комнаты, скидка 5%.", "ru")).toBe("Квартира восемьдесят шесть квадратных метров, три комнаты, скидка пять процентов.");
