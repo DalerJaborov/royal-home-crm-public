@@ -8,6 +8,8 @@ import type { AppNotification } from "../types";
 interface NotificationsPage {
   items: AppNotification[];
   unreadCount: number;
+  /** Число для метки на колокольчике: не прочитано И ещё не показано в открытом списке. */
+  unseenCount?: number;
   /** Непрочитанное двух верхних уровней по ВСЕЙ ленте, а не только со страницы:
    *  такая строка недельной давности иначе выпадает за первые двадцать записей
    *  (владелец 09.09.2026, переделано под его формулировку 12.09.2026). */
@@ -103,6 +105,12 @@ export function useNotifications() {
   }, [items]);
 
   return query;
+}
+
+/** Что рисовать в метке: непросмотренное. Ответ старого сервера без поля — прежний счёт. */
+export function badgeCountOf(data: Pick<NotificationsPage, "unreadCount" | "unseenCount"> | undefined): number {
+  if (!data) return 0;
+  return data.unseenCount ?? data.unreadCount;
 }
 
 export function useMarkNotificationRead() {
@@ -218,4 +226,44 @@ export function useSeenSnapshot(items: AppNotification[]): Set<string> {
     setSnapshot(new Set(items.filter((n) => !n.read).map((n) => n.id)));
   }, [items, snapshot]);
   return snapshot ?? new Set();
+}
+
+/** Отметить «просмотрено» (без ids — всё непросмотренное). Прочитанность не меняет. */
+export function useMarkNotificationsSeen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids?: string[]) => api("/me/notifications/seen", { method: "POST", body: ids ? { ids } : {} }),
+    meta: { silent: true },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+/** Показанные записи, которые ещё не отмечены просмотренными (включая «Ждёт решения»). */
+export function pickUnseenIds(shown: readonly AppNotification[]): string[] {
+  return shown.filter((n) => !n.read && !n.seenAt).map((n) => n.id);
+}
+
+/**
+ * ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ (владелец 21.11.2026: «прочитал, быстро
+ * открыл, а оно не гаснет»). Без таймера: отметка уходит в тот момент, когда
+ * показанные записи есть на экране. Новая запись, пришедшая при открытом списке,
+ * отмечается следующим заходом эффекта. Срочное (APPROVAL/CRITICAL) в ленте
+ * остаётся и ждёт действия, ушла только метка.
+ */
+export function useSeenOnShow(shown: readonly AppNotification[], enabled = true): void {
+  const markSeen = useMarkNotificationsSeen();
+  const markRef = useRef(markSeen);
+  markRef.current = markSeen;
+  const ids = pickUnseenIds(shown);
+  const idsKey = ids.join(",");
+  useEffect(() => {
+    if (!enabled || idsKey === "") return;
+    if (!markRef.current.isPending) markRef.current.mutate(idsKey.split(","));
+  }, [enabled, idsKey]);
+}
+
+/** Кнопка «Прочитать все» в выпадающем списке: гасит метку по всей ленте. */
+export function useMarkAllSeen() {
+  const markSeen = useMarkNotificationsSeen();
+  return { markAllSeen: () => markSeen.mutate(undefined), pending: markSeen.isPending };
 }

@@ -14,6 +14,7 @@ import {
   useMarkAllNotificationsRead,
   useNotifications,
   useSeenSnapshot,
+  useSeenOnShow,
 } from "../hooks/useNotifications";
 import { api } from "../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeDayLabel, dushanbeTime } from "../lib/date";
@@ -343,6 +344,8 @@ export function Notifications() {
    */
   const newIds = useSeenSnapshot(items);
   useAutoReadNotifications(unreadCount, !isLoading && !isError, items);
+  // Метка на колокольчике гаснет сразу, как лента открыта (в том числе «Ждёт решения»: они остаются в ленте).
+  useSeenOnShow([...(data?.pinned ?? []), ...items], !isLoading && !isError);
 
   /**
    * Клиенты, ждущие принятия (тот же серверный фильтр, что PendingLeadsSection
