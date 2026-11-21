@@ -62,6 +62,33 @@ const CALL_TIMEOUT_MS = 8_000;
 export const IG_PAGE_SCOPES = ["instagram_basic", "instagram_manage_messages", "pages_manage_metadata"];
 /** Права для Messenger Страницы (Send API). */
 export const FB_PAGE_SCOPES = ["pages_messaging"];
+/**
+ * Права ключа компании для ПУБЛИКАЦИИ в Instagram через graph.facebook.com (22.11.2026).
+ * Первоисточник: Meta for Developers → Instagram Platform → Content Publishing, раздел
+ * «Requirements» для Instagram API with Facebook Login
+ * (developers.facebook.com/docs/instagram-platform/content-publishing): instagram_basic,
+ * instagram_content_publish, pages_read_engagement. Без любого из них путь ключа компании
+ * не выбирается — публикация остаётся на личном ключе (правка не ломает то, что работает).
+ * НЕТ ДАННЫХ (не сверено вживую): нужен ли системному пользователю дополнительно
+ * business_management/ads_read, когда Страница выдана ему через Business Manager, — экран
+ * «Проверить права» показывает все выданные права, чтобы это было видно без догадок.
+ */
+export const IG_PUBLISH_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_read_engagement"];
+
+/**
+ * ЧТО ПОКАЗЫВАТЬ НА «ПРОВЕРИТЬ ПРАВА» — одно место (22.11.2026): право и зачем оно, словами
+ * для владельца. Экран сам списка не держит, берёт его из ответа сервера.
+ */
+export const COMPANY_KEY_SCOPE_CHECKS: ReadonlyArray<{ scope: string; forWhat: string }> = [
+  { scope: "instagram_basic", forWhat: "видеть аккаунт Instagram" },
+  { scope: "instagram_content_publish", forWhat: "публиковать ролики, истории и фото в Instagram" },
+  { scope: "pages_read_engagement", forWhat: "публикация в Instagram через Страницу (требование Meta)" },
+  { scope: "pages_show_list", forWhat: "видеть Страницы компании" },
+  { scope: "instagram_manage_messages", forWhat: "отвечать клиентам в Instagram Direct" },
+  { scope: "pages_manage_metadata", forWhat: "подписать Страницу на сообщения" },
+  { scope: "pages_messaging", forWhat: "отвечать в Messenger Страницы" },
+  { scope: "instagram_manage_contents", forWhat: "удалять публикации проданных объектов" },
+];
 /** Коды Meta «ключ/права не те» — тревога директору на пути Страницы. */
 const PERMISSION_CODES = new Set([3, 10, 102, 190, 230, 551]);
 const isPermissionCode = (code: number | undefined) => code !== undefined && (PERMISSION_CODES.has(code) || (code >= 200 && code <= 299));
@@ -330,6 +357,61 @@ export async function instagramRouteForToken(token: string, opts: { ignoreBench?
   } catch (err) {
     console.warn("[вечные ключи] путь Instagram не выбран, остаётся личный маркер:", describeError(err));
     return fallback;
+  }
+}
+
+export interface InstagramCompanyPublishRoute {
+  /** Маркер системного пользователя (EAA…): им идут /{ig-id}/media, статус контейнера, media_publish. */
+  token: string;
+  /** Instagram business id (17841…) — тот же, что `MessengerAccount.externalId`. */
+  igUserId: string;
+  accountId: string;
+  pageId: string;
+  username?: string;
+}
+
+/**
+ * ПУБЛИКАЦИЯ В INSTAGRAM КЛЮЧОМ КОМПАНИИ (22.11.2026). Случай: 11–12.11 владелец сменил
+ * пароль, личный IGAA ответил 401 «session invalidated» — переписка ушла на Страницу
+ * (21.11), а ролики, истории и карусели так и шли мёртвым личным ключом.
+ *
+ * Путь: маркер системного пользователя напрямую, `graph.facebook.com/{ig-id}/media` →
+ * `/{container}?fields=status_code,status` → `/{ig-id}/media_publish` (Instagram API with
+ * Facebook Login, те же поля, что у graph.instagram.com). Перенос адресов делает
+ * metaGraph.ts::instagramRequest по началу маркера `EAA` — вызывающий код публикации не
+ * меняется. Тот же приём, что у удаления публикаций (socialPublish.ts::deleteInstagramMedia,
+ * тем же ключом из Settings.metaIgManageToken).
+ *
+ * Выбирается, только если ВСЁ сходится (иначе null — личный ключ, как раньше):
+ *  - рубильник «Instagram через постоянный ключ Meta» (тот же, что у переписки) и ключ задан,
+ *    и это маркер Facebook Login (`EAA…`), иначе instagramRequest не перенесёт адрес;
+ *  - аккаунт найден по личному ключу и у него есть Страница;
+ *  - у ключа есть IG_PUBLISH_SCOPES;
+ *  - Meta подтвердила, что к этой Странице привязан ИМЕННО этот Instagram (иначе ролик
+ *    ушёл бы в чужой аккаунт).
+ * Никогда не бросает.
+ */
+export async function instagramCompanyPublishRoute(personalToken: string | undefined): Promise<InstagramCompanyPublishRoute | null> {
+  if (!personalToken) return null;
+  try {
+    const s = await loadSnapshot();
+    if (!instagramAllowed(s) || !isFacebookLoginToken(s.systemToken)) return null;
+    const account = s.accounts.find((a) => a.channel === "INSTAGRAM" && a.token === personalToken && a.pageId);
+    if (!account?.pageId) return null;
+    const missing = await missingScopes(s.systemToken!, IG_PUBLISH_SCOPES);
+    if (!missing || missing.length) return null;
+    const grant = await systemPageGrant(account.pageId, s.systemToken!);
+    if (!grant.ok || grant.igId !== account.externalId) return null;
+    return {
+      token: s.systemToken!,
+      igUserId: account.externalId,
+      accountId: account.id,
+      pageId: account.pageId,
+      ...(account.username ? { username: account.username } : {}),
+    };
+  } catch (err) {
+    console.warn("[вечные ключи] путь публикации Instagram не выбран, остаётся личный маркер:", describeError(err));
+    return null;
   }
 }
 
@@ -725,6 +807,12 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
       systemUser.appId = appId;
       granted = me.ok ? await grantedScopes(s.systemToken) : null;
       systemUser.missingScopes = granted ? [...IG_PAGE_SCOPES, ...FB_PAGE_SCOPES].filter((p) => !granted!.has(p)) : [];
+      // «Проверить права» (22.11.2026): весь список выданного и нужное — словами. Только
+      // названия прав, сам маркер в ответ не попадает никогда.
+      if (granted) {
+        systemUser.grantedScopes = [...granted].sort();
+        systemUser.scopeChecks = COMPANY_KEY_SCOPE_CHECKS.map((c) => ({ ...c, granted: granted!.has(c.scope) }));
+      }
     } catch (err) {
       systemUser.detail = describeError(err);
     }
@@ -801,7 +889,8 @@ export async function metaEternalStatus(): Promise<MetaEternalStatus> {
       continue;
     }
     const row = await pageRow(base, IG_PAGE_SCOPES, a.eternalLastSentAt, a.externalId);
-    rows.push({ ...row, route: liveRoute === "page" ? "page" : "personal", accessLostAt: null });
+    const publishRoute = a.token && (await instagramCompanyPublishRoute(a.token)) ? "company" : "personal";
+    rows.push({ ...row, route: liveRoute === "page" ? "page" : "personal", publishRoute, accessLostAt: null });
   }
   const fbAccounts = s.accounts.filter((x) => x.channel === "FACEBOOK");
   for (const a of fbAccounts) {

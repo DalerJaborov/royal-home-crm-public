@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { KeyRound, Megaphone, MessageCircle, Phone } from "lucide-react";
 import {
+  META_ETERNAL_PUBLISH_ROUTE_LABEL,
   META_ETERNAL_ROUTE_LABEL,
   META_ETERNAL_STATE_LABEL,
   metaCompanyPagesSchema,
@@ -166,6 +167,65 @@ export function MetaEternalKeys() {
   );
 }
 
+/**
+ * «ПРОВЕРИТЬ ПРАВА» КЛЮЧА КОМПАНИИ (22.11.2026) — стоит рядом с полем «Маркер удаления
+ * Instagram». Тот же запрос, что у «Вечных ключей» выше (GET /settings/meta-eternal: сервер
+ * спрашивает Meta /me и /me/permissions), второго пути нет. В ответе — только названия прав,
+ * маркер сервер не отдаёт никогда. Один экран для компьютера и телефона: строки `.row`.
+ */
+export function CompanyKeyScopesCheck() {
+  const client = useQueryClient();
+  const status = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: async () => metaEternalStatusSchema.parse(await api("/settings/meta-eternal")),
+    staleTime: 60_000,
+  });
+  const user = status.data?.systemUser;
+  const checks = user?.scopeChecks ?? [];
+  const missing = checks.filter((c) => !c.granted);
+  const extra = (user?.grantedScopes ?? []).filter((s) => !checks.some((c) => c.scope === s));
+  return (
+    <div style={{ marginTop: "var(--s3)" }}>
+      <div className="wrap">
+        <button
+          className="pill ghost sm"
+          type="button"
+          disabled={status.isFetching}
+          onClick={() => void client.invalidateQueries({ queryKey: QUERY_KEY })}
+        >
+          {status.isFetching ? "Проверяю права…" : "Проверить права"}
+        </button>
+      </div>
+      {status.isError && <p className="quiet" role="alert">Не удалось проверить права. Попробуйте ещё раз.</p>}
+      {user && !user.configured && <p className="quiet">Ключ компании не задан — проверять нечего.</p>}
+      {user?.configured && !user.ok && <p className="quiet" role="alert">Ключ компании не принят Meta: {user.detail ?? "без пояснения"}.</p>}
+      {user?.ok && checks.length > 0 && (
+        <>
+          <p className="quiet">
+            {missing.length
+              ? `Не хватает прав: ${missing.map((c) => c.scope).join(", ")}. Выпустите ключ системного пользователя заново, отметив их.`
+              : "Все нужные права выданы."}
+          </p>
+          <div className="list">
+            {checks.map((c) => (
+              <div className="row" key={c.scope}>
+                <div className="t">
+                  <b style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+                    <span>{c.scope}</span>
+                    <span className={`chip ${c.granted ? "ok" : "crit"}`}>{c.granted ? "Есть" : "Нет"}</span>
+                  </b>
+                  <span>{c.forWhat}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {extra.length > 0 && <p className="quiet">Ещё выдано: {extra.join(", ")}.</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function EternalRow({
   row,
   busy,
@@ -190,6 +250,7 @@ function EternalRow({
           <span className={`chip ${ok ? "ok" : calm ? "" : "crit"}`}>{META_ETERNAL_STATE_LABEL[row.state]}</span>
         </b>
         {row.route && <span>{META_ETERNAL_ROUTE_LABEL[row.route]}</span>}
+        {row.publishRoute && <span>{META_ETERNAL_PUBLISH_ROUTE_LABEL[row.publishRoute]}</span>}
         {row.accessLostAt && <span>Доступ закрыт Meta: {dushanbeDateTime(row.accessLostAt)}</span>}
         {row.pageName && <span>Страница: {row.pageName}</span>}
         {row.lastSentAt && (

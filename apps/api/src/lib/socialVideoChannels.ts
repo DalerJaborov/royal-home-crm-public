@@ -10,7 +10,8 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
-import { GRAPH_VERSION, fetchWithRetry, instagramTokenIdentity, loadCredentials } from "../messengers/meta.js";
+import { GRAPH_VERSION, fetchWithRetry, loadCredentials } from "../messengers/meta.js";
+import { resolveInstagramPublisher } from "./instagramPublisher.js";
 import { getChatMemberStatus, getChatTitle, canBotWriteToChat, isTelegramEnabled, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
@@ -336,10 +337,12 @@ function shortMetaError(raw: string): string {
 
 async function liveInstagram(token: string): Promise<SocialVideoChannelLive> {
   const live = emptyLive("INSTAGRAM");
-  const identity = await instagramTokenIdentity(token, LIVE_TIMEOUT_MS);
-  if (!identity.ok) return { ...live, problem: `Не отвечает: ${shortMetaError(identity.error)}` };
-  live.account = identity.username ? `@${identity.username}` : identity.id;
-  const limit = await checkInstagramPublishingQuota(identity.id, token);
+  // Тот же выбор «чем публиковать», что у самой публикации (22.11.2026, lib/instagramPublisher.ts):
+  // иначе экран звал бы аккаунт «не отвечает» по мёртвому личному ключу, пока ролики уходят ключом компании.
+  const publisher = await resolveInstagramPublisher(token, { timeoutMs: LIVE_TIMEOUT_MS });
+  if (!publisher.ok) return { ...live, problem: `Не отвечает: ${shortMetaError(publisher.error)}` };
+  live.account = publisher.username ? `@${publisher.username}` : publisher.igUserId;
+  const limit = await checkInstagramPublishingQuota(publisher.igUserId, publisher.token);
   if (limit.ok) {
     live.quota = { used: limit.used, total: limit.total, remaining: limit.remaining, windowHours: 24 };
     if (limit.remaining === 0) live.problem = `Суточный лимит публикаций Instagram исчерпан (${limit.used} из ${limit.total}) — подождите до завтра`;

@@ -35,6 +35,8 @@ export const metaEternalKeyRowSchema = z.object({
   lastSentAt: z.string().nullable().optional(),
   /** Instagram: каким путём аккаунт отвечает прямо сейчас — через Страницу (ключ компании) или личным маркером. */
   route: z.enum(["page", "personal"]).optional(),
+  /** Instagram (22.11.2026): чем публикуются ролики, истории и фото — ключом компании или личным. */
+  publishRoute: z.enum(["company", "personal"]).optional(),
   /** Instagram: с какого времени Meta закрыла доступ к аккаунту (ISO), если закрыла. */
   accessLostAt: z.string().nullable().optional(),
 });
@@ -52,6 +54,10 @@ export const metaEternalStatusSchema = z.object({
     detail: z.string().optional(),
     /** Каких прав для переписки нет у ключа компании (/me/permissions). */
     missingScopes: z.array(z.string()),
+    /** «Проверить права» (22.11.2026): все права, выданные ключу компании (только названия, не маркер). */
+    grantedScopes: z.array(z.string()).optional(),
+    /** Нужные права и зачем — список ведёт сервер (lib/metaEternalTokens.ts::COMPANY_KEY_SCOPE_CHECKS). */
+    scopeChecks: z.array(z.object({ scope: z.string(), forWhat: z.string(), granted: z.boolean() })).optional(),
   }),
   rows: z.array(metaEternalKeyRowSchema),
 });
@@ -81,6 +87,12 @@ export const META_ETERNAL_STATE_LABEL: Record<MetaEternalState, string> = {
 export const META_ETERNAL_ROUTE_LABEL: Record<"page" | "personal", string> = {
   page: "Отвечает через Страницу (постоянный ключ)",
   personal: "Отвечает личным ключом",
+};
+
+/** Instagram: чем публикуются ролики и фото — одно место для экрана (22.11.2026). */
+export const META_ETERNAL_PUBLISH_ROUTE_LABEL: Record<"company" | "personal", string> = {
+  company: "Публикует постоянным ключом компании",
+  personal: "Публикует личным ключом",
 };
 
 /** Страница Facebook, выданная ключу компании, — для кнопки «Подключить Messenger». */

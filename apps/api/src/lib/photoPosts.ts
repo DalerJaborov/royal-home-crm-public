@@ -25,10 +25,10 @@ import {
   loadCredentials,
   instagramApiUrl,
   instagramRequest,
-  instagramTokenIdentity,
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
+import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
 import {
   readJson,
   graphErrorMessage,
@@ -547,10 +547,12 @@ export async function publishPropertyPhotoPost(propertyId: string, options?: { f
     } else if (prepared.urls.length === 0) {
       r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
     } else {
-      const identity = await instagramTokenIdentity(creds.igToken);
-      r = identity.ok
-        ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, caption)
-        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${identity.error}` };
+      // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+      const publisher = await resolveInstagramPublisher(creds.igToken);
+      r = publisher.ok
+        ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.urls, caption)
+        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
+      if (publisher.ok && !r.ok && !r.pending) void noteInstagramPublishFailure(publisher, r.error);
     }
     results.INSTAGRAM = r;
     await upsertPhotoPostRecord(

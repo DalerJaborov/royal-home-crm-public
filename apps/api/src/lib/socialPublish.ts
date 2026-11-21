@@ -2,10 +2,10 @@ import {
   loadCredentials,
   instagramApiUrl,
   instagramRequest,
-  instagramTokenIdentity,
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
+import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
 import fs from "node:fs/promises";
 import { openAsBlob } from "node:fs";
 import path from "node:path";
@@ -3315,11 +3315,13 @@ export async function publishApprovedPost(params: {
       ? [{ key: "INSTAGRAM", token: creds.igToken }]
       : [];
   for (const igTarget of igTargets) {
-    const igToken = igTarget.token;
     const igKey = params.instagramTargets ? igTarget.key : undefined;
     await noteStarted("INSTAGRAM", igTarget.key);
-    const identity = await instagramTokenIdentity(igToken);
-    if (identity.ok) {
+    // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts): ключ
+    // компании через graph.facebook.com, если готов, иначе личный ключ аккаунта.
+    const publisher = await resolveInstagramPublisher(igTarget.token);
+    if (publisher.ok) {
+      const igToken = publisher.token;
       // Соавторы (26.09.2026): ник агента-хозяина объекта первым + до 3 ников
       // из Настроек. Запрос агента — только здесь, не выше: остальные каналы
       // (Facebook/Telegram/YouTube/TikTok) соавторов не знают и этот столбец
@@ -3341,7 +3343,7 @@ export async function publishApprovedPost(params: {
       });
       const result = await publishInstagramReel(
         owner.id,
-        identity.id,
+        publisher.igUserId,
         igToken,
         videoUrl,
         igCaption,
@@ -3361,6 +3363,7 @@ export async function publishApprovedPost(params: {
       // «обрабатывается» обратно в «не удалась».
       if (!result.ok && !result.pending) {
         void logSystemError("meta", metaFailureText("Instagram", result));
+        void noteInstagramPublishFailure(publisher, result.error);
       }
     } else {
       // ОБ-000113 (21.09.2026): эта ветка клала результат в `results`, но не звала
@@ -3369,7 +3372,7 @@ export async function publishApprovedPost(params: {
       // пуст, карточка молчит «На монтаже», объект простаивает ночь без единой
       // записи о причине. Тот же класс молчания, что закрывали в PR #585 для
       // снятия постов — здесь он остался на публикации.
-      const error = `Не удалось определить аккаунт Instagram: ${identity.error}`;
+      const error = `Не удалось определить аккаунт Instagram: ${publisher.error}`;
       const failed: PublishResult = { channel: "INSTAGRAM", ok: false, error };
       if (igKey) failed.destinationKey = igKey;
       results.push(failed);

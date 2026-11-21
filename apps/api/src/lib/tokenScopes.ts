@@ -99,6 +99,11 @@ export const TOKEN_SCOPE_CATALOG: Record<TokenKind, TokenScopeSpec> = {
     scopes: [
       { scope: "instagram_basic", forWhat: "видеть публикации Instagram" },
       { scope: "instagram_manage_contents", forWhat: "удалять публикации проданных объектов" },
+      // 22.11.2026: этим же ключом компании (системный пользователь) публикуются ролики,
+      // истории и фото, когда личный ключ Instagram умер от смены пароля
+      // (lib/instagramPublisher.ts). Без этих прав публикация остаётся на личном ключе.
+      { scope: "instagram_content_publish", forWhat: "публиковать ролики, истории и фото постоянным ключом компании" },
+      { scope: "pages_read_engagement", forWhat: "публикация в Instagram через Страницу (требование Meta)" },
     ],
   },
   META_ADS: {
