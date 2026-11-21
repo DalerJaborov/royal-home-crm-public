@@ -434,6 +434,22 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .tm { margin-top: 2px; line-height: 1; font-variant-numeric: tabular-nums; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick { display: inline-block; width: 16px; height: 16px; flex: none; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me .ry-tick[data-status="read"] { color: var(--rh-ui-tick-read); }
+/* Голосовое в пузыре, как в WhatsApp (владелец 21.11.2026): без белой подложки; цвета плеера берутся у стороны пузыря.
+   Наш пузырь (синий): светлый круг с синей кнопкой, полоса и время цветом текста пузыря. Входящий: синий круг. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub {
+  --rh-audio-fg: var(--rh-ui-text); --rh-audio-btn: var(--rh-ui-primary); --rh-audio-btn-fg: var(--rh-ui-primary-fg);
+  --rh-audio-pill: color-mix(in srgb, var(--rh-ui-text) 10%, transparent);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub.me:not(.bot) {
+  --rh-audio-fg: var(--rh-ui-on-color); --rh-audio-btn: var(--rh-ui-on-color); --rh-audio-btn-fg: var(--rh-ui-primary);
+  --rh-audio-pill: color-mix(in srgb, var(--rh-ui-on-color) 22%, transparent);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .rh-audio-range { -webkit-appearance: none; appearance: none; height: 4px; border-radius: var(--rh-r-full); cursor: pointer;
+  background: linear-gradient(to right, var(--rh-audio-fg) var(--rh-audio-pos, 0%), color-mix(in srgb, var(--rh-audio-fg) 30%, transparent) var(--rh-audio-pos, 0%)); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .rh-audio-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: var(--rh-r-full); border: 0; background: var(--rh-audio-fg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .rh-audio-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: var(--rh-r-full); border: 0; background: var(--rh-audio-fg); }
+/* Подпись «Не доставлено» вместо голого «!» у отказа доставки. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-fail { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .clean-conversation .bub .ry-tick[data-status="failed"] {
   display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg);
   font-size: var(--rh-fs-xs); font-weight: 800; line-height: 1;
