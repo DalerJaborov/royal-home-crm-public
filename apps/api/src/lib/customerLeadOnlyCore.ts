@@ -82,8 +82,13 @@ export interface CustomerLeadOnlyTurnInput {
   /** Объект в фокусе ядра (ссылка, пост, реклама, картинка этого или прошлых ходов). */
   focusPropertyId: string | null;
   turns: ReadonlyArray<{ role: "user" | "assistant"; text: string }>;
+  /**
+   * Канал ядра этого разговора: по нему читаются ответы бота, отправленные И стоящие в очереди (`readCustomerLeadOnlySentTexts`),
+   * чтобы ответ, ещё не доставленный к следующему сообщению серии, не считался «не заданным» (слепое ревью #371).
+   */
+  endpointScopeId?: string;
   /** Вложения хода, как их видит ядро: голосовое расшифровано или нет, наш пост, чужой пост, фото/видео. */
-  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; media: boolean }>;
+  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; foreignQuiet: boolean; media: boolean }>;
   now?: Date;
   /** Только для тестов: подмена модели понимания оператора. */
   model?: LeadOnlyIntentModel;
@@ -166,9 +171,12 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
   const wa = input.channel === "WHATSAPP" && input.config.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(input.channel, input.peer) : null;
   const setup = await loadOperatorTurnSetup({ channel: input.channel, conversationId: input.conversationId, config: input.config,
     focusPropertyId: input.focusPropertyId, phoneKnownByChannel: !!wa?.leadPhone, peerPhone: input.channel === "WHATSAPP" ? input.peer : null, now });
+  // Сбой чтения — прежняя сверка по одной доставленной памяти (не причина ронять ход).
+  const sentBotTexts = input.endpointScopeId ? await readCustomerLeadOnlySentTexts({ conversationId: input.conversationId,
+    endpointScopeId: input.endpointScopeId, before: now }).catch(() => [] as string[]) : [];
   const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, now, ...(input.model ? { model: input.model } : {}),
     ownWords: { enabled: input.config.ownWords === true, ...(input.composeModel ? { model: input.composeModel } : {}) },
-    input: { current: input.inputText, recent: input.turns, conversationId: input.conversationId, ...(input.attachments ? { attachments: input.attachments } : {}) } });
+    input: { current: input.inputText, recent: input.turns, sentBotTexts, conversationId: input.conversationId, ...(input.attachments ? { attachments: input.attachments } : {}) } });
   const intakes: CustomerLeadOnlyIntake[] = [];
   let signal: CustomerLeadOnlyTurnPlan["signal"];
   for (const action of operator.actions) {
