@@ -356,3 +356,13 @@
   :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip { grid-template-columns: minmax(0, 1fr); }
   :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) [data-ry-section="home"] .ry-strip > .ry-tile { grid-column: auto; }
 }
+
+/* Плашка справа в строке («просрочено: 6 задач», «сегодня не заходил») — одна строка, не сжатая в две
+   (К11.2 аудита 20.11). Она раньше стояла в колонке 148 px, а имя рядом ломалось по буквам («Дал/ер»):
+   плашка получает своё место. На телефоне она уходит под имя, на ПК остаётся справа без ограничения ширины. */
+:root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-right .ry-home-chip { max-width: none; white-space: nowrap; }
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-row:has(> .ry-row-right .ry-home-chip) { flex-wrap: wrap; row-gap: 4px; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-right:has(.ry-home-chip) { flex: 1 1 100%; justify-content: flex-start; }
+  :root[data-ui-look="royal"] [data-ry-section="home"] .ry-row-right .ry-home-chip { max-width: 100%; white-space: normal; overflow-wrap: break-word; text-align: left; justify-content: flex-start; }
+}

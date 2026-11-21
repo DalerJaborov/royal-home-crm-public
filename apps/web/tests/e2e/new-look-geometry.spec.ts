@@ -1,6 +1,6 @@
 import { test, expect, webkit, devices, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import { contextForRole, type RoleName } from "./pages/roleAuth";
-import { ANDROID_UA, CONSTITUTION_KINDS, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
+import { ANDROID_UA, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
 import { LOOK_CONVERSATION_ID, stubLookVisualData } from "./helpers/lookVisualFixtures";
 
 /**
@@ -25,14 +25,14 @@ type Screen = { url: string; ready: string; skip?: string; kinds?: readonly Geom
 /** Экраны с кадров владельца — полный ряд ширин, обе темы, оба телефона. */
 const OWNER_SCREENS: Screen[] = [
   { url: "/properties", ready: ".ry-objects-head" },
-  // «Реклама» — раздел директора: 20.11 его переделывает параллельная ветка (feat/look-director-sections),
-  // её ссылки-подписи и строки отчёта ниже 44 px. Конституция (цель 44, текст 13, список) — после её влития.
-  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile', kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) },
+  // «Реклама» — раздел директора: переведён на токены (база audit:look пуста, 21.11), конституция — как везде.
+  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile' },
   // Чат ждёт пузыри, а не кнопку: в новом виде номер в реплике — тихое «номер скрыт»
   // (решение владельца «как WhatsApp», ветка look-chat-clean), кнопки может не быть.
   // Окно переписки целиком у ветки look-chat-clean (#332): здесь только «Позвонить»
   // в реплике и размытость заголовков; раскладку пузырей сторожит та ветка.
-  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur"] },
+  // + lowContrast: время в исходящем пузыре было 4,05:1 (белый 86% на синем, К05.1).
+  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur", "lowContrast"] },
   { url: "/", ready: ".ry-today" },
   { url: "/clients", ready: '[data-ry-section="clients"]' },
   // Настройки: квадрат-рамка внутри капсулы поиска (ревью #337) — двойная рамка поля и мелкий текст.
@@ -117,11 +117,15 @@ test("новый вид, геометрия при «Очень крупном»
     const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(width));
     const page = await context.newPage();
     await stubLookVisualData(page, { textSize: "xlarge" });
-    for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
+    for (const screen of OWNER_SCREENS) {
       await open(page, screen);
       await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
       await page.evaluate(() => document.fonts.ready.then(() => true));
-      for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
+      // «Мухаммадшарифджон» (17 букв из «грязных» данных стенда) при +25% на 320 — 22 px × 17 знаков ≈ 215 px,
+      // а в строке клиента остаётся ~200: слово длиннее строки рвётся физически; имя при этом читается целиком
+      // (две строки) и лежит в `title`. Строка имени (.ry-crow-main) проверку слов не проходит только в этом тесте.
+      const skip = [screen.skip, width === 320 && screen.url === "/clients" ? ".ry-crow-main" : null].filter(Boolean).join(", ") || undefined;
+      for (const f of await geometryFindings(page, { skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
     }
     await context.close();
   }
@@ -251,6 +255,8 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
     { url: "/settings", ready: ".ry-search input", kind: "fieldFrame", css: `${R} .ry-search input { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important; }` },
     { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
+    // бледный серый: время и подписи ниже 4,5:1 (К05 аудита 20.11)
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "lowContrast", css: `${R} [data-ry-section="clients"] .ry-crow-name { color: #c4c8d2 !important; }` },
   ];
   for (const b of breaks) {
     await open(page, { url: b.url, ready: b.ready });
@@ -282,14 +288,15 @@ const ALL_SCREENS: Record<"DIRECTOR" | "MANAGER" | "AGENT", string[]> = {
 for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
   // Агенту на телефоне новый вид решает сервер по своей настройке (#329), подмена /ui-shell
   // его не включает — агент проверяется на ПК.
-  for (const device of role === "AGENT" ? [DEVICES[3]] : [DEVICES[0], DEVICES[3]]) {
+  // Директор — ещё и тёмная тема на телефоне: белый текст на синей кнопке ночью давал 4,2:1 (lowContrast).
+  for (const device of role === "AGENT" ? [DEVICES[3]] : role === "DIRECTOR" ? [DEVICES[0], DEVICES[1], DEVICES[3]] : [DEVICES[0], DEVICES[3]]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
-      // Конституция (цель 44, текст 13, список) на всех экранах — пока без них: обязательна на
-      // экранах с кадров владельца (@smoke выше); по остальным — после прохода по разделам (пачка C, 20.11).
-      // Двойная рамка поля (fieldFrame) уже проверяется везде: 48 экранов пройдены (повторное ревью #337).
-      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k === "fieldFrame" || !CONSTITUTION_KINDS.includes(k)) }));
+      // Все виды сторожа — и конституция (текст 13, цель 44, список, рамка поля, бледный текст) — на
+      // всех экранах (пачка look-sizes 21.11: раньше без неё «пока по разделам»; разделы директора
+      // переведены на токены, база audit:look пуста).
+      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS }));
       const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });

@@ -239,8 +239,9 @@
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page a.ry-crow-main:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-name {
-  /* Имя — до двух строк, не обрезается раньше даты (пачка D1, critic-uiux P1-3). */
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere;
+  /* Имя — до двух строк, не обрезается раньше даты (пачка D1, critic-uiux P1-3). Слова не рвутся по буквам:
+     break-word ломает лишь то слово, что не влезает в строку целиком (имя в 70 букв), а не любое (К10.1). */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: break-word; word-break: normal;
   font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.25;
 }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page a.ry-crow-main:hover .ry-crow-name { color: var(--rh-ui-primary-ink); }
@@ -354,7 +355,7 @@
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-step .chip { max-width: none; display: inline-flex; line-height: 1.2; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-when { max-width: none; overflow: visible; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-name {
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: break-word;
   }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-pc-only { display: block; }
   :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-id { white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; }
@@ -614,3 +615,16 @@
 /* «Взять из разговора» — одна кнопка под запросом покупателя. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk { margin: 10px 0 4px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk .pill { min-height: 44px; white-space: normal; text-align: left; height: auto; padding-block: 10px; }
+
+/* Строка без кнопки звонка: на телефоне колонка действий не резервируется (она отнимала 58 px у имени,
+   и «Мухаммадшарифджон» рвался по буквам, К10.1); на ПК остаётся пустой клеткой таблицы — чтобы колонки
+   всех строк стояли ровно. Разметка кладёт в неё пустой `.ry-crow-acts[aria-hidden]`. */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow:has(> .ry-crow-acts[aria-hidden="true"]) {
+    grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "av top" "av req" "av when" "av foot";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent]:has(> .ry-crow-acts[aria-hidden="true"]) {
+    grid-template-areas: "av top" "av req" "av when" "av foot" "av agent";
+  }
+  :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow > .ry-crow-acts[aria-hidden="true"] { position: absolute; width: 0; height: 0; padding: 0; margin: 0; }
+}

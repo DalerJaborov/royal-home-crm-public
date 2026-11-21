@@ -31,6 +31,7 @@ const MH_HOST: CSSProperties = {
 };
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { INTERACTION_TYPE_LABELS, showingConfirmationBadge } from "../lib/clientFormat";
+import { pluralizeRu } from "../lib/format";
 import type { Interaction } from "../types";
 import { scrollableRegion } from "../lib/a11y";
 import { anchorOutsideGrid, shiftedAnchor, weekDays } from "../lib/calendarWeek";
@@ -812,8 +813,8 @@ export function Calendar() {
                     <span className="n" style={isSelected ? { color: "var(--pill-ink)" } : undefined}>
                       {d.getDate()}
                     </span>
-                    {showings > 0 && <span className="ev">{showings === 1 ? "показ" : `${showings} показа`}</span>}
-                    {others > 0 && <span className="ev task">{others === 1 ? "задача" : `${others} задачи`}</span>}
+                    {showings > 0 && <span className="ev">{showings === 1 ? "показ" : `${showings} ${pluralizeRu(showings, ["показ", "показа", "показов"])}`}</span>}
+                    {others > 0 && <span className="ev task">{others === 1 ? "задача" : `${others} ${pluralizeRu(others, ["задача", "задачи", "задач"])}`}</span>}
                   </button>
                 );
               })}

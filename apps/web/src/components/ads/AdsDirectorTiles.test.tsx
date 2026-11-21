@@ -35,12 +35,13 @@ describe("главные цифры рекламы", () => {
     expect(noDeals).toContain("Окупаемость -100 %");
     expect(render({ totals: totals({}, { deals: 0, commissionTjs: 0, romi: -1 }) })).toContain('data-tone="crit"');
     const none = text(render({ totals: totals({}, null) }));
-    expect(none).toContain("Цена заявки нет данных");
+    expect(none).toContain("Цена заявки нет");
     expect(none).toContain("заявки с рекламы не посчитались");
-    // нет расхода: цен нет — «—» и «расхода не было», даже если сделки есть
+    // нет расхода: цен нет — одно слово «нет» (EmptyValue, не «—») и «расхода не было», даже если сделки есть
     const free = text(render({ totals: totals({ periodTjs: 0 }, { costPerLeadTjs: null, romi: null }) }));
-    expect(free).toContain("Цена заявки —");
-    expect(free).toContain("Цена сделки —");
+    expect(free).toContain("Цена заявки нет");
+    expect(free).toContain("Цена сделки нет");
+    expect(free).not.toContain("нет данных");
     expect(free).toContain("расхода не было");
     expect(free).not.toContain("0,00 с. за");
     // расход есть, заявок нет

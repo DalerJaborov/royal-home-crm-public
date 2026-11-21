@@ -226,7 +226,8 @@ function PostLink({ url }: { url: string }) {
 
 /** «12 · 40,00 с.» или «0 · цены нет». Это обращения Meta, не клиенты CRM. */
 function conversationsText(row: AdCreativeRow): string {
-  return `${row.conversations} · ${costOrNone(row.costPerConversationTjs, "цены нет").text}`;
+  // Неразрывные пробелы вокруг «·»: «15 · 91,67 с.» не рвётся на «15» и «91,67 с.» (вид split, К10).
+  return `${row.conversations} · ${costOrNone(row.costPerConversationTjs, "цены нет").text}`;
 }
 
 function CreativeTr({ row, n, thresholds }: { row: AdCreativeRow; n: number; thresholds: Thresholds }) {

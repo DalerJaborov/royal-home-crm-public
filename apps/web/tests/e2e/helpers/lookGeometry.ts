@@ -32,14 +32,18 @@ import type { Page } from "@playwright/test";
  *  - fieldFrame — поле с двойной рамкой: своя граница и внутренняя обводка разом, или поле с
  *                рамкой внутри обёртки-капсулы со своей рамкой (квадрат в капсуле поиска
  *                Настроек, ревью #337).
+ *  - lowContrast — серый текст бледнее 4,5:1 к своему фону (3:1 у крупного — от 24 px или от 19 px
+ *                жирным): время сообщения 4,05:1, «окно ошибки» 4,34:1 (К05 аудита 20.11). Фон — первый
+ *                непрозрачный предок, цвет с прозрачностью смешивается; поверх картинки или градиента
+ *                фон неизвестен — такой текст не считается.
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame" | "lowContrast";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast"];
 /** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
-export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame"];
+export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -362,6 +366,68 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
       }
     }
+    // ---- lowContrast: бледный текст (< 4,5:1) ----
+    if (want.has("lowContrast")) {
+      type Rgba = [number, number, number, number];
+      const parse = (c: string): Rgba | null => {
+        const srgb = c.match(/^color\(srgb ([^)]+)\)/);
+        if (srgb) {
+          const v = srgb[1].split(/[ /]+/).filter(Boolean).map(parseFloat);
+          return v.length >= 3 ? [v[0] * 255, v[1] * 255, v[2] * 255, v[3] ?? 1] : null;
+        }
+        const m = c.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const v = m[1].split(/[ ,/]+/).filter(Boolean).map(parseFloat);
+        return v.length >= 3 ? [v[0], v[1], v[2], v[3] ?? 1] : null;
+      };
+      const over = (top: Rgba, bottom: Rgba): Rgba => {
+        const a = top[3] + bottom[3] * (1 - top[3]);
+        return a === 0 ? [0, 0, 0, 0] : [0, 1, 2].map((i) => (top[i] * top[3] + bottom[i] * bottom[3] * (1 - top[3])) / a).concat(a) as Rgba;
+      };
+      const lum = (c: Rgba) => {
+        const f = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+      };
+      const backdrop = (el: Element): Rgba | null => {
+        let acc: Rgba = [0, 0, 0, 0];
+        for (let p: Element | null = el; p; p = p.parentElement) {
+          const s = getComputedStyle(p);
+          if (s.backgroundImage !== "none") return null; // картинка или градиент — фон неизвестен
+          const bg = parse(s.backgroundColor);
+          if (bg && bg[3] > 0) acc = over(acc, bg);
+          if (acc[3] >= 0.999) return acc;
+        }
+        return over(acc, [255, 255, 255, 1]);
+      };
+      const seen = new Set<string>();
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !(n.textContent ?? "").trim() || !visible(el) || skipped(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue;
+        if (el.closest("[disabled], [aria-disabled=\"true\"], [inert]") || el.closest("svg")) continue;
+        const s = getComputedStyle(el);
+        let opacity = 1;
+        for (let p: Element | null = el; p; p = p.parentElement) opacity *= parseFloat(getComputedStyle(p).opacity);
+        const fg = parse(s.color);
+        const bg = backdrop(el);
+        if (!fg || !bg) continue;
+        const text = over([fg[0], fg[1], fg[2], fg[3] * opacity], bg);
+        const L1 = lum(text), L2 = lum(bg);
+        const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+        const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 700;
+        const need = size >= 24 || (bold && size >= 18.66) ? 3 : 4.5;
+        // Ровно 1:1 — цвет текста совпал с найденным фоном: на деле фон лежит соседним слоем (подложка
+        // свайпа, плашка за строкой) и замер его не видит. Такой текст не считается; бледный текст на
+        // своём фоне даёт 1,1:1 и выше.
+        if (ratio < 1.1) continue;
+        if (ratio < need - 0.01) {
+          const key = name(el);
+          if (!seen.has(key)) { seen.add(key); out.push(`lowContrast: ${key} — ${ratio.toFixed(2)}:1`); }
+        }
+      }
+    }
     // ---- fieldFrame: двойная рамка у поля ----
     if (want.has("fieldFrame")) {
       const clear = (c: string) => /^transparent$|rgba\([^)]*,\s*0\)$/.test(c.trim());
@@ -417,6 +483,9 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
           const text = n.textContent ?? "";
           for (const m of text.matchAll(/[\p{L}\d]{4,}/gu)) {
+            // Слово длиннее 24 знаков не помещается ни в одну строку телефона (имя из 70 букв без пробелов,
+            // адрес, код): рвать его по буквам неизбежно — это не поломка вёрстки, а данные.
+            if (m[0].length > 24) continue;
             const range = document.createRange();
             range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
             const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));

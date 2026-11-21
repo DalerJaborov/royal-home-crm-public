@@ -1,4 +1,5 @@
 import type { AdPacingResponse } from "@royal-home/shared";
+import { EmptyValue } from "../EmptyValue";
 import type { AdsBoard } from "../../hooks/useAds";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { agoRu } from "../../lib/adsView";
@@ -16,8 +17,9 @@ type Totals = AdsBoard["totals"];
  * сервер считает их по карточкам периода). Сравнение — та же доска за прошлый
  * отрезок той же длины (lib/adsCompare.ts).
  *
- * Три разных «нет» не смешиваются (ревью PR 336): нет данных (расчёт не пришёл),
- * нет расхода (цене не из чего взяться), нет заявок или сделок при расходе.
+ * Три причины «нет» не смешиваются (ревью PR 336), но показываются ОДНИМ словом «нет»
+ * (EmptyValue, К10 аудита 20.11), а причина — строкой под ним: расчёт не пришёл,
+ * расхода не было (цене не из чего взяться); «нет заявок» и «сделок пока нет» при расходе — словами.
  * Окупаемость — деньги компании: без права finance.view плитки нет вовсе (сервер
  * и так отдаёт комиссию и окупаемость пустыми).
  */
@@ -45,13 +47,13 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
   const romi = stats?.romi ?? null;
   const forecast = pacing ? describeForecast(pacing.forecastState, pacing.forecast) : null;
 
-  const leadValue = !stats ? "нет данных" : noSpend ? "—" : leadCost !== null ? formatMoneyExact(leadCost, "TJS") : "нет заявок";
+  const leadValue = !stats || noSpend ? null : leadCost !== null ? formatMoneyExact(leadCost, "TJS") : "нет заявок";
   const leadSub = !stats
     ? "заявки с рекламы не посчитались"
     : noSpend
       ? "расхода не было"
       : `${stats.leads.toLocaleString("ru-RU")} ${pluralizeRu(stats.leads, ["заявка", "заявки", "заявок"])} с рекламы`;
-  const dealValue = !stats ? "нет данных" : noSpend ? "—" : dealCost !== null ? formatMoneyExact(dealCost, "TJS") : "сделок пока нет";
+  const dealValue = !stats || noSpend ? null : dealCost !== null ? formatMoneyExact(dealCost, "TJS") : "сделок пока нет";
   const dealSub = !stats
     ? "сделки с рекламы не посчитались"
     : noSpend
@@ -82,7 +84,7 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
         {showRomi && stats && (
           <Tile
             label="Окупаемость"
-            value={romi !== null ? `${romi > 0 ? "+" : ""}${Math.round(romi * 100)} %` : "—"}
+            value={romi !== null ? `${romi > 0 ? "+" : ""}${Math.round(romi * 100)} %` : null}
             tone={romi === null ? undefined : romi >= 0 ? "ok" : "crit"}
             sub={romi !== null && stats.commissionTjs !== null
               ? `комиссия ${formatMoneyExact(stats.commissionTjs, "TJS")} на ${formatMoneyExact(spend, "TJS")} рекламы`
@@ -102,15 +104,18 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
   );
 }
 
-function Tile({ label, value, sub, delta, tone }: { label: string; value: string; sub: string; delta?: React.ReactNode; tone?: "ok" | "crit" }) {
+function Tile({ label, value, sub, delta, tone }: { label: string; value: string | null; sub: string; delta?: React.ReactNode; tone?: "ok" | "crit" }) {
+  // Цифра — крупно и по ширине ячейки (.rh-fit); слова («нет заявок», «сделок пока нет») — обычным
+  // шрифтом, не цифровым кеглем (К10.4 аудита 20.11).
+  const isNumber = value !== null && /\d/.test(value);
   return (
-    <div className="tile" data-tone={tone}>
+    <div className="tile rh-fit-host" data-tone={tone}>
       <div className="hd">{label}</div>
-      <b className="money" style={{ fontSize: "var(--fs-23)" }}>
-        {value}
+      <b className={isNumber ? "money rh-fit" : "money"}>
+        {value === null ? <EmptyValue reason={sub} /> : isNumber ? value : <span className="rh-empty">{value}</span>}
         {delta}
       </b>
-      <span style={{ fontSize: "var(--fs-13)", color: "var(--muted)" }}>{sub}</span>
+      <small className="rh-note">{sub}</small>
     </div>
   );
 }
