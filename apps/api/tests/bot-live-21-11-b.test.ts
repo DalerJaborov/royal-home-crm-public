@@ -77,6 +77,11 @@ describe("1. RangeError в проверке вложения: base64 одним 
     await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: { signal: aborted.signal, deadlineAt: Date.now() + 60_000 }, current: async () => true }))
       .rejects.toThrow(RangeError);
     expect(await perceiveCustomerMediaSafely({ perceive: async () => "ok", wait: live, current: async () => true })).toBe("ok");
+    // Проверка контекста сама упала: наверх — исходная ошибка разбора, и она же в журнале (ревью #358).
+    logSystemError.mockClear();
+    await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: live, current: async () => { throw new Error("db down"); } }))
+      .rejects.toThrow(RangeError);
+    expect(logSystemError).toHaveBeenCalledWith("ai", expect.stringMatching(/проверка контекста не удалась: RangeError «Maximum call stack size exceeded»/u), expect.anything());
   });
 });
 
@@ -88,11 +93,14 @@ describe("2. язык: таджикский разговор не переход
     expect(turns[1]!.d.language).toBe("tg");
     expect(turns[1]!.text).not.toMatch(/Спасибо|передаю|свяжутся/u);
   });
-  it.each(["3 комнаты, 5 этаж, цена 80000$", "квартира 2 комнаты Сино", "Доми 9 этажа, 70 кв"])("перечень «%s» после таджикского — язык прежний", text => {
+  it.each(["3 комнаты, 5 этаж, цена 80000$", "квартира 2 комнаты Сино", "Доми 9 этажа, 70 кв", "ш.Вахдат. Доми 9 этажа, квартира 8 этаж, комната-2, цена 400",
+    "Хона дар Сино, 3 комната, цена 500", "Салом, есть 2 хонага?"])("перечень «%s» после таджикского — язык прежний", text => {
     const turns = dialog(ctx(), ["Салом, хона мехарам", text]);
     expect(turns[1]!.d.language, text).toBe("tg");
   });
-  it.each(["Здравствуйте, можно по-русски? Я ищу квартиру", "Хочу квартиру в Сино, сколько стоит?", "Я продаю дом"])("русская фраза «%s» — язык меняется", text => {
+  it.each(["Пишите на русском", "Не понимаю по-таджикски", "Квартира в каком районе?", "Что по цене?", "Какой этаж?", "А торг будет?",
+    "Перезвоните мне завтра", "Хорошо, жду звонка", "Да, интересно", "skolko stoit?", "Покажите фото", "Документы готовы?",
+    "Здравствуйте, можно по-русски? Я ищу квартиру", "Хочу квартиру в Сино, сколько стоит?", "Я продаю дом"])("русская фраза «%s» — язык меняется", text => {
     const turns = dialog(ctx(), ["Салом, хона мехарам", text]);
     expect(turns[1]!.d.language, text).toBe("ru");
   });
@@ -108,11 +116,12 @@ describe("2. язык: таджикский разговор не переход
 });
 
 describe("3. вопрос, на который знает только агент (ипотека, рассрочка, документы): ответ, а не просьба номера", () => {
-  it("da83282b: «…ипотека медиҳад ё на» — честный ответ по-таджикски, без просьбы номера в этом ходе", () => {
-    const [t] = dialog(ctx(), ["Асалом мехостем фахмем ,ки ширкати шумо хам хонахои бо таьмир ипотека медихад ё на"]);
-    expect(t!.keys).toContain("topic_by_agent");
-    expect(t!.keys.some(PHONE_ASK)).toBe(false);
-    expect(t!.text).toMatch(/^Ваалайкум ассалом! Дар ин бора агенти мо ҳамаи тафсилотро ба шумо мегӯяд\./u);
+  it("da83282b без роли: сначала вопрос о роли (без «расскажет агент» без пути к агенту), фраза про агента — вместе с номером", () => {
+    const turns = dialog(ctx(), ["Асалом мехостем фахмем ,ки ширкати шумо хам хонахои бо таьмир ипотека медихад ё на", "Харидан мехохам", "Сино, 2 хучра"]);
+    expect(turns[0]!.keys).toEqual(["greet_assalom", "ask_role"]);
+    expect(turns[0]!.keys.some(PHONE_ASK)).toBe(false);
+    expect(turns[2]!.keys).toEqual(["topic_by_agent", "ask_phone"]);
+    expect(turns[2]!.text).toMatch(/^Дар ин бора агенти мо ҳамаи тафсилотро ба шумо мегӯяд\./u);
   });
   it("тот же вопрос, когда модель назвала покупателя: ответ и предложение звонка, номер — не в этом ходе", () => {
     const answer = { role: "buyer", roleQuote: "хонахои бо таьмир", question: "other", aboutThisProperty: false, rooms: "", district: "", budget: "", area: "",
@@ -131,7 +140,8 @@ describe("3. вопрос, на который знает только аген�
   it("язык ответа — по последнему ясному сообщению клиента: русский вопрос об ипотеке после таджикского — по-русски, и наоборот", () => {
     const ruAfterTg = dialog(ctx(), ["Салом", "Здравствуйте, у вас есть ипотека?"]);
     expect(ruAfterTg[1]!.d.language).toBe("ru");
-    expect(ruAfterTg[1]!.text).toMatch(/Об этом подробно расскажет агент|Это агент подробно объяснит/u);
+    // Роль ещё не названа: вопрос о роли по-русски, «расскажет агент» — вместе с предложением звонка позже (ревью #358).
+    expect(ruAfterTg[1]!.text).toMatch(/купить или продать|покупаете или продаёте/u);
     expect(ruAfterTg[1]!.keys.some(PHONE_ASK)).toBe(false);
     const tgAfterRu = dialog(ctx(), ["Здравствуйте", "Ипотека медихед ё на?"]);
     expect(tgAfterRu[1]!.d.language).toBe("tg");
@@ -145,10 +155,24 @@ describe("3. вопрос, на который знает только аген�
     expect(turns[1]!.text).not.toMatch(/Спасибо|специалисту|свяжутся/u);
   });
   it.each(["У вас есть ипотека?", "Рассрочка есть?", "Бо кисм мешавад?", "Какие документы нужны?", "Хуччатхояш тайёр хаст?", "Кредит медихед ё на"])(
-    "«%s» — честный ответ, без просьбы номера", text => {
+    "«%s» — без роли: вопрос о роли, без просьбы номера; у покупателя — честный ответ и предложение звонка", text => {
       const [t] = dialog(ctx(), [text]);
-      expect(t!.keys, text).toContain("topic_by_agent");
+      expect(t!.keys, text).toContain("ask_role");
       expect(t!.keys.some(PHONE_ASK), text).toBe(false);
+      const buyer = dialog(ctx(), ["Хочу купить квартиру", "Сино", text]);
+      expect(buyer[2]!.keys, text).toContain("topic_by_agent");
+    });
+  it.each(["Салом, хонахои бо таъмир ипотека медихад ё на", "Ипотека есть?", "Кредит чанд сол?"])(
+    "реклама ИЗВЕСТНОГО объекта: «%s» — ответ про ипотеку и предложение звонка, без просьбы номера", text => {
+      const focus = { propertyId: "5b7c1a2e-4d3f-4e6a-9b8c-0d1e2f3a4b5c", shortId: 205, priceText: { ru: "520 000 сомони", tg: "520 000 сомонӣ" }, sold: false, place: "Сино, Душанбе" };
+      for (const c of [ctx({ ad: { topic: "property", propertyId: focus.propertyId }, focus }),
+        ctx({ channel: "WHATSAPP", phoneKnown: true, ad: { topic: "property", propertyId: focus.propertyId }, focus })]) {
+        const [t] = dialog(c, [text]);
+        expect(t!.keys, `${c.channel}: ${text}`).toContain("topic_by_agent");
+        expect(t!.keys, `${c.channel}: ${text}`).toContain("offer_call");
+        expect(t!.keys.some(PHONE_ASK), `${c.channel}: ${text}`).toBe(false);
+        expect(t!.d.actions.filter(action => action.type === "accept_lead"), `${c.channel}: ${text}`).toEqual([]);
+      }
     });
   it("«документы готовы» продавца без вопроса — не вопрос агенту (экзамен роли не трогаем)", () => {
     const [t] = dialog(ctx(), ["Хонаи фуруши дорем 4хонага 9этажа, ҳуҷҷатҳо тайёр"]);

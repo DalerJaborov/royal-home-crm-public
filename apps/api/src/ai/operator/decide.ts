@@ -50,7 +50,7 @@ export function initialOperatorState(): OperatorState {
   return { version: 2, role: "unknown", step: "start", language: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
     propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
     outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false, bothRoles: false,
-      roleChangedFrom: null, clientTurns: 0, phoneAskTurn: 0, signaled: [], closedBy: null }, leadAccepted: false,
+      roleChangedFrom: null, clientTurns: 0, phoneAskTurn: 0, agentTopicPending: false, signaled: [], closedBy: null }, leadAccepted: false,
     staffCalled: false, closed: false, jobAnswered: null };
 }
 
@@ -128,7 +128,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // ── язык: липкий, меняет только осмысленный текст ─────────────────────────
   // Переход на русский посреди таджикского разговора — только по русской фразе (служебные слова, без таджикских букв), а не по
   // перечню «этаж, комната, цена» (часовая сверка 21.11.2026, b16a44b4: «ш.Ваҳдат… квартира 8 этаж» → ответ по-русски).
-  if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
+  if (u.languagePreference) s.language = u.languagePreference;
+  else if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
   // В сообщении языка нет (номер, «ок»): язык разговора — по последней реплике с ясным языком (клиента или сотрудника), а не
   // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски).
   else if (u.contextLanguage) s.language = u.contextLanguage;
@@ -466,6 +467,12 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   /** Не больше двух просьб номера за разговор и не в соседних ходах: следующая — через два содержательных хода клиента. */
   const phoneAsksMax = Math.min(ctx.maxPhoneAsks, 2);
   const phoneAskCooled = () => s.asked.phone === 0 || (s.flags.clientTurns ?? 0) - (s.flags.phoneAskTurn ?? 0) >= 2;
+  /** Отложенное «об этом расскажет агент» (вопрос об ипотеке до роли) — сейчас, когда есть путь к агенту. */
+  const pendingTopic = () => {
+    if (!s.flags.agentTopicPending) return;
+    s.flags.agentTopicPending = false;
+    if (!answers.length && !said("topic_by_agent")) answers.push(draft("topic_by_agent"));
+  };
   const contact = () => {
     if (u.phone || (phoneKnown() && strongInterest)) {
       acceptLeadSilently(s, u, ctx, actions);
@@ -476,7 +483,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // остаётся и без ответа, и без человека).
     if (s.noCall) { if (!flow.length && !answers.length) signal("no_phone"); return; }
     if (!strongInterest) {
-      if (!said("offer_call")) flow.push(draft("offer_call"));
+      if (!said("offer_call")) { pendingTopic(); flow.push(draft("offer_call")); }
       else if (!flow.length && !answers.length) signal("no_phone");
       return;
     }
@@ -492,6 +499,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
         if (!flow.length && !answers.length) { if (u.hasText && !u.ackOnly && !u.thanksOnly) flow.push(draft("got_it")); else signal("no_phone"); }
         return;
       }
+      pendingTopic();
       flow.push(draft(s.role === "seller" ? "ask_phone_seller" : "ask_phone")); s.asked.phone += 1; s.flags.phoneAskTurn = s.flags.clientTurns ?? 0; s.step = "contact";
       return;
     }
@@ -525,7 +533,9 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
     }
     // Ипотека, рассрочка, документы без названной роли: сначала честный ответ, потом вопрос о роли (21.11.2026).
-    if (u.agentTopic && !answers.length) answers.push(draft("topic_by_agent"));
+    // Ипотека, документы без роли: «расскажет агент» — пока не обещание без пути к агенту; сначала вопрос о роли, фраза про
+    // агента — вместе с предложением звонка или просьбой номера (ревью #358).
+    if (u.agentTopic) s.flags.agentTopicPending = true;
     flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
     return finish();
   }
@@ -542,6 +552,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
           : draft("property_place", { id, place }));
       } else {
         if (placeAsked && !facts.sold) answers.push(draft("place_by_agent"));
+        // Ипотека, кредит, документы по ИЗВЕСТНОМУ объекту — тоже честный ответ, а не только цена (ревью #358).
+        else if (u.agentTopic) answers.push(draft("topic_by_agent"));
         flow.push(facts.sold ? draft("property_sold", { id }) : facts.priceText ? draft("property_price", { id, price: facts.priceText[language] })
           : draft("property_no_price", { id }));
       }

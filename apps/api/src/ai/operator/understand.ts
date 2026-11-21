@@ -21,7 +21,7 @@ import { askLeadOnlyModel, leadOnlyIntentFallback, leadOnlyQuoteFound, leadOnlyS
 import { leadOnlyAgencyFeeQuestion, leadOnlyPhoneRefused } from "../leadOnlyMode.js";
 import { clientOwnWords } from "../untrustedContent.js";
 import { customerRoleSignals, foldCustomerText, foldCustomerTextForRole } from "../customerAgentRole.js";
-import { customerDmDialogueLanguage, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
+import { customerDmDialogueLanguage, customerDmLanguagePreference, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
 import { detectOutsideCoverage } from "../coverageGuard.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
 import { customerRecruitmentRequested, selectedRecruitmentPosition } from "../customerAgentRecruitmentProtocol.js";
@@ -93,9 +93,32 @@ const AGENT_TOPIC = new RegExp(`${BW}(?:ипотек${TAIL}|ипатек${TAIL}|
 const QUESTION_HINT = new RegExp(`${BW}(?:ё|е)\\s+(?:на|не)${EW}|${BW}(?:ми|магар|оё|мумкин|мешавад|мешава|медихед|медихад|медиха|хаст|доред|дорен|ли|можно|есть)${EW}`, "u");
 /** Таджикские буквы в сыром тексте: такое сообщение не переводит разговор на русский. */
 const TAJIK_LETTER = /[ӣӯҳҷқғӢӮҲҶҚҒ]/u;
-/** Русская фраза, а не перечень: служебное слово или глагол (сложенный алфавит). */
-const RUSSIAN_SENTENCE = new RegExp(`${BW}(?:я|мы|вы|у\\s+вас|у\\s+меня|хочу|хотим|хотел${TAIL}|можно|нужно|надо|нужн${TAIL}|сколько|где|когда|как|почему|` +
-  `здравствуйте|добрый|спасибо|пожалуйста|есть|это|если|продаю|продаём|продаем|ищу|куплю|интересует|скажите|подскажите|напишите|позвоните|давайте)${EW}`, "u");
+/** Таджикские слова в чатовом написании (свёрнутый алфавит): «Салом, есть 2 хонага?» — таджикский, хоть и с «есть». */
+const TAJIK_WORD = new RegExp(`${BW}(?:салом|ассалом|асалом|хона${TAIL}|хавли${TAIL}|дорам|дорем|доред|дорен|мехо${TAIL}|мехар${TAIL}|мефур${TAIL}|` +
+  `кадом|чанд|ман|шумо|мо|хаст|нест|ба|дар|ва|ки|ин|аз|бо|аст|мешав${TAIL}|нарх${TAIL}|кучо${TAIL}|рахмат|ташаккур|хуб|майлаш|бале|` +
+  `чихел${TAIL}|нависед|гуед|занг|медихед|медихад|мекунед|хучра${TAIL})${EW}`, "u");
+/**
+ * Русская фраза, а не перечень (ревью #358): служебное слово, предлог, частица, вопросительное слово или глагол. Перечень
+ * («ш.Вахдат. Доми 9 этажа, квартира 8 этаж, комната-2, цена») — без глагола и без служебных слов — язык разговора не меняет.
+ * Текст — свёрнутый (латиница → кириллица, «skolko stoit» → «сколко стоит»).
+ */
+const RUSSIAN_SENTENCE = new RegExp(`${BW}(?:я|мы|вы|он|она|мне|меня|нам|вам|вас|нас|у|в|во|на|по|за|из|от|до|для|с|со|о|об|к|не|ни|нет|да|а|и|но|или|ли|же|бы|` +
+  `какой|какая|какое|какие|каком|какую|что|чем|чего|где|когда|как|почему|зачем|сколько|сколко|скока|почем|чей|чья|кто|` +
+  `это|этот|эта|эту|есть|был${TAIL}|будет|будут|хорошо|ладно|окей|спасибо|пожалуйста|здравствуйте|добрый|привет|интересно|` +
+  `хочу|хотим|хотел${TAIL}|можно|нужно|надо|нужн${TAIL}|ищу|куплю|продаю|продаём|продаем|интересует|жду|ждём|ждем|` +
+  `пишите|напишите|скажите|подскажите|покажите|позвоните|перезвоните|звоните|давайте|отправьте|скиньте|понимаю|стоит|стоят)${EW}` +
+  // Глагол по окончанию: «перезвоните», «понимаете», «живём», «работаете».
+  `|${BW}\\p{L}{2,}(?:ите|ете|ешь|ем|ём|ут|ют|ать|ять|ить|еть)${EW}`, "u");
+/**
+ * Детектор языка промолчал («Покажите фото», «Да, интересно», «Документы готовы?», латиница «skolko stoit?»): русский, если это
+ * русская фраза или вопрос, без таджикских букв и без таджикских слов (ревью #358). Иначе — язык не решаем.
+ */
+function russianGuess(own: string): OperatorLanguage | null {
+  const folded = foldCustomerTextForRole(own);
+  if (TAJIK_LETTER.test(own) || TAJIK_WORD.test(folded) || letterCount(own) < 4) return null;
+  return RUSSIAN_SENTENCE.test(folded) || /[?؟]/u.test(own) ? "ru" : null;
+}
+
 /** Слово о жилье рядом с вопросом о месте: «хони заминитон», «эта квартира», «дом». */
 const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|объект${TAIL}|обект${TAIL})`, "u");
 /** «Вы бот?», «это робот?», «шумо бот?» — вопрос о том, с кем говорит клиент (сложенный алфавит). */
@@ -186,7 +209,7 @@ function codeFacts(input: OperatorTurnInput) {
   return {
     own, folded, phone, letters, adOpener, attachments,
     hasText: letters >= 2 || !!phone,
-    language: letters >= 2 && !neutral && !adOpener ? customerDmDialogueLanguage([own]) : null,
+    language: letters >= 2 && !neutral && !adOpener ? customerDmDialogueLanguage([own]) ?? russianGuess(own) : null,
     languageHint: letters >= 1 ? resolveCustomerDmLanguage(own) : null,
     contextLanguage: operatorContextLanguage(input.recent),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
@@ -197,7 +220,12 @@ function codeFacts(input: OperatorTurnInput) {
     fee: leadOnlyAgencyFeeQuestion(own),
     placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
     agentTopic: !isAdTemplateOpener(own) && AGENT_TOPIC.test(folded) && (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
-    languageSwitchOk: !TAJIK_LETTER.test(own) && RUSSIAN_SENTENCE.test(folded),
+    // Явная просьба о языке («пишите на русском», «не понимаю по-таджикски», «бо тоҷикӣ нависед») меняет язык всегда; иначе
+    // переход на русский — по русской фразе без таджикских букв (ревью #358).
+    languagePreference: customerDmLanguagePreference(own),
+    // Вопрос со знаком «?» без таджикских букв и слов («Документы готовы?») — тоже фраза, а не перечень.
+    languageSwitchOk: !!customerDmLanguagePreference(own) || (!TAJIK_LETTER.test(own) && (RUSSIAN_SENTENCE.test(foldCustomerTextForRole(own)) ||
+      /[?؟]/u.test(own) && !TAJIK_WORD.test(foldCustomerTextForRole(own)))),
     showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
     // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
     agrees: AGREE_WORD.test(folded) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
@@ -262,7 +290,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
     showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
-    agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk,
+    agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
     ...(ownHouseOnly(role, code) ? { roleConflict: true } : {}),
@@ -475,7 +503,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
       showing: code.showing, agrees: code.agrees, declines: code.declines, ...(roleConflict ? { roleConflict: true } : {}),
-      agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk,
+      agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
       roleByQuestion: roleByQuestion(role, question, code.own),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
@@ -486,7 +514,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       // «нависед»), и ответ ушёл по-русски. Латиница («Skolko stoit kvartira?») и текст без признаков — решает модель, как
       // раньше; модель промолчала — прежнее слово кода.
       language: groundedCustomerDmLanguage(code.own)
-        ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language),
+        ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language) ?? code.language,
       languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,
