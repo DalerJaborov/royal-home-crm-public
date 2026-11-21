@@ -82,6 +82,20 @@ const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|м�
 const DECLINE_WORD = new RegExp(`^(?:(?:да|ха|ну)\\s+)?(?:нет|неа|не-не|не)(?:\\s|$)` +
   `|${BW}(?:не\\s+(?:надо|нужно|нуждаюсь|сейчас|звон${TAIL}|перезван${TAIL}|хочу|интересн${TAIL})|ненадо|пока\\s+нет|` +
   `(?:лозим|даркор|холо|хозир)\\s+(?:не|нест)|намехох${TAIL}|занг\\s+назан${TAIL}|нахох${TAIL})${EW}`, "u");
+/**
+ * Вопрос, на который фактов у бота нет (часовая сверка 21.11.2026, da83282b: «…хонахои бо таъмир ипотека медихад ё на» →
+ * голая просьба номера): ипотека, кредит, рассрочка, документы, нотариус, оформление, юрист (сложенный алфавит).
+ */
+const AGENT_TOPIC = new RegExp(`${BW}(?:ипотек${TAIL}|ипатек${TAIL}|кредит${TAIL}|карз${TAIL}|рассрочк${TAIL}|расрочк${TAIL}|насия${TAIL}|` +
+  `бо\\s+кисм${TAIL}|документ${TAIL}|хуччат${TAIL}|нотариус${TAIL}|натариус${TAIL}|оформлен${TAIL}|юрист${TAIL}|кадастр${TAIL}|` +
+  `техпаспорт${TAIL}|справк${TAIL})`, "u");
+/** Вопрос без «?»: «…ипотека медиҳад ё на», «есть ли рассрочка», «мумкин бо қисм?» (сложенный алфавит). */
+const QUESTION_HINT = new RegExp(`${BW}(?:ё|е)\\s+(?:на|не)${EW}|${BW}(?:ми|магар|оё|мумкин|мешавад|мешава|медихед|медихад|медиха|хаст|доред|дорен|ли|можно|есть)${EW}`, "u");
+/** Таджикские буквы в сыром тексте: такое сообщение не переводит разговор на русский. */
+const TAJIK_LETTER = /[ӣӯҳҷқғӢӮҲҶҚҒ]/u;
+/** Русская фраза, а не перечень: служебное слово или глагол (сложенный алфавит). */
+const RUSSIAN_SENTENCE = new RegExp(`${BW}(?:я|мы|вы|у\\s+вас|у\\s+меня|хочу|хотим|хотел${TAIL}|можно|нужно|надо|нужн${TAIL}|сколько|где|когда|как|почему|` +
+  `здравствуйте|добрый|спасибо|пожалуйста|есть|это|если|продаю|продаём|продаем|ищу|куплю|интересует|скажите|подскажите|напишите|позвоните|давайте)${EW}`, "u");
 /** Слово о жилье рядом с вопросом о месте: «хони заминитон», «эта квартира», «дом». */
 const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|объект${TAIL}|обект${TAIL})`, "u");
 /** «Вы бот?», «это робот?», «шумо бот?» — вопрос о том, с кем говорит клиент (сложенный алфавит). */
@@ -182,6 +196,8 @@ function codeFacts(input: OperatorTurnInput) {
     rude: abuse === "threat" || abuse === "insult", spam: abuse === "spam",
     fee: leadOnlyAgencyFeeQuestion(own),
     placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
+    agentTopic: !isAdTemplateOpener(own) && AGENT_TOPIC.test(folded) && (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
+    languageSwitchOk: !TAJIK_LETTER.test(own) && RUSSIAN_SENTENCE.test(folded),
     showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
     // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
     agrees: AGREE_WORD.test(folded) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
@@ -234,7 +250,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
   const preference = textPreference(code.own);
   const digitsBeyondPhone = /\d/u.test(code.phone ? code.own.replace(/\+?\d[\d\s\-().]{5,}\d/gu, " ") : code.own);
   return {
-    source: "fallback", role, question, aboutThisProperty, details,
+    source: "fallback", role, question: question === "none" && code.agentTopic ? "other" : question, aboutThisProperty, details,
     hasDetails: Object.keys(details).length > 0 || (digitsBeyondPhone && code.letters > 0),
     phone: code.phone,
     callback: { when: operatorCallbackRange(code.own, language), ...preference },
@@ -246,6 +262,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
     showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
+    agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
     ...(ownHouseOnly(role, code) ? { roleConflict: true } : {}),
@@ -454,10 +471,11 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   return {
     rejected,
     understanding: {
-      source: "model", role, question,
+      source: "model", role, question: question === "none" && code.agentTopic ? "other" : question,
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
       showing: code.showing, agrees: code.agrees, declines: code.declines, ...(roleConflict ? { roleConflict: true } : {}),
+      agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk,
       roleByQuestion: roleByQuestion(role, question, code.own),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
