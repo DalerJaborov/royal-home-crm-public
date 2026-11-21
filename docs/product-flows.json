@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 790,
-  "forks": 4224,
+  "endpoints": 787,
+  "forks": 4201,
   "mounts": 88,
   "cron": 144,
   "jobs": 34,
@@ -43187,6 +43187,63 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/seen",
+   "mount": "/api/v1/me/notifications",
+   "full": "/api/v1/me/notifications/seen",
+   "file": "apps/api/src/routes/notifications.ts",
+   "router": "notificationsRouter",
+   "top": "apps/api/src/routes/notifications.ts::notificationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = seenSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой seenSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный список уведомлений\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный список уведомлений»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…",
+     "a": [
+      "меняет в базе: notification"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, count: result.count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/",
    "mount": "/api/v1/me/notifications",
@@ -43235,7 +43292,7 @@
     },
     {
      "k": "do",
-     "t": "const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…",
+     "t": "const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…",
      "a": [
       "читает в базе: notification",
       "считает в базе: notification"
@@ -43260,7 +43317,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…",
+     "t": "res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…",
      "a": [
       "ответ 200"
      ],
@@ -48298,7 +48355,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48441,7 +48498,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48532,7 +48589,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48807,7 +48864,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -48980,7 +49037,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49136,7 +49193,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49337,7 +49394,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49497,7 +49554,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49662,7 +49719,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49736,7 +49793,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49802,7 +49859,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49868,7 +49925,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -49942,7 +49999,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -50072,7 +50129,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -50221,15 +50278,7 @@
       },
       {
        "k": "do",
-       "t": "const adopted = listenId && !outcome.coalesced ? await adoptListenedNarration({ propertyId: p.id, versionId: …",
-       "a": [
-        "зовёт adoptListenedNarration()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true, ...(adopted ? …",
+       "t": "return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });",
        "a": [
         "ответ 201"
        ],
@@ -58988,6 +59037,14 @@
     },
     {
      "k": "do",
+     "t": "void autoLinkPropertyById(updated.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…",
      "a": [
       "зовёт publishPropertyUpdated()"
@@ -61479,7 +61536,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -61547,7 +61604,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -61583,7 +61640,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -61930,297 +61987,6 @@
          "t": "return res.status(404).json({ error: \"Запрос не найден\" });",
          "a": [
           "ответ 404 — «Запрос не найден»"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/narration-listen/:id/file",
-   "mount": "/api/v1/properties",
-   "full": "/api/v1/properties/narration-listen/:id/file",
-   "file": "apps/api/src/routes/properties/narration.ts",
-   "router": "narrationRouter",
-   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
-    "вход выполнен",
-    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const id = idSchema.safeParse(req.params.id);",
-     "a": [
-      "проверяет данные схемой idSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const file = id.success ? await narrationListenFilePath(id.data, req.agent!.id) : null;",
-     "a": [
-      "зовёт narrationListenFilePath()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!file",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Звука нет: прослушивание хранится сутки\" });",
-       "a": [
-        "ответ 404 — «Звука нет: прослушивание хранится сутки»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Cache-Control\", \"private, no-store\");",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.type(\"audio/mpeg\").sendFile(file);",
-     "a": [
-      "ответ 200",
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
-   "path": "/narration-listen",
-   "mount": "/api/v1/properties",
-   "full": "/api/v1/properties/narration-listen",
-   "file": "apps/api/src/routes/properties/narration.ts",
-   "router": "narrationRouter",
-   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
-    "вход выполнен",
-    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const body = narrationListenRequestSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой narrationListenRequestSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!body.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Нужны текст озвучки (от 10 знаков) и голос\" });",
-       "a": [
-        "ответ 400 — «Нужны текст озвучки (от 10 знаков) и голос»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const out = await listenNarration({ agentId: req.agent!.id, ...body.data });",
-     "a": [
-      "зовёт listenNarration()"
-     ],
-     "c": []
-    },
-    {
-     "k": "switch",
-     "t": "смотря что в: out.status",
-     "a": [],
-     "c": [
-      {
-       "k": "case",
-       "t": "case \"READY\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.json(result);",
-         "a": [
-          "ответ 200"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"NO_ACCESS\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(403).json({ error: \"Нет доступа к озвучке\" });",
-         "a": [
-          "ответ 403 — «Нет доступа к озвучке»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"OFF\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Автоозвучка выключена в настройках: послушать можно будет в карточке об…",
-         "a": [
-          "ответ 409 — «Автоозвучка выключена в настройках: послушать можно будет в карточке…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"NOT_CONFIGURED\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Озвучка не настроена: нет ключа, модели или голосов\" });",
-         "a": [
-          "ответ 409 — «Озвучка не настроена: нет ключа, модели или голосов»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"VOICE_UNKNOWN\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Такого голоса нет в утверждённых для озвучки\" });",
-         "a": [
-          "ответ 400 — «Такого голоса нет в утверждённых для озвучки»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"TAJIK_MODEL\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 в …",
-         "a": [
-          "ответ 400 — «Модель озвучки не знает таджикского. Руководству: выберите eleven_v4…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"INVALID\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: out.error });",
-         "a": [
-          "ответ 400"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"BUSY\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Звук уже готовится\", busy: true });",
-         "a": [
-          "ответ 409 — «Звук уже готовится»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"LIMIT_PERSON\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(429).json({ error: `Сегодня уже ${out.limit} прослушиваний нового текста. Повтор того же те…",
-         "a": [
-          "ответ 429 — «Сегодня уже ${out.limit} прослушиваний нового текста. Повтор того же…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"BUDGET\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(429).json({ error: \"Дневной предел озвучки исчерпан. Попробуйте завтра.\" });",
-         "a": [
-          "ответ 429 — «Дневной предел озвучки исчерпан. Попробуйте завтра.»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "case",
-       "t": "case \"FAILED\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(out.quota ? 503 : 502).json({ error: out.quota ? \"Кредиты ElevenLabs закончились. Сообщите …",
-         "a": [
-          "ответ (код зависит от условия)"
          ],
          "c": []
         }
@@ -62624,7 +62390,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -62660,7 +62426,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -62703,7 +62469,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -62919,7 +62685,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -63002,7 +62768,7 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-listen\", \"/narration-voice-sampl…",
+    "[\"/narration-settings\", \"/narration-options\", \"/narration-free\", \"/narration-voice-samples\", \"/:id/narration\"]",
     "вход выполнен",
     "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
    ],
@@ -80064,367 +79830,6 @@
   },
   {
    "method": "GET",
-   "path": "/config",
-   "mount": "/api/v1/ui-shell",
-   "full": "/api/v1/ui-shell/config",
-   "file": "apps/api/src/routes/uiShell.ts",
-   "router": "uiShellRouter",
-   "top": "apps/api/src/routes/uiShell.ts::uiShellRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\"",
-    "вход выполнен",
-    "requireShellAdministrator",
-    "есть право: settings.manage"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "res.setHeader(\"ETag\", `\"${version}\"`);",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ...parseUiShellRollout(raw), version });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "PUT",
-   "path": "/config",
-   "mount": "/api/v1/ui-shell",
-   "full": "/api/v1/ui-shell/config",
-   "file": "apps/api/src/routes/uiShell.ts",
-   "router": "uiShellRouter",
-   "top": "apps/api/src/routes/uiShell.ts::uiShellRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\"",
-    "вход выполнен",
-    "requireShellAdministrator",
-    "есть право: settings.manage",
-    "requireElevation"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = uiShellRolloutSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой uiShellRolloutSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректные настройки оболочки\", issues: parsed.error.issues });",
-       "a": [
-        "ответ 400 — «Некорректные настройки оболочки»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!expected",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(428).json({ error: \"Обновите настройки перед сохранением.\", code: \"UI_SHELL_VERSION_REQUIRE…",
-       "a": [
-        "ответ 428 — «Обновите настройки перед сохранением.»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const version = await prisma.$transaction(async (tx)",
-       "a": [
-        "ошибка ShellConflict",
-        "всё внутри — одной транзакцией",
-        "читает в базе: settings",
-        "читает в базе: agent",
-        "создаёт в базе: settings",
-        "меняет в базе: settings",
-        "создаёт в базе: auditLog"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const settings = await tx.settings.findUnique({ where: { id: \"singleton\" }, select: { uiShellRollout: true } …",
-         "a": [
-          "читает в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "expected !== `\"${versionOf(raw)}\"`",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new ShellConflict();",
-           "a": [
-            "ошибка ShellConflict"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "keepStoredLook && storedLook.length",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "config.royalLookAgentIds = storedLook;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "config.royalLookAgentIds?.length === 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "delete config.royalLookAgentIds;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "selectedIds.length",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…",
-           "a": [
-            "читает в базе: agent"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "missing.length",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new InvalidShellAgents(missing);",
-             "a": [
-              "ошибка InvalidShellAgents — «missing»"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!settings",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await tx.settings.create({ data: { id: \"singleton\", uiShellRollout: envelope } });",
-             "a": [
-              "создаёт в базе: settings"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "error instanceof Prisma.PrismaClientKnownRequestError && error.code === \"P2002\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new ShellConflict();",
-               "a": [
-                "ошибка ShellConflict"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "throw error;",
-             "a": [
-              "пробрасывает ошибку дальше"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "else",
-         "t": "иначе",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const updated = await tx.settings.updateMany({ where: { id: \"singleton\", uiShellRollout: { equals: raw == nul…",
-           "a": [
-            "меняет в базе: settings"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "updated.count !== 1",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ShellConflict();",
-             "a": [
-              "ошибка ShellConflict"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const author = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });",
-         "a": [
-          "читает в базе: agent"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "await tx.auditLog.create({ data: { action: \"SETTINGS_UPDATE\", entityType: \"Settings\", entityId: \"singleton\", …",
-         "a": [
-          "создаёт в базе: auditLog"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "res.setHeader(\"ETag\", `\"${version}\"`);",
-       "a": [
-        "ставит заголовок ответа"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.json({ ...config, version });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "error instanceof ShellConflict",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Настройки уже изменены другим администратором. Обновите их и проверьте …",
-         "a": [
-          "ответ 409 — «Настройки уже изменены другим администратором. Обновите их и…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "error instanceof InvalidShellAgents",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Некоторые сотрудники не найдены или отключены. Обновите список перед со…",
-         "a": [
-          "ответ 400 — «Некоторые сотрудники не найдены или отключены. Обновите список перед…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "throw error;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "method": "GET",
    "path": "/",
    "mount": "/api/v1/ui-shell",
    "full": "/api/v1/ui-shell",
@@ -93276,6 +92681,21 @@
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "try",
              "t": "пробует",
              "a": [],
@@ -93340,6 +92760,21 @@
              "t": "await source.sleep(PAGE_PAUSE_MS);",
              "a": [
               "зовёт sleep()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"cron\", msg);",
+             "a": [
+              "запись в журнал ошибок"
              ],
              "c": []
             }

@@ -3,91 +3,70 @@ import { useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
 
 /**
- * ЛИЧНЫЙ ВЫБОР «НОВОГО ВИДА» — ОДНО МЕСТО (пачка B «одна оболочка», 20.11.2026).
+ * ЛИЧНЫЙ АВАРИЙНЫЙ ВЫХОД ИЗ НОВОГО ИНТЕРФЕЙСА — ОДНО МЕСТО (21.11.2026).
  *
- * Жил в hooks/useRoyalLook.ts, а тот сам читает выбор оболочки (useCleanShell).
- * Теперь выбор оболочки должен знать личный отказ от вида ДО решения: «Новый вид»
- * снимает запрет чистой оболочки на телефоне агента, а `?look=legacy` возвращает
- * агента в прежний телефонный интерфейс. Чтобы не завести цикл импортов
- * (useCleanShell → useRoyalLook → useCleanShell), правило вынесено сюда, и оба
- * модуля берут его отсюда; useRoyalLook.ts переизлучает имена, прежние импорты
- * не тронуты.
- *
- * Включается вид ТОЛЬКО сервером: `/ui-shell` присылает `look: "royal"`
- * сотрудникам из списка в Настройках → «Новый вид». Клиент может лишь отказаться
- * от него для себя (`?look=legacy`) и вернуться (`?look=royal`); выбор
- * запоминается на учётку. `?look=royal` не включает вид тому, кому сервер его не дал.
+ * Новый интерфейс и «Новый вид» включены всем (hooks/useCleanShell.ts). Отказаться
+ * можно только адресом: `?look=legacy` — прежний интерфейс на ЭТОЙ вкладке до её
+ * закрытия, `?look=royal` — вернуться. Выбор живёт в sessionStorage, а не в
+ * localStorage намеренно: раз «для всех», забытый когда-то отказ не должен годами
+ * держать человека в старом интерфейсе. Прежние постоянные ключи (`rh-look:*`,
+ * `rh-shell:*`, `rh-look-granted:*`) больше не читаются и стираются при входе.
  */
-const KEY = "rh-look";
+const KEY = "rh-look-optout";
 const EVENT = "rh-look-change";
+const RETIRED_PREFIXES = ["rh-look:", "rh-shell:", "rh-look-granted:"];
 
 export function royalLookOverride(search: string): boolean | undefined {
   const value = new URLSearchParams(search).get("look");
   return value === "royal" ? true : value === "legacy" ? false : undefined;
 }
 
-/** Pure rule: server grant AND the person has not opted out. */
-export function royalLookEnabled(serverGranted: boolean, override: boolean | undefined, saved: boolean | undefined): boolean {
-  return serverGranted && (override ?? saved ?? true);
+/** Pure rule: granted AND the person has not opted out (URL first, then this tab's choice). */
+export function royalLookEnabled(granted: boolean, override: boolean | undefined, saved: boolean | undefined): boolean {
+  return granted && (override ?? saved ?? true);
 }
 
 function snapshot(agentId: string | undefined): boolean | undefined {
   if (!agentId) return undefined;
   try {
-    const value = window.localStorage.getItem(`${KEY}:${agentId}`);
-    return value === "royal" ? true : value === "legacy" ? false : undefined;
+    return window.sessionStorage.getItem(`${KEY}:${agentId}`) === "1" ? false : undefined;
   } catch { return undefined; }
 }
 
 function subscribe(notify: () => void) {
-  window.addEventListener("storage", notify);
   window.addEventListener(EVENT, notify);
-  return () => {
-    window.removeEventListener("storage", notify);
-    window.removeEventListener(EVENT, notify);
-  };
+  return () => window.removeEventListener(EVENT, notify);
 }
 
-/** Applies the personal choice to a server grant that the caller already has. */
-export function useRoyalLookChoice(serverGranted: boolean): boolean {
+/** Стереть прежние постоянные ключи выбора вида и оболочки (они больше ничего не решают). */
+export function forgetRetiredLookKeys(storage: Pick<Storage, "length" | "key" | "removeItem"> | null = safeLocalStorage()): void {
+  if (!storage) return;
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key && RETIRED_PREFIXES.some((p) => key.startsWith(p))) stale.push(key);
+    }
+    for (const key of stale) storage.removeItem(key);
+  } catch { /* Хранилище закрыто — ключи и так никто не читает. */ }
+}
+function safeLocalStorage(): Storage | null {
+  try { return typeof window === "undefined" ? null : window.localStorage; } catch { return null; }
+}
+
+/** Applies the personal emergency choice to the grant (granted = signed in). */
+export function useRoyalLookChoice(granted: boolean): boolean {
   const { search } = useLocation();
   const agentId = useAuthStore((s) => s.agent?.id);
   const saved = useSyncExternalStore(subscribe, () => snapshot(agentId), () => undefined);
   const override = royalLookOverride(search);
   useEffect(() => {
-    // Remember only for a person who actually has the look; others' URLs change nothing.
-    // Idempotent: several observers of one grant write the same value at most once.
-    if (!serverGranted || !agentId || override === undefined || override === snapshot(agentId)) return;
+    if (!granted || !agentId || override === undefined || (override ? undefined : false) === snapshot(agentId)) return;
     try {
-      window.localStorage.setItem(`${KEY}:${agentId}`, override ? "royal" : "legacy");
+      if (override) window.sessionStorage.removeItem(`${KEY}:${agentId}`);
+      else window.sessionStorage.setItem(`${KEY}:${agentId}`, "1");
       window.dispatchEvent(new Event(EVENT));
     } catch { /* The URL still works when browser storage is unavailable. */ }
-  }, [serverGranted, agentId, override]);
-  return royalLookEnabled(serverGranted, override, saved);
-}
-
-/**
- * ПАМЯТЬ «СЕРВЕР ВЫДАЛ ВИД» НА ЭТОМ УСТРОЙСТВЕ (ревью #329, 20.11.2026) — одна дверь на
- * ключ `rh-look-granted:<сотрудник>`: пишет выбор оболочки по каждому удачному ответу
- * `/ui-shell` (useCleanShell.ts), читают он же и мастер объекта (useWizardRoyalLook.ts).
- *
- * Зачем выбору оболочки. Телефон агента без выданного вида работает в прежнем интерфейсе
- * и ждать ответа сервера перед первым кадром ему незачем: холодный старт не должен стоять
- * 8 секунд на плохой связи ради вида, которого у агента нет. Ждёт только тот телефон, на
- * котором вид уже выдавали: там первый кадр без ответа был бы не тем интерфейсом.
- * Впервые выданный вид поэтому включается со следующего запуска.
- */
-const GRANT_KEY = "rh-look-granted";
-
-export function rememberedLookGrant(agentId: string | undefined): boolean {
-  if (!agentId) return false;
-  try { return window.localStorage.getItem(`${GRANT_KEY}:${agentId}`) === "1"; } catch { return false; }
-}
-
-export function rememberLookGrant(agentId: string, granted: boolean): void {
-  if (rememberedLookGrant(agentId) === granted) return;
-  try {
-    if (granted) window.localStorage.setItem(`${GRANT_KEY}:${agentId}`, "1");
-    else window.localStorage.removeItem(`${GRANT_KEY}:${agentId}`);
-  } catch { /* Без хранилища телефон агента просто не ждёт ответа: прежний интерфейс. */ }
+  }, [granted, agentId, override]);
+  return royalLookEnabled(granted, override, saved);
 }
