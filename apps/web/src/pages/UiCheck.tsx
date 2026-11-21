@@ -78,7 +78,7 @@ function KeyboardProbe({ onClose }: { onClose: () => void }) {
     return () => { vv?.removeEventListener("resize", update); vv?.removeEventListener("scroll", update); window.clearInterval(timer); };
   }, []);
   return (
-    <div data-ui-check-keyboard role="dialog" aria-modal="true" aria-label="Пробная переписка"
+    <section data-ui-check-keyboard aria-label="Пробная переписка"
       style={{ position: "fixed", zIndex: 70, left: 0, right: 0, top: "var(--clean-viewport-top, 0px)", height: "var(--clean-viewport-height, 100dvh)", display: "flex", flexDirection: "column", background: "var(--rh-ui-bg, white)", color: "var(--rh-ui-text, inherit)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(8px + env(safe-area-inset-top, 0px)) 12px 8px" }}>
         <button type="button" onClick={onClose} style={{ minHeight: 44, padding: "0 16px", borderRadius: 999, border: "1px solid rgba(0,0,0,.15)", background: "transparent", fontSize: 16 }}>Закрыть</button>
@@ -98,7 +98,7 @@ function KeyboardProbe({ onClose }: { onClose: () => void }) {
         <textarea ref={fieldRef} rows={1} aria-label="Пробное поле" placeholder="Нажмите сюда — откроется клавиатура"
           style={{ width: "100%", minHeight: 44, fontSize: 16, borderRadius: 22, padding: "10px 16px", border: "1px solid rgba(0,0,0,.2)", resize: "none" }} />
       </div>
-    </div>
+    </section>
   );
 }
 
