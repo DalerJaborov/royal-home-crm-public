@@ -580,3 +580,13 @@
   :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar > .inp { padding: 0 14px; }
   :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-filters { padding: 0 12px; }
 }
+
+/* Карточка объекта на узком телефоне при крупном тексте (К10/К11, сторож split/squeeze «очень крупный» 320):
+   колонка рядом с фото — ~150 px. «Снять с сайта» — одной строкой, уходит на свою строку под агента, а не
+   сжимается в две (на 320 поля 8 px, чтобы 18-пиксельная подпись влезла в 152); цена за метр («1 250 000 с. / м²» — 17 знаков) на 320 — ступенью ниже, чтобы не рваться по « / ». */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot { flex-wrap: wrap; row-gap: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { white-space: nowrap; }
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price small { font-size: var(--rh-fs-xs); white-space: nowrap; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { padding-inline: 8px; }
+}
