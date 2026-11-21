@@ -8,6 +8,8 @@
  */
 import { prisma } from "../../db.js";
 import { rankCandidates, type PropertyForMatch } from "./view.js";
+import { loadRegistrySettings } from "./sync.js";
+import { logSystemError } from "../systemError.js";
 
 /** Сколько объектов за раз берём в разбор; потолок защищает от выборки на весь рост базы. */
 const CHUNK = 500;
@@ -124,4 +126,21 @@ export async function rejectSuggestion(propertyId: string, projectId: string, ag
     create: { propertyId, projectId, state: "REJECTED", method: "MANUAL", confidence: 0, reasons: [], createdById: agentId },
     update: { state: "REJECTED", createdById: agentId },
   });
+}
+
+/**
+ * Автосвязь сразу при создании и правке объекта (21.11.2026), не дожидаясь недельного забора. Фоновый вызов: не роняет сохранение.
+ * Ничего не делает, если рубильник выключен, у объекта нет точки или связь уже есть; сомнительное оставляет человеку.
+ */
+export async function autoLinkPropertyById(propertyId: string): Promise<void> {
+  try {
+    if (!(await loadRegistrySettings()).enabled) return;
+    const p = await prisma.property.findFirst({
+      where: { id: propertyId, deletedAt: null, lat: { not: null }, lng: { not: null } },
+      select: { id: true, lat: true, lng: true, address: true, title: true, description: true, condition: true },
+    });
+    if (p) await autoLinkProperty(toMatchInput(p));
+  } catch (err) {
+    void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

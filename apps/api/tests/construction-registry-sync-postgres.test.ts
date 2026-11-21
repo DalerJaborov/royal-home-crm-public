@@ -231,6 +231,14 @@ describe("забор реестра", () => {
     expect(after.address).toBe(before.address);
   });
 
+  it("автосвязь при создании: объект рядом с проектом связывается сразу, без недельного забора", async () => {
+    await runConstructionRegistrySync({ source: makeSource(() => [item("z1", "green", "Зэ")]) });
+    await prisma.constructionPropertyLink.deleteMany({});
+    const { autoLinkPropertyById } = await import("../src/lib/constructionRegistry/link.js");
+    await autoLinkPropertyById(propertyNear);
+    expect(await prisma.constructionPropertyLink.count({ where: { propertyId: propertyNear, state: "LINKED" } })).toBe(1);
+  });
+
   it("слишком много неразобранных строк: ничего не применяется", async () => {
     const good = Array.from({ length: 24 }, (_, i) => item(`s${i}`, "green", `Эс ${i}`, 38.6 + i / 1000, 68.9));
     await runConstructionRegistrySync({ source: makeSource(() => good) });

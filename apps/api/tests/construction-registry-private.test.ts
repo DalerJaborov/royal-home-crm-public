@@ -33,6 +33,7 @@ const ALLOWED = new Set([
   "apps/api/src/lib/constructionRegistry/link.ts",
   "apps/api/src/routes/constructionRegistry.ts",
   "apps/api/src/app.ts", // подключение маршрута сотрудников
+  "apps/api/src/routes/properties/crud.ts", // автосвязь при создании и правке объекта (фон, только внутри CRM)
   "apps/api/src/cron.ts", // еженедельный забор
   "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники, только личка)
   "packages/shared/src/constructionRegistry.ts",
