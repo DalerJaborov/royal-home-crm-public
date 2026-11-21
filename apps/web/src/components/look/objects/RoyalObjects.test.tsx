@@ -150,3 +150,22 @@ describe("section marker", () => {
     expect(renderToStaticMarkup(<MemoryRouter><RoyalSection name={undefined}><Rh2Screen><p>x</p></Rh2Screen></RoyalSection></MemoryRouter>)).not.toContain("data-ry-section");
   });
 });
+
+describe("objects list, polish 21.11", () => {
+  it("«дн. в продаже» показывается только у объекта в продаже, не на монтаже", () => {
+    const onMontage = { ...property, status: "EDITING", listingAcceptedAt: "2026-11-21", demandCount: 8 } as unknown as Property;
+    const html = renderToStaticMarkup(<MemoryRouter><PropertyRow property={onMontage} myId="agent-1" clean royal cleanVariant="card" /></MemoryRouter>);
+    expect(html).not.toContain("в продаже");
+    expect(html).toContain("ждут покупателей");
+    const onSale = { ...property, listingAcceptedAt: "2026-11-01" } as unknown as Property;
+    expect(renderToStaticMarkup(<MemoryRouter><PropertyRow property={onSale} myId="agent-1" clean royal cleanVariant="card" /></MemoryRouter>)).toContain("в продаже");
+  });
+  it("чипы шапки — спокойные, тон из pillTone", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><RoyalObjectsHead total={120} pendingReview={2} overdue={2} onShowPending={() => {}} onShowOverdue={() => {}} canCreate onCreate={() => {}} /></MemoryRouter>);
+    expect(html).toContain('data-tone="warn"');
+    expect(html).toContain('data-tone="crit"');
+    expect(html).not.toContain("circle-alert");
+    const calm = renderToStaticMarkup(<MemoryRouter><RoyalObjectsHead total={120} pendingReview={0} onShowPending={() => {}} canCreate onCreate={() => {}} /></MemoryRouter>);
+    expect(calm).not.toContain("ry-objects-pending");
+  });
+});
