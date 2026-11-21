@@ -20,7 +20,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
-import { noteLength, stripClientNoteLabels, stripClientNoteLabelsSql } from "./clientNoteLabels.js";
+import { clientNotesLength, clientNotesPlain } from "./clientNoteLabels.js";
 
 export const FUZZY_SIMILARITY_THRESHOLD = 0.3;
 
@@ -148,9 +148,10 @@ export interface SimilarNotesCandidate {
  * «…»», «📞 ПРОСИТ ПЕРЕЗВОНИТЬ: …») одинаковы у десятков разных людей и не должны
  * считаться сходством (живые случаи владельца 24.08.2026 — «55-59%» у четырёх разных
  * продавцов, и 21.11.2026 — «82-84%» у трёх разных «Прочих обращений»). Что считается
- * служебным — ОДИН список в lib/clientNoteLabels.ts; здесь он только применяется: к
- * тексту открытой карточки в JS и к кандидатам в самой таблице — той же регуляркой в
- * Postgres (равенство обеих сторон сверяет тест на живой базе).
+ * служебным — ОДИН список в lib/clientNoteLabels.ts. Очищенный текст хранится в
+ * Client.requirementsNotesPlain (пишет перехват записи в db.ts), поиск идёт по нему
+ * оператором % через GIN-индекс — без очистки регулярками на каждый запрос (она стоила
+ * 4 с на 5000 карточек, замер ревью #382).
  *
  * Короче SIMILAR_NOTES_MIN_LENGTH остаток заметок — не «уникальное содержание», а общая
  * фраза пересказа («Клиент ищет дом»): у двух разных людей она совпадает дословно, и
@@ -173,24 +174,24 @@ export async function fuzzySimilarClientNotes(
   // четвёртую, настоящую.
   excludeIds: string[] = []
 ): Promise<SimilarNotesCandidate[]> {
-  const trimmed = stripClientNoteLabels(notes);
-  if (noteLength(trimmed) < SIMILAR_NOTES_MIN_LENGTH) return [];
-  const stripped = stripClientNoteLabelsSql(Prisma.sql`"requirementsNotes"`);
-  return prisma.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
-    SELECT id, similarity
-    FROM (
-      SELECT id, ${stripped} AS rest
+  const mine = clientNotesPlain(notes);
+  if (clientNotesLength(mine) < SIMILAR_NOTES_MIN_LENGTH) return [];
+  // Порог оператора % — настройка сессии (как у fuzzyIds выше): LOCAL, чтобы соседние
+  // запросы пула её не унаследовали. Число наше и константное — в текст запроса.
+  const level = Prisma.raw(String(Number(threshold)));
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SET LOCAL pg_trgm.similarity_threshold = ${level}`);
+    return tx.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
+      SELECT id, similarity("requirementsNotesPlain", ${mine}) AS similarity
       FROM "Client"
-      WHERE "deletedAt" IS NULL
+      WHERE "requirementsNotesPlain" % ${mine}
+        AND "deletedAt" IS NULL
         AND id != ${clientId}
         AND id <> ALL(${excludeIds}::text[])
-        AND "requirementsNotes" IS NOT NULL
-        AND "requirementsNotes" != ''
-    ) c
-    CROSS JOIN LATERAL (SELECT similarity(c.rest, ${trimmed}) AS similarity) s
-    WHERE length(c.rest) >= ${SIMILAR_NOTES_MIN_LENGTH}
-      AND s.similarity > ${threshold}
-    ORDER BY s.similarity DESC
-    LIMIT ${limit}
-  `);
+        AND length("requirementsNotesPlain") >= ${SIMILAR_NOTES_MIN_LENGTH}
+        AND similarity("requirementsNotesPlain", ${mine}) > ${threshold}
+      ORDER BY similarity DESC
+      LIMIT ${limit}
+    `);
+  });
 }

@@ -28,7 +28,9 @@
  * который считает такие подтверждения и сигналит руководителю при аномалии.
  */
 import { dushanbeDayKey } from "@royal-home/shared";
-import { Prisma, type Client } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../db.js";
 import { prisma, type TxClient } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
