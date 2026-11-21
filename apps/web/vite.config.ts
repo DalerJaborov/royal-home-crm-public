@@ -10,7 +10,8 @@ import { VitePWA } from "vite-plugin-pwa";
  * (`npm run dev`/`vite build` без Docker) ARG не задан — берём момент сборки,
  * этого достаточно, чтобы отличить одну локальную сборку от другой.
  */
-const APP_VERSION = process.env.GIT_SHA?.trim() || String(Date.now());
+const APP_BUILT_AT = Date.now();
+const APP_VERSION = process.env.GIT_SHA?.trim() || String(APP_BUILT_AT);
 
 /**
  * Пишет `dist/version.json` — файл, который вкладка опрашивает поверх
@@ -26,7 +27,7 @@ function versionJsonPlugin(): Plugin {
       // Emit into Vite's actual output. A hardcoded dist/version.json leaves
       // custom preview outputs stale and makes the update guard reload forever.
       this.emitFile({ type: "asset", fileName: "version.json",
-        source: JSON.stringify({ version: APP_VERSION, builtAt: new Date().toISOString() }, null, 2) });
+        source: JSON.stringify({ version: APP_VERSION, builtAt: new Date(APP_BUILT_AT).toISOString() }, null, 2) });
     },
   };
 }
@@ -34,6 +35,10 @@ function versionJsonPlugin(): Plugin {
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
+    // Момент сборки — тот же, что в version.json (builtAt). Уходит заголовком
+    // X-Client-Build-Time: по нему сервер понимает, какая из увиденных сборок
+    // новее, не зная ничего о git (см. apps/api/src/lib/clientBuildWatch.ts).
+    __APP_BUILT_AT__: JSON.stringify(APP_BUILT_AT),
   },
   plugins: [
     react(),
