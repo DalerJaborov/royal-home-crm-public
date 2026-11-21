@@ -1,6 +1,7 @@
 import { prisma } from "../../db.js";
 import { sendDocumentFile, sendHtmlMessage, isTelegramEnabled } from "../../telegram/api.js";
 import { escapeHtml } from "../../telegram/assistantReply.js";
+import { sendStaffNotice } from "../../telegram/staffNotice.js";
 import { automationSwitchOn } from "../automationSwitches.js";
 import { crmPublicBase } from "../crmPublicUrl.js";
 import { describeError } from "../describeError.js";
@@ -64,23 +65,26 @@ export async function sendVoicemailToShabnam(input: VoicemailShabnamInput): Prom
 
     const html = buildVoicemailShabnamText(input);
     for (const director of directors) {
-      const chatId = director.telegramChatId;
-      if (!chatId) continue;
-      try {
-        await sendHtmlMessage(chatId, html);
-      } catch (err) {
-        void logSystemError("telephony", `Сообщение автоответчика ${input.file} не дошло директору в Шабнам: ${describeError(err)}`, {
-          dedupKey: "voicemail-shabnam-text-failed",
-        });
-        continue;
-      }
-      try {
-        await sendDocumentFile(chatId, input.audio, input.file, undefined, FILE_TIMEOUT_MS, true);
-      } catch (err) {
-        void logSystemError("telephony", `Запись автоответчика ${input.file} не отправилась директору в Шабнам (текст ушёл): ${describeError(err)}`, {
-          dedupKey: "voicemail-shabnam-file-failed",
-        });
-      }
+      // Через общую дверь (telegram/staffNotice.ts): вид «lead», кнопка «Не присылать такое»,
+      // один повод = одно сообщение по ключу файла. Свой deliver: сначала текст с кнопками,
+      // потом запись файлом; сбой файла не отменяет уже ушедший текст.
+      await sendStaffNotice({
+        agentId: director.id,
+        kind: "lead",
+        dedupKey: `voicemail-shabnam:${input.file}`,
+        subject: input.phone || "скрытый номер",
+        deliver: async (chatId, rows) => {
+          const sent = await sendHtmlMessage(chatId, html, undefined, rows.length ? rows : undefined);
+          try {
+            await sendDocumentFile(chatId, input.audio, input.file, undefined, FILE_TIMEOUT_MS, true);
+          } catch (err) {
+            void logSystemError("telephony", `Запись автоответчика ${input.file} не отправилась директору в Шабнам (текст ушёл): ${describeError(err)}`, {
+              dedupKey: "voicemail-shabnam-file-failed",
+            });
+          }
+          return sent;
+        },
+      });
     }
   } catch (err) {
     void logSystemError("telephony", `Отправка сообщения автоответчика ${input.file} в Шабнам не удалась: ${describeError(err)}`, {

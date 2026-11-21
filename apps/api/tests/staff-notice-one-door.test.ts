@@ -26,6 +26,7 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "lib/paymentReminders.ts": { calls: 1, why: "через дверь; прямая — ответ на нажатое «✅ Оплатил»" },
   "lib/agentSharePost.ts": { calls: 4, why: "пост идёт через дверь (deliver); прямая — «📋 Текст поста» по нажатию" },
   "telegram/assistantPropertyOffers.ts": { calls: 3, why: "предложение коллеге — через дверь (deliver); карточка «кому подходит» — ответ автору" },
+  "lib/telephony/voicemailToShabnam.ts": { calls: 2, why: "через дверь (deliver): текст сообщения автоответчика и запись файлом директору (21.11.2026)" },
   "lib/loginSmsCode.ts": { calls: 1, why: "код входа — безопасность учётки, выключать нельзя" },
   "lib/telegramAgentLink.ts": { calls: 1, why: "ответ на привязку чата, которую человек сам начал" },
   "lib/telegramModeration.ts": { calls: 11, why: "рабочая очередь модератора с кнопками решения" },
