@@ -363,6 +363,8 @@ async function upsertByTag(input: {
             level,
             count: { increment: 1 },
             read: false,
+            // Новое событие по тому же поводу — снова не просмотрено: метка на колокольчике загорается.
+            seenAt: null,
             createdAt: new Date(),
           },
         });

@@ -31,6 +31,9 @@ export const PAGE_PAUSE_MS = 1500;
 export const DETAILS_PER_RUN_CAP = 450;
 /** Список короче этой доли прежнего активного числа — не применяем. */
 export const MIN_SHRINK_RATIO = 0.5;
+/** Сторож вёрстки: после стольких страниц считаем долю «без узнаваемых данных»; больше доли — разметка источника изменилась. */
+export const LAYOUT_MIN_SAMPLE = 10;
+export const LAYOUT_BAD_RATIO = 0.5;
 /** Не разобрано больше этой доли строк списка — не применяем. */
 export const MAX_SKIPPED_RATIO = 0.1;
 /** Исчезло больше этой доли прежних проектов за один забор — не применяем (ложная тревога лучше затёртого реестра). */
@@ -240,12 +243,20 @@ export async function runConstructionRegistrySync(
 
     // Страницы объектов: по одной, с паузой. Сбой одной страницы не валит забор: повторится в следующий раз.
     let pageFailures = 0;
+    let layoutBad = 0;
+    let attempted = 0;
     for (const target of needPage.slice(0, DETAILS_PER_RUN_CAP)) {
+      // Сторож вёрстки: если почти все страницы подряд «без узнаваемых данных», реестр сменил разметку. Не долбим сайт зря.
+      if (attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO) break;
+      attempted += 1;
       try {
         const html = await source.fetchPage(target.url);
         const page: ParsedProjectPage = parseRegistryProjectPage(html);
         // Страница пришла, но ничего не разобралось (заглушка или другая разметка): прежние данные не затираем.
-        if (!page.address && !page.description && page.blocks.length === 0 && page.documents.length === 0) throw new Error("страница без узнаваемых данных");
+        if (!page.address && !page.description && page.blocks.length === 0 && page.documents.length === 0) {
+          layoutBad += 1;
+          throw new Error("страница без узнаваемых данных");
+        }
         await prisma.constructionProject.update({
           where: { id: target.projectId },
           data: {
@@ -267,6 +278,11 @@ export async function runConstructionRegistrySync(
       await source.sleep(PAGE_PAUSE_MS);
     }
 
+    if (attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO) {
+      const msg = `Реестр строек: вёрстка страниц memor.pro, похоже, изменилась: ${layoutBad} из ${attempted} страниц без узнаваемых данных. Старые данные сохранены, разбор страниц нужно поправить.`;
+      result.error = msg;
+      void logSystemError("cron", msg);
+    }
     result.linked = await autoLinkAllProperties();
     if (settings.notify) result.notified = await notifyStatusChanges();
     result.ok = true;

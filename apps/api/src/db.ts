@@ -293,8 +293,27 @@ async function fixInvertedBudget(
     .catch((err) => console.error("[budget-guard] запись в журнал:", err instanceof Error ? err.message : err));
 }
 
+/**
+ * Бюджет 0 или меньше не бывает (21.11.2026): «до 0 с.» отсекало всю базу в подборе. Любая запись нуля
+ * (разбор разговора, форма, бот) превращается в «не указан» (null) здесь, в одной двери записи.
+ */
+function nullifyNonPositiveBudget(data: Record<string, unknown> | undefined): void {
+  if (!data) return;
+  for (const field of ["budgetMin", "budgetMax"]) {
+    if (!(field in data)) continue;
+    const raw = data[field];
+    const value = raw && typeof raw === "object" && "set" in (raw as object) ? (raw as { set: unknown }).set : raw;
+    if (value == null) continue;
+    const num = Number(value);
+    if (!Number.isFinite(num) || num > 0) continue;
+    if (raw && typeof raw === "object" && "set" in (raw as object)) (raw as { set: unknown }).set = null;
+    else data[field] = null;
+  }
+}
+
 const budgetGuard = {
   async update({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const data = (args.data ?? {}) as Record<string, unknown>;
     const touchesMin = "budgetMin" in data;
     const touchesMax = "budgetMax" in data;
@@ -319,6 +338,7 @@ const budgetGuard = {
     return result;
   },
   async create({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const result = (await query(args)) as { id?: string } | null;
     const data = (args.data ?? {}) as Record<string, unknown>;
     const min = plannedNumber(data, "budgetMin");
@@ -329,6 +349,15 @@ const budgetGuard = {
       await fixInvertedBudget(result.id, min, max, true, true, openScope());
     }
     return result;
+  },
+  async updateMany({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
+    return query(args);
+  },
+  async upsert({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget((args as { create?: Record<string, unknown> }).create);
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined ?? (args as { update?: Record<string, unknown> }).update);
+    return query(args);
   },
 };
 

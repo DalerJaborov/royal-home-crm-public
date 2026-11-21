@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4213**. Модулей: **88**.
+Путей: **789**. Развилок в самих путях: **2507**; вместе с задачами по расписанию и фоновыми заданиями — **4216**. Модулей: **88**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10085,6 +10085,20 @@
 - res.json({ ok: true, count: result.count });
   · ответ 200
 
+### POST /api/v1/me/notifications/seen
+
+`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = seenSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой seenSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный список уведомлений»
+- const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…
+  · меняет в базе: notification
+- res.json({ ok: true, count: result.count });
+  · ответ 200
+
 ### GET /api/v1/me/notifications
 
 `apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -10096,14 +10110,14 @@
     · ответ 400 — «Неверный номер страницы»
 - const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
   · зовёт loadVisibleNotificationsWhere()
-- const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…
+- const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…
   · читает в базе: notification
   · считает в базе: notification
 - const shown = <T extends { title: string; body: string }>(rows: T[]): T[]
   · зовёт maskPhonesInText()
 - const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…
   · зовёт attachOfferStates()
-- res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…
+- res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…
   · ответ 200
 
 ## /api/v1/media
@@ -13313,6 +13327,8 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
+- void autoLinkPropertyById(updated.id);
+  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -20945,6 +20961,9 @@
         - await prisma.constructionProject.updateMany({ where: { id: { in: goneIds } }, data: { removedAt: now } });
           · меняет в базе: constructionProject
       - для каждого: const target of needPage.slice(0, DETAILS_PER_RUN_CAP)
+        - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+          - break;
+            · прекращает перебор
         - пробует
           - const page: ParsedProjectPage = parseRegistryProjectPage(html);
             · зовёт parseRegistryProjectPage()
@@ -20959,6 +20978,9 @@
               · запись в журнал ошибок
         - await source.sleep(PAGE_PAUSE_MS);
           · зовёт sleep()
+      - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+        - void logSystemError("cron", msg);
+          · запись в журнал ошибок
       - result.linked = await autoLinkAllProperties();
         · зовёт autoLinkAllProperties()
       - если settings.notify

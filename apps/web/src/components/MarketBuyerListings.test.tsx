@@ -93,6 +93,7 @@ describe("узкий подбор (17.11.2026)", () => {
     const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { listings: rows })} />);
     expect(html).toContain("район не указан");
     expect(html).toContain("за последние 3 суток");
+    expect(html).toContain("размещённые за последние 30 дней");
   });
 
   it("клиент без района: строка «подбор по всему городу»", () => {
