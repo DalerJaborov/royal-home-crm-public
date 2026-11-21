@@ -36,12 +36,15 @@ import type { Page } from "@playwright/test";
  *                жирным): время сообщения 4,05:1, «окно ошибки» 4,34:1 (К05 аудита 20.11). Фон — первый
  *                непрозрачный предок, цвет с прозрачностью смешивается; поверх картинки или градиента
  *                фон неизвестен — такой текст не считается.
+ *  - letterColumn — слово разорвано по буквам в ЛЮБОМ блоке, не только в кнопке: колонка с именем
+ *                файла сжата соседями до одного знака («IMG_1210.MOV» столбиком, 21.11, мастер объекта,
+ *                блок «Видео» на iPhone). Слово 5–24 знака на трёх и более строках — колонка уже 4 знаков.
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame" | "lowContrast";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame" | "lowContrast" | "letterColumn";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast", "letterColumn"];
 /** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
 export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast"];
 
@@ -513,6 +516,22 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
             const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
             if (tops.size > 1) out.push(`wordBreak: ${name(el)} — «${m[0]}» разорвано на ${tops.size} строки`);
           }
+        }
+      }
+    }
+
+    // ---- letterColumn: слово в любом блоке разорвано по буквам (колонка сжата соседями) ----
+    if (want.has("letterColumn")) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        // Не visible(): у схлопнутой колонки сама коробка шириной 0, а буквы торчат из неё — это и есть находка.
+        if (!el || skipped(el) || !el.checkVisibility() || el.closest("details:not([open])")) continue;
+        for (const m of (n.textContent ?? "").matchAll(/[\p{L}\d._-]{5,24}/gu)) {
+          const range = document.createRange();
+          range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
+          const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top / 4)));
+          if (tops.size >= 3) out.push(`letterColumn: ${name(el)} — «${m[0]}» столбиком на ${tops.size} строках`);
         }
       }
     }

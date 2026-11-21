@@ -15,7 +15,7 @@
  */
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
-import { getBotUsername, sendMessage } from "../telegram/api.js";
+import { getBotUsername, removeKeyboard } from "../telegram/api.js";
 import { sendPushToAgent } from "../push.js";
 import { logAgentAudit } from "./audit.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
@@ -83,7 +83,9 @@ export async function tryLinkAgentByCode(chatId: string, code: string, telegramU
     return true;
   });
   if (!linked) return false;
-  await sendMessage(chatId, `Готово, ${agent.fullName} — этот чат привязан к вашему аккаунту Royal Home CRM.`).catch(
+  // Первое сообщение привязанному сотруднику снимает reply-клавиатуру «Поделиться номером»,
+  // которую клиентский бот мог поставить ему ДО привязки (21.11.2026): кнопка не должна висеть.
+  await removeKeyboard(chatId, `Готово, ${agent.fullName} — этот чат привязан к вашему аккаунту Royal Home CRM.`).catch(
     () => {}
   );
   await noteTelegramLinked(agent.id);

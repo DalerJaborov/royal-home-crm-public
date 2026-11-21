@@ -130,9 +130,15 @@ describe("«Оформление» → «Главная»", () => {
     view("ADMIN");
     // Остался один блок («Деньги и главное за день» с текстом «только руководству») — раздела нет.
     expect(screen.queryByRole("heading", { name: "Главная" })).toBeNull();
-    perms.deny = new Set(["team.viewFull"]);
+    // РОП с правом на отчёты получает на главной дашборд (lib/homeDashboard): выключать там нечего.
+    perms.deny = new Set();
     cleanup();
     signIn("r1", "HEAD_OF_SALES");
+    view("HEAD_OF_SALES");
+    expect(screen.queryByRole("heading", { name: "Главная" })).toBeNull();
+    // Без права на отчёты — прежняя главная РОПа со своими выключателями.
+    perms.deny = new Set(["team.viewFull", "reports.view"]);
+    cleanup();
     view("HEAD_OF_SALES");
     expect(screen.queryByRole("switch", { name: "Команда" })).toBeNull();
     expect(screen.getByRole("switch", { name: "Мои задачи" })).toBeTruthy();

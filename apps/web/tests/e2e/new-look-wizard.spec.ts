@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { LOOK_WIDTHS, expectNoOverflowAt } from "./helpers/noOverflow";
+import { geometryFindings } from "./helpers/lookGeometry";
 
 /**
  * «НОВЫЙ ВИД» — мастер «Новый объект» и форма «Изменить объект» (пачка wizard,
@@ -154,4 +155,57 @@ test("холодный заход в мастер: пока ответ серв�
   await expect(page.locator(".wiz .whead")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("html")).not.toHaveAttribute("data-ui-look", /.+/, { timeout: 10_000 });
   await expect(page.locator("[data-ry-section]")).toHaveCount(0);
+});
+
+/**
+ * Строка видео в блоке «Видео» мастера (21.11.2026, iPhone владельца): «IMG_1210.MOV» и «109.4 МБ ·
+ * Готово» стояли столбиком по одной букве — чип «Исходник монтажёру» и кнопка «Убрать» не сжимались и
+ * съедали всю строку. Имя — в одну строку (хвост «.MOV» виден), кнопки уходят на вторую строку, а не
+ * сжимают имя. Ловит helpers/lookGeometry.ts (letterColumn, squeeze, overlap, wordBreak); поломка внесена
+ * нарочно — сторож обязан её увидеть.
+ */
+test("новый вид: строка видео в мастере не рвёт имя файла по буквам на 320–430 @smoke", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "ширины перебираются в десктопном проекте");
+  test.setTimeout(240_000);
+  await shell(page, true);
+  // Разделы листаются ссылками на ПК; шаг остаётся выбранным, когда окно сужается до телефона.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openWizard(page);
+  await page.getByTestId("wizard-step-media").click();
+  await expect(page.locator('.wiz[data-step-key="media"]')).toBeVisible();
+  await page.getByTestId("wizard-video-input").setInputFiles({
+    name: "IMG_1210.MOV",
+    mimeType: "video/quicktime",
+    buffer: Buffer.alloc(2048, 1),
+  });
+  const row = page.getByTestId("wizard-video-row").first();
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  // overlap страницы целиком тут не годится: липкий низ мастера по замыслу лежит над концом шага;
+  // наезд внутри строки проверяется ниже по коробкам имени и кнопок.
+  const kinds = ["letterColumn", "squeeze", "wordBreak", "smallText", "smallTap"] as const;
+  for (const width of [320, 360, 390, 430, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    expect(await geometryFindings(page, { kinds }), `строка видео на ${width}`).toEqual([]);
+    // Имя читается: одна строка, и расширение не потеряно.
+    const nm = row.locator(".nm");
+    expect((await nm.boundingBox())!.height, `имя файла на ${width} в одну строку`).toBeLessThan(40);
+    await expect(nm).toContainText("MOV");
+    const nmBox = (await row.locator(".info").boundingBox())!;
+    for (const part of await row.locator(".act > *").all()) {
+      const b = await part.boundingBox();
+      if (!b) continue; // скрытое поле выбора файла
+      const apart = b.x >= nmBox.x + nmBox.width - 1 || b.x + b.width <= nmBox.x + 1 || b.y >= nmBox.y + nmBox.height - 1 || b.y + b.height <= nmBox.y + 1;
+      expect(apart, `кнопка строки видео наехала на имя файла на ${width}`).toBe(true);
+    }
+    await expectNoOverflowAt(page, width, ".wiz .vrow, .wiz .vrow > *");
+  }
+  // Нарочная поломка: чип и кнопка не переносятся и не сжимаются — колонка имени схлопывается.
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.addStyleTag({
+    content: ".wiz .vrow { flex-wrap: nowrap !important; } .wiz .vrow .nm { overflow-wrap: anywhere !important; text-overflow: clip !important; white-space: normal !important; } .wiz .vrow .nm * { white-space: normal !important; overflow: visible !important; } .wiz .vrow > * { flex-shrink: 0 !important; } .wiz .vrow > div:first-of-type { flex: 0 0 14px !important; min-width: 14px !important; max-width: 14px !important; } .wiz .vrow .act { flex-wrap: nowrap !important; }",
+  });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  expect((await geometryFindings(page, { kinds: ["letterColumn"] })).length, "letterColumn: нарочная поломка не поймана").toBeGreaterThan(0);
 });

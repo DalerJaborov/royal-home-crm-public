@@ -47,6 +47,7 @@ import { noteSpamFiltered, spamFilterApplies } from "./spamFilter.js";
 import { customerForeignShareSettled } from "./customerSharedPublication.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
+import { perceiveCustomerMediaSafely } from "./customerMediaPerceptionSafe.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadBotAnswersItself } from "./botAnswersItself.js";
@@ -248,9 +249,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (loaded.storedAttachments?.length) await recordCustomerRecruitmentAttachments(planningPrincipal, claim, loaded.storedAttachments);
         if (loaded.parts.length) {
           await spendTurnBudget(wait);
-          mediaPerception = { ...await runtime.perceiveMedia(loaded.parts, wait), incomplete: loaded.incomplete };
+          // Сбой разбора не роняет ход (21.11.2026, прод RangeError): без разбора — обычный ответ на вложение, причина в журнал.
+          const media = runtime;
+          const perceived = await perceiveCustomerMediaSafely({ perceive: () => media.perceiveMedia(loaded.parts, wait), wait, current });
+          if (perceived) mediaPerception = { ...perceived, incomplete: loaded.incomplete };
           if (!await current(wait)) throw new Error("Original media context changed");
-          await storeCustomerAgentMediaObservation(claim, mediaPerception);
+          if (mediaPerception) await storeCustomerAgentMediaObservation(claim, mediaPerception);
         }
       }
       if (mediaPerception) {
