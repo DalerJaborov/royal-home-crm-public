@@ -485,6 +485,20 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
       }
     }
     if (want.has("wordBreak")) {
+      // Разрыв ВНУТРИ числа: «123 458 55 / 1 с.» — любой элемент, не только кнопка (ревью #351, полоса «Деньги»).
+      // Число — цифры с неразрывными пробелами/запятой; рвущееся по строкам, но короче 25 знаков (не код/ссылка).
+      const numWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = numWalker.nextNode(); n; n = numWalker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !visible(el) || skipped(el)) continue;
+        for (const m of (n.textContent ?? "").matchAll(/\d[\d  ,.]*\d/g)) {
+          if (m[0].replace(/\D/g, "").length < 3 || m[0].length > 24) continue;
+          const range = document.createRange();
+          range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
+          const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top / 4)));
+          if (tops.size > 1) out.push(`wordBreak: ${name(el)} — число «${m[0]}» разорвано на ${tops.size} строки`);
+        }
+      }
       for (const el of root.querySelectorAll("button, a, [role=tab], .chip, .pill")) {
         if (!visible(el) || skipped(el)) continue;
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);

@@ -946,7 +946,6 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .stk .sub { font-size: 15px; }
   .rh2 .stk .trio small { font-size: 15px; }
   .rh2 .cmdk li button small { font-size: 15px; }
-  .rh2 .gauge .c small { font-size: 15px; }
   .rh2 .ai-list li .lk { font-size: 15px; }
   .rh2 .arow .lk { font-size: 15px; }
   .rh2 .scr .head p { font-size: 15px; }
@@ -955,7 +954,6 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .qsheet .qs-h p { font-size: 15px; }
   .rh2 .od2-f small { font-size: 15px; }
   .rh2 .cfg .cfg-cols small { font-size: 15px; }
-  .rh2 .wiz .sub { font-size: 15px; }
   .rh2 .wiz .sub { font-size: 15px; }
   .rh2 .client-match-evidence p { font-size: 15px; }
   .rh2 .client-match-selected p { font-size: 15px; }

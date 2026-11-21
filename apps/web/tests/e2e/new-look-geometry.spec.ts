@@ -246,7 +246,7 @@ test("новый вид, сторож геометрии ловит каждую
   const page = await context.newPage();
   await stubLookVisualData(page);
   const R = ':root[data-ui-look="royal"]';
-  const breaks: { url: string; ready: string; css: string; kind: GeometryKind; optional?: boolean }[] = [
+  const breaks: { url: string; ready: string; css: string; kind: GeometryKind; optional?: boolean; inject?: string }[] = [
     // пилюля наезжает на «Найдено: 117» — буквы на буквах
     { url: "/properties", ready: ".ry-objects-pending", kind: "overlap", css: `${R} .ry-objects-pending { margin-left: -140px !important; }` },
     // пилюля «Ждут вашей проверки» сжата в круг, «Найдено: 117» рвётся
@@ -279,6 +279,8 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
     { url: "/settings", ready: ".ry-search input", kind: "fieldFrame", css: `${R} .ry-search input { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important; }` },
     { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
+    // число рвётся посреди цифр («123 458 55 / 1 с.», полоса «Деньги» на 768): узкая колонка и перенос где угодно
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "wordBreak", inject: "123456789012", css: `${R} #zz-num { display: block !important; width: 30px !important; overflow-wrap: anywhere !important; white-space: normal !important; }` },
     // бледный серый: время и подписи ниже 4,5:1 (К05 аудита 20.11)
     { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "lowContrast", css: `${R} [data-ry-section="clients"] .ry-crow-name { color: #c4c8d2 !important; }` },
   ];
@@ -288,6 +290,7 @@ test("новый вид, сторож геометрии ловит каждую
     if (b.optional && b.kind === "selectClip" && (await page.locator(".clean-decision-select").count()) === 0) continue;
     await page.evaluate(() => document.fonts.ready.then(() => true));
     expect(await geometryFindings(page, { kinds: [b.kind] }), `${b.kind} без поломки на ${b.url}`).toEqual([]);
+    if (b.inject) await page.evaluate((t) => { const e = document.createElement("b"); e.id = "zz-num"; e.textContent = t; (document.querySelector("main") ?? document.body).prepend(e); }, b.inject);
     await page.addStyleTag({ content: b.css });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     expect((await geometryFindings(page, { kinds: [b.kind] })).length, `${b.kind}: нарочная поломка не поймана (${b.css})`).toBeGreaterThan(0);

@@ -184,7 +184,7 @@ function build() {
   if (phone.length) {
     css += `@media (max-width: 767.98px) {
 `;
-    for (const r of phone) css += `  ${r.selector} { font-size: 15px; }
+    for (const sel of new Set(phone.map((r) => r.selector))) css += `  ${sel} { font-size: 15px; }
 `;
     css += `}
 `;
