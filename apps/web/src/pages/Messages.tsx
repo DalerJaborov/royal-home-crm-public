@@ -68,6 +68,7 @@ import { useScrollLock } from "../hooks/useScrollLock";
 import { useConversationSearch } from "../hooks/useConversationSearch";
 import { useCleanChatDraft } from "../hooks/useCleanChatDraft";
 import { useChatReadingPosition } from "../hooks/useChatReadingPosition";
+import { useGoBack } from "../hooks/useGoBack";
 import { highlightText } from "../lib/highlightText";
 import { MobileChatsList } from "../components/mobile/MobileChatsList";
 import { MobileChatView } from "../components/mobile/MobileChatView";
@@ -165,7 +166,6 @@ export function Messages() {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const locationKey = location.key;
-  const navigate = useNavigate();
   const [legacySelectedId, setLegacySelectedId] = useState<string | null>(null);
   // Clean uses the address as its sole selection source: system Back restores
   // the inbox, Forward restores the conversation, and notification links agree.
@@ -177,18 +177,26 @@ export function Messages() {
     if (id) params.set("open", id);
     else params.delete("open");
     const fromInbox = narrow && !!id && !selectedId;
+    // Переписку, открытую из списка, экран сам переадресует (диалог → вся переписка клиента `client:…`) заменой
+    // адреса. Метку «открыта из списка» переносим на новый адрес: без неё «Назад» не делал шаг по истории, а
+    // ставил список заменой — в истории оставался второй список, и следующий «Назад» вёл на него же (21.11.2026).
+    const carried = !fromInbox && !!id && !!selectedId && location.state?.cleanConversationFromInbox === selectedId;
     setSearchParams(params, {
       replace: !fromInbox,
-      state: fromInbox ? { cleanConversationFromInbox: id } : null,
+      state: fromInbox || carried ? { cleanConversationFromInbox: id } : null,
     });
   };
+  // «Назад» из переписки — через общую дверь (lib/goBack.ts). Шаг по истории — только если переписку открыли
+  // переходом из списка (запись с меткой `cleanConversationFromInbox`): тогда за ней лежит список. Открыли по
+  // ссылке, из пуша или заменой адреса — за ней может лежать что угодно (другой раздел, чужой сайт), и
+  // «Назад» ведёт в список чатов того же экрана, а не в «Объекты».
+  const inboxParams = new URLSearchParams(searchParams);
+  inboxParams.delete("open");
+  const inboxUrl = `/messages${inboxParams.toString() ? `?${inboxParams}` : ""}`;
+  const backToInbox = useGoBack(inboxUrl, { canPop: clean && !!selectedId && location.state?.cleanConversationFromInbox === selectedId });
   const closeConversation = () => {
-    if (clean && selectedId && location.state?.cleanConversationFromInbox === selectedId) {
-      navigate(-1);
-      return;
-    }
-    // A direct notification/deep link has no inbox history entry to return to.
-    selectConversation(null);
+    if (!clean) { selectConversation(null); return; }
+    backToInbox();
   };
 
   // Поиск дебаунсим отдельно от filters, чтобы не дёргать API на каждое нажатие,
@@ -1054,7 +1062,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                     )}
                   </span>
                 )}
-                <MessageAttachments attachments={m.attachments} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
+                <MessageAttachments attachments={m.attachments} inBubble onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
                     {m.at && <time dateTime={m.at}>{dushanbeTime(m.at)}</time>}

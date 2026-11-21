@@ -1,11 +1,9 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { exactDateTime } from "../../../lib/format";
 import { cleanClientTabList, type CleanClientTab } from "../../clean/CleanClientDetailLayout";
 import { RhTabs } from "../ui";
 import { RoyalIcon } from "../RoyalIcon";
 import type { RoyalIconName } from "../royalIconData";
-import { overdueStepTone, pillTone } from "../tileTone";
 
 /**
  * РАЗДЕЛ «КЛИЕНТЫ» В «НОВОМ ВИДЕ» (пачка clients, 18.11.2026).
@@ -25,10 +23,10 @@ export interface RoyalClientRowProps {
   identity: string;
   request: string;
   source: string;
-  nextAction: ReactNode;
-  nextActionDate?: string | null;
-  lastContact: string;
-  staleContact?: boolean;
+  /** Факт-метка строки (lib/clientRowFacts.ts: «ждёт принятия») или отметка состояния карточки; советов здесь нет. */
+  fact?: ReactNode;
+  /** «последний контакт ДД.ММ» / «контакта ещё не было» (lib/clientRowFacts.ts); null — подписи нет. */
+  lastContact: string | null;
   showAgent: boolean;
   agentName?: string | null;
   agentAssigned: boolean;
@@ -44,27 +42,27 @@ function initials(name: string) {
 }
 
 /**
- * Строка списка клиентов: те же данные, что у CleanClientRow, ничего не
- * выброшено из разметки.
+ * Строка списка клиентов: те же данные, что у CleanClientRow.
  * ПК (контейнерный запрос по ширине списка) — таблица: аватар, клиент с номером,
- * запрос с источником, следующее действие со сроком и последним контактом,
- * ответственный, действия; шапка — RoyalClientListHead.
- * Телефон — три строки (~96 px): имя … время; запрос одной строкой; плашка шага …
- * ответственный. Номер карточки и источник (`ry-crow-pc-only`) на телефоне в
- * строке не видны — они в карточке клиента (номер рядом с «назад», источник —
- * фактом в шапке). Трубка — круг справа на всю высоту строки.
+ * запрос с источником, последний контакт (и факт «ждёт принятия»), ответственный,
+ * действия; шапка — RoyalClientListHead.
+ * Телефон: имя; запрос одной строкой; «последний контакт ДД.ММ»; факт-метка; ответственный.
+ * Номер карточки и источник (`ry-crow-pc-only`) на телефоне в строке не видны — они в
+ * карточке клиента. Трубка — круг справа на всю высоту строки.
+ *
+ * СОВЕТОВ НЕТ (владелец 21.11.2026): ни «позвонить», ни «Давно не связывались», ни
+ * «Следующий шаг не назначен», ни срока шага — только факты из lib/clientRowFacts.ts.
+ * Строка контакта всегда спокойная: цвет тревоги ей не положен (сторож RoyalClients.test.tsx).
  */
-export function RoyalClientRow({ id, name, href, avatar, identity, request, source, nextAction, nextActionDate, lastContact, staleContact = false, showAgent, agentName, agentAssigned, actions, deleted }: RoyalClientRowProps) {
-  const deadline = nextAction && nextActionDate ? exactDateTime(nextActionDate) : "";
-  const overdue = !!deadline && new Date(nextActionDate!).getTime() < Date.now();
+export function RoyalClientRow({ id, name, href, avatar, identity, request, source, fact, lastContact, showAgent, agentName, agentAssigned, actions, deleted }: RoyalClientRowProps) {
   const agent = agentName || (agentAssigned ? "Агент назначен" : "Не назначен");
   const who = <>
     <span className="ry-crow-name" title={name}>{name}</span>
     {identity && <span className={`ry-crow-id ${ROYAL_ROW_PC_ONLY}`}>{identity}</span>}
   </>;
   return (
-    <div data-client-row={id} className="ry-crow" data-deleted={deleted || undefined} data-agent={showAgent || undefined} data-deadline={deadline ? "" : undefined}>
-      {/* Аватар — своя клетка сетки (на телефоне на все три строки); ведёт туда же, что имя, но мимо чтеца и Tab. */}
+    <div data-client-row={id} className="ry-crow" data-deleted={deleted || undefined} data-agent={showAgent || undefined}>
+      {/* Аватар — своя клетка сетки (на телефоне на все строки); ведёт туда же, что имя, но мимо чтеца и Tab. */}
       {href
         ? <Link to={href} className="ry-crow-av" tabIndex={-1} aria-hidden="true">{avatar}</Link>
         : <span className="ry-crow-av" aria-hidden="true">{avatar}</span>}
@@ -76,17 +74,12 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
         <span className={`ry-crow-hint ${ROYAL_ROW_PC_ONLY}`}>{source}</span>
       </div>
       <div className="ry-crow-next">
-        {nextAction ? <span className="ry-crow-step">{nextAction}</span> : <span className="ry-crow-step ry-crow-hint">Следующий шаг не назначен</span>}
-        {/* Одна дата с глаголом (пачка D1): есть срок шага — срок («срок …» / «просрочено · …»),
-            нет — когда связывались. Две даты столбиком без подписи читались загадкой
-            (critic-uiux P1-3); последний контакт при сроке есть в карточке клиента. */}
-        <span className="ry-crow-when" data-tone={overdue ? overdueStepTone(Date.now() - new Date(nextActionDate!).getTime()) : !deadline && staleContact ? pillTone("overdue") : undefined}>
-          {deadline
-            ? <span className="ry-crow-text ry-crow-deadline">{overdue ? "просрочено · " : "срок "}<span className="ry-crow-nowrap">{deadline}</span></span>
-            : <span className="ry-crow-hint ry-crow-last">{staleContact ? "Давно не связывались · " : "связывались "}<span className="ry-crow-nowrap">{lastContact}</span></span>}
-          {/* Оба признака сразу (ревью PR 331): срок шага не прячет, что клиент давно без связи. */}
-          {deadline && staleContact && <span className="ry-crow-hint ry-crow-stale">Давно не связывались</span>}
-        </span>
+        {fact && <span className="ry-crow-step">{fact}</span>}
+        {lastContact && (
+          <span className="ry-crow-when">
+            <span className="ry-crow-hint ry-crow-last">{lastContact}</span>
+          </span>
+        )}
       </div>
       {showAgent && (
         <div className="ry-crow-agent" title={`Ответственный: ${agent}`}>
@@ -105,7 +98,7 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
 export function RoyalClientListHead({ showAgent }: { showAgent: boolean }) {
   return (
     <div className="ry-clist-head" data-agent={showAgent || undefined} aria-hidden="true">
-      <span className="ry-clist-head-client">Клиент</span><span>Запрос</span><span>Следующее действие</span>{showAgent && <span>Ответственный</span>}<span>Действия</span>
+      <span className="ry-clist-head-client">Клиент</span><span>Запрос</span><span>Последний контакт</span>{showAgent && <span>Ответственный</span>}<span>Действия</span>
     </div>
   );
 }

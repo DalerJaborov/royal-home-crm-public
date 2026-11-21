@@ -623,7 +623,9 @@ export function PropertyWizard({
         return;
       }
       clearDraftMedia({ draftId: completedDraftId });
-      navigate(`/properties/${saved.shortId}`);
+      // Заменой, а не переходом: мастер сохранён и в истории ему не место — «Назад» из карточки нового объекта
+      // открывал мастер заново (ревью #375, 21.11.2026; сторож — routeFormReplaceGuard.test.ts).
+      navigate(`/properties/${saved.shortId}`, { replace: true });
     } catch (err) {
       // A lost POST response may mean the draft was already transferred. Retry
       // the frozen request/key before attempting any new draft write.
@@ -899,7 +901,7 @@ export function PropertyWizard({
     const shortId = finishing?.shortId;
     const draftId = pendingCreateBody.current?.draftId;
     clearDraftMedia({ draftId: typeof draftId === "string" ? draftId : null });
-    if (shortId !== undefined) navigate(`/properties/${shortId}`);
+    if (shortId !== undefined) navigate(`/properties/${shortId}`, { replace: true });
   }
 
   /** Окно выбора: повторить упавшие и сохранить заново (дождавшись их). */
