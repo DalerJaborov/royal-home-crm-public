@@ -217,6 +217,28 @@ describe("забор реестра", () => {
     expect(p.blocks).toEqual(["Блок А"]);
   });
 
+  it("сторож вёрстки: почти все страницы без узнаваемых данных — забор останавливается и сообщает, старое цело", async () => {
+    const list = Array.from({ length: 30 }, (_, i) => item(`v${i}`, "green", `Вэ ${i}`, 38.7 + i / 1000, 69.1));
+    await runConstructionRegistrySync({ source: makeSource(() => list) });
+    const before = await prisma.constructionProject.findUniqueOrThrow({ where: { sourceId: "v0" } });
+    const fetched: string[] = [];
+    const changed = list.map((x) => ({ ...x, color_status: "red" }));
+    const broken = { ...makeSource(() => changed), fetchPage: async (u: string) => { fetched.push(u); return "<html><body>новая вёрстка</body></html>"; } };
+    const r = await runConstructionRegistrySync({ source: broken });
+    expect(fetched.length).toBeLessThan(30); // остановились, не обошли все
+    expect(r.error).toMatch(/вёрстка/);
+    const after = await prisma.constructionProject.findUniqueOrThrow({ where: { sourceId: "v0" } });
+    expect(after.address).toBe(before.address);
+  });
+
+  it("автосвязь при создании: объект рядом с проектом связывается сразу, без недельного забора", async () => {
+    await runConstructionRegistrySync({ source: makeSource(() => [item("z1", "green", "Зэ")]) });
+    await prisma.constructionPropertyLink.deleteMany({});
+    const { autoLinkPropertyById } = await import("../src/lib/constructionRegistry/autoLinkOnSave.js");
+    await autoLinkPropertyById(propertyNear);
+    expect(await prisma.constructionPropertyLink.count({ where: { propertyId: propertyNear, state: "LINKED" } })).toBe(1);
+  });
+
   it("слишком много неразобранных строк: ничего не применяется", async () => {
     const good = Array.from({ length: 24 }, (_, i) => item(`s${i}`, "green", `Эс ${i}`, 38.6 + i / 1000, 68.9));
     await runConstructionRegistrySync({ source: makeSource(() => good) });
