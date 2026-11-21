@@ -31,6 +31,7 @@ import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNa
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleFreeNarrationCallback, handleFreeNarrationMessage } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
+import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
 import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
@@ -882,9 +883,14 @@ export async function handleAssistantPrivate(
     if (!isForwarded && await handleNarrationTextReply(msg, agent, (m) => transcribeVoice(m, agent.id, moneyWallet))) return;
     // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
     if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
+    // Новая подпись поста без объекта (10 минут после «Изменить подпись») — telegram/staffSocialPost.ts.
+    if (!isForwarded && await handleStaffSocialText(msg, agent)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
     if (!isForwarded && await handleStaffClipText(msg, agent)) return;
     if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
+    // Фото или альбом с «опубликуй» — пост в соцсети без объекта (21.11.2026). ПОСЛЕ мастера объекта:
+    // сотрудник в мастере, фото с «выложи» — это фото объекта. Без этих слов фото идут дальше (расходы).
+    if (!isForwarded && await handleStaffSocialPhoto(msg, agent)) return;
     // Ролик от СММщика или другого сотрудника (12.11.2026): сам находит объект, дальше
     // «Готов к выпуску» или «Нужен монтаж». В мастере объекта видео остаётся исходником (выше).
     if (await handleStaffClipMessage(msg, agent)) return;
@@ -1791,7 +1797,15 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleNarrationCallback(query)) return true;
   if (await handleNarrationPreviewCallback(query)) return true;
   if (await handleFreeNarrationCallback(query)) return true;
-  if (await handleStaffClipCallback(query)) return true;
+  // Ролик и пост без объекта: долгое (скачать, ИИ, публикация) — в очереди этого чата, как ход
+  // помощницы в личке; разбор остальных апдейтов нажатие не держит, кнопка отвечает сразу.
+  const chatLane: DeferWork = async (work) => {
+    void runInAssistantLane(`private:${query.message?.chat.id ?? query.from?.id}`, work, async (err) => {
+      await logSystemError("telegram", `Кнопка ролика или поста в Telegram: ${describeError(err)}`);
+    });
+  };
+  if (await handleStaffClipCallback(query, chatLane)) return true;
+  if (await handleStaffSocialCallback(query, chatLane)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {
