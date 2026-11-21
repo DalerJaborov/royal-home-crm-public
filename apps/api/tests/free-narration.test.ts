@@ -36,6 +36,7 @@ vi.mock("../src/auth/middleware.js", async (importOriginal) => ({ ...await impor
 
 const { freeNarrationLimits } = await import("@royal-home/shared");
 const { waitFor } = await import("./helpers/waitFor.js");
+const { drainBackgroundTasks } = await import("../src/lib/shutdownState.js");
 const { prisma } = await import("../src/db.js");
 const { createFreeNarrationRequest, runFreeNarration, purgeFreeNarrations, freeNarrationUsedToday, canUseFreeNarration } = await import("../src/lib/freeNarration.js");
 const { narrationBudgetUsage } = await import("../src/lib/narrationGeneration.js");
@@ -433,7 +434,12 @@ describe("правки после ревью (16.11.2026)", () => {
   const lastButtons = () => (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string, Array<Array<{ text: string; callback_data?: string }>>])[2];
 
   it("нажатие занимает запись и возвращается РАНЬШЕ, чем ответит ElevenLabs; файл уходит из фона", async () => {
+    // ГОНКА С ФОНОМ ПРЕДЫДУЩИХ ТЕСТОВ (облачный прогон 21.11.2026, #378): отправка файла из фона прошлого теста этого
+    // файла приземлилась уже здесь — «sendDocumentFile вызван 1 раз» до ответа ElevenLabs, а на повторе счётчик
+    // «ровно 1» не сошёлся за 2 с. Код не виноват: дожидаемся чужого фона, считаем только свой чат, фону — запас времени.
+    await drainBackgroundTasks(30_000);
     const user = await makeAgent();
+    const docsToUser = () => tg.sendDocumentFile.mock.calls.filter((c) => String(c[0]) === String(user.chat)).length;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const slow = vi.fn(async () => { await gate; return new Response(new Uint8Array([0x49, 0x44, 0x33, 1]), { status: 200, headers: { "content-type": "audio/mpeg" } }); });
@@ -443,14 +449,16 @@ describe("правки после ревью (16.11.2026)", () => {
       const pick = lastButtons()[0][0].callback_data!;
       const done = await Promise.race([handleFreeNarrationCallback(click(user.chat, pick)).then(() => "handler"), new Promise((r) => setTimeout(() => r("timeout"), 8000))]);
       expect(done).toBe("handler");
-      await waitFor(() => slow.mock.calls.length === 1);
-      expect(tg.sendDocumentFile).not.toHaveBeenCalled();
+      await waitFor(() => slow.mock.calls.length === 1, { timeoutMs: 10_000 });
+      expect(docsToUser()).toBe(0);
       expect((await prisma.freeNarration.findFirst({ where: { agentId: user.id } }))?.status).toBe("GENERATING");
       // Второе нажатие, пока идёт генерация, ничего не запускает.
       await handleFreeNarrationCallback(click(user.chat, pick));
       expect(slow).toHaveBeenCalledTimes(1);
       release();
-      await waitFor(() => tg.sendDocumentFile.mock.calls.length === 1);
+      await waitFor(() => docsToUser() === 1, { timeoutMs: 15_000, label: "файл озвучки ушёл из фона" });
+      await drainBackgroundTasks(15_000);
+      expect(docsToUser()).toBe(1);
     } finally { release(); vi.unstubAllGlobals(); }
   });
 

@@ -34,6 +34,8 @@ import { pickAgentForLead } from "./services/leads/selection.js";
 import { setPickAgentForLeadHook } from "./lib/telephony/pickAgentForLeadHook.js";
 import { assignAgentForLead, recordAssignReason } from "./services/leads/assignment.js";
 import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/telephony/assignAgentForLeadHook.js";
+import { setVideoIssuedToMontajerHook } from "./lib/videoHandoff.js";
+import { narrationAfterVideoIssued } from "./lib/narrationAutoFlow.js";
 import { beginShutdown, drainBackgroundTasks } from "./lib/shutdownState.js";
 import { closeAllStreams } from "./lib/eventBus.js";
 import { resetIncompleteProcessedMessages } from "./lib/webhookDedupe.js";
@@ -64,6 +66,8 @@ setConsultantCallEndedHook(onConsultantCallEnded);
 // звонки теперь тоже проходят через правило «свой объект», см. assignAgentForLeadHook.ts).
 setAssignAgentForLeadHook(assignAgentForLead);
 setRecordAssignReasonHook(recordAssignReason);
+// Видео выдано монтажёру — одобренный голос следом (21.11.2026, объект №211; videoHandoff.ts ↔ narrationAutoFlow.ts).
+setVideoIssuedToMontajerHook(narrationAfterVideoIssued);
 
 // Последний рубеж: без этого необработанный reject из fire-and-forget промиса
 // (void someAsyncCall() без .catch(), например в siteSync/loginLog) по умолчанию
