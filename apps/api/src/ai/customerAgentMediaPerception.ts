@@ -39,6 +39,20 @@ const perceptionTool = { name: CUSTOMER_MEDIA_EXTRACTION_TOOL_NAME, description:
     speech: { type: "string", enum: ["clear", "partial", "none", "unintelligible"] } },
     required: ["language", "transcript", "subject", "visible", "readableText", "speech"], additionalProperties: false } };
 
+/**
+ * Сбой ПОДГОТОВКИ вложения к разбору (до обращения к модели): проверка байтов, размера, формы частей. Только такой сбой
+ * ход переживает без разбора (lib/customerMediaPerceptionSafe.ts, прод RangeError 21.11.2026). Всё, что пришло ОТ модели
+ * (лишний вызов, передача человеку, бизнес-инструмент, не та форма ответа), — не сбой подготовки: ход держится, как раньше
+ * (сторож tests/customer-dm-media-perception-postgres.test.ts «cannot request handover or execute a business tool»).
+ */
+export class CustomerMediaInputError extends Error {
+  constructor(readonly original: unknown) {
+    super(original instanceof Error ? original.message : "Customer media input invalid");
+    this.name = original instanceof Error ? original.name : "CustomerMediaInputError";
+    if (original instanceof Error && original.stack) this.stack = original.stack;
+  }
+}
+
 /** One bounded perception request in the ORIGINAL managed operation. No
  * fallback/model switch, new deadline, resend, business tool or customer output. */
 export async function perceiveCustomerAgentMedia(input: {
@@ -54,15 +68,20 @@ export async function perceiveCustomerAgentMedia(input: {
     input.operation.check();
   };
   await check();
-  if (!input.parts.length || input.parts.length > 3) throw new TypeError("Bounded actual customer media required");
-  const parts = input.parts.flatMap(part => {
-    if (part.attachmentIndex !== undefined && (!Number.isSafeInteger(part.attachmentIndex) || part.attachmentIndex < 1 || part.attachmentIndex > 16)) throw new Error("Original attachment index invalid");
-    return [...(part.attachmentIndex !== undefined ? [{ text: `Original customer attachment ${part.attachmentIndex}:` }] : []),
-      { inline_data: { mime_type: part.mimeType, data: part.data } }];
-  });
-  managedGeminiMediaFeatures(parts);
-  const request = { system: CUSTOMER_AGENT_MEDIA_INSTRUCTION, contents: [{ role: "user" as const, parts }], tools: [structuredClone(perceptionTool)], wait: input.wait };
-  if (Buffer.byteLength(JSON.stringify(request), "utf8") > GEMINI_MANAGED_MEDIA_MAX_WIRE_BYTES - 4096) throw new Error("Media request size exceeded");
+  let request: Parameters<typeof input.call>[0];
+  try {
+    if (!input.parts.length || input.parts.length > 3) throw new TypeError("Bounded actual customer media required");
+    const parts = input.parts.flatMap(part => {
+      if (part.attachmentIndex !== undefined && (!Number.isSafeInteger(part.attachmentIndex) || part.attachmentIndex < 1 || part.attachmentIndex > 16)) throw new Error("Original attachment index invalid");
+      return [...(part.attachmentIndex !== undefined ? [{ text: `Original customer attachment ${part.attachmentIndex}:` }] : []),
+        { inline_data: { mime_type: part.mimeType, data: part.data } }];
+    });
+    managedGeminiMediaFeatures(parts);
+    request = { system: CUSTOMER_AGENT_MEDIA_INSTRUCTION, contents: [{ role: "user" as const, parts }], tools: [structuredClone(perceptionTool)], wait: input.wait };
+    if (Buffer.byteLength(JSON.stringify(request), "utf8") > GEMINI_MANAGED_MEDIA_MAX_WIRE_BYTES - 4096) throw new Error("Media request size exceeded");
+  } catch (error) {
+    throw new CustomerMediaInputError(error);
+  }
   const result = await input.call(request);
   await check();
   if (result.calls.length !== 1 || result.calls[0].name !== perceptionTool.name) throw new Error("Media extraction protocol invalid");
