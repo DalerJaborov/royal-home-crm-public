@@ -2,6 +2,7 @@ import { narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narrationGeneration.js";
 import { crmWillPrepareFirstNarration } from "./narrationPlan.js";
+import { mediaExecutionMode } from "./mediaExecution.js";
 
 /**
  * ОДНА СТРОКА ОБ ОЗВУЧКЕ В ЗАДАНИИ МОНТАЖЁРУ (12.11.2026). Задание на монтаж и перемонтаж
@@ -47,21 +48,27 @@ export async function narrationLineForMontajer(propertyId: string): Promise<stri
   if (narrationMixByCrm(config)) {
     return latest || p.videoMasterStorageKey ? "🎙 Озвучку накладывает CRM: пришлите ролик БЕЗ голоса (музыка и звуки можно)." : null;
   }
-  if (!latest) return await crmWillPrepareFirstNarration(propertyId, config, key) ? `🎙 Озвучка готовится, придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}` : null;
+  if (!latest) return await crmWillPrepareFirstNarration(propertyId, config, key) ? `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}` : null;
   // Старая ручная озвучка маркетинга (до автоозвучки): сама она монтажёру не уходит — mp3 не обещаем
   // (ревью 12.11.2026). Если маркетинг передаст её кнопкой, она придёт отдельным сообщением.
   if ((latest.source ?? "MANUAL") === "MANUAL") return "🎙 Озвучку этого объекта ведёт маркетинг вручную: сама она сюда не придёт. Нужна — спросите маркетинг.";
-  // Одобренный голос уходит заново при каждом перемонтаже (21.11.2026): старый файл искать не нужно.
-  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт сюда отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
+  // Одобренный голос уходит СЛЕДОМ за файлами этой же выдачи (21.11.2026, объект №211: голос раньше видео терялся) —
+  // при каждой выдаче заново, старый файл искать не нужно (videoHandoff.ts → narrationAutoFlow.ts::narrationAfterVideoIssued).
+  // Отправка голоса выключена на сервере (не LIVE) — следом он не придёт, обещаем только «как будет готова».
+  if (latest.status === "READY" && latest.approvedAt) {
+    return mediaExecutionMode("NARRATION") === "LIVE"
+      ? `🎙 Озвучка — следующим сообщением, вклейте её сами.${voicelessCopyHint()}`
+      : `🎙 Озвучка одобрена и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
+  }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
-    return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда отдельным mp3, как только будет готова.";
+    return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда, как будет готова.";
   }
   // Одобрена уже при сохранении (21.11.2026, approveAsId): ждать некого, только пока готовится звук.
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && latest.approveAsId) {
-    return `🎙 Озвучка готовится и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;
+    return `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
   }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) {
-    return `🎙 Озвучка ждёт одобрения и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;
+    return `🎙 Озвучка ждёт одобрения и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
   }
   return null;
 }

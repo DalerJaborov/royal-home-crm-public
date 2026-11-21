@@ -42,6 +42,7 @@ const { setMontajerSendPauseMsForTests, queueVideoHandoff } = await import("../s
 const { runVideoHandoffRedeliveryTick } = await import("../src/lib/videoHandoffRedelivery.js");
 const { clearAgentFromSettingsReferences } = await import("../src/lib/agentSettingsCleanup.js");
 const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
+const { runNarrationAutoFlow } = await import("../src/lib/narrationAutoFlow.js");
 
 const runId = String(Date.now()).slice(-7);
 const OLD_CHAT = `8${runId}1`;
@@ -260,13 +261,15 @@ describe("озвучка держателя тоже уходит текущем
       await prisma.propertyNarrationVersion.create({
         data: {
           propertyId, revision: 1, script: "Проверочный текст озвучки.", factsSnapshot: facts as object, factsHash: narrationHash(facts),
-          status: "READY", storageKey: `${propertyId}/voice.mp3`, approvedAt: new Date(), createdById: oldId, requestKey: randomUUID(),
+          status: "READY", storageKey: `${propertyId}/voice.mp3`, approvedAt: new Date(), createdById: oldId, requestKey: randomUUID(), source: "AUTO",
         },
       })
     ).id;
   }
 
-  it.each(["SENT", "QUEUED"])("озвучка была %s прежнему — текущему ставится своя посылка, повтор не дублирует", async (oldStatus) => {
+  // С 21.11.2026 голос новому монтажёру уходит СЛЕДОМ за его видео (обход озвучки по выдаче видео,
+  // narrationAutoFlow.ts::narrationsOwedToMontajer), а не отдельной посылкой сторожа очереди.
+  it.each(["SENT", "QUEUED"])("озвучка была %s прежнему — новому после его видео ставится своя посылка, повтор не дублирует", async (oldStatus) => {
     vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
     try {
       await holderDeliveredToOld();
@@ -277,6 +280,8 @@ describe("озвучка держателя тоже уходит текущем
 
       await runVideoHandoffRedeliveryTick();
       await runVideoHandoffRedeliveryTick();
+      await runNarrationAutoFlow({});
+      await runNarrationAutoFlow({});
 
       const rows = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId }, orderBy: { createdAt: "asc" } });
       const mine = rows.filter((r) => r.editorId === newId);
@@ -298,6 +303,7 @@ describe("озвучка держателя тоже уходит текущем
       data: { propertyId, versionId, editorId: oldId, mode: "AUDIO_ONLY", requestKey: randomUUID(), createdById: oldId, status: "SENT", executionMode: "LIVE", plan: {} },
     });
     await runVideoHandoffRedeliveryTick();
+    await runNarrationAutoFlow({});
     expect(await prisma.propertyNarrationDelivery.count({ where: { propertyId, editorId: newId } })).toBe(0);
     await prisma.propertyNarrationDelivery.deleteMany({ where: { propertyId } });
     await prisma.propertyNarrationVersion.deleteMany({ where: { propertyId } });

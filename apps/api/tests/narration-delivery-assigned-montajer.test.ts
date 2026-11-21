@@ -88,7 +88,7 @@ async function propertyWithApprovedVoice(opts: { handoff?: "SENT_TO_EDITOR" | "R
   await prisma.client.create({ data: { id: sellerId, fullName: "Synthetic seller", phone: `+99291${randomInt(1000000, 9999999)}`, source: "WALK_IN", kind: "SELLER", assignedAgentId: fx.approverId } });
   const id = randomUUID(); fx.propertyIds.push(id);
   const p = await prisma.property.create({ data: { id, title: "Synthetic narration role property", type: "APARTMENT", areaSqm: 61, price: 400000, currency: "TJS", districtId: fx.districtId,
-    address: "Synthetic fixture only", condition: "GOOD", sellerClientId: sellerId, videoHandoffStatus: opts.handoff ?? "SENT_TO_EDITOR", videoHandoffSentAt: new Date(),
+    address: "Synthetic fixture only", condition: "GOOD", sellerClientId: sellerId, videoHandoffStatus: opts.handoff ?? "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffDeliveredAt: new Date(),
     ...(opts.remakeReason ? { videoHandoffRemakeReason: opts.remakeReason } : {}) }, include: { district: true } });
   const facts = narrationFacts(p);
   const storageKey = `${p.id}/${randomUUID()}.mp3`;
@@ -230,7 +230,7 @@ describe("монтажёру — один готовый файл и текст 
     const { p, version } = await propertyWithApprovedVoice({ withFile: true });
     // Задание монтажёру с исходниками.
     const task = await buildMontajerMessageText(p.id, null);
-    expect(task).toContain("🎙 Озвучка одобрена и придёт сюда отдельным mp3 — вклейте её сами.");
+    expect(task).toContain("🎙 Озвучка — следующим сообщением, вклейте её сами.");
     // Голос: одно mp3, подпись с текстом.
     expect(await afterNarrationApproved(p.id, version.id)).toBe("QUEUED");
     const delivery = await prisma.propertyNarrationDelivery.findFirstOrThrow({ where: { propertyId: p.id } });

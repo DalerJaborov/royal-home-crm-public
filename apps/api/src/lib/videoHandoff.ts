@@ -1362,6 +1362,16 @@ async function dispatchToEditorAfterClaim(
     });
   }
 
+  // ГОЛОС — СЛЕДОМ ЗА ВИДЕО, В ЭТОЙ ЖЕ ВЫДАЧЕ (21.11.2026, объект №211). Видео целиком у монтажёра и в этот раз
+  // что-то реально ушло (первая отправка, очередь, «Пропустить»/«Взять другой», перемонтаж, новый монтажёр,
+  // досылка сторожа) — одобренный mp3 уходит сразу, до контрольного «отправлено N из N». Повтор той же выдачи
+  // файлов не шлёт (отметки), значит, и голоса второй раз не даёт; ключ передачи — момент выдачи.
+  if (result.delivered && result.sentVideoIds.size > 0 && videoIssuedToMontajerHook) {
+    await videoIssuedToMontajerHook(property.id, montajerAgentId).catch((err) =>
+      logSystemError("video-handoff", `Объект №${property.shortId}: голос следом за видео не отправлен: ${describeError(err)}`)
+    );
+  }
+
   // Контрольное «отправлено N из N» — только если в этот раз что-то реально ушло.
   if (result.sentVideoIds.size > 0) {
     // Кнопки «🗂 Очередь» и «⏭ Пропустить» под заданием (19.11.2026) — только
@@ -1438,6 +1448,18 @@ export interface DeliverSourceVideosResult {
    *  "editor-changed" — в Настройках назначили другого монтажёра (25.09.2026, А1),
    *  "mismatch" — в посылке оказался файл чужого объекта (защита, не должно быть). */
   abortReason?: "removed" | "editor-changed" | "mismatch" | "deferred";
+}
+
+/**
+ * КРЮЧОК «ВИДЕО ВЫДАНО МОНТАЖЁРУ» (21.11.2026): одобренная озвучка уходит следом за видео
+ * (lib/narrationAutoFlow.ts::narrationAfterVideoIssued). Крючок, а не импорт: narrationAutoFlow сам
+ * импортирует этот модуль, прямой импорт замкнул бы цикл. Ставят обе точки входа (index.ts, worker.ts);
+ * не поставлен — голос всё равно уйдёт обходом озвучки в течение минуты.
+ */
+type VideoIssuedToMontajerHook = (propertyId: string, montajerAgentId: string) => Promise<unknown>;
+let videoIssuedToMontajerHook: VideoIssuedToMontajerHook | null = null;
+export function setVideoIssuedToMontajerHook(fn: VideoIssuedToMontajerHook | null): void {
+  videoIssuedToMontajerHook = fn;
 }
 
 /** "deferred" — монтажёр сам вернул объект в очередь из бота (19.11.2026): штатно, не ошибка. */

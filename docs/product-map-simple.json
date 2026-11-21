@@ -78215,12 +78215,6 @@
          "raw": "await handOverHolderToCurrentMontajer(montajerAgentId, now)"
         },
         {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        },
-        {
          "t": "и так по каждому",
          "k": "loop",
          "a": [],

@@ -31,7 +31,7 @@ const { prisma } = await import("../src/db.js");
 const { listenNarration } = await import("../src/lib/narrationListen.js");
 const { waitForCount } = await import("./helpers/waitFor.js");
 const { dushanbeDayKey, NARRATION_LISTEN_PER_PERSON_DEFAULT } = await import("@royal-home/shared");
-const { startNarrationForNewProperty, approveNarrationAsSaved, requestAutoNarration, runNarrationAutoFlow, requestNarrationAfterEdit, remakeRedeliveries, wizardNarrationTextRejection } = await import("../src/lib/narrationAutoFlow.js");
+const { startNarrationForNewProperty, approveNarrationAsSaved, requestAutoNarration, runNarrationAutoFlow, requestNarrationAfterEdit, narrationsOwedToMontajer, wizardNarrationTextRejection } = await import("../src/lib/narrationAutoFlow.js");
 const { notifyNarrationApproval } = await import("../src/telegram/assistantNarration.js");
 const { generateNarrationVersion, loadNarrationConfiguration, narrationBudgetUsage } = await import("../src/lib/narrationGeneration.js");
 const { narrationFacts } = await import("../src/lib/propertyNarration.js");
@@ -298,21 +298,30 @@ describe("ревью 21.11", () => {
     await prisma.agent.update({ where: { id: author }, data: { telegramChatId: null } });
   });
 
-  it("обход перемонтажа решает по времени: голос ушёл раньше перемонтажа — слать; ушёл (любым ключом) после — не слать", async () => {
+  it("обход по выдаче видео решает по времени: голос ушёл раньше видео этой выдачи — слать; ушёл (любым ключом) после — не слать", async () => {
     const p = await seedProperty();
     await startNarrationForNewProperty(p.id, author, { templateId: TEMPLATE.id, voiceId: "voiceA" });
     const vid = await generate(p.id);
     expect(await approveNarrationAsSaved(vid)).toBe("AUDIO_APPROVED");
-    const t = (min: number) => new Date(Date.now() - 60 * 60_000 + min * 60_000);
-    const told = (key: string, at: Date) => prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: vid, editorId: null, mode: "AUDIO_ONLY", status: "SENT",
-      requestKey: key, createdById: author, executionMode: "LIVE", deliveredAt: at, createdAt: at } });
-    await told(`auto:${vid}:x-${runId}`, t(0));
-    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoRemakeCount: 1 } });
-    await prisma.videoRemakeRequest.create({ data: { propertyId: p.id, reason: "OTHER", requestedById: author, createdAt: t(10) } });
-    expect((await remakeRedeliveries()).map((r) => r.id)).toContain(vid);
-    // Старый ключ без номера перемонтажа, но уже ПОСЛЕ его начала (до выката) — дубля нет.
-    await told(`manual:${vid}:${runId}`, t(20));
-    expect((await remakeRedeliveries()).map((r) => r.id)).not.toContain(vid);
+    const editor = await makeAgent(3, "EDITOR");
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: editor } });
+    try {
+      const t = (min: number) => new Date(Date.now() - 60 * 60_000 + min * 60_000);
+      const told = (key: string, at: Date) => prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: vid, editorId: editor, mode: "AUDIO_ONLY", status: "SENT",
+        requestKey: key, createdById: author, executionMode: "LIVE", deliveredAt: at, createdAt: at } });
+      await told(`auto:${vid}:x-${runId}`, t(0));
+      // Видео этой выдачи дошло до монтажёра позже голоса (как №211) — голос уходит следом.
+      await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffDeliveredAt: t(10) } });
+      await prisma.propertyVideo.create({ data: { propertyId: p.id, storageKey: `${p.id}/raw.mp4`, filename: "raw.mp4", sizeBytes: 1, uploadedById: author, montajerDeliveredAt: t(10), montajerDeliveredToId: editor } });
+      expect((await narrationsOwedToMontajer()).map((r) => r.id)).toContain(vid);
+      // Ручной ключ, но уже ПОСЛЕ выдачи видео — дубля нет.
+      await told(`manual:${vid}:${runId}`, t(20));
+      expect((await narrationsOwedToMontajer()).map((r) => r.id)).not.toContain(vid);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: before.videoMontajerAgentId } });
+      await prisma.propertyVideo.deleteMany({ where: { propertyId: p.id } });
+    }
   });
 
   it("дневной предел не останавливает озвучку роликов и прослушивание: звук делается, руководству одно уведомление в сутки", async () => {
