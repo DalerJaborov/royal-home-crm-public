@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useScrollLock } from "../hooks/useScrollLock";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Delete, Phone } from "lucide-react";
@@ -53,6 +54,8 @@ const KEYS: { digit: string; letters?: string }[] = [
 
 
 export function DialPadModal({ onClose }: { onClose: () => void }) {
+  // Окно на весь экран телефона: прокрутка только внутри, страница под ним стоит (класс «прокрутка проваливается», 21.11.2026).
+  useScrollLock();
   const [digits, setDigits] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Кнопка «Вставить номер» — видна только если в буфере обмена РЕАЛЬНО лежит

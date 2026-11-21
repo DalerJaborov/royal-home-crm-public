@@ -1,4 +1,5 @@
 import { canRetryDraftItem, type DraftMediaItem } from "../../lib/draftUploads";
+import { useScrollLock } from "../../hooks/useScrollLock";
 import { uploadProblemTitle } from "./saveDecision";
 
 /**
@@ -28,6 +29,7 @@ export function UploadProblemSheet({
   onRemove: () => void;
   onSaveWithout: () => void;
 }) {
+  useScrollLock();
   const retryable = problems.filter(canRetryDraftItem).length;
   const title = uploadProblemTitle(problems.length, timedOut);
   const shown = problems.slice(0, 4);
