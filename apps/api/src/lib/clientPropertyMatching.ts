@@ -20,7 +20,7 @@
  * попадает. Сторож — tests/matching-one-model.test.ts.
  */
 import {
-  MATCH_SCORE_WEIGHTS, MATCH_TEXT, matchTierRank, propertyFieldShown,
+  MATCH_SCORE_WEIGHTS, MATCH_TEXT, matchTierRank, positiveBudget, propertyFieldShown,
   type ClientPropertyMatchEvidence, type MatchEvidence, type MatchLang, type MatchWishKey,
 } from "@royal-home/shared";
 import { formatDistance, nearestDesiredPlace, type DesiredPlacePoint } from "./geoDistance.js";
@@ -152,7 +152,7 @@ function factText(property: MatchingPropertyFacts, key: MatchWishKey): boolean |
 }
 
 export function hasClientMatchingCriteria(client: MatchingBuyerCriteria): boolean {
-  const numericCriteria = [client.budgetMin, client.budgetMax, client.desiredRooms, client.desiredAreaMin,
+  const numericCriteria = [positiveBudget(client.budgetMin), positiveBudget(client.budgetMax), client.desiredRooms, client.desiredAreaMin,
     client.desiredFloorMin, client.desiredFloorMax, client.desiredTotalFloors];
   return numericCriteria.some(value => value != null) || Boolean(client.desiredDistrictId || client.desiredType ||
     client.desiredPlaces?.length || client.requirementsNotes?.trim());
@@ -225,8 +225,10 @@ const propertyCache = new WeakMap<object, PreparedProperty>();
 function prepareBuyer(client: MatchingBuyerCriteria, money: MoneyContext, policy: MatchPolicy): PreparedBuyer {
   const hit = buyerCache.get(client);
   if (hit && hit.money === money && hit.policy === policy) return hit;
-  const minTjs = client.budgetMin != null ? toTjs(client.budgetMin, client.currency, money) : null;
-  const maxTjs = client.budgetMax != null ? toTjs(client.budgetMax, client.currency, money) : null;
+  const minBudget = positiveBudget(client.budgetMin);
+  const maxBudget = positiveBudget(client.budgetMax);
+  const minTjs = minBudget != null ? toTjs(minBudget, client.currency, money) : null;
+  const maxTjs = maxBudget != null ? toTjs(maxBudget, client.currency, money) : null;
   const window = budgetWindowTjs(minTjs, maxTjs, policy);
   const floors = notesFloorWishes(client.requirementsNotes);
   const prepared: PreparedBuyer = { money, policy, places: client.desiredPlaces ?? [], minTjs, maxTjs,

@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { ExternalLink, Search } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { marketContactText, type MarketBuyerListing, type MarketBuyerListingsResponse, type MarketBuyerSummary } from "@royal-home/shared";
+import { marketContactText, MARKET_BUYER_PLACED_MAX_DAYS, type MarketBuyerListing, type MarketBuyerListingsResponse, type MarketBuyerSummary } from "@royal-home/shared";
 import { useMarketBuyerListings } from "../hooks/useMarket";
 import { dushanbeDate } from "../lib/date";
 import { formatArea, formatMoney } from "../lib/format";
@@ -95,7 +95,7 @@ export function MarketBuyerListingsView({
       <p className="sub">
         Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
         {data.criteria.length > 0 ? ` Ищем: ${data.criteria.join(", ")}.` : ""}
-        {data.freshDays > 0 ? ` Только то, что было на сайте за последние ${data.freshDays} ${daysWord(data.freshDays)}.` : ""}
+        {data.freshDays > 0 ? ` Только объявления, размещённые за последние ${MARKET_BUYER_PLACED_MAX_DAYS} дней, и те, что были на сайте за последние ${data.freshDays} ${daysWord(data.freshDays)}.` : ""}
       </p>
       {data.status === "ok" && data.clientDistrictMissing && (
         <p className="sub" data-testid="market-district-missing">Район в пожеланиях не указан, поэтому подбор по всему городу.</p>
