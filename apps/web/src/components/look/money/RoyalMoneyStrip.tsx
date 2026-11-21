@@ -16,7 +16,7 @@ const nums = (v: number) => Math.round(v).toLocaleString("ru-RU");
 export function RoyalMoneyStrip({ current, previous }: { current: FinanceMonth; previous?: FinanceMonth }) {
   // Один кегль на всю полосу — по самой длинной сумме (ревью #351).
   const rank = { s: 0, m: 1, l: 2 } as const;
-  const len = ([current.companyRevenue, current.operatingExpenses, Math.abs(current.profit)].map((v) => lenBucket(`${nums(v)} с.`)).sort((a, b) => rank[b] - rank[a])[0]);
+  const len = ([current.companyRevenue, current.operatingExpenses, Math.abs(current.profit)].map((v) => lenBucket(`${nums(v)} с.`)).sort((a, b) => rank[b] - rank[a])[0]);
   const prevLabel = previous ? `в ${MONTHS_PREP[Number(previous.month.slice(5, 7)) - 1]}` : "";
   return (
     <section className="ry-money-strip" aria-label="Итог месяца: доход, расходы, прибыль">
