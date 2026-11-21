@@ -5,13 +5,14 @@ import { expectNoOverflowAt } from "./helpers/noOverflow";
 import { IPHONE_UA, geometryFindings } from "./helpers/lookGeometry";
 
 /**
- * «Дашборд директора» (/director, 21.11.2026): директор видит всё, РОП и маркетолог без права на
- * деньги — без денег (плиток, столбцов и кольца нет в разметке вовсе), агенту экран закрыт.
- * Ответы сервера подменены: на стенде маршрут отдаёт заглушку. 390 и 1440, светлая тема.
+ * Дашборд руководителя на главной «/» (21.11.2026): директор видит всё, РОП без права на деньги —
+ * без денег (плиток, столбцов и кольца нет в разметке вовсе); наверху одна полоса «Требует внимания
+ * сейчас», старых блоков главной (деньги, команда, графики) нет — цифры не повторяются. Агент —
+ * прежняя главная, /director для руководителя ведёт на «/». Ответы дашборда подменены. 390 и 1440.
  */
 const SIZES = [{ name: "390", width: 390, height: 844 }, { name: "1440", width: 1440, height: 900 }] as const;
 
-async function open(browser: Browser, baseURL: string | undefined, role: RoleName, size: (typeof SIZES)[number], seesMoney: boolean, stub = true) {
+async function open(browser: Browser, baseURL: string | undefined, role: RoleName, size: (typeof SIZES)[number], seesMoney: boolean, stub = true, path = "/") {
   const phone = size.width < 820;
   const context = await contextForRole(browser, role, {
     baseURL, serviceWorkers: "block", viewport: { width: size.width, height: size.height },
@@ -20,8 +21,16 @@ async function open(browser: Browser, baseURL: string | undefined, role: RoleNam
   const page = await context.newPage();
   await page.route("**/api/v1/ui-shell", (r) => r.request().method() === "GET" ? r.fulfill({ json: { enabled: true, look: "royal" }, headers: { "cache-control": "no-store" } }) : r.fallback());
   if (stub) await stubDirectorDashboard(page, { seesMoney });
-  await page.goto("/director");
+  await page.goto(path);
   return { context, page };
+}
+
+/** На главной руководителя ровно два блока: полоса внимания и дашборд, без дублей старой главной. */
+async function expectDashboardHome(page: Page) {
+  await expect(page.locator("[data-block]").first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => page.locator("[data-block]").evaluateAll((els) => els.map((el) => el.getAttribute("data-block")))).toEqual(["attention", "dashboard"]);
+  await expect(page.getByRole("region", { name: "Требует внимания сейчас" })).toBeVisible();
+  await expect(page.locator('[data-block="attention"] h2')).toHaveCount(1);
 }
 
 const money = (page: Page) => page.locator('[data-kpi="revenue"], #dd-plan, .dd-table th:has-text("Комиссия")');
@@ -32,7 +41,8 @@ for (const size of SIZES) {
     test.setTimeout(120_000);
     const { context, page } = await open(browser, baseURL, "DIRECTOR", size, true);
     const root = page.locator('[data-ry-section="director"] [data-testid="director-dashboard"]');
-    await expect(root.getByRole("heading", { name: "Дашборд директора", level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
+    await expectDashboardHome(page);
     await expect(page.locator('[data-kpi="newLeads"]')).toContainText("148");
     await expect(page.locator('[data-kpi="newLeads"]')).toContainText("на 27 заявок больше, чем в прошлом периоде");
     // Рост «без контакта» — плохо: красное, а не зелёное.
@@ -67,31 +77,25 @@ for (const size of SIZES) {
   });
 }
 
-for (const role of ["HEAD_OF_SALES", "MARKETING"] as const) {
+for (const role of ["HEAD_OF_SALES"] as const) {
   for (const size of SIZES) {
     test(`дашборд директора: ${role} без права на деньги — денег в разметке нет, ${size.name} @smoke`, async ({ browser, baseURL }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "ширины задаются внутри теста");
       test.setTimeout(120_000);
       const { context, page } = await open(browser, baseURL, role, size, false);
       const root = page.locator('[data-testid="director-dashboard"]');
-      await expect(root.getByRole("heading", { name: "Дашборд директора", level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible();
       await expect(money(page)).toHaveCount(0);
       await expect(root).not.toContainText("Выручка");
       await expect(root).not.toContainText("План и факт");
-      if (role === "MARKETING") {
-        // Нет права видеть всех клиентов — плитки без списка, сервер на список всё равно ответил бы 403.
-        await expect(page.locator("button[data-kpi]")).toHaveCount(0);
-        await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible();
-      }
-      if (role === "HEAD_OF_SALES") {
+      await expectDashboardHome(page);
+      {
         // У РОП сверху — скорость ответа и менеджеры, период по умолчанию — «Неделя».
         await expect(root.getByRole("radio", { name: "Неделя" })).toHaveAttribute("aria-checked", "true");
         const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
         expect(await y("#dd-speed")).toBeLessThan(await y("#dd-kpi"));
         expect(await y("#dd-agents")).toBeLessThan(await y("#dd-kpi"));
-      } else {
-        await expect(root.getByRole("radio", { name: "Месяц" })).toHaveAttribute("aria-checked", "true");
       }
       await expectNoOverflowAt(page, size.width, ".dd-card, .dd-tile, .ry-row, .dd-agent-card, .dd-head, .dd-filters", { strips: ".dd-table-wrap, .dd-filters .ry-seg" });
       await context.close();
@@ -99,9 +103,29 @@ for (const role of ["HEAD_OF_SALES", "MARKETING"] as const) {
   }
 }
 
+test("дашборд директора: старый адрес /director ведёт директора на главную @smoke", async ({ browser, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  test.setTimeout(120_000);
+  const { context, page } = await open(browser, baseURL, "DIRECTOR", SIZES[1], true, true, "/director");
+  await expect(page).toHaveURL(/\/$/, { timeout: 30_000 });
+  await expectDashboardHome(page);
+  await expect(page.locator('a[href="/director"]')).toHaveCount(0);
+  await context.close();
+});
+
+test("главная агента: прежняя, без дашборда руководителя @smoke", async ({ browser, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  test.setTimeout(120_000);
+  const { context, page } = await open(browser, baseURL, "AGENT", SIZES[1], true);
+  await expect(page.locator('[data-block="agentTiles"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="director-dashboard"]')).toHaveCount(0);
+  await expect(page.locator('[data-block="attention"]')).toHaveCount(0);
+  await context.close();
+});
+
 test("дашборд директора: агенту экран закрыт и в меню его нет @smoke", async ({ browser, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
-  const { context, page } = await open(browser, baseURL, "AGENT", SIZES[1], true);
+  const { context, page } = await open(browser, baseURL, "AGENT", SIZES[1], true, true, "/director");
   await expect(page.getByText("Нет доступа к этому разделу")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="director-dashboard"]')).toHaveCount(0);
   await expect(page.locator('a[href="/director"]')).toHaveCount(0);
@@ -114,7 +138,7 @@ test("дашборд директора: живой ответ сервера (�
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const root = page.locator('[data-testid="director-dashboard"]');
-  await expect(root.getByRole("heading", { name: "Дашборд директора", level: 1 })).toBeVisible({ timeout: 30_000 });
+  await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible({ timeout: 30_000 });
   await expect(root.getByText("Не загрузилось")).toHaveCount(0);
   expect(errors).toEqual([]);

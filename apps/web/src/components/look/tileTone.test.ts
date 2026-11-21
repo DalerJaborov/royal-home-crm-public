@@ -35,7 +35,7 @@ describe("tileTone", () => {
  * не переменная. Главные агента, монтажёра и маркетинга пока на прежних вариантах (их
  * ведут другие пачки) — они в списке «ещё не переведены», и этот список только убывает.
  */
-const GUARDED = ["home/blocks/director.tsx", "home/blocks/rop.tsx", "home/blocks/leader.tsx", "home/blocks/manager.tsx"];
+const GUARDED = ["home/blocks/dashboardHome.tsx", "home/blocks/director.tsx", "home/blocks/rop.tsx", "home/blocks/leader.tsx", "home/blocks/manager.tsx"];
 const NOT_YET = ["home/blocks/agent.tsx", "home/blocks/editor.tsx", "home/blocks/marketing.tsx"];
 
 /** Теги `<RhTile …>` целиком: до `>` или `/>` вне фигурных скобок (стрелки `=>` внутри `{}` тег не обрывают). */

@@ -3,6 +3,7 @@ import { useAuthStore } from "../../../store/auth";
 import { useUiPrefs } from "../../../store/uiPrefs";
 import { RhButton, RhSwitch } from "../ui";
 import { useCan } from "../../../lib/permissions";
+import { useDashboardHome } from "../../../lib/homeDashboard";
 import { homeBlocksAllowed, homeBlockVisible, mergeHomeOrder } from "./core";
 import { HOME_BLOCKS, HOME_LAYOUT, useHomeLayoutPrefs } from "./registry";
 
@@ -28,7 +29,9 @@ export function HomeBlocksSettings() {
   const setHomeBlocks = useUiPrefs((s) => s.setHomeBlocks);
   const { order, hidden } = useHomeLayoutPrefs(role ?? "default");
   const can = useCan();
-  if (!role) return null;
+  // Главная руководителя — дашборд с полосой срочного (lib/homeDashboard): выключать там нечего.
+  const dashboardHome = useDashboardHome();
+  if (!role || dashboardHome) return null;
   // Только блоки, которые человеку вообще что-то рисуют: без нужного права блок пуст,
   // и выключатель для него был бы обманом (ревью #326).
   const blocks = homeBlocksAllowed(role, HOME_BLOCKS, HOME_LAYOUT).filter((block) => homeBlockVisible(block, role, can));
