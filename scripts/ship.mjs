@@ -59,6 +59,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fetchOriginMain, READ_NETWORK_DELAYS_MS, READ_NETWORK_WINDOW_MS } from "./read-network-recovery.mjs";
+import { acquireShipLock } from "./ship-lock.mjs";
 
 export const STATUS_CONTEXT = "проверено";
 
@@ -427,7 +428,7 @@ class Stop extends Error {}
 /** Предел на git push этапа 7: обычный пуш идёт секунды, повисший вход — вечно. */
 const PUSH_TIMEOUT_MS = 5 * 60_000;
 /** Влито ли уже: после вливания «на сайт ничего не ушло» было бы неправдой. */
-const state = { mergedSha: null, cleanup: null };
+const state = { mergedSha: null, cleanup: null, releaseLock: null };
 
 function makeRunner(root) {
   const git = (...args) => {
@@ -599,6 +600,14 @@ export async function main(argv = process.argv.slice(2)) {
   const token = tokenFromEnvOrGh();
   if (!token) blockers.push("нет доступа к GitHub: задай GH_TOKEN или войди `gh auth login`");
   console.log(`  ветка ${branch}, репозиторий ${repo.owner}/${repo.repo}`);
+
+  // Очередь выкатов (21.11.2026, владелец: «все по очереди»): один ship на весь репозиторий за раз.
+  // Замок берётся ДО того, как запомнить main: пока ждём очереди, main уезжает, и сводить надо со
+  // свежим. Отпускается в любом исходе (точка входа внизу файла). Разбор — scripts/ship-lock.mjs.
+  if (!opts.dryRun && token && !blockers.length) {
+    stage("1а", "очередь выкатов");
+    state.releaseLock = await acquireShipLock(github(token, repo), branch);
+  }
 
   const r0 = await fetchOriginMain();
   if (r0.status !== 0) throw new Stop("git fetch origin main не прошёл");
@@ -992,7 +1001,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     process.exit(again.status ?? 1);
   }
-  holdProcessUntilSettled(main()).finally(() => state.cleanup?.()).then(
+  holdProcessUntilSettled(main()).finally(() => state.cleanup?.()).finally(() => state.releaseLock?.()).then(
     (code) => process.exit(code),
     (err) => {
       if (err instanceof Stop) {
