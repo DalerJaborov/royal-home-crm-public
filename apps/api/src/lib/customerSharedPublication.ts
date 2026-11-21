@@ -82,7 +82,8 @@ export function customerForeignShareCandidate(input: { kinds: readonly string[] 
  *  - у каждого вложения ссылка CDN Meta: загрузчик всё равно не ищет такую публикацию в нашем аккаунте, «свой пост без
  *    объекта» отсюда не получится (lib/customerDmMediaContent.ts);
  *  - подпись пересланного поста не говорит о нас и о жилье (номер объекта, Royal Home, квартира, цена — уже не чужой шум).
- * Иначе — прежний путь (скачать, понять), а оператор на чужой пост без слов всё равно промолчит (ai/operator/decide.ts).
+ * Иначе — прежний путь (скачать, понять). Оператор (ai/operator/decide.ts) молчит на пост без слов только по этому приговору
+ * (`foreignQuiet`); без него первый такой пост в разговоре получает вопрос «купить или продать?» (прод 21.11.2026).
  */
 export function customerForeignShareSettled(input: {
   candidate: boolean; media: readonly { url?: string | null }[];
