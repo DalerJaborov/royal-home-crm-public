@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { scrollBoxesFrom, shouldBlockTouchMove, touchIsExempt } from "../lib/touchScrollTrap";
+import { cursorGesture, gestureAxis, scrollChainFrom, shouldBlockTouchMove, touchIsExempt, type Axis, type ScrollLink } from "../lib/touchScrollTrap";
 
 /**
  * Пока открыто окно, страница под ним не прокручивается.
@@ -32,24 +32,41 @@ export function isScrollLocked(): boolean {
 
 /**
  * Палец двигает только ленту, которой есть куда ехать (lib/touchScrollTrap.ts). Слушатель на документе и
- * НЕ пассивный: только такой может отменить движение. Направление берём от прошлого движения, а не от
- * точки касания — палец, развернувшийся посреди жеста, меряется по текущему направлению.
+ * НЕ пассивный: только такой может отменить движение. На касание один раз снимаем цепочку прокручиваемых
+ * предков и решаем, не трогать ли его вовсе; ось жеста фиксируется после первых AXIS_LOCK_PX и не меняется
+ * до отпускания; шаг меряется от прошлого движения. Только на сенсорном экране — на ПК ловушки нет.
  */
 function trapTouchMoves(): () => void {
+  const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  if (!coarse || typeof document.addEventListener !== "function") return () => undefined;
+  let startX = 0;
+  let startY = 0;
   let lastX = 0;
   let lastY = 0;
+  let axisLock: Axis | null = null;
+  let chain: ScrollLink[] = [];
+  let skip = false;
   const onStart = (event: TouchEvent) => {
     const t = event.touches[0];
-    if (t) { lastX = t.clientX; lastY = t.clientY; }
+    if (!t) return;
+    startX = lastX = t.clientX;
+    startY = lastY = t.clientY;
+    axisLock = null;
+    skip = touchIsExempt(event, window.visualViewport?.scale);
+    chain = skip ? [] : scrollChainFrom(event.target);
   };
   const onMove = (event: TouchEvent) => {
     const t = event.touches[0];
-    if (!t || !event.cancelable || touchIsExempt(event)) return;
-    const dx = t.clientX - lastX;
-    const dy = t.clientY - lastY;
+    if (!t || skip || !event.cancelable) return;
+    // Второй палец и увеличение могут появиться посреди жеста — тогда отпускаем жест до конца.
+    if (event.touches.length > 1 || (window.visualViewport?.scale ?? 1) > 1.01) { skip = true; return; }
+    const { axis, lock } = gestureAxis(axisLock, t.clientX - startX, t.clientY - startY);
+    axisLock = lock;
+    if (cursorGesture(event.target, axis)) { if (lock) skip = true; return; }
+    const delta = axis === "y" ? t.clientY - lastY : t.clientX - lastX;
     lastX = t.clientX;
     lastY = t.clientY;
-    if (shouldBlockTouchMove(dx, dy, scrollBoxesFrom(event.target))) event.preventDefault();
+    if (shouldBlockTouchMove(axis, delta, chain)) event.preventDefault();
   };
   document.addEventListener("touchstart", onStart, { passive: true, capture: true });
   document.addEventListener("touchmove", onMove, { passive: false, capture: true });

@@ -54,6 +54,7 @@ async function fakeIosKeyboard(page: Page) {
     };
     Object.defineProperty(window, "visualViewport", { value: fake, configurable: true });
     Object.defineProperty(window, "innerHeight", { get: () => fake.height, configurable: true });
+    (window as unknown as { __scale: (v: number) => void }).__scale = (v) => { fake.scale = v; };
     (window as unknown as { __kb: (h: number, top: number) => void }).__kb = (h, top) => {
       fake.height = h; fake.offsetTop = top;
       for (const type of ["resize", "scroll"]) for (const cb of listeners[type] ?? []) cb();
@@ -157,6 +158,16 @@ test.describe("телефон как приложение", () => {
     await page.evaluate((sel) => { (document.querySelector(sel) as HTMLElement).scrollTop = 0; }, thread);
     expect(await drag(page, thread, 120)).toBe(true);
     await release(page, thread);
+  });
+
+  test("увеличенная страница (щипок): палец водит по ней свободно, ловушка не гасит", async ({ page }) => {
+    await fakeIosKeyboard(page);
+    await openChatDirect(page);
+    expect(await drag(page, ".ry-chat-head", 120), "без увеличения шапка не тянет экран").toBe(true);
+    await release(page, ".ry-chat-head");
+    await page.evaluate(() => (window as unknown as { __scale: (v: number) => void }).__scale(2));
+    expect(await drag(page, ".ry-chat-head", 120), "при увеличении жест свободен — фото и текст не застревают").toBe(false);
+    await release(page, ".ry-chat-head");
   });
 
   test("шторка: жест внутри неё не двигает страницу под ней @smoke", async ({ page }) => {

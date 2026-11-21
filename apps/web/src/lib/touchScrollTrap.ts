@@ -14,58 +14,112 @@
  * Здесь — только решение (чистая функция, её проверяет vitest); слушатель ставит useScrollLock.
  */
 
-/** Блок с прокруткой на пути пальца, от ближнего к дальнему. */
-export interface ScrollBox {
-  /** Можно ли прокручивать по вертикали (overflow-y auto/scroll и есть что прокручивать). */
+/** Ось жеста фиксируется, когда палец ушёл от точки касания на столько px, и не меняется до отпускания. */
+export const AXIS_LOCK_PX = 7;
+
+export type Axis = "x" | "y";
+
+/** Прокручиваемый блок на пути пальца (от ближнего к дальнему), снятый один раз на касание. */
+export interface ScrollLink {
+  el: { scrollTop: number; scrollLeft: number };
   y: boolean;
-  /** Можно ли прокручивать по горизонтали. */
   x: boolean;
-  top: number;
   maxTop: number;
-  left: number;
   maxLeft: number;
 }
 
-/**
- * Гасить ли движение пальца. `dx`/`dy` — смещение от точки касания (палец вниз — `dy > 0`, то есть
- * содержимое едет к своему началу). Решает ближайший блок, который прокручивается по главной оси жеста:
- * едет в эту сторону — пропускаем, упёрся в край — гасим (дальше по цепочке жест не отдаём). Такого блока
- * нет вовсе — гасим: двигать за окном нечего, а иначе двигалась бы видимая область.
- */
-export function shouldBlockTouchMove(dx: number, dy: number, boxes: readonly ScrollBox[]): boolean {
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return false;
-  const vertical = Math.abs(dy) >= Math.abs(dx);
-  const box = boxes.find((b) => (vertical ? b.y : b.x));
-  if (!box) return true;
-  if (vertical) return dy > 0 ? box.top <= 0 : box.top >= box.maxTop - 1;
-  return dx > 0 ? box.left <= 0 : box.left >= box.maxLeft - 1;
+/** Ось жеста: зафиксированная — она; иначе по текущему смещению от точки касания (вертикаль при равенстве). */
+export function gestureAxis(locked: Axis | null, dx: number, dy: number): { axis: Axis; lock: Axis | null } {
+  if (locked) return { axis: locked, lock: locked };
+  const axis: Axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+  return { axis, lock: Math.max(Math.abs(dx), Math.abs(dy)) >= AXIS_LOCK_PX ? axis : null };
 }
 
-/** Цепочка прокручиваемых блоков от цели касания вверх, до `<body>` (саму страницу не берём — она заблокирована). */
-export function scrollBoxesFrom(target: EventTarget | null): ScrollBox[] {
-  const boxes: ScrollBox[] = [];
+/** Может ли блок ехать вдоль оси в сторону движения пальца (`delta > 0` — палец вниз/вправо, к началу). */
+function canMove(link: ScrollLink, axis: Axis, delta: number): boolean {
+  if (axis === "y") {
+    if (!link.y) return false;
+    const top = link.el.scrollTop;
+    return delta > 0 ? top > 0 : top < link.maxTop - 1;
+  }
+  if (!link.x) return false;
+  const left = Math.abs(link.el.scrollLeft);
+  return delta > 0 ? left > 0 : left < link.maxLeft - 1;
+}
+
+/**
+ * Гасить ли шаг движения. `delta` — шаг пальца вдоль оси жеста с прошлого движения. Жест отдаём первому блоку
+ * цепочки, который в эту сторону ещё может ехать: упёрлось поле ввода или вложенная лента — едет следующий
+ * прокручиваемый предок (так ведёт себя и сам браузер). Не может никто — гасим: за окном двигать нечего, иначе
+ * поехала бы видимая область.
+ */
+export function shouldBlockTouchMove(axis: Axis, delta: number, chain: readonly ScrollLink[]): boolean {
+  if (Math.abs(delta) < 0.5) return false;
+  return !chain.some((link) => canMove(link, axis, delta));
+}
+
+/**
+ * Цепочка прокручиваемых предков от цели касания до `<body>` (саму страницу не берём — она заблокирована).
+ * Считается ОДИН раз на касание: стили и размеры не читаем на каждом кадре движения, только `scrollTop`.
+ */
+export function scrollChainFrom(target: EventTarget | null): ScrollLink[] {
+  const chain: ScrollLink[] = [];
   let node = target instanceof Element ? target : null;
   while (node && node !== document.body && node !== document.documentElement) {
     if (node instanceof HTMLElement) {
       const style = getComputedStyle(node);
-      const scrollableY = /(auto|scroll)/.test(style.overflowY) || node instanceof HTMLTextAreaElement;
-      const scrollableX = /(auto|scroll)/.test(style.overflowX);
       const maxTop = node.scrollHeight - node.clientHeight;
       const maxLeft = node.scrollWidth - node.clientWidth;
-      const y = scrollableY && maxTop > 1;
-      const x = scrollableX && maxLeft > 1;
-      if (y || x) boxes.push({ y, x, top: node.scrollTop, maxTop, left: Math.abs(node.scrollLeft), maxLeft });
+      const y = (/(auto|scroll)/.test(style.overflowY) || node instanceof HTMLTextAreaElement) && maxTop > 1;
+      const x = /(auto|scroll)/.test(style.overflowX) && maxLeft > 1;
+      if (y || x) chain.push({ el: node, y, x, maxTop, maxLeft });
     }
     node = node.parentElement;
   }
-  return boxes;
+  return chain;
 }
 
-/** Касания, которые не трогаем вовсе: щипок двумя пальцами, ползунки, области со своим жестом. */
-export function touchIsExempt(event: TouchEvent): boolean {
+const NOT_TEXT_INPUTS = ["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "image"];
+
+/** Поле, где палец двигает курсор или выделение. */
+function isTextField(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) return !NOT_TEXT_INPUTS.includes(el.type);
+  return el instanceof HTMLElement && el.isContentEditable === true;
+}
+
+/** Идёт ли выделение текста (в поле или на странице) — его ручки двигает палец, мешать нельзя. */
+function selectingText(target: Element | null): boolean {
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    try {
+      if (target.selectionStart !== null && target.selectionStart !== target.selectionEnd) return true;
+    } catch {
+      /* у части типов input нет selectionStart */
+    }
+  }
+  const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+  return !!sel && !sel.isCollapsed;
+}
+
+/**
+ * Касание, которое не трогаем вовсе (решается на старте; масштаб и второй палец проверяются и на ходу):
+ *  - два пальца (щипок) и увеличенная страница (`visualViewport.scale > 1.01`): палец водит по увеличенному
+ *    фото или тексту, и гасить это — значит запереть человека в углу картинки (ревью #375);
+ *  - ползунки и области со своим жестом (`data-allow-touchmove`);
+ *  - выделение текста: ручки выделения ведёт палец.
+ */
+export function touchIsExempt(event: TouchEvent, viewportScale: number | undefined): boolean {
   if (event.touches.length > 1) return true;
+  if ((viewportScale ?? 1) > 1.01) return true;
   const target = event.target instanceof Element ? event.target : null;
-  return !!target?.closest('input[type="range"], [data-allow-touchmove]');
+  if (target?.closest("input[type=range], [data-allow-touchmove]")) return true;
+  return selectingText(target);
+}
+
+/** Горизонтальный жест по полю ввода — это курсор (iOS двигает его пальцем), а не прокрутка: не трогаем. */
+export function cursorGesture(target: EventTarget | null, axis: Axis): boolean {
+  return axis === "x" && isTextField(target instanceof Element ? target : null);
 }
 
 /**
