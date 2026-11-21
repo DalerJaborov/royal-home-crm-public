@@ -97,12 +97,20 @@ export function noteUpdateAttempt(currentVersion: string): number {
 }
 
 /**
- * Перезагрузка уже не помогала MAX_ATTEMPTS раз подряд — оверлей для этой версии
- * не показываем совсем.
+ * Лестница для этой версии уже ДОШЛА ДО СДАЧИ — больше не трогаем вкладку.
+ *
+ * СТРОГО «БОЛЬШЕ», А НЕ «БОЛЬШЕ ИЛИ РАВНО» (21.11.2026, разбор «Чаты: загружаем» с
+ * iPhone владельца). Сдача (`reportGiveUp`) живёт в `applyAppUpdate` на попытке
+ * MAX_ATTEMPTS + 1, а UpdatePrompt зовёт её только после этой проверки. С `>=`
+ * проверка глушила вкладку уже после третьей попытки, и четвёртый вызов — тот, что
+ * пишет сдачу в журнал, — не случался НИКОГДА: телефон оставался на старой сборке
+ * молча. Так и было: 21.11 вкладка Chrome на iPhone работала на сборке старше
+ * 17.11 (падение главной `t.count`, починенное #319), а в журнале — ни одной сдачи.
+ * Теперь три рабочие попытки, затем ровно одна запись о сдаче, затем тишина.
  */
 export function isUpdateLoopSuppressed(currentVersion: string): boolean {
   const record = readAttempts();
-  return !!record && record.from === currentVersion && record.count >= MAX_ATTEMPTS;
+  return !!record && record.from === currentVersion && record.count > MAX_ATTEMPTS;
 }
 
 /**

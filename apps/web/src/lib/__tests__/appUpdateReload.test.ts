@@ -68,10 +68,12 @@ describe("счётчик попыток обновления", () => {
     expect(noteUpdateAttempt("bbb")).toBe(1);
   });
 
-  it("глушит оверлей после трёх безуспешных кругов", () => {
+  it("глушит вкладку только после сдачи (три рабочих круга + запись о сдаче)", () => {
     expect(isUpdateLoopSuppressed("aaa")).toBe(false);
     noteUpdateAttempt("aaa");
     noteUpdateAttempt("aaa");
+    noteUpdateAttempt("aaa");
+    // После третьего круга вызов ещё нужен: именно он пишет сдачу в журнал.
     expect(isUpdateLoopSuppressed("aaa")).toBe(false);
     noteUpdateAttempt("aaa");
     expect(isUpdateLoopSuppressed("aaa")).toBe(true);
@@ -170,6 +172,28 @@ describe("applyAppUpdate", () => {
     // Телеметрия едет в error.stack (errorReporter читает именно его), а не в
     // в message: message служит ключом дедупликации.
     expect(event.init?.error?.message).toContain("сборка вкладки=aaa");
+  });
+
+  /**
+   * РЕАЛЬНЫЙ ПУТЬ UpdatePrompt.tryApply (21.11.2026): сначала isUpdateLoopSuppressed,
+   * потом applyAppUpdate — по разу на каждую «жизнь» страницы. Тест выше зовёт
+   * applyAppUpdate в четвёртый раз напрямую и поэтому был зелёным, хотя через
+   * настоящий путь сдача не доходила до журнала ни разу (проверка глушила раньше).
+   */
+  it("через путь UpdatePrompt сдача доходит до журнала ровно один раз", async () => {
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    const branches: string[] = [];
+    for (let pageLife = 0; pageLife < 6; pageLife++) {
+      if (isUpdateLoopSuppressed("aaa")) continue;
+      branches.push(
+        await applyAppUpdate({ needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload, navigateFresh })
+      );
+    }
+    expect(branches).toEqual(["reload", "hard-reset", "hard-reset", "gave-up"]);
+    await vi.waitFor(() => expect(window.dispatchEvent).toHaveBeenCalledTimes(1));
+    const event = (window.dispatchEvent as unknown as { mock: { calls: [{ init?: { message?: string } }][] } }).mock.calls[0][0];
+    expect(event.init?.message).toContain("Сдача");
   });
 });
 
