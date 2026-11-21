@@ -155,4 +155,5 @@ export function trackOnlineState(target: Pick<Window, "addEventListener" | "remo
   });
   onlineManager.setOnline(nav.onLine !== false);
 }
-if (typeof window !== "undefined" && typeof navigator !== "undefined") trackOnlineState();
+// В тестах `window` бывает урезанной подделкой без addEventListener: без настоящего окна ничего не подключаем.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function" && typeof navigator !== "undefined") trackOnlineState();
