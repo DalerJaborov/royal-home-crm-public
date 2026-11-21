@@ -4,7 +4,7 @@ import { ApiError } from "./apiError";
 import { withFieldHint } from "./validationHint";
 import { httpStatusMessage } from "./httpStatusMessage";
 import { assertFitsSingleRequest } from "./singleRequestLimit";
-import { noteServerBuild } from "./appVersion";
+import { clientBuildHeaders, noteServerBuild } from "./appVersion";
 // Общий выход (снимает push-подписку устройства). Импорт односторонний: signOut
 // намеренно ходит голым fetch и НЕ импортирует api.ts — иначе получился бы цикл.
 import { signOut } from "./signOut";
@@ -214,7 +214,7 @@ export async function refreshAccessToken(): Promise<string | null> {
     const mine: Promise<string | null> = fetch(`${BASE_URL}/auth/refresh`, {
       method: "POST",
       credentials: "include",
-      headers: { "X-Device-Id": getOrCreateDeviceId() },
+      headers: { "X-Device-Id": getOrCreateDeviceId(), ...clientBuildHeaders() },
       signal: controller.signal,
     })
       .then(async (res) => {
@@ -395,7 +395,7 @@ export async function api<T>(
    * долгие скачивания) — там `restart` перезапускает его на каждый кусок данных.
    */
   const doFetch = async (token: string | null) => {
-    const headers: Record<string, string> = { "X-Device-Id": getOrCreateDeviceId() };
+    const headers: Record<string, string> = { "X-Device-Id": getOrCreateDeviceId(), ...clientBuildHeaders() };
     if (!isForm) headers["Content-Type"] = "application/json";
     if (token) headers["Authorization"] = `Bearer ${token}`;
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
@@ -469,8 +469,9 @@ export async function api<T>(
       }
     }
 
-    // Второй сигнал «вышла новая версия» (см. UpdatePrompt): сервер шлёт свою сборку
-    // заголовком на каждом ответе (app.ts), заметка сравнивает её с первой увиденной.
+    // Подсказка «загляни в /version.json» (см. UpdatePrompt): сервер шлёт отметку
+    // своего запуска заголовком на каждом ответе (app.ts); смена отметки будит
+    // проверку версии фронта, но сама вкладку устаревшей НЕ объявляет (21.11.2026).
     // До 26.08.2026 вызова не было НИГДЕ — appVersion.ts обещал его «из api.ts на
     // каждом ответе», seenBuild навсегда оставался null, и сигнал был мёртв
     // (грабли проекта «импорт без вызова = мёртвая защита»).
