@@ -16,9 +16,9 @@
   "paths": 788,
   "cron": 144,
   "jobs": 34,
-  "conditions": 4182,
-  "untranslatedUnique": 477,
-  "untranslatedTotal": 613,
+  "conditions": 4184,
+  "untranslatedUnique": 478,
+  "untranslatedTotal": 614,
   "partialUnique": 1129,
   "translatedShare": 85
  },
@@ -201,6 +201,7 @@
   "alreadyStored.some((v) => v.propertyId !== property.id)",
   "alreadyThere && typeof alreadyThere !== \"string\"",
   "appData && !appData.startsWith(LIVE_VOICE_ARI_APP)",
+  "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
   "await abortLocalUploadSession(session.id)",
   "await agentHasCascadeHistory(targetId)",
   "await alertExpenseOverrun()",
@@ -67734,6 +67735,14 @@
            "k": "loop",
            "a": [],
            "c": [],
+           "more": true
+          },
+          {
+           "t": "если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO",
            "more": true
           },
           {
