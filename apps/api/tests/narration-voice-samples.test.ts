@@ -94,4 +94,27 @@ describe("образцы голосов", () => {
     expect(prepared.body).toMatchObject({ created: 0, existing: 4 });
     expect(path.basename(localVideoFilePath((await readyVoiceSamples(config))[0].storageKey)!)).toMatch(/\.mp3$/);
   });
+
+  // 22.11.2026: правка словаря «яксад» (#376) выпустила новую версию словаря, и все 18 образцов прода
+  // пропали из «Прослушать» в мастере, карточке и Шабнам — версия словаря стояла в ключе образца.
+  it("новая версия словаря не гасит образцы и не заставляет платить за них заново", async () => {
+    const withDictionary = { ...config, pronunciationDictionaries: [{ id: `dict-${runId}`, versionId: "v-2" }] };
+    expect(await readyVoiceSamples(withDictionary)).toHaveLength(4);
+    const fetcher = audioFetch();
+    expect(await generateVoiceSamples({ config: withDictionary, key: "test-key", actorId: "staff", fetcher })).toMatchObject({ created: 0, existing: 4 });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("сменили настройки голоса — прежний образец слышен, пока руководство не подготовит новый", async () => {
+    const changed = { ...config, voiceSettings: { stability: 0.9 } };
+    const old = await readyVoiceSamples(changed);
+    expect(old).toHaveLength(4);
+    const fetcher = audioFetch();
+    expect(await generateVoiceSamples({ config: changed, key: "test-key", actorId: "staff", fetcher })).toMatchObject({ created: 4, existing: 0 });
+    const fresh = await readyVoiceSamples(changed);
+    expect(fresh).toHaveLength(4);
+    // Новый образец вытесняет прежний у того же голоса и языка, а не добавляется вторым.
+    expect(fresh.map((r) => r.storageKey).sort()).not.toEqual(old.map((r) => r.storageKey).sort());
+    expect((await readyVoiceSamples(config)).map((r) => r.storageKey).sort()).toEqual(old.map((r) => r.storageKey).sort());
+  });
 });

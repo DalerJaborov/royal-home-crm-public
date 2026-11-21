@@ -1,5 +1,6 @@
-import type { Client } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../db.js";
 import { pickFreeExtraPhones } from "./clientPhones.js";
 import { clientPhoneHash } from "./clientPhoneOrigins.js";
 import { closeClientSatellites } from "./clientSatellites.js";
