@@ -10,6 +10,8 @@ interface NotificationsPage {
   unreadCount: number;
   /** Число для метки на колокольчике: не прочитано И ещё не показано в открытом списке. */
   unseenCount?: number;
+  /** Время выборки на сервере: «просмотрено» ставится всему, что создано не позже него. */
+  listedAt?: string;
   /** Непрочитанное двух верхних уровней по ВСЕЙ ленте, а не только со страницы:
    *  такая строка недельной давности иначе выпадает за первые двадцать записей
    *  (владелец 09.09.2026, переделано под его формулировку 12.09.2026). */
@@ -228,11 +230,14 @@ export function useSeenSnapshot(items: AppNotification[]): Set<string> {
   return snapshot ?? new Set();
 }
 
-/** Отметить «просмотрено» (без ids — всё непросмотренное). Прочитанность не меняет. */
+/** Тело POST /seen: `before` — всё своё созданное не позже времени выборки; `ids` — форма для старых вкладок; пусто — всё. */
+export interface SeenRequest { before?: string; ids?: string[] }
+
+/** Отметить «просмотрено». Прочитанность не меняет. */
 export function useMarkNotificationsSeen() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids?: string[]) => api("/me/notifications/seen", { method: "POST", body: ids ? { ids } : {} }),
+    mutationFn: (req: SeenRequest) => api("/me/notifications/seen", { method: "POST", body: req }),
     meta: { silent: true },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
@@ -245,25 +250,33 @@ export function pickUnseenIds(shown: readonly AppNotification[]): string[] {
 
 /**
  * ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ (владелец 21.11.2026: «прочитал, быстро
- * открыл, а оно не гаснет»). Без таймера: отметка уходит в тот момент, когда
- * показанные записи есть на экране. Новая запись, пришедшая при открытом списке,
- * отмечается следующим заходом эффекта. Срочное (APPROVAL/CRITICAL) в ленте
- * остаётся и ждёт действия, ушла только метка.
+ * открыл, а оно не гаснет»). Без таймера. Уходит `before: listedAt` — время выборки
+ * с сервера: просмотренным становится ВСЁ, что создано до него, а не только
+ * показанные 12 строк (иначе у кого накопились десятки, метка осталась бы «9+»).
+ * Пришедшее после выборки позже `before` и снова зажигает метку. Ответ старого
+ * сервера без `listedAt` — прежняя форма с id показанных. Срочное (APPROVAL/CRITICAL)
+ * в ленте остаётся и ждёт действия, уходит только метка.
  */
-export function useSeenOnShow(shown: readonly AppNotification[], enabled = true): void {
+export function useSeenOnShow(
+  shown: readonly AppNotification[],
+  enabled = true,
+  opts: { listedAt?: string; unseenCount?: number } = {}
+): void {
   const markSeen = useMarkNotificationsSeen();
   const markRef = useRef(markSeen);
   markRef.current = markSeen;
   const ids = pickUnseenIds(shown);
   const idsKey = ids.join(",");
+  const { listedAt, unseenCount } = opts;
+  const pending = listedAt ? (unseenCount ?? 0) > 0 || idsKey !== "" : idsKey !== "";
   useEffect(() => {
-    if (!enabled || idsKey === "") return;
-    if (!markRef.current.isPending) markRef.current.mutate(idsKey.split(","));
-  }, [enabled, idsKey]);
+    if (!enabled || !pending || markRef.current.isPending) return;
+    markRef.current.mutate(listedAt ? { before: listedAt } : { ids: idsKey.split(",") });
+  }, [enabled, pending, listedAt, idsKey]);
 }
 
-/** Кнопка «Прочитать все» в выпадающем списке: гасит метку по всей ленте. */
+/** Кнопка «Убрать отметку» в выпадающем списке: гасит метку по всей ленте, прочитанным не отмечает. */
 export function useMarkAllSeen() {
   const markSeen = useMarkNotificationsSeen();
-  return { markAllSeen: () => markSeen.mutate(undefined), pending: markSeen.isPending };
+  return { markAllSeen: () => markSeen.mutate({}), pending: markSeen.isPending };
 }

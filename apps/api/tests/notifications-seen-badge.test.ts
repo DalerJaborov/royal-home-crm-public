@@ -91,6 +91,41 @@ describe("POST /me/notifications/seen", () => {
     expect((await feed()).body.unseenCount).toBeGreaterThanOrEqual(1);
   });
 
+  it("before: 50 старых непрочитанных, показано 12 — метка 0; пришедшее после выборки — метка 1", async () => {
+    await prisma.notification.deleteMany({ where: { agentId } });
+    const base = Date.now() - 3_600_000;
+    await prisma.notification.createMany({
+      data: Array.from({ length: 50 }, (_, i) => ({
+        agentId, kind: "lead", level: i < 3 ? "CRITICAL" : "OTHER", title: `старое ${i}`, body: "", read: false,
+        createdAt: new Date(base + i * 1000),
+      })),
+    });
+    const list = await feed();
+    expect(list.body.unseenCount).toBe(50);
+    expect(typeof list.body.listedAt).toBe("string");
+
+    const res = await seen({ before: list.body.listedAt });
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(50);
+    const after = await feed();
+    expect(after.body.unseenCount).toBe(0);
+    expect(after.body.unreadCount).toBe(50); // «сделано» не тронуто
+
+    // Новое после выборки: createdAt позже before — не задето и снова зажигает метку.
+    await new Promise((r) => setTimeout(r, 20));
+    const fresh = await note(agentId, "после выборки", "OTHER");
+    expect((await seen({ before: list.body.listedAt })).body.count).toBe(0);
+    expect((await prisma.notification.findUniqueOrThrow({ where: { id: fresh.id } })).seenAt).toBeNull();
+    expect((await feed()).body.unseenCount).toBe(1);
+  });
+
+  it("before не задевает чужие записи, неверная дата — 400", async () => {
+    const foreign = await note(otherAgentId, "чужое 3", "OTHER");
+    expect((await seen({ before: new Date(Date.now() + 60_000).toISOString() })).status).toBe(200);
+    expect((await prisma.notification.findUniqueOrThrow({ where: { id: foreign.id } })).seenAt).toBeNull();
+    expect((await seen({ before: "вчера" })).status).toBe(400);
+  });
+
   it("без ids отмечает всё своё непросмотренное, но не чужое", async () => {
     await prisma.notification.deleteMany({ where: { agentId } });
     await note(agentId, "своё 1", "OTHER");

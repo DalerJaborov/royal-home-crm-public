@@ -274,6 +274,11 @@ function byDay(items: AppNotification[]): { key: string; caption: string; items:
   return groups;
 }
 
+/** Срочное, которое уже показано, но ещё не разобрано, — «Ждёт действия», остальное — «Новое». */
+function newChipLabel(n: AppNotification): string {
+  return n.seenAt && !n.read && PINNED.includes(levelOf(n)) ? "Ждёт действия" : "Новое";
+}
+
 export function Notifications() {
   const navigate = useNavigate();
   // «Назад» экрана: запасной путь — «Ещё», откуда уведомления и открывают.
@@ -345,7 +350,7 @@ export function Notifications() {
   const newIds = useSeenSnapshot(items);
   useAutoReadNotifications(unreadCount, !isLoading && !isError, items);
   // Метка на колокольчике гаснет сразу, как лента открыта (в том числе «Ждёт решения»: они остаются в ленте).
-  useSeenOnShow([...(data?.pinned ?? []), ...items], !isLoading && !isError);
+  useSeenOnShow([...(data?.pinned ?? []), ...items], !isLoading && !isError, { listedAt: data?.listedAt, unseenCount: data?.unseenCount });
 
   /**
    * Клиенты, ждущие принятия (тот же серверный фильтр, что PendingLeadsSection
@@ -426,7 +431,7 @@ export function Notifications() {
                 </span>
               )}
               {isNew ? (
-                <span className="chip warn">Новое</span>
+                <span className="chip warn">{newChipLabel(n)}</span>
               ) : n.retiredAt ? (
                 <span className="chip mute" title={n.retiredReason ?? undefined}>
                   <span className="dot" />
@@ -487,7 +492,7 @@ export function Notifications() {
                   </span>
                 </span>
                 {isNew ? (
-                  <span className="chip warn">Новое</span>
+                  <span className="chip warn">{newChipLabel(n)}</span>
                 ) : n.retiredAt ? (
                   <span className="chip" title={n.retiredReason ?? undefined}>
                     Передан
@@ -538,7 +543,7 @@ export function Notifications() {
                     </span>
                   )}
                   {isNew ? (
-                    <span className="chip warn">Новое</span>
+                    <span className="chip warn">{newChipLabel(n)}</span>
                   ) : n.retiredAt ? (
                     <span className="chip mute" title={n.retiredReason ?? undefined}>
                       Передан

@@ -111,6 +111,16 @@ describe("useSeenOnShow", () => {
     expect(apiCalls.map((c) => c.path)).not.toContain("/me/notifications/read-many");
   });
 
+  it("с listedAt шлёт before (всё до выборки), а не только показанное", () => {
+    useSeenOnShow([n("a", "OTHER")], true, { listedAt: "2026-11-21T10:00:00.000Z", unseenCount: 50 });
+    expect(apiCalls).toEqual([{ path: "/me/notifications/seen", body: { before: "2026-11-21T10:00:00.000Z" } }]);
+  });
+
+  it("с listedAt и нулевой меткой ничего не шлёт", () => {
+    useSeenOnShow([], true, { listedAt: "2026-11-21T10:00:00.000Z", unseenCount: 0 });
+    expect(apiCalls).toEqual([]);
+  });
+
   it("уже просмотренное и прочитанное повторно не шлётся; закрытый список ничего не шлёт", () => {
     const seen = { ...n("approval-1", "APPROVAL"), seenAt: new Date().toISOString() };
     useSeenOnShow([seen, n("done", "OTHER", true)], true);

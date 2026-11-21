@@ -51,6 +51,8 @@ notificationsRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
   }
   const { page } = parsed.data;
+  // Время выборки снимаем ДО запросов: всё, что создано позже, клиент не «видел».
+  const listedAt = new Date();
   const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
 
   /**
@@ -106,6 +108,7 @@ notificationsRouter.get("/", async (req, res) => {
     items: itemsWithOffers,
     unreadCount,
     unseenCount,
+    listedAt: listedAt.toISOString(),
     pinned: pinnedWithOffers,
     approvalCount,
     criticalCount,
@@ -146,13 +149,20 @@ notificationsRouter.post("/read-many", async (req, res) => {
   res.json({ ok: true, count: result.count });
 });
 
-const seenSchema = z.object({ ids: z.array(z.guid()).min(1).max(200).optional() });
+const seenSchema = z.object({
+  ids: z.array(z.guid()).min(1).max(200).optional(),
+  /** Время выборки из GET (`listedAt`): отмечается всё своё, созданное не позже него. */
+  before: z.iso.datetime().optional(),
+});
 
 /**
  * ОТКРЫЛ СПИСОК — УВИДЕЛ (владелец 21.11.2026). Ставит «просмотрено» (seenAt), НЕ
  * трогая read: строка «Ждёт решения»/«Не отвечает» остаётся в ленте и в закрепе, пока
  * по ней не сделано действие, но метку на колокольчике больше не держит.
- * Без `ids` — всё непросмотренное в своей ленте. Только свои записи.
+ * `before` (время выборки `listedAt`) — всё своё созданное не позже него, а не только
+ * показанные строки: пришедшее после выборки позже `before` и метку зажигает снова
+ * (повтор по tag получает новый createdAt в upsertByTag). `ids` — прежняя форма для
+ * открытых старых вкладок. Без обоих — всё непросмотренное. Только свои записи.
  */
 notificationsRouter.post("/seen", async (req, res) => {
   const parsed = seenSchema.safeParse(req.body ?? {});
@@ -164,6 +174,7 @@ notificationsRouter.post("/seen", async (req, res) => {
       seenAt: null,
       read: false,
       ...(parsed.data.ids ? { id: { in: parsed.data.ids } } : {}),
+      ...(parsed.data.before ? { createdAt: { lte: new Date(parsed.data.before) } } : {}),
     },
     data: { seenAt: new Date() },
   });

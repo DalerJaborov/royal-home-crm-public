@@ -65,7 +65,7 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
   // гасим, остальное и APPROVAL/CRITICAL автопрочтение не трогает (WEB-PAGES16).
   useAutoReadNotifications(rawUnreadCount, showNotifications, shownItems);
   // ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ, без таймера (владелец 21.11.2026).
-  useSeenOnShow(shownItems, showNotifications);
+  useSeenOnShow(shownItems, showNotifications, { listedAt: notifications?.listedAt, unseenCount: notifications?.unseenCount });
   const [showSearch, setShowSearch] = useState(false);
   // Значка телефонии в шапке больше нет (владелец 18.08.2026). Он показывал
   // состояние браузерной трубки и вёл в «Телефонию», а трубку и роль оператора
@@ -281,7 +281,7 @@ function TopbarRow({
                         className="pill ghost"
                         style={{ width: "100%", marginTop: "var(--s2)" }}
                       >
-                        Прочитать все
+                        Убрать отметку
                       </button>
                     </>
                   )}
