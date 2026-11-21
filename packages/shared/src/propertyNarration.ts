@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
-import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
+import { numberToWords, russianOrdinal } from "./spokenNumber.js";
 import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
 /**
@@ -314,7 +314,8 @@ export type NarrationFacts = {
 export function suggestedNarration(facts: NarrationFacts): string {
   const types: Record<string, string> = { APARTMENT: "Квартира", HOUSE: "Дом", LAND: "Участок", COMMERCIAL: "Коммерческое помещение" };
   return [types[facts.type] ?? "Объект недвижимости", facts.rooms ? `${facts.rooms} комнат.` : "", `Площадь ${facts.areaSqm} квадратных метров.`,
-    facts.floor ? `Этаж ${facts.floor}${facts.totalFloors ? ` из ${facts.totalFloors}` : ""}.` : "",
+    // Этаж без этажности дома (владелец 21.11.2026): «13 из 15» в озвучку не идёт, этажность есть под роликом.
+    facts.floor ? `Этаж ${facts.floor}.` : "",
     facts.district ? `Район: ${facts.district}.` : "",
     "Цена и номер телефона указаны в описании под видео. Поделитесь этим видео с теми, кто ищет недвижимость.",
   ].filter(Boolean).join(" ");
@@ -409,8 +410,10 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
     сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
-    // По-русски этажность стоит после «из»: «пятый этаж из девяти».
-    этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
+    // Этажность дома в озвучке НЕ говорим (владелец 21.11.2026: «13 этаж из 15» не надо, «просто этаж сказать»; остальное
+    // есть под роликом). Слово остаётся в списке, чтобы старые шаблоны из Настроек читались; значение всегда пустое,
+    // обороты вокруг него снимает `withoutTotalFloors`.
+    этажей: "",
     район: facts.district?.trim() ?? "",
     // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
     // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
@@ -492,8 +495,8 @@ function renderSegment(text: string, values: Record<string, string>): { out: str
   return { out, missing };
 }
 
-/** Предложение, где {цена} стоит вне скобок, выпадает целиком, когда цену сказать нельзя (иначе «Нархаш .»). */
-function dropPriceSentences(text: string): string {
+/** Предложение, где слово `token` («{цена}») стоит вне скобок, выпадает целиком (иначе «Нархаш .»). */
+function dropSentencesWith(text: string, token: string): string {
   // Предложения режутся только вне [ ]: фрагмент «если есть» с {цена} выпадет и сам (renderSegment).
   const sentences: Array<{ text: string; price: boolean }> = [];
   let current = "", price = false, depth = 0;
@@ -501,7 +504,7 @@ function dropPriceSentences(text: string): string {
     const ch = text[i]!;
     if (ch === "[") depth++;
     else if (ch === "]") depth = Math.max(0, depth - 1);
-    else if (depth === 0 && text.startsWith("{цена}", i)) price = true;
+    else if (depth === 0 && text.startsWith(token, i)) price = true;
     current += ch;
     // Конец предложения: «.!?» вне скобок или «[…предложение.]» — скобка, закрывшая целое предложение.
     const ends = /[.!?]/u.test(ch) || (ch === "]" && /[.!?]/u.test(text[i - 1] ?? ""));
@@ -513,9 +516,37 @@ function dropPriceSentences(text: string): string {
   if (current.trim()) sentences.push({ text: current, price });
   return sentences.filter((s) => !s.price).map((s) => s.text.trim()).join(" ");
 }
+/**
+ * ЭТАЖНОСТЬ ДОМА В ОЗВУЧКЕ НЕ ГОВОРИМ (владелец 21.11.2026, ролик №219: «ошёнаи сенздаҳуми бинои чордаҳ ошёна» — «просто
+ * этаж сказать и всё»). Шаблоны из Настроек не правим (данные прода): оборот вокруг {этажей} снимается при сборке текста,
+ * и фраза остаётся грамотной: «ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст» → «ошёнаи {этаж_пор} ҷойгир аст»
+ * (изафет «-и» перед снятым словом уходит вместе с ним), «{этаж_пор} этаж из {этажей}» → «{этаж_пор} этаж».
+ * Что осталось с {этажей} (фраза только про этажность дома: «Хона {этажей} ошёна дорад») — предложение выпадает целиком.
+ */
+export function withoutTotalFloors(text: string): string {
+  if (!text.includes("{этажей}")) return text;
+  const gap = String.raw`[ \u00a0]`;
+  const stripped = text
+    // tg: «{этаж_пор}и бинои {этажей} ошёна», «{этаж}ум бинои {этажей}-ошёна»
+    .replace(new RegExp(String.raw`(\{этаж(?:_пор)?\}(?:ум|юм)?)и?${gap}+(?:бинои|иморати|бино|ҳавлии|хонаи)${gap}+\{этажей\}[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?`, "giu"), "$1")
+    // tg: «ошёнаи {этаж_пор} аз {этажей}» и «аз {этажей} ошёна»
+    .replace(new RegExp(String.raw`${gap}+аз${gap}+\{этажей\}(?:[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?)?`, "giu"), "")
+    // ru: «этаж из {этажей}», «из {этажей} этажей»
+    .replace(new RegExp(String.raw`${gap}+из${gap}+\{этажей\}(?:[ \u00a0-]+этаж\p{L}*)?`, "giu"), "")
+    // ru: «в {этажей}-этажном доме»
+    .replace(new RegExp(String.raw`,?${gap}+(?:в|на)${gap}+\{этажей\}[ \u00a0-]*этажн\p{L}*(?:${gap}+(?:доме|здании|комплексе|новостройке|бизнес-центре|многоэтажке))?`, "giu"), "");
+  return stripped.includes("{этажей}") ? dropSentencesWith(stripped, "{этажей}") : stripped;
+}
+/** Сторож сохранения шаблона в Настройках: {этажей} в новый или изменённый текст озвучки не принимаем. */
+export function narrationTotalFloorsError(text: string): string | null {
+  return text.includes("{этажей}")
+    ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} вместе с оборотом вокруг него"
+    : null;
+}
 export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts): string {
   const values = placeholderValues(facts, template.lang);
-  const { out } = renderSegment(values.цена ? template.text : dropPriceSentences(template.text), values);
+  const source = withoutTotalFloors(template.text);
+  const { out } = renderSegment(values.цена ? source : dropSentencesWith(source, "{цена}"), values);
   return out
     .replace(/[ \t]+/gu, " ")
     .replace(/ +([.,!?])/gu, "$1")
