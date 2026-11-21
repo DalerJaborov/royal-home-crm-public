@@ -1,4 +1,5 @@
 import { safeCauseCode } from "../ai/customerAgentCore.js";
+import { CustomerMediaInputError } from "../ai/customerAgentMediaPerception.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -8,6 +9,10 @@ import { logSystemError } from "./systemError.js";
  * в журнал (закрытый код, текст ошибки без слов клиента, место в нашем коде). Отмена, срок или сменившийся контекст — как
  * раньше: ошибка уходит наверх, ход не планируется на устаревшем входе. Если упала сама проверка контекста — наверх идёт
  * ИСХОДНАЯ ошибка разбора, и она же — в журнал (ревью #358).
+ *
+ * ТОЛЬКО сбой подготовки вложения до обращения к модели (`CustomerMediaInputError`). Ответ модели разбора — лишний вызов,
+ * передача человеку, бизнес-инструмент, не та форма — ход держит, как раньше: разбор медиа не управляет ни передачей, ни
+ * инструментами ни при каком исходе (облачный прогон #358, сторож customer-dm-media-perception-postgres).
  */
 export async function perceiveCustomerMediaSafely<T>(input: {
   perceive: () => Promise<T>;
@@ -17,6 +22,7 @@ export async function perceiveCustomerMediaSafely<T>(input: {
   try {
     return await input.perceive();
   } catch (error) {
+    if (!(error instanceof CustomerMediaInputError)) throw error;
     if (input.wait.signal.aborted || Date.now() >= input.wait.deadlineAt) throw error;
     let alive: boolean;
     try {

@@ -19,6 +19,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...(await impo
 const { isStrictBase64, isLooseBase64 } = await import("../src/lib/base64Text.js");
 const { managedGeminiMediaFeatures } = await import("../src/ai/geminiManagedMedia.js");
 const { perceiveCustomerMediaSafely } = await import("../src/lib/customerMediaPerceptionSafe.js");
+const { perceiveCustomerAgentMedia, CustomerMediaInputError } = await import("../src/ai/customerAgentMediaPerception.js");
 const { decide, initialOperatorState } = await import("../src/ai/operator/decide.js");
 const { understandFallback, understandingFromModel } = await import("../src/ai/operator/understand.js");
 const { renderOperatorReply } = await import("../src/ai/operator/phrases.js");
@@ -68,20 +69,42 @@ describe("1. RangeError в проверке вложения: base64 одним 
   it("сбой разбора вложения (RangeError) — ход идёт дальше без разбора, причина в журнал; отмена и смена контекста — наверх", async () => {
     logSystemError.mockClear();
     const live = { signal: new AbortController().signal, deadlineAt: Date.now() + 60_000 };
-    const failing = async () => { throw new RangeError("Maximum call stack size exceeded"); };
+    // Сбой ПОДГОТОВКИ вложения (до модели) — единственное, что ход переживает без разбора.
+    const failing = async () => { throw new CustomerMediaInputError(new RangeError("Maximum call stack size exceeded")); };
     expect(await perceiveCustomerMediaSafely({ perceive: failing, wait: live, current: async () => true })).toBeUndefined();
     expect(logSystemError).toHaveBeenCalledWith("ai", expect.stringMatching(/Разбор вложения не удался, ход без разбора: RangeError «Maximum call stack size exceeded»/u),
       expect.objectContaining({ dedupKey: expect.stringMatching(/^customer-media-perception:RangeError:/u) }));
-    await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: live, current: async () => false })).rejects.toThrow(RangeError);
+    await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: live, current: async () => false })).rejects.toThrow(CustomerMediaInputError);
     const aborted = new AbortController(); aborted.abort();
     await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: { signal: aborted.signal, deadlineAt: Date.now() + 60_000 }, current: async () => true }))
-      .rejects.toThrow(RangeError);
+      .rejects.toThrow(CustomerMediaInputError);
     expect(await perceiveCustomerMediaSafely({ perceive: async () => "ok", wait: live, current: async () => true })).toBe("ok");
     // Проверка контекста сама упала: наверх — исходная ошибка разбора, и она же в журнале (ревью #358).
     logSystemError.mockClear();
     await expect(perceiveCustomerMediaSafely({ perceive: failing, wait: live, current: async () => { throw new Error("db down"); } }))
-      .rejects.toThrow(RangeError);
+      .rejects.toThrow(CustomerMediaInputError);
     expect(logSystemError).toHaveBeenCalledWith("ai", expect.stringMatching(/проверка контекста не удалась: RangeError «Maximum call stack size exceeded»/u), expect.anything());
+  });
+
+  it("СТОРОЖ: ответ модели разбора (передача человеку, бизнес-инструмент, любая ошибка не подготовки) ход НЕ переживает — держит, как раньше", async () => {
+    logSystemError.mockClear();
+    const live = { signal: new AbortController().signal, deadlineAt: Date.now() + 60_000 };
+    const operation = { check: () => {}, managed: true, deadlineAt: Date.now() + 120_000 } as never;
+    const part = { mimeType: "image/png", data: Buffer.from("png-bytes").toString("base64") };
+    // Модель попросила передачу человеку: protocol invalid — наверх, не «ход без разбора».
+    const handover = () => perceiveCustomerAgentMedia({ parts: [part], operation, wait: live, assertCurrent: async () => true,
+      call: async () => ({ calls: [{ name: "request_handover", args: { reason: "photo" } }] }) as never });
+    await expect(perceiveCustomerMediaSafely({ perceive: handover, wait: live, current: async () => true })).rejects.toThrow(/protocol invalid/u);
+    await expect(perceiveCustomerMediaSafely({ perceive: async () => { throw new RangeError("after the model"); }, wait: live, current: async () => true }))
+      .rejects.toThrow(RangeError);
+    expect(logSystemError).not.toHaveBeenCalled();
+    // Сбой подготовки (вложений больше трёх, битый base64) — это CustomerMediaInputError, до обращения к модели.
+    const call = vi.fn();
+    await expect(perceiveCustomerAgentMedia({ parts: [part, part, part, part], operation, wait: live, assertCurrent: async () => true, call }))
+      .rejects.toBeInstanceOf(CustomerMediaInputError);
+    await expect(perceiveCustomerAgentMedia({ parts: [{ mimeType: "image/png", data: "не base64" }], operation, wait: live, assertCurrent: async () => true, call }))
+      .rejects.toBeInstanceOf(CustomerMediaInputError);
+    expect(call).not.toHaveBeenCalled();
   });
 });
 
