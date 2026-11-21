@@ -88,7 +88,7 @@ export function narrationLengthLine(check: NarrationLengthCheck): string {
 /** Что из фактов озвучки поменялось — для строки «Изменилось: цена и этаж». Порядок — как звучит в тексте. */
 const FACT_LABELS: Array<[keyof NarrationFacts, string]> = [
   ["type", "вид объекта"], ["rooms", "комнаты"], ["areaSqm", "площадь"], ["floor", "этаж"],
-  ["totalFloors", "этажность"], ["district", "район"], ["price", "цена"], ["currency", "цена"],
+  ["totalFloors", "этажность"], ["district", "район"], ["price", "цена"], ["currency", "цена"], ["landSotka", "участок"],
 ];
 export function narrationFactsChanges(before: Partial<NarrationFacts> | null | undefined, after: Partial<NarrationFacts> | null | undefined): string[] {
   if (!before || !after) return [];
