@@ -3722,11 +3722,11 @@
   },
   {
    "path": "/director",
-   "title": "Дашборд директора",
-   "group": "money",
+   "title": "Director",
+   "group": "other",
    "parent": null,
    "file": "apps/web/src/pages/DirectorDashboard.tsx",
-   "inMenu": true,
+   "inMenu": false,
    "redirect": null,
    "eps": [
     {

@@ -242,12 +242,7 @@
       "component": "DirectorDashboard",
       "file": "apps/web/src/pages/DirectorDashboard.tsx",
       "redirect": null,
-      "nav": {
-        "to": "/director",
-        "label": "Дашборд директора",
-        "group": "money",
-        "gate": ""
-      }
+      "nav": null
     },
     {
       "path": "/finance",
@@ -788,12 +783,6 @@
     {
       "to": "/finance",
       "label": "Финансы",
-      "group": "money",
-      "gate": ""
-    },
-    {
-      "to": "/director",
-      "label": "Дашборд директора",
       "group": "money",
       "gate": ""
     },

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { reportDateRangeError, type DirectorDrillKey, type DirectorPeriodPreset } from "@royal-home/shared";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { loadView } from "../components/rh2/Rh2ErrorState";
@@ -11,6 +12,7 @@ import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
 import { dushanbeDate, dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
 import { blockOrder, defaultPeriod } from "../lib/directorFormat";
 import { useCan } from "../lib/permissions";
+import { usesDashboardHome } from "../lib/homeDashboard";
 import { useAuthStore } from "../store/auth";
 import { useAgents } from "../hooks/useAgents";
 import { useMobileUx } from "../hooks/useMobileUx";
@@ -29,9 +31,26 @@ const PERIODS: { id: DirectorPeriodPreset; label: string }[] = [
   { id: "quarter", label: "Квартал" }, { id: "year", label: "Год" }, { id: "custom", label: "Свои даты" },
 ];
 
+/** Старый адрес /director (закладки, ссылки): дашборд теперь на главной «/». */
 export function DirectorDashboard() {
   const royal = useRoyalLook();
+  const can = useCan();
+  const role = useAuthStore((s) => s.agent?.role);
+  if (royal && usesDashboardHome(role, can)) return <Navigate to="/" replace />;
   return <RoyalSection name={royal ? "director" : undefined}><DirectorGate /></RoyalSection>;
+}
+
+/**
+ * Дашборд внутри главной (блок «dashboard» ядра): без обёртки экрана и без своего h1 —
+ * заголовок страницы на главной один, приветствие. Метка раздела director нужна его стилям.
+ */
+export function DirectorDashboardBlock() {
+  const role = useAuthStore((s) => s.agent?.role);
+  return (
+    <RoyalSection name="director">
+      <div data-ry-section="director"><DirectorScreen role={role} embedded /></div>
+    </RoyalSection>
+  );
 }
 
 function DirectorGate() {
@@ -47,7 +66,7 @@ function DirectorGate() {
   return <DirectorScreen role={role} />;
 }
 
-function DirectorScreen({ role }: { role: string | undefined }) {
+function DirectorScreen({ role, embedded = false }: { role: string | undefined; embedded?: boolean }) {
   const can = useCan();
   const mobile = useMobileUx();
   const [preset, setPreset] = useState<DirectorPeriodPreset>(defaultPeriod(role));
@@ -86,12 +105,12 @@ function DirectorScreen({ role }: { role: string | undefined }) {
   const updated = data ? dushanbeTime(data.updatedAt) : null;
   const order = blockOrder(role, data?.seesMoney ?? false);
 
-  return (
-    <Rh2Screen title="Дашборд директора">
+  const body = (
+    <>
       <div className="dd" data-testid="director-dashboard">
         <header className="dd-head">
           <div className="dd-title">
-            <h1>Дашборд директора</h1>
+            {embedded ? <h2>Показатели компании</h2> : <h1>Дашборд директора</h1>}
             <p className="sub">{updated ? <span role="status">Обновлено в {updated}</span> : "Показатели компании за период"}</p>
           </div>
           <div className="dd-acts">
@@ -151,6 +170,7 @@ function DirectorScreen({ role }: { role: string | undefined }) {
         {!rangeError && query.isError && data && <p className="dd-quiet" role="status">Не удалось обновить, показаны прежние цифры.</p>}
       </div>
       <DirectorDrillSheet filters={filters} drill={drill} onClose={() => setDrill(null)} />
-    </Rh2Screen>
+    </>
   );
+  return embedded ? body : <Rh2Screen title="Дашборд директора">{body}</Rh2Screen>;
 }
