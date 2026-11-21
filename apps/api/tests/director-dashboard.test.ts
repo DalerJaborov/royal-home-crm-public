@@ -4,7 +4,9 @@ import { DIRECTOR_DRILL_KEYS } from "@royal-home/shared";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
-import { clearDirectorDashboardCache, resolveDirectorPeriod } from "../src/lib/directorDashboard.js";
+import { buildDirectorDrill, clearDirectorDashboardCache, resolveDirectorPeriod } from "../src/lib/directorDashboard.js";
+import { createLimiter } from "../src/lib/queryGate.js";
+import { DEFAULT_COMMISSION_PLAN, isDefaultCommissionPlan } from "../src/lib/dashboardInsights.js";
 import { readXlsxFirstSheet } from "../src/lib/xlsxRead.js";
 import { waitFor } from "./helpers/waitFor.js";
 
@@ -31,6 +33,7 @@ let directorId = "";
 let director = "";
 let security = "";
 let agentToken = "";
+let marketing = "";
 let historyClientId = "";
 
 const q = (extra = "") => `preset=custom&from=${DAY}&to=${DAY}${extra}`;
@@ -51,6 +54,7 @@ beforeAll(async () => {
   director = signAccessToken({ sub: directorId, role: "DIRECTOR" });
   security = signAccessToken({ sub: securityId, role: "SECURITY" });
   agentToken = signAccessToken({ sub: agentA, role: "AGENT" });
+  marketing = signAccessToken({ sub: await agent("MARKETING", "5"), role: "MARKETING" });
 
   districtId = (await prisma.district.create({ data: { name: `Район дашборд ${runId}` } })).id;
   propertyId = (
@@ -294,5 +298,87 @@ describe("история ключевых полей (ТЗ п.15)", () => {
   it("создание карточки не пишет «источник: пусто → X»", async () => {
     const events = await prisma.stageEvent.count({ where: { entityId: { in: ids.clients.filter((id) => id !== historyClientId) }, field: "source" } });
     expect(events).toBe(0);
+  });
+});
+
+describe("права на список и историю (ревью #362, блокер 1)", () => {
+  it("маркетолог: сводка (числа) открыта, а список с именами клиентов и история карточки — 403", async () => {
+    const summary = await request(app).get(`/api/v1/reports/director?${q()}`).set(auth(marketing));
+    expect(summary.status).toBe(200);
+    for (const key of DIRECTOR_DRILL_KEYS) {
+      const res = await request(app).get(`/api/v1/reports/director/drill?key=${key}&${q()}`).set(auth(marketing));
+      expect(res.status, key).toBe(403);
+      expect(JSON.stringify(res.body)).not.toContain("Дашборд 1");
+    }
+    const history = await request(app).get(`/api/v1/reports/director/history?clientId=${historyClientId}`).set(auth(marketing));
+    expect(history.status).toBe(403);
+  });
+
+  it("директор тот же список получает", async () => {
+    const res = await request(app).get(`/api/v1/reports/director/drill?key=newLeads&${q()}`).set(auth(director));
+    expect(res.status).toBe(200);
+    expect(res.body.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("свободный текст задачи в списке (ревью #362, блокер 2)", () => {
+  it("номер в «Задача: …» скрыт тому, у кого нет права на номера, и виден тому, у кого есть", async () => {
+    const clientId = ids.clients[0];
+    const created = await prisma.interaction.create({
+      data: { clientId, agentId: agentA, type: "CALL", callAttempt: "TALKED", notes: "маска дашборд", nextAction: "Перезвонить на +992 90 123 45 67", nextActionDate: new Date(Date.now() - 3_600_000), createdAt: at },
+    });
+    ids.interactions.push(created.id);
+    const base = { preset: "custom" as const, from: DAY, to: DAY, key: "overdueTasks" as const, limit: 50, offset: 0 };
+    const viewer = { investigationRole: undefined, seesMoney: false, seesOrigin: true, seesArchive: true };
+    const present = (c: { fullName: string; source: string }) => ({ name: c.fullName, source: c.source, sourceLabel: c.source });
+    const hidden = await buildDirectorDrill(base, { ...viewer, seesPhone: false }, present);
+    const shown = await buildDirectorDrill(base, { ...viewer, seesPhone: true }, present);
+    const textOf = (r: { items: { id: string; statusLabel: string }[] }) => r.items.find((i) => i.id === created.id)?.statusLabel ?? "";
+    expect(textOf(hidden)).toContain("Задача:");
+    expect(textOf(hidden)).not.toContain("123 45 67");
+    expect(textOf(hidden)).not.toContain("1234567");
+    expect(textOf(shown)).toContain("123 45 67");
+  });
+});
+
+describe("нагрузка и план (ревью #362)", () => {
+  it("ограничитель пускает не больше заданного числа запросов разом", async () => {
+    const gate = createLimiter(2);
+    let active = 0;
+    let peak = 0;
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        gate(async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((r) => setTimeout(r, 5));
+          active -= 1;
+        })
+      )
+    );
+    expect(peak).toBe(2);
+  });
+
+  it("«без контакта» = новые − обработанные и совпадает с длиной списка", async () => {
+    const res = await request(app).get(`/api/v1/reports/director?${q()}`).set(auth(director));
+    const by = (k: string) => res.body.kpis.find((x: { key: string }) => x.key === k).value as number;
+    expect(by("noContact")).toBe(by("newLeads") - by("contacted"));
+    const list = await request(app).get(`/api/v1/reports/director/drill?key=noContact&${q()}`).set(auth(director));
+    expect(list.body.total).toBe(by("noContact"));
+  });
+
+  it("план: умолчание из Настроек — «не задан», а не «процент от 8000»", async () => {
+    expect(isDefaultCommissionPlan(DEFAULT_COMMISSION_PLAN)).toBe(true);
+    expect(isDefaultCommissionPlan(60_000)).toBe(false);
+    const res = await request(app).get(`/api/v1/reports/director?${q()}`).set(auth(director));
+    expect(res.body.plan.planIsDefault).toBe(res.body.plan.commissionPlan === null);
+    if (res.body.plan.planIsDefault) expect(res.body.plan.pct).toBeNull();
+  });
+
+  it("подписи: плитка и шаг воронки про переговоры называются по-разному", async () => {
+    const res = await request(app).get(`/api/v1/reports/director?${q()}`).set(auth(director));
+    const tile = res.body.kpis.find((k: { key: string }) => k.key === "negotiations").label;
+    const step = res.body.funnel.steps.find((s: { key: string }) => s.key === "negotiations").label;
+    expect(tile).not.toBe(step);
   });
 });

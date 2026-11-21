@@ -8,7 +8,7 @@ import { RuDateField } from "../components/look/fields/RuFields";
 import { DirectorBlocks } from "../components/director/DirectorBlocks";
 import { DirectorDrillSheet } from "../components/director/DirectorDrillSheet";
 import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
-import { dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
+import { dushanbeDate, dushanbeTime, dushanbeFirstDayOfMonthKey, dushanbeTodayKey } from "../lib/date";
 import { blockOrder, defaultPeriod } from "../lib/directorFormat";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
@@ -80,6 +80,8 @@ function DirectorScreen({ role }: { role: string | undefined }) {
     finally { setExporting(false); }
   }
 
+  // Список под цифрой — имена клиентов: нужно право видеть всех клиентов, для сделок ещё и все сделки (как на сервере).
+  const canDrill = (key: DirectorDrillKey) => can("clients.viewAll") && (key !== "deals" && key !== "negotiations" || can("deals.viewAll"));
   const view = loadView(query);
   const updated = data ? dushanbeTime(data.updatedAt) : null;
   const order = blockOrder(role, data?.seesMoney ?? false);
@@ -97,6 +99,14 @@ function DirectorScreen({ role }: { role: string | undefined }) {
             <RhButton variant="secondary" onClick={() => window.print()} disabled={!!rangeError || !data}>Печать</RhButton>
           </div>
         </header>
+        {data && (
+          <p className="dd-print-meta">
+            Период: {dushanbeDate(data.period.from)} – {dushanbeDate(data.period.to)}
+            {" · "}Менеджер: {data.filters.agentId ? (data.agents.find((a) => a.id === data.filters.agentId)?.name ?? "выбранный") : "все"}
+            {" · "}Источник: {data.filters.source ? (CLIENT_SOURCE_LABELS[data.filters.source as keyof typeof CLIENT_SOURCE_LABELS] ?? data.filters.source) : "все"}
+            {" · "}Клиенты: {data.filters.kind === "BUYER" ? "покупатели" : data.filters.kind === "SELLER" ? "продавцы" : "все"}
+          </p>
+        )}
         {exportError && <p role="alert" className="dd-quiet">{exportError}</p>}
 
         <div className="dd-filters">
@@ -135,7 +145,7 @@ function DirectorScreen({ role }: { role: string | undefined }) {
         {rangeError ? null : view !== "ready" ? (
           <RhBlockState kind={view} onRetry={() => void query.refetch()} />
         ) : data ? (
-          <DirectorBlocks data={data} order={order} mobile={mobile} onDrill={(key, label) => setDrill({ key, label })}
+          <DirectorBlocks data={data} order={order} mobile={mobile} onDrill={(key, label) => setDrill({ key, label })} canDrill={canDrill}
             settingsTo={can("settings.manage") ? "/settings?tab=money" : undefined} />
         ) : null}
         {!rangeError && query.isError && data && <p className="dd-quiet" role="status">Не удалось обновить, показаны прежние цифры.</p>}

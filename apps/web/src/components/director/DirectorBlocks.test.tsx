@@ -31,7 +31,7 @@ function data(seesMoney: boolean): DirectorDashboardResponse {
       { id: "b", name: "Алишер", isActive: true, leads: 9, contacted: 8, calls: 4, messages: 2, meetings: 1, showings: 2, deals: 3, commission: m(300), conversion: 33, overdueTasks: 1, lastActivityAt: null },
     ],
     sources: [{ source: "WEBSITE", label: "Сайт", leads: 6, deals: 1, commission: m(100) }],
-    plan: { commissionPlan: m(10000), fact: m(5000), pct: m(50), left: m(5000), month: "2026-11" },
+    plan: { commissionPlan: m(10000), planIsDefault: false, fact: m(5000), pct: m(50), left: m(5000), month: "2026-11" },
     updatedAt: "2026-11-21T08:05:00Z", cacheSeconds: 60,
   };
 }
@@ -116,5 +116,25 @@ describe("пустые состояния", () => {
     expect(container.textContent).toContain("За этот период заявок не было.");
     expect(container.textContent).toContain("Отказов за этот период нет.");
     expect(container.textContent).toContain("нет данных");
+  });
+});
+
+describe("права на список и план по умолчанию (ревью #362)", () => {
+  it("без права на список плитки не кликабельны — ни KPI, ни скорость, ни отказы", () => {
+    const { container } = wrap(<DirectorBlocks data={data(true)} order={["kpi", "speed", "reasons"]} mobile={false} onDrill={() => {}} canDrill={() => false} />);
+    expect(container.querySelectorAll("button.dd-tile")).toHaveLength(0);
+    expect(screen.queryByText("Открыть список отказов")).toBeNull();
+    expect(container.querySelectorAll(".dd-tile").length).toBeGreaterThan(5);
+  });
+  it("план из умолчания — «План не задан», а не процент", () => {
+    const d = data(true);
+    d.plan = { commissionPlan: null, planIsDefault: true, fact: 5000, pct: null, left: null, month: "2026-11" };
+    const { container } = wrap(<DirectorBlocks data={d} order={["plan"]} mobile={false} onDrill={() => {}} />);
+    expect(container.textContent).toContain("План не задан");
+    expect(container.querySelector(".dd-ring")).toBeNull();
+  });
+  it("нет даты активности — «давно»", () => {
+    wrap(<AgentsBlock data={data(true)} mobile={false} />);
+    expect(screen.getAllByText("давно").length).toBeGreaterThan(0);
   });
 });

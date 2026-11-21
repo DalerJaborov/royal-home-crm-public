@@ -62,5 +62,6 @@ export async function downloadDirectorExport(filters: DirectorFilters): Promise<
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Не сразу: Safari и PWA на iPhone начинают скачивание позже клика.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

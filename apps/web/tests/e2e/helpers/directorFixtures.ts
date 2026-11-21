@@ -53,7 +53,7 @@ export function directorFixture(seesMoney: boolean): DirectorDashboardResponse {
       { source: "INSTAGRAM", label: "Instagram", leads: 48, deals: 4, commission: money(16_000_000) },
       { source: "PHONE", label: "Телефон", leads: 30, deals: 3, commission: money(12_250_000) },
     ],
-    plan: { commissionPlan: money(60_000_000), fact: money(48_250_000), pct: money(80.4), left: money(11_750_000), month: new Date().toISOString().slice(0, 7) },
+    plan: { commissionPlan: money(60_000_000), planIsDefault: false, fact: money(48_250_000), pct: money(80.4), left: money(11_750_000), month: new Date().toISOString().slice(0, 7) },
     updatedAt: new Date().toISOString(),
     cacheSeconds: 60,
   };

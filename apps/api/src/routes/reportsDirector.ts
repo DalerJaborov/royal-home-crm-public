@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   CLIENT_SOURCE_LABELS,
   CLIENT_STATUS_LABELS,
+  WORK_STATUS_LABELS,
   directorDashboardQuerySchema,
   directorDrillQuerySchema,
   type ClientSource,
@@ -32,6 +33,7 @@ function viewerOf(req: Request): DirectorViewer {
     seesMoney: can(req, "finance.view"),
     seesPhone: can(req, "clients.viewPhone"),
     seesOrigin: can(req, "clients.viewOrigin"),
+    seesArchive: can(req, "archive.view"),
   };
 }
 
@@ -57,9 +59,23 @@ reportsDirectorRouter.get("/", async (req, res) => {
   return guarded(res, "сводка", async () => res.json(await cachedDirectorDashboard(parsed.data, viewerOf(req))));
 });
 
+/**
+ * Право на список записей под плиткой. Сводка отдаёт только числа (reports.view), а список — имена и
+ * статусы конкретных клиентов, поэтому нужно то же, что открывает список клиентов: clients.viewAll
+ * (у маркетолога reports.view есть, а clients.viewAll нет — ревью #362). Сделки — ещё deals.viewAll.
+ */
+const DEAL_DRILL_KEYS: readonly string[] = ["negotiations", "deals"];
+export function drillPermissionsMissing(req: Request, key: string): string | null {
+  if (!can(req, "clients.viewAll")) return "Список записей доступен тем, кто видит всех клиентов";
+  if (DEAL_DRILL_KEYS.includes(key) && !can(req, "deals.viewAll")) return "Список сделок доступен тем, кто видит все сделки";
+  return null;
+}
+
 reportsDirectorRouter.get("/drill", async (req, res) => {
   const parsed = directorDrillQuerySchema.safeParse(req.query);
   if (!parsed.success) return badRequest(res, parsed.error);
+  const denied = drillPermissionsMissing(req, parsed.data.key);
+  if (denied) return res.status(403).json({ error: denied });
   const viewer = viewerOf(req);
   // Имя и источник — по правилам списка клиентов: без clients.viewOrigin ник и
   // источник скрыты, без clients.viewPhone цифры номера в имени закрыты.
@@ -180,6 +196,8 @@ reportsDirectorRouter.get("/history", async (req, res) => {
   const parsed = historyQuerySchema.safeParse(req.query);
   if (!parsed.success) return badRequest(res, parsed.error);
   const { clientId, limit } = parsed.data;
+  // История карточки — это карточка клиента: нужен тот же доступ, что к списку клиентов.
+  if (!can(req, "clients.viewAll")) return res.status(403).json({ error: "История доступна тем, кто видит всех клиентов" });
   return guarded(res, "история", async () => {
     const [events, agentChanges] = await Promise.all([
       prisma.stageEvent.findMany({ where: { entityType: "CLIENT", entityId: clientId }, orderBy: { at: "desc" }, take: limit }),
@@ -206,7 +224,9 @@ reportsDirectorRouter.get("/history", async (req, res) => {
           ? (CLIENT_STATUS_LABELS[v as keyof typeof CLIENT_STATUS_LABELS] ?? v)
           : field === "source"
             ? (CLIENT_SOURCE_LABELS[v as ClientSource] ?? v)
-            : v;
+            : field === "workStatus"
+              ? (WORK_STATUS_LABELS[v as keyof typeof WORK_STATUS_LABELS] ?? v)
+              : v;
     const items = [
       ...events.map((e) => ({
         at: e.at.toISOString(),

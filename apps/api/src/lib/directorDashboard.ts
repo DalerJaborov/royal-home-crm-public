@@ -27,6 +27,9 @@ import { loadMoneyContext, roundMoney, toTjs, type MoneyContext } from "./money.
 import { COUNTED_SHOWING_WHERE, countOverdueTasksByAgent, overdueTasksOfAgentsWhere, overdueTasksWhere } from "./tasks.js";
 import { buildFunnelCohort, funnelCohortStepWhere } from "./teamReports.js";
 import { logSystemError } from "./systemError.js";
+import { phoneSafeText } from "./clientPhone.js";
+import { isDefaultCommissionPlan } from "./dashboardInsights.js";
+import { createLimiter } from "./queryGate.js";
 
 /**
  * ДАШБОРД ДИРЕКТОРА (ТЗ владельца, 21.11.2026). Один расчёт на сводку, список под
@@ -57,6 +60,8 @@ export interface DirectorViewer {
   seesPhone: boolean;
   /** clients.viewOrigin: без него ник и источник клиента в списке скрыты. */
   seesOrigin: boolean;
+  /** archive.view: без него клиенты из Корзины в списке под плиткой не показываются. */
+  seesArchive?: boolean;
 }
 
 export interface DirectorRange {
@@ -80,6 +85,11 @@ const MAX_RANGE_MS = 60 * 31 * 24 * 60 * 60 * 1000;
 /** Потолок строк для выборок, которые считаются в памяти (скорость, сделки по источникам). */
 export const DIRECTOR_ROW_LIMIT = 20_000;
 const CACHE_TTL_MS = 60_000;
+/** Давняя активность сотрудника в «Был активен» не ищем: только последние 90 дней, старше — «давно». */
+export const LAST_ACTIVITY_DAYS = 90;
+/** Сколько запросов сводки к базе идут одновременно (остальные в очереди). */
+const DB_PARALLEL = 5;
+const dbGate = createLimiter(DB_PARALLEL);
 const CACHE_MAX_ENTRIES = 200;
 
 /** Полночь даты (по Душанбе), заданной числами настенного календаря. */
@@ -168,8 +178,10 @@ function dealsWhere(kind: "started" | "closed", r: DirectorRange, f: DirectorFil
     ...(f.agentId ? { agentId: f.agentId } : {}),
     ...(f.source || f.kind ? { client: clientFilter(f) } : {}),
   };
+  // Начатые переговоры — без карточек из Корзины, как шаг воронки (lib/teamReports.ts): удалённый клиент
+  // не должен раздувать цифру. Закрытые сделки и выручка считаются и у них: деньги уже получены.
   return kind === "started"
-    ? { ...scope, startedAt: { gte: r.from, lte: r.to } }
+    ? { ...scope, client: { ...clientFilter(f), deletedAt: null }, startedAt: { gte: r.from, lte: r.to } }
     : { ...scope, stage: "COMPLETED", closedAt: { gte: r.from, lte: r.to } };
 }
 
@@ -220,17 +232,19 @@ export function drillWhere(key: DirectorDrillKey, r: DirectorRange, f: DirectorF
 }
 
 function countSpec(spec: DrillSpec): Promise<number> {
-  if (spec.model === "client") return prisma.client.count({ where: spec.where });
-  if (spec.model === "interaction") return prisma.interaction.count({ where: spec.where });
-  return prisma.deal.count({ where: spec.where });
+  if (spec.model === "client") return dbGate(() => prisma.client.count({ where: spec.where }));
+  if (spec.model === "interaction") return dbGate(() => prisma.interaction.count({ where: spec.where }));
+  return dbGate(() => prisma.deal.count({ where: spec.where }));
 }
 
 async function revenue(r: DirectorRange, f: DirectorFilters, money: MoneyContext): Promise<number> {
-  const rows = await prisma.deal.groupBy({
-    by: ["currency"],
-    where: dealsWhere("closed", r, f),
-    _sum: { commissionAmount: true },
-  });
+  const rows = await dbGate(() =>
+    prisma.deal.groupBy({
+      by: ["currency"],
+      where: dealsWhere("closed", r, f),
+      _sum: { commissionAmount: true },
+    })
+  );
   return roundMoney(rows.reduce((sum, row) => sum + toTjs(row._sum.commissionAmount, row.currency, money), 0));
 }
 
@@ -240,11 +254,12 @@ const KPI_META: Record<DirectorKpiKey, { label: string; unit: DirectorKpi["unit"
   noContact: { label: "Без контакта", unit: "count", goodWhen: "down", drillKey: "noContact" },
   showings: { label: "Показы", unit: "count", goodWhen: "up", drillKey: "showings" },
   meetings: { label: "Встречи", unit: "count", goodWhen: "up", drillKey: "meetings" },
-  negotiations: { label: "Переговоры", unit: "count", goodWhen: "up", drillKey: "negotiations" },
+  negotiations: { label: "Начато переговоров за период", unit: "count", goodWhen: "up", drillKey: "negotiations" },
   deals: { label: "Сделки", unit: "count", goodWhen: "up", drillKey: "deals" },
   revenue: { label: "Выручка (комиссия)", unit: "tjs", goodWhen: "up", drillKey: "deals" },
 };
-const COUNT_KPIS = ["newLeads", "contacted", "noContact", "showings", "meetings", "negotiations", "deals"] as const;
+/** «Без контакта» отдельным запросом не считается: новые − обработанные (обработанные — часть новых). */
+const COUNT_KPIS = ["newLeads", "contacted", "showings", "meetings", "negotiations", "deals"] as const;
 
 function pct(part: number, whole: number): number | null {
   return whole > 0 ? Math.round((part / whole) * 1000) / 10 : null;
@@ -258,6 +273,7 @@ async function kpisFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorVie
     viewer.seesMoney ? revenue(r, f, money) : Promise.resolve(null),
   ]);
   const out = Object.fromEntries(COUNT_KPIS.map((key, i) => [key, counts[i]])) as Record<DirectorKpiKey, number | null>;
+  out.noContact = Math.max(0, (out.newLeads ?? 0) - (out.contacted ?? 0));
   out.revenue = rev;
   return out;
 }
@@ -265,12 +281,14 @@ async function kpisFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorVie
 async function speedFor(r: DirectorRange, f: DirectorFilters) {
   // Личные заявки агент заводит сам — ответа «клиенту, который ждал» там нет
   // (то же правило, что lib/responseSpeed.ts).
-  const rows = await prisma.client.findMany({
-    where: { ...cohortWhere(r, f), isPersonalLead: false, firstContactAt: { not: null } },
-    select: { createdAt: true, firstContactAt: true },
-    orderBy: { createdAt: "desc" },
-    take: DIRECTOR_ROW_LIMIT,
-  });
+  const rows = await dbGate(() =>
+    prisma.client.findMany({
+      where: { ...cohortWhere(r, f), isPersonalLead: false, firstContactAt: { not: null } },
+      select: { createdAt: true, firstContactAt: true },
+      orderBy: { createdAt: "desc" },
+      take: DIRECTOR_ROW_LIMIT,
+    })
+  );
   if (rows.length >= DIRECTOR_ROW_LIMIT) {
     void logSystemError("api", `Дашборд директора: заявок с первым контактом больше ${DIRECTOR_ROW_LIMIT} — скорость посчитана по последним`);
   }
@@ -298,25 +316,31 @@ async function agentsFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorV
   const agentScope = f.agentId ? { in: [f.agentId] } : { not: null };
   // Все группировки — базой, по строке на агента (и тип/валюту), без await в цикле.
   const [leads, contacted, converted, byType, bySubject, deals] = await Promise.all([
-    prisma.client.groupBy({ by: ["assignedAgentId"], where: { ...cohort, assignedAgentId: agentScope }, _count: { _all: true } }),
-    prisma.client.groupBy({
-      by: ["assignedAgentId"],
-      where: { AND: [cohort, { assignedAgentId: agentScope }, funnelCohortStepWhere("contacted", viewer)] },
-      _count: { _all: true },
-    }),
-    prisma.client.groupBy({
-      by: ["assignedAgentId"],
-      where: { AND: [cohort, { assignedAgentId: agentScope }, funnelCohortStepWhere("deals", viewer)] },
-      _count: { _all: true },
-    }),
-    prisma.interaction.groupBy({ by: ["agentId", "type"], where: { AND: [interactionScope, { agentId: agentScope }] }, _count: { _all: true } }),
+    dbGate(() => prisma.client.groupBy({ by: ["assignedAgentId"], where: { ...cohort, assignedAgentId: agentScope }, _count: { _all: true } })),
+    dbGate(() =>
+      prisma.client.groupBy({
+        by: ["assignedAgentId"],
+        where: { AND: [cohort, { assignedAgentId: agentScope }, funnelCohortStepWhere("contacted", viewer)] },
+        _count: { _all: true },
+      })
+    ),
+    dbGate(() =>
+      prisma.client.groupBy({
+        by: ["assignedAgentId"],
+        where: { AND: [cohort, { assignedAgentId: agentScope }, funnelCohortStepWhere("deals", viewer)] },
+        _count: { _all: true },
+      })
+    ),
+    dbGate(() => prisma.interaction.groupBy({ by: ["agentId", "type"], where: { AND: [interactionScope, { agentId: agentScope }] }, _count: { _all: true } })),
     // Показ/встреча, записанные ботом от лица держателя карточки (agentId: null, П-10).
-    prisma.interaction.groupBy({
-      by: ["subjectAgentId", "type"],
-      where: { AND: [interactionScope, { agentId: null, subjectAgentId: agentScope, type: { in: ["MEETING", "SHOWING"] } }] },
-      _count: { _all: true },
-    }),
-    prisma.deal.groupBy({ by: ["agentId", "currency"], where: dealsWhere("closed", r, f), _count: { _all: true }, _sum: { commissionAmount: true } }),
+    dbGate(() =>
+      prisma.interaction.groupBy({
+        by: ["subjectAgentId", "type"],
+        where: { AND: [interactionScope, { agentId: null, subjectAgentId: agentScope, type: { in: ["MEETING", "SHOWING"] } }] },
+        _count: { _all: true },
+      })
+    ),
+    dbGate(() => prisma.deal.groupBy({ by: ["agentId", "currency"], where: dealsWhere("closed", r, f), _count: { _all: true }, _sum: { commissionAmount: true } })),
   ]);
 
   const activeIds = f.agentId
@@ -331,7 +355,14 @@ async function agentsFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorV
 
   const [agents, lastActivity, overdue] = await Promise.all([
     prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, fullName: true, isActive: true }, take: 500 }),
-    prisma.interaction.groupBy({ by: ["agentId"], where: { AND: [visible, { agentId: { in: agentIds }, actorKind: "AGENT" }] }, _max: { createdAt: true } }),
+    // Только последние 90 дней: давнее на экране — «давно» (ревью #362: без границы группировка шла по всей истории).
+    dbGate(() =>
+      prisma.interaction.groupBy({
+        by: ["agentId"],
+        where: { AND: [visible, { agentId: { in: agentIds }, actorKind: "AGENT", createdAt: { gte: new Date(now.getTime() - LAST_ACTIVITY_DAYS * 86_400_000) } }] },
+        _max: { createdAt: true },
+      })
+    ),
     countOverdueTasksByAgent(now, agentIds, { AND: [visible, f.source || f.kind ? { client: clientFilter(f) } : {}] }),
   ]);
 
@@ -384,13 +415,15 @@ async function agentsFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorV
 
 async function sourcesFor(r: DirectorRange, f: DirectorFilters, viewer: DirectorViewer, money: MoneyContext) {
   const [leadRows, dealRows] = await Promise.all([
-    prisma.client.groupBy({ by: ["source"], where: cohortWhere(r, f), _count: { _all: true } }),
-    prisma.deal.findMany({
-      where: dealsWhere("closed", r, f),
-      select: { currency: true, commissionAmount: true, client: { select: { source: true } } },
-      orderBy: { id: "asc" },
-      take: DIRECTOR_ROW_LIMIT,
-    }),
+    dbGate(() => prisma.client.groupBy({ by: ["source"], where: cohortWhere(r, f), _count: { _all: true } })),
+    dbGate(() =>
+      prisma.deal.findMany({
+        where: dealsWhere("closed", r, f),
+        select: { currency: true, commissionAmount: true, client: { select: { source: true } } },
+        orderBy: { id: "asc" },
+        take: DIRECTOR_ROW_LIMIT,
+      })
+    ),
   ]);
   const by = new Map<string, { leads: number; deals: number; commission: number }>();
   const slot = (s: string) => by.get(s) ?? by.set(s, { leads: 0, deals: 0, commission: 0 }).get(s)!;
@@ -412,7 +445,7 @@ async function sourcesFor(r: DirectorRange, f: DirectorFilters, viewer: Director
 }
 
 async function lossReasonsFor(r: DirectorRange, f: DirectorFilters) {
-  const rows = await prisma.client.groupBy({ by: ["refusalReason"], where: lostWhere(r, f), _count: { _all: true } });
+  const rows = await dbGate(() => prisma.client.groupBy({ by: ["refusalReason"], where: lostWhere(r, f), _count: { _all: true } }));
   return rows
     .map((row) => ({
       reason: row.refusalReason ?? "NONE",
@@ -429,15 +462,20 @@ async function lossReasonsFor(r: DirectorRange, f: DirectorFilters) {
  */
 async function planFor(r: DirectorRange, viewer: DirectorViewer, money: MoneyContext) {
   const month = currentDushanbeMonth(r.to);
-  if (!viewer.seesMoney) return { commissionPlan: null, fact: null, pct: null, left: null, month };
+  if (!viewer.seesMoney) return { commissionPlan: null, planIsDefault: false, fact: null, pct: null, left: null, month };
   const bounds = dushanbeMonthBounds(month);
   const [settings, fact] = await Promise.all([
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { monthlyCommissionPlan: true } }),
+    dbGate(() => prisma.settings.findUnique({ where: { id: "singleton" }, select: { monthlyCommissionPlan: true } })),
     revenue({ from: bounds.start, to: new Date(bounds.end.getTime() - 1) }, {}, money),
   ]);
-  const plan = settings ? Number(settings.monthlyCommissionPlan) : null;
+  const stored = settings ? Number(settings.monthlyCommissionPlan) : null;
+  // Колонка NOT NULL с умолчанием: «не задан» и «задан как умолчание» в базе не различить — та же
+  // общая функция, что у главной руководителя (isDefaultCommissionPlan). Умолчание — «план не задан»,
+  // а не «80% от 8000».
+  const plan = stored !== null && !isDefaultCommissionPlan(stored) ? stored : null;
   return {
     commissionPlan: plan,
+    planIsDefault: stored === null || isDefaultCommissionPlan(stored),
     fact,
     pct: plan ? pct(fact, plan) : null,
     left: plan != null ? roundMoney(Math.max(0, plan - fact)) : null,
@@ -483,7 +521,7 @@ export async function buildDirectorDashboard(q: DirectorDashboardQuery, viewer: 
       method: "cohort",
       steps: cohort.map((step, i) => ({
         key: step.key,
-        label: step.label,
+        label: step.key === "negotiations" ? "Дошли до переговоров" : step.label,
         count: step.count,
         conversionFromPrev: i === 0 ? null : pct(step.count, cohort[i - 1].count),
         conversionFromFirst: i === 0 ? null : pct(step.count, first),
@@ -514,19 +552,30 @@ export function directorCacheKey(q: DirectorDashboardQuery, viewer: DirectorView
   return JSON.stringify([q.preset, q.from ?? null, q.to ?? null, q.agentId ?? null, q.source ?? null, q.kind ?? null, viewer.seesMoney, viewer.investigationRole ?? null]);
 }
 
+/** Одинаковые запросы, пришедшие одновременно, ждут один расчёт, а не запускают каждый свой. */
+const inflight = new Map<string, Promise<DirectorDashboardResponse>>();
+
 export async function cachedDirectorDashboard(q: DirectorDashboardQuery, viewer: DirectorViewer): Promise<DirectorDashboardResponse> {
   const key = directorCacheKey(q, viewer);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
-  const value = await buildDirectorDashboard(q, viewer);
-  if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value!);
-  cache.set(key, { at: Date.now(), value });
-  return value;
+  const running = inflight.get(key);
+  if (running) return running;
+  const job = buildDirectorDashboard(q, viewer)
+    .then((value) => {
+      if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value!);
+      cache.set(key, { at: Date.now(), value });
+      return value;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, job);
+  return job;
 }
 
 /** Для тестов: сбросить кэш между сценариями. */
 export function clearDirectorDashboardCache(): void {
   cache.clear();
+  inflight.clear();
 }
 
 // ── список под плиткой ──────────────────────────────────────────────────────
@@ -537,7 +586,7 @@ const DRILL_LABELS: Record<DirectorDrillKey, string> = {
   noContact: "Заявки без контакта",
   showings: "Показы",
   meetings: "Встречи",
-  negotiations: "Начатые сделки",
+  negotiations: "Начато переговоров",
   deals: "Закрытые сделки",
   overdueTasks: "Просроченные задачи",
   lost: "Отказы",
@@ -600,7 +649,7 @@ async function drillRows(spec: DrillSpec, take: number, skip: number, viewer: Di
       agentId: i.agentId ?? i.subjectAgentId,
       client: i.client,
       status: i.type,
-      statusLabel: spec.dateField === "nextActionDate" ? `Задача: ${i.nextAction ?? ""}`.trim() : (INTERACTION_LABELS[i.type] ?? i.type),
+      statusLabel: spec.dateField === "nextActionDate" ? `Задача: ${phoneSafeText(i.nextAction, viewer.seesPhone) ?? ""}`.trim() : (INTERACTION_LABELS[i.type] ?? i.type),
       amount: null,
     }));
   }
@@ -623,6 +672,14 @@ async function drillRows(spec: DrillSpec, take: number, skip: number, viewer: Di
   }));
 }
 
+/** Без права archive.view клиенты из Корзины в списке не показываются (и не считаются в «Всего»). */
+function withoutTrash(spec: DrillSpec, viewer: DirectorViewer): DrillSpec {
+  if (viewer.seesArchive) return spec;
+  if (spec.model === "client") return { ...spec, where: { AND: [spec.where, { deletedAt: null }] } };
+  if (spec.model === "interaction") return { ...spec, where: { AND: [spec.where, { client: { deletedAt: null } }] } };
+  return { ...spec, where: { AND: [spec.where, { client: { deletedAt: null } }] } };
+}
+
 /** Имя клиента для списка — по тем же правилам, что список клиентов (номер и происхождение). */
 type PresentName = (client: { fullName: string; source: string }) => { name: string; source: string; sourceLabel: string };
 
@@ -633,7 +690,7 @@ export async function buildDirectorDrill(
   now: Date = new Date()
 ): Promise<DirectorDrillResponse> {
   const period = resolveDirectorPeriod(q, now);
-  const spec = drillWhere(q.key, period, filtersOf(q), viewer, now);
+  const spec = withoutTrash(drillWhere(q.key, period, filtersOf(q), viewer, now), viewer);
   const money = await loadMoneyContext();
   const [total, rows] = await Promise.all([countSpec(spec), drillRows(spec, q.limit, q.offset, viewer, money)]);
   const agentIds = [...new Set(rows.map((r) => r.agentId).filter((id): id is string => !!id))];

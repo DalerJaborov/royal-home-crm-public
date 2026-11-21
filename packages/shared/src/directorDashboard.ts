@@ -158,6 +158,8 @@ export const directorSourceRowSchema = z.object({
 export const directorPlanSchema = z.object({
   /** План комиссии на месяц из Настроек; null — не задан или нет права. */
   commissionPlan: z.number().nullable(),
+  /** true — в Настройках стоит умолчание, план по сути не задан (commissionPlan тогда null). */
+  planIsDefault: z.boolean(),
   fact: z.number().nullable(),
   pct: z.number().nullable(),
   left: z.number().nullable(),

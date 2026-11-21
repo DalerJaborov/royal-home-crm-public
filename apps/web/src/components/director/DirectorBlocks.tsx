@@ -18,6 +18,9 @@ import {
  * `data.seesMoney` — без права finance.view плиток, столбцов и колец с деньгами нет вовсе.
  */
 
+/** Можно ли открыть список за цифрой: решает экран по правам (clients.viewAll, для сделок ещё deals.viewAll). */
+export type CanDrill = (key: DirectorDrillKey) => boolean;
+
 export const nums = (n: number) => Math.round(n).toLocaleString("ru-RU");
 export const moneyTjs = (n: number) => `${nums(n)} с.`;
 
@@ -48,7 +51,7 @@ export function DeltaNote({ delta }: { delta: DeltaView | null }) {
 }
 
 /** Плитка KPI: число, стрелка и «на X больше, чем в прошлом периоде». Есть список — это кнопка. */
-export function KpiTile({ kpi, onDrill }: { kpi: DirectorKpi; onDrill: (key: DirectorDrillKey, label: string) => void }) {
+export function KpiTile({ kpi, onDrill, canDrill = () => true }: { kpi: DirectorKpi; onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill }) {
   const isMoney = kpi.unit === "tjs";
   const delta = compareDelta(kpi.value, kpi.prev, kpi.goodWhen, isMoney ? null : KPI_NOUN[kpi.key] ?? null);
   const deltaMoney = isMoney && delta && kpi.value !== null && kpi.prev !== null
@@ -61,7 +64,8 @@ export function KpiTile({ kpi, onDrill }: { kpi: DirectorKpi; onDrill: (key: Dir
       <DeltaNote delta={isMoney ? deltaMoney : delta} />
     </>
   );
-  const drillKey = kpi.drillKey;
+  // Список под плиткой — имена клиентов: без права видеть всех клиентов плитка не кликабельна (сервер всё равно ответит 403).
+  const drillKey = kpi.drillKey && canDrill(kpi.drillKey) ? kpi.drillKey : null;
   const variant = kpiTileVariant(kpi);
   const wide = isMoney ? "true" : undefined;
   if (drillKey) {
@@ -74,12 +78,12 @@ export function KpiTile({ kpi, onDrill }: { kpi: DirectorKpi; onDrill: (key: Dir
   return <div className="ry-tile dd-tile" data-variant={variant} data-wide={wide} data-kpi={kpi.key}>{inner}</div>;
 }
 
-export function KpiBlock({ data, onDrill }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void }) {
+export function KpiBlock({ data, onDrill, canDrill }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill }) {
   // Без права на деньги плитки денег не рисуются вовсе: сервер отдаёт value=null, но и пустой плитки быть не должно.
   const kpis = data.kpis.filter((k) => k.unit !== "tjs" || data.seesMoney);
   return (
     <RhSection title="Главные цифры" id="dd-kpi">
-      <div className="dd-kpis">{kpis.map((k) => <KpiTile key={k.key} kpi={k} onDrill={onDrill} />)}</div>
+      <div className="dd-kpis">{kpis.map((k) => <KpiTile key={k.key} kpi={k} onDrill={onDrill} canDrill={canDrill} />)}</div>
     </RhSection>
   );
 }
@@ -112,7 +116,7 @@ export function FunnelBlock({ data }: { data: DirectorDashboardResponse }) {
 }
 
 /** Причины отказа — столбики; самая частая первой. */
-export function ReasonsBlock({ data, onDrill }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void }) {
+export function ReasonsBlock({ data, onDrill, canDrill = () => true }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill }) {
   const rows = [...data.lossReasons].filter((r) => r.count > 0).sort((a, b) => b.count - a.count);
   const total = rows.reduce((s, r) => s + r.count, 0);
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -131,7 +135,7 @@ export function ReasonsBlock({ data, onDrill }: { data: DirectorDashboardRespons
                 </li>
               ))}
             </ul>
-            <RhButton variant="ghost" onClick={() => onDrill("lost", "Потерянные заявки")}>Открыть список отказов</RhButton>
+            {canDrill("lost") && <RhButton variant="ghost" onClick={() => onDrill("lost", "Потерянные заявки")}>Открыть список отказов</RhButton>}
           </>
         )}
       </div>
@@ -139,8 +143,14 @@ export function ReasonsBlock({ data, onDrill }: { data: DirectorDashboardRespons
   );
 }
 
+/** Плитка скорости: кнопка со списком, а без права на список — обычная плитка. */
+function SpeedTile({ open, variant, label, onOpen, children }: { open: boolean; variant: TileVariant; label: string; onOpen: () => void; children: ReactNode }) {
+  if (!open) return <div className="ry-tile dd-tile" data-variant={variant}>{children}</div>;
+  return <button type="button" className="ry-tile dd-tile" data-variant={variant} onClick={onOpen} aria-label={`${label}. Открыть список`}>{children}</button>;
+}
+
 /** Скорость первого ответа и дисциплина: клик по «без контакта» и «просрочено» открывает список. */
-export function SpeedBlock({ data, onDrill }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void }) {
+export function SpeedBlock({ data, onDrill, canDrill = () => true }: { data: DirectorDashboardResponse; onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill }) {
   const s = data.speed;
   const noContactVariant = tileTone("urgent", s.noContactCount);
   const overdueVariant = tileTone("urgent", s.overdueTasks);
@@ -157,18 +167,16 @@ export function SpeedBlock({ data, onDrill }: { data: DirectorDashboardResponse;
           <span className="ry-tile-value ry-num dd-time">{minutesLabel(s.avgMin)}</span>
           <span className="dd-delta" data-tone="neutral">от заявки до первого контакта</span>
         </div>
-        <button type="button" className="ry-tile dd-tile" data-variant={noContactVariant} onClick={() => onDrill(s.noContactDrillKey, "Без первого контакта")}
-          aria-label={`Без контакта: ${nums(s.noContactCount)}. Открыть список`}>
+        <SpeedTile open={canDrill(s.noContactDrillKey)} variant={noContactVariant} label={`Без контакта: ${nums(s.noContactCount)}`} onOpen={() => onDrill(s.noContactDrillKey, "Без первого контакта")}>
           <span className="ry-tile-label"><RoyalIcon name="phone-missed" size={26} />Без контакта</span>
           <span className="ry-tile-value ry-num">{nums(s.noContactCount)}</span>
           <span className="dd-delta" data-tone="neutral">заявки, до которых не дошли</span>
-        </button>
-        <button type="button" className="ry-tile dd-tile" data-variant={overdueVariant} onClick={() => onDrill(s.overdueDrillKey, "Просроченные задачи")}
-          aria-label={`Просрочено задач: ${nums(s.overdueTasks)}. Открыть список`}>
+        </SpeedTile>
+        <SpeedTile open={canDrill(s.overdueDrillKey)} variant={overdueVariant} label={`Просрочено задач: ${nums(s.overdueTasks)}`} onOpen={() => onDrill(s.overdueDrillKey, "Просроченные задачи")}>
           <span className="ry-tile-label"><RoyalIcon name="circle-alert" size={26} />Просрочено задач</span>
           <span className="ry-tile-value ry-num">{nums(s.overdueTasks)}</span>
           <span className="dd-delta" data-tone="neutral">на сейчас</span>
-        </button>
+        </SpeedTile>
       </div>
     </RhSection>
   );
@@ -195,7 +203,7 @@ export function SourcesBlock({ data }: { data: DirectorDashboardResponse }) {
 /** План и факт комиссии за месяц: кольцо с процентом и остаток. Блок есть только при праве на деньги. */
 export function PlanBlock({ data, settingsTo }: { data: DirectorDashboardResponse; settingsTo?: string }) {
   const p = data.plan;
-  const hasPlan = p.commissionPlan !== null && p.commissionPlan > 0 && p.fact !== null;
+  const hasPlan = !p.planIsDefault && p.commissionPlan !== null && p.commissionPlan > 0 && p.fact !== null;
   const pct = hasPlan ? Math.max(0, Math.round(p.pct ?? sharePct(p.fact, p.commissionPlan) ?? 0)) : 0;
   const monthName = (() => {
     const [y, m] = p.month.split("-").map(Number);
@@ -221,7 +229,7 @@ export function PlanBlock({ data, settingsTo }: { data: DirectorDashboardRespons
           </>
         ) : (
           <div className="dd-plan-text">
-            <p className="dd-quiet">План комиссии на этот месяц не задан.{settingsTo ? <> Его ставят в <Link to={settingsTo}>Настройках</Link>.</> : " Его ставит администратор в Настройках."}</p>
+            <p className="dd-quiet">План не задан — {settingsTo ? <>задайте в <Link to={settingsTo}>Настройках</Link>.</> : "его задаёт администратор в Настройках."}</p>
             {p.fact !== null && <p className="dd-plan-fact">Комиссия за месяц: <b className="ry-num"><RoyalAmount text={moneyTjs(p.fact)} /></b></p>}
           </div>
         )}
@@ -253,7 +261,8 @@ function agentColumns(seesMoney: boolean): AgentCol[] {
 }
 
 export function lastSeen(iso: string | null): string {
-  if (!iso) return "—";
+  // Сервер ищет активность только за 90 дней: нет даты — «давно» (или не было вовсе).
+  if (!iso) return "давно";
   return dushanbeDate(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
@@ -320,18 +329,18 @@ export function AgentsBlock({ data, mobile }: { data: DirectorDashboardResponse;
 }
 
 /** Порядок блоков берёт `blockOrder` (lib/directorFormat): директору — деньги и план, РОПу — скорость и менеджеры. */
-export function DirectorBlocks({ data, order, mobile, settingsTo, onDrill }: {
+export function DirectorBlocks({ data, order, mobile, settingsTo, onDrill, canDrill }: {
   data: DirectorDashboardResponse; order: DashboardBlock[]; mobile: boolean; settingsTo?: string;
-  onDrill: (key: DirectorDrillKey, label: string) => void;
+  onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill;
 }) {
   const render: Record<DashboardBlock, ReactNode> = {
-    kpi: <KpiBlock key="kpi" data={data} onDrill={onDrill} />,
+    kpi: <KpiBlock key="kpi" data={data} onDrill={onDrill} canDrill={canDrill} />,
     plan: data.seesMoney ? <PlanBlock key="plan" data={data} settingsTo={settingsTo} /> : null,
-    speed: <SpeedBlock key="speed" data={data} onDrill={onDrill} />,
+    speed: <SpeedBlock key="speed" data={data} onDrill={onDrill} canDrill={canDrill} />,
     agents: <AgentsBlock key="agents" data={data} mobile={mobile} />,
     funnel: <FunnelBlock key="funnel" data={data} />,
     sources: <SourcesBlock key="sources" data={data} />,
-    reasons: <ReasonsBlock key="reasons" data={data} onDrill={onDrill} />,
+    reasons: <ReasonsBlock key="reasons" data={data} onDrill={onDrill} canDrill={canDrill} />,
   };
   return <div className="dd-blocks">{order.map((b) => render[b])}</div>;
 }

@@ -79,6 +79,11 @@ for (const role of ["HEAD_OF_SALES", "MARKETING"] as const) {
       await expect(money(page)).toHaveCount(0);
       await expect(root).not.toContainText("Выручка");
       await expect(root).not.toContainText("План и факт");
+      if (role === "MARKETING") {
+        // Нет права видеть всех клиентов — плитки без списка, сервер на список всё равно ответил бы 403.
+        await expect(page.locator("button[data-kpi]")).toHaveCount(0);
+        await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible();
+      }
       if (role === "HEAD_OF_SALES") {
         // У РОП сверху — скорость ответа и менеджеры, период по умолчанию — «Неделя».
         await expect(root.getByRole("radio", { name: "Неделя" })).toHaveAttribute("aria-checked", "true");
