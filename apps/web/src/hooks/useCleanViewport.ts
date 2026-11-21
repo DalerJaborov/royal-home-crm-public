@@ -1,4 +1,5 @@
 import { useLayoutEffect } from "react";
+import { readKeyboard } from "../lib/keyboardInset";
 
 /** Keep the composer inside the visible viewport, without changing legacy phone behavior. */
 export function useCleanViewport(enabled: boolean) {
@@ -18,7 +19,7 @@ export function useCleanViewport(enabled: boolean) {
       // Верх берём по ГЕОМЕТРИИ, а не по фокусу поля: видимая область заметно ниже окна — клавиатура открыта, и
       // переписка встаёт на offsetTop; нет (закрылась, резиновая прокрутка, пинч) — строго 0. Фокус слетает и
       // возвращается раньше, чем iOS двигает область, и привязка к нему оставляла переписку сдвинутой.
-      const kbOpen = window.innerHeight - (viewport?.height ?? window.innerHeight) > 140;
+      const kbOpen = viewport ? readKeyboard(window.innerHeight, viewport).open : false;
       root.style.setProperty("--clean-viewport-top", kbOpen ? `${Math.max(0, Math.round(viewport?.offsetTop ?? 0))}px` : "0px");
       const nextNotice = document.querySelector<HTMLElement>(".clean-critical-notice");
       if (notice !== nextNotice) {
@@ -31,7 +32,7 @@ export function useCleanViewport(enabled: boolean) {
       root.style.setProperty("--clean-notice-space", `${Math.ceil(noticeSpace)}px`);
       const focused = document.activeElement;
       const editing = focused instanceof HTMLElement && (focused.matches("input,textarea") || focused.isContentEditable);
-      if (editing && window.innerHeight - (viewport?.height ?? window.innerHeight) > 140) root.dataset.cleanKeyboard = "1";
+      if (editing && kbOpen) root.dataset.cleanKeyboard = "1";
       else delete root.dataset.cleanKeyboard;
     };
     const schedule = () => { if (!frame) frame = window.requestAnimationFrame(apply); };

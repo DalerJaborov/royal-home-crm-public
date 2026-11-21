@@ -431,7 +431,7 @@ function ClientMatchPanel({
         <button type="button" className="pill ghost" disabled={currentPage * pageSize >= total || activeQuery.isFetching} onClick={() => changePage(currentPage + 1)}>Далее</button>
       </nav>}
     </PanelShell>
-    {!readOnly && showingFor && <AddInteractionModal clientId={client.id} initialType="SHOWING" mode="schedule" initialPropertyId={showingFor.id} onClose={() => setShowingFor(null)} onSaved={() => setShowingFor(null)} />}
+    {!readOnly && showingFor && <AddInteractionModal clientId={client.id} initialType="SHOWING" mode="schedule" selectedClientName={client.displayName ?? client.fullName} initialPropertyId={showingFor.id} onClose={() => setShowingFor(null)} onSaved={() => setShowingFor(null)} />}
   </>;
 }
 

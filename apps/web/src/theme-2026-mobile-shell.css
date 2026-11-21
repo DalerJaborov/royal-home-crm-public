@@ -660,3 +660,55 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .ev > time {
 .rh2 .mh .row > .t {
   min-width: 0;
 }
+
+/* ═══ 8. КЛАВИАТУРА И ШТОРКИ НА ТЕЛЕФОНЕ (аудит К07 и К08, 21.11.2026) ═════
+   Одно место на всё приложение. Расчёт клавиатуры — lib/keyboardInset.ts: на <html> `data-kb-open`,
+   `--rh-kb-inset` (px от низа layout viewport до верха клавиатуры) и `--rh-vv-h` (высота видимой области).
+   Шторки и экраны своего отступа под клавиатуру НЕ задают — сторож apps/web/src/lib/__tests__/keyboardGuard.test.ts.
+
+   8.1. Нижнее меню при открытой клавиатуре скрыто на любом экране с полем: оно занимало половину
+   видимой части и лежало над клавиатурой (кадры владельца №11, «Исправить и озвучить»). Только < 820:
+   выше это боковая рейка. !important — оболочка нового вида задаёт display самому меню несколькими
+   правилами разной силы, перебирать их по одному незачем. */
+@media (max-width: 819.98px) {
+  html[data-kb-open] nav[data-bottomnav] { display: none !important; }
+}
+
+/* 8.2. Шторка снизу при клавиатуре: подвал над ней, потолок высоты — видимая область, а не весь экран.
+   Запас под полоску жестов iPhone при клавиатуре не нужен (её закрывает сама клавиатура). */
+html[data-mobile-ux][data-kb-open] .rh2 .scr .sheet.bottom {
+  bottom: var(--rh-kb-inset, 0px);
+  padding-bottom: 0;
+  max-height: calc(var(--rh-vv-h, 100dvh) - 12px);
+}
+
+/* Запас под полоску жестов iPhone, заданный на подвале и теле разделов (clients, team, wizard: `16px + safe-area`),
+   при клавиатуре тоже лишний: над клавиатурой остаётся пустая полоса ~34 px. !important — у слоёв разделов
+   селектор длиннее и их много, перебирать по одному незачем. */
+html[data-mobile-ux][data-kb-open] .rh2 .sheet.bottom .sheet-f { padding-bottom: 12px !important; }
+html[data-mobile-ux][data-kb-open] .rh2 .sheet.bottom .sheet-b:last-child { padding-bottom: 16px !important; }
+
+/* 8.2б. Окно расхода «Деньги» (`.cef-sheet-backdrop`, ClaudeExpenseSheet) — своя шторка снизу не из Rh2Sheet:
+   подложка прижимает её к низу layout viewport, под клавиатуру. Поднимаем подложкой — тем же отступом. */
+@media (max-width: 819.98px) {
+  html[data-kb-open] .cef-sheet-backdrop { padding-bottom: var(--rh-kb-inset, 0px); }
+  html[data-kb-open] .cef-sheet-backdrop > .cef-sheet { max-height: calc(var(--rh-vv-h, 100dvh) - 12px); }
+  html[data-kb-open] .cef-sheet-footer { padding-bottom: 14px; }
+}
+
+/* 8.3. Одна высота шторок (К08.2): «Назначить показ» была почти на весь экран, «Записать результат» — на
+   половину. Шторка-форма (Rh2Sheet ставит `data-form`, когда есть подвал или отправка) не ниже ~62% экрана (но не выше
+   520 px), подвал прижат к низу; короткие меню (звонок, действия, «Ещё») и подтверждения (`alertdialog`) остаются
+   по высоте содержимого. При клавиатуре нижняя граница не выше видимой области. */
+html[data-mobile-ux] .rh2 .scr .sheet.bottom[data-form]:not([role="alertdialog"]) {
+  min-height: min(62dvh, 520px);
+}
+html[data-mobile-ux][data-kb-open] .rh2 .scr .sheet.bottom[data-form]:not([role="alertdialog"]) {
+  min-height: min(62dvh, 520px, calc(var(--rh-vv-h, 100dvh) - 12px));
+}
+
+/* 8.4. Рамка фокуса вокруг ВСЕЙ шторки (К08.1): при открытии фокус переходит на сам контейнер (скринридер
+   объявляет окно), и тема рисовала на нём 2-3 px обводку. У контейнера обводки нет; у кнопок и полей
+   внутри — прежняя. */
+.rh2 .scr .sheet[tabindex="-1"]:is(:focus, :focus-visible),
+html[data-shell="clean"] .rh2 .scr .sheet[tabindex="-1"]:is(:focus, :focus-visible) { outline: none; }

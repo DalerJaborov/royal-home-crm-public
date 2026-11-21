@@ -90,7 +90,7 @@ export function viewportFontSizes(css: string): string[] {
   return cssRules(css).filter((r) => declarations(r.body).some(([prop, value]) => /^font(-size)?$/.test(prop) && /\d(vw|vh|vmin|vmax|svw|dvw|lvw)\b/.test(value)))
     .map((r) => r.selector);
 }
-const STRIP_HINT_EXEMPT = /\.(tbl-wrap|rh2-bar-chart|ry-gal-thumbs)\b/;
+const STRIP_HINT_EXEMPT = /\.(tbl-wrap|rh2-bar-chart)\b/;
 /** Классы, которым основа даёт затухание (селектор правила с `animation: ry-strip-more`). */
 export function stripHintClasses(base: string): string[] {
   const rule = cssRules(base).find((r) => /animation:\s*ry-strip-more\b/.test(r.body));

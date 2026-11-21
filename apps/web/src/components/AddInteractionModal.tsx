@@ -5,7 +5,7 @@ import { CleanRecordForm, ReadOnlyRecordFields, CleanInteractionContext } from "
 import { useCleanShell } from "../hooks/useCleanShell";
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
-import { useAddInteraction, useUpdateClient, useClient } from "../hooks/useClients";
+import { useAddInteraction, useUpdateClient } from "../hooks/useClients";
 import { useParseNote } from "../hooks/useAi";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useDistricts } from "../hooks/useDistricts";
@@ -113,7 +113,9 @@ export function AddInteractionModal({
   const accountReadOnly = useIsReadOnly();
   const readOnlyRef = useRef(accountReadOnly);
   readOnlyRef.current = accountReadOnly;
-  const contextClient = useClient(clean && !selectedClientName ? clientId : undefined);
+  // Блок «Показ для клиента: …» нужен, только когда клиента выбрали из списка внутри окна (ShowingQuickForm).
+  // Из карточки клиента имя уже в шапке страницы — повтор лишний (К08.3, 21.11.2026); из подбора в чате шапки нет, и имя передаёт MatchPanel.
+  const showClientContext = clean && !!selectedClientName;
   /**
    * РЕЖИМ ПЛАНИРОВАНИЯ. «Назначить показ» из окна подбора — это будущее событие:
    * дата, время, объект. Раньше кнопка открывала этот же трёхшаговый мастер
@@ -415,7 +417,7 @@ export function AddInteractionModal({
       >
         <CleanRecordForm enabled={clean}>
         <ReadOnlyRecordFields readOnly={accountReadOnly}>
-        {clean && <CleanInteractionContext name={selectedClientName ?? contextClient.data?.displayName ?? contextClient.data?.fullName} isLoading={contextClient.isLoading} isError={contextClient.isError} onRetry={() => void contextClient.refetch()} scheduling={scheduling} />}
+        {showClientContext && <CleanInteractionContext name={selectedClientName} scheduling={scheduling} />}
         {/* Условный рендер, а не hidden: в этом репозитории `hidden` не скрывает
             элемент с классом flex/grid. Состояние полей живёт в useState, поэтому
             размонтирование ничего не теряет. */}

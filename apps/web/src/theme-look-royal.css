@@ -310,7 +310,7 @@
   :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
     width: 56px; height: 56px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-shadow-lg);
   }
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: var(--rh-nav-clear); }
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand {
     position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
     height: 48px; padding: 0 12px; gap: 12px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.025em;
@@ -400,8 +400,18 @@
 :root[data-ui-look="royal"][data-mobile-ux] .clean-shell,
 :root[data-ui-look="royal"][data-mobile-ux] .clean-frame,
 :root[data-ui-look="royal"][data-mobile-ux] .clean-header { background: var(--rh-ui-bg); }
+/* НИЖНЕЕ МЕНЮ: ОДНА ПЕРЕМЕННАЯ НА ВСЕ ЭКРАНЫ (аудит К06, 21.11.2026). Меню — капсула высотой 68 px (60 + 4 + 4)
+   на расстоянии 12 px от края экрана; на сенсорном планшете от неё остаётся круглая кнопка 56 px на 24 px от края.
+   И то и другое занимает снизу 80 px + safe-area — это `--rh-nav-h`: так высоко от края экрана верх меню.
+   `--rh-nav-clear` — запас под содержимое страницы (меню + 22 px воздуха), чтобы конец страницы не уезжал под меню.
+   Плавающие панели над меню (подбор «Отправить выбранные») встают на `calc(var(--rh-nav-h) + 10px)`.
+   Своих «104 px» и `--ry-nav-clear` на экранах быть не должно: сторож — lib/__tests__/navClearGuard.test.ts. */
+:root[data-ui-look="royal"][data-mobile-ux] {
+  --rh-nav-h: calc(80px + env(safe-area-inset-bottom, 0px));
+  --rh-nav-clear: calc(var(--rh-nav-h) + 22px);
+}
 :root[data-ui-look="royal"][data-mobile-ux] .clean-shell .app-main-col {
-  padding-bottom: calc(64px + 14px + 24px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: var(--rh-nav-clear);
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
@@ -490,9 +500,6 @@
     width: 52px; height: 52px; margin: 4px auto; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
   }
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .ry-rail-only { display: block; }
-  /* Плавающая подсказка «Поставьте CRM на экран» (InstallAppHint, до 819 px) растянута
-     от края до края — на планшете её левый край уходил под рейку. */
-  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > [data-install-hint] { left: var(--ry-rail-w); }
 }
 
 /* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):
@@ -782,7 +789,7 @@
    (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
    снимает. Браузер без animation-timeline остаётся как был. */
 @supports (animation-timeline: scroll()) {
-  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs) {
     /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
     animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
   }
@@ -794,30 +801,47 @@
   }
   100% { -webkit-mask-image: none; mask-image: none; }
 }
+/* Там, где `animation-timeline` нет (Safari до 26: «Таблица» и «Звонки» на iPhone были просто обрезаны краем,
+   аудит К20), признак «дальше есть» ставит хук useScrollStripHints атрибутом `data-strip-more`. */
+@supports not (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] [data-strip-more="end"] {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  :root[data-ui-look="royal"] [data-strip-more="start"] {
+    -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(270deg, #000 calc(100% - 32px), transparent);
+  }
+  :root[data-ui-look="royal"] [data-strip-more="both"] {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
+}
 
 
 /* Подпись с числом одним куском («Не связывались: 4»): число не уезжает строкой ниже. */
 :root[data-ui-look="royal"] .ry-nowrap { white-space: nowrap; }
 
-/* Предложение поставить CRM на экран — одной строкой над нижним меню (съёмка 20.11:
-   прежняя карточка в 200 px закрывала низ первого экрана). Разметка — InstallAppHint.tsx. */
+/* Предложение поставить CRM на экран — одной строкой в самом экране «Главная», не плавающим слоем
+   (аудит К06.1, 21.11: плашка над меню закрывала низ каждого экрана). Разметка — InstallAppHint.tsx. */
 :root[data-ui-look="royal"] .ry-install-card {
-  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 6px 6px 6px 14px; border-radius: var(--rh-r-full);
+  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 12px 12px 8px 16px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
 }
-:root[data-ui-look="royal"] .ry-install-card:has(.ry-install-steps) { border-radius: var(--rh-r-lg); padding-top: 12px; }
-:root[data-ui-look="royal"] .ry-install-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Две строки, как бы ни была узка ширина: значок и название, ниже действия справа. В одну строку на 390 px название
+   сжималось до слога на строку («Поста / вьте / CRM»). */
+:root[data-ui-look="royal"] .ry-install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
 :root[data-ui-look="royal"] .ry-install-row > .i { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
-:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 auto; min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 calc(100% - 32px); min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
 :root[data-ui-look="royal"] .ry-install-go {
-  flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  flex: none; min-height: 44px; margin-left: auto; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
 :root[data-ui-look="royal"] .ry-install-x {
-  display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--rh-r-full);
-  background: transparent; color: var(--rh-ui-hint); cursor: pointer;
+  flex: none; min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full);
+  background: transparent; color: var(--rh-ui-hint); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
 }
-:root[data-ui-look="royal"] .ry-install-x .i { width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-install-hint { margin-bottom: 12px; }
 :root[data-ui-look="royal"] .ry-install-steps { display: grid; gap: 6px; margin: 0; padding: 0 8px 0 22px; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .ry-install-steps .i { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
 

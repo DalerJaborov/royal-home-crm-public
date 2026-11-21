@@ -24,6 +24,9 @@ import { isWideRoute } from "../lib/shellLayout";
 import { useCleanShellSelection } from "../hooks/useCleanShell";
 import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
+import { useKeyboardInset } from "../hooks/useKeyboardInset";
+import { useScrollStripHints } from "../hooks/useScrollStripHints";
+import { useMobileUx } from "../hooks/useMobileUx";
 import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
 import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
 import { useDeviceLookMemory, useLookAttribute, useRoyalLookChoice } from "../hooks/useRoyalLook";
@@ -85,6 +88,12 @@ export function AppLayout() {
   // «Новый вид» — только с сервера и только поверх чистой оболочки (hooks/useRoyalLook.ts).
   const royal = useRoyalLookChoice(clean && look === "royal");
   useCleanViewport(clean);
+  // Клавиатура телефона на ЛЮБОМ экране с полем (аудит К07): признак `data-kb-open` на <html> прячет нижнее
+  // меню (theme-2026-mobile-shell.css, п. 8). Расчёт один на приложение — lib/keyboardInset.ts.
+  const phoneUx = useMobileUx();
+  useKeyboardInset(phoneUx);
+  // Ряды вкладок и фильтров, которые листаются вбок, гаснут у края там, где CSS сам этого не умеет (аудит К20).
+  useScrollStripHints(royal);
   usePushSubscriptionRefresh();
   const renderedContent = useRef(false);
   useLayoutEffect(() => { if (!shellPending) renderedContent.current = true; }, [shellPending]);
@@ -313,6 +322,10 @@ export function AppLayout() {
               разделами незачем. */}
           <Suspense fallback={null}>
             {pathname === "/" && <NotificationsBanner />}
+            {/* Предложение установить CRM как приложение: строка в самом экране «Главная», один раз,
+                когда установка возможна (lib/installHint.ts). Плавающим слоем над меню больше не висит
+                (аудит К06.1, 21.11.2026). */}
+            {pathname === "/" && <InstallAppHint />}
             {/* Плашки «Клиент просит звонок» здесь больше нет (владелец 24.09.2026:
                 «мне не нужна просьба позвонить и плашка» — её видели директор и
                 админ, хотя звонить должен агент). Прямая просьба о живом человеке
@@ -357,11 +370,6 @@ export function AppLayout() {
       {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
           Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
       <AssistantHost />
-      {/* Предложение установить CRM как приложение — на третий заход, только на
-          телефоне и только если она ещё не установлена. См. InstallAppHint. */}
-      <Suspense fallback={null}>
-        <InstallAppHint />
-      </Suspense>
       {/* UpdatePrompt переехал на уровень App.tsx (сиблинг <Routes>, монтируется
           один раз на жизнь вкладки) — см. комментарий в UpdatePrompt.tsx: здесь,
           внутри ProtectedRoute/AppLayout, компонент терял состояние при
