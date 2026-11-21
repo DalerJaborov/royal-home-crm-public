@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStrictBase64 } from "../lib/base64Text.js";
 import { ProviderOperationError, geminiReportedUsage, type ProviderAttemptSpec, type ProviderUsage } from "./providerContract.js";
 import { decodeManagedGeminiToolsUsage } from "./geminiManagedToolsUsage.js";
 
@@ -31,7 +32,7 @@ export function managedGeminiMediaFeatures(parts: readonly unknown[]): NonNullab
       const modality = Object.entries(GEMINI_MANAGED_MEDIA_MIMES).find(([, mimes]) => (mimes as readonly string[]).includes(mime as string))?.[0] as CustomerMediaModality | undefined;
       if (!carrier || typeof carrier !== "object" || Array.isArray(carrier) || "mime_type" in carrier && "mimeType" in carrier || Object.keys(carrier).some(key => !["mime_type", "mimeType", "data"].includes(key)) ||
           !modality || typeof carrier.data !== "string" || !carrier.data.length || carrier.data.length > GEMINI_MANAGED_MEDIA_MAX_WIRE_BYTES ||
-          carrier.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(carrier.data)) throw new ProviderOperationError("unsupported");
+          !isStrictBase64(carrier.data)) throw new ProviderOperationError("unsupported");
       modalities.add(modality);
     }
     const response = part.functionResponse;

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isStrictBase64 } from "../lib/base64Text.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -16,7 +17,7 @@ export function isOggOpusAudio(audio: Buffer): boolean {
     && audio.subarray(0, 128).includes(Buffer.from("OpusHead", "ascii"));
 }
 const entrySchema = z.object({ createdAt: z.number().finite(), audio: z.string().min(4).max(3_000_000)
-  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
+  .refine(isStrictBase64, "Повреждённый base64")
   .refine((audio) => isOggOpusAudio(Buffer.from(audio, "base64"))), fileId: z.string().min(1).max(1024).optional() }).strict();
 export type VoiceCacheEntry = z.infer<typeof entrySchema>;
 const inFlight = new Map<string, Promise<VoiceCacheEntry | null>>();
