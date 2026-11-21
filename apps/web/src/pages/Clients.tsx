@@ -40,7 +40,7 @@ import {
   Skeleton,
 } from "../components/rh2";
 import { useAgents } from "../hooks/useAgents";
-import { NO_CONTACT_TEXT, type ClientSort } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, positiveBudget, type ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
 import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";

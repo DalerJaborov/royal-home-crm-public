@@ -154,6 +154,31 @@ export async function noteInstagramAccountLocked(accountId: string, detail: stri
   }
 }
 
+/**
+ * ЛЮБОЙ ОТКАЗ ЛИЧНОГО КЛЮЧА INSTAGRAM — ЧЕРЕЗ ЭТУ ДВЕРЬ (21.11.2026, прод после #344). Отметку «Meta закрыла
+ * доступ» ставили только отправка и суточная проверка, а ленту, сторож подписки и сверку переписок Arvan
+ * дёргал раз в 15 минут — 66 строк «401 … log in to www.instagram.com» в журнале за сутки. Теперь кто бы ни
+ * получил текст «войдите в Instagram и пройдите проверку», отметка ставится сразу (одна запись, одна тревога),
+ * и все проверки дальше этот аккаунт не трогают. true — это был отказ «аккаунт закрыт» (вызывающему писать нечего).
+ */
+export async function noteInstagramKeyRefused(input: { accountId?: string | null; token?: string; text: string; detail: string }): Promise<{ locked: boolean }> {
+  try {
+    if (!isInstagramAccountLockedText(input.text)) return { locked: false };
+    const id = input.accountId ?? (input.token ? await instagramAccountIdByToken(input.token) : null);
+    if (!id) return { locked: false };
+    await noteInstagramAccountLocked(id, input.detail);
+    return { locked: true };
+  } catch (err) {
+    console.error("[instagramAccountAccess] отказ ключа не разобран:", err instanceof Error ? err.message : String(err));
+    return { locked: false };
+  }
+}
+
+async function instagramAccountIdByToken(token: string): Promise<string | null> {
+  const rows = await prisma.messengerAccount.findMany({ where: { channel: "INSTAGRAM" }, select: { id: true, token: true } });
+  return rows.find((r) => decryptSecretSafe(r.token) === token)?.id ?? null;
+}
+
 /** Доступ вернулся (ключ снова отвечает, путь Страницы отвечает или вставлен новый ключ) — снять отметку и записать это. */
 export async function clearInstagramAccountLocked(accountId: string, why: "probe_ok" | "token_replaced" | "page_route_ok"): Promise<void> {
   try {

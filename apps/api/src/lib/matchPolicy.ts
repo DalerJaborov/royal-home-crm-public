@@ -185,8 +185,8 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
         { desiredDistrictId: { not: null } },
         { desiredType: { not: null } },
         { desiredRooms: { not: null } },
-        { budgetMin: { not: null } },
-        { budgetMax: { not: null } },
+        { budgetMin: { gt: 0 } },
+        { budgetMax: { gt: 0 } },
         { desiredPlaces: { some: {} } },
       ],
     },
@@ -292,6 +292,7 @@ export function clientRequirementsForPropertyWhere(
     and.push({
       OR: [
         { budgetMin: null },
+        { budgetMin: { lte: 0 } }, // 0 — «бюджет не указан»
         { currency: "TJS", budgetMin: { lte: minTjs } },
         { currency: "USD", budgetMin: { lte: minTjs / rate } },
       ],
@@ -302,6 +303,7 @@ export function clientRequirementsForPropertyWhere(
   and.push({
     OR: [
       { budgetMax: null },
+      { budgetMax: { lte: 0 } }, // 0 — «бюджет не указан», а не «до нуля сомони»
       { currency: "TJS", budgetMax: { gte: maxTjs } },
       { currency: "USD", budgetMax: { gte: maxTjs / rate } },
     ],

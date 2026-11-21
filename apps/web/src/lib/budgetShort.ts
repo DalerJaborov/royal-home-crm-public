@@ -1,3 +1,4 @@
+import { positiveBudget } from "@royal-home/shared";
 import { glueNumbers } from "./glueNumbers";
 
 /** Одна цифра после запятой, без хвоста «,0»: 1,7 млн, но 2 млн. */
@@ -17,7 +18,7 @@ const unitOf = (x: number): Unit => (x >= 1_000_000 ? { div: 1_000_000, label: "
  */
 export function budgetShort(c: { budgetMin?: number | string | null; budgetMax?: number | string | null; currency?: string | null }): string | null {
   const min = c.budgetMin ? Number(c.budgetMin) : null;
-  const max = c.budgetMax ? Number(c.budgetMax) : null;
+  const max = positiveBudget(c.budgetMax);
   if (!min && !max) return null;
   const sym = c.currency === "USD" ? "$" : "";
   const tail = c.currency === "USD" ? "" : " с.";
