@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError, GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "../messengers/meta.js";
 import { logSystemError } from "./systemError.js";
+import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
 import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 import { autoLinkInstagramPages } from "./metaEternalTokens.js";
 
@@ -153,6 +154,8 @@ export async function checkInstagramSubscriptions(): Promise<{ ok: number; resto
       );
     } else {
       totals.failed++;
+      // «Meta закрыла доступ» — одна отметка через общую дверь, строка ниже не нужна (21.11.2026).
+      if ((await noteInstagramKeyRefused({ accountId: row.id, text: outcome.error, detail: outcome.error.slice(0, 200) })).locked) continue;
       await logSystemError(
         "meta",
         `Instagram «${row.title}»: не удалось проверить подписку на сообщения (${outcome.error}). ` +
