@@ -7,7 +7,7 @@ import {
   type NarrationReleaseChannel, type PropertyNarrationView,
 } from "@royal-home/shared";
 import { api } from "../lib/api";
-import { NarrationComposer, resolveNarrationDraft, type NarrationDraft } from "./NarrationComposer";
+import { NarrationComposer, narrationListenFresh, resolveNarrationDraft, type NarrationDraft } from "./NarrationComposer";
 import { PropertyNarrationService } from "./PropertyNarrationService";
 
 /**
@@ -347,6 +347,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
   const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript }) : null;
+  const listenedFresh = !!resolved && narrationListenFresh(draft.listened, resolved);
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
   // Поменяли текст или голос против текущей озвучки — утверждать старое аудио нельзя, только «Озвучить заново».
   const changedDraft = !!latest && !!resolved && (resolved.text !== latest.script || (resolved.voiceId ?? null) !== (latest.voiceId ?? null));
@@ -372,9 +373,13 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
     await api(`/properties/${propertyId}/narration`, { method: "POST", body: {
       expectedRevision: latest?.revision ?? 0, requestKey: requestKey.current, script: resolved.text,
       ...(resolved.templateId ? { templateId: resolved.templateId } : {}), endingId: resolved.endingId, ...(resolved.voiceId ? { voiceId: resolved.voiceId } : {}), ...(generate ? { generate: true } : {}),
+      // Прослушанный здесь же звук (21.11.2026): сервер сверит текст и голос и возьмёт его без второй оплаты.
+      ...(generate && listenedFresh && draft.listened ? { listenId: draft.listened.id } : {}),
     } });
     requestKey.current = crypto.randomUUID(); setDraft({}); setEditing(false); setConfirmSame(false);
-    setMessage(generate ? "Готовим озвучку. Обычно минута-две, придёт сюда и в Шабнам." : "Текст сохранён. Аудио по нему подготовит маркетинг.");
+    // «Озвучить» = одобрить (21.11.2026, владелец: «сверх быстро»): просьбы «прослушайте» потом не будет.
+    setMessage(!generate ? "Текст сохранён. Аудио по нему подготовит маркетинг."
+      : listenedFresh ? "Озвучка одобрена вами и уходит монтажёру." : "Озвучка одобрена вами: уйдёт монтажёру, как только будет готова (обычно минута-две).");
   });
   const approve = () => void run(async () => {
     if (!latest) return;
@@ -512,7 +517,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
         <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data.config.voices} samples={data.samples} facts={facts} value={draft}
           onChange={(next) => { setDraft(next); setConfirmSame(false); }}
           defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null}
-          recommendedVoiceId={data.config.defaultVoiceId ?? null} disabled={busy} lengthCheck={length} />
+          recommendedVoiceId={data.config.defaultVoiceId ?? null} disabled={busy} lengthCheck={length} canListen={!!data.autoGenerate} />
         <div className="space-y-2">
           {data.autoGenerate
             ? confirmSame

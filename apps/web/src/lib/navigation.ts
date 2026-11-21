@@ -28,7 +28,6 @@ import {
   TrendingUp,
   ShieldAlert,
   DatabaseBackup,
-  LayoutDashboard,
   Plug,
   TimerReset,
   Users,
@@ -285,7 +284,6 @@ function buildNavigation(inputs: NavInputs): Navigation {
   /** Группа 5 — Деньги. */
   const moneyItems = compact<NavItem>([
     can("finance.view") && { to: "/finance", icon: Wallet, label: "Финансы", group: "money" },
-    can("reports.view") && role !== "AGENT" && { to: "/director", icon: LayoutDashboard, label: "Дашборд директора", group: "money" },
     can("reports.view") && { to: "/reports", icon: BarChart3, label: "Отчёты", group: "money" },
     can("reports.view") && { to: "/sources", icon: Compass, label: "Источники заявок", group: "money" },
     // Экран «Инсайты» рисует вкладки «Денег» (MoneyTabs в SectionTabs.tsx), а в

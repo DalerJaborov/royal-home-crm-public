@@ -19,6 +19,7 @@ import bcrypt from "bcrypt";
 
 const {
   sendMessage,
+  removeKeyboard,
   sendMessageWithButtons,
   resolveTelegramFileMaterialization,
   receiveEditedVideo,
@@ -34,6 +35,7 @@ const {
 } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string) => {}),
+    removeKeyboard: vi.fn(async (_chatId: string, _text: string) => {}),
     sendMessageWithButtons: vi.fn(async (_chatId: string, _text: string, _buttons: unknown) => {}),
     // Заменяет старый downloadFile-мок (23.09.2026, приём B3): bot.ts больше не
     // читает файл своего Bot API в буфер — резолвит путь-или-буфер, по умолчанию
@@ -83,6 +85,7 @@ const {
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage,
+  removeKeyboard,
   sendMessageWithButtons,
   resolveTelegramFileMaterialization,
 }));
@@ -177,6 +180,7 @@ beforeEach(async () => {
   // Только держатели этого файла (см. HOLDER_WHERE выше).
   HOLDER_WHERE.title = { contains: String(runId) };
   sendMessage.mockClear();
+  removeKeyboard.mockClear();
   sendMessageWithButtons.mockClear();
   montajerCardText.mockClear();
   resendSourceVideos.mockClear();
@@ -244,7 +248,8 @@ describe("Привязка личного чата по коду", () => {
     const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
     expect(agent.telegramChatId).toBe(String(AGENT_CHAT_ID));
     expect(agent.telegramLinkCode).toBeNull();
-    expect(sendMessage).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("Готово"));
+    // Первое сообщение после привязки снимает reply-клавиатуру клиентского бота (21.11.2026).
+    expect(removeKeyboard).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("Готово"));
     expect(callAiText).not.toHaveBeenCalled();
   });
 

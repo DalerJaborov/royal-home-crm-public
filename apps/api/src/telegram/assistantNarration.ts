@@ -165,7 +165,9 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
     url: `/properties/${p.id}#rh-narration`, tag: `narration-approval:${p.id}`,
   };
   const path = localVideoFilePath(version.storageKey);
-  if (!agent.telegramChatId || !isTelegramEnabled() || !path) {
+  // Туда, где завели объект (21.11.2026): из CRM — только в CRM, через Шабнам — только в Шабнам. Нет отметки — в оба места.
+  const askVia = reason === "ready" || reason === "remind" || reason === "remindPublished" ? version.askVia : null;
+  if (askVia === "CRM" || !agent.telegramChatId || !isTelegramEnabled() || !path) {
     await sendPushToAgent(agent.id, feed);
     return true;
   }
@@ -181,7 +183,7 @@ async function notifyNarrationApprovalTo(versionId: string, recipientId: string 
     const text = [head, reason === "backfill" ? c.backfill : "", "", `${c.text}: ${version.script}`, voice ? `${c.voice}: ${voice}` : "", remade ? `\n${crmVoice ? c.remadeCrm : c.remade}` : ""].filter((line) => line !== "").join("\n");
     await sendMessageWithButtons(agent.telegramChatId, text.slice(0, 3800), [...approvalButtons(version.id, lang), [{ text: `CRM ${code}`, url: crmUrl(p.id) }]]);
     if (reason === "ready" || reason === "backfill") await prisma.propertyNarrationVersion.updateMany({ where: { id: version.id }, data: { approvalChatId: agent.telegramChatId } });
-    await createNotification({ agentId: agent.id, ...feed });
+    if (askVia !== "TELEGRAM") await createNotification({ agentId: agent.id, ...feed });
   } catch (err) {
     void logSystemError("telegram", `Озвучка: сообщение агенту в Telegram не ушло, записано в CRM: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "narration-approval-telegram" });
     await sendPushToAgent(agent.id, feed);

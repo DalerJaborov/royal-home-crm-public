@@ -26,9 +26,10 @@ const deliveryTarget = {
   channel: "WHATSAPP",
   subscriberId: "sub",
 };
+const lastClientMessageAt = vi.fn(async (): Promise<Date | null> => null);
 const findClientDeliveryTarget = vi.fn(async () => deliveryTarget);
 const findClientDeliveryTargets = vi.fn(async (clientIds: string[]) => new Map(clientIds.map((id) => [id, deliveryTarget])));
-vi.mock("../src/lib/conversationDelivery.js", () => ({ deliverToConversation, findClientDeliveryTarget, findClientDeliveryTargets }));
+vi.mock("../src/lib/conversationDelivery.js", () => ({ deliverToConversation, findClientDeliveryTarget, findClientDeliveryTargets, lastClientMessageAt }));
 
 const { prisma } = await import("../src/db.js");
 const { classifyShowingReply } = await import("../src/lib/showingReply.js");
@@ -185,6 +186,24 @@ describe("Просьба подтвердить показ", () => {
     // Повторный прогон джоба второго сообщения не шлёт — идемпотентность.
     expect(await sendShowingConfirmationRequests(now)).toBe(0);
     expect(deliverToConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("окно Meta закрыто (клиент молчит больше суток) — не пытаемся и отметку не ставим (21.11.2026)", async () => {
+    const now = dushanbe(10, 11);
+    const showing = await makeShowing(dushanbe(10, 15));
+    lastClientMessageAt.mockResolvedValue(new Date(Date.now() - 3 * 86400_000));
+    expect(await sendShowingConfirmationRequests(now)).toBe(0);
+    lastClientMessageAt.mockResolvedValue(null);
+    expect(deliverToConversation).not.toHaveBeenCalled();
+    const after = await prisma.interaction.findUnique({ where: { id: showing.id } });
+    expect(after?.confirmAskedAt).toBeNull();
+    // клиент написал сам — окно открылось, просьба уходит
+    lastClientMessageAt.mockResolvedValue(new Date(Date.now() - 3600_000));
+    try {
+      expect(await sendShowingConfirmationRequests(now)).toBeGreaterThanOrEqual(1);
+    } finally {
+      lastClientMessageAt.mockResolvedValue(null);
+    }
   });
 
   /**
