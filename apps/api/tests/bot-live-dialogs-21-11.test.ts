@@ -168,7 +168,8 @@ describe("1d15821e / 54fef009: чужой ролик и просьба лайк�
   });
   it("оператор: чужой пост без слов — тишина и без сигнала; своё фото без слов — «Ташаккур, гирифтам» и вопрос о роли", () => {
     const state = { ...initialOperatorState(), language: "tg" as const };
-    const foreign = decide(state, { ...understandFallback({ current: "", attachments: { foreignPost: true, media: true } }, state, ctx()) }, ctx());
+    // Чужой шум доказан сервером (customerForeignShareSettled); без приговора — см. bot-first-shared-post-21-11.test.ts.
+    const foreign = decide(state, { ...understandFallback({ current: "", attachments: { foreignPost: true, foreignQuiet: true, media: true } }, state, ctx()) }, ctx());
     expect(foreign.silent).toBe(true);
     expect(foreign.actions).toEqual([]);
     const own = decide(state, understandFallback({ current: "", attachments: { media: true } }, state, ctx()), ctx());

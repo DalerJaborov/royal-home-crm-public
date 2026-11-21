@@ -184,7 +184,14 @@ export interface Understanding {
   complaint: boolean;
   /** Вакансия: какую должность спросили (слова клиента) и какая из ОТКРЫТЫХ подошла. */
   job: { asked: string | null; openKey: string | null };
-  attachments: { voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; media: boolean };
+  /**
+   * `foreignPost` — пересланная публикация, которую сервер не нашёл как нашу (кандидат, ещё не приговор). `foreignQuiet` — сервер
+   * ДОКАЗАЛ, что это чужой шум (lib/customerSharedPublication.ts::customerForeignShareSettled: поиск закончился «такого нет»,
+   * ссылка CDN Meta, подпись не о жилье и не о нас): тогда пост без слов — тишина всегда. Без приговора первый такой пост в
+   * разговоре получает вопрос «купить или продать?» (21.11.2026, прод 6a122f7a: первый и единственный пересланный пост без
+   * слов остался без ответа, хотя сервер чужим его не признал). Нет поля — приговора нет.
+   */
+  attachments: { voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; foreignQuiet?: boolean; media: boolean };
   /** В сообщении есть свои слова клиента (буквы или номер), а не одно вложение. */
   hasText: boolean;
   /** Место вне Душанбе, названное клиентом (район Рудаки сюда не попадает). */

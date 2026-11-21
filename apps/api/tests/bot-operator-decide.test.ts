@@ -258,11 +258,18 @@ describe("таблица случаев SPEC.md (1–26)", () => {
   });
 
   it("20. пересланный чужой пост без слов — тишина сразу и без сигнала (владелец 21.11.2026: «спамерам не отвечать»); со словами — ответ", () => {
-    const post = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: true, media: true } });
+    // Чужой шум доказан сервером (customerForeignShareSettled → foreignQuiet): тишина сразу и без сигнала.
+    const post = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: true, foreignQuiet: true, media: true } });
     const unknown = run(IG(), [post, post]);
     for (const turn of unknown) { expect(turn.silent).toBe(true); expect(turn.actions).toEqual([]); }
     const russian = run(IG(), [ru({ role: "buyer" }), post]);
     expect(russian[1]!.silent).toBe(true);
+    // Без приговора сервера (прод 21.11.2026, 6a122f7a): первый такой пост — вопрос о роли, повтор — тишина без сигнала.
+    const unproven = u({ hasText: false, attachments: { voice: "none", ownPost: false, foreignPost: true, media: false } });
+    const firstUnproven = run(IG(), [unproven, unproven]);
+    expect(firstUnproven[0]!.keys).toEqual(["ask_role"]);
+    expect(firstUnproven[1]!.silent).toBe(true);
+    expect(firstUnproven[1]!.actions).toEqual([]);
     // Со своими словами о жилье — обычный ответ (одна фраза «не наше объявление» и дальше по делу).
     const withWords = run(IG(), [{ ...post, hasText: true, language: "ru", role: "buyer", quote: "Такую квартиру ищу" }]);
     expect(withWords[0]!.text).toMatch(/^Это не наше объявление/u);

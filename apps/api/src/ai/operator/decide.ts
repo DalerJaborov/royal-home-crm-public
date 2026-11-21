@@ -218,9 +218,18 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (!u.hasText && !u.attachments.ownPost) {
     const before = answers.length;
     if (u.attachments.voice === "failed") { if (!said("voice_failed")) answers.push(draft("voice_failed")); }
-    // Чужой пост без слов (владелец 21.11.2026: «спамерам не отвечать»): тишина сразу, без ответа и без сигнала. Свой пост
-    // (наш аккаунт, наш объект) сюда не попадает — это `ownPost`, вопрос об объекте.
-    else if (u.attachments.foreignPost) return finish();
+    // Чужой пост без слов (владелец 21.11.2026: «спамерам не отвечать»): без ответа и без сигнала. Свой пост (наш аккаунт, наш
+    // объект) сюда не попадает — это `ownPost`, вопрос об объекте. ОДНО исключение (прод 21.11.2026, 6a122f7a: новый клиент
+    // первым и единственным сообщением переслал пост и остался без ответа): сервер чужим шумом его НЕ признал (`foreignQuiet`
+    // нет: подпись о жилье, поиск не закончился, не CDN Meta), а бот в разговоре ещё ничего не спрашивал — как живой оператор,
+    // один короткий вопрос «купить или продать?», без «Спасибо, получил» (это только на своё вложение, SPEC п. 5) и без
+    // просьбы номера. Дальше такие посты подряд — тишина без сигнала, как прежде.
+    else if (u.attachments.foreignPost) {
+      if (!u.attachments.foreignQuiet && !s.leadAccepted && s.role === "unknown" && s.asked.role === 0) {
+        flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
+      }
+      return finish();
+    }
     else if (u.attachments.media && s.role === "seller" && !said("photo_ack")) answers.push(draft("photo_ack"));
     else if (!s.leadAccepted && s.role === "unknown" && !said("media_received") && !said("photo_ack")) {
       answers.push(draft("media_received"));

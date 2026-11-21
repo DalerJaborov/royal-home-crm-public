@@ -83,7 +83,7 @@ export interface CustomerLeadOnlyTurnInput {
   focusPropertyId: string | null;
   turns: ReadonlyArray<{ role: "user" | "assistant"; text: string }>;
   /** Вложения хода, как их видит ядро: голосовое расшифровано или нет, наш пост, чужой пост, фото/видео. */
-  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; media: boolean }>;
+  attachments?: Partial<{ voice: OperatorVoice; ownPost: boolean; foreignPost: boolean; foreignQuiet: boolean; media: boolean }>;
   now?: Date;
   /** Только для тестов: подмена модели понимания оператора. */
   model?: LeadOnlyIntentModel;

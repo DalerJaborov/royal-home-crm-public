@@ -430,11 +430,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // (объект определён этим сообщением или публикация найдена), чужой пост (предварительная метка ядра), фото и видео.
       const kinds = prepared.attachmentInput?.kinds ?? [];
       const ownPost = ownPublicationFound || (leadOnlyFocusFresh && kinds.length > 0);
+      const foreignPost = !ownPost && (prepared.foreignShareCandidate === true || kinds.includes("foreign_share"));
+      // Тишина на пост без слов — только по приговору сервера «чужой шум» (та же дверь, что у фильтра спама выше, но по фокусу
+      // ПОСЛЕ уточнений хода). Кандидат без приговора — вопрос «купить или продать?» (прод 21.11.2026, 6a122f7a).
+      const foreignQuiet = foreignPost && customerForeignShareSettled({ candidate: prepared.foreignShareCandidate === true, media: prepared.media,
+        focus: focus?.snapshot.focus, eventKey: lane.ticket.eventKey, text: fullInput(), captions: prepared.captions });
       const operatorTurn = () => planCustomerLeadOnlyTurn({ config: leadOnly, channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
         conversationId: lane.ticket.conversationId, eventKey: claim.eventKey, inputText: fullInput(), focusPropertyId: leadOnlyFocusId,
         turns: remembered.context.turns, attachments: {
           voice: kinds.includes("audio") ? (mediaPerception?.transcript?.trim() ? "transcribed" : "failed") : "none",
-          ownPost, foreignPost: !ownPost && (prepared.foreignShareCandidate === true || kinds.includes("foreign_share")),
+          ownPost, foreignPost, foreignQuiet,
           media: kinds.some(kind => kind === "image" || kind === "video") } });
       let operatorDone: CustomerDmAgentTurnResult | null = null, handedToRecruiter = false;
       // Р14: решение на устаревшей памяти не пишется — ход решается заново от свежей памяти (одна повторная попытка).
