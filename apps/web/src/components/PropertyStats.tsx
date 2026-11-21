@@ -22,8 +22,10 @@ export function PropertyStats({ property: p }: { property: Property }) {
 
   // «Дней в продаже» считаем от приёма объекта. У проданного счётчик замирает на
   // дате продажи: иначе карточка в архиве продолжала бы «стареть» каждый день.
+  // Пока объект на монтаже или на проверке, он не в продаже: «0 дн. в продаже» там бессмысленно (кадр владельца 21.11).
+  const onSale = p.status === "AVAILABLE" || p.status === "RESERVED" || !!p.soldAt;
   const from = p.listingAcceptedAt || p.createdAt;
-  if (from) {
+  if (from && onSale) {
     const days = p.soldAt
       ? Math.max(0, Math.floor((new Date(p.soldAt).getTime() - new Date(from).getTime()) / 86400000))
       : daysSince(from);
