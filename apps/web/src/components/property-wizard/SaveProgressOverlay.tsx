@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useScrollLock } from "../../hooks/useScrollLock";
 import { AlertTriangle, Check, Clock, Film, Image as ImageIcon, Loader2 } from "lucide-react";
 import { WizIcon } from "../look/wizard/WizIcon";
 import type { DraftMediaItem } from "../../lib/draftUploads";
@@ -23,6 +24,7 @@ export function SaveProgressOverlay({
   onDone: () => void;
 }) {
   const speeds = useUploadSpeeds(items);
+  useScrollLock();
   const total = items.length;
   const ready = items.filter((i) => i.status === "ready").length;
   const title =

@@ -656,7 +656,8 @@ export function PropertyFormModal({
       } else {
         // Карточка нового объекта: agent видит, что объект реально создан, и
         // может сразу дозагрузить/проверить фото на верном объекте.
-        navigate(`/properties/${saved.shortId}`);
+        // Заменой: форма создания — экран-маршрут, «Назад» из новой карточки не должен открывать её снова.
+        navigate(`/properties/${saved.shortId}`, { replace: true });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : isEdit ? "Не удалось сохранить объект" : "Не удалось создать объект");
