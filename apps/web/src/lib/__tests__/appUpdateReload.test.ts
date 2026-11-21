@@ -170,12 +170,14 @@ describe("applyAppUpdate", () => {
     const updateServiceWorker = vi.fn().mockResolvedValue(undefined);
     const reload = vi.fn();
     const navigateFresh = vi.fn();
+    const reportGiveUp = vi.fn<(message: string, details: string) => void>();
     const opts = {
       needRefresh: false,
       updateServiceWorker,
       currentVersion: "aaa",
       reload,
       navigateFresh,
+      reportGiveUp,
     };
 
     await applyAppUpdate(opts); // 1 — reload
@@ -188,23 +190,42 @@ describe("applyAppUpdate", () => {
     expect(reload).not.toHaveBeenCalled();
     expect(navigateFresh).not.toHaveBeenCalled();
     // А вот сдача — настоящая поломка: она обязана попасть в журнал ошибок.
-    // Снимок среды собирается асинхронно, поэтому событие приходит не сразу.
-    await vi.waitFor(() => expect(window.dispatchEvent).toHaveBeenCalledTimes(1));
-
-    const event = (window.dispatchEvent as unknown as { mock: { calls: [{ init?: { message?: string; error?: Error } }][] } })
-      .mock.calls[0][0];
+    // Снимок среды собирается асинхронно, поэтому запись приходит не сразу.
+    await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+    const [message, details] = reportGiveUp.mock.calls[0];
     // Слово «сдача» обязано отличаться от текста ступени 2: именно из-за
     // одинаковых фраз запись «2 попыток» в журнале 11.09 приняли за сдачу.
-    expect(event.init?.message).toContain("Сдача");
-    expect(event.init?.message).toContain("aaa");
-    // Телеметрия едет в error.stack (errorReporter читает именно его), а не в
-    // в message: message служит ключом дедупликации.
-    expect(event.init?.error?.message).toContain("сборка вкладки=aaa");
+    expect(message).toContain("Сдача");
+    expect(message).toContain("aaa");
+    // Телеметрия — ОТДЕЛЬНЫМ полем, а не в error.stack (21.11.2026): iOS кладёт в
+    // stack только адреса строк, и снимок терялся. Через window "error" — больше нет.
+    expect(details).toContain("сборка вкладки=aaa");
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
 
     // Сдача докладывается один раз на пару: повтор по таймеру не шумит в журнал.
     expect(await applyAppUpdate(opts)).toBe("gave-up");
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(window.dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(reportGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("в подробностях сдачи — метка версии и главный скрипт самой «/»", async () => {
+    const html = '<html><head><meta name="app-version" content="site-9"><script type="module" crossorigin src="/assets/index-Ab12.js"></script></head></html>';
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).startsWith("/version.json")
+      ? new Response(JSON.stringify({ version: "site-9" }), { status: 200 })
+      : new Response(html, { status: 200 }))));
+    try {
+      const reportGiveUp = vi.fn<(message: string, details: string) => void>();
+      const opts = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", targetVersion: "site-9", reload: vi.fn(), navigateFresh: vi.fn(), reportGiveUp };
+      for (let i = 0; i <= MAX_ATTEMPTS; i += 1) await applyAppUpdate(opts);
+      await vi.waitFor(() => expect(reportGiveUp).toHaveBeenCalledTimes(1));
+      const details = reportGiveUp.mock.calls[0][1];
+      expect(details).toContain("version.json: сборка сервера=site-9");
+      expect(details).toContain("«/»: код=200");
+      expect(details).toContain("«/» app-version=site-9");
+      expect(details).toContain("«/» скрипт=/assets/index-Ab12.js");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("исчерпанные попытки одной цели не мешают обновиться на следующую сборку", async () => {

@@ -285,6 +285,26 @@ async function collectUpdateDiagnostics(currentVersion: string): Promise<string>
     facts.push(`version.json=недоступен (${error instanceof Error ? error.message : "ошибка"})`);
   }
 
+  // Сама оболочка «/» — то, что на деле получает навигация. version.json может быть
+  // свежим, а index.html прийти старым (воркер, HTTP-кэш, прокси): метка app-version
+  // (vite.config.ts) и имя главного скрипта показывают, какую сборку отдают.
+  try {
+    const res = await Promise.race([
+      fetch(`/?rh-diag=${Date.now()}`, { cache: "no-store" }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("таймаут")), DIAGNOSTICS_TIMEOUT_MS)
+      ),
+    ]);
+    const html = await res.text();
+    facts.push(
+      `«/»: код=${res.status}`,
+      `«/» app-version=${/<meta[^>]+name="app-version"[^>]+content="([^"]*)"/.exec(html)?.[1] ?? "нет метки"}`,
+      `«/» скрипт=${/<script[^>]+src="([^"]*\/index-[^"]*\.js)"/.exec(html)?.[1] ?? "?"}`
+    );
+  } catch (error) {
+    facts.push(`«/»=недоступна (${error instanceof Error ? error.message : "ошибка"})`);
+  }
+
   return facts.join("\n");
 }
 
@@ -311,19 +331,24 @@ function reportHardReset(currentVersion: string, attempt: number): void {
  * Докладывается ОДИН раз на пару сборок (claimGiveUpReport): плашка и повтор
  * раз в десять минут — штатная работа, а не новая ошибка каждые десять минут.
  */
-function reportGiveUp(currentVersion: string, targetVersion: string, attempts: number): void {
+function reportGiveUp(currentVersion: string, targetVersion: string, attempts: number, reporter: GiveUpReporter): void {
   const message = `[update] Сдача: обновление не применилось за ${attempts} попытки подряд, вкладка осталась на сборке ${currentVersion} (сервер: ${targetVersion})`;
   console.error(message);
-  // errorReporter слушает window "error" — факт попадёт в «Здоровье системы»,
-  // а не только в консоль вкладки, до которой никто не доберётся.
-  if (typeof ErrorEvent === "undefined") return;
+  // Снимок среды — ЯВНЫМ полем (errorReporter.reportUpdateGiveUp), а не через
+  // error.stack: Safari и Chrome на iOS кладут в stack только адреса строк, и
+  // подробности терялись ровно на тех телефонах, ради которых собираются (21.11.2026).
   void collectUpdateDiagnostics(currentVersion)
     .catch(() => "диагностика не собралась")
-    .then((details) => {
-      const carrier = new Error(details);
-      window.dispatchEvent(new ErrorEvent("error", { message, error: carrier }));
-    });
+    .then((details) => reporter(message, details));
 }
+
+/** Куда уходит запись о сдаче: errorReporter.reportUpdateGiveUp (в тестах — подмена). */
+export type GiveUpReporter = (message: string, details: string) => void;
+
+const defaultGiveUpReporter: GiveUpReporter = (message, details) => {
+  // Динамически: errorReporter тянет api и стор сессии, лестнице они не нужны.
+  void import("./errorReporter").then((m) => m.reportUpdateGiveUp(message, details)).catch(() => {});
+};
 
 export interface ApplyUpdateOptions {
   /** Есть ждущий воркер по данным useRegisterSW (сигнал service worker). */
@@ -339,6 +364,8 @@ export interface ApplyUpdateOptions {
   navigateFresh?: (url: string) => void;
   /** Подменяется в тестах — в браузере это Date.now(). */
   now?: number;
+  /** Запись о сдаче в журнал. Подменяется в тестах. */
+  reportGiveUp?: GiveUpReporter;
 }
 
 /**
@@ -444,10 +471,11 @@ export async function applyAppUpdate({
   reload = () => window.location.reload(),
   navigateFresh = hardNavigate,
   now = Date.now(),
+  reportGiveUp: reporter = defaultGiveUpReporter,
 }: ApplyUpdateOptions): Promise<"service-worker" | "reload" | "hard-reset" | "gave-up"> {
   const gate = updateAttemptGate(currentVersion, targetVersion, now);
   if (!gate.allowed) {
-    if (claimGiveUpReport(currentVersion, targetVersion, now)) reportGiveUp(currentVersion, targetVersion, gate.attempts);
+    if (claimGiveUpReport(currentVersion, targetVersion, now)) reportGiveUp(currentVersion, targetVersion, gate.attempts, reporter);
     return "gave-up";
   }
   const attempt = noteUpdateAttempt(currentVersion, targetVersion, now);
