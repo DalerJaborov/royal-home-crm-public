@@ -74,6 +74,7 @@ import {
   formatClientName,
 } from "../lib/clientFormat";
 import type { Client } from "../types";
+import { budgetShort } from "../lib/budgetShort";
 
 /*
  * ЭКРАН «КЛИЕНТЫ» — ОДИН АДАПТИВНЫЙ ЭКРАН НА КОМПЬЮТЕР И ТЕЛЕФОН (контракт
@@ -99,28 +100,6 @@ import type { Client } from "../types";
  * `/inactive-clients`, `/clients/all-mine`, `/other-inquiries` рендерят этот же
  * компонент (App.tsx).
  */
-
-/** Одна цифра после запятой, без хвоста «,0»: 1,7 млн, но 2 млн. */
-const oneDecimal = (x: number) => (Math.round(x * 10) / 10).toLocaleString("ru-RU");
-
-/**
- * Бюджет для второй строки: «$55–70 тыс.», «до $45 тыс.», «от 1,2 млн с.».
- * Единица берётся по большему краю, чтобы «55–70» не превращалось в «55–70 000».
- */
-function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): string | null {
-  const min = c.budgetMin ? Number(c.budgetMin) : null;
-  const max = positiveBudget(c.budgetMax);
-  if (!min && !max) return null;
-  const ref = (max || min) as number;
-  const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
-  const unit = div === 1_000_000 ? " млн" : div === 1_000 ? " тыс." : "";
-  const sym = c.currency === "USD" ? "$" : "";
-  const tail = c.currency === "USD" ? "" : "\u00a0с.";
-  // glueNumbers: «1,1–1,3 млн с.» не рвётся на «1,3 / млн с.» на узком телефоне (20.11).
-  if (min && max) return glueNumbers(`${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`);
-  if (max) return glueNumbers(`до ${sym}${oneDecimal(max / div)}${unit}${tail}`);
-  return glueNumbers(`от ${sym}${oneDecimal((min as number) / div)}${unit}${tail}`);
-}
 
 const num = (n: number) => n.toLocaleString("ru-RU");
 
