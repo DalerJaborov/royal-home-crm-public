@@ -88,6 +88,20 @@ export function startBackgroundWork(): void {
         .catch((err) => console.error("[narration] словарь произношения при старте:", err instanceof Error ? err.message : err));
     }, PRONUNCIATION_SYNC_DELAY_MS).unref();
   }
+  // «Заметки без ярлыков» для похожих карточек (PR #382): старые строки и смена списка ярлыков
+  // досчитываются после выката. Вне предохранителя DEV_CRONS — никому ничего не пишет, только две
+  // служебные колонки Client; отказ — в журнал ошибок, процесс не падает.
+  setTimeout(() => {
+    void import("./lib/clientNotesPlainSweep.js")
+      .then((m) => m.sweepClientNotesPlain())
+      .then((n) => n > 0 && console.log(`[notes-plain] досчитано карточек: ${n}`))
+      .catch((err) =>
+        import("./lib/systemError.js").then((m) =>
+          m.logSystemError("background-jobs", `[notes-plain] досчёт заметок без ярлыков: ${err instanceof Error ? err.message : err}`)
+        )
+      )
+      .catch((err) => console.error("[notes-plain] досчёт:", err instanceof Error ? err.message : err));
+  }, NOTES_PLAIN_SWEEP_DELAY_MS).unref();
   startTelegramBot();
   // Суточный тик, чья минута пришлась на выкат, догоняется сразу после старта
   // (E7/Ф8 глубокой проверки 02.10.2026): node-cron пропущенное не повторяет.
@@ -100,6 +114,8 @@ export function startBackgroundWork(): void {
 }
 
 const CATCH_UP_DELAY_MS = 60_000;
+/** Досчёт «заметок без ярлыков»: после подъёма базы, раньше догона тиков. */
+const NOTES_PLAIN_SWEEP_DELAY_MS = 20_000;
 /** Обход групп помощницы при старте: после того, как бот успел подняться и взять getMe. */
 const GROUP_SWEEP_DELAY_MS = 30_000;
 /** Проверка словаря произношения озвучки при старте: после того, как поднялась база, и не вместе с первыми тиками. */
