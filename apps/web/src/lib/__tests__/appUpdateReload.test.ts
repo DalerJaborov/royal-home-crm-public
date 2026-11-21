@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyAppUpdate,
+  ATTEMPT_WINDOW_MS,
   buildFreshUrl,
   clearUpdateAttempts,
   isUpdateLoopSuppressed,
+  MAX_ATTEMPTS,
   noteUpdateAttempt,
   resetAttemptsIfUpdated,
+  UNKNOWN_TARGET,
+  updateAttemptGate,
 } from "../appUpdateReload";
 
 /**
@@ -56,35 +60,61 @@ function installWindow() {
   });
 }
 
-describe("счётчик попыток обновления", () => {
+describe("счётчик попыток обновления — окном и на пару сборок", () => {
   beforeEach(() => {
     installStorage();
     installWindow();
   });
 
-  it("считает попытки по одной версии и сбрасывается на новой", () => {
-    expect(noteUpdateAttempt("aaa")).toBe(1);
-    expect(noteUpdateAttempt("aaa")).toBe(2);
-    expect(noteUpdateAttempt("bbb")).toBe(1);
+  const T0 = 1_700_000_000_000;
+
+  it("считает попытки по паре «моя сборка → сборка сервера»", () => {
+    expect(noteUpdateAttempt("aaa", "bbb", T0)).toBe(1);
+    expect(noteUpdateAttempt("aaa", "bbb", T0 + 1)).toBe(2);
+    // вышла ещё более новая сборка — это другое обновление, счёт с нуля
+    expect(noteUpdateAttempt("aaa", "ccc", T0 + 2)).toBe(1);
+    // и сама вкладка уже другая — тоже с нуля
+    expect(noteUpdateAttempt("zzz", "ccc", T0 + 3)).toBe(1);
   });
 
-  it("глушит оверлей после трёх безуспешных кругов", () => {
-    expect(isUpdateLoopSuppressed("aaa")).toBe(false);
-    noteUpdateAttempt("aaa");
-    noteUpdateAttempt("aaa");
-    expect(isUpdateLoopSuppressed("aaa")).toBe(false);
-    noteUpdateAttempt("aaa");
-    expect(isUpdateLoopSuppressed("aaa")).toBe(true);
-    // другая сборка — обновление применилось, глушить нечего
-    expect(isUpdateLoopSuppressed("bbb")).toBe(false);
+  it("три попытки за десять минут — передышка до освобождения окна", () => {
+    noteUpdateAttempt("aaa", "bbb", T0);
+    noteUpdateAttempt("aaa", "bbb", T0 + 60_000);
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + 60_000)).toBe(false);
+    noteUpdateAttempt("aaa", "bbb", T0 + 120_000);
+    const gate = updateAttemptGate("aaa", "bbb", T0 + 120_000);
+    expect(gate.allowed).toBe(false);
+    // место освободится, когда самая старая попытка выйдет из окна
+    expect(gate.retryAt).toBe(T0 + ATTEMPT_WINDOW_MS);
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + ATTEMPT_WINDOW_MS - 1)).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + ATTEMPT_WINDOW_MS)).toBe(false);
   });
 
-  it("resetAttemptsIfUpdated чистит счётчик только при смене версии", () => {
-    noteUpdateAttempt("aaa");
+  it("блокировка навсегда невозможна: через окно пробуем снова", () => {
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) noteUpdateAttempt("aaa", "bbb", T0 + i);
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + 10)).toBe(true);
+    // день спустя (Safari держит sessionStorage днями) — снова можно
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + 24 * 60 * 60_000)).toBe(false);
+  });
+
+  it("новая сборка сервера сбрасывает счётчик", () => {
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) noteUpdateAttempt("aaa", "bbb", T0 + i);
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0 + 10)).toBe(true);
+    expect(isUpdateLoopSuppressed("aaa", "ccc", T0 + 10)).toBe(false);
+  });
+
+  it("запись старого вида { from, count } не блокирует (миграция вечной блокировки)", () => {
+    sessionStorage.setItem("rh:update-attempts", JSON.stringify({ from: "aaa", count: 3 }));
+    expect(isUpdateLoopSuppressed("aaa", "bbb", T0)).toBe(false);
+    expect(isUpdateLoopSuppressed("aaa", UNKNOWN_TARGET, T0)).toBe(false);
+  });
+
+  it("resetAttemptsIfUpdated чистит счётчик только при смене версии вкладки", () => {
+    noteUpdateAttempt("aaa", "bbb", T0);
     resetAttemptsIfUpdated("aaa");
-    expect(noteUpdateAttempt("aaa")).toBe(2);
+    expect(noteUpdateAttempt("aaa", "bbb", T0 + 1)).toBe(2);
     resetAttemptsIfUpdated("bbb");
-    expect(noteUpdateAttempt("aaa")).toBe(1);
+    expect(noteUpdateAttempt("aaa", "bbb", T0 + 2)).toBe(1);
   });
 });
 
@@ -170,6 +200,23 @@ describe("applyAppUpdate", () => {
     // Телеметрия едет в error.stack (errorReporter читает именно его), а не в
     // в message: message служит ключом дедупликации.
     expect(event.init?.error?.message).toContain("сборка вкладки=aaa");
+
+    // Сдача докладывается один раз на пару: повтор по таймеру не шумит в журнал.
+    expect(await applyAppUpdate(opts)).toBe("gave-up");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(window.dispatchEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("исчерпанные попытки одной цели не мешают обновиться на следующую сборку", async () => {
+    const updateServiceWorker = vi.fn().mockResolvedValue(undefined);
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    const base = { needRefresh: false, updateServiceWorker, currentVersion: "aaa", reload, navigateFresh };
+    for (let i = 0; i < MAX_ATTEMPTS; i += 1) await applyAppUpdate({ ...base, targetVersion: "bbb" });
+    expect(await applyAppUpdate({ ...base, targetVersion: "bbb" })).toBe("gave-up");
+    reload.mockClear();
+    expect(await applyAppUpdate({ ...base, targetVersion: "ccc" })).toBe("reload");
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 
