@@ -25,7 +25,7 @@ import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPa
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
-import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
+import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, isPropertyDraftStartText } from "./assistantPropertyDraft.js";
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
@@ -494,6 +494,11 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
   if (params.attachedFile) actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...attachedFileHiddenTools()]);
+  // Мастер объекта (уровень A, но пишет в черновик) — только на собственную просьбу сотрудника: пересланный
+  // текст продавца, файл или ход «только читать» не открывают мастер и не льют чужие данные в черновик.
+  if (params.forwardedEvidence || params.readOnlyGroup || params.onlyGroupConfirmation || params.attachedFile) {
+    actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), "start_property_draft"]);
+  }
   // «Помолчи» словами модели — только на прямое обращение: ни пересылка, ни автоответ его не включают.
   if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
     actor.groupChat = params.groupChat;
@@ -955,6 +960,10 @@ export async function handleAssistantPrivate(
         await send(voice.error);
         return;
       }
+      // «Добавь объект» голосом (21.11.2026): мастер выше видит только текст, и голосовая просьба
+      // уходила в общий ответ, где помощница отвечала «не могу». Расшифровка — тот же разбор фразы.
+      if (!isForwarded && isPropertyDraftStartText(voice.text)
+        && await handleTelegramPropertyDraft({ ...msg, voice: undefined, audio: undefined, text: voice.text, caption: undefined }, agent, transcribeVoice)) return;
       const forwarded = forwardedVoicePrompt(msg, voice.text);
       forwardedEvidence = forwarded !== null;
       text = forwarded ?? voice.text;

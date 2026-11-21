@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ownMusicRemixSinceAfterSave, narrationListenRequestSchema, type NarrationListenResult, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { ownMusicRemixSinceAfterSave, narrationListenRequestSchema, type NarrationListenResult, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTotalFloorsError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { narrationFactsChanges, narrationLengthLine, type NarrationFacts } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { clipCountsAsPublished } from "../../lib/publishedClip.js";
@@ -208,7 +208,8 @@ narrationRouter.put("/narration-settings", async (req, res) => {
   };
   const textRules = (item: { id: string; text: string; lang: "tg" | "ru" }, before: readonly { id: string; text: string; lang: string }[] | undefined) => {
     const unchanged = sameAsBefore(item, before);
-    return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang));
+    // {этажей} (21.11.2026): этажность дома в озвучке не говорим; старый живой шаблон с ним читается (оборот снимается при сборке), новый не принимаем.
+    return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang) ?? narrationTotalFloorsError(item.text));
   };
   for (const template of parsed.data.templates ?? []) {
     // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
