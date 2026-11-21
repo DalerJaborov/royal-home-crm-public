@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isLooseBase64 } from "./base64Text.js";
 import { chatVoiceReplyFitsTtsInputLimit, synthesizeChatVoiceReply, type TtsResult } from "../ai/tts.js";
 import { customerOwnUnquotedText } from "../ai/customerAgentConversationPolicy.js";
 
@@ -150,7 +151,7 @@ function hasIdentity(authority: CustomerVoiceReplyAuthority): boolean {
 
 function decodePcm(audioBase64: string): Buffer | null {
   if (!audioBase64 || audioBase64.length > Math.ceil(MAX_CUSTOMER_VOICE_PCM_BYTES / 3) * 4 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(audioBase64) || audioBase64.length % 4 === 1) return null;
+      !isLooseBase64(audioBase64)) return null;
   const pcm = Buffer.from(audioBase64, "base64");
   const canonical = pcm.toString("base64").replace(/=+$/, "");
   if (!pcm.length || pcm.length % 2 !== 0 || pcm.length > MAX_CUSTOMER_VOICE_PCM_BYTES ||
