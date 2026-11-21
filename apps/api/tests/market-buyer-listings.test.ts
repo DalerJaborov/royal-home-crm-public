@@ -6,7 +6,7 @@ import { prisma } from "../src/db.js";
 import { catalogRaw } from "./helpers/somonPage.js";
 import { loadMoneyContext, toTjs } from "../src/lib/money.js";
 import {
-  buyerDistance, DEFAULT_MARKET_BUYER_RULES, marketBudgetWindowTjs, rankBuyerListings, type BuyerRow, type BuyerWants,
+  buyerDistance, DEFAULT_MARKET_BUYER_RULES, marketBudgetWindowTjs, buyerListingsWhere, rankBuyerListings, type BuyerRow, type BuyerWants,
 } from "../src/lib/market/buyerMatch.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
@@ -332,26 +332,28 @@ describe("GET /clients/:id/market-listings", () => {
 });
 
 describe("rankBuyerListings (чистая часть)", () => {
+  // Относительно «сейчас»: фиксированная дата сама бы выпала из окна «размещено за 30 дней».
+  const FIRST_SEEN = new Date(Date.now() - 5 * 24 * 3600_000);
   const wants: BuyerWants = {
     districtName: "Сино", city: "Душанбе", rooms: 2, propertyType: "APARTMENT", areaMin: null,
     budgetMinTjs: 400_000, budgetMaxTjs: 600_000, rules: DEFAULT_MARKET_BUYER_RULES,
   };
   const row = (over: Partial<BuyerRow>): BuyerRow => ({
     source: "somon.tj", sourceUrl: "u", title: "t", priceTjs: 500_000, pricePerSqmTjs: 8000, areaSqm: 60, rooms: 2, floor: 3,
-    totalFloors: 9, districtName: "Сино", firstSeenAt: new Date("2026-11-01"), publishedAt: null, lastSeenAt: new Date(), ...over,
+    totalFloors: 9, districtName: "Сино", firstSeenAt: FIRST_SEEN, publishedAt: null, lastSeenAt: new Date(), ...over,
   });
 
   it("ближе к середине бюджета — выше; без даты публикации берётся firstSeenAt", () => {
     const { listings } = rankBuyerListings([row({ sourceUrl: "far", priceTjs: 410_000 }), row({ sourceUrl: "mid", priceTjs: 500_000 })], wants, 10);
     expect(listings.map((l) => l.sourceUrl)).toEqual(["mid", "far"]);
-    expect(listings[0].publishedAt).toBe("2026-11-01T00:00:00.000Z");
+    expect(listings[0].publishedAt).toBe(FIRST_SEEN.toISOString());
     expect(buyerDistance(row({ priceTjs: 500_000 }), wants)).toBe(0);
   });
 
   it("при равной близости свежее объявление выше; район не указан — ниже всех с районом", () => {
     const now = Date.now();
     const rows = [
-      row({ sourceUrl: "old", publishedAt: new Date(now - 40 * 24 * 3600_000), floor: 2 }),
+      row({ sourceUrl: "old", publishedAt: new Date(now - 25 * 24 * 3600_000), floor: 2 }),
       row({ sourceUrl: "noDistrict", districtName: null, floor: 4 }),
       row({ sourceUrl: "new", publishedAt: new Date(now - 1 * 24 * 3600_000), floor: 6 }),
     ];
@@ -372,5 +374,49 @@ describe("rankBuyerListings (чистая часть)", () => {
     const res = rankBuyerListings(rows, wants, 10);
     expect(res.listings).toHaveLength(10);
     expect(res.total).toBe(15);
+  });
+});
+
+describe("только свежие по дате размещения: не старше 30 дней (21.11.2026)", () => {
+  const wants: BuyerWants = {
+    districtName: null, city: "Душанбе", rooms: null, propertyType: null, areaMin: null,
+    budgetMinTjs: null, budgetMaxTjs: null, rules: DEFAULT_MARKET_BUYER_RULES,
+  };
+  const DAY = 24 * 3600_000;
+  const row = (over: Partial<BuyerRow>): BuyerRow => ({
+    source: "somon.tj", sourceUrl: "u", title: "t", priceTjs: 500_000, pricePerSqmTjs: 8000, areaSqm: 60, rooms: 2, floor: 3,
+    totalFloors: 9, districtName: "Сино", firstSeenAt: new Date(), publishedAt: null, lastSeenAt: new Date(), ...over,
+  });
+
+  it("размещено 2025 года (сбор видит его вчера) не показываем; 29 дней показываем, 31 нет", () => {
+    const now = Date.now();
+    const rows = [
+      row({ sourceUrl: "y2025", publishedAt: new Date("2025-08-27") }),
+      row({ sourceUrl: "d29", publishedAt: new Date(now - 29 * DAY) }),
+      row({ sourceUrl: "d31", publishedAt: new Date(now - 31 * DAY) }),
+    ];
+    expect(rankBuyerListings(rows, wants, 10, 0, now).listings.map((l) => l.sourceUrl)).toEqual(["d29"]);
+  });
+
+  it("даты размещения нет, считаем по дате, когда мы нашли: 5 дней назад показываем, 40 нет", () => {
+    const now = Date.now();
+    const rows = [
+      row({ sourceUrl: "found5", firstSeenAt: new Date(now - 5 * DAY) }),
+      row({ sourceUrl: "found40", firstSeenAt: new Date(now - 40 * DAY) }),
+    ];
+    expect(rankBuyerListings(rows, wants, 10, 0, now).listings.map((l) => l.sourceUrl)).toEqual(["found5"]);
+  });
+
+  it("запрос в базу режет так же: строка с датой размещения 2025 года в выборку не попадает", async () => {
+    await makeListing("age-old2025", { publishedAt: new Date("2025-08-27") });
+    await makeListing("age-fresh10", { publishedAt: new Date(Date.now() - 10 * DAY) });
+    await makeListing("age-noDateOld", { publishedAt: null, firstSeenAt: new Date(Date.now() - 40 * DAY) });
+    await makeListing("age-noDateNew", { publishedAt: null });
+    const keys = ["age-old2025", "age-fresh10", "age-noDateOld", "age-noDateNew"];
+    const found = await prisma.marketListing.findMany({
+      where: { AND: [buyerListingsWhere({ ...wants, city: CITY }), { id: { in: keys.map((k) => ids[k]) } }] },
+      select: { sourceId: true },
+    });
+    expect(found.map((f) => f.sourceId.replace(`${runId}-`, "")).sort()).toEqual(["age-fresh10", "age-noDateNew"]);
   });
 });
