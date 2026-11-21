@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { narrationTtsOptions, type NarrationConfig, type NarrationFacts, type NarrationLang } from "@royal-home/shared";
+import { narrationCurrencyError, narrationPriceProblem, narrationTtsOptions, type NarrationConfig, type NarrationFacts, type NarrationLang } from "@royal-home/shared";
+import { loadUsdRateInfo } from "./money.js";
+import { logSystemError } from "./systemError.js";
 export { suggestedNarration } from "@royal-home/shared";
 
 export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null; price?: { toString(): string } | number | null; currency?: string | null }): NarrationFacts {
@@ -7,6 +9,33 @@ export function narrationFacts(p: { type: string; rooms: number | null; areaSqm:
   // Price is spoken since 11.11.2026 (owner decision), so a price change is a fact change.
   return { type: p.type, rooms: p.rooms, areaSqm: p.areaSqm.toString(), floor: p.floor, totalFloors: p.totalFloors, district: p.district?.name ?? null,
     price: p.price === null || p.price === undefined ? null : p.price.toString(), currency: p.currency ?? null };
+}
+/**
+ * КУРС ДЛЯ {цена} (21.11.2026, владелец: цена в озвучке только в сомони). Курс — из Настроек, без
+ * запасного значения: нет курса — цена долларовой карточки не звучит вовсе (лучше без цены, чем угадать).
+ * Хранится в снимке версии рядом с фактами (`factsSnapshot.usdToTjs`), в хэш фактов не входит.
+ */
+export async function narrationRate(): Promise<number | null> {
+  return (await loadUsdRateInfo()).rate;
+}
+/** Факты для СБОРКИ текста: с курсом (только у долларовой цены — у сомони курс не нужен и не хранится). */
+export function withNarrationRate(facts: NarrationFacts, usdToTjs: number | null | undefined): NarrationFacts {
+  return facts.currency === "USD" && usdToTjs ? { ...facts, usdToTjs } : facts;
+}
+/** Курс, с которым собирали текст версии (для сверки «текст версии = шаблон по её фактам»). */
+export function snapshotNarrationRate(snapshot: unknown): number | null {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const rate = (snapshot as { usdToTjs?: unknown }).usdToTjs;
+  return typeof rate === "number" && rate > 0 ? rate : null;
+}
+/** Цена не прозвучит — в журнал, один раз на объект и причину в сутки (иначе молча «без цены»). */
+export function reportNarrationPriceProblem(shortId: number | string, facts: NarrationFacts): void {
+  const problem = narrationPriceProblem(facts);
+  if (!problem) return;
+  const why = problem === "NO_RATE"
+    ? "цена карточки в долларах, а курс доллара в Настройках не задан — цену в озвучке не говорим"
+    : "валюта цены похожа на перепутанную (за квартиру сумма за м² нереальна) — цену в озвучке не говорим, проверьте цену и валюту в карточке";
+  void logSystemError("api", `Озвучка объекта №${shortId}: ${why}.`, { dedupKey: `narration-price:${shortId}:${problem}`, dedupWindowMs: 24 * 60 * 60_000 });
 }
 export function narrationHash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 /**
@@ -25,17 +54,33 @@ export function narrationFactsCurrent(version: { factsHash: string; factsSnapsho
   }
   return false;
 }
+function narrationScriptLengthError(text: string): string | null {
+  return text.length > 5000 ? "Текст длиннее 5000 символов — сократите его перед подтверждением." : null;
+}
+/** Текст озвучки ОБЪЕКТА (шаблон, текст агента, Шабнам). Озвучка своего текста и образцы голосов читают слово в слово. */
 export function narrationScriptError(text: string): string | null {
-  if (text.length > 5000) return "Текст длиннее 5000 символов — сократите его перед подтверждением.";
-  // Price may be spoken since 11.11.2026 (owner: «Да, говорить цену»); {цена} speaks the card price.
-  return null;
+  const length = narrationScriptLengthError(text);
+  if (length) return length;
+  // Пустоту не озвучиваем (ревью #348): шаблон из одной фразы про цену пустеет, когда цену сказать нельзя.
+  if (!text.trim()) return "Текст озвучки пустой: в шаблоне не осталось ни одного предложения (цену сказать нельзя: нет курса доллара или валюта под сомнением). Выберите другой шаблон";
+  // Price may be spoken since 11.11.2026 (owner: «Да, говорить цену»), only in somoni since 21.11.2026:
+  // no dollars ever reach ElevenLabs, from a template or from a hand-written text.
+  return narrationCurrencyError(text);
 }
 export const NARRATION_QUOTA_EXCEEDED = "PROVIDER_QUOTA_EXCEEDED";
+/** Код версии, отклонённой сторожем валюты (21.11.2026): в тексте цена в долларах, в ElevenLabs не ушла, денег нет. */
+export const NARRATION_PRICE_NOT_IN_TJS = "PRICE_NOT_IN_TJS";
+/** Одна строка причины — в журнал, агенту и в отказ передачи. */
+export const NARRATION_PRICE_NOT_IN_TJS_TEXT = "в тексте озвучки цена в долларах, такой голос не озвучиваем и монтажёру не отправляем; озвучка будет собрана заново из шаблона с ценой в сомони";
+/** Отказ одобрить готовую версию с долларами (ревью #348, круг 2): пересборка — новая платная озвучка, её запускает человек. */
+export const NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT = "В этой озвучке цена в долларах: такую не одобряем и монтажёру не отправляем. Откройте озвучку в карточке объекта и нажмите «Исправить и озвучить»: текст соберётся с ценой в сомони.";
 export type NarrationAudioResult = { status: "READY"; audio: Buffer; requestId: string | null } | { status: "FAILED" | "UNKNOWN"; errorCode: string };
 /** Official POST /v1/text-to-speech/:voice_id. One attempt only: a timeout may have incurred cost. */
 export async function generateNarrationAudio(input: { script: string; voiceId: string; config: NarrationConfig; apiKey: string; lang?: NarrationLang | null }, fetcher: typeof fetch = fetch): Promise<NarrationAudioResult> {
   if (!input.config.modelId || !input.config.voices.some((v) => v.id === input.voiceId)) return { status: "FAILED", errorCode: "VOICE_NOT_CONFIGURED" };
-  if (narrationScriptError(input.script)) return { status: "FAILED", errorCode: "INVALID_SCRIPT" };
+  // Здесь только длина: этой дверью идут и озвучка объекта (валюту сторожат при сборке версии и в
+  // narrationGeneration), и «озвучка своего текста», и образцы голосов — они читают текст слово в слово.
+  if (narrationScriptLengthError(input.script)) return { status: "FAILED", errorCode: "INVALID_SCRIPT" };
   try {
     const base = (process.env.ELEVENLABS_API_BASE?.trim() || "https://api.elevenlabs.io").replace(/\/+$/, "");
     const response = await fetcher(`${base}/v1/text-to-speech/${encodeURIComponent(input.voiceId)}?output_format=mp3_44100_128`, {

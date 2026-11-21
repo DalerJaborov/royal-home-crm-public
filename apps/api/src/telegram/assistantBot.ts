@@ -177,6 +177,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_missed_calls",
   "get_team_load",
   "get_stuck_work",
+  // Реестр строек (21.11.2026, tools/registryReadTool.ts): только сотрудникам и только в личке.
+  "get_construction_registry",
   "get_client_last_call",
   "create_task",
   "reschedule_task",

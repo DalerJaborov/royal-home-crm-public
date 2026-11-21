@@ -7,6 +7,7 @@ export * from "./labels.js";
 export * from "./querySchemas.js";
 export * from "./format.js";
 export * from "./money.js";
+export * from "./propertyAddress.js";
 export * from "./geo.js";
 export * from "./geoText.js";
 export * from "./dushanbeDay.js";

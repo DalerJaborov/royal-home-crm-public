@@ -65,7 +65,7 @@ beforeAll(async () => {
   await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: {} });
   before = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { metaIgManageToken: true, metaPageId: true, metaPageToken: true, metaSystemTokenPreferred: true, metaAppReviewApproved: true, metaPageEternalLastSentAt: true, metaAdsEnabled: true, metaAdAccountId: true },
+    select: { metaIgManageToken: true, metaPageId: true, metaPageToken: true, metaSystemTokenPreferred: true, metaAppReviewApproved: true, instagramCompanyKeyEnabled: true, metaPageEternalLastSentAt: true, metaAdsEnabled: true, metaAdAccountId: true },
   });
   const row = await prisma.messengerAccount.create({
     data: { channel: "INSTAGRAM", externalId: IG_ID, title: `Вечный ${run}`, token: encryptSecret(IG_LOGIN), username: `eternal_${run}`, pageId: PAGE_ID },
@@ -92,11 +92,12 @@ beforeEach(async () => {
     appRead: () => json({ id: "1684679092586215" }),
     subscribed: [{ id: "1684679092586215", subscribed_fields: ["feed", "messages"] }],
   });
-  await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: PAGE_ID, eternalLastSentAt: null } });
+  await prisma.messengerAccount.update({ where: { id: accountId }, data: { pageId: PAGE_ID, eternalLastSentAt: null, accessLostAt: null, accessLostReason: null } });
   await settings({
     metaIgManageToken: encryptSecret(SYSTEM),
     metaSystemTokenPreferred: true,
     metaAppReviewApproved: true,
+    instagramCompanyKeyEnabled: true,
     metaPageId: PAGE_ID,
     metaPageToken: encryptSecret(FB_PERSONAL),
     metaPageEternalLastSentAt: null,
@@ -128,7 +129,13 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+// Общий ключ компании и рубильники — только на время теста (ревью #344): соседние файлы,
+// идущие параллельно на той же базе, не должны получать чужой путь через Страницу.
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  if (before) await prisma.settings.update({ where: { id: "singleton" }, data: before });
+  eternal.resetMetaEternalCache();
+});
 
 describe("путь Instagram через Страницу и его запреты", () => {
   it("всё готово — /me/messages уходит на graph.facebook.com/{page}/messages маркером Страницы", async () => {
@@ -152,17 +159,29 @@ describe("путь Instagram через Страницу и его запрет�
     for (const r of rows) expect(r.column_default).toBe("false");
   });
 
-  it("без отметки «App Review одобрен» путь закрыт (клиенты без роли не получили бы ответ)", async () => {
-    await settings({ metaAppReviewApproved: false });
+  it("21.11: Instagram не ждёт ни отметки App Review, ни общего рубильника — решает «Instagram через постоянный ключ Meta»", async () => {
+    await settings({ metaAppReviewApproved: false, metaSystemTokenPreferred: false });
     const routed = await eternal.routeMetaMessagingCall(IG_MESSAGES(), IG_LOGIN, { recipient: { id: PEER }, message: { text: "x" } });
-    expect(routed.route).toBe("unchanged");
+    expect(routed).toMatchObject({ route: "instagram_page", url: `${GRAPH}/${PAGE_ID}/messages`, token: PAGE_TOKEN });
+  });
+
+  it("рубильник «Instagram через постоянный ключ Meta» выключен — только личный ключ, Meta даже не спрашиваем", async () => {
+    await settings({ instagramCompanyKeyEnabled: false });
+    expect((await eternal.routeMetaMessagingCall(IG_MESSAGES(), IG_LOGIN, {})).route).toBe("unchanged");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("рубильник выключен — только личный ключ, Meta даже не спрашиваем", async () => {
-    await settings({ metaSystemTokenPreferred: false });
-    expect((await eternal.routeMetaMessagingCall(IG_MESSAGES(), IG_LOGIN, {})).route).toBe("unchanged");
-    expect(fetchMock).not.toHaveBeenCalled();
+  it("Facebook-путь по-прежнему за общим рубильником и App Review (Arvan 15.11: без роли не доходило)", async () => {
+    await settings({ metaAppReviewApproved: false });
+    const url = `${GRAPH}/${PAGE_ID}/messages`;
+    expect((await eternal.routeMetaMessagingCall(url, FB_PERSONAL, {})).route).toBe("unchanged");
+  });
+
+  it("умолчание рубильника Instagram — ВКЛ, и в схеме, и в миграции", async () => {
+    const rows = await prisma.$queryRaw<Array<{ column_default: string }>>`
+      SELECT column_default FROM information_schema.columns WHERE table_name = 'Settings' AND column_name = 'instagramCompanyKeyEnabled'`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].column_default).toBe("true");
   });
 
   it("у ключа компании нет instagram_manage_messages (/me/permissions) — личный путь", async () => {
@@ -297,9 +316,27 @@ describe("«Подписать Страницу»", () => {
 describe("самопроверка «Вечные ключи»", () => {
   const ourRow = (s: Awaited<ReturnType<typeof eternal.metaEternalStatus>>) => s.rows.find((r) => r.accountId === accountId)!;
 
-  it("без отметки App Review — честное «ждёт одобрения Meta», даже когда всё остальное готово", async () => {
+  it("Instagram: без отметки App Review — «готов», путь «через Страницу»; рубильник выключен — «выключен», путь личный", async () => {
     await settings({ metaAppReviewApproved: false });
-    expect(ourRow(await eternal.metaEternalStatus()).state).toBe("awaiting_review");
+    expect(ourRow(await eternal.metaEternalStatus())).toMatchObject({ state: "pending_first_send", route: "page", accessLostAt: null });
+    await settings({ instagramCompanyKeyEnabled: false });
+    expect(ourRow(await eternal.metaEternalStatus())).toMatchObject({ state: "off", route: "personal" });
+  });
+
+  it("Meta закрыла доступ к аккаунту без пути через Страницу — «закрыт», путь личный", async () => {
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: проверка" } });
+    await settings({ instagramCompanyKeyEnabled: false });
+    const row = ourRow(await eternal.metaEternalStatus());
+    expect(row).toMatchObject({ state: "locked", route: "personal" });
+    expect(row.accessLostAt).toBeTruthy();
+  });
+
+  it("отметка «закрыт» у аккаунта, который отвечает через Страницу, — не «закрыт» (ревью #344)", async () => {
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: проверка" } });
+    eternal.resetMetaEternalCache();
+    const row = ourRow(await eternal.metaEternalStatus());
+    expect(row.state).not.toBe("locked");
+    expect(row).toMatchObject({ route: "page", accessLostAt: null });
   });
 
   it("не хватает прав — называет какие", async () => {
@@ -323,6 +360,12 @@ describe("суточная проверка при вечном пути", () =>
     expect(row.ok).toBe(true);
     expect(row.detail).toContain("предупреждение");
     expect(await prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}` } })).toBe(0);
+    // 21.11.2026: руководству — «переподключите», к сведению (входящие держатся на личном маркере).
+    const backupTag = `ig-backup-key-dead:${accountId}`;
+    tagsToClean.push(backupTag);
+    const note = await prisma.pendingDirectorAlert.findFirst({ where: { tag: backupTag } });
+    expect(note?.recipientRoles).toContain("HEAD_OF_SALES");
+    expect(note?.level).toBeNull();
   });
 });
 
@@ -353,7 +396,7 @@ describe("сторож мёртвых ключей", () => {
   });
 
   it("401 на отправке личным ключом — тревога с именем аккаунта, без маркера в тексте; работает и при выключенном рубильнике", async () => {
-    await settings({ metaSystemTokenPreferred: false, metaAppReviewApproved: false });
+    await settings({ metaSystemTokenPreferred: false, metaAppReviewApproved: false, instagramCompanyKeyEnabled: false });
     const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
     tagsToClean.push(tag);
     await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
@@ -362,5 +405,8 @@ describe("сторож мёртвых ключей", () => {
     const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
     expect(alert?.body).toContain(`Вечный ${run}`);
     expect(alert?.body).not.toContain(IG_LOGIN);
+    // 21.11.2026: Instagram — руководству (РОП тоже), «к сведению», не чаще раза в сутки.
+    expect(alert?.recipientRoles.slice().sort()).toEqual(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
+    expect(alert?.level).toBeNull();
   });
 });

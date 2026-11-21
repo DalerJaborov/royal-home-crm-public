@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 788,
-  "forks": 4206,
+  "forks": 4197,
   "mounts": 88,
-  "cron": 144,
+  "cron": 143,
   "jobs": 34,
   "hidden": 0
  },
@@ -48365,6 +48365,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "outcome === \"PRICE_NOT_IN_TJS\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: NARRATION_PRICE_NOT_IN_TJS_APPROVE_TEXT });",
+       "a": [
+        "ответ 409"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const delivery = outcome === \"AUDIO_APPROVED\" ? await afterNarrationApproved(p.id, versionId.data) : undefine…",
      "a": [
@@ -49914,6 +49929,14 @@
      "t": "const facts = narrationFacts(p);",
      "a": [
       "зовёт narrationFacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const usdToTjs = await narrationRate();",
+     "a": [
+      "зовёт narrationRate()"
      ],
      "c": []
     },
@@ -99534,6 +99557,14 @@
        "c": [
         {
          "k": "do",
+         "t": "await autoLinkInstagramPages().catch((err)",
+         "a": [
+          "зовёт autoLinkInstagramPages()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const totals = await checkInstagramSubscriptions();",
          "a": [
           "зовёт checkInstagramSubscriptions()"
@@ -99558,6 +99589,14 @@
            "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…",
            "a": [
             "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await raiseCriticalAlarm({ tag: `ig-account-silent:${s.id}:${last}`, title: \"Instagram: в аккаунт не приходят…",
+           "a": [
+            "зовёт raiseCriticalAlarm()"
            ],
            "c": []
           }
@@ -104949,6 +104988,68 @@
                "t": "continue;",
                "a": [
                 "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "channel === \"INSTAGRAM\" && incoming.length >= MASS_MISSED_MIN_SAMPLE && missed.length * 2 > incoming.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const ours = await ownRepliesInCrm(page.ownIds?.length ? page.ownIds : [page.pageId], body);",
+               "a": [
+                "зовёт ownRepliesInCrm()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const viaPage = (await instagramRouteForToken(page.token)).kind === \"page\";",
+               "a": [
+                "зовёт instagramRouteForToken()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "viaPage && ours.crmSent > 0 && ours.known === 0",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void logSystemError(\"meta\", `Сверка Direct «${page.title}» (через Страницу): ${missed.length} из ${incoming.l…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "await raiseCriticalAlarm({ tag: `meta-inbox-mass-missed:${page.pageId}`, title: \"Сверка Instagram: проверьте …",
+                 "a": [
+                  "зовёт raiseCriticalAlarm()"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await raiseCriticalAlarm({ tag: `meta-inbox-ig-not-delivered:${page.pageId}`, title: \"Входящие Instagram не д…",
+               "a": [
+                "зовёт raiseCriticalAlarm()"
                ],
                "c": []
               }
@@ -113681,375 +113782,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "staff-social-post-sweep",
-   "when": "*/15 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const r = await sweepStaffSocialPosts();",
-       "a": [
-        "зовёт sweepStaffSocialPosts()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const publishing = await prisma.staffSocialPost.findMany({ where: { status: \"PUBLISHING\", updatedAt: { lt: be…",
-         "a": [
-          "читает в базе: staffSocialPost"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const post of publishing",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const draft = post.socialVideoPostId ? await prisma.socialVideoPost.findUnique({ where: { id: post.socialVide…",
-           "a": [
-            "читает в базе: socialVideoPost"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: \"PUBLISHING\" }, data: n…",
-           "a": [
-            "меняет в базе: staffSocialPost"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!moved.count",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "notStarted",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await tell(post.chatId, post.agentId, TEXT.publishNotStarted[lang(post.request)]);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const preparing = await prisma.staffSocialPost.findMany({ where: { status: \"PREPARING\", updatedAt: { lt: befo…",
-         "a": [
-          "читает в базе: staffSocialPost"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const post of preparing",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "post.previewMessageId && post.socialVideoPostId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: \"PREPARING\" }, data: { …",
-             "a": [
-              "меняет в базе: staffSocialPost"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "!moved.count",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const gone = await prisma.staffSocialPost.deleteMany({ where: { id: post.id, status: \"PREPARING\" } });",
-           "a": [
-            "удаляет в базе: staffSocialPost"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!gone.count",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "!post.staffClipIntakeId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await tell(post.chatId, post.agentId, TEXT.albumNotPrepared[lang(post.request)]);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const working = await prisma.staffClipIntake.findMany({ where: { status: \"WORKING\", updatedAt: { lt: before(S…",
-         "a": [
-          "читает в базе: staffClipIntake"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const intake of working",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const marker = clipWorkMarker(intake.result);",
-           "a": [
-            "зовёт clipWorkMarker()"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "marker?.kind === \"RECEIVING\" && intake.propertyId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const p = await prisma.property.findUnique({ where: { id: intake.propertyId }, select: { shortId: true, video…",
-             "a": [
-              "читает в базе: property"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "p?.videoHandoffReceivedAt && p.videoHandoffReceivedAt >= new Date(marker.startedAt)",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: \"WORKING\", updatedAt:…",
-               "a": [
-                "меняет в базе: staffClipIntake"
-               ],
-               "c": []
-              },
-              {
-               "k": "if",
-               "t": "moved.count",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "result.released++;",
-                 "a": [
-                  "дословно из кода"
-                 ],
-                 "c": []
-                },
-                {
-                 "k": "do",
-                 "t": "await tell(intake.chatId, intake.agentId, `Ролик для ${formatPropertyCode(p.shortId)} принят. Нажимать ещё ра…",
-                 "a": [
-                  "дословно из кода"
-                 ],
-                 "c": []
-                }
-               ]
-              },
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const moved = await prisma.staffClipIntake.updateMany({ where: { id: intake.id, status: \"WORKING\", updatedAt:…",
-           "a": [
-            "меняет в базе: staffClipIntake"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!moved.count",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const expired = await prisma.staffSocialPost.findMany({ where: { status: { in: ALIVE }, expiresAt: { lt: now …",
-         "a": [
-          "читает в базе: staffSocialPost"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const post of expired",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const moved = await prisma.staffSocialPost.updateMany({ where: { id: post.id, status: { in: ALIVE } }, data: …",
-           "a": [
-            "меняет в базе: staffSocialPost"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!moved.count",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "sweepStaffSocialPosts() — apps/api/src/lib/staffSocialPostSweep.ts"
-      },
-      {
-       "k": "if",
-       "t": "r.expired + r.dropped + r.restored + r.released + r.files > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка уборки постов Шабнам\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "stale-property-videos-cleanup",
    "when": "50 3 * * *",
    "tree": [
@@ -116598,7 +116330,7 @@
          "c": [
           {
            "k": "do",
-           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\" }, select: { id: true, title: t…",
+           "t": "rows = await prisma.messengerAccount.findMany({ where: { channel: \"INSTAGRAM\", accessLostAt: null }, select: …",
            "a": [
             "читает в базе: messengerAccount"
            ],
