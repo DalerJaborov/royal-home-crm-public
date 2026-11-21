@@ -1,3 +1,4 @@
+import { isWhatsAppWindowFailure } from "../lib/messagingWindow.js";
 import { mentionsRudakiDistrict, RUDAKI_DISTRICT_NAME } from "../lib/serviceArea.js";
 import { customerDmRoutingForIncoming, inspectCustomerDmRouting } from "../lib/customerAgentIngressRouting.js";
 import { createHash } from "node:crypto";
@@ -1905,7 +1906,12 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
          * шаблон, лимит. `dedupKey` по причине, а не по сообщению: пачка
          * однотипных отказов должна читаться одной строкой, а не сотней.
          */
-        if (s.status === "failed") {
+        if (s.status === "failed" && isWhatsAppWindowFailure(s.errorCode, s.error)) {
+          // Вне окна 24 часов (131047): правило WhatsApp, а не поломка. Сообщение
+          // уже помечено «не доставлено» в переписке (markMessageDeliveryStatus), в
+          // Журнал ошибок руководства оно не идёт (21.11.2026).
+          console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCode ?? "?"})`);
+        } else if (s.status === "failed") {
           void logSystemError(
             "meta",
             `WhatsApp не доставил наш ответ на ${s.recipientId}` + (s.error ? `: ${s.error}` : " (причину Meta не назвала)"),

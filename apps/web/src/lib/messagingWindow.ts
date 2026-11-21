@@ -1,3 +1,4 @@
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages } from "@royal-home/shared";
 import type { ConversationMessage } from "../types";
 
 /**
@@ -17,29 +18,26 @@ import type { ConversationMessage } from "../types";
  * Незнакомый канал считается неограниченным намеренно — ложное «нельзя писать»
  * хуже молчаливой отправки, которая просто сработает.
  */
-const WINDOW_MS = 24 * 60 * 60 * 1000;
-const WINDOWED_CHANNELS = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK"]);
-
-/** Момент последней реплики КЛИЕНТА (role="user") в уже загруженном списке сообщений. */
+/** Момент последней реплики КЛИЕНТА (role="user") — максимум по времени, общее правило окна. */
 export function lastInboundMessageAt(messages: ConversationMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === "user" && m.at) return m.at;
-  }
-  return null;
+  return lastInboundAt(messages)?.toISOString() ?? null;
 }
 
 /**
- * Окно закрыто прямо сейчас? `lastInboundAt: null` — клиент ни разу не писал (или
- * дата не сохранилась) — трактуем как «не наш случай», пусть решает сервер при
- * реальной отправке, а не гадаем здесь.
+ * Окно закрыто прямо сейчас? Правило одно с сервером (packages/shared): нет ни
+ * одной отметки времени — «неизвестно», не блокируем, решит сервер при отправке.
  */
+export function isMessagingWindowClosedForMessages(
+  channel: string | null | undefined,
+  messages: ConversationMessage[],
+): boolean {
+  return messagingWindowStateOfMessages(channel, messages) === "closed";
+}
+
 export function isMessagingWindowClosed(
   channel: string | null | undefined,
   lastInboundAt: string | null,
   now: Date = new Date(),
 ): boolean {
-  if (!channel || !WINDOWED_CHANNELS.has(channel)) return false;
-  if (!lastInboundAt) return false;
-  return now.getTime() - new Date(lastInboundAt).getTime() >= WINDOW_MS;
+  return isMessagingWindowClosedFor(channel, lastInboundAt, now.getTime());
 }
