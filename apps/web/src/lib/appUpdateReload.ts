@@ -116,11 +116,28 @@ export function resetAttemptsIfUpdated(currentVersion: string): void {
  */
 function recentAttempts(from: string, to: string, now: number): AttemptRecord {
   const record = readAttempts();
-  if (!record || record.from !== from || record.to !== to) return { from, to, times: [] };
+  if (!record || record.from !== from || !sameTarget(record.to, to)) return { from, to, times: [] };
   const times = record.times
     .map((t) => Math.min(t, now))
     .filter((t) => now - t < ATTEMPT_WINDOW_MS);
-  return { ...record, times };
+  // Неизвестная цель не затирает уже известную: пара остаётся «моя → v2».
+  return { ...record, to: isUnknownTarget(to) ? record.to : to, times };
+}
+
+/**
+ * НЕИЗВЕСТНАЯ ЦЕЛЬ СОВПАДАЕТ С ЛЮБОЙ (21.11.2026, после #379). Сигнал воркера
+ * (needRefresh) приходит раньше ответа /version.json: часть «жизней» страницы идёт
+ * с целью UNKNOWN_TARGET, часть — уже с «v2». Когда это были две разные пары, каждая
+ * смена цели перезаписывала запись и обнуляла счёт: прогон с чередованием "?"/"v2"
+ * давал 40 перезагрузок на 40 открытий. Новая лестница — только при двух РАЗНЫХ
+ * известных целях (настоящий новый выкат сайта).
+ */
+function isUnknownTarget(target: string): boolean {
+  return !target || target === UNKNOWN_TARGET;
+}
+
+function sameTarget(a: string, b: string): boolean {
+  return isUnknownTarget(a) || isUnknownTarget(b) || a === b;
 }
 
 export interface UpdateGate {
@@ -143,7 +160,7 @@ export function updateAttemptGate(from: string, to: string, now = Date.now()): U
 export function noteUpdateAttempt(from: string, to: string, now = Date.now()): number {
   const record = recentAttempts(from, to, now);
   const times = [...record.times, now];
-  writeAttempts({ from, to, times, reported: record.reported });
+  writeAttempts({ from, to: record.to, times, reported: record.reported });
   return times.length;
 }
 

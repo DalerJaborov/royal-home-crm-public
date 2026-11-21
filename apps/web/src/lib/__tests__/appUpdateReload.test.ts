@@ -208,6 +208,39 @@ describe("applyAppUpdate", () => {
     expect(reportGiveUp).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Сигнал воркера приходит раньше ответа /version.json: часть открытий идёт с целью
+   * UNKNOWN_TARGET, часть — уже с «v2». Раньше это были две разные пары, и каждая
+   * смена цели обнуляла счёт — 40 перезагрузок на 40 открытий (21.11.2026).
+   */
+  it("чередование неизвестной цели и v2 за 40 открытий — не больше трёх перезагрузок", async () => {
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    const t0 = 1_000_000;
+    for (let i = 0; i < 40; i += 1) {
+      await applyAppUpdate({
+        needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa",
+        targetVersion: i % 2 ? "v2" : UNKNOWN_TARGET, reload, navigateFresh, now: t0 + i * 1_000, reportGiveUp: vi.fn(),
+      });
+    }
+    expect(reload.mock.calls.length + navigateFresh.mock.calls.length).toBeLessThanOrEqual(MAX_ATTEMPTS);
+  });
+
+  it("настоящая новая версия сайта после неизвестной цели и v2 всё ещё запускает лестницу", async () => {
+    const reload = vi.fn();
+    const navigateFresh = vi.fn();
+    const base = { needRefresh: false, updateServiceWorker: vi.fn(), currentVersion: "aaa", reload, navigateFresh, reportGiveUp: vi.fn() };
+    const t0 = 1_000_000;
+    for (let i = 0; i <= MAX_ATTEMPTS; i += 1) {
+      await applyAppUpdate({ ...base, targetVersion: i % 2 ? "v2" : UNKNOWN_TARGET, now: t0 + i });
+    }
+    expect(await applyAppUpdate({ ...base, targetVersion: "v2", now: t0 + 10 })).toBe("gave-up");
+    expect(await applyAppUpdate({ ...base, targetVersion: UNKNOWN_TARGET, now: t0 + 11 })).toBe("gave-up");
+    reload.mockClear();
+    expect(await applyAppUpdate({ ...base, targetVersion: "v3", now: t0 + 12 })).toBe("reload");
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it("в подробностях сдачи — метка версии и главный скрипт самой «/»", async () => {
     const html = '<html><head><meta name="app-version" content="site-9"><script type="module" crossorigin src="/assets/index-Ab12.js"></script></head></html>';
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).startsWith("/version.json")
