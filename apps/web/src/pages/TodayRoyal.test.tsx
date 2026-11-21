@@ -10,6 +10,8 @@ const state = vi.hoisted(() => ({
   status: { isLoading: false, isError: false },
   analytics: true,
 }));
+// Эти тесты проверяют блоки прежней главной руководителя (она остаётся тем, у кого нет права на отчёты); дашборд на главной — dashboardHome.test.tsx.
+vi.mock("../lib/homeDashboard", async (importOriginal) => ({ ...await importOriginal<typeof import("../lib/homeDashboard")>(), useDashboardHome: () => false }));
 vi.mock("../store/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../store/auth")>();
   return { ...actual, useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "a1", fullName: "Далер Тестов", role: state.role } }) };
