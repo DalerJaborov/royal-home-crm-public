@@ -20,6 +20,7 @@ import { autoLeadFromIncomingCall } from "./autoLeadFromCall.js";
 import { enqueueDirectorAlert } from "../directorAlertQueue.js";
 import { findStaffPhone, staffPhoneError } from "../staffPhoneGuard.js";
 import { claimAutoTaskSlot } from "../autoTasks.js";
+import { sendVoicemailToShabnam } from "./voicemailToShabnam.js";
 
 /**
  * АВТООТВЕТЧИК: сообщения, наговоренные клиентами, становятся лидами.
@@ -725,6 +726,16 @@ async function processVoicemail(config: RecordingFetchConfig, vm: VoicemailFile)
       ? [prisma.incomingCall.update({ where: { id: call.id }, data: { interactionId } })]
       : []),
   ]);
+
+  // Директору в Шабнам (21.11.2026): один раз на файл, после отметки processedAt; сбой Telegram разбор не роняет.
+  await sendVoicemailToShabnam({
+    file: vm.name,
+    phone: vm.phone,
+    recordedAt: vm.recordedAt,
+    audio,
+    client: client ? { shortId: client.shortId, fullName: client.fullName } : null,
+    transcriptRu,
+  });
 
   /**
    * РАЗБОР И РАЗДАЧА — ОБЩИЕ С ОТВЕЧЕННЫМ ЗВОНКОМ. Здесь решается всё: кем оказался

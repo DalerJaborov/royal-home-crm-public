@@ -34,6 +34,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botSpamFilterEnabled",
   "shabnamSocialPublishEnabled",
   "instagramCompanyKeyEnabled",
+  "voicemailToShabnamEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -133,6 +134,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу. Смена пароля Instagram бота не глушит. Если Meta откажет, ответ уйдёт личным ключом аккаунта.",
     off: "Все аккаунты Instagram отвечают личными ключами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
   },
+  // Владелец 21.11.2026: «в нерабочее время звонки пусть идут на автоответчик, потом пусть придёт на Шабнам».
+  voicemailToShabnamEnabled: {
+    title: "Сообщение с автоответчика приходит директору в Шабнам",
+    on: "Когда клиент оставил сообщение на автоответчике, директору в Telegram приходит, кто звонил, что он сказал (текстом) и сама запись.",
+    off: "В Telegram ничего не приходит. Сообщение по-прежнему лежит в карточке клиента и на странице «Звонки».",
+  },
 };
 
 export interface AutomationSwitchGroup {
@@ -153,7 +160,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
+    keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "voicemailToShabnamEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "instagramCompanyKeyEnabled"] },
