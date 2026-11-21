@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2515**; вместе с задачами по расписанию и фоновыми заданиями — **4224**. Модулей: **89**.
+Путей: **793**. Развилок в самих путях: **2516**; вместе с задачами по расписанию и фоновыми заданиями — **4225**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4511,10 +4511,16 @@
   · зовёт dushanbeDayRange()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
-- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…
+- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldestCandidates, neverContacted…
   · считает в базе: client
   · читает в базе: client
   · считает в базе: interaction
+- const oldest = await (async ()
+  - если oldestCandidates.length === 0
+    - return null;
+      · дословно из кода
+  - const contact = await lastStaffContactAtByClient(oldestCandidates);
+    · зовёт lastStaffContactAtByClient()
 - const summary: ClientsSummary = { buyers, sellers, mine, other, newToday, newYesterday, awaitingAgent: { coun…
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
@@ -4651,6 +4657,8 @@
   · зовёт loadSellerPropertyAddresses()
 - const leadReasons = await loadLeadReasons(items.filter((c)
   · зовёт loadLeadReasons()
+- const lastStaffContact = await lastStaffContactAtByClient(items);
+  · зовёт lastStaffContactAtByClient()
 - const nextStepFor = (clientId: string, gateUntilAccepted: boolean, seesPhone: boolean)
   - если !step || gateUntilAccepted
     - return null;

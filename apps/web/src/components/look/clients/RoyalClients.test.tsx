@@ -15,8 +15,7 @@ import { ROYAL_ROW_PC_ONLY, RoyalClientFacts, RoyalClientListHead, RoyalClientRo
 const fixture: RoyalClientRowProps = {
   id: "client-1", name: "Мадина Каримова", href: "/clients/42", avatar: <span>МК</span>,
   identity: "КЛ-000042 · Покупатель", request: "3 комн · Сино · $55–70 тыс.", source: "Instagram",
-  nextAction: <span>Позвонить сейчас</span>, nextActionDate: "2026-11-03T11:00:00.000Z", lastContact: "2 дня назад",
-  staleContact: false, showAgent: true, agentName: "Фаррух", agentAssigned: true,
+  fact: null, lastContact: "последний контакт 19.11", showAgent: true, agentName: "Фаррух", agentAssigned: true,
   actions: <button type="button">Позвонить через CRM</button>, deleted: false,
 };
 const inRouter = (node: ReactElement) => renderToStaticMarkup(<MemoryRouter>{node}</MemoryRouter>);
@@ -24,7 +23,7 @@ const royal = (props: Partial<RoyalClientRowProps> = {}) => inRouter(<RoyalClien
 const clean = (props: Partial<RoyalClientRowProps> = {}) => inRouter(<CleanClientRow {...fixture} {...props} />);
 /** Видимые слова строки без подписей колонок, которые в новом виде стоят в шапке таблицы. */
 const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&nbsp;|·|:/g, " ")
-  .split(/\s+/).filter(Boolean).filter((w) => !["Следующее", "действие", "Ответственный"].includes(w));
+  .split(/\s+/).filter(Boolean).filter((w) => !["Последний", "контакт", "Ответственный"].includes(w));
 
 describe("номер в шапке карточки клиента", () => {
   it("виден тем, кто ведёт клиента; до приёма заявки нет даже хвоста маски (ревью PR 331)", () => {
@@ -35,34 +34,26 @@ describe("номер в шапке карточки клиента", () => {
 });
 
 describe("строка клиента нового вида", () => {
-  it("одна дата с глаголом: срок шага или когда связывались (пачка D1)", () => {
-    const withDeadline = royal({ nextActionDate: "2099-01-01T08:00:00.000Z" });
-    expect(withDeadline).toContain("срок ");
-    expect(withDeadline).not.toContain("2 дня назад");
-    expect(royal({ nextActionDate: "2020-01-01T08:00:00.000Z" })).toContain("просрочено");
-    const noDeadline = royal({ nextAction: null });
-    expect(noDeadline).toContain("связывались ");
-    expect(noDeadline).toContain("2 дня назад");
-    expect(royal({ nextAction: null, staleContact: true })).toContain("Давно не связывались");
-    const both = royal({ nextActionDate: "2099-01-01T08:00:00.000Z", staleContact: true });
-    expect(both).toContain("срок ");
-    expect(both).toContain("Давно не связывались");
+  it("только факты: последний контакт спокойной строкой, без срока шага и без тревоги (владелец 21.11.2026)", () => {
+    // Действия (кнопка «Позвонить через CRM») — не метка: проверяем строку без них.
+    const html = royal({ actions: null });
+    expect(html).toContain("последний контакт 19.11");
+    expect(html).not.toContain("data-tone");
+    for (const advice of ["Давно не связывались", "Следующий шаг", "просрочено", "срок ", "позвонить", "первый звонок"]) {
+      expect(html.toLowerCase(), advice).not.toContain(advice.toLowerCase());
+    }
+    expect(royal({ lastContact: "контакта ещё не было" })).toContain("контакта ещё не было");
+    // Даты нет (заявка не ваша) — строки нет вовсе, а не «связывались …».
+    expect(royal({ lastContact: null })).not.toContain("ry-crow-when");
+  });
+  it("факт «ждёт принятия» — единственная метка, приходит готовой", () => {
+    expect(royal({ fact: <span className="chip">ждёт принятия</span> })).toContain("ждёт принятия");
+    expect(royal()).not.toContain("ry-crow-step");
   });
   it("показывает всё, что показывает строка Clean (ничего не теряется)", () => {
-    // Исключение одно и намеренное (пачка D1, 20.11.2026): при сроке шага строка нового вида
-    // показывает ОДНУ дату — срок; время последнего контакта и подписи «Срок / Последний
-    // контакт» остаются в карточке клиента и в строке без срока. «Давно не связывались»
-    // не теряется никогда (ревью PR 331).
-    const dropped = (props: Partial<RoyalClientRowProps>) => {
-      const p = { ...fixture, ...props };
-      const words = new Set(["Срок", "Последний", "контакт"]);
-      if (p.nextAction && p.nextActionDate) for (const w of p.lastContact.split(/\s+/)) words.add(w);
-      return words;
-    };
-    for (const props of [{}, { staleContact: true }, { nextAction: null }, { agentName: null, agentAssigned: false }, { showAgent: false }]) {
+    for (const props of [{}, { lastContact: "контакта ещё не было" }, { fact: <span>ждёт принятия</span> }, { agentName: null, agentAssigned: false }, { showAgent: false }]) {
       const mine = new Set(words(royal(props)));
-      const allowed = dropped(props);
-      for (const w of words(clean(props))) if (!allowed.has(w)) expect(mine, `потеряно «${w}» при ${JSON.stringify(props)}`).toContain(w);
+      for (const w of words(clean(props))) expect(mine, `потеряно «${w}» при ${JSON.stringify(props)}`).toContain(w);
     }
   });
   it("та же ссылка в карточку, тот же признак строки для смахивания и звонка", () => {
@@ -98,6 +89,14 @@ describe("строка на телефоне: что скрыто — помеч
     expect(hide).toBeGreaterThan(-1);
     expect(hide).toBeLessThan(container);
     expect(show).toBeGreaterThan(container);
+  });
+  it("имя подсвечивается при наведении только у настоящей мыши: на телефоне касание не оставляет имя синим (21.11.2026)", () => {
+    const css = readFileSync(new URL("../../../theme-look-royal-clients.css", import.meta.url), "utf8");
+    const rule = css.indexOf("a.ry-crow-main:hover .ry-crow-name");
+    expect(rule).toBeGreaterThan(-1);
+    const media = css.lastIndexOf("@media (hover: hover) and (pointer: fine)", rule);
+    expect(media, "правило наведения вне @media (hover: hover)").toBeGreaterThan(-1);
+    expect(css.slice(media, rule), "между @media и правилом блок закрылся").not.toMatch(/\}\s*\n/);
   });
   it("в шапке карточки факты: полные подписи для чтеца, короткий текст на виду", () => {
     const html = renderToStaticMarkup(<RoyalClientFacts facts={[
