@@ -16,9 +16,9 @@
   "paths": 793,
   "cron": 145,
   "jobs": 34,
-  "conditions": 4188,
-  "untranslatedUnique": 475,
-  "untranslatedTotal": 611,
+  "conditions": 4189,
+  "untranslatedUnique": 476,
+  "untranslatedTotal": 612,
   "partialUnique": 1127,
   "translatedShare": 85
  },
@@ -465,6 +465,7 @@
   "skipped[0]?.reason === \"calling\"",
   "skipped[0]?.reason === \"not_found\"",
   "spokeAt && Date.now() - spokeAt.getTime() < BOT_JUST_SPOKE_MS",
+  "staffOf(call.phone)",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
@@ -16218,6 +16219,13 @@
      "k": "loop",
      "a": [],
      "c": [
+      {
+       "t": "если staffOf(call.phone)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "staffOf(call.phone)"
+      },
       {
        "t": "если called back не содержит есть id (звонок)",
        "k": "if",
@@ -78288,12 +78296,6 @@
          "a": [],
          "c": [],
          "raw": "await handOverHolderToCurrentMontajer(montajerAgentId, now)"
-        },
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
         },
         {
          "t": "и так по каждому",

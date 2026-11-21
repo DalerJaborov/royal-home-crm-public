@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2516**; вместе с задачами по расписанию и фоновыми заданиями — **4227**. Модулей: **89**.
+Путей: **793**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4228**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2603,6 +2603,9 @@
 - const calledBackIds = await findCallbackContacts( overdue.flatMap((c)
   · зовёт findCallbackContacts()
 - для каждого: const call of overdue
+  - если staffOf(call.phone)
+    - continue;
+      · переходит к следующему
   - если !calledBackIds.has(call.id)
     - missingCallbackById.set(call.id, true);
       · дословно из кода
@@ -26429,8 +26432,6 @@
     - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
       - handedOver++;
         · дословно из кода
-    - await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err)
-      · запись в журнал ошибок
     - const holders = await prisma.property.findMany({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
       · читает в базе: property
     - const queuedCount = undelivered.length > 0 ? await prisma.property.count({ where: { videoHandoffStatus: "QUEU…

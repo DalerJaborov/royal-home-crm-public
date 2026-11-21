@@ -2,13 +2,13 @@ import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { narrationConfigSchema, narrationCurrencyError, narrationMixByCrm } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { buildMontajerDelivery, EDITOR_HOLDER_WHERE } from "./videoHandoff.js";
 import { usableMontajerWhere } from "./montajerHandover.js";
 import { NARRATION_PRICE_NOT_IN_TJS_TEXT, narrationFactsCurrent, narrationHash } from "./propertyNarration.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { mediaExecutionMode, mediaRecipientHash } from "./mediaExecution.js";
-import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS } from "../telegram/api.js";
+import { sendDocumentFile, sendMessage, TELEGRAM_BOT_SEND_LIMIT_BYTES, TELEGRAM_CAPTION_MAX_CHARS, TelegramApiError } from "../telegram/api.js";
 import { VOICELESS_COPY_HINT, voicelessCopyHint } from "./narrationMontajerNote.js";
 import { logSystemError } from "./systemError.js";
 import { montageCopyNote, sendMontageCopies } from "./montageObservers.js";
@@ -88,10 +88,39 @@ function telegramMessageId(sent: unknown): number | null {
   return typeof sent.message_id === "number" ? sent.message_id : null;
 }
 
-/** Shared by watchdog and manual reconciliation; a whole batch may exceed 3 minutes. */
+/** Одна отправка файла голоса (60 с) и запас на файл в бюджете попытки (narrationDeliveryAttemptBudgetMs). */
+const NARRATION_SEND_TIMEOUT_MS = 60_000;
+const NARRATION_FILE_BUDGET_MS = 90_000;
+/**
+ * 429 — TELEGRAM ТОЧНО НЕ ПРИНЯЛ, ПОВТОР БЕЗОПАСЕН (ревью 21.11.2026). Голос идёт одной попыткой (singleAttempt):
+ * повтор после обрыва или таймаута мог бы дать монтажёру второй mp3. Но «слишком часто» (429) — однозначный
+ * отказ, файла у монтажёра нет; а mp3 идёт сразу за файлами ролика в тот же чат и в лимит упирается первым.
+ * Раньше такой отказ уводил передачу в UNKNOWN без повтора — голос терялся. Ждём, сколько просит Telegram
+ * (retry_after + 1 с), и повторяем — до двух раз и только пока ожидание с новой попыткой укладывается в бюджет
+ * файла (иначе сторож зависших счёл бы живую отправку зависшей). Остальные ошибки — как были, без повтора.
+ */
+const NARRATION_RATE_LIMIT_RETRIES = 2;
+export async function retryTelegramRateLimit<T>(send: () => Promise<T>, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  now: () => number = Date.now): Promise<T> {
+  const started = now();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (err) {
+      const after = err instanceof TelegramApiError && err.errorCode === 429 ? err.retryAfterSec : undefined;
+      const waitMs = typeof after === "number" && after >= 0 ? after * 1000 + 1000 : null;
+      const fits = waitMs !== null && now() - started + waitMs + NARRATION_SEND_TIMEOUT_MS <= NARRATION_FILE_BUDGET_MS - 5_000;
+      if (!fits || attempt >= NARRATION_RATE_LIMIT_RETRIES) throw err;
+      await wait(waitMs!);
+    }
+  }
+}
+
+/** Shared by watchdog and manual reconciliation; a whole batch may exceed 3 minutes. Per file: one bounded 60s
+ *  request (429 retries stay inside it, retryTelegramRateLimit), plus margin. */
 export function narrationDeliveryAttemptBudgetMs(plan: unknown): number {
   const parsed = planSchema.safeParse(plan);
-  return (parsed.success ? parsed.data.files.length : 1) * 90_000 + 120_000;
+  return (parsed.success ? parsed.data.files.length : 1) * NARRATION_FILE_BUDGET_MS + 120_000;
 }
 /**
  * ПОЧЕМУ ГОЛОС НЕ ГОТОВ К ОТПРАВКЕ — РАЗЛИЧИМО (19.11.2026). Раньше любая причина была голым Error,
@@ -129,6 +158,13 @@ export function narrationDeliveryRefusalIsExpected(code: NarrationDeliveryRefusa
   return code === "NOT_WITH_MONTAJER" || code === "NARRATION_OFF";
 }
 
+/** Отказ «ролик ещё не дошёл» — человеку в карточке: что будет и что сделать, если ждать нельзя. */
+export const NARRATION_WAITS_FOR_VIDEO_TEXT = "Ролик ещё не дошёл до монтажёра: голос уйдёт сам сразу следом за ним. Срочно — передайте голос вместе с исходниками";
+/** Передача, которой нужно видео у монтажёра: только голос (AUDIO_ONLY). С исходниками видео едет в ней самой. */
+export function narrationWaitsForVideo(mode: string): boolean {
+  return mode !== "WITH_SOURCES";
+}
+
 /** Same immutable source builder as the existing montage pipeline. No queue reassignment. */
 export async function prepareNarrationDeliveryPlan(propertyId: string, versionId: string, mode: string, requestedEditorId?: string) {
   const [p, version, settings, sources] = await Promise.all([
@@ -143,6 +179,12 @@ export async function prepareNarrationDeliveryPlan(propertyId: string, versionId
   // «Не у монтажёра» — РАНЬШЕ «озвучка устарела» (ревью 19.11): одобрение устаревшей версии у сданного объекта —
   // штатное ожидание, а не тревога директору.
   if (p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", "Сначала передайте объект в работу монтажёру через существующую очередь монтажа");
+  // ГОЛОС — ТОЛЬКО СЛЕДОМ ЗА ВИДЕО (21.11.2026, объект №211): место монтажёра занято раньше, чем дошли файлы
+  // (dispatchToEditor пишет videoHandoffDeliveredAt только когда КАЖДЫЙ файл у монтажёра). mp3 до видео терялся:
+  // монтажёр получал голос на сутки раньше ролика. Видео ещё не дошло — ждём, голос уйдёт сразу за ним.
+  // Только для голоса без исходников: передача С ИСХОДНИКАМИ из карточки и есть ручной путь на случай, когда
+  // автоотправка видео сломалась (ревью 21.11) — её не держим.
+  if (!p.videoHandoffDeliveredAt && narrationWaitsForVideo(mode)) throw new NarrationDeliveryRefused("NOT_WITH_MONTAJER", NARRATION_WAITS_FOR_VIDEO_TEXT);
   if (!version || version.propertyId !== p.id || !version.storageKey || version.status !== "READY" || !narrationFactsCurrent(version, p)) throw new NarrationDeliveryRefused("VERSION_STALE", "Нужна актуальная озвучка");
   // Одобренная до сторожа версия с долларами (21.11.2026) монтажёру не уходит ни одним путём.
   if (narrationCurrencyError(version.script)) throw new NarrationDeliveryRefused("PRICE_NOT_IN_TJS", `Озвучка не отправлена: ${NARRATION_PRICE_NOT_IN_TJS_TEXT}`);
@@ -213,11 +255,13 @@ export async function executeNarrationDelivery(id: string) {
         // (narrationAutoFlow.ts::queueNarrationDelivery берёт ту же строку). Раньше она гасла в FAILED, а обход версию
         // с любой передачей больше не брал — объект монтировался без голоса.
         const versionCurrent = !!p && !!latest && latest.id === row.versionId && latest.status === "READY" && latest.factsHash === plan.factsHash && narrationFactsCurrent(latest, p);
-        if (mediaExecutionMode("NARRATION") === "LIVE" && p && !p.deletedAt && !p.narrationOff && versionCurrent && (p.videoHandoffStatus === "QUEUED" || (p.videoHandoffStatus === "SENT_TO_EDITOR" && p.videoHandoffManualSince))) return { refused: null, waiting: true };
+        // Место у монтажёра, а видео нового круга ещё не дошло (21.11.2026) — тоже ждём: голос не обгоняет ролик.
+        if (mediaExecutionMode("NARRATION") === "LIVE" && p && !p.deletedAt && !p.narrationOff && versionCurrent
+          && (p.videoHandoffStatus === "QUEUED" || (p.videoHandoffStatus === "SENT_TO_EDITOR" && (p.videoHandoffManualSince || (!p.videoHandoffDeliveredAt && narrationWaitsForVideo(row.mode)))))) return { refused: null, waiting: true };
         // Остальные штатные причины («Без озвучки», объект удалён, версию сменила новая, факты поменялись) — молча, без
         // повтора: новую версию обход отправит сам. Монтажёра сменили, у него пропал Telegram, поменялись исходники —
         // голос не уйдёт сам, нужен журнал.
-        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || !versionCurrent) return { refused: null };
+        if (mediaExecutionMode("NARRATION") !== "LIVE" || !p || p.deletedAt || p.narrationOff || p.videoHandoffStatus !== "SENT_TO_EDITOR" || p.videoHandoffManualSince || (!p.videoHandoffDeliveredAt && narrationWaitsForVideo(row.mode)) || !versionCurrent) return { refused: null };
         if (settings?.videoMontajerAgentId !== row.editorId) return { refused: "монтажёра сменили в Настройках после постановки передачи" };
         if (!editor) return { refused: "монтажёр отключён" };
         if (!editor.telegramChatId || mediaRecipientHash(editor.id, editor.telegramChatId) !== plan.recipientHash) return { refused: "у монтажёра сменился или пропал Telegram" };
@@ -228,7 +272,7 @@ export async function executeNarrationDelivery(id: string) {
         const waiting = "waiting" in target && target.waiting && !acknowledged;
         const status = waiting ? "WAITING" : acknowledged ? "CANCELLED" : "FAILED";
         const lastError = waiting
-          ? "Объект сейчас не у монтажёра (вернулся в очередь). Вернётся к нему — голос уйдёт; снимут с монтажа — передача отменится."
+          ? "Ролика у монтажёра сейчас нет (объект в очереди или файлы ещё идут). Дойдёт ролик — голос уйдёт следом; снимут с монтажа — передача отменится."
           : "Назначение, очередь монтажа, факты, файлы или версия изменились. Полученные квитанции сохранены.";
         const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError, ...(waiting ? { claimStartedAt: null } : {}) } });
         if (done.count && status === "FAILED" && target.refused) reportNarrationDeliveryProblem(row.propertyId, id, "FAILED", target.refused);
@@ -239,12 +283,13 @@ export async function executeNarrationDelivery(id: string) {
       // An in-flight request may finish after revocation; it cannot authorize a next file.
       let sent: { message_id: number; document?: { file_id?: string } };
       if (blob) {
-        const doc = await sendDocumentFile(target.chatId, blob, file.filename, file.caption, 60_000, true);
+        const fileBlob = blob;
+        const doc = await retryTelegramRateLimit(() => sendDocumentFile(target.chatId, fileBlob, file.filename, file.caption, 60_000, true));
         if (!doc.message_id) throw new Error("Missing Telegram receipt");
         sent = { message_id: doc.message_id, document: doc.document };
       } else {
         // Текст озвучки, не влезший в подпись, — обычным сообщением; длиннее 4096 sendMessage делит сам.
-        const messageId = telegramMessageId(await sendMessage(target.chatId, `Текст озвучки №${target.shortId}:\n${file.caption}`, undefined, undefined, { singleAttempt: true, requireReply: true }));
+        const messageId = telegramMessageId(await retryTelegramRateLimit(() => sendMessage(target.chatId, `Текст озвучки №${target.shortId}:\n${file.caption}`, undefined, undefined, { singleAttempt: true, requireReply: true })));
         if (!messageId) throw new Error("Missing Telegram receipt");
         sent = { message_id: messageId };
       }
@@ -269,8 +314,11 @@ export async function executeNarrationDelivery(id: string) {
   } catch (err) {
     // Что монтажёр уже получил, наблюдатель тоже видит; копия никогда не меняет исход передачи.
     await flushCopies().catch(() => undefined);
-    const status = attempted ? "UNKNOWN" : "FAILED";
-    const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: attempted ? "Проверьте Telegram монтажёра. Автоповтор отключён; квитанции успешных частей сохранены." : "Передача не началась: проверьте локальные файлы и настройки" } });
+    // Telegram ответил отказом (TelegramApiError — ok:false, в том числе 429 после повторов) и ничего ещё не принял —
+    // голос точно не дошёл: FAILED («передайте вручную»), а не «неизвестно, сверьте» (ревью 21.11.2026).
+    const status = attempted && !(acknowledged === 0 && err instanceof TelegramApiError) ? "UNKNOWN" : "FAILED";
+    const done = await prisma.propertyNarrationDelivery.updateMany({ where: { id, status: "SENDING", claimStartedAt }, data: { status, lastError: status === "UNKNOWN" ? "Проверьте Telegram монтажёра. Автоповтор отключён; квитанции успешных частей сохранены."
+      : attempted ? "Telegram отказал, голос монтажёру не ушёл. Автоповтора нет — передайте вручную." : "Передача не началась: проверьте локальные файлы и настройки" } });
     if (done.count) {
       const row = await prisma.propertyNarrationDelivery.findUnique({ where: { id }, select: { propertyId: true } });
       if (row) reportNarrationDeliveryProblem(row.propertyId, id, status, err instanceof Error ? err.message : String(err));
@@ -302,74 +350,25 @@ export function narrationDeliveryStalled(d: { status: string; claimStartedAt: Da
   return d.status === "SENDING" && !!d.claimStartedAt && now.getTime() - d.claimStartedAt.getTime() > narrationDeliveryAttemptBudgetMs(d.plan);
 }
 /**
- * ОЗВУЧКА ПЕРЕХОДИТ К ТЕКУЩЕМУ МОНТАЖЁРУ (решение владельца 11.11.2026: «когда
- * удаляем монтажёра, всё идёт к новому»). Посылка озвучки привязана к editorId
- * своей строки: при смене монтажёра ждущая посылка гасла на сверке перед отправкой
- * («назначение изменилось»), а доставленная оставалась у прежнего — новый
- * монтажёр монтировал держателя места без озвучки.
- *
- * Для держателя места (тот же, кого досылает montajerHandover.ts) и его последней
- * готовой версии: если озвучка была отправлена или ждала отправки ДРУГОМУ
- * монтажёру, а у текущего её нет — ставим текущему свою посылку AUDIO_ONLY
- * (исходники уходят основной передачей очереди). Ждущую посылку прежнему
- * гасим, пока она не начата. Ключ requestKey выводится из исходной строки и
- * текущего монтажёра — повторный тик вторую посылку не заведёт. Посылки
- * в полёте (SENDING) и требующие сверки (UNKNOWN) не трогаем: автоповтора нет.
- * Пока внешняя отправка выключена (PREVIEW), не делаем ничего.
+ * КОГДА ВИДЕО ТЕКУЩЕЙ ВЫДАЧИ ДОШЛО ДО ЭТОГО МОНТАЖЁРА (21.11.2026, объект №211). Голос монтажёру идёт
+ * только следом за видео, и выдача видео — это его «номер круга»: первая отправка, очередь, «Пропустить» /
+ * «Взять другой» из бота, перемонтаж, смена монтажёра — каждый путь шлёт файлы через dispatchToEditor,
+ * а он ставит на каждом дошедшем файле отметку PropertyVideo.montajerDeliveredAt / montajerDeliveredToId
+ * (новый круг их гасит: videoHandoff.ts::resetMontajerDeliveryMarks). Самая поздняя отметка ЭТОГО монтажёра —
+ * момент выдачи. null — видео этой выдачи у него нет: объект не держит место, файлы ещё идут
+ * (videoHandoffDeliveredAt пуст), открыт под ручной приём или файлы ушли другому монтажёру.
+ * Отметок нет совсем (видео доставлено до 25.09.2026, когда их ввели) — момент полной доставки.
+ * Отметка двигается, только когда файл реально ушёл, поэтому слово «файлы» без недошедших её не трогает.
  */
-export async function handOverNarrationToCurrentMontajer(currentEditorId: string): Promise<boolean> {
-  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
-  const holder = await prisma.property.findFirst({ where: EDITOR_HOLDER_WHERE, select: { id: true } });
-  if (!holder) return false;
-  const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: holder.id }, orderBy: { revision: "desc" } });
-  if (!latest || latest.status !== "READY") return false;
-  const rows = await prisma.propertyNarrationDelivery.findMany({
-    where: { propertyId: holder.id, versionId: latest.id },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-  if (rows.some((r) => r.editorId === currentEditorId && ["QUEUED", "SENDING", "SENT", "UNKNOWN", "CANCELLED"].includes(r.status))) return false;
-  if (rows.some((r) => r.status === "SENDING" || r.status === "UNKNOWN")) return false;
-  const source = rows.find((r) => r.editorId && r.editorId !== currentEditorId && (r.status === "SENT" || r.status === "QUEUED"));
-  if (!source) return false;
-  let prepared: Awaited<ReturnType<typeof prepareNarrationDeliveryPlan>>;
-  try {
-    prepared = await prepareNarrationDeliveryPlan(holder.id, latest.id, "AUDIO_ONLY", currentEditorId);
-  } catch (err) {
-    // Нет Telegram у монтажёра, факты устарели и т.п. — отправлять нечего; сверка повторится тиком.
-    // Не штатная причина — в журнал ошибок, не тишина (19.11.2026: так же молча гас голос при роли MARKETING).
-    if (!(err instanceof NarrationDeliveryRefused && narrationDeliveryRefusalIsExpected(err.code))) {
-      void logSystemError("api", `Озвучка: новому монтажёру голос не передан — ${err instanceof Error ? err.message : String(err)}`,
-        { dedupKey: `narration-handover-refused:${holder.id}:${err instanceof NarrationDeliveryRefused ? err.code : "UNEXPECTED"}`, dedupWindowMs: 6 * 60 * 60_000 });
-    }
-    return false;
-  }
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${holder.id} FOR UPDATE`;
-    if (source.status === "QUEUED") {
-      await tx.propertyNarrationDelivery.updateMany({
-        where: { id: source.id, status: "QUEUED" },
-        data: { status: "CANCELLED", lastError: "Монтажёра сменили — озвучка передана текущему монтажёру" },
-      });
-    }
-    if (await tx.propertyNarrationDelivery.count({ where: { propertyId: holder.id, status: { in: ["QUEUED", "SENDING", "UNKNOWN"] } } })) return false;
-    const requestKey = `montajer-handover:${source.id}:${currentEditorId}`;
-    if (await tx.propertyNarrationDelivery.findUnique({ where: { requestKey }, select: { id: true } })) return false;
-    await tx.propertyNarrationDelivery.create({
-      data: {
-        propertyId: holder.id,
-        versionId: latest.id,
-        editorId: prepared.editorId,
-        mode: "AUDIO_ONLY",
-        requestKey,
-        createdById: source.createdById,
-        plan: prepared.plan,
-        status: "QUEUED",
-        executionMode: "LIVE",
-      },
-    });
-    return true;
-  });
+export async function videoIssuedToEditorAt(db: Pick<TxClient, "property" | "propertyVideo">, propertyId: string, editorId: string): Promise<Date | null> {
+  const p = await db.property.findFirst({ where: { id: propertyId, ...EDITOR_HOLDER_WHERE }, select: { videoHandoffDeliveredAt: true } });
+  if (!p?.videoHandoffDeliveredAt) return null;
+  const [mine, any] = await Promise.all([
+    db.propertyVideo.aggregate({ where: { propertyId, montajerDeliveredToId: editorId, montajerDeliveredAt: { not: null } }, _max: { montajerDeliveredAt: true } }),
+    db.propertyVideo.count({ where: { propertyId, montajerDeliveredAt: { not: null } } }),
+  ]);
+  if (mine._max.montajerDeliveredAt) return mine._max.montajerDeliveredAt;
+  return any ? null : p.videoHandoffDeliveredAt;
 }
 
 export async function executeQueuedNarrationDeliveries(now = new Date()) {

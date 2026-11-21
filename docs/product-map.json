@@ -1192,7 +1192,7 @@
       "file": "apps/api/src/routes/push.ts",
       "endpoints": 7,
       "label": "Пуш-уведомления на телефон",
-      "usedBy": 2
+      "usedBy": 3
     },
     {
       "mount": "/api/v1/webhooks",

@@ -16,6 +16,8 @@ import { pickAgentForLead } from "./services/leads/selection.js";
 import { setPickAgentForLeadHook } from "./lib/telephony/pickAgentForLeadHook.js";
 import { assignAgentForLead, recordAssignReason } from "./services/leads/assignment.js";
 import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/telephony/assignAgentForLeadHook.js";
+import { setVideoIssuedToMontajerHook } from "./lib/videoHandoff.js";
+import { narrationAfterVideoIssued } from "./lib/narrationAutoFlow.js";
 import { settleBackgroundHandoffDispatches } from "./lib/videoHandoff.js";
 import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevisionStartCheck.js";
 
@@ -136,6 +138,8 @@ if (isMain) {
   setPickAgentForLeadHook(pickAgentForLead);
   setAssignAgentForLeadHook(assignAgentForLead);
   setRecordAssignReasonHook(recordAssignReason);
+  // Видео выдано монтажёру — одобренный голос следом (21.11.2026, объект №211; videoHandoff.ts ↔ narrationAutoFlow.ts).
+  setVideoIssuedToMontajerHook(narrationAfterVideoIssued);
   // Последний рубеж fire-and-forget промисов — как в index.ts: один необработанный
   // reject из фоновой задачи не имеет права уронить все тики разом.
   process.on("unhandledRejection", (reason) => {

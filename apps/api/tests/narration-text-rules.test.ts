@@ -21,7 +21,7 @@ const seeded = firstSeed;
 
 describe("narration text rules (one builder for CRM wizard, Shabnam and server)", () => {
   it("spells Tajik numbers as words and drops optional fragments with missing facts", () => {
-    expect(renderNarrationTemplate(tg, apartment)).toBe("Ассалому алейкум! Квартира барои фурӯш, ноҳияи Сино. Се ҳуҷра. Масоҳаташ ҳаштоду шаш метри мураббаъ. Ошёнаи панҷум аз нӯҳ. Нарх дар тавсиф.");
+    expect(renderNarrationTemplate(tg, apartment)).toBe("Ассалому алейкум! Квартира барои фурӯш, ноҳияи Сино. Се ҳуҷра. Масоҳаташ ҳаштоду шаш метри мураббаъ. Ошёнаи панҷум. Нарх дар тавсиф.");
     const forHouse = renderNarrationTemplate(tg, house);
     expect(forHouse).toBe("Ассалому алейкум! Ҳавлӣ барои фурӯш. Масоҳаташ дусаду чил метри мураббаъ. Нарх дар тавсиф.");
     expect(renderNarrationTemplate(tg, { ...apartment, totalFloors: null })).toContain("Ошёнаи панҷум.");
@@ -109,7 +109,7 @@ describe("narration text rules (one builder for CRM wizard, Shabnam and server)"
     expect(renderNarrationTemplate({ lang: "tg", text: "Нархи хона {цена}. Нависед!" }, mixedUp)).toBe("Нависед!");
     // Шаблоны прода: «[…предложение.] Нархи хона {цена}.» — выпадает только цена, остальное на месте.
     expect(renderNarrationTemplate({ lang: "tg", text: "Хонаи худро меҷӯед? [Хона {комнаты} ҳуҷра дорад.] [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.] Нархи хона {цена}. Нависед!" }, mixedUp))
-      .toBe("Хонаи худро меҷӯед? Хона ду ҳуҷра дорад. Хона дар ошёнаи бистуми бинои бисту чор ошёна ҷойгир аст. Нависед!");
+      .toBe("Хонаи худро меҷӯед? Хона ду ҳуҷра дорад. Хона дар ошёнаи бистум ҷойгир аст. Нависед!");
     // Настоящие цены продолжают звучать: 788 000 сомони за 77,5 м², 127 200 $ за 106 м².
     expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "788000", currency: "TJS", areaSqm: "77.5" })).toBeNull();
     expect(apartmentPriceCurrencySuspect({ type: "APARTMENT", price: "127200", currency: "USD", areaSqm: "106" })).toBeNull();
@@ -140,14 +140,14 @@ describe("цифры в речи: телефоны, этажи, дроби", () 
     expect(narrationSpeechText("Звоните 900123456.", "ru")).toBe("Звоните девяносто, ноль двенадцать, тридцать четыре, пятьдесят шесть.");
     expect(narrationSpeechText("Занг занед 900123456.", "tg")).toBe("Занг занед навад, сифр дувоздаҳ, сиву чор, панҷоҳу шаш.");
     expect(narrationSpeechText("Номер +992 90 123 45 67.", "ru")).toBe("Номер плюс девятьсот девяносто два, девяносто, сто двадцать три, сорок пять, шестьдесят семь.");
-    expect(narrationSpeechText("Рақам 90-123-45-67.", "tg")).toBe("Рақам навад, саду бисту се, чилу панҷ, шасту ҳафт.");
+    expect(narrationSpeechText("Рақам 90-123-45-67.", "tg")).toBe("Рақам навад, яксаду бисту се, чилу панҷ, шасту ҳафт.");
     for (const [text, lang] of [["Звоните 900123456", "ru"], ["Занг занед 900123456", "tg"]] as const) expect(narrationSpeechText(text, lang)).not.toMatch(/миллион/u);
   });
   it("цена с пробелами тысяч и цена с валютой — по-прежнему числом", () => {
     expect(narrationSpeechText("Цена 1 200 000 сомони.", "ru")).toBe("Цена один миллион двести тысяч сомони.");
     expect(narrationSpeechText("Нархаш 1 200 000 сомонӣ.", "tg")).toBe("Нархаш як миллиону дусад ҳазор сомонӣ.");
     expect(narrationSpeechText("Цена 120000000 сомони.", "ru")).toBe("Цена сто двадцать миллионов сомони.");
-    expect(narrationSpeechText("Нархаш 120000000 сомонӣ.", "tg")).toBe("Нархаш саду бист миллион сомонӣ.");
+    expect(narrationSpeechText("Нархаш 120000000 сомонӣ.", "tg")).toBe("Нархаш яксаду бист миллион сомонӣ.");
   });
   it("этаж и «из N» по-человечески", () => {
     expect(narrationSpeechText("14 этаж из 20.", "ru")).toBe("четырнадцатый этаж из двадцати.");
@@ -156,7 +156,7 @@ describe("цифры в речи: телефоны, этажи, дроби", () 
   });
   it("дробная площадь и крупная сумма — до целого; мелкая дробная сумма и дата остаются (текстом, не голосом)", () => {
     expect(narrationSpeechText("Площадь 117,85 м².", "ru")).toBe("Площадь сто восемнадцать квадратных метров.");
-    expect(narrationSpeechText("Масоҳат 117,85 м².", "tg")).toBe("Масоҳат саду ҳаждаҳ метри мураббаъ.");
+    expect(narrationSpeechText("Масоҳат 117,85 м².", "tg")).toBe("Масоҳат яксаду ҳаждаҳ метри мураббаъ.");
     expect(narrationSpeechText("Цена 85000,50 долларов.", "ru")).toBe("Цена восемьдесят пять тысяч долларов.");
     expect(tajikSpeechNumbers("Нарх 99,5 сомонӣ.")).toBeNull();
     expect(narrationSpeechText("Показ 03.11.2026.", "ru")).toBe("Показ 03.11.2026.");
