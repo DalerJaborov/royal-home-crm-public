@@ -83,3 +83,28 @@ describe("local draft files expire with the server draft (4 hours)", () => {
   });
 });
 
+
+describe("срок локальных файлов считается от последнего сохранения черновика", () => {
+  const HOUR = 3600_000;
+  const addAt = (key: string, agentId: string, draftId: string | null, savedAt: number) =>
+    records.set(key, { uploadKey: key, agentId, draftId, kind: "photo", name: "p.jpg", size: 1, blob: new Blob(["i"]), savedAt });
+
+  it("файл пятичасовой давности стирается, а после сохранения черновика живёт", async () => {
+    const now = Date.now();
+    addAt("old", "A", "d1", now - 5 * HOUR);
+    const store = await import("../draftUploadStore");
+    await store.touchDraftFiles("A", "d1", now);
+    expect((await store.readAllDraftFiles("A", now + HOUR)).map((f) => f.uploadKey)).toEqual(["old"]);
+    expect((await store.readAllDraftFiles("A", now + 5 * HOUR)).length).toBe(0);
+  });
+
+  it("продлевает только своего агента и свой черновик", async () => {
+    const now = Date.now();
+    addAt("mine", "A", "d1", now - 5 * HOUR); addAt("other-draft", "A", "d2", now - 5 * HOUR); addAt("other-agent", "B", "d1", now - 5 * HOUR);
+    const store = await import("../draftUploadStore");
+    await store.touchDraftFiles("A", "d1", now);
+    expect(records.get("mine")?.savedAt).toBe(now);
+    expect(records.get("other-draft")?.savedAt).toBe(now - 5 * HOUR);
+    expect(records.get("other-agent")?.savedAt).toBe(now - 5 * HOUR);
+  });
+});

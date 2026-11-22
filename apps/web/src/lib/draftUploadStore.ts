@@ -96,6 +96,22 @@ export async function deleteDraftFile(uploadKey: string): Promise<void> {
   await tx("readwrite", (s) => s.delete(uploadKey) as unknown as IDBRequest<undefined>);
 }
 
+/**
+ * Продлить срок локальных файлов: черновик на сервере только что сохранился, значит он жив,
+ * и срок (4 ч) считается от ЭТОГО сохранения, а не от момента, когда файл положили.
+ * Без этого при плохой связи на объекте неотправленные фото молча стирались бы через 4 ч
+ * от добавления, хотя сам черновик жив. Трогаем файлы этого агента из этого черновика и
+ * ещё не привязанные к черновику.
+ */
+export async function touchDraftFiles(agentId: string, draftId: string | null, now: number = Date.now()): Promise<void> {
+  const all = await tx<StoredDraftFile[]>("readonly", (s) => s.getAll() as IDBRequest<StoredDraftFile[]>);
+  for (const f of all) {
+    if (f.agentId !== agentId) continue;
+    if (f.draftId != null && f.draftId !== draftId) continue;
+    await tx("readwrite", (s) => s.put({ ...f, savedAt: now }) as IDBRequest<IDBValidKey>).catch(() => undefined);
+  }
+}
+
 /** Всё, что лежит в хранилище для этого агента — остальное (чужой агент на
  *  том же устройстве) не возвращаем. */
 export async function readAllDraftFiles(agentId: string, now: number = Date.now()): Promise<StoredDraftFile[]> {
