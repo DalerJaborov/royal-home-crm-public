@@ -1,5 +1,6 @@
 import type { ClientKind, ClientSource, Currency } from "./enums.js";
 import { CLIENT_SOURCE_LABELS } from "./labels.js";
+import { formatClientCode } from "./format.js";
 
 /**
  * ОТОБРАЖАЕМОЕ ИМЯ КЛИЕНТА — «Имя · Якорь», ОДНА ФУНКЦИЯ НА ВЕСЬ ПРОЕКТ.
@@ -61,6 +62,8 @@ function isStubName(name: string): boolean {
   const trimmed = name.trim();
   if (!trimmed) return true;
   if (PHONE_ONLY_RE.test(trimmed)) return true;
+  // Голая маска ника «@•••••» (сервер закрывает ею «@nick» без права на канал).
+  if (/^@[•\s]*$/u.test(trimmed)) return true;
   return STUB_WHOLE_RE.test(trimmed);
 }
 
@@ -131,10 +134,38 @@ export interface ClientDisplayNameFacts {
    * вызывающего кода; здесь только форматирование.
    */
   propertyAddress?: string | null;
+  /**
+   * Объект, которым интересуется ПОКУПАТЕЛЬ (Client.requestedPropertyId / matchedPropertyId),
+   * уже свёрнутый `propertyAnchorText` — «Сино, 2к». Запрос покупателя из WhatsApp
+   * часто пуст («Запрос пока не заполнен»), а объект, на который он написал, известен:
+   * это второй источник якоря, раньше его не было вовсе (22.11.2026).
+   */
+  interestAnchor?: string | null;
+}
+
+/**
+ * Якорь из самого объекта: ориентир → адрес → «Район, Nк». Одно правило и для
+ * продавца (его объект), и для покупателя (объект интереса): сервер подбирает
+ * объект, а свернуть его в слово — только здесь.
+ */
+export function propertyAnchorText(p: {
+  landmark?: string | null;
+  address?: string | null;
+  districtName?: string | null;
+  rooms?: number | null;
+}): string | null {
+  const landmark = p.landmark?.trim();
+  if (landmark) return landmark;
+  const address = p.address?.trim();
+  if (address) return address;
+  const bits = [p.districtName?.trim(), p.rooms ? `${p.rooms}к` : null].filter(Boolean);
+  return bits.length ? bits.join(", ") : null;
 }
 
 export interface ClientDisplayNameInput {
   kind?: ClientKind | null;
+  /** Номер карточки (ПК-000925): мелкая вторая строка и опознавание, когда больше нечем. */
+  shortId?: number | null;
   fullName?: string | null;
   source?: ClientSource | null;
   /** Адрес клиента (у покупателя — где живёт, у продавца — запасной вариант якоря). */
@@ -146,12 +177,19 @@ export interface ClientDisplayNameInput {
   currency?: Currency | null;
 }
 
+/** Срез без `kind` (кратко отданный клиент в звонке, уведомлении): роль читаем из самой заглушки. */
+function roleFromStub(raw: string): string {
+  if (/^покупатель/iu.test(raw)) return STUB_ROLE.BUYER;
+  if (/^продавец/iu.test(raw)) return STUB_ROLE.SELLER;
+  return STUB_ROLE.OTHER;
+}
+
 /** Роль + имя без заглушки — общая часть перед приклейкой якоря. */
 function resolveNamePart(input: ClientDisplayNameInput): string {
   const raw = stripEmoji((input.fullName ?? "").trim());
   if (!isStubName(raw)) return raw;
 
-  const role = input.kind ? STUB_ROLE[input.kind] : "Клиент";
+  const role = input.kind ? STUB_ROLE[input.kind] : roleFromStub(raw);
   const channel = input.source ? STUB_CHANNEL_PHRASE[input.source] : null;
   return channel ? `${role} ${channel}` : role;
 }
@@ -163,7 +201,7 @@ function resolveSellerAnchor(input: ClientDisplayNameInput, facts?: ClientDispla
 }
 
 /** Якорь покупателя: «ищет 2к Сино до 800к с.» — из того, что реально заполнено. */
-function resolveBuyerAnchor(input: ClientDisplayNameInput): string | null {
+function resolveBuyerAnchor(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): string | null {
   const words: string[] = ["ищет"];
   if (input.desiredRooms) words.push(`${input.desiredRooms}к`);
   const district = input.desiredDistrict?.name?.trim();
@@ -172,41 +210,55 @@ function resolveBuyerAnchor(input: ClientDisplayNameInput): string | null {
   if (Number.isFinite(budget) && budget > 0) {
     words.push(`до ${formatBudgetShort(budget, input.currency ?? "TJS")}`);
   }
-  return words.length > 1 ? words.join(" ") : null;
+  if (words.length > 1) return words.join(" ");
+  // Запрос пуст — объект интереса, потом адрес клиента (ориентир, который он назвал).
+  return facts?.interestAnchor?.trim() || input.address?.trim() || null;
 }
 
 function resolveAnchor(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): string | null {
   if (input.kind === "SELLER") return resolveSellerAnchor(input, facts);
-  if (input.kind === "BUYER") return resolveBuyerAnchor(input);
-  return null;
+  if (input.kind === "BUYER") return resolveBuyerAnchor(input, facts);
+  // Без типа (OTHER / срез без kind): что известно — объект, адрес.
+  return facts?.propertyAddress?.trim() || facts?.interestAnchor?.trim() || input.address?.trim() || null;
 }
 
 /**
  * Отображаемое имя клиента — «Имя · Якорь» (якорь может отсутствовать).
  *
+ * Когда известно ТОЛЬКО то, что имя — заглушка CRM, и якоря нет (ни запроса, ни
+ * объекта, ни адреса), к строке дописывается номер карточки: «Покупатель из WhatsApp ·
+ * ПК-000925». Это крайний случай: иначе десять таких строк подряд неотличимы. Номер
+ * НЕ заменяет имя (владелец 22.11.2026) — там, где есть вторая строка, берите `code`
+ * из `clientNameParts`.
+ *
  * `facts` необязателен: без него функция всё ещё честно отрабатывает заглушки и
  * покупательский якорь (он целиком из полей client), просто у продавца якорь будет
- * не из Property.address, а сразу из Client.address/района — тот же порядок
- * приоритета, только без первого шага.
+ * не из Property.address, а сразу из Client.address/района.
  */
 export function clientDisplayName(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): string {
-  const { name, anchor } = clientNameParts(input, facts);
-  return anchor ? `${name} · ${anchor}` : name;
+  const { name, anchor, code, nameIsStub } = clientNameParts(input, facts);
+  if (anchor) return `${name} · ${anchor}`;
+  return nameIsStub && code ? `${name} · ${code}` : name;
 }
 
 /**
- * Те же «Имя · Якорь», но порознь (пачка D1, 20.11.2026): строка списка в «Новом виде»
- * ставит имя первой строкой, а якорь — второй, вместо склейки через « · ». Правило
- * одно с `clientDisplayName` (она собирается отсюда): заглушки заменяются, якорь
- * продавца — ориентир/адрес объекта, покупателя — «ищет …», якорь не повторяет то,
- * что агент уже дописал в имя.
+ * Те же «Имя · Якорь», но порознь: строка списка в «Новом виде» ставит имя первой
+ * строкой, якорь — второй. `code` — номер карточки для МЕЛКОЙ строки (null, если
+ * shortId не передан), `nameIsStub` — имя заменено заглушкой, то есть настоящего
+ * имени мы не знаем. Правило одно с `clientDisplayName` (она собирается отсюда).
  */
-export function clientNameParts(input: ClientDisplayNameInput, facts?: ClientDisplayNameFacts): { name: string; anchor: string | null } {
+export function clientNameParts(
+  input: ClientDisplayNameInput,
+  facts?: ClientDisplayNameFacts,
+): { name: string; anchor: string | null; code: string | null; nameIsStub: boolean } {
+  const raw = stripEmoji((input.fullName ?? "").trim());
+  const nameIsStub = isStubName(raw);
   const name = resolveNamePart(input) || (input.kind ? STUB_ROLE[input.kind] : "Клиент без имени");
+  const code = input.shortId ? formatClientCode(input.shortId, input.kind) : null;
   const anchor = resolveAnchor(input, facts);
   // Якорь агент мог уже дописать в само имя («Зоир стадион Спартак») — угадывать,
   // какая часть имени это дописка, мы не пытаемся (см. шапку файла), но хотя бы не
   // дублируем, если текст якоря буквально уже есть в имени.
-  if (!anchor || name.toLowerCase().includes(anchor.toLowerCase())) return { name, anchor: null };
-  return { name, anchor: truncateAnchor(anchor) };
+  if (!anchor || name.toLowerCase().includes(anchor.toLowerCase())) return { name, anchor: null, code, nameIsStub };
+  return { name, anchor: truncateAnchor(anchor), code, nameIsStub };
 }

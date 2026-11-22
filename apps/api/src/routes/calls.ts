@@ -6,6 +6,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { pageQuerySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { loadClientDisplayLabels, presentClientRef, viewerFromRequest } from "../lib/clientDisplayLabel.js";
 import { clientNamePhoneSafe, clientPhoneFor, maskPhonesDeep, phoneSafeText } from "../lib/clientPhone.js";
 import { dushanbeDayRange } from "../lib/dushanbeTime.js";
 import { listEndpoints, loadAriCredentials } from "../lib/telephony/ariClient.js";
@@ -174,6 +175,7 @@ callsRouter.get("/", async (req, res) => {
 
   // Вырезать содержимое построчно здесь не нужно и было бы обманом: выборка выше уже
   // сужена до тех разговоров, которые этому сотруднику слушать можно (свои или все).
+  const clientLabels = await loadClientDisplayLabels(items.map((i) => i.client?.id), viewerFromRequest(req));
   res.json({
     /** Список сужен до собственных разговоров — интерфейс подписывает его иначе. */
     ownOnly: !seesEveryone,
@@ -199,7 +201,7 @@ callsRouter.get("/", async (req, res) => {
       agent: i.agent,
       // Имя карточки незнакомого звонившего CRM составляет из номера — то же
       // правило, что в presentClient (routes/clients/shared.ts).
-      client: i.client ? { ...i.client, fullName: clientNamePhoneSafe(i.client.fullName, canSeePhone) } : i.client,
+      client: presentClientRef(i.client, clientLabels, canSeePhone),
       analysis: maskPhonesDeep(i.callAnalysis, canSeePhone),
     })),
     total,
@@ -376,6 +378,7 @@ callsRouter.get("/feed", async (req, res) => {
     : [];
   const nameByExtension = new Map(operators.map((a) => [a.sipExtension!, a.fullName]));
   const staffOf = await staffLookup(incoming.map((c) => c.phone));
+  const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c) => c.client?.id), viewerFromRequest(req));
 
   /**
    * У исходящего отдаём и содержимое разговора — запись, расшифровку, разбор.
@@ -392,7 +395,7 @@ callsRouter.get("/feed", async (req, res) => {
       // Имя карточки — по тому же праву (22.09.2026): у заведённых до 20.08.2026
       // номер лежит В ИМЕНИ, и лента отдавала его рядом с закрытыми расшифровкой
       // и номером. В соседнем GET /calls это место сделано верно с самого начала.
-      client: i.client ? { ...i.client, fullName: clientNamePhoneSafe(i.client.fullName, canSeePhone) } : i.client,
+      client: presentClientRef(i.client, clientLabels, canSeePhone),
       // Телефона у исходящего в списке нет намеренно: он и так живёт на карточке
       // клиента, а звонок из строки идёт по clientId — как и раньше.
       phone: null as string | null,
@@ -418,7 +421,7 @@ callsRouter.get("/feed", async (req, res) => {
       kind: (c.answered ? "IN" : "MISSED") as "IN" | "MISSED",
       id: c.id,
       at: c.startedAt,
-      client: c.client ? { ...c.client, fullName: clientNamePhoneSafe(c.client.fullName, canSeePhone) } : c.client,
+      client: presentClientRef(c.client, clientLabels, canSeePhone),
       // Номер закрывается тем же правилом, что и везде (см. lib/clientPhone.ts):
       // раздел открыт правом на разговоры, а видеть номера — право отдельное.
       phone: clientPhoneFor(c.phone, canSeePhone) as string | null,
@@ -634,6 +637,7 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
     overdue.flatMap((c) => (c.client?.id ? [{ id: c.id, clientId: c.client.id, since: c.startedAt }] : [])),
   );
   const staffOf = await staffLookup(items.map((c) => c.phone));
+  const clientLabels = await loadClientDisplayLabels(items.map((c) => c.client?.id), viewerFromRequest(req));
   const missingCallbackById = new Map<string, boolean>();
   for (const call of overdue) {
     if (staffOf(call.phone)) continue; // свой сотрудник — клиенту перезванивать некому
@@ -648,7 +652,7 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
     // открыт правом calls.transcripts, которое есть у маркетинга и службы
     // безопасности, а clients.viewPhone у них нет — и «Входящий +992910001003»
     // проезжал мимо закрытого рядом `phone`.
-    client: call.client ? { ...call.client, fullName: clientNamePhoneSafe(call.client.fullName, canSeePhone) } : call.client,
+    client: presentClientRef(call.client, clientLabels, canSeePhone),
     // null — номер есть, а сотрудника с таким внутренним в CRM нет (номер выдали
     // на станции и забыли внести). Интерфейс в этом случае покажет сам номер.
     // Консультант на телефоне (ИИ, 24.09.2026) — «принял консультант (ИИ)», а не

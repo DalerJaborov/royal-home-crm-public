@@ -16,6 +16,7 @@ import {
   type ClientKind,
   type ClientSource,
 } from "@royal-home/shared";
+import { loadClientDisplayLabels, type ClientLabel } from "../lib/clientDisplayLabel.js";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { agentSender, deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../lib/conversationDelivery.js";
@@ -735,10 +736,10 @@ async function loadInboxAlerts(
   // висел мёртвый чат (66363 мин ≈ 46 суток), которого никто уже не ждёт. Старше
   // суток — это уже строка «бот на паузе больше суток» ниже.
   const dayAgoWaiting = new Date(Date.now() - PAUSED_OVER_DAY_MS);
-  type WaitingRow = { id: string; clientFullName: string | null; name: string | null; lastMessageAt: Date };
+  type WaitingRow = { id: string; clientId: string | null; clientFullName: string | null; name: string | null; lastMessageAt: Date };
   const [botWaiting, tgWaiting] = await Promise.all([
     prisma.$queryRaw<WaitingRow[]>`
-      SELECT c.id, cl."fullName" AS "clientFullName", c.name, c."lastMessageAt"
+      SELECT c.id, c."clientId", cl."fullName" AS "clientFullName", c.name, c."lastMessageAt"
       FROM "BotConversation" c
       LEFT JOIN "Client" cl ON cl.id = c."clientId"
       WHERE jsonb_typeof(c.messages) = 'array' AND (c.messages -> -1 ->> 'role') = 'user'
@@ -751,7 +752,7 @@ async function loadInboxAlerts(
       LIMIT 1
     `,
     prisma.$queryRaw<WaitingRow[]>`
-      SELECT ${TG_PREFIX} || c.id AS id, cl."fullName" AS "clientFullName",
+      SELECT ${TG_PREFIX} || c.id AS id, c."clientId", cl."fullName" AS "clientFullName",
              CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name,
              c."lastMessageAt"
       FROM "TelegramConversation" c
@@ -769,11 +770,14 @@ async function loadInboxAlerts(
   const oldest = [...botWaiting, ...tgWaiting].sort(
     (a, b) => a.lastMessageAt.getTime() - b.lastMessageAt.getTime()
   )[0];
+  const waitingLabels = oldest?.clientId
+    ? await loadClientDisplayLabels([oldest.clientId], { ownAgentId: ownAgentId ?? undefined, canSeeOrigin })
+    : new Map<string, ClientLabel>();
   const longestWaitingHuman = oldest
     ? {
         id: oldest.id,
         name: oldest.clientFullName
-          ? clientNamePhoneSafe(oldest.clientFullName, canSeePhone)
+          ? clientNamePhoneSafe(waitingLabels.get(oldest.clientId ?? "")?.displayName ?? oldest.clientFullName, canSeePhone)
           : (canSeeOrigin && oldest.name ? clientNamePhoneSafe(oldest.name, canSeePhone) : null),
         waitingMinutes: Math.max(0, Math.round((Date.now() - oldest.lastMessageAt.getTime()) / 60_000)),
       }
@@ -903,15 +907,18 @@ async function loadUnreadCounts(rows: ListRow[]): Promise<Map<string, number>> {
   return new Map(result.map((r) => [r.id, Number(r.n)]));
 }
 
-function presentListRow(c: ListRow, canSeeOrigin: boolean, phonesAllowed: boolean, unreadCounts: Map<string, number>) {
+function presentListRow(c: ListRow, canSeeOrigin: boolean, phonesAllowed: boolean, unreadCounts: Map<string, number>, labels?: Map<string, ClientLabel>) {
   const lastAt = c.lastMessageAt ?? c.updatedAt;
   const last = c.lastMessage && typeof c.lastMessage === "object" ? c.lastMessage : null;
   const unread = last?.role === "user" && (!c.readAt || lastAt.getTime() > c.readAt.getTime());
   // Заглушку («Продавец ПР-000388») в имени диалога подменяем на «Продавец из
   // WhatsApp» той же функцией, что и в списке клиентов (владелец 21.09.2026) —
   // только когда имя пришло от Client, а не от самого мессенджера (c.name).
+  // Якорь (объект, запрос, ориентир) и замок приёма заявки — из общей двери
+  // lib/clientDisplayLabel.ts; без неё (не нашлось) — прежний расчёт по заглушке.
+  const label = c.clientId ? labels?.get(c.clientId) : undefined;
   const displayName = c.clientFullName
-    ? clientDisplayName({ fullName: c.clientFullName, kind: c.clientKind, source: c.clientSource })
+    ? (label?.displayName ?? clientDisplayName({ fullName: c.clientFullName, kind: c.clientKind, source: canSeeOrigin ? c.clientSource : null, shortId: c.clientShortId }))
     : null;
   // Имя диалога — по праву на телефон (22.09.2026): clientDisplayName подменяет
   // ТОЛЬКО каноническую заглушку («Продавец ПР-000388»), а «Входящий +992918…»
@@ -1178,6 +1185,7 @@ async function loadGroupedInboxRows(input: {
   }
   const pageRows = [...groups.values()];
   const unreadCounts = await loadUnreadCounts(pageRows.flatMap(({ sources }) => sources));
+  const labels = await loadClientDisplayLabels(pageRows.flatMap(({ sources }) => sources.map((r) => r.clientId)), { ownAgentId: ownAgentId ?? undefined, canSeeOrigin });
   const items = pageRows.map(({ sources, meta }) => {
     const latest = sources[0]!;
     const channels = [...new Set(meta.channels)].sort();
@@ -1203,7 +1211,7 @@ async function loadGroupedInboxRows(input: {
       unreadCount: groupUnreadCount,
       awaitingHumanSince: meta.awaitingHumanSince,
     };
-    const present = presentListRow(row, canSeeOrigin, phonesAllowed, new Map());
+    const present = presentListRow(row, canSeeOrigin, phonesAllowed, new Map(), labels);
     return { ...present, id: row.id, sourceConversationIds: row.sourceConversationIds, channels: row.channels, unread: row.unread, unreadCount: row.unreadCount };
   });
   const summary = countRows[0];
@@ -1288,8 +1296,9 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   // на двадцать строк вместо разворота jsonb у всех кандидатов (см. loadUnreadCounts).
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const unreadCounts = await loadUnreadCounts(pageRows);
+  const labels = await loadClientDisplayLabels(pageRows.map((r) => r.clientId), { ownAgentId: ownAgentId ?? undefined, canSeeOrigin });
   res.json({
-    items: pageRows.map((r) => presentListRow(r, canSeeOrigin, phonesAllowed, unreadCounts)),
+    items: pageRows.map((r) => presentListRow(r, canSeeOrigin, phonesAllowed, unreadCounts, labels)),
     total,
     page,
     pageSize: PAGE_SIZE,

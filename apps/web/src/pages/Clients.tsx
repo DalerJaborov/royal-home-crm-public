@@ -13,7 +13,7 @@ import { RhButton } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { clientListScope } from "../lib/clientListScope";
-import { royalClientRowText } from "../lib/royalClientRowText";
+import { EMPTY_REQUEST_TEXT, royalClientRowText } from "../lib/royalClientRowText";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
 const MobileInquiries = lazyWithReload(() => import("../components/mobile/MobileInquiries").then((m) => ({ default: m.MobileInquiries })));
 import { useCallback, useEffect, useState } from "react";
@@ -72,6 +72,7 @@ import {
   clientSortOptionsFor,
   formatClientCode,
   formatClientName,
+  clientDisplayName,
 } from "../lib/clientFormat";
 import type { Client } from "../types";
 import { budgetShort } from "../lib/budgetShort";
@@ -511,7 +512,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             <div className="quiet crit">
               <span className="dot crit" />
               <span className="txt">
-                {oldest.fullName} ждёт агента {waitLabel}.
+                {clientDisplayName(oldest)} ждёт агента {waitLabel}.
               </span>
               <Button variant="ghost" size="sm" onClick={() => navigate(`/clients/${oldest.shortId}`)}>
                 Открыть
@@ -947,7 +948,7 @@ function ClientRow({
     />
   );
 
-  const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен";
+  const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || EMPTY_REQUEST_TEXT;
   // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью PR 331):
   // склейка «Имя · ищет …» обрезала имя, а сырой fullName терял заглушки и адрес продавца.
   const royalText = royal ? royalClientRowText(c, rowRequest) : null;

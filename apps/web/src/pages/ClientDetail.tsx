@@ -48,6 +48,7 @@ import {
   formatClientCode,
   formatClientName,
   matchScoreBand,
+  clientDisplayName,
 } from "../lib/clientFormat";
 import { dushanbeDate } from "../lib/date";
 import { ClientChatCard, ClientChatPanel, type ClientConversation } from "../components/ClientChatPanel";
@@ -1593,7 +1594,7 @@ function ClientDetailCard() {
               ) : (
                 <div className="cd-name-row">
                   <h1 style={clean ? { fontSize: 26, lineHeight: 1.25, overflowWrap: "anywhere", marginBottom: 8 } : undefined}>
-                    {`${client.fullName}${client.lastName ? ` ${client.lastName}` : ""}`}
+                    {client.lastName ? `${client.fullName} ${client.lastName}` : clientDisplayName(client)}
                   </h1>
                   {mobile && !locked && (
                     <button
