@@ -437,6 +437,7 @@ function toStaffSettings(settings: {
   leadCallMinSeconds: number;
   royalScoreEnabled: boolean;
   liveVoiceEnabled: boolean;
+  clientRecordResultEnabled: boolean;
 }) {
   return {
     companyName: settings.companyName,
@@ -485,6 +486,9 @@ function toStaffSettings(settings: {
     // aiAssistantEnabled выше: звонит агент со своей карточки, тайны в булеве
     // нет, а сам звонок сервер всё равно проверяет отдельно (409 при выключенном).
     liveVoiceEnabled: settings.liveVoiceEnabled,
+    // Кнопка «Записать результат» в карточке клиента (22.11.2026): её нажимает агент, значит и булев нужен агенту.
+    // Тайны нет; сам путь записи (POST /clients/:id/interactions) проверяет права отдельно.
+    clientRecordResultEnabled: settings.clientRecordResultEnabled,
   };
 }
 

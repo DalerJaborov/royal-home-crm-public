@@ -70,9 +70,8 @@ import { RoyalClientFacts, RoyalClientTabs, royalPhoneFact, type RoyalClientFact
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
 import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
-import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
 import { MarketBuyerListings } from "../components/MarketBuyerListings";
-import { ClientNextStep } from "../components/ClientCardContext";
+import { ClientCardActions } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
 
@@ -686,8 +685,7 @@ function ClientDetailCard() {
     solveRows.push(
       <div className="solve" key="accept">
         <span className="t">
-          <b>Новая заявка назначена вам.</b> Телефон и работа с карточкой откроются после принятия. Не примете
-          вовремя, заявка уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
+          <b>Новая заявка назначена вам.</b> Не примете вовремя, она уйдёт {client.ownPropertyLead ? "руководителю" : "следующему агенту"}.
           {client.leadReason && (
             <>
               {" "}
@@ -738,13 +736,11 @@ function ClientDetailCard() {
             <>
               <b>Заявку никто не принял.</b>{" "}
               {client.reassignCount ? `${client.reassignCount} агентов пропустили её вовремя. ` : ""}
-              Круговое переназначение остановлено. Назначьте её конкретному агенту или заберите себе: заявка
-              сразу станет принятой, агенту придёт уведомление.
+              Назначьте агента или заберите себе, заявка сразу станет принятой.
             </>
           ) : (
             <>
-              <b>Заявка ждёт принятия.</b> Назначена агенту {client.assignedAgent?.fullName}. Можно назначить
-              агента вручную: заявка сразу станет принятой, без таймера.
+              <b>Заявка ждёт принятия</b> у агента {client.assignedAgent?.fullName}. Можно назначить вручную.
             </>
           )}
           {assignLead.isError && (
@@ -889,11 +885,13 @@ function ClientDetailCard() {
   // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
   const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
   const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
-    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
+    {buys && <MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} />}
     {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
       canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
   </div> : null;
-  const overviewNextStep = !isOther ? <ClientNextStep client={client} locked={locked} onSchedule={() => scheduleShowing()} onRecord={recordResult} /> : null;
+  // Под кнопками звонка: только на телефоне («Назначить показ» на ПК стоит в шапке); «Следующий шаг» убран 22.11.2026.
+  const recordResultOn = settings?.clientRecordResultEnabled === true;
+  const overviewNextStep = !isOther && mobile ? <ClientCardActions locked={locked} onSchedule={() => scheduleShowing()} onRecord={recordResultOn ? recordResult : undefined} /> : null;
 
   /**
    * Пункты меню «Ещё» — данными, а не готовыми строками (владелец 29.09.2026:
@@ -931,7 +929,8 @@ function ClientDetailCard() {
     });
   }
   if (!locked) {
-    mainItems.push({
+    // Рубильник «Записать результат» (Настройки, по умолчанию ВЫКЛ, 22.11.2026): итог звонка пишет ИИ.
+    if (recordResultOn) mainItems.push({
         key: "showing",
         label: "Записать результат",
         icon: CalendarClock,
