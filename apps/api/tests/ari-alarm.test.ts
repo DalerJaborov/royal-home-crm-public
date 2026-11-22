@@ -31,6 +31,7 @@ vi.mock("../src/db.js", () => ({
 vi.mock("../src/lib/telephony/callTracker.js", () => ({
   finishCall: vi.fn(),
   getCall: vi.fn(() => undefined),
+  liveOutgoingCalls: vi.fn(() => []),
   setCallState: vi.fn(),
   talkSeconds: vi.fn(() => 0),
 }));
