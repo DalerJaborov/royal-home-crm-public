@@ -10,7 +10,7 @@ import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
 import { collectExpenseAlbumPhoto } from "./assistantExpenseAlbum.js";
 import { reofferExpenseBatch } from "./assistantExpenseCard.js";
 import { parseExpenseTextList, stageExpenseTextList } from "./assistantExpenseTextList.js";
-import { mergeAssistantDialog } from "./assistantDialogState.js";
+import { mergeAssistantDialog, withAssistantDialog } from "./assistantDialogState.js";
 import { sendMessage, type TelegramIncomingMessage } from "./api.js";
 import type { IntakeLang } from "./assistantExpenseBatchIntake.js";
 
@@ -76,6 +76,29 @@ async function patchMemory(chatId: string, agentId: string, change: (m: ExpenseM
     change: (payload) => ({ ...payload, expenseMemory: change(memoryOf(payload)) }),
     expiresAt: (live) => new Date(Math.max(Date.now() + ttlMs, live ? live.getTime() : 0)),
   });
+}
+
+/**
+ * Забрать запомненные фото под замком строки: прочитать и убрать из памяти ровно забранные — одной
+ * транзакцией. Фото, пришедшее после, остаётся в памяти до следующей просьбы (не теряется между
+ * чтением и очисткой — финальное ревью волны 2).
+ */
+async function claimMemoryPhotos(chatId: string, agentId: string, now: number): Promise<ExpenseMemory["photos"]> {
+  const out = await withAssistantDialog<ExpenseMemory["photos"]>({
+    chatId, agentId,
+    run: (live) => {
+      const memory = memoryOf(live?.payload ?? null);
+      if (!live || !memory.photos.length || memory.photosUntil <= now) return { result: [] };
+      const taken = new Set(memory.photos.map((p) => p.messageId));
+      const raw = live.payload.expenseMemory as Partial<ExpenseMemory> | undefined;
+      const left = (Array.isArray(raw?.photos) ? raw!.photos : []).filter((p) => !taken.has((p as { messageId?: number }).messageId ?? -1));
+      return {
+        result: memory.photos,
+        write: { payload: { ...live.payload, expenseMemory: { ...memory, photos: left, photosUntil: left.length ? memory.photosUntil : 0 } }, expiresAt: live.expiresAt },
+      };
+    },
+  });
+  return out.ok ? out.result : [];
 }
 
 const langOf = (text: string): IntakeLang => (repliesInTajik(assistantLanguage([{ role: "user", content: text }])) ? "tg" : "ru");
@@ -212,12 +235,11 @@ export async function handleExpenseFollowupText(params: {
   const lang = langOf(text);
   const now = Date.now();
   // 1. Фото, присланные без слов, — теперь с просьбой: одной пачкой, как альбом.
-  const memory = await readMemory(chatId, agentId);
-  if (memory.photos.length && memory.photosUntil > now) {
-    await patchMemory(chatId, agentId, (m) => ({ ...m, photos: [], photosUntil: 0 }), 0);
+  const photos = await claimMemoryPhotos(chatId, agentId, now);
+  if (photos.length) {
     const wallet = createAssistantMoneyWallet();
-    const groupId = `later:${memory.photos[0]!.messageId}`;
-    for (const photo of memory.photos) {
+    const groupId = `later:${photos[0]!.messageId}`;
+    for (const photo of photos) {
       await collectExpenseAlbumPhoto({ chatId, agentId, messageId: photo.messageId, groupId, fileId: photo.fileId, caption: text, wallet });
     }
     return true;

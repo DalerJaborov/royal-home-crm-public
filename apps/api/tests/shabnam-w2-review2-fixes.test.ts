@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { handleAssistantCallback, handleAssistantPrivate } from "../src/telegram/assistantBot.js";
-import { previousListChatRef, rememberExpensePhoto } from "../src/telegram/assistantExpenseFollowup.js";
+import { handleExpenseFollowupText, previousListChatRef, rememberExpensePhoto } from "../src/telegram/assistantExpenseFollowup.js";
 import { mergeAssistantDialog, userTurnRecord } from "../src/telegram/assistantDialogState.js";
 import { noteSentMessage, resetSentMessageLogForTests } from "../src/telegram/sentMessageLog.js";
 import type { TelegramIncomingMessage, TelegramInlineButton } from "../src/telegram/api.js";
@@ -25,6 +25,23 @@ const io = vi.hoisted(() => ({
   text: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
   ack: vi.fn(async (_id: string, _text?: string) => ({})),
   edit: vi.fn(async (_chatId: string, _id: number, _text: string, _buttons?: TelegramInlineButton[][] | null) => {}),
+}));
+/** Вклиниться перед следующей записью слиянием (окно «прочитали память → стёрли») и учёт фото, ушедших в пачку. */
+const race = vi.hoisted(() => ({ beforeMerge: null as null | (() => Promise<unknown>), album: [] as number[] }));
+vi.mock("../src/telegram/assistantDialogState.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/telegram/assistantDialogState.js")>();
+  return {
+    ...real,
+    mergeAssistantDialog: async (params: Parameters<typeof real.mergeAssistantDialog>[0]) => {
+      const hook = race.beforeMerge;
+      if (hook) { race.beforeMerge = null; await hook(); }
+      return real.mergeAssistantDialog(params);
+    },
+  };
+});
+vi.mock("../src/telegram/assistantExpenseAlbum.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/assistantExpenseAlbum.js")>()),
+  collectExpenseAlbumPhoto: async (params: { messageId: number }) => { race.album.push(params.messageId); return true; },
 }));
 vi.mock("../src/ai/assistant/expenseReceiptExtraction.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/assistant/expenseReceiptExtraction.js")>()),
@@ -183,6 +200,23 @@ describe("п.2: запись состояния разговора — одна 
     const payload = await dialogPayload(w);
     expect(payload.expenseFile).toBeUndefined();
     expect(JSON.stringify(payload.messages)).toContain("привет");
+  });
+
+  it("«мана акс, ворид кун»: фото, пришедшее между чтением памяти и её очисткой, не теряется", async () => {
+    const w = await makeWriter(9_155_000_000, "70");
+    const photo = (id: number) => ({ message_id: id, chat: { id: w.chat, type: "private" }, photo: [{ file_id: `r2-race-${stamp}-${id}` }] }) as TelegramIncomingMessage;
+    await rememberExpensePhoto(photo(7101), w.id);
+    race.album = [];
+    // Второе фото приходит, пока просьба уже прочитала память (прежний код: следующей записью стирал всё).
+    race.beforeMerge = () => rememberExpensePhoto(photo(7102), w.id);
+    await handleExpenseFollowupText({ chatId: String(w.chat), agentId: w.id, text: "мана акс, ворид кун", messageId: 7103 });
+    if (race.beforeMerge) await (race.beforeMerge as () => Promise<unknown>)();
+    race.beforeMerge = null;
+    expect(race.album).toContain(7101);
+    const left = (((await dialogPayload(w)).expenseMemory as { photos?: { messageId: number }[] } | undefined)?.photos ?? []).map((p) => p.messageId);
+    // Второе фото либо ушло в пачку, либо ждёт в памяти — но не пропало.
+    expect([...race.album, ...left]).toContain(7102);
+    expect(left).not.toContain(7101);
   });
 
   it("первая запись в пустой чат: параллельные писатели не затирают друг друга", async () => {

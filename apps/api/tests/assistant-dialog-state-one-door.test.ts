@@ -38,18 +38,25 @@ export function dialogStateWrites(source: string): number {
   for (const m of source.matchAll(/\btelegramDialogState\b(?:\s*\.\s*(\w+))?/g)) {
     if (!m[1] || !READ_METHODS.has(m[1])) count++;
   }
-  count += [...source.matchAll(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"TelegramDialogState"/gi)].length;
+  // Сырой SQL: и со схемой (`public."TelegramDialogState"`), и с экранированными кавычками в строке ($executeRawUnsafe).
+  count += [...source.matchAll(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:\\?"?public\\?"?\.)?\\?"?TelegramDialogState\b/gi)].length;
   return count;
 }
+
+/** Разовые скрипты API тоже пишут в базу прода — проверяем их вместе с `src` (пути с префиксом `scripts/`). */
+const SCRIPTS = path.resolve(SRC, "../scripts");
 
 function files(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) return e.name === "generated" ? [] : files(p);
-    return p.endsWith(".ts") ? [p] : [];
+    if (e.isDirectory()) return e.name === "generated" || e.name === "node_modules" ? [] : files(p);
+    return /\.(?:ts|mts|js|mjs)$/.test(p) ? [p] : [];
   });
 }
-const rel = (p: string) => path.relative(SRC, p).split(path.sep).join("/");
+const rel = (p: string) => p.startsWith(SCRIPTS + path.sep)
+  ? `scripts/${path.relative(SCRIPTS, p).split(path.sep).join("/")}`
+  : path.relative(SRC, p).split(path.sep).join("/");
+const allFiles = () => [...files(SRC), ...(fs.existsSync(SCRIPTS) ? files(SCRIPTS) : [])];
 
 describe("состояние разговора помощницы пишется только через одну дверь", () => {
   it("сторож ловит прямую запись, сырой SQL и псевдоним, а чтение пропускает", () => {
@@ -58,18 +65,21 @@ describe("состояние разговора помощницы пишетс�
     expect(dialogStateWrites(`await tx.telegramDialogState\n  .update({ where: { chatId }, data });`)).toBe(1);
     expect(dialogStateWrites(`await tx.$executeRaw\`UPDATE "TelegramDialogState" SET payload = ...\`;`)).toBe(1);
     expect(dialogStateWrites(`const t = prisma.telegramDialogState; await t.update({});`)).toBe(1);
+    expect(dialogStateWrites(`await tx.$executeRaw\`DELETE FROM public."TelegramDialogState" WHERE 1=1\`;`)).toBe(1);
+    expect(dialogStateWrites(`await prisma.$executeRawUnsafe("UPDATE \\"TelegramDialogState\\" SET payload = '{}'");`)).toBe(1);
+    expect(dialogStateWrites(`await tx.$queryRaw\`SELECT 1 FROM "TelegramDialogState" FOR UPDATE\`;`)).toBe(0);
   });
 
   it("прямых записей ровно столько, сколько вписано с причиной", () => {
     const actual = Object.fromEntries(
-      files(SRC).map((p) => [rel(p), dialogStateWrites(fs.readFileSync(p, "utf8"))] as const).filter(([, n]) => n > 0),
+      allFiles().map((p) => [rel(p), dialogStateWrites(fs.readFileSync(p, "utf8"))] as const).filter(([, n]) => n > 0),
     );
     const expected = Object.fromEntries(Object.entries(DIRECT_DIALOG_WRITES).map(([file, { writes }]) => [file, writes]));
     expect(actual).toEqual(expected);
   });
 
   it("файлы помощницы не пишут состояние сами — только через дверь", () => {
-    const offenders = files(SRC)
+    const offenders = allFiles()
       .map((p) => ({ file: rel(p), source: fs.readFileSync(p, "utf8") }))
       .filter(({ file, source }) => file !== "telegram/assistantDialogState.ts"
         && /kind\s*(?:===|!==|:)\s*["']assistant["']|DIALOG_KIND\s*=\s*["']assistant["']/.test(source)

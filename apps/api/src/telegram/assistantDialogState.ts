@@ -61,8 +61,9 @@ export async function withAssistantDialog<T>(params: {
       const data = { agentId, kind: DIALOG_KIND, payload: step.write.payload as Prisma.InputJsonObject, expiresAt: step.write.expiresAt };
       await tx.telegramDialogState.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
     } else if (inserted.length) {
-      // Заготовка оказалась не нужна — не оставляем пустую строку.
-      await tx.telegramDialogState.deleteMany({ where: { chatId, kind: DIALOG_KIND, expiresAt: { lte: new Date(0) } } });
+      // Заготовка оказалась не нужна — не оставляем пустую строку. Строку вставили мы и она заперта этой
+      // транзакцией, поэтому удаляем по chatId (сравнение с to_timestamp(0) зависит от пояса сессии).
+      await tx.telegramDialogState.deleteMany({ where: { chatId } });
     }
     return { ok: true as const, result: step.result };
   });
