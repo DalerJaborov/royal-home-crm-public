@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 33 |
 | Модулей сервера | 89 |
-| Адресов сервера всего | 789 |
+| Адресов сервера всего | 791 |
 | Задач по расписанию | 139 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -152,8 +152,8 @@
 | `/api/v1/me` | Свой профиль, настройки, устройства | 36 | да (12 мест) | `apps/api/src/routes/me.ts` |
 | `/api/v1/me/notifications` | Лента уведомлений сотрудника | 5 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
 | `/api/v1/showing-questions` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/showingQuestions.ts` |
-| `/api/v1/agents` | Сотрудники: карточки, права, аватары | 19 | да (8 мест) | `apps/api/src/routes/agents.ts` |
-| `/api/v1/agents` | Сотрудники: карточки, права, аватары | 2 | да (8 мест) | `apps/api/src/routes/team.ts` |
+| `/api/v1/agents` | Сотрудники: карточки, права, аватары | 19 | да (9 мест) | `apps/api/src/routes/agents.ts` |
+| `/api/v1/agents` | Сотрудники: карточки, права, аватары | 4 | да (9 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
@@ -161,7 +161,7 @@
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 140 | да (37 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (13 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (12 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
@@ -284,7 +284,7 @@
 | `duplicate-fuzzy-scan` | `0 8 * * *` | Ежедневный поиск дублей по похожему имени и номеру |
 | `duplicates-weekly-digest` | `20 9 * * 1` | Напоминание руководителю о вероятных дубликатах клиентов |
 | `exchange-rate` | `0 1 * * *` | Обновляет курс доллара к сомони с alif.tj |
-| `expired-property-drafts-cleanup` | `56 3 * * *` | Удаляет просроченные черновики новых объектов |
+| `expired-property-drafts-cleanup` | `*/15 * * * *` | Удаляет просроченные черновики новых объектов |
 | `finance-pdf-monthly` | `10 9 1-3 * *` | **без подписи** |
 | `free-narration-purge` | `*/30 * * * *` | **без подписи** |
 | `geo-match-nightly-sweep` | `5 8 * * *` | Ночной подбор объектов ждущим покупателям по району |

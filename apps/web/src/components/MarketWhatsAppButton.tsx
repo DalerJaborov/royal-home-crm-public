@@ -98,7 +98,8 @@ export function MarketWhatsAppButton({
   clientId,
   className = "",
   onDone,
-}: MarketWhatsAppTarget & { className?: string; onDone?: () => void }) {
+  compact = false,
+}: MarketWhatsAppTarget & { className?: string; onDone?: () => void; compact?: boolean }) {
   const [busy, setBusy] = useState(false);
 
   async function open() {
@@ -118,10 +119,11 @@ export function MarketWhatsAppButton({
       onClick={open}
       disabled={busy}
       aria-label="Написать продавцу в WhatsApp"
-      className={`pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]! disabled:opacity-50 ${className}`}
+      title={compact ? "Написать в WhatsApp" : undefined}
+      className={compact ? `mk-ico ${className}` : `pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]! disabled:opacity-50 ${className}`}
     >
       <MessageCircle className="w-3.5 h-3.5" aria-hidden />
-      <span className="hidden sm:inline">WhatsApp</span>
+      {!compact && <span className="hidden sm:inline">WhatsApp</span>}
     </button>
   );
 }

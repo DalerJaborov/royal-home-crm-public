@@ -36,12 +36,19 @@ export const AUTOMATION_SWITCH_KEYS = [
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
+  "clientRecordResultEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
 
 /** Нет строки настроек или поля — ВКЛЮЧЕНО: то же умолчание, что у колонки в базе. */
 export const AUTOMATION_SWITCH_DEFAULT = true;
+
+/**
+ * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
+ * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
+ */
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
@@ -58,7 +65,7 @@ export function isAutomationSwitchOn(
   settings: Partial<Record<AutomationSwitchKey, boolean | null | undefined>> | null | undefined,
   key: AutomationSwitchKey
 ): boolean {
-  return settings?.[key] ?? AUTOMATION_SWITCH_DEFAULT;
+  return settings?.[key] ?? !AUTOMATION_SWITCH_DEFAULT_OFF.has(key);
 }
 
 export interface AutomationSwitchLabel {
@@ -129,6 +136,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
+  clientRecordResultEnabled: {
+    title: "Кнопка «Записать результат» в карточке клиента",
+    on: "В карточке клиента (в меню «Ещё» и под кнопками на телефоне) есть кнопка «Записать результат»: можно вручную записать, чем закончился разговор или показ, в том числе задним числом.",
+    off: "Кнопки «Записать результат» в карточке нет. Итог звонка пишет ИИ, показ назначается кнопкой «Назначить показ».",
+  },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
@@ -160,7 +173,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

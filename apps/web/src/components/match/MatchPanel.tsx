@@ -271,9 +271,8 @@ function ClientMatchPanel({
     setExpanded(true);
   }
   const toolbar = !readOnly ? <>
-    <span className="state" role="status">{selected.size ? `Выбрано: ${selected.size} из ${MAX_TO_SEND}` : "Выберите до 5 объектов для отправки"}</span>
     <button type="button" className="pill" disabled={busy || (failure?.fallback ? deliveryUnavailable : selected.size === 0)} onClick={() => failure?.fallback ? void sendPrepared() : void prepare([...selected])}>
-      {busy ? "Подождите…" : failure?.fallback ? `Отправить${target.data?.channel ? ` в ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : " через CRM"}` : `Отправить выбранные${selected.size ? ` · ${selected.size}` : ""}`}
+      {busy ? "Подождите…" : failure?.fallback ? `Отправить${target.data?.channel ? ` в ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : " через CRM"}` : `Отправить${selected.size ? ` · ${selected.size}` : ""}`}
     </button>
     {selected.size > 0 && <button type="button" className="lnk" disabled={busy} onClick={() => { setSelected(new Set()); setFailure(null); }}>Снять выбор</button>}
   </> : undefined;
@@ -302,7 +301,6 @@ function ClientMatchPanel({
         <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Посмотреть каталог (свободные)" : "Вернуться к подбору"}</button>
       </div>
       {source === "match" && <>
-        {matchQuery.data && <p className="client-match-count">Показано {visibleItems.length} из {total}{scope === "mine" ? " среди моих объектов" : ""}. Сначала самые подходящие.</p>}
         {unfiltered && <p className="quiet warn" role="status">Требования ещё не заполнены. Эти варианты нужно уточнить с клиентом.</p>}
       </>}
       {!readOnly && <SelectedMatchProperties items={[...selected].map(id => ({ id, label: selectedNames[id] ?? "Выбранный объект" }))} disabled={busy} onRemove={id => toggleSelected(id)} />}
@@ -402,7 +400,6 @@ function ClientMatchPanel({
       </div>}
       {!activeQuery.isLoading && !activeQuery.isError && items.length === 0 && <div className="empty">
         <p>{matchQuery.data?.reason === "not_buyer" && source === "match" ? "Подбор доступен только подтверждённому покупателю." : matchQuery.data?.reason === "closed" && source === "match" ? "Клиент уже купил — подбор ему не нужен." : "Подходящих объектов пока нет. Уточните требования или посмотрите каталог."}</p>
-        {source === "match" && <button type="button" className="pill ghost" onClick={() => { setSource("catalog"); setExpanded(true); }}>Посмотреть каталог (свободные)</button>}
       </div>}
       {!readOnly && failure && (failure.fallback ? <div className="client-match-preview">
         <h3>Отправка подборки · {failure.fallback.links.length}</h3>

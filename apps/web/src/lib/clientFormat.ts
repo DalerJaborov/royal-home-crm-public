@@ -1,4 +1,9 @@
-import type { ClientSort } from "@royal-home/shared";
+import {
+  clientDisplayName as sharedClientDisplayName,
+  clientNameParts,
+  type ClientDisplayNameInput,
+  type ClientSort,
+} from "@royal-home/shared";
 
 export { CLIENT_SOURCE_LABELS } from "@royal-home/shared";
 
@@ -205,12 +210,47 @@ export function showingConfirmationBadge(interaction: {
  * другом маршруте) — нейтральная подпись вместо мусора, а не молчаливый показ
  * «@•••••» человеку.
  */
-export function clientDisplayName(fullName: string | null | undefined): string {
-  const name = (fullName ?? "").trim();
+export function clientDisplayName(c: string | ClientNameSource | null | undefined): string {
+  if (c && typeof c === "object") {
+    // Сервер уже посчитал «Имя · Якорь» (объект, запрос, ориентир, замок приёма
+    // заявки) — берём его как есть; нет (кратко отданный клиент) — то же правило из
+    // @royal-home/shared по тому, что пришло: заглушки «Покупатель ПК-000925» и
+    // «Клиент ПК-0021» не доходят до глаз.
+    const ready = c.displayName?.trim();
+    if (ready) return ready;
+    return sharedClientDisplayName(c);
+  }
+  const name = (c ?? "").trim();
   if (!name) return "Клиент";
   // Голая маска ника: «@•••••», «@••», даже «@» без единого читаемого символа.
   if (/^@[•\s]*$/u.test(name)) return "Клиент";
   return name;
+}
+
+/**
+ * Имя в шапке карточки клиента: с фамилией (раз её вписали, имя настоящее) — «Имя Фамилия»,
+ * иначе то же «Имя · Якорь», что и в списках.
+ */
+export function clientHeadingName(c: ClientNameSource & { lastName?: string | null }): string {
+  const last = c.lastName?.trim();
+  return last ? `${(c.fullName ?? "").trim()} ${last}`.trim() : clientDisplayName(c);
+}
+
+/** Всё, что может прийти о клиенте: полная карточка, строка списка или краткая ссылка. */
+export type ClientNameSource = ClientDisplayNameInput & { displayName?: string | null };
+
+/**
+ * ИМЯ ПО ЧАСТЯМ для строки с двумя строками: имя, якорь и номер карточки отдельно
+ * (номер мелким шрифтом, не вместо имени — владелец 22.11.2026).
+ */
+export function clientNameLines(c: ClientNameSource & { displayNameParts?: { name: string; anchor: string | null; code?: string | null } | null }): {
+  name: string;
+  anchor: string | null;
+  code: string | null;
+} {
+  const own = clientNameParts(c);
+  const server = c.displayNameParts;
+  return { name: server?.name ?? own.name, anchor: server ? server.anchor : own.anchor, code: server?.code ?? own.code };
 }
 
 /**

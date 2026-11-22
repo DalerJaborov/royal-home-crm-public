@@ -70,7 +70,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
           <Row
             className="rh-decide"
             avatar={av(c.fullName, escalated ? "pink" : "lime")}
-            title={clientDisplayName(c.fullName)}
+            title={clientDisplayName(c)}
             line={`${escalated ? "Никто не принял" : "Ждёт принятия"} · ${leadHint(c)}`}
             href={`/clients/${c.shortId}`}
             actions={<PendingLeadActions client={c} compact />}
@@ -85,7 +85,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <Row
           className="rh-decide"
           avatar={av(r.fullName, "pink")}
-          title={clientDisplayName(r.fullName)}
+          title={clientDisplayName(r)}
           line={`Похоже на «${other?.fullName ?? "?"}»: тот же человек?`}
           href={other ? `/clients/${other.shortId}` : undefined}
           actions={<DuplicateReviewActions review={r} compact />}
@@ -98,7 +98,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <Row
           className="rh-decide"
           avatar={av(o.fullName, "aqua")}
-          title={clientDisplayName(o.fullName)}
+          title={clientDisplayName(o)}
           line="Написал снова, вернуть карточку себе?"
           href={`/clients/${o.shortId}`}
           actions={<ReactivationActions offer={o} compact />}
@@ -112,7 +112,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <SwipeCall to={`/clients/${i.shortId}`} canCall={canCall}>
           <Row
             avatar={av(i.fullName)}
-            title={clientDisplayName(i.fullName)}
+            title={clientDisplayName(i)}
             line={i.byName ? `Вам назначил(а) ${i.byName}` : "Вам назначил руководитель"}
             chip={<Chip tone="warn">Позвонить</Chip>}
             href={`/clients/${i.shortId}`}
@@ -128,7 +128,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <SwipeCall to={`/clients/${i.shortId}`} canCall={canCall}>
           <Row
             avatar={av(i.fullName, "pink")}
-            title={clientDisplayName(i.fullName)}
+            title={clientDisplayName(i)}
             line={<DueLine dueAt={i.dueAt} />}
             chip={<DueChip dueAt={i.dueAt} />}
             href={`/clients/${i.shortId}`}
@@ -147,7 +147,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <SwipeCall to={to} canCall={canCall}>
           <Row
             avatar={av(c?.fullName ?? t.nextAction)}
-            title={clientDisplayName(c?.fullName)}
+            title={clientDisplayName(c)}
             line={t.nextActionDate ? `${what} · к ${dushanbeTime(t.nextActionDate)}` : what}
             chip={t.type === "CALL" ? <Chip tone="warn">Позвонить</Chip> : undefined}
             href={to}
@@ -170,7 +170,7 @@ function QueueRow({ todo, index }: { todo: AgentTodoItem; index: number }) {
         <SwipeCall to={`/clients/${c.shortId}`} canCall={canCall}>
           <Row
             avatar={av(c.fullName)}
-            title={clientDisplayName(c.fullName)}
+            title={clientDisplayName(c)}
             line={nextStepLine(c)}
             chip={chip}
             href={`/clients/${c.shortId}`}
