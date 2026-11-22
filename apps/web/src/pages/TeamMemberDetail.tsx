@@ -5,7 +5,7 @@ import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
 import { formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
 import {
-  backState, callAttemptText, callHeadline, canPauseLeads, chatChip, headerSubtitle, lastActionText, leadsPaused, nextTaskText, weekScoreTone,
+  backState, callAttemptText, callHeadline, canPauseLeads, chatChip, deviceKindLabel, headerSubtitle, lastActionText, leadsPaused, nextTaskText, weekScoreTone,
 } from "../lib/agentCardText";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";

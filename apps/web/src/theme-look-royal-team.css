@@ -604,7 +604,7 @@
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="crit"] { background: var(--rh-ui-crit-soft); color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
-@media (min-width: 900px) {
+@media (min-width: 1024px) {
   :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-hero { grid-template-columns: auto minmax(0, 1fr) auto; padding: 24px; }
   :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-acts { grid-column: auto; justify-content: flex-end; }
   :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-notes { grid-column: 2 / -1; }
@@ -619,13 +619,13 @@
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles > [role="listitem"] { display: grid; min-width: 0; }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles .ry-tile { min-height: 132px; }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles .ry-tile-value { font-size: var(--rh-fs-3xl); overflow-wrap: anywhere; }
-@media (min-width: 720px) {
+@media (min-width: 768px) {
   :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 }
 
 /* «Что не так»: покупатели и продавцы рядом на ПК, друг под другом на телефоне. */
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-issues { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
-@media (min-width: 900px) {
+@media (min-width: 1024px) {
   :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-issues { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-col { display: grid; gap: 12px; min-width: 0; align-content: start; }
@@ -655,6 +655,6 @@
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart-note { margin: 0; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
 
 /* Вкладки «Подробнее» и список за плиткой. */
-:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-tabs { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tabs { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-panel { display: grid; gap: 12px; min-width: 0; }
 :root[data-ui-look="royal"] [data-ry-section="team"] .ry-agc-drill { display: grid; gap: 12px; min-width: 0; }

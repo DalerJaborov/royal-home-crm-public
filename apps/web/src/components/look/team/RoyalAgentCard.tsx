@@ -28,7 +28,7 @@ import type { RoyalIconName } from "../royalIconData";
 import { RoyalSection } from "../clients/RoyalSection";
 import { RoyalAmount } from "../money/RoyalAmount";
 import { RhAvatar, RhBlockState, RhButton, RhCircle, RhGroup, RhRow, RhSection, RhSegmented, RhTabs, RhTile } from "../ui";
-import { tileTone, type TileMeaning } from "../tileTone";
+import { pillTone, tileTone, type TileMeaning } from "../tileTone";
 
 /**
  * КАРТОЧКА СОТРУДНИКА В «НОВОМ ВИДЕ» — «ОДНИМ ВЗГЛЯДОМ» (22.11.2026).
@@ -88,6 +88,7 @@ function RoyalAgentBody(p: RoyalAgentCardProps) {
   const goBack = useGoBack("/team");
   const [period, setPeriod] = useState<AgentGlancePeriod>("week");
   const glance = useAgentGlance(data ? p.id : undefined, period);
+  const glanceView = loadView(glance);
   const [drill, setDrill] = useState<{ key: AgentGlanceDrillKey; label: string } | null>(null);
   const [issuesFor, setIssuesFor] = useState<AgentIssueKind | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -114,7 +115,7 @@ function RoyalAgentBody(p: RoyalAgentCardProps) {
               {glance.data ? (
                 <Tiles g={glance.data} seesMoney={p.seesMoney} onOpen={(key, label) => setDrill({ key, label })} />
               ) : (
-                <GlanceState query={glance} />
+                <GlanceState view={glanceView} onRetry={() => void glance.refetch()} />
               )}
               {p.liveData && p.liveData.leads.unaccepted > 0 && (
                 <Link className="ry-agc-note" to={`/clients?agentId=${p.id}`} data-tone="warn">Выдано, но не принято: {p.liveData.leads.unaccepted}</Link>
@@ -125,12 +126,12 @@ function RoyalAgentBody(p: RoyalAgentCardProps) {
               {glance.data ? (
                 <Issues g={glance.data} data={data} onAll={setIssuesFor} />
               ) : (
-                <GlanceState query={glance} />
+                <GlanceState view={glanceView} onRetry={() => void glance.refetch()} />
               )}
             </RhSection>
 
             <RhSection title="Активность по дням">
-              {glance.data ? <DayChart g={glance.data} /> : <GlanceState query={glance} />}
+              {glance.data ? <DayChart g={glance.data} /> : <GlanceState view={glanceView} onRetry={() => void glance.refetch()} />}
             </RhSection>
 
             <Tabs {...p} data={data} />
@@ -249,7 +250,7 @@ function Tiles({ g, seesMoney, onOpen }: { g: AgentGlance; seesMoney: boolean; o
       {tiles.map((t) => (
         <div role="listitem" key={t.key}>
           <RhTile variant={tileTone(t.meaning, t.value)} icon={t.icon} label={t.label} note={t.note}
-            value={t.money ? <RoyalAmount text={`${nums(t.value)} с.`} /> : nums(t.value)}
+            value={t.money ? <RoyalAmount text={`${nums(t.value)} с.`} /> : nums(t.value)}
             onClick={() => onOpen(t.key, t.label)} />
         </div>
       ))}
@@ -257,9 +258,8 @@ function Tiles({ g, seesMoney, onOpen }: { g: AgentGlance; seesMoney: boolean; o
   );
 }
 
-function GlanceState({ query }: { query: { isError: boolean; data: unknown; fetchStatus: "fetching" | "paused" | "idle"; refetch: () => unknown } }) {
-  const view = loadView({ data: query.data, isError: query.isError, fetchStatus: query.fetchStatus });
-  return <RhBlockState kind={view === "ready" ? "loading" : view} onRetry={view === "loading" ? undefined : () => void query.refetch()} />;
+function GlanceState({ view, onRetry }: { view: ReturnType<typeof loadView>; onRetry: () => void }) {
+  return <RhBlockState kind={view === "ready" ? "loading" : view} onRetry={view === "loading" ? undefined : onRetry} />;
 }
 
 /* ----------------------------- что не так ------------------------------ */
@@ -297,7 +297,7 @@ function Issues({ g, data, onAll }: { g: AgentGlance; data: AgentOverview; onAll
               <header className="ry-agc-col-h">
                 <RhCircle icon={KIND_ICON[kind]} tone={items.length > 0 ? "a0" : "ok"} size={44} />
                 <h3>{KIND_TITLE[kind]}</h3>
-                <span className="ry-agc-count" data-tone={items.length > 0 ? "crit" : "ok"}>{items.length > 0 ? items.length : "всё хорошо"}</span>
+                <span className="ry-agc-count" data-tone={items.length > 0 ? pillTone("overdue", items.length) : pillTone("good")}>{items.length > 0 ? items.length : "всё хорошо"}</span>
               </header>
               {top.length > 0 ? (
                 <RhGroup label={KIND_TITLE[kind]}>
@@ -415,7 +415,7 @@ function Tabs(p: RoyalAgentCardProps & { data: AgentOverview }) {
           return (
             <RhRow key={c.conversationId} to={`/messages?open=${c.conversationId}`} title={c.client.fullName}
               sub={`${c.lastText || "…"} · ${relativeTime(c.lastMessageAt)}`} subTone={chip?.crit ? "crit" : undefined}
-              right={chip ? <span className="ry-agc-chip" data-tone={chip.crit ? "crit" : undefined}>{chip.text}</span> : undefined} />
+              right={chip ? <span className="ry-agc-chip" data-tone={chip.crit ? pillTone("overdue") : undefined}>{chip.text}</span> : undefined} />
           );
         })}
       </RhGroup>
@@ -442,7 +442,7 @@ function Tabs(p: RoyalAgentCardProps & { data: AgentOverview }) {
   }
   return (
     <RhSection title="Подробнее" to={all[tab]} linkLabel="Все →">
-      <RhTabs value={tab} tabs={tabs} onChange={setTab} label="Разделы карточки" idPrefix="agc" />
+      <RhTabs value={tab} tabs={tabs} onChange={setTab} label="Разделы карточки" idPrefix="agc" className="ry-agc-tabs" />
       <div role="tabpanel" id={`agc-panel-${tab}`} aria-labelledby={`agc-tab-${tab}`} className="ry-agc-panel">{body}</div>
     </RhSection>
   );
@@ -472,7 +472,7 @@ function DrillSheet({ id, period, drill, onClose }: {
                   to={it.clientShortId ? `/clients/${it.clientShortId}` : it.propertyShortId ? `/properties/${it.propertyShortId}` : undefined}
                   title={it.title || "Без имени"}
                   sub={[it.sub, it.at ? relativeTime(it.at) : ""].filter(Boolean).join(" · ")}
-                  right={it.amount !== null ? <b className="ry-num"><RoyalAmount text={`${nums(it.amount)} с.`} /></b> : undefined} />
+                  right={it.amount !== null ? <b className="ry-num"><RoyalAmount text={`${nums(it.amount)} с.`} /></b> : undefined} />
               ))}
             </RhGroup>
           </>
