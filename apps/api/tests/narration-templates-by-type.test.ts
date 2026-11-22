@@ -291,9 +291,15 @@ describe("{сотки}: площадь участка в сотках", () => {
     expect(narrationLandAreaWords("LAND", 300, "ru")).toBe("три сотки");
     expect(narrationLandAreaWords("LAND", 1200, "ru")).toBe("двенадцать соток");
   });
-  it("дробные сотки не округляются: говорим метры", () => {
+  it("дробные сотки не округляются: говорим метры (живые слова выключены — как до 21.11.2026)", () => {
     expect(narrationLandAreaWords("LAND", 650, "tg")).toBe("шашсаду панҷоҳ метри мураббаъ");
     expect(narrationLandAreaWords("LAND", 650, "ru")).toBe("шестьсот пятьдесят квадратных метров");
+  });
+  it("живые слова включены: ровно половина — «ва ним» / «с половиной» (21.11.2026), другая дробь — метры", () => {
+    expect(narrationLandAreaWords("LAND", 650, "tg", true)).toBe("шаш ва ним сотиқ");
+    expect(narrationLandAreaWords("LAND", 650, "ru", true)).toBe("шесть с половиной соток");
+    expect(narrationLandAreaWords("LAND", 670, "tg", true)).toBe("шашсаду ҳафтод метри мураббаъ");
+    expect(narrationLandAreaWords("LAND", 670, "ru", true)).toBe("шестьсот семьдесят квадратных метров");
   });
   it("не участок или нет площади — пусто, и фраза в скобках выпадает", () => {
     expect(narrationLandAreaWords("HOUSE", 600, "tg")).toBe("");

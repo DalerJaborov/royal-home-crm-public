@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
+import { mergeAssistantDialog, patchLiveAssistantDialog } from "./assistantDialogState.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import {
   AssistantActionError, createPendingAssistantAction, discardPendingAssistantAction,
@@ -36,7 +37,7 @@ import { answerCallbackQuery, editHtmlMessage, sendHtmlMessage, type TelegramCal
 const PAGE_CHARS = 3400;
 /** Кнопок «Править» на страницу — не больше 48 (у Telegram предел 100 кнопок на сообщение). */
 const PAGE_ROWS = 48;
-const CALLBACK = /^ax:(pg|fx|rw|rm|nop|sc|sa):([0-9a-f-]{36})?(?::(\d{1,4}))?(?::([0-9a-f]{1,10}))?$/u;
+const CALLBACK = /^ax:(pg|fx|rw|rm|nop|sc|sa|re):([0-9a-f-]{36})?(?::(\d{1,4}))?(?::([0-9a-f]{1,10}))?$/u;
 /** Кнопка сотрудника — короткий хэш его id, а не номер в пересчитываемом списке. */
 const agentKey = (id: string) => createHash("sha256").update(id).digest("hex").slice(0, 10);
 /** Сотрудников для зарплаты кнопками — не больше 12 (однофамильцы или весь короткий список). */
@@ -80,6 +81,11 @@ const TEXT = {
     lines: (list: string) => `строки ${list}`,
     readUpTo: (n: number) => `⚠️ Дочитала до строки ${n} — остальное пришлите отдельным фото, добавлю новой карточкой.`,
     tjs: "с.",
+    waits: "⏳ Карточка ждёт «Записать» один час.",
+    expired: "⌛ Время карточки вышло — ничего не записала. «Показать снова» соберёт новую карточку с теми же строками.",
+    expiredShort: "Время вышло — ничего не записала",
+    again: "♻️ Показать снова",
+    recordedAlready: "Эти расходы уже записаны — второй раз не записываю.",
   },
   tg: {
     count: (n: number) => `${n} харҷ`,
@@ -113,6 +119,11 @@ const TEXT = {
     lines: (list: string) => `сатрҳои ${list}`,
     readUpTo: (n: number) => `⚠️ То сатри ${n} хондам — боқимондаро бо акси алоҳида фиристед, бо корти нав илова мекунам.`,
     tjs: "сомонӣ",
+    waits: "⏳ Корт як соат «Сабт кардан»-ро интизор мешавад.",
+    expired: "⌛ Вақти корт гузашт — ҳеҷ чиз сабт нашуд. «Боз нишон деҳ»-ро пахш кунед — ҳамин сатрҳоро дар корти нав нишон медиҳам.",
+    expiredShort: "Вақт гузашт — ҳеҷ чиз сабт нашуд",
+    again: "♻️ Боз нишон деҳ",
+    recordedAlready: "Ин харҷҳо аллакай сабт шудаанд — дубора сабт намекунам.",
   },
 } as const;
 
@@ -250,6 +261,7 @@ export function renderExpenseCard(args: BatchArgs, ctx: CardContext, notes: Card
     ...(ctx.noCurrencyAnywhere ? [esc(args.items[0]?.currency === "USD" ? t.flagUnstated : t.noCurrency)] : []),
     ...(usd ? [`<i>${esc(t.rate(num(ctx.money.usdToTjs), ctx.rateUpdatedAt ? dayWords(lang, ctx.rateUpdatedAt.toISOString().slice(0, 10)) : null))}</i>`] : []),
     ...skippedText(lang, notes).map(esc),
+    `<i>${esc(t.waits)}</i>`,
   ].join("\n");
   const budget = PAGE_CHARS - head.length - foot.length - 8;
   const pages: string[][] = [[]];
@@ -360,6 +372,71 @@ export async function expenseBatchOutcomeText(actions: readonly { tool: string; 
   return TEXT[lang].done(args.items.length, tjsText(lang, batchTotalCents(args, money)));
 }
 
+/** «Записать» под карточкой пачки, у которой вышло время (истекла или ещё не погашена сборщиком). */
+export function isExpiredExpenseBatch(
+  actions: readonly { tool: string; status: string; expiresAt: Date }[], now = new Date(),
+): boolean {
+  const only = actions.length === 1 ? actions[0]! : null;
+  return Boolean(only && only.tool === ADD_EXPENSES_TOOL
+    && (only.status === "EXPIRED" || (only.status === "PENDING" && only.expiresAt <= now)));
+}
+
+/**
+ * Честно об истечении (17.11.2026): прежде «Записать» на старой карточке отвечало по-русски «время
+ * вышло, попросите заново», а попросить было нечем — строки фото в разговоре не лежат. Теперь карточка
+ * говорит «ничего не записала» на языке пачки и даёт «Показать снова». Возвращает короткий ответ кнопки.
+ */
+export async function showExpiredExpenseCard(
+  chatId: string, messageId: number, action: { args: unknown }, bundleId: string,
+): Promise<string> {
+  let lang: CardLang = "ru";
+  try { lang = cardLang(parseBatchArgs(action.args).lang); } catch { /* старые аргументы — русский */ }
+  const t = TEXT[lang];
+  await editHtmlMessage(chatId, messageId, esc(t.expired), [[{ text: t.again, callback_data: `ax:re:${bundleId}` }]]).catch(() => undefined);
+  return t.expiredShort;
+}
+
+export type ReofferResult = "shown" | "recreated" | "recorded" | "stale" | "failed";
+
+/**
+ * Показать карточку пачки снова: живая — та же (одно действие, одна запись при любом числе нажатий),
+ * истёкшая — новое действие с теми же строками. Права и «уже записано» проверяет брокер заново; ключи
+ * строк те же, поэтому повтор не запишет пачку второй раз (#181 и ключи источника не тронуты).
+ */
+export async function reofferExpenseBatch(bundleId: string, agentId: string, chatId: string, replyTo?: number): Promise<ReofferResult> {
+  const loaded = await loadBatch(bundleId, agentId);
+  if (!loaded) {
+    await sendHtmlMessage(chatId, esc(TEXT.ru.stale), replyTo);
+    return "stale";
+  }
+  const lang = cardLang(loaded.args.lang);
+  const t = TEXT[lang];
+  const notes = notesOf(loaded.row);
+  const { row } = loaded;
+  if (row.status === "PENDING" && row.expiresAt > new Date()) {
+    return (await sendExpenseBatchCard(chatId, { id: row.id }, agentId, replyTo, notes)) ? "shown" : "failed";
+  }
+  if (row.status === "EXECUTED") {
+    await sendHtmlMessage(chatId, esc(t.recordedAlready), replyTo);
+    return "recorded";
+  }
+  const actor = await freshActor(agentId);
+  if ((row.status !== "EXPIRED" && row.status !== "PENDING") || !actor) {
+    await sendHtmlMessage(chatId, esc(t.stale), replyTo);
+    return "stale";
+  }
+  try {
+    const action = await createPendingAssistantAction(actor, ADD_EXPENSES_TOOL, loaded.args);
+    if (await sendExpenseBatchCard(chatId, action, agentId, replyTo, notes)) return "recreated";
+    await sendHtmlMessage(chatId, esc(t.stale), replyTo);
+    return "failed";
+  } catch (error) {
+    if (!(error instanceof AssistantActionError)) throw error;
+    await sendHtmlMessage(chatId, esc(error.code === "DUPLICATE" ? t.recordedAlready : error.message), replyTo);
+    return error.code === "DUPLICATE" ? "recorded" : "failed";
+  }
+}
+
 async function freshActor(agentId: string): Promise<AssistantActionActor | null> {
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive) return null;
@@ -382,28 +459,39 @@ async function replaceBatch(bundleId: string, agentId: string, change: (args: Ba
   return { kind: "replaced" as const, lang, bundleId: newBundle, args, notes: notesOf(loaded.row), actionId: action.id };
 }
 
-/** Ждём поправку строки: метка лежит в состоянии диалога помощницы, история не теряется. */
+/**
+ * Ждём поправку строки: метка лежит в состоянии диалога помощницы. Пишется через одну дверь слиянием:
+ * история, запомненные фото и вопрос про файл не стираются (ревью волны 2, assistantDialogState.ts).
+ */
 async function rememberFix(chatId: string, agentId: string, fix: { bundleId: string; row: number; messageId: number }) {
-  const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  if (state && state.kind !== DIALOG_KIND && state.expiresAt > new Date()) return false;
-  const live = state && state.kind === DIALOG_KIND && state.agentId === agentId && state.expiresAt > new Date();
-  const messages = live ? (state.payload as { messages?: unknown }).messages ?? [] : [];
-  const data = { agentId, kind: DIALOG_KIND, payload: { messages, expenseFix: { ...fix, until: Date.now() + FIX_TTL_MS } } as object, expiresAt: new Date(Date.now() + FIX_TTL_MS) };
-  await prisma.telegramDialogState.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
-  return true;
+  return mergeAssistantDialog({
+    chatId, agentId,
+    change: (payload) => ({ ...payload, expenseFix: { ...fix, until: Date.now() + FIX_TTL_MS } }),
+    expiresAt: (live) => new Date(Math.max(Date.now() + FIX_TTL_MS, live ? live.getTime() : 0)),
+  });
 }
 
 async function peekFix(chatId: string, agentId: string) {
   const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
   if (!state || state.kind !== DIALOG_KIND || state.agentId !== agentId) return null;
-  const payload = state.payload as { messages?: unknown; expenseFix?: { bundleId?: unknown; row?: unknown; messageId?: unknown; until?: unknown } };
+  const payload = state.payload as { expenseFix?: { bundleId?: unknown; row?: unknown; messageId?: unknown; until?: unknown } };
   const fix = payload.expenseFix;
   if (!fix || typeof fix.bundleId !== "string" || !Number.isInteger(fix.row) || !Number.isInteger(fix.messageId) || Number(fix.until) < Date.now()) return null;
-  return { bundleId: fix.bundleId, row: Number(fix.row), messageId: Number(fix.messageId), messages: payload.messages ?? [] };
+  return { bundleId: fix.bundleId, row: Number(fix.row), messageId: Number(fix.messageId) };
 }
 
-async function clearFix(chatId: string, messages: unknown) {
-  await prisma.telegramDialogState.updateMany({ where: { chatId, kind: DIALOG_KIND }, data: { payload: { messages } as object } });
+/** Снять метку правки — только ЭТУ (ту же карточку и строку): новую, поставленную за это время, не трогаем. */
+async function clearFix(chatId: string, agentId: string, fix: { bundleId: string; row: number }) {
+  await patchLiveAssistantDialog({
+    chatId, agentId,
+    change: (payload) => {
+      const live = payload.expenseFix as { bundleId?: unknown; row?: unknown } | undefined;
+      if (!live || live.bundleId !== fix.bundleId || Number(live.row) !== fix.row) return null;
+      const { expenseFix: _f, ...rest } = payload;
+      void _f;
+      return rest;
+    },
+  });
 }
 
 const AMOUNT_WORDS = /^(?:(?:сомони|сомонӣ|с\.?|tjs|usd|доллар\p{L}*|dollars?|тыс\.?|т\.?|тысяч\p{L}*|млн|миллион\p{L}*|ming|ҳазор|хазор|k|руб\p{L}*|евро|eur)(?:\s+|$))*$/iu;
@@ -482,7 +570,7 @@ export async function applyExpenseFixMessage(chatId: string, agentId: string, te
   const lang = loaded ? cardLang(loaded.args.lang) : "ru";
   const current = loaded?.args.items[fix.row];
   if (!loaded || !current || loaded.row.status !== "PENDING") {
-    await clearFix(chatId, fix.messages);
+    await clearFix(chatId, agentId, fix);
     await sendHtmlMessage(chatId, esc(TEXT[lang].stale), replyTo);
     return true;
   }
@@ -491,7 +579,7 @@ export async function applyExpenseFixMessage(chatId: string, agentId: string, te
     await sendHtmlMessage(chatId, esc(TEXT[lang].notUnderstood), replyTo);
     return true;
   }
-  await clearFix(chatId, fix.messages);
+  await clearFix(chatId, agentId, fix);
   const result = await replaceBatch(fix.bundleId, agentId, (args) => ({ ...args, items: args.items.map((row, i) => (i === fix.row ? corrected : row)) }))
     .catch((err: unknown) => ({ kind: "error" as const, message: err instanceof AssistantActionError ? err.message : TEXT[lang].stale }));
   if (result.kind === "error") { await sendHtmlMessage(chatId, esc(result.message), replyTo); return true; }
@@ -524,6 +612,12 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
   const index = Number(rawIndex ?? 0);
   const choice = verb === "sc" ? Number(rawChoice ?? -1) : -1;
   const chatId = String(chat.id);
+  // «Показать снова» под истёкшей карточкой: новая карточка с теми же строками (права — заново).
+  if (verb === "re") {
+    await ack();
+    await reofferExpenseBatch(bundleId!, agentId, chatId);
+    return true;
+  }
   const loaded = await loadBatch(bundleId!, agentId);
   if (!loaded || loaded.row.status !== "PENDING" || loaded.row.expiresAt <= new Date()) {
     await ack(TEXT[loaded ? cardLang(loaded.args.lang) : "ru"].stale);

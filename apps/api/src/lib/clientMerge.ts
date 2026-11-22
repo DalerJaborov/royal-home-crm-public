@@ -449,6 +449,9 @@ export const MERGE_LINKS_MOVED = [
   // Первое сообщение агента в WhatsApp (B9, 02.10.2026): без переноса ответ
   // клиента находил строку на удалённом дубле — ни ссылки на объект, ни пуша.
   "WhatsAppFirstContact.clientId",
+  // Вопрос Шабнам о показе (22.11.2026): идёт вслед за показом (Interaction) к основной карточке,
+  // иначе ответ агента записал бы показ удалённому дублю.
+  "ShowingQuestion.clientId",
 ] as const;
 
 /** Ссылки, которые при слиянии намеренно остаются у дубля. */
@@ -508,6 +511,7 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
   const primaryFacts = await tx.sellerObjectFacts.findUnique({ where: { clientId: to }, select: { clientId: true } });
   if (!primaryFacts) await tx.sellerObjectFacts.updateMany(move);
   await tx.whatsAppFirstContact.updateMany(move);
+  await tx.showingQuestion.updateMany(move);
 }
 
 /** Cancel before open-task reassignment so historical assignees stay intact. */

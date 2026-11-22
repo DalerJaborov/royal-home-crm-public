@@ -40,7 +40,7 @@ import { loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { refreshPropertiesOfSeller } from "../../lib/propertyAutoStatus.js";
 import { cardWhereFromParam } from "../../lib/cardIdParam.js";
 import { conductedShowingWhere } from "../../lib/conductedShowing.js";
-import { loadSellerPropertyAddress } from "../../lib/sellerPropertyAnchor.js";
+import { loadClientAnchorFacts } from "../../lib/sellerPropertyAnchor.js";
 import { presentMessages, type PresentedMessage } from "../../lib/messageAttachments.js";
 import type { MessageSender } from "@royal-home/shared";
 import { presentInteractions, transcriptAccess } from "../../lib/callTranscripts.js";
@@ -522,8 +522,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   // же расчёт, что в списке клиентов (routes/clients/list.ts), плюс адрес объекта
   // продавца одним точечным запросом (тут один клиент, а не страница — батч не нужен).
   // Бывшему агенту адрес объекта продавца не отдаём — это тоже «где его найти».
-  const sellerPropertyAddress =
-    client.kind === "SELLER" && access !== "transferred" ? await loadSellerPropertyAddress(client.id) : null;
+  const nameFacts = access === "transferred"
+    ? undefined
+    : (await loadClientAnchorFacts([client])).get(client.id);
+  const nameFactsShown = gateUntilAccepted && nameFacts ? { propertyAddress: nameFacts.propertyAddress } : nameFacts;
   const presentedClient = presentClient(
     responseClient,
     can(req, "clients.viewPhone") && !gateUntilAccepted,
@@ -541,7 +543,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     } : null,
     // Из УЖЕ показанной карточки, а не из сырой: иначе «Входящий +992…» и источник
     // клиента уходили в displayName мимо clients.viewPhone/viewOrigin (ACCESS-01).
-    displayName: clientDisplayName(presentedClient, { propertyAddress: sellerPropertyAddress }),
+    displayName: clientDisplayName(presentedClient, nameFactsShown),
     // Шапка карточки (18.09.2026, задание В §f п.2) — карточка сама уже удалена
     // отдаётся 404 (:206 выше), поэтому здесь может прийти только «мягкое»
     // скрытое состояние (OTHER/LOST/DEAL_CLOSED/ARCHIVED/INACTIVE/DEFERRED/

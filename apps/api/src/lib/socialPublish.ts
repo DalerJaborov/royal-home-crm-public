@@ -2,10 +2,10 @@ import {
   loadCredentials,
   instagramApiUrl,
   instagramRequest,
-  instagramTokenIdentity,
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher, type InstagramGraphRefusal } from "./instagramPublisher.js";
 import fs from "node:fs/promises";
 import { openAsBlob } from "node:fs";
 import path from "node:path";
@@ -100,6 +100,19 @@ export interface PublishResult {
    * несколько разных постов с полной подходящей подписью и датой.
    */
   outcomeUnknown?: boolean;
+  /** Отказ Meta на шаге Instagram — см. InstagramGraphRefusal. */
+  graphError?: InstagramGraphRefusal;
+}
+
+/** Тип отказа живёт в двери (instagramPublisher.ts) — иначе круг импортов (audit:deps). */
+export function instagramGraphRefusal(step: InstagramGraphRefusal["step"], status: number, body: Record<string, unknown>): InstagramGraphRefusal {
+  const info = graphErrorInfo(body);
+  return {
+    step,
+    status,
+    ...(info.code !== undefined ? { code: info.code } : {}),
+    ...(info.subcode !== undefined ? { subcode: info.subcode } : {}),
+  };
 }
 
 /** Экспортирован (21.09.2026) — lib/instagramPendingContainers.ts переиспользует
@@ -508,6 +521,7 @@ export async function publishInstagramReel(
         channel: "INSTAGRAM",
         ok: false,
         error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        graphError: instagramGraphRefusal("create", createRes.status, createBody),
         ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
       };
     }
@@ -557,7 +571,12 @@ export async function publishInstagramReel(
     if (!publishRes.ok || !postId) {
       // Запись НАМЕРЕННО остаётся PENDING: контейнер обработан и, скорее всего,
       // ещё публикуем — пусть фоновый проход доведёт его сам.
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`),
+        graphError: instagramGraphRefusal("publish", publishRes.status, publishBody),
+      };
     }
     await resolveInstagramContainer(containerId, "PUBLISHED");
     return { channel: "INSTAGRAM", ok: true, postId, ...(collaboratorsNote ? { note: collaboratorsNote } : {}) };
@@ -610,6 +629,7 @@ async function publishInstagramStoryMedia(
         channel: "INSTAGRAM",
         ok: false,
         error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        graphError: instagramGraphRefusal("create", createRes.status, createBody),
         ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
       };
     }
@@ -645,7 +665,12 @@ async function publishInstagramStoryMedia(
     if (!publishRes.ok || !postId) {
       // Запись НАМЕРЕННО остаётся PENDING: контейнер обработан и, скорее всего,
       // ещё публикуем — пусть фоновый проход доведёт его сам.
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`),
+        graphError: instagramGraphRefusal("publish", publishRes.status, publishBody),
+      };
     }
     await resolveInstagramContainer(containerId, "PUBLISHED");
     return { channel: "INSTAGRAM", ok: true, postId };
@@ -3315,11 +3340,12 @@ export async function publishApprovedPost(params: {
       ? [{ key: "INSTAGRAM", token: creds.igToken }]
       : [];
   for (const igTarget of igTargets) {
-    const igToken = igTarget.token;
     const igKey = params.instagramTargets ? igTarget.key : undefined;
     await noteStarted("INSTAGRAM", igTarget.key);
-    const identity = await instagramTokenIdentity(igToken);
-    if (identity.ok) {
+    // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts): ключ
+    // компании через graph.facebook.com, если готов, иначе личный ключ аккаунта.
+    const publisher = await resolveInstagramPublisher(igTarget.token);
+    if (publisher.ok) {
       // Соавторы (26.09.2026): ник агента-хозяина объекта первым + до 3 ников
       // из Настроек. Запрос агента — только здесь, не выше: остальные каналы
       // (Facebook/Telegram/YouTube/TikTok) соавторов не знают и этот столбец
@@ -3339,18 +3365,21 @@ export async function publishApprovedPost(params: {
         settingsRaw: settings?.instagramCollaborators ?? null,
         agentUsername: ownerAgent?.instagramUsername ?? null,
       });
-      const result = await publishInstagramReel(
-        owner.id,
-        identity.id,
-        igToken,
-        videoUrl,
-        igCaption,
-        coverUrl,
-        collaborators,
-        owner.kind === "freeVideo" ? { ownerText, persistPendingContainer: false } : undefined
+      // Через дверь: отказ ключа компании до контейнера — один повтор личным ключом (ревью #391).
+      const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+        publishInstagramReel(
+          owner.id,
+          igUserId,
+          token,
+          videoUrl,
+          igCaption,
+          coverUrl,
+          collaborators,
+          owner.kind === "freeVideo" ? { ownerText, persistPendingContainer: false } : undefined
+        )
       );
       if (result.ok && result.postId) {
-        result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;
+        result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;
       }
       if (igKey) result.destinationKey = igKey;
       results.push(result);
@@ -3369,7 +3398,7 @@ export async function publishApprovedPost(params: {
       // пуст, карточка молчит «На монтаже», объект простаивает ночь без единой
       // записи о причине. Тот же класс молчания, что закрывали в PR #585 для
       // снятия постов — здесь он остался на публикации.
-      const error = `Не удалось определить аккаунт Instagram: ${identity.error}`;
+      const error = `Не удалось определить аккаунт Instagram: ${publisher.error}`;
       const failed: PublishResult = { channel: "INSTAGRAM", ok: false, error };
       if (igKey) failed.destinationKey = igKey;
       results.push(failed);

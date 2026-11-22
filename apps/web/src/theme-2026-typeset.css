@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 856 (размер поднят у 846, гарнитура сведена у 50).
+ * Правил: 858 (размер поднят у 848, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 @media print {
@@ -22,6 +22,7 @@
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
 .rh2 .offer-status { font-size: 15px; }
 .rh2 .fs-code { font-size: 13px; }
+.sq-card button.sq-btn { font-size: 16px; }
 .rh2 .scr .cw2-btn .lbl { font-size: 13px; }
 html[data-shell="clean"] .clean-calendar-summary { font-size: 15px; }
 html[data-shell="clean"] .clean-calendar-page .mh .lane [role="tab"] { font-size: 16px; }
@@ -698,10 +699,11 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .rh2 .client-match-property > .who { font-size: 15px; }
 .rh2 .client-match-evidence p { font-size: 15px; }
 .rh2 .client-match-grid .client-match-property > .ph { font-size: 15px; }
-.rh2 .client-match-count { font-size: 15px; }
-.rh2 .client-request-chips li { font-size: 15px; }
 .rh2 .client-match-selected p { font-size: 15px; }
 .rh2 .client-match-selected li { font-size: 15px; }
+.rh2 .mk-price small { font-size: 15px; }
+.rh2 .mk-phone { font-size: 15px; }
+.rh2 .mk-row .mk-tag { font-size: 15px; }
 .sh-rail-name { font-size: 16px; }
 .sh-rail-slogan { font-size: 15px; }
 .sh-nav-it { font-size: 16px; }
@@ -959,6 +961,7 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .wiz .sub { font-size: 15px; }
   .rh2 .client-match-evidence p { font-size: 15px; }
   .rh2 .client-match-selected p { font-size: 15px; }
+  .rh2 .mk-price small { font-size: 15px; }
   .rh2 .hero-face-cap small { font-size: 15px; }
   .rh2 .scr .pg-h.rh-pg-h .sub { font-size: 15px; }
 }

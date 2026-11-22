@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ownMusicRemixSinceAfterSave, narrationListenRequestSchema, type NarrationListenResult, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTotalFloorsError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
+import { ownMusicRemixSinceAfterSave, narrationListenRequestSchema, type NarrationListenResult, narrationConfigSchema, narrationConfigPatchSchema, freeNarrationEnabled, freeNarrationLimits, freeNarrationRequestSchema, pickNarrationVoice, type FreeNarrationResult, narrationDraftSchema, narrationActionSchema, narrationModeSchema, narrationHandoffSchema, narrationTemplateStructureError, narrationTotalFloorsError, narrationLiveWordsError, narrationTemplateRulesError, narrationLimits, narrationModelError, renderNarrationTemplate, type NarrationOptionsView } from "@royal-home/shared";
 import { narrationFactsChanges, narrationLengthLine, type NarrationFacts } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { clipCountsAsPublished } from "../../lib/publishedClip.js";
@@ -64,7 +64,7 @@ narrationRouter.get("/narration-options", async (_req, res) => {
   const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
-    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate() };
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate(), liveWords: config.liveWords === true };
   res.json(view);
 });
 
@@ -211,16 +211,20 @@ narrationRouter.put("/narration-settings", async (req, res) => {
     // {этажей} (21.11.2026): этажность дома в озвучке не говорим; старый живой шаблон с ним читается (оборот снимается при сборке), новый не принимаем.
     return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang) ?? narrationTotalFloorsError(item.text));
   };
+  // Живые слова выключены — {объект} и др. пустые, проверка идёт так, как текст прозвучит на самом деле;
+  // такое слово вне квадратных скобок порвало бы фразу — отказ с подсказкой включить рубильник (ревью #363).
+  const live = parsed.data.liveWords === true;
+  const liveRule = (text: string) => live ? null : narrationLiveWordsError(text);
   for (const template of parsed.data.templates ?? []) {
     // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
-    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
+    const problem = textRules(template, existing.templates) ?? liveRule(template.text) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS, live))
       // Только для нового или изменённого при этом сохранении шаблона: старый, не тронутый, сохранению не мешает.
-      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE))
+      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE, live))
         ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения: добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
-    const problem = textRules(ending, existing.endings) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS));
+    const problem = textRules(ending, existing.endings) ?? liveRule(ending.text) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS, live));
     if (problem) return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
   }
   // Словарь произношения (12.11.2026): правка правил — синхронизация с ElevenLabs, только для
@@ -252,10 +256,11 @@ narrationRouter.use("/:id/narration", async (req, res, next) => {
 
 narrationRouter.get("/:id/narration", async (req, res) => {
   const p = res.locals.narrationProperty;
-  const facts = narrationFacts(p);
+  const { config, key } = await configuration();
+  // Участок дома в фактах только при «Живых словах» (ревью #363): иначе «Изменилось: участок» и сотки в карточке при ВЫКЛ.
+  const facts = narrationFacts(p, config.liveWords === true);
   // Карточка собирает текст той же функцией, что сервер: с курсом, чтобы {цена} прозвучала в сомони (21.11.2026).
   const usdToTjs = await narrationRate();
-  const { config, key } = await configuration();
   const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id,
     ...(req.agent!.role === "EDITOR" ? { deliveries: { some: { editorId: req.agent!.id } } } : {}) }, orderBy: { revision: "desc" }, take: 50 });
   // An unresolved generation still blocks new paid work even after many later drafts.
@@ -333,7 +338,7 @@ narrationRouter.post("/:id/narration", async (req, res) => {
     const adopted = listenId && !outcome.coalesced ? await adoptListenedNarration({ propertyId: p.id, versionId: outcome.versionId, listenId, actorId: req.agent!.id }) : null;
     return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true, ...(adopted ? { listened: adopted } : {}) });
   }
-  const facts = narrationFacts(p);
+  const facts = narrationFacts(p, config.liveWords === true);
   const script = parsed.data.script ?? suggestedNarration(facts);
   const error = narrationScriptError(script);
   if (error) return res.status(400).json({ error });

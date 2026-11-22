@@ -68,7 +68,7 @@ describe("buyer matching workflow", () => {
     expect(html).toContain("В пределах бюджета");
     expect(html).not.toContain("99%");
     expect(html).not.toContain('role="button"');
-    expect(html).toContain("Показано 3 из 4");
+    expect(html).not.toContain("Показано 3 из 4");
     expect(html).not.toContain("Проверено в базе");
     expect(html).toContain('aria-label="Ответственный за объекты"');
     expect(html).not.toContain("Все подходящие");

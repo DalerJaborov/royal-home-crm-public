@@ -13,6 +13,7 @@ import {
   type IntakeLang, type IntakeRow,
 } from "./assistantExpenseBatchIntake.js";
 import { sendMessage } from "./api.js";
+import { withListMonth } from "./assistantExpenseTextList.js";
 
 /**
  * АЛЬБОМ ФОТО → ОДНА ПАЧКА РАСХОДОВ (10.11.2026). Telegram присылает альбом отдельными
@@ -144,7 +145,7 @@ async function processAlbum(album: Album): Promise<void> {
   }
   if (already.length) problems.unshift(album.lang(lang, "photoAlready", already.join(", ")));
   if (!rows.length) { await send([intakeText(lang).unreadablePhoto, ...problems].join(NL)); return; }
-  await stageExpenseBatch({ chatId: album.chatId, agentId: album.agentId, rows, lang, kind: "album", replyTo: album.firstMessageId });
+  await stageExpenseBatch({ chatId: album.chatId, agentId: album.agentId, rows: withListMonth(rows, album.caption), lang, kind: "album", replyTo: album.firstMessageId });
   // Номера здесь — фото альбома, а не строки, поэтому отдельной строкой, а не пометкой карточки.
   if (problems.length) await send(problems.map((p) => `⚠️ ${p}`).join(NL));
 }

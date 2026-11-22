@@ -6,7 +6,7 @@ import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 import { lastStaffContactAtByClient, noContactWhere } from "../../lib/noContact.js";
-import { pendingDeleteHideWhere } from "../../lib/clientSearchWhere.js";
+import { awaitingAcceptanceWhere, clientsScopeBaseWhere } from "../../lib/clientBaseOverview.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
 
@@ -29,8 +29,6 @@ import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
  * Все запросы — count/groupBy, без выборки строк; единственная строка —
  * самый давний клиент без принятия (для предупреждения и плитки).
  */
-
-const TERMINAL: Prisma.ClientWhereInput = { status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] } };
 
 export interface ClientsSummary {
   buyers: number;
@@ -71,14 +69,9 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
   const now = new Date();
   const ownAgentId = scopeToOwnAgent(req);
   // Карточки с заявкой на удаление список прячет от агента — сводка считает без них
-  // (то же условие, что у списка: lib/clientSearchWhere.ts).
-  const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
-  const base: Prisma.ClientWhereInput = {
-    ...(ownAgentId
-      ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { in: ["BUYER", "SELLER"] } }
-      : { deletedAt: null }),
-    ...hideWhere,
-  };
+  // (то же условие, что у списка: lib/clientSearchWhere.ts). База — одна с разбором
+  // клиентской базы у Шабнам (lib/clientBaseOverview.ts, get_client_base_overview).
+  const base = await clientsScopeBaseWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
   const today = dushanbeDayRange(now);
   const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
@@ -91,14 +84,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
    * уже не принять). Раньше они входили в число, и на кнопке было больше, чем
    * строк в списке по ней (24.09.2026, разбор раздачи, пункт 25).
    */
-  const awaitingWhere: Prisma.ClientWhereInput = {
-    ...base,
-    ...TERMINAL,
-    acceptedAt: null,
-    escalatedAt: null,
-    kind: { in: ["BUYER", "SELLER"] },
-    workStatus: "ACTIVE",
-  };
+  const awaitingWhere = awaitingAcceptanceWhere(base);
   const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput => ({
     ...visibleInteractionWhere(investigationViewerRole(req)),
     type: "SHOWING",

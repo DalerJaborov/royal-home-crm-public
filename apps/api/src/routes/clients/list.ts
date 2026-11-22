@@ -23,7 +23,7 @@ import {
   pendingDeleteHideWhere,
 } from "../../lib/clientSearchWhere.js";
 import { fuzzyClientIds } from "../../lib/fuzzySearch.js";
-import { loadSellerPropertyAddresses } from "../../lib/sellerPropertyAnchor.js";
+import { loadClientAnchorFacts } from "../../lib/sellerPropertyAnchor.js";
 import { loadLeadReasons } from "../../lib/leadReason.js";
 import { budgetSortKey, computeHiddenReason, presentClient } from "./shared.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
@@ -426,8 +426,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * якорную логику отдельно для десктопа и мобильного. Адрес объекта продавца —
    * ОДНИМ батчем на страницу (lib/sellerPropertyAnchor.ts), не по клиенту.
    */
-  const sellerIds = items.filter((c) => c.kind === "SELLER").map((c) => c.id);
-  const sellerAddresses = sellerIds.length ? await loadSellerPropertyAddresses(sellerIds) : new Map<string, string>();
+  const anchorFacts = await loadClientAnchorFacts(items);
   // «Почему лид ваш» (lib/leadReason.ts) — только непринятым: это подсказка к
   // кнопке «Принять», после приёма она живёт в хронологии карточки.
   const leadReasons = await loadLeadReasons(items.filter((c) => !c.acceptedAt));
@@ -440,6 +439,15 @@ listRouter.get("/", requireAuth, async (req, res) => {
     const step = stepByClient.get(clientId);
     if (!step || gateUntilAccepted) return null;
     return { ...step, nextAction: phoneSafeText(step.nextAction, seesPhone) };
+  };
+
+  // Якорь имени: до приёма заявки и у переданной карточки объект интереса/продавца
+  // не показываем (тот же замок, что у требований); продавцу его объект показывался и
+  // до приёма — оставлено как было.
+  const nameFactsFor = (id: string, access: string, gated: boolean) => {
+    if (access === "transferred") return undefined;
+    const f = anchorFacts.get(id);
+    return gated && f ? { propertyAddress: f.propertyAddress } : f;
   };
 
   res.json({
@@ -484,13 +492,9 @@ listRouter.get("/", requireAuth, async (req, res) => {
         // Имя считаем из УЖЕ показанной карточки (presented): сырое имя несло
         // «Входящий +992…» и источник клиента мимо clients.viewPhone/viewOrigin
         // (аудит Codex 04.10.2026, ACCESS-01).
-        displayName: clientDisplayName(presented, {
-          propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
-        }),
+        displayName: clientDisplayName(presented, nameFactsFor(c.id, rowAccess, gateUntilAccepted)),
         // То же имя порознь — строка «Нового вида» ставит якорь второй строкой (пачка D1).
-        displayNameParts: clientNameParts(presented, {
-          propertyAddress: rowAccess === "transferred" ? null : (sellerAddresses.get(c.id) ?? null),
-        }),
+        displayNameParts: clientNameParts(presented, nameFactsFor(c.id, rowAccess, gateUntilAccepted)),
         // Ближайший шаг — свободный текст из хронологии: до приёма лида хронология
         // закрыта (гейт выше), без права на номер номер в тексте шага маскируется.
         nextStep: nextStepFor(c.id, gateUntilAccepted, canSeePhone),

@@ -55,7 +55,7 @@ export function NarrationChoice({ facts, value, onChange }: {
   const defaultVoiceId = data ? pickNarrationVoice({ voices: data.voices, defaultVoiceId: last.voiceId ?? data.defaultVoiceId ?? undefined }) : null;
   const shownFacts = facts.currency === "USD" && data?.usdToTjs ? { ...facts, usdToTjs: data.usdToTjs } : facts;
   // Прослушанное устарело (сменили текст, голос, язык или вернулись и поменяли цену) — его id в запрос не уходит.
-  const resolved = data ? resolveNarrationDraft({ templates, endings, facts: shownFacts, value, defaultTemplateId, defaultEndingId, defaultVoiceId }) : null;
+  const resolved = data ? resolveNarrationDraft({ templates, endings, facts: shownFacts, value, defaultTemplateId, defaultEndingId, defaultVoiceId, liveWords: data.liveWords === true }) : null;
   const listenStale = !!value.listened && !!resolved && !narrationListenFresh(value.listened, resolved);
   useEffect(() => {
     if (!listenStale) return;
@@ -78,7 +78,7 @@ export function NarrationChoice({ facts, value, onChange }: {
       {value.none ? (
         <p className="text-sm text-[var(--muted)]">Озвучка не готовится и не тратит деньги, монтажёр получит пометку «без озвучки». Включить можно потом в карточке объекта.</p>
       ) : <>
-        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={shownFacts}
+        <NarrationComposer name={`${ids}-voice`} liveWords={data?.liveWords === true} templates={templates} endings={endings} voices={data?.voices ?? []} samples={data?.samples} facts={shownFacts}
           value={value} onChange={(next) => onChange({ ...next })} defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} lastPickedVoiceId={last.voiceId ?? null}
           canListen={!!data?.autoGenerate} />
         {/* Свой текст с долларами сервер не примет (#348): сказать сразу, до сохранения, а не после. */}

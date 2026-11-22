@@ -88,13 +88,16 @@ export function narrationLengthLine(check: NarrationLengthCheck): string {
 /** Что из фактов озвучки поменялось — для строки «Изменилось: цена и этаж». Порядок — как звучит в тексте. */
 const FACT_LABELS: Array<[keyof NarrationFacts, string]> = [
   ["type", "вид объекта"], ["rooms", "комнаты"], ["areaSqm", "площадь"], ["floor", "этаж"],
-  ["totalFloors", "этажность"], ["district", "район"], ["price", "цена"], ["currency", "цена"],
+  ["totalFloors", "этажность"], ["district", "район"], ["price", "цена"], ["currency", "цена"], ["landSotka", "участок"],
 ];
 export function narrationFactsChanges(before: Partial<NarrationFacts> | null | undefined, after: Partial<NarrationFacts> | null | undefined): string[] {
   if (!before || !after) return [];
   const norm = (v: unknown) => v === undefined || v === null || v === "" ? null : String(v);
   const out: string[] = [];
   for (const [key, label] of FACT_LABELS) {
+    // Участок дома в фактах только при «Живых словах» (ревью #363): снимок без поля (до 21.11 или при ВЫКЛ) или нынешние
+    // факты без него (рубильник выключили) — сравнивать нечего, иначе «Изменилось: участок» при неизменных сотках.
+    if (key === "landSotka" && !(key in before && key in after)) continue;
     if (norm(before[key]) !== norm(after[key]) && !out.includes(label)) out.push(label);
   }
   return out;

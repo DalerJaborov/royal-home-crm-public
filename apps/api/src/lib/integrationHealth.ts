@@ -28,6 +28,8 @@ import {
   instagramLoginScopeProbes,
   metaTokenInfo,
   missingScopes,
+  optionalMissingScopes,
+  requiredScopeCount,
   type RequiredScope,
   type TokenKind,
 } from "./tokenScopes.js";
@@ -702,7 +704,7 @@ async function scopeRow(
   const name = `Права: ${label}`;
   const tail = note ? `; ${note}` : "";
   if (missing === null) return { name, ok: null, detail: `права узнать не удалось${tail}` };
-  if (missing.length === 0) return { name, ok: true, detail: `все ${TOKEN_SCOPE_CATALOG[kind].scopes.filter((s) => !s.awaitingApproval).length} прав на месте${tail}` };
+  if (missing.length === 0) return { name, ok: true, detail: `все ${requiredScopeCount(kind)} прав на месте${tail}` };
   const detail = describeMissingScopes(kind, missing);
   await report(
     source,
@@ -720,7 +722,12 @@ async function metaScopeRow(kind: TokenKind, label: string, token: string | unde
   if (!token) return null;
   const info = await metaTokenInfo(token);
   if (!info) return scopeRow("meta", kind, label, null);
-  return scopeRow("meta", kind, label, missingScopes(kind, info.scopes), expiryNote(info.expiresAt));
+  // Необязательные права (tokenScopes.ts::optional) — приписка к строке, не «сломан».
+  const optional = optionalMissingScopes(kind, info.scopes);
+  const optionalNote = optional.length
+    ? `; необязательные не выданы: ${optional.map((o) => `${o.scope} (${o.forWhat})`).join(", ")}`
+    : "";
+  return scopeRow("meta", kind, label, missingScopes(kind, info.scopes), `${expiryNote(info.expiresAt)}${optionalNote}`);
 }
 
 /**

@@ -16,7 +16,8 @@
  * крон/очередь, не через свой setInterval).
  */
 import { prisma } from "../db.js";
-import { loadCredentials, instagramTokenIdentity, instagramApiUrl, instagramRequest, fetchWithRetry, GRAPH_VERSION } from "../messengers/meta.js";
+import { loadCredentials, instagramApiUrl, instagramRequest, fetchWithRetry, GRAPH_VERSION } from "../messengers/meta.js";
+import { resolveInstagramPublisher } from "./instagramPublisher.js";
 import { readJson, graphErrorMessage, fetchInstagramPermalink, PUBLISH_TIMEOUT_MS } from "./socialPublish.js";
 import { applySucceededPublishResults, handoffStatusBlockReason } from "./videoHandoff.js";
 import { logSystemError } from "./systemError.js";
@@ -219,12 +220,14 @@ export async function runInstagramPendingContainersTick(): Promise<{
         // просто нечем проверить сейчас. Оставляем PENDING, попробуем в следующий тик.
         continue;
       }
-      const identity = await instagramTokenIdentity(creds.igToken);
-      if (!identity.ok) {
+      // Тем же ключом, что публикация (22.11.2026, lib/instagramPublisher.ts): контейнер,
+      // созданный ключом компании, мёртвым личным ключом не проверить и не опубликовать.
+      const publisher = await resolveInstagramPublisher(creds.igToken);
+      if (!publisher.ok) {
         continue;
       }
 
-      const status = await checkContainerStatus(row.containerId, creds.igToken);
+      const status = await checkContainerStatus(row.containerId, publisher.token);
       await prisma.pendingInstagramContainer.update({ where: { id: row.id }, data: { lastCheckedAt: new Date() } });
 
       if (status.status === "IN_PROGRESS") continue; // ждём следующего тика молча — это ожидаемо, не ошибка
@@ -240,7 +243,7 @@ export async function runInstagramPendingContainersTick(): Promise<{
       }
 
       // FINISHED — публикуем.
-      const result = await publishContainer(row.containerId, identity.id, creds.igToken);
+      const result = await publishContainer(row.containerId, publisher.igUserId, publisher.token);
       if (!result.ok) {
         await prisma.pendingInstagramContainer.update({
           where: { id: row.id },
@@ -259,7 +262,7 @@ export async function runInstagramPendingContainersTick(): Promise<{
         // Тот же путь, что и обычная успешная публикация (lib/videoHandoff.ts::
         // publishHandoffResult) — publishedChannels/publishedPostIds/instagramUrl,
         // проверка блокеров продажи, выход в AVAILABLE. НЕ вторая копия этого куска.
-        const permalink = await fetchInstagramPermalink(result.postId, creds.igToken);
+        const permalink = await fetchInstagramPermalink(result.postId, publisher.token);
         await applySucceededPublishResults(row.propertyId, [{ channel: "INSTAGRAM", postId: result.postId }], permalink);
       } else {
         // STORY — история не пост в ленте (см. докстринг PropertyStoryPost), сюда

@@ -34,15 +34,17 @@ export function narrationListenFresh(listened: NarrationListened | undefined | n
 
 /** Что на самом деле уйдёт в озвучку: шаблон, концовка, язык, текст и голос с учётом умолчаний. Карточка зовёт её
  *  перед «Озвучить», блок — для показа: одна функция, иначе отправленное разойдётся с показанным. */
-export function resolveNarrationDraft({ templates, endings = [], facts, value, defaultTemplateId, defaultEndingId = null, defaultVoiceId, defaultScript }: {
+export function resolveNarrationDraft({ templates, endings = [], facts, value, defaultTemplateId, defaultEndingId = null, defaultVoiceId, defaultScript, liveWords = false }: {
   templates: NarrationTemplate[]; endings?: NarrationEnding[]; facts: NarrationFacts; value: NarrationDraft;
+  /** Рубильник «живые слова» из Настроек (config.liveWords): без него {объект} и др. молчат, как на сервере. */
+  liveWords?: boolean;
   defaultTemplateId: string | null; defaultEndingId?: string | null; defaultVoiceId: string | null; defaultScript?: string | null;
 }) {
   const templateId = value.templateId ?? defaultTemplateId ?? null;
   const template = templates.find((t) => t.id === templateId) ?? null;
   // Концовка: выбранная; иначе умолчание. Шаблон «только вручную» несёт свой призыв и без выбора концовку не получает.
   const wantedEnding = value.endingId !== undefined ? value.endingId || null : template && !template.manualOnly ? defaultEndingId : null;
-  const drafted = template ? narrationDraftText({ templates, endings }, facts, template.id, wantedEnding) : null;
+  const drafted = template ? narrationDraftText({ templates, endings, liveWords }, facts, template.id, wantedEnding) : null;
   const lang: NarrationLang = template?.lang ?? "ru";
   const fromTemplate = drafted ? drafted.text : suggestedNarration(facts);
   // Агент ничего не трогал — текст версии (карточка) или шаблона; выбрал вариант — всегда шаблон.
@@ -52,7 +54,7 @@ export function resolveNarrationDraft({ templates, endings = [], facts, value, d
 
 const LANG_LABEL: Record<NarrationLang, string> = { tg: "Тоҷикӣ", ru: "Русский" };
 
-export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, recommendedVoiceId, disabled, name, lengthCheck, canListen }: {
+export function NarrationComposer({ templates, endings = [], voices, samples, facts, value, onChange, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, lastPickedVoiceId, recommendedVoiceId, disabled, name, lengthCheck, canListen, liveWords }: {
   templates: NarrationTemplate[];
   endings?: NarrationEnding[];
   voices: Array<{ id: string; name: string; gender?: "male" | "female" }>;
@@ -75,8 +77,10 @@ export function NarrationComposer({ templates, endings = [], voices, samples, fa
   lengthCheck?: NarrationLengthCheck | null;
   /** Кнопка «▶ Прослушать» (21.11.2026): только при автоозвучке — прослушанный звук и уходит монтажёру. */
   canListen?: boolean;
+  /** Рубильник «живые слова» (config.liveWords) — тот же, что у сервера. */
+  liveWords?: boolean;
 }) {
-  const { templateId, endingId, lang, fromTemplate, text, edited, voiceId } = resolveNarrationDraft({ templates, endings, facts, value, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript });
+  const { templateId, endingId, lang, fromTemplate, text, edited, voiceId } = resolveNarrationDraft({ templates, endings, facts, value, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript, liveWords });
   // Ответ «Прослушать» приходит через 10–30 секунд (ревью 21.11): применяется к ТЕКУЩЕМУ выбору, а не к тому, что был
   // при нажатии, — иначе затёр бы правки, сделанные за время ожидания. Текст, голос или язык уже другие — не применяется.
   const live = useRef({ value, text, voiceId, lang });

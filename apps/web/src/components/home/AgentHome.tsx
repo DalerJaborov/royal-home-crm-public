@@ -16,6 +16,7 @@ import { AgentQueue } from "./agent/AgentQueue";
 import { AgentAskSheet, AiButton } from "./agent/AgentAsk";
 import "./agent/agentHome.css";
 import { NO_CONTACT_TEXT } from "@royal-home/shared";
+import { clientDisplayName } from "../../lib/clientFormat";
 
 /**
  * ГЛАВНАЯ АГЕНТА: один экран на ПК и телефон (контракт оболочки 06.10.2026,
@@ -255,7 +256,7 @@ export function AgentHome() {
                       <time>{dushanbeTime(s.nextActionDate!)}</time>
                       <span>
                         Показ{s.property?.title ? ` · ${s.property.title}` : ""}
-                        {s.client?.fullName ? ` · ${s.client.fullName}` : ""}
+                        {s.client?.fullName ? ` · ${clientDisplayName(s.client)}` : ""}
                       </span>
                     </Link>
                   ))}

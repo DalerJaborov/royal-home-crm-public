@@ -25,16 +25,17 @@ import {
   loadCredentials,
   instagramApiUrl,
   instagramRequest,
-  instagramTokenIdentity,
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher, type InstagramGraphRefusal } from "./instagramPublisher.js";
 import {
   readJson,
   graphErrorMessage,
   fetchInstagramPermalink,
   deleteInstagramMedia,
   waitForInstagramContainerReady,
+  instagramGraphRefusal,
   PUBLISH_TIMEOUT_MS,
 } from "./socialPublish.js";
 import { sendMediaGroupFiles, deleteChannelMessage, isTelegramEnabled } from "../telegram/api.js";
@@ -241,6 +242,8 @@ export interface PhotoPostPublishResult {
   permalink?: string;
   error?: string;
   pending?: boolean;
+  /** Отказ Meta на шаге Instagram (socialPublish.ts::InstagramGraphRefusal): ключ или ролик, до контейнера или после. */
+  graphError?: InstagramGraphRefusal;
 }
 
 async function publishInstagramContainer(igUserId: string, token: string, containerId: string): Promise<PhotoPostPublishResult> {
@@ -257,7 +260,7 @@ async function publishInstagramContainer(igUserId: string, token: string, contai
   const publishBody = await readJson(publishRes);
   const mediaId = publishBody.id as string | undefined;
   if (!publishRes.ok || !mediaId) {
-    return { ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`) };
+    return { ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`), graphError: instagramGraphRefusal("publish", publishRes.status, publishBody) };
   }
   const permalink = (await fetchInstagramPermalink(mediaId, token)) ?? undefined;
   return { ok: true, mediaId, permalink };
@@ -293,7 +296,7 @@ export async function publishInstagramCarousel(
       const createBody = await readJson(createRes);
       const containerId = createBody.id as string | undefined;
       if (!createRes.ok || !containerId) {
-        return { ok: false, error: graphErrorMessage(createBody, `HTTP ${createRes.status}`) };
+        return { ok: false, error: graphErrorMessage(createBody, `HTTP ${createRes.status}`), graphError: instagramGraphRefusal("create", createRes.status, createBody) };
       }
       const ready = await waitForInstagramContainerReady(containerId, token);
       if (!ready.ok) return { ok: false, error: ready.error, pending: ready.pending };
@@ -315,7 +318,12 @@ export async function publishInstagramCarousel(
       const childBody = await readJson(childRes);
       const childId = childBody.id as string | undefined;
       if (!childRes.ok || !childId) {
-        return { ok: false, error: `Не удалось создать слайд карусели: ${graphErrorMessage(childBody, `HTTP ${childRes.status}`)}` };
+        // Слайды без родителя Meta не публикует (и сама стирает через сутки) — это ещё шаг «create».
+        return {
+          ok: false,
+          error: `Не удалось создать слайд карусели: ${graphErrorMessage(childBody, `HTTP ${childRes.status}`)}`,
+          graphError: instagramGraphRefusal("create", childRes.status, childBody),
+        };
       }
       childIds.push(childId);
     }
@@ -333,7 +341,7 @@ export async function publishInstagramCarousel(
     const parentBody = await readJson(parentRes);
     const containerId = parentBody.id as string | undefined;
     if (!parentRes.ok || !containerId) {
-      return { ok: false, error: graphErrorMessage(parentBody, `HTTP ${parentRes.status}`) };
+      return { ok: false, error: graphErrorMessage(parentBody, `HTTP ${parentRes.status}`), graphError: instagramGraphRefusal("create", parentRes.status, parentBody) };
     }
     const ready = await waitForInstagramContainerReady(containerId, token);
     if (!ready.ok) return { ok: false, error: ready.error, pending: ready.pending };
@@ -547,10 +555,11 @@ export async function publishPropertyPhotoPost(propertyId: string, options?: { f
     } else if (prepared.urls.length === 0) {
       r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
     } else {
-      const identity = await instagramTokenIdentity(creds.igToken);
-      r = identity.ok
-        ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, caption)
-        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${identity.error}` };
+      // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+      const publisher = await resolveInstagramPublisher(creds.igToken);
+      r = publisher.ok
+        ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(propertyId, igUserId, token, prepared.urls, caption))).result
+        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
     }
     results.INSTAGRAM = r;
     await upsertPhotoPostRecord(

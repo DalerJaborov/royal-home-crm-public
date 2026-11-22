@@ -35,7 +35,9 @@ export function isMetaAuthFailure(status: number | undefined, bodyText: string |
   } catch {
     // Не JSON — смотрим текстом ниже.
   }
-  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)|session has been invalidated|Error validating access token|access token has expired/i.test(text);
+  // Текстом — для мест, где от ответа Meta остался только `error.message` (публикация:
+  // socialPublish.ts::graphErrorMessage). Все фразы ниже — сообщения кода 190 (22.11.2026).
+  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)|session has been invalidated|Error validating access token|access token has expired|Invalid OAuth access token|Malformed access token|access token could not be decrypted/i.test(text);
 }
 
 /** То же по тексту ошибки, которую уже бросил транспорт («Graph API HTTP 401: …»). */
@@ -62,7 +64,17 @@ export interface ChannelKeyAlarmInput {
    * и администратору, «к сведению» (без звонка ночью), не чаще раза в сутки.
    */
   audience?: ChannelKeyAudience;
+  /**
+   * Одна тревога на метку, без повтора по сроку (22.11.2026, ревью PR #391): для поломок, которые
+   * не мешают работе и не уйдут сами (ключу компании не выданы необязательные права — публикация
+   * идёт личным ключом). Повторяет только новая метка — в неё вызывающий кладёт отпечаток ключа.
+   * Предел честный: запись тревоги живёт в очереди до уборки (cron.ts, 90 дней после отправки).
+   */
+  once?: boolean;
 }
+
+/** «Без повтора» для `once`: дольше, чем живёт запись тревоги в очереди (cron.ts — 90 дней). */
+const ONCE_EVERY_MS = 10 * 365 * 24 * 60 * 60_000;
 
 export type ChannelKeyAudience = "director" | "management";
 /** Руководство для тревог каналов клиентов: директор, РОП и администратор. */
@@ -161,6 +173,7 @@ export async function raiseChannelKeyAlarm(input: ChannelKeyAlarmInput): Promise
       url: "/settings?tab=channels",
       now,
       ...(management ? { recipientRoles: MANAGEMENT_ALARM_ROLES, quiet: true, everyMs: MANAGEMENT_ALERT_EVERY_MS } : {}),
+      ...(input.once ? { everyMs: ONCE_EVERY_MS } : {}),
     });
   } catch (err) {
     console.error("[channelKeyAlarm] тревога о ключе не поставлена:", err instanceof Error ? err.message : String(err));

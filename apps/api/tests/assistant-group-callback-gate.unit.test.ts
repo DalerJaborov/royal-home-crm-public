@@ -22,6 +22,9 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const edit = vi.fn(async () => {});
   const confirm = vi.fn(async () => ({ action: { preview: { title: "Fixture action" } }, replay: false }));
   const cancel = vi.fn(async () => {});
+  // Истёкшая пачка расходов (17.11.2026): «Показать снова» — свой путь, тоже за проверкой группы.
+  let expiredExpense = false;
+  const showExpired = vi.fn(async () => "Показала снова");
   const groupRead = vi.fn(async () => group);
   const groupCreate = vi.fn(async (input: { skipDuplicates: boolean }) => {
     expect(input.skipDuplicates).toBe(true);
@@ -53,6 +56,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     // «🔕 Не присылать такое» (11.11.2026) — свои кнопки и фразы, к кнопкам связок не относятся.
     "./staffNotice.js": { handleStaffNoticeCallback: async () => false, handleNoticePreferenceText: async () => false },
     "./trashRestoreNotice.js": { handleTrashRestoreCallback: async () => false },
+    // «Договорились о показе?» / «У вас был показ?» (22.11.2026) — свои кнопки sq:, к кнопкам связок не относятся.
+    "./showingQuestionNotice.js": { handleShowingQuestionCallback: async () => false, showingQuestionContext: async () => "" },
     // Кнопки напоминаний об оплатах (11.11.2026) — свой обработчик.
     "../lib/paymentReminders.js": { handlePaymentReminderCallback: async () => false },
     // Кнопки озвучки (11.11.2026) — не наши, проходят дальше.
@@ -63,6 +68,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     // Пост без объекта от Шабнам (21.11.2026) — свои кнопки spub:, к кнопкам связок не относятся.
     "./staffSocialPost.js": { handleStaffSocialCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
+    "./assistantExpenseCard.js": { isExpiredExpenseBatch: () => expiredExpense, showExpiredExpenseCard: showExpired },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },
     "./assistantReply.js": { sanitizeAssistantReply: (text: string) => text },
@@ -89,10 +95,31 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   return { confirm, cancel, answer, edit, groupRead, groupCreate, actions, ActionError,
     press: (verb = "ok", userId = 1) => exports.handleAssistantCallback(query(verb, userId)), toggle,
     setNow: (time: number) => { now = time; }, setActive: (value: boolean) => { active = value; },
-    setEnabled: (value: boolean) => { enabled = value; }, group: () => group };
+    setEnabled: (value: boolean) => { enabled = value; }, group: () => group,
+    setExpiredExpense: (value: boolean) => { expiredExpense = value; }, showExpired };
 }
 
 describe("assistant Telegram group callback registration gate", () => {
+  // Сборка 22.11.2026: «Показать снова» под истёкшей пачкой расходов заводит новую карточку —
+  // в выключенной группе она не должна ожить, как и остальные кнопки.
+  it("off group also blocks «show again» of an expired expense batch", async () => {
+    const f = fixture("supergroup");
+    f.setExpiredExpense(true);
+    await f.toggle(false);
+    await f.press();
+    expect(f.showExpired).not.toHaveBeenCalled();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.answer).toHaveBeenLastCalledWith("test-callback", expect.stringContaining("отключён"));
+  });
+
+  it("private chat: expired expense batch is shown again", async () => {
+    const f = fixture("private");
+    f.setExpiredExpense(true);
+    await f.press();
+    expect(f.showExpired).toHaveBeenCalledOnce();
+    expect(f.answer).toHaveBeenLastCalledWith("test-callback", "Показала снова");
+  });
+
   it("keeps the confirmation and following actions available after a retryable database failure", async () => {
     const f = fixture("private");
     f.actions.push({ ...f.actions[0], id: "following-action" });

@@ -2,9 +2,18 @@ import type { ConversationMessage, MessageSender } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { callAiText, type ChatMessage } from "../ai/client.js";
 import { nowBlock } from "../ai/conversationTime.js";
-import { dushanbeWallClock } from "./dushanbeTime.js";
+import { dushanbeDateString, dushanbeWallClock } from "./dushanbeTime.js";
 import { automationSwitchOn } from "./automationSwitches.js";
-import { applyShowingRequestInBackground, type ShowingActor, type ShowingRequest } from "./showingBooking.js";
+import {
+  applyShowingRequestInBackground,
+  findActiveShowing,
+  hasConflictingShowing,
+  resolveShowingSlot,
+  SHOWING_AUTOBOOK_CONFLICT_WINDOW_MS,
+  type ShowingActor,
+  type ShowingRequest,
+} from "./showingBooking.js";
+import { askShowingAgreement } from "./showingQuestionAsk.js";
 import type { DeliveryTarget } from "./conversationState.js";
 
 /**
@@ -118,9 +127,12 @@ export async function detectOperatorShowingAgreement(
   // это служебная рассылка CRM, там некому было "договориться" словами.
   if (!sender || sender.kind !== "agent") return;
   if (!SHOWING_HINT_RE.test(agentText)) return;
-  // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026): выключено —
-  // показ словами не записываем и ИИ не зовём. Бот в своих ходах и кнопка не затронуты.
-  if (!(await automationSwitchOn("aiAgentShowingAutoBookEnabled"))) return;
+  // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026) и «Шабнам
+  // переспрашивает о показе» (22.11.2026): оба выключены — показ словами не записываем,
+  // не спрашиваем и ИИ не зовём. Бот в своих ходах и кнопка не затронуты.
+  const autoBook = await automationSwitchOn("aiAgentShowingAutoBookEnabled");
+  const askAgent = await automationSwitchOn("showingAgreementAskEnabled");
+  if (!autoBook && !askAgent) return;
 
   const clientId =
     target.kind === "telegram"
@@ -146,19 +158,59 @@ export async function detectOperatorShowingAgreement(
     messages: history,
     schema: RESULT_SCHEMA,
   });
-  if (!result?.found || !result.day || !result.time) return;
+  if (!result?.found) return;
 
   const request: ShowingRequest = {
     action: "book",
     propertyCode: result.propertyCode ?? undefined,
-    day: result.day,
-    time: result.time,
+    day: result.day ?? undefined,
+    time: result.time ?? undefined,
   };
   // Договорился ЖИВОЙ агент своими словами, а не бот, — actor обязателен (найдено
   // 20.08.2026): без него запись и push подписывались «бот назначил показ» о
   // действии, которое агент только что сделал сам (см. комментарий у bookShowing).
   const actor: ShowingActor = { kind: "agent", agentId: sender.agentId, agentName: sender.agentName };
-  // Дубли и перенос уже назначенного решает bookShowing по базе (та же логика,
-  // что и у бота) — второй раз это здесь не проверяется.
-  applyShowingRequestInBackground(clientId, request, target.kind === "telegram" ? "TELEGRAM" : target.channel, actor);
+  const channel = target.kind === "telegram" ? "TELEGRAM" : target.channel;
+
+  /**
+   * ПОНЯТНО ИЛИ СПРОСИТЬ (владелец 22.11.2026: «показы делать уведомлением с кнопками
+   * в Шабнам»). Понятно — время названо И объект назван в переписке кодом, который
+   * есть в каталоге и продаётся: показ ставится сам, как раньше (дубли и перенос
+   * решает bookShowing по базе). Иначе — через минуту Шабнам спрашивает агента
+   * «Договорились о показе?» (lib/showingQuestions.ts). Рубильник «Шабнам
+   * переспрашивает» выключен — прежнее поведение: есть день и время — bookShowing,
+   * а он сам сообщит агенту, что объект не понят.
+   */
+  const property = await provenPropertyByCode(result.propertyCode);
+  const slot = result.day && result.time ? resolveShowingSlot(request) : null;
+  if (autoBook && property && slot?.ok) {
+    applyShowingRequestInBackground(clientId, request, channel, actor);
+    return;
+  }
+  if (askAgent) {
+    // Показ уже стоит (бот или агент записал раньше, а эта реплика — «до встречи») — спрашивать не о чем.
+    const alreadyBooked = slot?.ok
+      ? await hasConflictingShowing(clientId, slot.at, { windowMs: SHOWING_AUTOBOOK_CONFLICT_WINDOW_MS })
+      : !!(await findActiveShowing({ clientId, now: new Date() }));
+    if (alreadyBooked) return;
+    await askShowingAgreement({
+      agentId: sender.agentId,
+      clientId,
+      sourceType: "CONVERSATION",
+      // Одна переписка — один вопрос в день: несколько реплик агента вокруг одной договорённости не плодят вопросы.
+      sourceId: `${target.kind}:${target.id}:${dushanbeDateString()}`,
+      proposedAt: slot?.ok ? slot.at : null,
+      propertyId: property?.id ?? null,
+      quote: agentText,
+    });
+    return;
+  }
+  if (autoBook && result.day && result.time) applyShowingRequestInBackground(clientId, request, channel, actor);
+}
+
+/** Объект по коду из переписки — только существующий и доступный для показа. */
+async function provenPropertyByCode(code: string | number | null | undefined): Promise<{ id: string } | null> {
+  const raw = String(code ?? "").replace(/[^\d]/g, "");
+  if (!/^\d{1,9}$/.test(raw)) return null;
+  return prisma.property.findFirst({ where: { shortId: Number(raw), deletedAt: null, status: "AVAILABLE" }, select: { id: true } });
 }

@@ -265,6 +265,8 @@ export async function knownBatch(agentId: string, sourceHash: string) {
 export async function stageExpenseBatch(params: {
   chatId: string; agentId: string; rows: IntakeRow[]; lang: IntakeLang; replyTo?: number;
   kind: (typeof BATCH_SOURCE_KINDS)[number]; notes?: CardNotes;
+  /** Список текстом (assistantExpenseTextList.ts): ключ сообщения `tg:<чат>:<сообщение>` — тот же, что у хода модели. */
+  chatRef?: string; sourceText?: string;
 }): Promise<void> {
   const { chatId, agentId, lang, replyTo } = params;
   const t = TEXT[lang];
@@ -283,6 +285,8 @@ export async function stageExpenseBatch(params: {
     try {
       const action = await createPendingAssistantAction(actor, ADD_EXPENSES_TOOL, {
         items, lang, source: { kind: params.kind, ...(replyTo ? { messageId: replyTo } : {}) },
+        ...(params.chatRef ? { chatRef: part ? `${params.chatRef}:${part}` : params.chatRef } : {}),
+        ...(params.sourceText ? { sourceText: params.sourceText.slice(0, 1000) } : {}),
       });
       const sent = await sendExpenseBatchCard(chatId, action, agentId, replyTo, part === 0 ? params.notes ?? {} : {});
       if (!sent) await sendMessage(chatId, t.failed, replyTo);

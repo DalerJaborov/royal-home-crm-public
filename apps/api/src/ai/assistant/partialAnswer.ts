@@ -10,6 +10,7 @@
  */
 import type { ClientLanguage } from "../clientLanguage.js";
 import { repliesInTajik } from "./languageRouting.js";
+import { BW, EW, TAIL } from "../wordBoundary.js";
 
 export const LAST_ROUND_INSTRUCTION =
   "\n\nЭТО ПОСЛЕДНИЙ ШАГ: инструменты больше не вызывай. Ответь по тому, что УЖЕ найдено выше. " +
@@ -166,4 +167,65 @@ export function partialAnswerFromResults(
   }
   if (lines.length === 0) return withWrites(TEXTS[lang].empty(collected.length));
   return withWrites(`${TEXTS[lang].head}\n${lines.join("\n")}\n${TEXTS[lang].tail}`);
+}
+
+/** Фразы честной остановки не про поиск: права, запись, длинный текст. На «шумо», без «лутфан». */
+const STOP_TEXTS: Record<ReplyLanguage, { failed: string; more: string; nothing: string }> = {
+  ru: {
+    failed: "Не получилось",
+    more: "Остальное не успела. Напишите, что сделать дальше, — продолжу.",
+    nothing: "Не успела закончить: просьба вышла слишком длинной. Напишите её короче или по частям — продолжу.",
+  },
+  tg: {
+    failed: "Нашуд",
+    more: "Боқимондаашро нарасидам. Нависед, ки баъд чӣ кор кунам — идома медиҳам.",
+    nothing: "Ба охир нарасондам: дархост хеле дароз шуд. Онро кӯтоҳтар ё қисм-қисм нависед — идома медиҳам.",
+  },
+};
+
+/**
+ * Часть текстов `error` инструментов написана для МОДЕЛИ («вызови сначала X», «передай поле Y», имена
+ * инструментов и параметров): человеку такое не показываем (ревью волны 2) — вместо неё общая фраза остановки.
+ */
+const MODEL_FACING = new RegExp(
+  `(?:${BW}[a-z]+_[a-z_]+${EW}|${BW}(?:вызови|вызовите|передай|передайте|используй|используйте|повтори\\s+вызов|не\\s+повторяй|аргумент${TAIL}|параметр${TAIL}|json|tool|schema)${EW})`,
+  "iu",
+);
+export function isModelFacingText(text: string): boolean {
+  return MODEL_FACING.test(text);
+}
+
+/** Смысл отказов инструментов (поле error) — без повторов и не длиннее строки. */
+function failureLines(collected: readonly CollectedToolResult[]): string[] {
+  const seen = new Set<string>();
+  for (const { result } of collected) {
+    const error = (result as { error?: unknown } | null)?.error;
+    if (typeof error !== "string" || !error.trim()) continue;
+    const line = error.trim().replace(/\s+/g, " ").slice(0, 200);
+    if (isModelFacingText(line)) continue;
+    seen.add(line);
+    if (seen.size >= 2) break;
+  }
+  return [...seen];
+}
+
+/**
+ * ЧЕСТНАЯ ОСТАНОВКА ХОДА (17.11.2026): кончились попытки хода, инструмент раз за разом
+ * отказывает, модель ходит по кругу. Раньше человек получал «Лимит вызовов ИИ достигнут»
+ * (неправда: дневной лимит был цел) или поисковое «назовите ориентир» на просьбу о правах.
+ * Теперь: нашлись карточки — прежний частичный ответ; иначе что уже сделано, что не вышло
+ * (смысл отказа инструмента) и одна фраза, как продолжить.
+ */
+export function honestStopAnswer(
+  collected: readonly CollectedToolResult[],
+  language?: ClientLanguage,
+  writes?: TurnWrites,
+): string {
+  if (hasFoundItems(collected)) return partialAnswerFromResults(collected, language, writes);
+  const lang = replyLanguage(language);
+  const lines = writesLines(writes, lang);
+  const failures = failureLines(collected);
+  if (failures.length) lines.push(`${STOP_TEXTS[lang].failed}: ${failures.join("; ")}`);
+  lines.push(lines.length ? STOP_TEXTS[lang].more : STOP_TEXTS[lang].nothing);
+  return lines.join("\n");
 }

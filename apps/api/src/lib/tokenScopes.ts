@@ -50,6 +50,13 @@ export interface RequiredScope {
    * в какой площадка одобрит право.
    */
   awaitingApproval?: string;
+  /**
+   * Право НЕ обязательно для того, что маркер делает сейчас, — почему, одной строкой (22.11.2026,
+   * ревью PR #391). Просится при подключении, но в «не хватает» не считается: суточная проверка
+   * без него строку «сломанной» не ставит и директору тревогу не шлёт (alertOnIntegrationBreakage).
+   * Нехватку видно отдельной припиской на «Здоровье системы» и в «Проверить права».
+   */
+  optional?: string;
 }
 
 export interface TokenScopeSpec {
@@ -99,6 +106,21 @@ export const TOKEN_SCOPE_CATALOG: Record<TokenKind, TokenScopeSpec> = {
     scopes: [
       { scope: "instagram_basic", forWhat: "видеть публикации Instagram" },
       { scope: "instagram_manage_contents", forWhat: "удалять публикации проданных объектов" },
+      // 22.11.2026: этим же ключом компании (системный пользователь) публикуются ролики,
+      // истории и фото, когда личный ключ Instagram умер от смены пароля
+      // (lib/instagramPublisher.ts). Без этих прав публикация остаётся на личном ключе, поэтому
+      // они НЕОБЯЗАТЕЛЬНЫ: иначе после выката суточная проверка назвала бы рабочий маркер
+      // удаления «сломанным» и разбудила бы директора (ревью PR #391, пункт 2).
+      {
+        scope: "instagram_content_publish",
+        forWhat: "публиковать ролики, истории и фото постоянным ключом компании",
+        optional: "без него публикация идёт личным ключом Instagram, удаление работает",
+      },
+      {
+        scope: "pages_read_engagement",
+        forWhat: "публикация в Instagram через Страницу (требование Meta)",
+        optional: "без него публикация идёт личным ключом Instagram, удаление работает",
+      },
     ],
   },
   META_ADS: {
@@ -202,10 +224,21 @@ function grantableScopes(kind: TokenKind, includeAwaitingApproval = false): Requ
   return TOKEN_SCOPE_CATALOG[kind].scopes.filter((s) => includeAwaitingApproval || !s.awaitingApproval);
 }
 
-/** Каких прав из списка нет среди выданных. Чистая функция. */
+/** Каких ОБЯЗАТЕЛЬНЫХ прав из списка нет среди выданных (необязательные — optionalMissingScopes). Чистая функция. */
 export function missingScopes(kind: TokenKind, granted: readonly string[]): RequiredScope[] {
   const have = new Set(granted);
-  return grantableScopes(kind).filter((s) => !have.has(s.scope));
+  return grantableScopes(kind).filter((s) => !s.optional && !have.has(s.scope));
+}
+
+/** Каких необязательных прав нет — только для приписки, не для «сломан». Чистая функция. */
+export function optionalMissingScopes(kind: TokenKind, granted: readonly string[]): RequiredScope[] {
+  const have = new Set(granted);
+  return grantableScopes(kind).filter((s) => s.optional && !have.has(s.scope));
+}
+
+/** Сколько обязательных прав проверяет строка «все N прав на месте». */
+export function requiredScopeCount(kind: TokenKind): number {
+  return grantableScopes(kind).filter((s) => !s.optional).length;
 }
 
 /** «Короткое» имя права для текста: у Google полный адрес длиной в строку. */
