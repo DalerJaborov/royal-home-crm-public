@@ -34,12 +34,21 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botSpamFilterEnabled",
   "shabnamSocialPublishEnabled",
   "instagramCompanyKeyEnabled",
+  "showingAgreementAskEnabled",
+  "showingOutcomeAskEnabled",
+  "clientRecordResultEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
 
 /** Нет строки настроек или поля — ВКЛЮЧЕНО: то же умолчание, что у колонки в базе. */
 export const AUTOMATION_SWITCH_DEFAULT = true;
+
+/**
+ * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
+ * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
+ */
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
@@ -56,7 +65,7 @@ export function isAutomationSwitchOn(
   settings: Partial<Record<AutomationSwitchKey, boolean | null | undefined>> | null | undefined,
   key: AutomationSwitchKey
 ): boolean {
-  return settings?.[key] ?? AUTOMATION_SWITCH_DEFAULT;
+  return settings?.[key] ?? !AUTOMATION_SWITCH_DEFAULT_OFF.has(key);
 }
 
 export interface AutomationSwitchLabel {
@@ -127,11 +136,28 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
+  clientRecordResultEnabled: {
+    title: "Кнопка «Записать результат» в карточке клиента",
+    on: "В карточке клиента (в меню «Ещё» и под кнопками на телефоне) есть кнопка «Записать результат»: можно вручную записать, чем закончился разговор или показ, в том числе задним числом.",
+    off: "Кнопки «Записать результат» в карточке нет. Итог звонка пишет ИИ, показ назначается кнопкой «Назначить показ».",
+  },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
     title: "Instagram через постоянный ключ Meta",
     on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу. Смена пароля Instagram бота не глушит. Если Meta откажет, ответ уйдёт личным ключом аккаунта.",
     off: "Все аккаунты Instagram отвечают личными ключами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
+  },
+  // Владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам… можно своими словами отвечать».
+  showingAgreementAskEnabled: {
+    title: "Шабнам переспрашивает о показе",
+    on: "Если ИИ услышал в звонке или прочитал в переписке о показе, но не понял время или объект, через минуту Шабнам спрашивает агента. Нет Telegram или нет ответа — тот же вопрос в CRM.",
+    off: "Не переспрашивает, всё как раньше: показ по звонку ставится сам, только если в подборе ровно один подходящий объект.",
+  },
+  showingOutcomeAskEnabled: {
+    title: "«У вас был показ?» после показа",
+    on: "Через час после показа Шабнам спрашивает агента: был показ или нет, и что дальше с клиентом. Нет Telegram или нет ответа — тот же вопрос в CRM.",
+    off: "Не спрашивает. Показ отмечают в календаре или в карточке клиента.",
   },
 };
 
@@ -147,13 +173,13 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
+    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "instagramCompanyKeyEnabled"] },

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **795**. Развилок в самих путях: **2523**; вместе с задачами по расписанию и фоновыми заданиями — **4234**. Модулей: **89**.
+Путей: **797**. Развилок в самих путях: **2529**; вместе с задачами по расписанию и фоновыми заданиями — **4246**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2606,8 +2606,10 @@
   · читает в базе: incomingCall
 - const operators = extensions.length ? await prisma.agent.findMany({ where: { sipExtension: { in: extensions }…
   · читает в базе: agent
+- const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c)
+  · зовёт loadClientDisplayLabels()
 - const rows = [ ...outgoing.map((i)
-  · зовёт clientNamePhoneSafe()
+  · зовёт presentClientRef()
 - res.json({ items: page, nextBefore: hasMore && page.length > 0 ? feedCursorOf(page[page.length - 1]) : null, …
   · ответ 200
 
@@ -2641,6 +2643,8 @@
   · читает в базе: settings
 - const calledBackIds = await findCallbackContacts( overdue.flatMap((c)
   · зовёт findCallbackContacts()
+- const clientLabels = await loadClientDisplayLabels(items.map((c)
+  · зовёт loadClientDisplayLabels()
 - для каждого: const call of overdue
   - если staffOf(call.phone)
     - continue;
@@ -2743,6 +2747,8 @@
 - const [items, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc"…
   · читает в базе: interaction
   · считает в базе: interaction
+- const clientLabels = await loadClientDisplayLabels(items.map((i)
+  · зовёт loadClientDisplayLabels()
 - res.json({ ownOnly: !seesEveryone, items: items.map((i)
   · ответ 200
 
@@ -4250,8 +4256,8 @@
   · читает в базе: settings
 - const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
   · зовёт presentClientTimeline()
-- const sellerPropertyAddress = client.kind === "SELLER" && access !== "transferred" ? await loadSellerProperty…
-  · зовёт loadSellerPropertyAddress()
+- const nameFacts = access === "transferred" ? undefined : (await loadClientAnchorFacts([client])).get(client.i…
+  · зовёт loadClientAnchorFacts()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
   · зовёт presentClient()
 - const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCard…
@@ -4697,8 +4703,8 @@
   - для каждого: const id of unread
     - unreadByClient.set(id, true);
       · дословно из кода
-- const sellerAddresses = sellerIds.length ? await loadSellerPropertyAddresses(sellerIds) : new Map<string, str…
-  · зовёт loadSellerPropertyAddresses()
+- const anchorFacts = await loadClientAnchorFacts(items);
+  · зовёт loadClientAnchorFacts()
 - const leadReasons = await loadLeadReasons(items.filter((c)
   · зовёт loadLeadReasons()
 - const lastStaffContact = await lastStaffContactAtByClient(items);
@@ -4709,6 +4715,10 @@
       · дословно из кода
   - return { ...step, nextAction: phoneSafeText(step.nextAction, seesPhone) };
     · зовёт phoneSafeText()
+- const nameFactsFor = (id: string, access: string, gated: boolean)
+  - если access === "transferred"
+    - return undefined;
+      · дословно из кода
 - res.json({ items: items.map((c)
   · ответ 200
   - const rowAccess = decideClientCardAccess(ownAgentId, c, false);
@@ -5353,6 +5363,8 @@
     · ответ 200
   - return;
     · дальше не идёт, ничего не меняя
+- const labels = await loadClientDisplayLabels(pageRows.map((r)
+  · зовёт loadClientDisplayLabels()
 - res.json({ items: pageRows.map((r)
   · ответ 200
 
@@ -17264,6 +17276,43 @@
   - next(error);
     · дословно из кода
 
+## /api/v1/showing-questions
+
+### POST /api/v1/showing-questions/:id/answer
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если isReadOnlyRole(req.agent!.role)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если !z.string().uuid().safeParse(req.params.id).success
+  - return res.status(400).json({ error: "Неверный идентификатор вопроса" });
+    · ответ 400 — «Неверный идентификатор вопроса»
+- const parsed = showingQuestionAnswerSchema.safeParse(req.body);
+  · проверяет данные схемой showingQuestionAnswerSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный ответ", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный ответ»
+- const result = await answerShowingQuestion({ questionId: req.params.id, actorId: req.agent!.id, canActForOthe…
+  · зовёт answerShowingQuestion()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: result.message });
+  · ответ 200
+
+### GET /api/v1/showing-questions
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const items = await listShowingQuestions(req.agent!.id, { clientId: parsed.data.clientId });
+  · зовёт listShowingQuestions()
+- res.json({ items });
+  · ответ 200
+
 ## /api/v1/site-notifications
 
 ### POST /api/v1/site-notifications/:id/resolve
@@ -21760,7 +21809,7 @@
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
 
-### expired-property-drafts-cleanup — 56 3 * * *
+### expired-property-drafts-cleanup — */15 * * * *
 
 - пробует
   - const removed = await cleanupExpiredPropertyDrafts();
@@ -21774,9 +21823,6 @@
       - если !(await discardDraft(d.id, { expiredAt: now }))
         - continue;
           · переходит к следующему
-      - если photos + videos > 0
-        - await sendPushToAgent(d.agentId, { title: "🗑 Черновик объекта удалён", body: `Срок черновика истёк, удалено …
-          · push-уведомление
   - если removed
     - console.log(`[cron] Уборка просроченных черновиков объектов: ${removed}`);
       · пишет строку в журнал сервера
@@ -25083,6 +25129,74 @@
 - в любом случае
   - isShowingConfirmRunning = false;
     · дословно из кода
+
+### showing-questions — * * * * *
+
+- пробует
+  - const { planned, sent, pushed } = await runShowingQuestionsTick();
+    · зовёт runShowingQuestionsTick()
+    - const planned = await planShowingOutcomeQuestions(now);
+      · зовёт planShowingOutcomeQuestions()
+    - если !isWithinDushanbeWindow(AGENT_ASK_START, AGENT_ASK_END, now)
+      - return { planned, sent: 0, pushed: 0 };
+        · дословно из кода
+    - const [agreementOn, outcomeOn] = await Promise.all([ automationSwitchOn("showingAgreementAskEnabled"), automa…
+      · зовёт automationSwitchOn()
+    - const due = await prisma.showingQuestion.findMany({ where: { status: "OPEN", askAt: { lte: now }, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of due
+      - пробует
+        - если !enabled(q.kind)
+          - await closeQuestion(q, { answer: "switch_off" }, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+      - если сорвалось
+        - void logSystemError("telegram", `Вопрос о показе не отправлен (${q.id}): ${describeError(err)}`, { dedupKey: …
+          · запись в журнал ошибок
+    - const silent = await prisma.showingQuestion.findMany({ where: { status: "OPEN", pushSentAt: null, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of silent
+      - пробует
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const claimed = await prisma.showingQuestion.updateMany({ where: { id: q.id, pushSentAt: null }, data: { push…
+          · меняет в базе: showingQuestion
+        - если claimed.count === 0
+          - continue;
+            · переходит к следующему
+        - const details = await loadQuestionDetails(q);
+          · зовёт loadQuestionDetails()
+        - если details
+          - await pushQuestion(details);
+            · дословно из кода
+          - pushed++;
+            · дословно из кода
+      - если сорвалось
+        - void logSystemError("api", `Пуш-страховка вопроса о показе не ушёл (${q.id}): ${describeError(err)}`, { dedup…
+          · запись в журнал ошибок
+  - если planned || sent || pushed
+    - console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка вопросов о показах", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### site-stats — 7 * * * *
 

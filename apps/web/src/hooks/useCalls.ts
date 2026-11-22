@@ -38,7 +38,7 @@ export interface CallRow {
   transcriptionStage: CallTranscriptionStage | null;
   transcriptionProgress: number | null;
   agent: { id: string; fullName: string; avatarUrl: string | null } | null;
-  client: { id: string; shortId: number; fullName: string } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string } | null;
   analysis: CallAnalysis | null;
 }
 
@@ -115,7 +115,7 @@ export interface IncomingCallRow {
   /** Имя сотрудника с этим внутренним номером. null — такого в CRM нет, и тогда
    *  показывается сам номер: «оператор 1001» лучше, чем пустое место. */
   answeredByName: string | null;
-  client: { id: string; shortId: number; fullName: string; kind: "BUYER" | "SELLER" | "OTHER" } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string; kind: "BUYER" | "SELLER" | "OTHER" } | null;
   /** Кому поставлена задача перезвонить (только у пропущенных). */
   callbackAgent: { id: string; fullName: string } | null;
   /** Когда оператор указал тип обращения. null — звонок ждёт разбора. */
@@ -341,7 +341,7 @@ export interface CallFeedRow {
   kind: "OUT" | "IN" | "MISSED";
   id: string;
   at: string;
-  client: { id: string; shortId: number; fullName: string } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string } | null;
   /** Номер звонившего — только у входящих и только если право позволяет. */
   phone: string | null;
   /** Звонил действующий сотрудник со своего номера (21.11.2026): это не клиент —

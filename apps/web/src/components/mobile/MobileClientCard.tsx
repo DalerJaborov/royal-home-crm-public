@@ -1,4 +1,6 @@
+import { clientHeadingName } from "../../lib/clientFormat";
 import { ShellOwnHeader } from "../rh2/ShellOwnHeader";
+import { ShowingQuestionsPanel } from "../ShowingQuestionsPanel";
 import { type ReactNode } from "react";
 import { Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
@@ -163,8 +165,7 @@ export function MobileClientCard({
         ) : (
           <div className="cd-name-row">
             <h1 className="n">
-              {client.fullName}
-              {client.lastName ? ` ${client.lastName}` : ""}
+              {clientHeadingName(client)}
             </h1>
             {!locked && (
               <button type="button" className="cd-name-edit" onClick={onStartEditName} aria-label="Изменить имя">
@@ -218,6 +219,9 @@ export function MobileClientCard({
           </button>
         )}
       </div>
+
+      {/* «У вас был показ?» / «Договорились о показе?» по этому клиенту (22.11.2026) — тот же компонент, что на ПК. */}
+      {!locked && <ShowingQuestionsPanel clientId={client.id} />}
 
       {commonMiddle}
 
