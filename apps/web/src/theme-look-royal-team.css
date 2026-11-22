@@ -570,3 +570,91 @@
 /* Метка в карточке сотрудника («Быстрее всех берёт лиды») на 320 px встаёт в две строки:
    радиус — половина высоты одной строки, иначе две строки читаются сплющенной таблеткой (20.11). */
 :root[data-ui-look="royal"] [data-ry-section="team"] .chip { border-radius: var(--rh-r-md); }
+
+/* ============ Карточка сотрудника «одним взглядом» (22.11.2026) ============ */
+/* Разметка — components/look/team/RoyalAgentCard.tsx; плитки, строки и кнопки — общие детали ui.tsx. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] { color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .scr { display: grid; gap: 24px; min-width: 0; max-width: 1280px; padding: 8px 0 32px; margin: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-back {
+  justify-self: start; min-height: var(--rh-ctl-h); padding: 0 4px; border: 0; background: transparent; color: var(--rh-ui-primary-ink);
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-back:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+
+/* Шапка: фото 96 без рамки, имя, роль, действия. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-hero {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px 20px; min-width: 0; padding: 20px;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-photo { position: relative; display: inline-grid; flex: none; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-dot { right: 4px; bottom: 4px; width: 20px; height: 20px; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-who { display: grid; gap: 4px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-who .ry-title { overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-sub { margin: 0; font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-live { display: inline; margin-right: 6px; font-weight: 700; color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-now { margin: 4px 0 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.4; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-acts .ry-btn { gap: 8px; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-acts .ry-more-btn { width: var(--rh-ctl-h); min-height: var(--rh-ctl-h); border-radius: var(--rh-r-full); background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-notes { grid-column: 1 / -1; display: grid; gap: 8px; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note {
+  display: block; margin: 0; padding: 12px 16px; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text);
+  font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="crit"] { background: var(--rh-ui-crit-soft); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-note[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+@media (min-width: 900px) {
+  :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-hero { grid-template-columns: auto minmax(0, 1fr) auto; padding: 24px; }
+  :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-acts { grid-column: auto; justify-content: flex-end; }
+  :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-notes { grid-column: 2 / -1; }
+}
+
+/* Период и пояснение. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-bar .ry-meta { flex: 1 1 260px; min-width: 0; }
+
+/* Плитки: на телефоне по две в ряд, на ПК сколько влезает. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles > [role="listitem"] { display: grid; min-width: 0; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles .ry-tile { min-height: 132px; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles .ry-tile-value { font-size: var(--rh-fs-3xl); overflow-wrap: anywhere; }
+@media (min-width: 720px) {
+  :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+}
+
+/* «Что не так»: покупатели и продавцы рядом на ПК, друг под другом на телефоне. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-issues { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
+@media (min-width: 900px) {
+  :root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-issues { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-col { display: grid; gap: 12px; min-width: 0; align-content: start; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-col-h { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 48px; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-col-h h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.02em; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-count {
+  flex: none; padding: 6px 12px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 700; background: var(--rh-ui-raised); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-count[data-tone="crit"] { background: var(--rh-ui-crit-soft); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-count[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-col .ry-btn { justify-self: start; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-row-sub { white-space: normal; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-chip { padding: 4px 10px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); font-weight: 600; white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-chip[data-tone="crit"] { background: var(--rh-ui-crit-soft); color: var(--rh-ui-crit-text); }
+
+/* График: та же карточка, что у главной; длинный месяц листается внутри карточки. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart {
+  display: grid; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart > *,
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart :is(.rh2, .scr, .rh2-bar-chart) { min-width: 0; max-width: 100%; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart .rh2-bar-chart { overflow-x: auto; overscroll-behavior-x: contain; direction: rtl; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart .rh2-bar-chart > .chart { direction: ltr; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart .rh2-bar-chart > .chart.wide { min-width: 640px; overflow: visible; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart .rh2-bar-chart > .chart.wide > svg { min-width: 640px; width: 640px; overflow: visible; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-home-chart-note { margin: 0; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
+
+/* Вкладки «Подробнее» и список за плиткой. */
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-tabs { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+:root[data-ui-look="royal"] .ry-agc[data-ry-section="team"] .ry-agc-panel { display: grid; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="team"] .ry-agc-drill { display: grid; gap: 12px; min-width: 0; }
