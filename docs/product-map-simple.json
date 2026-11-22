@@ -2782,11 +2782,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 110,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 115,
      "direct": false,
      "conf": "через общую часть"
@@ -2805,16 +2800,6 @@
      "i": 127,
      "direct": false,
      "conf": "через общую часть"
-    },
-    {
-     "i": 132,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 133,
-     "direct": false,
-     "conf": "через часть экрана"
     },
     {
      "i": 141,
@@ -16851,9 +16836,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: success",
@@ -19325,9 +19308,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: клиент",
@@ -19424,9 +19405,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: клиент",

@@ -18,7 +18,8 @@ describe("MarketBuyerListingsView", () => {
     const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />);
     expect(html).toContain("С сайтов объявлений");
     expect(html).toContain("не наши объекты");
-    expect(html.match(/Чужое/g)).toHaveLength(2);
+    expect(html.match(/С сайта/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Написать продавцу в WhatsApp"');
     expect(html).toContain('href="https://somon.tj/adv/0"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain("Somon");
@@ -80,10 +81,10 @@ describe("строка рынка над списком (14.11.2026)", () => {
 describe("строка «только собственники» (14.11.2026)", () => {
   it("честно говорит, сколько показано из скольких; без фильтра или без объявлений строки нет", () => {
     const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: true, kept: 2, total: 9 } })} />);
-    expect(html).toContain("Показаны только собственники: 2 из 9 объявлений.");
-    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: false, kept: 9, total: 9 } })} />)).not.toContain("market-owners-only");
-    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(0, { ownersOnly: { enabled: true, kept: 0, total: 0 } })} />)).not.toContain("market-owners-only");
-    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />)).not.toContain("market-owners-only");
+    expect(html).toContain("Только собственники: 2 из 9.");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { ownersOnly: { enabled: false, kept: 9, total: 9 } })} />)).not.toContain("Только собственники");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(0, { ownersOnly: { enabled: true, kept: 0, total: 0 } })} />)).not.toContain("Только собственники");
+    expect(renderToStaticMarkup(<MarketBuyerListingsView data={ok(2)} />)).not.toContain("Только собственники");
   });
 });
 
@@ -93,7 +94,7 @@ describe("узкий подбор (17.11.2026)", () => {
     const html = renderToStaticMarkup(<MarketBuyerListingsView data={ok(2, { listings: rows })} />);
     expect(html).toContain("район не указан");
     expect(html).toContain("за последние 3 суток");
-    expect(html).toContain("размещённые за последние 30 дней");
+    expect(html).toContain("Размещены за последние 30 дней");
   });
 
   it("клиент без района: строка «подбор по всему городу»", () => {
@@ -118,7 +119,7 @@ describe("действия и отметка «уже связывались» (
     expect(html.match(/aria-label="Написать продавцу в WhatsApp"/g)).toHaveLength(2);
     expect(html).toContain("Показать номер");
     expect(html).toContain("Номер на сайте");
-    expect(html.match(/>Объявление</g)).toHaveLength(2);
+    expect(html.match(/aria-label="Открыть объявление на сайте"/g)).toHaveLength(2);
   });
 
   it("отметка видна под строкой; текст без «—» и без номера", () => {
