@@ -3837,6 +3837,13 @@ model Client {
   /// он дозаполнит карточку; если жмёт кнопку бесконечно — это видно в хронологии.
   workingMarkedAt           DateTime?
   requirementsNotes         String?
+  /// «Заметки» без служебных ярлыков бота (lib/clientNoteLabels.ts) — по ним ищутся
+  /// «похожие карточки» (lib/fuzzySearch.ts). Пишет ТОЛЬКО перехват записи в db.ts
+  /// при каждой записи requirementsNotes; старые строки и смену списка ярлыков
+  /// досчитывает обход при старте worker (lib/clientNotesPlainSweep.ts).
+  requirementsNotesPlain    String?
+  /// Версия списка ярлыков, по которой посчитан requirementsNotesPlain (хеш списка).
+  requirementsNotesPlainRev Int?
   /// null только для kind=OTHER (работа/аренда/прочее) — такие обращения намеренно
   /// не распределяются агентам, ими занимается напрямую руководство.
   assignedAgentId           String?
@@ -4262,6 +4269,8 @@ model Client {
   /// ИИ-помощника): миграция 20261031141500_client_address_notes_trgm.
   @@index([address(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_address_trgm_idx")
   @@index([requirementsNotes(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_requirementsNotes_trgm_idx")
+  /// Похожие карточки по заметкам без ярлыков: оператор % (lib/fuzzySearch.ts).
+  @@index([requirementsNotesPlain(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_requirementsNotesPlain_trgm_idx")
   /// Ночной автостатус (lib/clientAutoStatus.ts) отбирает покупателей по kind и
   /// сортирует по давности контакта — без составного индекса это полный проход по
   /// всем клиентам каждую ночь (аудит 09.08.2026).

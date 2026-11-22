@@ -281,7 +281,8 @@ listRouter.get("/", requireAuth, async (req, res) => {
     // Корзина вообще может встретиться в обычном списке).
     ...(allMine ? { deletedBy: { select: { fullName: true } } } : {}),
   } satisfies Prisma.ClientInclude;
-  type ClientListRow = Prisma.ClientGetPayload<{ include: typeof listInclude }>;
+  // omit — как у клиента базы (db.ts): служебная копия заметок в строки списка не едет (PR #382).
+  type ClientListRow = Prisma.ClientGetPayload<{ include: typeof listInclude; omit: { requirementsNotesPlain: true; requirementsNotesPlainRev: true } }>;
 
   /**
    * Страница выдачи. Отдельной функцией, потому что запрашивается дважды: второй
