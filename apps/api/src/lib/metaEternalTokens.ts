@@ -69,9 +69,10 @@ export const FB_PAGE_SCOPES = ["pages_messaging"];
  * (developers.facebook.com/docs/instagram-platform/content-publishing): instagram_basic,
  * instagram_content_publish, pages_read_engagement. Без любого из них путь ключа компании
  * не выбирается — публикация остаётся на личном ключе (правка не ломает то, что работает).
- * НЕТ ДАННЫХ (не сверено вживую): нужен ли системному пользователю дополнительно
- * business_management/ads_read, когда Страница выдана ему через Business Manager, — экран
- * «Проверить права» показывает все выданные права, чтобы это было видно без догадок.
+ * Там же (ФАКТ, сверено 22.11.2026): если роль на Странице выдана через Business Manager,
+ * нужны ещё ads_management и ads_read. Путь ими НЕ запираем (не выбран — значит мёртвый
+ * личный ключ, ролик всё равно не уйдёт), а показываем на «Проверить права».
+ * НЕТ ДАННЫХ (не сверено вживую): ответ Meta системному пользователю без них.
  */
 export const IG_PUBLISH_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_read_engagement"];
 
@@ -88,6 +89,11 @@ export const COMPANY_KEY_SCOPE_CHECKS: ReadonlyArray<{ scope: string; forWhat: s
   { scope: "pages_manage_metadata", forWhat: "подписать Страницу на сообщения" },
   { scope: "pages_messaging", forWhat: "отвечать в Messenger Страницы" },
   { scope: "instagram_manage_contents", forWhat: "удалять публикации проданных объектов" },
+  // Meta (Content Publishing, Facebook Login): если Страница выдана через Business Manager —
+  // а системному пользователю она выдаётся только так, — нужны ещё права рекламы. Путь не
+  // запирают (без них ролик всё равно не ушёл бы личным мёртвым ключом), но видно на экране.
+  { scope: "ads_management", forWhat: "публикация в Instagram, если Страница выдана через Business Manager (требование Meta)" },
+  { scope: "ads_read", forWhat: "публикация в Instagram, если Страница выдана через Business Manager (требование Meta)" },
 ];
 /** Коды Meta «ключ/права не те» — тревога директору на пути Страницы. */
 const PERMISSION_CODES = new Set([3, 10, 102, 190, 230, 551]);
@@ -361,7 +367,12 @@ export async function instagramRouteForToken(token: string, opts: { ignoreBench?
 }
 
 export interface InstagramCompanyPublishRoute {
-  /** Маркер системного пользователя (EAA…): им идут /{ig-id}/media, статус контейнера, media_publish. */
+  /**
+   * Маркер Страницы, выданный системному пользователем (EAA…, срок «никогда»): им идут
+   * /{ig-id}/media, статус контейнера, media_publish. Не сам маркер системного пользователя:
+   * в таблице требований Content Publishing для Facebook Login Meta называет именно
+   * «Facebook Page access token» (сверено 22.11.2026).
+   */
   token: string;
   /** Instagram business id (17841…) — тот же, что `MessengerAccount.externalId`. */
   igUserId: string;
@@ -375,7 +386,8 @@ export interface InstagramCompanyPublishRoute {
  * пароль, личный IGAA ответил 401 «session invalidated» — переписка ушла на Страницу
  * (21.11), а ролики, истории и карусели так и шли мёртвым личным ключом.
  *
- * Путь: маркер системного пользователя напрямую, `graph.facebook.com/{ig-id}/media` →
+ * Путь: маркер Страницы от системного пользователя (systemPageGrant — тот же, что у переписки),
+ * `graph.facebook.com/{ig-id}/media` →
  * `/{container}?fields=status_code,status` → `/{ig-id}/media_publish` (Instagram API with
  * Facebook Login, те же поля, что у graph.instagram.com). Перенос адресов делает
  * metaGraph.ts::instagramRequest по началу маркера `EAA` — вызывающий код публикации не
@@ -403,7 +415,7 @@ export async function instagramCompanyPublishRoute(personalToken: string | undef
     const grant = await systemPageGrant(account.pageId, s.systemToken!);
     if (!grant.ok || grant.igId !== account.externalId) return null;
     return {
-      token: s.systemToken!,
+      token: grant.token,
       igUserId: account.externalId,
       accountId: account.id,
       pageId: account.pageId,

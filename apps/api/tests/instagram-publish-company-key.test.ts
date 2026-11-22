@@ -13,7 +13,7 @@ import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 const { prisma } = await import("../src/db.js");
 const { encryptSecret } = await import("../src/crypto.js");
 const eternal = await import("../src/lib/metaEternalTokens.js");
-const { resolveInstagramPublisher } = await import("../src/lib/instagramPublisher.js");
+const { resolveInstagramPublisher, noteInstagramPublishFailure } = await import("../src/lib/instagramPublisher.js");
 const { publishInstagramReel } = await import("../src/lib/socialPublish.js");
 const { GRAPH_VERSION } = await import("../src/messengers/meta.js");
 const { CHANNEL_KEY_ALERT_TAG_PREFIX, MANAGEMENT_ALARM_ROLES } = await import("../src/lib/channelKeyAlarm.js");
@@ -113,7 +113,8 @@ afterEach(async () => {
 describe("одна дверь «чем публиковать в Instagram»", () => {
   it("ключ компании готов — публикует он, в аккаунт этого Instagram; личный ключ Meta даже не спрашивали", async () => {
     const publisher = await resolveInstagramPublisher(IG_LOGIN);
-    expect(publisher).toMatchObject({ ok: true, route: "company", igUserId: IG_ID, token: SYSTEM, username: `publish_${run}` });
+    // Маркер Страницы от системного пользователя, а не сам системный (Meta: «Facebook Page access token»).
+    expect(publisher).toMatchObject({ ok: true, route: "company", igUserId: IG_ID, token: PAGE_TOKEN, username: `publish_${run}` });
     expect(fetchMock.mock.calls.filter(([u]) => isPersonalMe(String(u)))).toHaveLength(0);
   });
 
@@ -167,7 +168,7 @@ describe("ролик ключом компании", () => {
     expect(urls.some((u) => u.startsWith(`${GRAPH}/${CONTAINER}?fields=status_code`))).toBe(true);
     // Ни одного запроса на graph.instagram.com или через прокси — только graph.facebook.com.
     expect(urls.every((u) => u.startsWith("https://graph.facebook.com/"))).toBe(true);
-    for (const [, init] of fetchMock.mock.calls) expect(authOf(init as RequestInit)).toBe(`Bearer ${SYSTEM}`);
+    for (const [, init] of fetchMock.mock.calls) expect(authOf(init as RequestInit)).toBe(`Bearer ${PAGE_TOKEN}`);
     const createBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as Record<string, unknown>;
     expect(createBody).toMatchObject({ media_type: "REELS", video_url: "https://crm-test.royalhome.tj/uploads/handoff/x.mp4", caption: "Подпись" });
   });
@@ -191,6 +192,36 @@ describe("тревога, когда ключ Instagram перестал раб�
     const second = await resolveInstagramPublisher(IG_LOGIN);
     expect(second.ok).toBe(false);
     expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag } }))).toBe(1);
+  });
+});
+
+describe("тревога, когда ключ компании отказал в публикации", () => {
+  it("Meta ответила «Invalid OAuth access token» (код 190 без кода в тексте) — одна тревога директору под меткой ключа компании", async () => {
+    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}meta-system-user`;
+    tagsToClean.push(tag);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    const publisher = await resolveInstagramPublisher(IG_LOGIN);
+    expect(publisher).toMatchObject({ ok: true, route: "company" });
+
+    // Публикация отдаёт наружу только error.message (socialPublish.ts::graphErrorMessage).
+    await noteInstagramPublishFailure(publisher, "Invalid OAuth access token - Cannot parse access token");
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
+    // Директору и администратору, как остальные тревоги ключа компании, — не тихая «к сведению».
+    expect([...(alert?.recipientRoles ?? [])].sort()).toEqual(["ADMIN", "DIRECTOR"]);
+    expect(alert?.level).toBe("CRITICAL");
+    expect(alert?.body ?? "").not.toContain(PAGE_TOKEN);
+
+    await noteInstagramPublishFailure(publisher, "Error validating access token: Session has expired");
+    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag } }))).toBe(1);
+  });
+
+  it("отказ не ключа (формат видео) — тревоги нет", async () => {
+    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}meta-system-user`;
+    tagsToClean.push(tag);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    const publisher = await resolveInstagramPublisher(IG_LOGIN);
+    await noteInstagramPublishFailure(publisher, "The video format is not supported. Please check spec for supported video formats");
+    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag } }))).toBe(0);
   });
 });
 

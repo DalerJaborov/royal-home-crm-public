@@ -31,14 +31,28 @@
 - Переписка (пункт 2 задания) не трогалась: путь через Страницу ключом компании уже есть
   (`metaEternalTokens.ts::routeMetaMessagingCall`, с 21.11 под тем же рубильником), вебхуки и
   подписка не менялись.
-- Чем проверено: без сборки и прогона (в копии нет node_modules, по заданию не ставились).
+- Доводка после ревью (22.11.2026, вторая сессия, свод с main):
+  - Публикует МАРКЕР СТРАНИЦЫ от системного пользователя (`systemPageGrant`, тот же, что у
+    переписки), а не сам ключ системного пользователя: в таблице требований Content Publishing
+    для Facebook Login Meta называет «Facebook Page access token» (ФАКТ, сверено со страницей
+    developers.facebook.com/docs/instagram-platform/content-publishing 22.11).
+  - Там же: при роли на Странице через Business Manager нужны ещё `ads_management` и `ads_read` —
+    добавлены в «Проверить права» (путь ими не запираем: не выбран — значит мёртвый личный ключ).
+  - Тревога при отказе ключа компании — под меткой `meta-system-user` директору (как
+    integrationHealth и systemPageGrant), а не тихая «к сведению»: иначе тихая тревога под общей
+    меткой на 12 ч гасила бы срочную тревогу проверки ключа.
+  - `channelKeyAlarm.ts::isMetaAuthFailure` узнаёт сообщения кода 190 без кода в тексте
+    («Invalid OAuth access token», «Malformed access token», «could not be decrypted»): публикация
+    отдаёт наружу только `error.message`, и такой отказ ключа компании тревоги не давал.
+  - Тесты, красные без правки: `instagram-publish-company-key.test.ts` (маркер Страницы, тревога
+    директору одна на два отказа, отказ формата — без тревоги), `meta-eternal-tokens.test.ts`.
+- Чем проверено (первая сессия): без сборки и прогона (в копии нет node_modules, по заданию не ставились).
   Типы и имена сверены чтением. Сторож `tests/instagram-publisher-one-door.test.ts` прогнан
   своей логикой через node на коде до правки (7 файлов-нарушителей) и после (0). Новые тесты:
   `tests/instagram-publish-company-key.test.ts` (выбор ключа, ролик на graph.facebook.com,
   одна тревога на 401, права без маркера). `docs/product-flows.*` пересобраны; `product-map.mjs`
   без пакета `typescript` не запускается — карту пересоберёт `npm run ship` на своде.
 - Что осталось:
-  - Прогнать `npm run precheck` и новые тесты; `npm run map`.
   - Живьём: «Проверить права» — увидеть `instagram_content_publish` и `pages_read_engagement`;
     затем один ролик — в журнале и на экране строка «Публикует постоянным ключом компании».
   - Статистика (`instagramInsights.ts`, онлайн-подписчики в `routes/settings.ts`, `postStats.ts`)

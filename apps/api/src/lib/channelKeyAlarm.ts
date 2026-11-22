@@ -35,7 +35,9 @@ export function isMetaAuthFailure(status: number | undefined, bodyText: string |
   } catch {
     // Не JSON — смотрим текстом ниже.
   }
-  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)|session has been invalidated|Error validating access token|access token has expired/i.test(text);
+  // Текстом — для мест, где от ответа Meta остался только `error.message` (публикация:
+  // socialPublish.ts::graphErrorMessage). Все фразы ниже — сообщения кода 190 (22.11.2026).
+  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)|session has been invalidated|Error validating access token|access token has expired|Invalid OAuth access token|Malformed access token|access token could not be decrypted/i.test(text);
 }
 
 /** То же по тексту ошибки, которую уже бросил транспорт («Graph API HTTP 401: …»). */

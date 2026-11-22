@@ -20,8 +20,9 @@ import { describeError } from "./describeError.js";
  * Дальше вызывающий передаёт `igUserId` и `token` в publishInstagramReel/Story/Carousel —
  * адрес graph.facebook.com для ключа `EAA…` подставляет metaGraph.ts::instagramRequest.
  *
- * Отказ ключа (401, код 190/102) — тревога руководству через общую дверь
- * (channelKeyAlarm.ts, «к сведению», не чаще раза в сутки на ключ). «Meta закрыла доступ к
+ * Отказ ключа (401, код 190/102) — тревога через общую дверь channelKeyAlarm.ts: личный
+ * ключ — руководству «к сведению», раз в сутки на аккаунт; ключ компании — директору, как
+ * все тревоги ключа компании (метка `meta-system-user`). «Meta закрыла доступ к
  * аккаунту» — своя дверь (instagramAccountAccess.ts), второй тревоги не даём.
  *
  * Сторож: tests/instagram-publisher-one-door.test.ts не пропускает путь публикации,
@@ -107,12 +108,15 @@ async function noteKeyFailure(route: "company" | "personal", personalToken: stri
     const detail = shortReason(error);
     if (route === "company") {
       if (!isMetaAuthFailureText(error)) return;
+      // Та же метка и тот же адресат, что у остальных тревог ключа компании
+      // (integrationHealth.ts, metaEternalTokens.ts::systemPageGrant): директору, раз в 12 ч.
+      // Иначе тихая «к сведению» под общей меткой гасила бы срочную тревогу проверки ключа,
+      // хотя мёртвый ключ компании глушит и переписку, и публикацию разом.
       await raiseChannelKeyAlarm({
         key: "meta-system-user",
-        label: "Вечный ключ Meta, публикация Instagram",
+        label: "Вечный ключ Meta (системный пользователь), публикация Instagram",
         detail,
-        fix: INSTAGRAM_KEY_FIX,
-        audience: "management",
+        fix: "Business Suite → Настройки компании → Системные пользователи → выпустить ключ заново и вставить в Настройки → Каналы.",
       });
       return;
     }
