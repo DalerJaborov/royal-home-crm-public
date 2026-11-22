@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 795,
-  "forks": 4235,
+  "forks": 4233,
   "mounts": 89,
   "cron": 145,
   "jobs": 34,
@@ -133562,26 +133562,11 @@
           },
           {
            "k": "do",
-           "t": "r = publisher.ok ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.u…",
+           "t": "r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramCarousel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "publisher.ok && !r.ok && !r.pending",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void noteInstagramPublishFailure(publisher, r.error);",
-             "a": [
-              "зовёт noteInstagramPublishFailure()"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },
@@ -136699,26 +136684,11 @@
           },
           {
            "k": "do",
-           "t": "r = publisher.ok ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.u…",
+           "t": "r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramCarousel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "publisher.ok && !r.ok && !r.pending",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void noteInstagramPublishFailure(publisher, r.error);",
-             "a": [
-              "зовёт noteInstagramPublishFailure()"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         },
@@ -139108,9 +139078,9 @@
           },
           {
            "k": "do",
-           "t": "const result = await publishInstagramReel( owner.id, publisher.igUserId, igToken, videoUrl, igCaption, coverU…",
+           "t": "const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramReel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
           },
@@ -139121,7 +139091,7 @@
            "c": [
             {
              "k": "do",
-             "t": "result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;",
+             "t": "result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;",
              "a": [
               "зовёт fetchInstagramPermalink()"
              ],
@@ -139154,14 +139124,6 @@
              "t": "void logSystemError(\"meta\", metaFailureText(\"Instagram\", result));",
              "a": [
               "запись в журнал ошибок"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void noteInstagramPublishFailure(publisher, result.error);",
-             "a": [
-              "зовёт noteInstagramPublishFailure()"
              ],
              "c": []
             }

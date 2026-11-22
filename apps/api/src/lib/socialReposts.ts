@@ -18,7 +18,7 @@ import {
 import { buildPriceDisplay, type CaptionAgent } from "./reelsCaptionTemplate.js";
 import { loadMoneyContext, toTjs } from "./money.js";
 import { loadCredentials, GRAPH_VERSION } from "../messengers/meta.js";
-import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 import { readJson, graphErrorMessage, deleteInstagramMedia, PUBLISH_TIMEOUT_MS } from "./socialPublish.js";
 import { sendMediaGroupFiles, deleteChannelMessage, isTelegramEnabled } from "../telegram/api.js";
 import { decryptSecretSafe } from "../crypto.js";
@@ -264,9 +264,8 @@ export async function publishPropertyRepost(propertyId: string, round: number, o
       // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
       const publisher = await resolveInstagramPublisher(creds.igToken);
       r = publisher.ok
-        ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.urls, caption)
+        ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(propertyId, igUserId, token, prepared.urls, caption))).result
         : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
-      if (publisher.ok && !r.ok && !r.pending) void noteInstagramPublishFailure(publisher, r.error);
     }
     results.INSTAGRAM = r;
     await upsertRepostRecord(

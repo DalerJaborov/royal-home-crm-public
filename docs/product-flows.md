@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **795**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4235**. Модулей: **89**.
+Путей: **795**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4233**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -29639,11 +29639,8 @@
     - иначе
       - const publisher = await resolveInstagramPublisher(creds.igToken);
         · зовёт resolveInstagramPublisher()
-      - r = publisher.ok ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.u…
-        · зовёт publishInstagramCarousel()
-      - если publisher.ok && !r.ok && !r.pending
-        - void noteInstagramPublishFailure(publisher, r.error);
-          · зовёт noteInstagramPublishFailure()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Фото-пост в Instagram (объект ${propertyId}) не удался: ${r.error}`, { dedupKey:…
         · запись в журнал ошибок
@@ -30315,11 +30312,8 @@
     - иначе
       - const publisher = await resolveInstagramPublisher(creds.igToken);
         · зовёт resolveInstagramPublisher()
-      - r = publisher.ok ? await publishInstagramCarousel(propertyId, publisher.igUserId, publisher.token, prepared.u…
-        · зовёт publishInstagramCarousel()
-      - если publisher.ok && !r.ok && !r.pending
-        - void noteInstagramPublishFailure(publisher, r.error);
-          · зовёт noteInstagramPublishFailure()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Повтор в Instagram (объект ${propertyId}, круг ${round}) не удался: ${r.error}`,…
         · запись в журнал ошибок
@@ -30827,10 +30821,10 @@
         · читает в базе: agent
       - const collaborators = instagramCollaboratorsFor({ settingsRaw: settings?.instagramCollaborators ?? null, agen…
         · зовёт instagramCollaboratorsFor()
-      - const result = await publishInstagramReel( owner.id, publisher.igUserId, igToken, videoUrl, igCaption, coverU…
-        · зовёт publishInstagramReel()
+      - const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
       - если result.ok && result.postId
-        - result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;
+        - result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;
           · зовёт fetchInstagramPermalink()
       - если igKey
         - result.destinationKey = igKey;
@@ -30838,8 +30832,6 @@
       - если !result.ok && !result.pending
         - void logSystemError("meta", metaFailureText("Instagram", result));
           · запись в журнал ошибок
-        - void noteInstagramPublishFailure(publisher, result.error);
-          · зовёт noteInstagramPublishFailure()
     - иначе
       - если igKey
         - failed.destinationKey = igKey;

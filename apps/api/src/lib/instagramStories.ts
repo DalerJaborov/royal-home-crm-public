@@ -38,7 +38,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "../db.js";
 import { loadCredentials } from "../messengers/meta.js";
-import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { personalInstagramPublisher, publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 import {
   publishInstagramStory,
   publishInstagramStoryImage,
@@ -183,11 +183,13 @@ export async function publishPropertyInstagramStories(
   }
 
   // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
-  const publisher = await resolveInstagramPublisher(creds.igToken);
-  if (!publisher.ok) {
-    void logSystemError("meta", `Истории Instagram (объект ${propertyId}): не удалось определить аккаунт — ${publisher.error}`);
-    return { attempted: true, publishedParts: 0, totalParts: 0, error: publisher.error };
+  const resolved = await resolveInstagramPublisher(creds.igToken);
+  if (!resolved.ok) {
+    void logSystemError("meta", `Истории Instagram (объект ${propertyId}): не удалось определить аккаунт — ${resolved.error}`);
+    return { attempted: true, publishedParts: 0, totalParts: 0, error: resolved.error };
   }
+  // Серия частей идёт одним ключом; отказ ключа компании до контейнера переводит её на личный.
+  let publisher = resolved;
 
   // Facebook (28.09.2026) — ПОВЕРХ Instagram, под своим тумблером, всегда
   // проверяемым (в отличие от instagramStoriesEnabled его не обходит force —
@@ -214,7 +216,16 @@ export async function publishPropertyInstagramStories(
   if (partsLeft === 0) {
     return { attempted: true, publishedParts: donePartIndexes.size, totalParts: segments.length };
   }
-  const limit = await checkInstagramPublishingLimit(publisher.igUserId, publisher.token);
+  let limit = await checkInstagramPublishingLimit(publisher.igUserId, publisher.token);
+  if (!limit.ok && publisher.route === "company") {
+    // Ключу компании Meta не ответила даже на лимит (права, ключ) — это только чтение: один раз
+    // спрашиваем личным ключом и, если он жив, публикуем серию им (ревью #391, пункт 1).
+    const personal = await personalInstagramPublisher(publisher);
+    if (personal.ok) {
+      publisher = personal;
+      limit = await checkInstagramPublishingLimit(publisher.igUserId, publisher.token);
+    }
+  }
   if (limit.ok && limit.remaining < partsLeft) {
     const error = `Исчерпан дневной лимит публикаций Meta (осталось ${limit.remaining}, нужно ${partsLeft}) — попробуем позже`;
     void logSystemError("meta", `Истории Instagram (объект ${propertyId}): ${error}`);
@@ -255,7 +266,11 @@ export async function publishPropertyInstagramStories(
         void logSystemError("meta", `Истории Instagram (объект ${propertyId}): ${error}`);
         return { attempted: true, publishedParts, totalParts: segments.length, error };
       }
-      const result = await publishInstagramStory(propertyId, publisher.igUserId, publisher.token, videoUrl, i);
+      const attempt = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+        publishInstagramStory(propertyId, igUserId, token, videoUrl, i)
+      );
+      const result = attempt.result;
+      publisher = attempt.publisher;
       if (!result.ok) {
         // pending (случай №111) — контейнер жив у Meta и сохранён на дозавершение
         // (см. savePendingInstagramContainer в socialPublish.ts), это не отказ:
@@ -267,7 +282,6 @@ export async function publishPropertyInstagramStories(
             "meta",
             `Истории Instagram (объект ${propertyId}), часть ${i + 1}/${segments.length}: ${result.retriable ? "Meta не смогла скачать ролик, повторим сами через несколько минут — " : ""}${result.error}`
           );
-          void noteInstagramPublishFailure(publisher, result.error);
         }
         return {
           attempted: true,
@@ -496,13 +510,14 @@ async function publishCardStory(params: {
     const imageUrl = publicUploadUrl(publicPath);
     if (!imageUrl) return fail("Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать картинку истории");
 
-    const result = await publishInstagramStoryImage(propertyId, publisher.igUserId, publisher.token, imageUrl, kind);
+    const { result } = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+      publishInstagramStoryImage(propertyId, igUserId, token, imageUrl, kind)
+    );
     let outcome: StoriesPublishSummary;
     if (!result.ok) {
       outcome = result.pending
         ? { attempted: true, publishedParts: 0, totalParts: 1, error: result.error }
         : fail(result.error ?? "Instagram отказал без объяснения");
-      if (!result.pending) void noteInstagramPublishFailure(publisher, result.error);
     } else {
       await prisma.propertyStoryPost.create({
         data: { propertyId, channel: "INSTAGRAM", mediaId: result.postId ?? "", partIndex: 0, kind },

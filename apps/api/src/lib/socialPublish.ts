@@ -5,7 +5,7 @@ import {
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
-import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 import fs from "node:fs/promises";
 import { openAsBlob } from "node:fs";
 import path from "node:path";
@@ -100,6 +100,32 @@ export interface PublishResult {
    * несколько разных постов с полной подходящей подписью и датой.
    */
   outcomeUnknown?: boolean;
+  /** Отказ Meta на шаге Instagram — см. InstagramGraphRefusal. */
+  graphError?: InstagramGraphRefusal;
+}
+
+/**
+ * ОТКАЗ META НА ШАГЕ ПУБЛИКАЦИИ INSTAGRAM (22.11.2026, ревью PR #391). `graphErrorMessage`
+ * оставляет только текст, а одна дверь выбора ключа (lib/instagramPublisher.ts) должна
+ * отличить отказ КЛЮЧА (190/102, права 10/200–299) от отказа ролика. `step: "create"` —
+ * Meta не создала контейнер (или слайд карусели): публиковать нечего, повтор другим ключом
+ * дубля не даст. `step: "publish"` — контейнер уже есть, повтор другим ключом запрещён.
+ */
+export interface InstagramGraphRefusal {
+  step: "create" | "publish";
+  status: number;
+  code?: number;
+  subcode?: number;
+}
+
+export function instagramGraphRefusal(step: InstagramGraphRefusal["step"], status: number, body: Record<string, unknown>): InstagramGraphRefusal {
+  const info = graphErrorInfo(body);
+  return {
+    step,
+    status,
+    ...(info.code !== undefined ? { code: info.code } : {}),
+    ...(info.subcode !== undefined ? { subcode: info.subcode } : {}),
+  };
 }
 
 /** Экспортирован (21.09.2026) — lib/instagramPendingContainers.ts переиспользует
@@ -508,6 +534,7 @@ export async function publishInstagramReel(
         channel: "INSTAGRAM",
         ok: false,
         error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        graphError: instagramGraphRefusal("create", createRes.status, createBody),
         ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
       };
     }
@@ -557,7 +584,12 @@ export async function publishInstagramReel(
     if (!publishRes.ok || !postId) {
       // Запись НАМЕРЕННО остаётся PENDING: контейнер обработан и, скорее всего,
       // ещё публикуем — пусть фоновый проход доведёт его сам.
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`),
+        graphError: instagramGraphRefusal("publish", publishRes.status, publishBody),
+      };
     }
     await resolveInstagramContainer(containerId, "PUBLISHED");
     return { channel: "INSTAGRAM", ok: true, postId, ...(collaboratorsNote ? { note: collaboratorsNote } : {}) };
@@ -610,6 +642,7 @@ async function publishInstagramStoryMedia(
         channel: "INSTAGRAM",
         ok: false,
         error: graphErrorMessage(createBody, `HTTP ${createRes.status}`),
+        graphError: instagramGraphRefusal("create", createRes.status, createBody),
         ...(isMetaMediaFetchRetriable(graphErrorInfo(createBody)) ? { retriable: true } : {}),
       };
     }
@@ -645,7 +678,12 @@ async function publishInstagramStoryMedia(
     if (!publishRes.ok || !postId) {
       // Запись НАМЕРЕННО остаётся PENDING: контейнер обработан и, скорее всего,
       // ещё публикуем — пусть фоновый проход доведёт его сам.
-      return { channel: "INSTAGRAM", ok: false, error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`) };
+      return {
+        channel: "INSTAGRAM",
+        ok: false,
+        error: graphErrorMessage(publishBody, `HTTP ${publishRes.status}`),
+        graphError: instagramGraphRefusal("publish", publishRes.status, publishBody),
+      };
     }
     await resolveInstagramContainer(containerId, "PUBLISHED");
     return { channel: "INSTAGRAM", ok: true, postId };
@@ -3321,7 +3359,6 @@ export async function publishApprovedPost(params: {
     // компании через graph.facebook.com, если готов, иначе личный ключ аккаунта.
     const publisher = await resolveInstagramPublisher(igTarget.token);
     if (publisher.ok) {
-      const igToken = publisher.token;
       // Соавторы (26.09.2026): ник агента-хозяина объекта первым + до 3 ников
       // из Настроек. Запрос агента — только здесь, не выше: остальные каналы
       // (Facebook/Telegram/YouTube/TikTok) соавторов не знают и этот столбец
@@ -3341,18 +3378,21 @@ export async function publishApprovedPost(params: {
         settingsRaw: settings?.instagramCollaborators ?? null,
         agentUsername: ownerAgent?.instagramUsername ?? null,
       });
-      const result = await publishInstagramReel(
-        owner.id,
-        publisher.igUserId,
-        igToken,
-        videoUrl,
-        igCaption,
-        coverUrl,
-        collaborators,
-        owner.kind === "freeVideo" ? { ownerText, persistPendingContainer: false } : undefined
+      // Через дверь: отказ ключа компании до контейнера — один повтор личным ключом (ревью #391).
+      const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+        publishInstagramReel(
+          owner.id,
+          igUserId,
+          token,
+          videoUrl,
+          igCaption,
+          coverUrl,
+          collaborators,
+          owner.kind === "freeVideo" ? { ownerText, persistPendingContainer: false } : undefined
+        )
       );
       if (result.ok && result.postId) {
-        result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;
+        result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;
       }
       if (igKey) result.destinationKey = igKey;
       results.push(result);
@@ -3363,7 +3403,6 @@ export async function publishApprovedPost(params: {
       // «обрабатывается» обратно в «не удалась».
       if (!result.ok && !result.pending) {
         void logSystemError("meta", metaFailureText("Instagram", result));
-        void noteInstagramPublishFailure(publisher, result.error);
       }
     } else {
       // ОБ-000113 (21.09.2026): эта ветка клала результат в `results`, но не звала

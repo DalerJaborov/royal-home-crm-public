@@ -8,7 +8,7 @@ import { preparePhotoPostImages, publishInstagramCarousel, publishFacebookPhotoP
 import { CONTACT_NUMBERS, buildReelsHashtags, buildPriceDisplay, withPostFooter } from "./reelsCaptionTemplate.js";
 import { loadMoneyContext, toTjs } from "./money.js";
 import { loadCredentials } from "../messengers/meta.js";
-import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 
 /**
  * ПОДБОРКИ ОБЪЕКТОВ (28.09.2026, agent-brief.md reposts-digests, решение
@@ -286,8 +286,7 @@ async function publishDigest(pick: DigestPick, recordIds: Record<DigestChannel, 
   } else {
     // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
     const publisher = await resolveInstagramPublisher(creds.igToken);
-    r = publisher.ok ? await publishInstagramCarousel(pick.properties[0]?.id ?? "digest", publisher.igUserId, publisher.token, urls, caption) : { ok: false, error: publisher.error };
-    if (publisher.ok && !r.ok && !r.pending) void noteInstagramPublishFailure(publisher, r.error);
+    r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(pick.properties[0]?.id ?? "digest", igUserId, token, urls, caption))).result : { ok: false, error: publisher.error };
   }
   await upsertDigestRecord(
     recordIds.INSTAGRAM,

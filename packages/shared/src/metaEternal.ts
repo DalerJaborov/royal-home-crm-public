@@ -51,13 +51,24 @@ export const metaEternalStatusSchema = z.object({
     ok: z.boolean(),
     name: z.string().optional(),
     appId: z.string().optional(),
+    /** Что не так с ключом — готовая фраза для владельца, без кодов Meta (ответ Meta — в журнале). */
     detail: z.string().optional(),
     /** Каких прав для переписки нет у ключа компании (/me/permissions). */
     missingScopes: z.array(z.string()),
     /** «Проверить права» (22.11.2026): все права, выданные ключу компании (только названия, не маркер). */
     grantedScopes: z.array(z.string()).optional(),
     /** Нужные права и зачем — список ведёт сервер (lib/metaEternalTokens.ts::COMPANY_KEY_SCOPE_CHECKS). */
-    scopeChecks: z.array(z.object({ scope: z.string(), forWhat: z.string(), granted: z.boolean() })).optional(),
+    scopeChecks: z
+      .array(
+        z.object({
+          scope: z.string(),
+          forWhat: z.string(),
+          granted: z.boolean(),
+          /** Не обязательно для работы (ads_* для публикации): без него экран не зовёт перевыпускать ключ. */
+          optional: z.boolean().optional(),
+        })
+      )
+      .optional(),
   }),
   rows: z.array(metaEternalKeyRowSchema),
 });

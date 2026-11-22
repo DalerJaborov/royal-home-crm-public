@@ -52,6 +52,16 @@ function calls(code: string, name: string): boolean {
   return all > declared;
 }
 
+/** Текст аргументов вызова от открывающей скобки (start — сразу после неё) до парной закрывающей. */
+function argsAt(code: string, start: number): string {
+  let depth = 1;
+  for (let i = start; i < code.length; i++) {
+    if (code[i] === "(") depth++;
+    else if (code[i] === ")" && --depth === 0) return code.slice(start, i);
+  }
+  return code.slice(start);
+}
+
 describe("публикация в Instagram выбирает ключ одной дверью", () => {
   const files = tsFiles(SRC).filter((f) => !f.endsWith(`${path.sep}instagramPublisher.ts`));
   const publishing = files.filter((f) => {
@@ -72,6 +82,40 @@ describe("публикация в Instagram выбирает ключ одной
       return calls(code, "instagramTokenIdentity") || !calls(code, "resolveInstagramPublisher");
     });
     expect(offenders.map((f) => path.relative(SRC, f))).toEqual([]);
+  });
+
+  /**
+   * Ревью PR #391, пункт 5: мало, что дверь в файле ЕСТЬ — ключ должен прийти ИЗ неё. Публикация —
+   * только внутри `publishViaInstagramPublisher(publisher, (igUserId, token) => …)` и именно этими
+   * igUserId/token (там подстраховка личным ключом); лимит — `publisher.igUserId, publisher.token`.
+   * Проверка сторожа: замените в photoPosts.ts вызов на `publishInstagramCarousel(propertyId,
+   * publisher.igUserId, creds.igToken, …)` вне двери — тест обязан покраснеть.
+   */
+  it("ключ и аккаунт в каждый вызов публикации приходят из двери, а не из личного ключа", () => {
+    const publishOnly = new Set(PUBLISH_CALLS.filter((n) => !n.startsWith("check")));
+    const bad: string[] = [];
+    for (const file of publishing) {
+      const code = codeOf(file);
+      for (const name of PUBLISH_CALLS) {
+        const re = new RegExp(`\\b${name}\\s*\\(`, "g");
+        for (let m = re.exec(code); m; m = re.exec(code)) {
+          const before = code.slice(0, m.index);
+          if (/function\s+$/.test(before)) continue; // объявление
+          // Вызов внутри самих функций публикации (лимит зовёт квоту) — это их внутренности.
+          const enclosing = [...before.matchAll(/function\s+(\w+)\s*\(/g)].pop()?.[1];
+          if (enclosing && PUBLISH_CALLS.includes(enclosing)) continue;
+          const args = argsAt(code, m.index + m[0].length);
+          const where = `${path.relative(SRC, file)}: ${name}(${args.replace(/\s+/g, " ").slice(0, 80)})`;
+          if (publishOnly.has(name)) {
+            const insideDoor = /publishViaInstagramPublisher\(\s*\w+\s*,\s*(async\s*)?\(\s*igUserId\s*,\s*token\s*\)\s*=>\s*$/.test(before);
+            if (!insideDoor || !/^[^,]+,\s*igUserId\s*,\s*token\s*[,)]?/.test(args)) bad.push(where);
+          } else if (!/^\s*publisher\.igUserId\s*,\s*publisher\.token\s*$/.test(args)) {
+            bad.push(where);
+          }
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 
   it("фоновое дозавершение контейнеров — тем же ключом, что публикация", () => {

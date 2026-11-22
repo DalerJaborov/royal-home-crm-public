@@ -64,7 +64,7 @@ import { sharpFromUpload } from "./heicInput.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
 import { publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
 import { loadCredentials } from "../messengers/meta.js";
-import { noteInstagramPublishFailure, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — сервис (12.10.2026).
@@ -1401,9 +1401,8 @@ async function runPhotoDestinations(row: Pick<Row, "id" | "imagePaths" | "captio
           // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
           const publisher = await resolveInstagramPublisher(target.token);
           r = publisher.ok
-            ? await publishInstagramCarousel(id, publisher.igUserId, publisher.token, urls, row.caption)
+            ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(id, igUserId, token, urls, row.caption))).result
             : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
-          if (publisher.ok && !r.ok && !r.pending) void noteInstagramPublishFailure(publisher, r.error);
         }
       } else if (d.channel === "FACEBOOK") {
         const creds = await loadCredentials();

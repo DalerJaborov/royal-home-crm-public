@@ -139,7 +139,7 @@ export function MetaEternalKeys() {
               ? `Ключ компании работает${data.systemUser.name ? ` (${data.systemUser.name})` : ""}.` +
                 (data.systemUser.missingScopes.length ? ` Не хватает прав: ${data.systemUser.missingScopes.join(", ")}.` : "")
               : data.systemUser.configured
-                ? `Ключ компании не работает: ${data.systemUser.detail ?? "Meta не ответила"}.`
+                ? (data.systemUser.detail ?? "Meta не приняла ключ компании.")
                 : "Ключ компании не задан — вставьте его в поле «Маркер удаления Instagram» ниже."}
           </p>
           {data.rows.length > 0 && (
@@ -182,7 +182,9 @@ export function CompanyKeyScopesCheck() {
   });
   const user = status.data?.systemUser;
   const checks = user?.scopeChecks ?? [];
-  const missing = checks.filter((c) => !c.granted);
+  // Необязательные (ads_*) не зовут перевыпускать ключ: без них публикация пробует, а при
+  // отказе Meta сама уходит личным ключом (сервер, lib/instagramPublisher.ts).
+  const missing = checks.filter((c) => !c.granted && !c.optional);
   const extra = (user?.grantedScopes ?? []).filter((s) => !checks.some((c) => c.scope === s));
   return (
     <div style={{ marginTop: "var(--s3)" }}>
@@ -198,12 +200,13 @@ export function CompanyKeyScopesCheck() {
       </div>
       {status.isError && <p className="quiet" role="alert">Не удалось проверить права. Попробуйте ещё раз.</p>}
       {user && !user.configured && <p className="quiet">Ключ компании не задан — проверять нечего.</p>}
-      {user?.configured && !user.ok && <p className="quiet" role="alert">Ключ компании не принят Meta: {user.detail ?? "без пояснения"}.</p>}
+      {/* Текст готовит сервер — по-русски и без кодов Meta; сам ответ Meta остаётся в журнале. */}
+      {user?.configured && !user.ok && <p className="quiet" role="alert">{user.detail ?? "Meta не приняла ключ компании."}</p>}
       {user?.ok && checks.length > 0 && (
         <>
           <p className="quiet">
             {missing.length
-              ? `Не хватает прав: ${missing.map((c) => c.scope).join(", ")}. Выпустите ключ системного пользователя заново, отметив их.`
+              ? `Ключ компании пока не может: ${missing.map((c) => c.forWhat).join("; ")}. Выпустите ключ системного пользователя заново и отметьте права, помеченные «Нет».`
               : "Все нужные права выданы."}
           </p>
           <div className="list">
@@ -211,10 +214,13 @@ export function CompanyKeyScopesCheck() {
               <div className="row" key={c.scope}>
                 <div className="t">
                   <b style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
-                    <span>{c.scope}</span>
-                    <span className={`chip ${c.granted ? "ok" : "crit"}`}>{c.granted ? "Есть" : "Нет"}</span>
+                    <span>{c.forWhat}</span>
+                    <span className={`chip ${c.granted ? "ok" : c.optional ? "" : "crit"}`}>
+                      {c.granted ? "Есть" : c.optional ? "Не обязательно" : "Нет"}
+                    </span>
                   </b>
-                  <span>{c.forWhat}</span>
+                  {/* Название права — мелко: его ищут в Business Suite при перевыпуске ключа. */}
+                  <span>{c.scope}</span>
                 </div>
               </div>
             ))}
