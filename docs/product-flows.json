@@ -50221,7 +50221,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const facts = narrationFacts(p);",
+     "t": "const facts = narrationFacts(p, config.liveWords === true);",
      "a": [
       "зовёт narrationFacts()"
      ],
@@ -50510,7 +50510,7 @@
     },
     {
      "k": "do",
-     "t": "const facts = narrationFacts(p);",
+     "t": "const facts = narrationFacts(p, config.liveWords === true);",
      "a": [
       "зовёт narrationFacts()"
      ],

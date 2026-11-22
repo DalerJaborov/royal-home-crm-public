@@ -11352,7 +11352,7 @@
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
-- const facts = narrationFacts(p);
+- const facts = narrationFacts(p, config.liveWords === true);
   · зовёт narrationFacts()
 - const usdToTjs = await narrationRate();
   · зовёт narrationRate()
@@ -11416,7 +11416,7 @@
     · зовёт adoptListenedNarration()
   - return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true, ...(adopted ? …
     · ответ 201
-- const facts = narrationFacts(p);
+- const facts = narrationFacts(p, config.liveWords === true);
   · зовёт narrationFacts()
 - const error = narrationScriptError(script);
   · зовёт narrationScriptError()

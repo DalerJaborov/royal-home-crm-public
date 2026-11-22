@@ -95,6 +95,9 @@ export function narrationFactsChanges(before: Partial<NarrationFacts> | null | u
   const norm = (v: unknown) => v === undefined || v === null || v === "" ? null : String(v);
   const out: string[] = [];
   for (const [key, label] of FACT_LABELS) {
+    // Участок дома в фактах только при «Живых словах» (ревью #363): снимок без поля (до 21.11 или при ВЫКЛ) или нынешние
+    // факты без него (рубильник выключили) — сравнивать нечего, иначе «Изменилось: участок» при неизменных сотках.
+    if (key === "landSotka" && !(key in before && key in after)) continue;
     if (norm(before[key]) !== norm(after[key]) && !out.includes(label)) out.push(label);
   }
   return out;

@@ -627,6 +627,25 @@ export function narrationTotalFloorsError(text: string): string | null {
     ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} и {этажность} вместе с оборотом вокруг них"
     : null;
 }
+/** Слова, которые звучат только при включённых «Живых словах» (config.liveWords); выключены — подставляется пустое. */
+export const NARRATION_LIVE_PLACEHOLDERS = ["объект", "сколько_комнат", "метраж"] as const;
+/**
+ * Сторож сохранения при ВЫКЛЮЧЕННЫХ «Живых словах» (ревью #363): слово из NARRATION_LIVE_PLACEHOLDERS вне квадратных скобок
+ * прозвучало бы пустым и порвало фразу («Дар ноҳияи Сино фурӯхта мешавад»). В скобках — можно: фрагмент «если есть» выпадет
+ * целиком. Проверяются все тексты, не только изменённые: так звучит каждый из них, пока рубильник выключен.
+ */
+export function narrationLiveWordsError(text: string): string | null {
+  let depth = 0, outside = "";
+  for (const ch of text) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth = Math.max(0, depth - 1);
+    else if (depth === 0) outside += ch;
+  }
+  const used = NARRATION_LIVE_PLACEHOLDERS.filter((word) => outside.includes(`{${word}}`));
+  return used.length
+    ? `${used.map((w) => `{${w}}`).join(", ")} звучит только при включённых «Живых словах» (Настройки → Озвучка). Включите «Живые слова» или поставьте это слово в квадратные скобки`
+    : null;
+}
 export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts, live = false): string {
   const values = placeholderValues(facts, template.lang, live);
   const source = withoutTotalFloors(template.text);

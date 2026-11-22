@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   estimateNarrationSec, narrationAreaWords, narrationConfigSchema, narrationDraftText, narrationFitsType, narrationObjectWords,
-  narrationRoomsWords, narrationSotkaWords, narrationTemplateError, narrationTotalFloorsError, type NarrationFacts, type NarrationLang,
+  narrationFactsChanges, narrationLiveWordsError, narrationRoomsWords, narrationSotkaWords, narrationTemplateError, narrationTotalFloorsError, type NarrationFacts, type NarrationLang,
 } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash } from "../src/lib/propertyNarration.js";
@@ -85,6 +85,8 @@ describe("библиотека 21.11.2026: правила текста", () => {
     const CALQUES = /Фурӯхта мешавад дар|иборат(?:\s|$)|интихоб кардан мехоҳед|бинои\s+\{этажей\}\s+ошёна|Комнат:|Площадь:|Этаж\s+\{/iu;
     for (const item of [...lib.templates, ...lib.endings]) {
       expect(narrationTemplateError(item.text, item.lang), item.id).toBeNull();
+      // Этажность дома не говорим (#376): в библиотеке нет ни {этажей}, ни {этажность}, ни {этажность_род} (ревью #363).
+      expect(narrationTotalFloorsError(item.text), item.id).toBeNull();
       expect(item.text, item.id).not.toMatch(CALQUES);
       expect(item.text, item.id).not.toMatch(/Директ|брон|доллар/iu);
     }
@@ -170,20 +172,47 @@ describe("рубильник «живые слова»: по умолчанию 
 
 describe("участок дома в фактах озвучки", () => {
   const house = { type: "HOUSE", rooms: 8, areaSqm: "200", floor: null, totalFloors: 2, district: { name: "Фирдавси" }, price: "2550000", currency: "TJS", landAreaSotka: "5" };
-  it("дом получает landSotka, квартира — нет (её хэш фактов прежний)", () => {
-    expect(narrationFacts(house).landSotka).toBe("5");
-    const apt = narrationFacts({ ...house, type: "APARTMENT", landAreaSotka: null });
+  it("участок попадает в факты дома только при «Живых словах»; квартира — никогда (её хэш фактов прежний)", () => {
+    expect(narrationFacts(house, true).landSotka).toBe("5");
+    expect("landSotka" in narrationFacts(house, false)).toBe(false);
+    const apt = narrationFacts({ ...house, type: "APARTMENT", landAreaSotka: null }, true);
     expect("landSotka" in apt).toBe(false);
     expect(narrationHash(apt)).toBe(narrationHash({ type: "APARTMENT", rooms: 8, areaSqm: "200", floor: null, totalFloors: 2, district: "Фирдавси", price: "2550000", currency: "TJS" }));
   });
-  it("озвучка дома, сделанная до 21.11 (в снимке нет landSotka), не становится «устаревшей»; смена цены — становится", () => {
-    const { landSotka: _drop, ...before } = narrationFacts(house);
-    const version = { factsHash: narrationHash(before), factsSnapshot: before };
-    expect(narrationFactsCurrent(version, house)).toBe(true);
+  it("ревью #363: при ВЫКЛ отпечаток дома как в main, правка соток озвучку не старит", () => {
+    const off = narrationFacts(house, false);
+    expect(narrationHash(off)).toBe(narrationHash({ type: "HOUSE", rooms: 8, areaSqm: "200", floor: null, totalFloors: 2, district: "Фирдавси", price: "2550000", currency: "TJS" }));
+    const version = { factsHash: narrationHash(off), factsSnapshot: off };
+    expect(narrationFactsCurrent(version, { ...house, landAreaSotka: "6" })).toBe(true);
+    expect(narrationFactsCurrent(version, { ...house, landAreaSotka: null })).toBe(true);
+    // Без снимка (вызовы, что выбирают только factsHash) — так же.
+    expect(narrationFactsCurrent({ factsHash: version.factsHash }, { ...house, landAreaSotka: "6" })).toBe(true);
     expect(narrationFactsCurrent(version, { ...house, price: "2600000" })).toBe(false);
-    // Версия уже с участком: смена участка — новая озвучка.
-    const fresh = narrationFacts(house);
-    expect(narrationFactsCurrent({ factsHash: narrationHash(fresh), factsSnapshot: fresh }, { ...house, landAreaSotka: "6" })).toBe(false);
+  });
+  it("версия, сделанная при ВКЛ (сотки звучат в аудио): смена участка — новая озвучка, без смены — актуальна при любом положении", () => {
+    const fresh = narrationFacts(house, true);
+    const v = { factsHash: narrationHash(fresh), factsSnapshot: fresh };
+    expect(narrationFactsCurrent(v, house)).toBe(true);
+    expect(narrationFactsCurrent(v, { ...house, landAreaSotka: "6" })).toBe(false);
+  });
+});
+
+describe("ревью #363: «Изменилось: участок» не врёт", () => {
+  const base: NarrationFacts = { type: "HOUSE", rooms: 8, areaSqm: "200", floor: null, totalFloors: 2, district: "Фирдавси", price: "2550000", currency: "TJS" };
+  it("снимок без участка (ВЫКЛ или до 21.11) против фактов с участком — не изменение; оба с участком — изменение", () => {
+    expect(narrationFactsChanges(base, { ...base, landSotka: "5" })).toEqual([]);
+    expect(narrationFactsChanges({ ...base, landSotka: "5" }, base)).toEqual([]);
+    expect(narrationFactsChanges({ ...base, landSotka: "5" }, { ...base, landSotka: "6" })).toEqual(["участок"]);
+  });
+});
+
+describe("ревью #363: при ВЫКЛ новые слова вне скобок не принимаются", () => {
+  it("вне скобок — отказ с подсказкой; в скобках и старые слова — можно", () => {
+    expect(narrationLiveWordsError("{объект} фурӯхта мешавад.")).toMatch(/Живых словах/u);
+    expect(narrationLiveWordsError("Продаётся квартира. {метраж}.")).toMatch(/\{метраж\}/u);
+    expect(narrationLiveWordsError("[Дар ноҳияи {район} {объект} фурӯхта мешавад.] Нархаш {цена}.")).toBeNull();
+    expect(narrationLiveWordsError("[{сколько_комнат}.] [Участок {сотки}.]")).toBeNull();
+    expect(narrationLiveWordsError("{вид}[ дар ноҳияи {район}]. Масоҳаташ {площадь} метри мураббаъ.")).toBeNull();
   });
 });
 
