@@ -28,7 +28,7 @@ import {
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
-import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher, type InstagramGraphRefusal } from "./instagramPublisher.js";
 import {
   readJson,
   graphErrorMessage,
@@ -37,7 +37,6 @@ import {
   waitForInstagramContainerReady,
   instagramGraphRefusal,
   PUBLISH_TIMEOUT_MS,
-  type InstagramGraphRefusal,
 } from "./socialPublish.js";
 import { sendMediaGroupFiles, deleteChannelMessage, isTelegramEnabled } from "../telegram/api.js";
 import { decryptSecretSafe } from "../crypto.js";

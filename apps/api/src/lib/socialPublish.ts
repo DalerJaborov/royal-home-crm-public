@@ -5,7 +5,7 @@ import {
   fetchWithRetry,
   GRAPH_VERSION,
 } from "../messengers/meta.js";
-import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher, type InstagramGraphRefusal } from "./instagramPublisher.js";
 import fs from "node:fs/promises";
 import { openAsBlob } from "node:fs";
 import path from "node:path";
@@ -104,20 +104,7 @@ export interface PublishResult {
   graphError?: InstagramGraphRefusal;
 }
 
-/**
- * ОТКАЗ META НА ШАГЕ ПУБЛИКАЦИИ INSTAGRAM (22.11.2026, ревью PR #391). `graphErrorMessage`
- * оставляет только текст, а одна дверь выбора ключа (lib/instagramPublisher.ts) должна
- * отличить отказ КЛЮЧА (190/102, права 10/200–299) от отказа ролика. `step: "create"` —
- * Meta не создала контейнер (или слайд карусели): публиковать нечего, повтор другим ключом
- * дубля не даст. `step: "publish"` — контейнер уже есть, повтор другим ключом запрещён.
- */
-export interface InstagramGraphRefusal {
-  step: "create" | "publish";
-  status: number;
-  code?: number;
-  subcode?: number;
-}
-
+/** Тип отказа живёт в двери (instagramPublisher.ts) — иначе круг импортов (audit:deps). */
 export function instagramGraphRefusal(step: InstagramGraphRefusal["step"], status: number, body: Record<string, unknown>): InstagramGraphRefusal {
   const info = graphErrorInfo(body);
   return {

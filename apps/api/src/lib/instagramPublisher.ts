@@ -3,7 +3,6 @@ import { describeMetaToken, instagramCompanyPublishRoute, isPermissionCode, note
 import { isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
 import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
 import { describeError } from "./describeError.js";
-import type { InstagramGraphRefusal } from "./socialPublish.js";
 
 /**
  * КТО И ЧЕМ ПУБЛИКУЕТ В INSTAGRAM — ОДНА ДВЕРЬ (22.11.2026).
@@ -60,6 +59,20 @@ export type InstagramPublisher =
   | { ok: false; error: string };
 
 export type InstagramPublisherOk = Extract<InstagramPublisher, { ok: true }>;
+
+/**
+ * ОТКАЗ META НА ШАГЕ ПУБЛИКАЦИИ INSTAGRAM (22.11.2026, ревью PR #391). `graphErrorMessage`
+ * оставляет только текст, а эта дверь должна
+ * отличить отказ КЛЮЧА (190/102, права 10/200–299) от отказа ролика. `step: "create"` —
+ * Meta не создала контейнер (или слайд карусели): публиковать нечего, повтор другим ключом
+ * дубля не даст. `step: "publish"` — контейнер уже есть, повтор другим ключом запрещён.
+ */
+export interface InstagramGraphRefusal {
+  step: "create" | "publish";
+  status: number;
+  code?: number;
+  subcode?: number;
+}
 
 /** Что нужно двери от результата любой публикации Instagram (PublishResult, PhotoPostPublishResult). */
 export interface InstagramPublishAttempt {
