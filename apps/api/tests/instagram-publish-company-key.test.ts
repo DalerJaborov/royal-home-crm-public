@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor, waitForSettled } from "./helpers/waitFor.js";
 
@@ -30,6 +30,9 @@ const CONTAINER = `container-${run}`;
 const MEDIA = `media-${run}`;
 const PERSONAL_CONTAINER = `container-personal-${run}`;
 const PERSONAL_MEDIA = `media-personal-${run}`;
+/** Отпечаток ключа компании (как metaEternalTokens.ts::fingerprint) — часть метки тревоги о правах. */
+const keyId = (token: string) => createHash("sha256").update(token).digest("hex").slice(0, 12);
+const PUBLISH_RIGHTS_TAG = `${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}:${keyId(SYSTEM)}`;
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
 const PUBLISH_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_read_engagement", "instagram_manage_messages", "pages_manage_metadata"];
 
@@ -293,8 +296,8 @@ async function publishReelThroughDoor() {
 }
 
 describe("подстраховка: Meta отказала ключу компании (ревью PR #391)", () => {
-  it("отказ в правах (код 10) на создании контейнера — один повтор личным ключом, ровно один ролик, тревога руководству раз в сутки", async () => {
-    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}`;
+  it("отказ в правах (код 10) на создании контейнера — один повтор личным ключом, ровно один ролик, тревога руководству", async () => {
+    const tag = PUBLISH_RIGHTS_TAG;
     tagsToClean.push(tag);
     await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
     meta.companyCreate = PERMISSION_DENIED;
@@ -311,17 +314,35 @@ describe("подстраховка: Meta отказала ключу компа�
     const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
     expect([...(alert?.recipientRoles ?? [])].sort()).toEqual([...MANAGEMENT_ALARM_ROLES].sort());
     expect(alert?.body ?? "").not.toContain(PAGE_TOKEN);
-    // Второй отказ тревогу не повторяет — суточный предел.
-    await noteInstagramPublishFailure(
-      { ok: true, route: "company", igUserId: IG_ID, token: PAGE_TOKEN, personalToken: IG_LOGIN, pageId: PAGE_ID },
-      "(#10) Application does not have permission for this action",
-      { step: "create", status: 400, code: 10 }
-    );
-    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag } }))).toBe(1);
+  });
+
+  it("тревога об отказе в правах — ОДНА на ключ и Страницу: назавтра не повторяется, новый ключ — новая тревога", async () => {
+    tagsToClean.push(PUBLISH_RIGHTS_TAG);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: PUBLISH_RIGHTS_TAG } });
+    const publisher = await resolveInstagramPublisher(IG_LOGIN);
+    expect(publisher).toMatchObject({ ok: true, route: "company", companyKeyId: keyId(SYSTEM) });
+    if (!publisher.ok) return;
+    const refusal = { step: "create" as const, status: 400, code: 10 };
+    const text = "(#10) Application does not have permission for this action";
+
+    await noteInstagramPublishFailure(publisher, text, refusal);
+    expect(await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: PUBLISH_RIGHTS_TAG } }))).toBeTruthy();
+    // «Назавтра» и через месяц: прежняя тревога старше суток — повтора всё равно нет.
+    await prisma.pendingDirectorAlert.updateMany({ where: { tag: PUBLISH_RIGHTS_TAG }, data: { createdAt: new Date(Date.now() - 40 * 24 * 60 * 60_000) } });
+    await noteInstagramPublishFailure(publisher, text, refusal);
+    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: PUBLISH_RIGHTS_TAG } }))).toBe(1);
+
+    // Ключ компании перевыпустили — другой отпечаток, тревога снова одна.
+    const newKeyTag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}:${keyId(`${SYSTEM}-new`)}`;
+    tagsToClean.push(newKeyTag);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: newKeyTag } });
+    await noteInstagramPublishFailure({ ...publisher, companyKeyId: keyId(`${SYSTEM}-new`) }, text, refusal);
+    expect(await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: newKeyTag } }))).toBeTruthy();
+    expect(await prisma.pendingDirectorAlert.count({ where: { tag: newKeyTag } })).toBe(1);
   });
 
   it("после отказа в правах публикация 30 минут идёт личным ключом, а переписка через Страницу НЕ ломается", async () => {
-    tagsToClean.push(`${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}`);
+    tagsToClean.push(PUBLISH_RIGHTS_TAG);
     meta.companyCreate = PERMISSION_DENIED;
     await publishReelThroughDoor();
     expect(await resolveInstagramPublisher(IG_LOGIN)).toMatchObject({ ok: true, route: "personal" });
@@ -353,7 +374,7 @@ describe("подстраховка: Meta отказала ключу компа�
   });
 
   it("отказ на media_publish (контейнер уже есть) — повтора личным ключом НЕТ, иначе второй ролик", async () => {
-    tagsToClean.push(`${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}`);
+    tagsToClean.push(PUBLISH_RIGHTS_TAG);
     meta.companyPublish = PERMISSION_DENIED;
     const { result, publisher } = await publishReelThroughDoor();
     expect(result.ok).toBe(false);
@@ -372,7 +393,7 @@ describe("подстраховка: Meta отказала ключу компа�
   });
 
   it("личный ключ тоже мёртв — честный отказ, без второй попытки вслепую", async () => {
-    tagsToClean.push(`${CHANNEL_KEY_ALERT_TAG_PREFIX}ig-publish:${PAGE_ID}`, `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`);
+    tagsToClean.push(PUBLISH_RIGHTS_TAG, `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`);
     meta.companyCreate = PERMISSION_DENIED;
     meta.personalMe = () => json({ error: { code: 190, message: "Error validating access token: Session has expired" } }, 401);
     const { result, publisher } = await publishReelThroughDoor();

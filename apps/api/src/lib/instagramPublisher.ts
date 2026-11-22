@@ -31,7 +31,7 @@ import type { InstagramGraphRefusal } from "./socialPublish.js";
  * Отказ ключа — тревога через общую дверь channelKeyAlarm.ts: личный ключ (401, 190/102) —
  * руководству «к сведению», раз в сутки на аккаунт; мёртвый ключ компании — директору, как
  * все тревоги ключа компании (метка `meta-system-user`); отказ ключу компании в правах —
- * руководству «к сведению», раз в сутки на Страницу. «Meta закрыла доступ к аккаунту» —
+ * руководству «к сведению», один раз на ключ и Страницу (без повтора по сроку). «Meta закрыла доступ к аккаунту» —
  * своя дверь (instagramAccountAccess.ts), второй тревоги не даём.
  *
  * Сторож: tests/instagram-publisher-one-door.test.ts не пропускает путь публикации,
@@ -53,6 +53,8 @@ export type InstagramPublisher =
       personalToken: string;
       /** Страница, через которую идёт ключ компании (только route "company"). */
       pageId?: string;
+      /** Отпечаток ключа компании, не сам ключ (только route "company") — метка тревоги. */
+      companyKeyId?: string;
       username?: string;
     }
   | { ok: false; error: string };
@@ -95,6 +97,7 @@ export async function resolveInstagramPublisher(
       token: company.token,
       personalToken,
       pageId: company.pageId,
+      companyKeyId: company.companyKeyId,
       ...(company.username ? { username: company.username } : {}),
     };
   }
@@ -175,7 +178,7 @@ export async function noteInstagramPublishFailure(
 }
 
 async function noteKeyFailure(
-  publisher: Pick<InstagramPublisherOk, "route" | "personalToken" | "pageId">,
+  publisher: Pick<InstagramPublisherOk, "route" | "personalToken" | "pageId" | "companyKeyId">,
   error: string,
   graph?: InstagramGraphRefusal
 ): Promise<void> {
@@ -201,10 +204,13 @@ async function noteKeyFailure(
         });
         return;
       }
-      // Отказ в ПРАВАХ (10, 200–299): ключ жив, переписка через Страницу может работать —
-      // руководству «к сведению», раз в сутки на Страницу (как отказ пути Страницы в переписке).
+      // Отказ в ПРАВАХ (10, 200–299): ключ жив, переписка через Страницу может работать, публикация
+      // уходит личным ключом — руководству «к сведению» ОДИН раз на пару «ключ компании + Страница»
+      // (ревью PR #391): ежедневный повтор, пока не выданы необязательные ads_*, — шум, который
+      // перестают читать. Перевыпустили ключ — новый отпечаток, новая тревога.
       await raiseChannelKeyAlarm({
-        key: `ig-publish:${publisher.pageId ?? "-"}`,
+        key: `ig-publish:${publisher.pageId ?? "-"}:${publisher.companyKeyId ?? "-"}`,
+        once: true,
         label: "Публикация Instagram постоянным ключом компании",
         detail: `Meta отказала ключу компании в правах на публикацию (код ${graph?.code ?? "—"}): ${detail}`,
         fix: "Публикация пробует личный ключ. Настройки → Каналы → «Проверить права» ключа компании.",

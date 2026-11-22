@@ -390,6 +390,8 @@ export interface InstagramCompanyPublishRoute {
   igUserId: string;
   accountId: string;
   pageId: string;
+  /** Отпечаток ключа компании (12 знаков sha256, не сам ключ): новый ключ — новая тревога. */
+  companyKeyId: string;
   username?: string;
 }
 
@@ -434,6 +436,7 @@ export async function instagramCompanyPublishRoute(personalToken: string | undef
       igUserId: account.externalId,
       accountId: account.id,
       pageId: account.pageId,
+      companyKeyId: fingerprint(s.systemToken!),
       ...(account.username ? { username: account.username } : {}),
     };
   } catch (err) {
