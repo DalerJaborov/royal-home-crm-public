@@ -1,4 +1,6 @@
 import {
+  defaultShowingCallbackLocal,
+  dushanbeLocalToIso,
   formatClientName,
   formatPropertyCode,
   SHOWING_NEXT_STEP_LABELS,
@@ -11,8 +13,10 @@ import {
 import type { ShowingQuestion } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { automationSwitchOn } from "./automationSwitches.js";
-import { bookShowing, cancelShowingById, rescheduleShowingById, showingTimeLabel, type BookingProblem, type ShowingActor } from "./showingBooking.js";
-import { completeInteractionTask } from "./taskCompletion.js";
+import { bookShowing, cancelShowingById, findActiveShowing, rescheduleShowingById, showingTimeLabel, type BookingProblem, type ShowingActor } from "./showingBooking.js";
+import { afterInteractionTaskCompleted, completeInteractionTask } from "./taskCompletion.js";
+import { clientNamePhoneSafe } from "./clientPhone.js";
+import { loadAgentAccess } from "../auth/middleware.js";
 import { logTimeline } from "./timeline.js";
 import { dushanbeDateString, dushanbeInputToDate, dushanbeStartOfToday, dushanbeTimeString } from "./dushanbeTime.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
@@ -172,13 +176,25 @@ export interface ShowingQuestionDetails {
   at: Date | null;
 }
 
-/** Всё, что нужно показать вопрос: клиент, объект, время, варианты объекта. null — клиента нет. */
-export async function loadQuestionDetails(q: ShowingQuestionRow): Promise<ShowingQuestionDetails | null> {
+/** Видит ли сотрудник номера клиентов (номер или ник в имени карточки — те же личные данные). */
+export async function viewerSeesPhones(agentId: string): Promise<boolean> {
+  const access = await loadAgentAccess(agentId);
+  return Boolean(access?.isActive && access.permissions.has("clients.viewPhone"));
+}
+
+/**
+ * Всё, что нужно показать вопрос: клиент, объект, время, варианты объекта. null — клиента нет.
+ * Имя клиента — с маской номера и ника для того, кто номеров не видит (ревью 22.11: карточку
+ * незнакомого звонившего CRM заводит с номером в имени) — тем же правилом, что предложение
+ * объекта коллеге (clientNamePhoneSafe). viewerId — кому показываем; по умолчанию агент вопроса.
+ */
+export async function loadQuestionDetails(q: ShowingQuestionRow, viewerId: string = q.agentId): Promise<ShowingQuestionDetails | null> {
   const client = await prisma.client.findUnique({
     where: { id: q.clientId },
     select: { id: true, shortId: true, fullName: true, kind: true, dualIntent: true },
   });
   if (!client) return null;
+  client.fullName = clientNamePhoneSafe(client.fullName, await viewerSeesPhones(viewerId));
   const property = q.propertyId
     ? await prisma.property.findFirst({ where: { id: q.propertyId, deletedAt: null }, select: { id: true, shortId: true, title: true } })
     : null;
@@ -218,14 +234,20 @@ export async function listShowingQuestions(agentId: string, opts: { clientId?: s
     orderBy: { askAt: "asc" },
     take: LIST_LIMIT,
   });
+  const [agreementOn, outcomeOn] = await Promise.all([
+    automationSwitchOn("showingAgreementAskEnabled"),
+    automationSwitchOn("showingOutcomeAskEnabled"),
+  ]);
   const out: ShowingQuestionView[] = [];
   for (const q of rows) {
+    // Рубильник выключен — вопрос своего вида не показываем (крон снимет его без отправки).
+    if (!(q.kind === "AGREEMENT" ? agreementOn : outcomeOn)) continue;
     const fact = await closedByFact(q, now);
     if (fact) {
       await closeQuestion(q, fact, now);
       continue;
     }
-    const details = await loadQuestionDetails(q);
+    const details = await loadQuestionDetails(q, agentId);
     if (details) out.push(toView(details));
   }
   return out;
@@ -275,7 +297,7 @@ function validTaskDate(at: Date, now: Date): boolean {
 
 /** Задача по умолчанию, когда агент нажал «Думает, перезвонить» без даты (кнопка Шабнам): завтра в 11:00. */
 export function defaultCallbackAt(now: Date = new Date()): Date {
-  return tomorrowAt("11:00", now);
+  return new Date(dushanbeLocalToIso(defaultShowingCallbackLocal(now))!);
 }
 
 interface AnswerInput {
@@ -360,6 +382,12 @@ async function execute(
       const at = new Date(answer.at);
       const property = await prisma.property.findFirst({ where: { id: answer.propertyId }, select: { shortId: true } });
       if (!property) return { ok: false, status: 404, error: "Объект не найден" };
+      // У клиента уже стоит показ на другое время — bookShowing подвинул бы его молча. Пусть агент
+      // решит сам: перенести в календаре или сказать Шабнам словами.
+      const active = await findActiveShowing({ clientId: q.clientId, now });
+      if (active?.nextActionDate && active.nextActionDate.getTime() !== at.getTime()) {
+        return { ok: false, status: 409, error: `У клиента уже есть показ на ${showingTimeLabel(active.nextActionDate)}. Перенесите его в календаре или напишите Шабнам словами.` };
+      }
       const booked = await bookShowing({
         clientId: q.clientId,
         request: { action: "book", propertyCode: property.shortId, day: dushanbeDateString(at), time: dushanbeTimeString(at) },
@@ -378,22 +406,30 @@ async function execute(
     case "held": {
       const showing = q.showingId ? await prisma.interaction.findUnique({ where: { id: q.showingId } }) : null;
       if (!showing) return { ok: false, status: 404, error: "Показ не найден" };
-      await completeInteractionTask(showing);
       const step = answer.next as ShowingNextStep;
       let task: { nextAction: string; nextActionDate: Date } | null = null;
       if (step === "pick_others") task = { nextAction: "Подобрать другие объекты после показа", nextActionDate: tomorrowAt("12:00", now) };
       if (step === "callback") {
         const at = answer.callbackAt ? new Date(answer.callbackAt) : defaultCallbackAt(now);
+        // Срок проверяется ДО отметки показа (ревью 22.11): иначе показ отмечался, а задача — нет.
         if (!validTaskDate(at, now)) return { ok: false, status: 400, error: "Когда перезвонить — укажите время в будущем, не дальше трёх месяцев" };
         task = { nextAction: "Перезвонить клиенту после показа", nextActionDate: at };
       }
-      await logTimeline({
-        clientId: q.clientId,
-        actor: { kind: "agent", agentId: input.actorId },
-        type: "SYSTEM",
-        notes: `Итог показа: показ был. Дальше: ${SHOWING_NEXT_STEP_LABELS[step]}.`,
-        ...(task ?? {}),
+      // Отметка показа и итог с задачей — одной транзакцией: либо оба, либо ничего.
+      const { changed } = await prisma.$transaction(async (tx) => {
+        const completed = await completeInteractionTask(showing, undefined, tx);
+        await logTimeline({
+          clientId: q.clientId,
+          actor: { kind: "agent", agentId: input.actorId },
+          type: "SYSTEM",
+          notes: `Итог показа: показ был. Дальше: ${SHOWING_NEXT_STEP_LABELS[step]}.`,
+          ...(task ?? {}),
+          tx,
+        });
+        return completed;
       });
+      // Внешняя транзакция: напоминания и подсказки гасятся после commit (как велит completeInteractionTask).
+      if (changed) afterInteractionTaskCompleted(showing);
       const tail =
         step === "another_showing" ? "Запишите новый показ."
           : step === "refused" ? "Отказ оформите в карточке клиента: «Завершить сделку» → «Без сделки»."

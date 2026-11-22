@@ -275,7 +275,8 @@ export async function handleShowingQuestionCallback(query: TelegramCallbackQuery
       await editQuestion(query, escapeHtml(query.message?.text ?? "Вопрос о показе"), null);
       return true;
     }
-    const details = await loadQuestionDetails(q);
+    // Имя — для нажавшего: руководитель с правом номеров увидит его целиком, агент — с маской.
+    const details = await loadQuestionDetails(q, clicker.id);
     if (!details) {
       await answerCallbackQuery(query.id, "Клиент не найден");
       return true;

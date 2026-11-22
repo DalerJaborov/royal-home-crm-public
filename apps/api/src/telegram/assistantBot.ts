@@ -349,6 +349,19 @@ interface TurnParams {
   groupChat?: { chatId: string; registeredAt: number };
   /** К запросу приложен текст файла: записи без карточки подтверждения закрыты (attachedFileHiddenTools). */
   attachedFile?: boolean;
+  /**
+   * Справка ТОЛЬКО для модели (открытые вопросы Шабнам о показах, 22.11.2026): ставится перед
+   * последней репликой сотрудника в запросе к модели. В историю разговора, быстрые пути, язык
+   * ответа и разбор очереди монтажа не идёт — там только слова сотрудника (ревью 22.11).
+   */
+  modelContext?: string;
+}
+
+/** История для модели: справка перед последней репликой сотрудника; сама история не меняется. */
+export function withModelContext<T extends { role: "user" | "assistant"; content: string }>(history: T[], context?: string): T[] {
+  const last = history[history.length - 1];
+  if (!context || last?.role !== "user") return history;
+  return [...history.slice(0, -1), { ...last, content: context + last.content }];
 }
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
@@ -591,7 +604,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   let searches = 0;
   const readOnly = Boolean(params.forwardedEvidence || params.readOnlyGroup);
   const typing = params.showWorking ? setInterval(params.showWorking, TYPING_REFRESH_MS) : null;
-  const outcome = await runAssistantDetailed(params.history, actor, {
+  const outcome = await runAssistantDetailed(withModelContext(params.history, params.modelContext), actor, {
     channel: "telegram",
     turnKey: params.turnKey,
     moneyWallet: params.moneyWallet,
@@ -1009,10 +1022,11 @@ export async function handleAssistantPrivate(
     showTyping?.();
     // Открытые вопросы Шабнам о показах (22.11.2026): «да, был», «перенесли на завтра в шесть» без
     // справки не к чему привязать. Пусто, если вопросов нет; пересланное — чужие слова, справка не нужна.
+    // Справка уходит только в запрос к модели (modelContext): в истории остаются слова сотрудника целиком.
     const showingContext = forwardedEvidence ? "" : await showingQuestionContext(agent.id).catch(() => "");
-    const history = [...previous, { role: "user" as const, content: (showingContext + attachedRequest(text, attachedFileText)).slice(0, 4000) }];
+    const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
-      attachedFile: Boolean(attachedFileText.trim()),
+      attachedFile: Boolean(attachedFileText.trim()), modelContext: showingContext || undefined,
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });

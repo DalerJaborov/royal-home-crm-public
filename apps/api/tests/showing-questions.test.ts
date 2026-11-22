@@ -358,6 +358,58 @@ describe("Ответ — одна дверь для CRM и Шабнам", () => 
   });
 });
 
+describe("Правки слепого ревью 22.11", () => {
+  it("номер в имени карточки агенту не виден: ни в Шабнам, ни в CRM", async () => {
+    const { q, client } = await mkOutcomeQuestion(agents.tg.id);
+    await prisma.client.update({ where: { id: client.id }, data: { fullName: "Звонок +992 93 555 12 34" } });
+    const { loadAgentAccess } = await import("../src/auth/middleware.js");
+    expect((await loadAgentAccess(agents.tg.id))?.permissions.has("clients.viewPhone")).toBe(false);
+    const details = (await loadQuestionDetails(q))!;
+    const { html } = renderShowingQuestion(details);
+    expect(html).not.toContain("555 12 34");
+    const view = await listShowingQuestions(agents.tg.id, { clientId: client.id, now: NOW });
+    expect(view[0]?.clientName).not.toContain("555 12 34");
+  });
+
+  it("«Был, перезвонить» с неверным сроком — отказ, и показ НЕ отмечен (не пишется наполовину)", async () => {
+    const { q, showing, client } = await mkOutcomeQuestion(agents.tg.id);
+    const res = await answerShowingQuestion({
+      questionId: q.id, actorId: agents.tg.id, canActForOthers: false, via: "crm",
+      answer: { action: "held", next: "callback", callbackAt: new Date(NOW.getTime() - HOUR).toISOString() }, now: NOW,
+    });
+    expect(res).toMatchObject({ ok: false, status: 400 });
+    expect((await prisma.interaction.findUniqueOrThrow({ where: { id: showing.id } })).completedAt).toBeNull();
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SYSTEM", notes: { startsWith: "Итог показа" } } })).toBe(0);
+    expect((await prisma.showingQuestion.findUniqueOrThrow({ where: { id: q.id } })).status).toBe("OPEN");
+  });
+
+  it("выключенный рубильник — вопрос своего вида в CRM не показывается", async () => {
+    const { client } = await mkOutcomeQuestion(agents.tg.id);
+    expect(await listShowingQuestions(agents.tg.id, { clientId: client.id, now: NOW })).toHaveLength(1);
+    switchesOff.add("showingOutcomeAskEnabled");
+    expect(await listShowingQuestions(agents.tg.id, { clientId: client.id, now: NOW })).toHaveLength(0);
+  });
+
+  it("у клиента уже есть показ на другое время — «Да» его молча не переносит", async () => {
+    const client = await mkClient(agents.tg.id);
+    const property = await mkProperty("другое-время");
+    const existingAt = new Date(DAY_AFTER_15.getTime() + 2 * HOUR);
+    const existing = await prisma.interaction.create({
+      data: {
+        clientId: client.id, agentId: agents.tg.id, type: "SHOWING", propertyId: property.id, notes: "Показ объекта",
+        nextAction: "Показ объекта", nextActionDate: existingAt, createdAt: new Date(NOW.getTime() - 5 * 24 * HOUR),
+      },
+    });
+    await askShowingAgreement({ agentId: agents.tg.id, clientId: client.id, sourceType: "CALL", sourceId: `call4-${client.id}`, proposedAt: DAY_AFTER_15, propertyId: property.id, now: NOW });
+    const res = await answerShowingQuestion({
+      questionId: (await prisma.showingQuestion.findUniqueOrThrow({ where: { dedupKey: `agreement:CALL:call4-${client.id}` } })).id,
+      actorId: agents.tg.id, canActForOthers: false, via: "crm", answer: { action: "book", propertyId: property.id, at: DAY_AFTER_15.toISOString() }, now: NOW,
+    });
+    expect(res).toMatchObject({ ok: false, status: 409 });
+    expect((await prisma.interaction.findUniqueOrThrow({ where: { id: existing.id } })).nextActionDate?.getTime()).toBe(existingAt.getTime());
+  });
+});
+
 describe("Кнопки в Шабнам", () => {
   it("«Да, был» только меняет кнопки на «что дальше», «Подобрать другие» — записывает итог и задачу", async () => {
     const { q, client, showing } = await mkOutcomeQuestion(agents.tg.id);

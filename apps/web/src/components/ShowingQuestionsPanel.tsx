@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CalendarCheck, Home } from "lucide-react";
 import { Link } from "react-router-dom";
-import { dushanbeLocalToIso, isoToDushanbeLocal, SHOWING_NEXT_STEP_LABELS, SHOWING_NEXT_STEPS, type ShowingNextStep, type ShowingQuestionView } from "@royal-home/shared";
+import { defaultShowingCallbackLocal, dushanbeLocalToIso, isoToDushanbeLocal, SHOWING_NEXT_STEP_LABELS, SHOWING_NEXT_STEPS, type ShowingNextStep, type ShowingQuestionView } from "@royal-home/shared";
 import { useAnswerShowingQuestion, useShowingQuestions } from "../hooks/useShowingQuestions";
 import { dushanbeDateTime } from "../lib/date";
 import { formatPropertyCode } from "../lib/clientFormat";
@@ -32,12 +32,6 @@ function toDushanbeLocal(iso: string | null): string {
 
 const fromDushanbeLocal = dushanbeLocalToIso;
 
-/** Завтра в 11:00 по Душанбе — срок «перезвонить» по умолчанию. */
-function tomorrowElevenLocal(): string {
-  const tomorrow = new Date(Date.now() + 5 * 3600_000 + 24 * 3600_000).toISOString().slice(0, 10);
-  return `${tomorrow}T11:00`;
-}
-
 export function ShowingQuestionsPanel({ clientId }: { clientId?: string }) {
   const questions = useShowingQuestions(clientId);
   // Не загрузилось — карточки просто нет: главный путь ответа — кнопки в Шабнам, а пуш
@@ -58,7 +52,7 @@ function ShowingQuestionCard({ q, showClient }: { q: ShowingQuestionView; showCl
   const answer = useAnswerShowingQuestion();
   const [step, setStep] = useState<"ask" | "held" | "notHeld" | "callback" | "reschedule" | "cancel">("ask");
   const [when, setWhen] = useState(() => toDushanbeLocal(q.at));
-  const [callbackAt, setCallbackAt] = useState(tomorrowElevenLocal);
+  const [callbackAt, setCallbackAt] = useState(() => defaultShowingCallbackLocal());
   const [reason, setReason] = useState("");
   const [propertyId, setPropertyId] = useState<string | null>(q.property?.id ?? (q.options.length === 1 ? q.options[0].id : null));
   const [done, setDone] = useState<string | null>(null);

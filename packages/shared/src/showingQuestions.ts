@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DUSHANBE_OFFSET_MS } from "./dushanbeDay.js";
 
 /**
  * ВОПРОСЫ АГЕНТУ О ПОКАЗЕ (владелец 22.11.2026).
@@ -79,4 +80,13 @@ export interface ShowingQuestionView {
   /** Короткая цитата из разговора — чтобы агент вспомнил, о чём речь. */
   quote: string | null;
   askedAt: string;
+}
+
+/**
+ * «Думает, перезвонить» без названного времени — завтра в 11:00 по Душанбе. Одно правило на
+ * сервер (кнопка Шабнам) и экран CRM (значение поля по умолчанию): строка поля «ГГГГ-ММ-ДДTЧЧ:ММ».
+ */
+export function defaultShowingCallbackLocal(now: Date = new Date()): string {
+  const tomorrow = new Date(now.getTime() + DUSHANBE_OFFSET_MS + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return `${tomorrow}T11:00`;
 }
