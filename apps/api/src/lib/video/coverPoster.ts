@@ -121,6 +121,17 @@ export interface CoverPosterValues {
   city: string;
   district: string | null;
   landmark: string | null;
+  /** Плашка «Royal Green»: тип объекта и вторая строка — «ҲАВЛИИ»/«2 ОШЁНА»; без второй строки —
+   *  `kindSolo` («ТИҶОРАТӢ», «ЗАМИН»), одна строка по центру. Остальные шаблоны эти поля не читают. */
+  kind: string;
+  kindSub: string | null;
+  kindSolo: string | null;
+  /** Площадь справа в плашке: число, единица («м» / «сотих»), степень («2» у м²). */
+  areaBig: string;
+  areaUnit: string;
+  areaSup: string;
+  /** «ноҳияи Сино» или, без района, «шаҳри Душанбе». */
+  placeLine: string;
 }
 
 /** Цена — ТОЛЬКО «NNN NNN TJS» (брифа раздел 5: «НЕ используй сомонӣ, сомон,
@@ -155,6 +166,10 @@ export function buildCoverPosterValues(property: {
   currency: string;
   districtName: string | null;
   address: string | null;
+  /** Тип объекта (`PropertyType`) — для плашки «Royal Green»; не задан — по комнатам/участку. */
+  type?: string | null;
+  /** Этажность дома — у дома во второй строке плашки «N ОШЁНА»; нет — комнаты. */
+  totalFloors?: number | null;
 }, money: { usdToTjs?: number | null }): CoverPosterValues {
   const withRooms = hasRoomsDigit(property.rooms);
   const amount = coverPriceTjs(property.price, property.currency, money.usdToTjs);
@@ -178,7 +193,28 @@ export function buildCoverPosterValues(property: {
     city: CITY_LABEL,
     district: property.districtName || null,
     landmark: meaningfulPropertyAddress(property.address),
+    ...buildPlateValues(property, withRooms, heroSotka, areaNumber),
+    placeLine: property.districtName ? `ноҳияи ${property.districtName}` : `шаҳри ${CITY_LABEL}`,
   };
+}
+
+/** Слова плашки «Royal Green» (макет владельца 21.11.2026): тип, вторая строка, площадь справа. */
+function buildPlateValues(
+  property: { rooms: number | null; totalFloors?: number | null; type?: string | null },
+  withRooms: boolean,
+  heroSotka: string | null,
+  areaNumber: string
+): Pick<CoverPosterValues, "kind" | "kindSub" | "kindSolo" | "areaBig" | "areaUnit" | "areaSup"> {
+  const type = property.type ?? (withRooms ? "APARTMENT" : heroSotka ? "LAND" : "COMMERCIAL");
+  const rooms = withRooms ? `${property.rooms} ХОНАГА` : null;
+  const floors = property.totalFloors != null && property.totalFloors > 0 ? `${property.totalFloors} ОШЁНА` : rooms;
+  // Участок: площадь в сотках крупно; остальные типы — квадраты.
+  const sotka = type === "LAND" && heroSotka;
+  const area = sotka ? { areaBig: heroSotka as string, areaUnit: "сотих", areaSup: "" } : { areaBig: areaNumber, areaUnit: "м", areaSup: "2" };
+  if (type === "HOUSE") return { kind: "ҲАВЛИИ", kindSub: floors, kindSolo: floors ? null : "ҲАВЛИИ", ...area };
+  if (type === "COMMERCIAL") return { kind: "ТИҶОРАТӢ", kindSub: null, kindSolo: "ТИҶОРАТӢ", ...area };
+  if (type === "LAND") return { kind: "ЗАМИН", kindSub: null, kindSolo: "ЗАМИН", ...area };
+  return { kind: "КВАРТИРАИ", kindSub: rooms, kindSolo: rooms ? null : "КВАРТИРА", ...area };
 }
 export interface CoverPosterResult {
   ok: boolean;
@@ -308,6 +344,8 @@ export async function generateCoverPoster(
       currency: property.currency,
       districtName: property.district?.name ?? null,
       address: property.address,
+      type: property.type,
+      totalFloors: property.totalFloors,
     },
     money
   );
@@ -507,6 +545,13 @@ export async function buildTemplateSvgLayer(
     city: values.city,
     district: values.district ?? "",
     landmark: values.landmark ?? "",
+    kind: values.kind,
+    kindSub: values.kindSub ?? "",
+    kindSolo: values.kindSolo ?? "",
+    areaBig: values.areaBig,
+    areaUnit: values.areaUnit,
+    areaSup: values.areaSup,
+    placeLine: values.placeLine,
     vectorLogo: hasLogo && template.logoBoxes?.[aspect] ? "" : "1",
   });
 }
@@ -541,7 +586,18 @@ async function renderCustomTemplate(
         .catch(() => null);
     }
     const svg = await buildTemplateSvgLayer(template, aspect, values, Boolean(logoBuffer));
-    const photo = await cropPhoto(photoInput, width, height, aspect, styled);
+    const box = template.photoBox?.[aspect];
+    let photo: Buffer;
+    if (box) {
+      // Фото только в полосе сверху, под ней — холст шаблона (кремовый), дальше его SVG-слой.
+      const strip = await cropPhoto(photoInput, width, box.height, aspect, styled);
+      photo = await sharp({ create: { width, height, channels: 3, background: template.photoCanvas ?? "#ffffff" } })
+        .composite([{ input: strip, top: box.top, left: 0 }])
+        .png()
+        .toBuffer();
+    } else {
+      photo = await cropPhoto(photoInput, width, height, aspect, styled);
+    }
     const layers: OverlayOptions[] = [];
     const leavesPath = template.leavesFiles?.[aspect]
       ?? (template.leavesUrl ? path.join(uploadsDir, "cover-templates", path.basename(template.leavesUrl)) : null);
