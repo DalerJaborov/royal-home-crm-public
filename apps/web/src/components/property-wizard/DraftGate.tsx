@@ -10,7 +10,7 @@ import { Film, Image as ImageIcon } from "lucide-react";
 import { WizIcon } from "../look/wizard/WizIcon";
 import { useRoyalSectionName } from "../look/clients/RoyalSection";
 import type { District } from "../../types";
-import { draftDaysLeft, draftMediaCounts, formatDraftSavedRelative } from "../../hooks/usePropertyDraft";
+import { formatDraftTimeLeft, draftMediaCounts, formatDraftSavedRelative } from "../../hooks/usePropertyDraft";
 import { useClient } from "../../hooks/useClients";
 import { useSellerObject } from "../../hooks/useSellerObject";
 import { useAuthStore } from "../../store/auth";
@@ -92,7 +92,7 @@ export function DraftGate({
   const media = offer.source === "server" ? offer.draft.media : [];
   const counts = offer.source === "server" ? draftMediaCounts(offer.draft) : { photos: 0, videos: 0 };
   const savedLabel = offer.source === "server" ? formatDraftSavedRelative(offer.draft) : "Сохранён в этом браузере";
-  const daysLeft = offer.source === "server" ? draftDaysLeft(offer.draft) : null;
+  const timeLeft = offer.source === "server" ? formatDraftTimeLeft(offer.draft.expiresAt) : null;
   const tiles = media.slice(0, PREVIEW_TILES);
   const hiddenCount = media.length - tiles.length;
 
@@ -181,12 +181,10 @@ export function DraftGate({
               </svg>
             </button>
           </div>
-          {daysLeft !== null && (
+          {timeLeft && (
             <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              <span className={daysLeft <= 2 ? "chip warn" : "chip acc"} data-testid="wizard-draft-expiry">
-                {daysLeft <= 0
-                  ? "Удалится сегодня"
-                  : `Удалится через ${daysLeft} ${pluralDay(daysLeft)}`}
+              <span className="chip warn" data-testid="wizard-draft-expiry">
+                {timeLeft.charAt(0).toUpperCase() + timeLeft.slice(1)}
               </span>
             </div>
           )}
@@ -344,14 +342,6 @@ export function DraftGate({
       )}
     </div>
   );
-}
-
-function pluralDay(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "день";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "дня";
-  return "дней";
 }
 
 function pendingUploadsLabel(photos: number, videos: number): string {

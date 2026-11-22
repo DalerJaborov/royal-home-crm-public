@@ -116,10 +116,12 @@ describe("запасная копия мастера пока ответ сер�
     vi.advanceTimersByTime(500);
     expect(store.has(STORAGE_KEY)).toBe(false);
   });
-  it("черновик объекта переживает два дня без сети в пределах своего семидневного срока", () => {
+  it("черновик объекта переживает три часа без сети, а через четыре с лишним — стирается", () => {
     const value = { ...EMPTY_WIZARD_VALUES, address: "из офлайн-копии" };
-    store.set(STORAGE_KEY, JSON.stringify({ at: Date.now() - 2 * 86400000, value }));
+    store.set(STORAGE_KEY, JSON.stringify({ at: Date.now() - 3 * 3600000, value }));
     expect(loadFormDraft<WizardValues>(KEY, WIZARD_LOCAL_DRAFT_TTL_MS)?.address).toBe(value.address);
+    store.set(STORAGE_KEY, JSON.stringify({ at: Date.now() - 4 * 3600000 - 60000, value }));
+    expect(loadFormDraft<WizardValues>(KEY, WIZARD_LOCAL_DRAFT_TTL_MS)).toBeNull();
   });
   it("возвращает false при отказе localStorage, не подтверждая несуществующую запись", () => {
     vi.stubGlobal("localStorage", { setItem: () => { throw new Error("quota"); }, removeItem: () => undefined });

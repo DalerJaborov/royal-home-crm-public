@@ -61,10 +61,29 @@ export function formatDraftSavedRelative(draft: PropertyDraftView): string {
   return `Сохранён ${formatDraftUpdatedAt(draft)}`;
 }
 
-/** Сколько дней осталось до удаления черновика (PROPERTY_DRAFT_TTL_DAYS) —
- *  чип «Удалится через N дней» на DraftGate. Только у серверного черновика:
- *  запасная копия в localStorage своего срока не хранит. */
+/** Сколько дней осталось до удаления черновика — только для устаревших ссылок;
+ *  срок теперь часы (PROPERTY_DRAFT_TTL_HOURS), см. formatDraftShortcutHint. */
 export function draftDaysLeft(draft: PropertyDraftView): number {
   const ms = new Date(draft.expiresAt).getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / 86_400_000));
+}
+
+/** «Удалится через 3 ч 20 мин» / «через 25 мин» / «меньше минуты» — до конца срока. */
+export function formatDraftTimeLeft(expiresAt: string, now: number = Date.now()): string {
+  const ms = new Date(expiresAt).getTime() - now;
+  if (Number.isNaN(ms)) return "";
+  const minutes = Math.max(0, Math.ceil(ms / 60_000));
+  if (minutes < 1) return "удалится через минуту";
+  if (minutes < 60) return `удалится через ${minutes} мин`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `удалится через ${h} ч ${m} мин` : `удалится через ${h} ч`;
+}
+
+/** Подпись на «Продолжить черновик»: «сохранён в 14:05, удалится через 3 ч 20 мин». */
+export function formatDraftShortcutHint(draft: PropertyDraftView, now: number = Date.now()): string {
+  const when = new Date(draft.updatedAt);
+  if (Number.isNaN(when.getTime())) return "";
+  const time = when.toLocaleTimeString("ru-RU", { timeZone: "Asia/Dushanbe", hour: "2-digit", minute: "2-digit" });
+  return `сохранён в ${time}, ${formatDraftTimeLeft(draft.expiresAt, now)}`;
 }
