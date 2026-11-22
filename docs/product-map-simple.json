@@ -16,7 +16,7 @@
   "paths": 793,
   "cron": 145,
   "jobs": 34,
-  "conditions": 4189,
+  "conditions": 4190,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
   "partialUnique": 1127,
@@ -21989,6 +21989,19 @@
      "c": [
       {
        "t": "если нет: step или есть gate до принят",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если доступ — «transferred»",
        "k": "if",
        "a": [],
        "c": []

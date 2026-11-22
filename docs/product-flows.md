@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4228**. Модулей: **89**.
+Путей: **793**. Развилок в самих путях: **2518**; вместе с задачами по расписанию и фоновыми заданиями — **4229**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2567,8 +2567,10 @@
   · читает в базе: incomingCall
 - const operators = extensions.length ? await prisma.agent.findMany({ where: { sipExtension: { in: extensions }…
   · читает в базе: agent
+- const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c)
+  · зовёт loadClientDisplayLabels()
 - const rows = [ ...outgoing.map((i)
-  · зовёт clientNamePhoneSafe()
+  · зовёт presentClientRef()
 - res.json({ items: page, nextBefore: hasMore && page.length > 0 ? feedCursorOf(page[page.length - 1]) : null, …
   · ответ 200
 
@@ -2602,6 +2604,8 @@
   · читает в базе: settings
 - const calledBackIds = await findCallbackContacts( overdue.flatMap((c)
   · зовёт findCallbackContacts()
+- const clientLabels = await loadClientDisplayLabels(items.map((c)
+  · зовёт loadClientDisplayLabels()
 - для каждого: const call of overdue
   - если staffOf(call.phone)
     - continue;
@@ -2704,6 +2708,8 @@
 - const [items, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc"…
   · читает в базе: interaction
   · считает в базе: interaction
+- const clientLabels = await loadClientDisplayLabels(items.map((i)
+  · зовёт loadClientDisplayLabels()
 - res.json({ ownOnly: !seesEveryone, items: items.map((i)
   · ответ 200
 
@@ -4211,8 +4217,8 @@
   · читает в базе: settings
 - const withMessages = { ...client, hadConductedShowing: conductedShowing, callsCount, hadRealCall: realCalls >…
   · зовёт presentClientTimeline()
-- const sellerPropertyAddress = client.kind === "SELLER" && access !== "transferred" ? await loadSellerProperty…
-  · зовёт loadSellerPropertyAddress()
+- const nameFacts = access === "transferred" ? undefined : (await loadClientAnchorFacts([client])).get(client.i…
+  · зовёт loadClientAnchorFacts()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
   · зовёт presentClient()
 - const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCard…
@@ -4656,8 +4662,8 @@
   - для каждого: const id of unread
     - unreadByClient.set(id, true);
       · дословно из кода
-- const sellerAddresses = sellerIds.length ? await loadSellerPropertyAddresses(sellerIds) : new Map<string, str…
-  · зовёт loadSellerPropertyAddresses()
+- const anchorFacts = await loadClientAnchorFacts(items);
+  · зовёт loadClientAnchorFacts()
 - const leadReasons = await loadLeadReasons(items.filter((c)
   · зовёт loadLeadReasons()
 - const lastStaffContact = await lastStaffContactAtByClient(items);
@@ -4668,6 +4674,10 @@
       · дословно из кода
   - return { ...step, nextAction: phoneSafeText(step.nextAction, seesPhone) };
     · зовёт phoneSafeText()
+- const nameFactsFor = (id: string, access: string, gated: boolean)
+  - если access === "transferred"
+    - return undefined;
+      · дословно из кода
 - res.json({ items: items.map((c)
   · ответ 200
   - const rowAccess = decideClientCardAccess(ownAgentId, c, false);
@@ -5312,6 +5322,8 @@
     · ответ 200
   - return;
     · дальше не идёт, ничего не меняя
+- const labels = await loadClientDisplayLabels(pageRows.map((r)
+  · зовёт loadClientDisplayLabels()
 - res.json({ items: pageRows.map((r)
   · ответ 200
 
