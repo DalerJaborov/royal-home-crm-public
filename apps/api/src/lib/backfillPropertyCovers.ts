@@ -30,7 +30,8 @@
  *   --apply --limit 50       — пачкой поменьше
  *   --apply --force          — перерисовать и тех, у кого обложка уже есть
  *   --provider template      — нашим шаблоном (openai — ChatGPT), мимо Настроек
- *   --parallel 4             — сколько объектов одновременно (по умолчанию 4, не больше 8)
+ *   --parallel 2             — сколько объектов одновременно (по умолчанию 1, не больше 8;
+ *                              на проде больше 1 не ставить — память контейнера API)
  *   --only-fallback          — заменить ChatGPT-ом запасные обложки шаблона (после
  *                              пополнения баланса OpenAI); те, где ChatGPT снова не вышел,
  *                              остаются запасными и считаются в «не вышло»
@@ -53,7 +54,10 @@ import type { CoverProvider } from "@royal-home/shared";
  *  ChatGPT платный — 10; наш шаблон бесплатный — 500. */
 const DEFAULT_LIMIT: Record<CoverProvider, number> = { OPENAI: 10, TEMPLATE: 500 };
 /** Сколько объектов рисуется одновременно; больше 8 упирается в лимиты OpenAI по запросам в минуту. */
-const DEFAULT_PARALLEL = 4;
+// 22.11.2026: на проде скрипт идёт внутри контейнера API с пределом памяти 768 МБ —
+// уже два объекта разом (sharp/libvips) убивало ядро по памяти, молча, без строки
+// «Готово». Поэтому по умолчанию по одному; больше — только где памяти заведомо хватает.
+const DEFAULT_PARALLEL = 1;
 const MAX_PARALLEL = 8;
 
 function argValue(name: string): string | null {
@@ -160,5 +164,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.error(err);
       process.exitCode = 1;
     })
-    .finally(() => prisma.$disconnect());
+    .finally(async () => {
+      await prisma.$disconnect().catch(() => undefined);
+      // Импорт кода API поднимает соединения (телефония и др.), которые держат процесс
+      // живым после «Готово» (22.11.2026: висел минутами). Скрипт разовый — выходим явно.
+      process.exit();
+    });
 }
