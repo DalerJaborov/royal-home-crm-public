@@ -10,6 +10,7 @@ import {
 } from "../../lib/propertyDraftSession";
 import { DraftAutosave, type WizardDraftStatus } from "./draftAutosave";
 import { isWizardEmpty, type WizardValues } from "./types";
+import { touchDraftFiles } from "../../lib/draftUploadStore";
 
 const AUTOSAVE_DELAY_MS = 6_000;
 const RETRY_DELAY_MS = 10_000;
@@ -46,6 +47,9 @@ export function useServerAutosave(
       if (epoch !== requestEpoch.current || !isPropertyDraftSessionCurrent(token)) throw new Error("Сессия черновика изменилась");
       adoptPropertyDraftSession({ draft: res.draft, revision: res.draft.revision });
       draftIdRef.current = res.draft.id;
+      // Черновик жив и только что сохранён: срок локальных файлов считается от этого момента.
+      const savedBy = useAuthStore.getState().agent?.id;
+      if (savedBy) void touchDraftFiles(savedBy, res.draft.id).catch(() => undefined);
       setDraftReminder(res.draft.media.length > 0 || Object.keys(res.draft.values ?? {}).length > 0);
       return res.draft;
     }, (next) => notifyRef.current(next));

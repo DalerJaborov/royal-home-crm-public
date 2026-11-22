@@ -16,9 +16,9 @@
   "paths": 795,
   "cron": 145,
   "jobs": 34,
-  "conditions": 4194,
-  "untranslatedUnique": 476,
-  "untranslatedTotal": 612,
+  "conditions": 4193,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 611,
   "partialUnique": 1128,
   "translatedShare": 85
  },
@@ -406,7 +406,6 @@
   "pendingDelayed(pending[0], new Date())",
   "photo.originalThumbUrl && photo.thumbUrl && photo.thumbUrl !== photo.originalThumbUrl",
   "photo.originalUrl && photo.url !== photo.originalUrl",
-  "photos + videos > 0",
   "previousActive >= 20 && goneIds.length > previousActive * MAX_GONE_RATIO",
   "previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId",
   "priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
@@ -69539,7 +69538,7 @@
   },
   {
    "id": "expired-property-drafts-cleanup",
-   "when": "56 3 * * *",
+   "when": "*/15 * * * *",
    "label": "Удаляет просроченные черновики новых объектов",
    "tree": [
     {
@@ -69571,14 +69570,6 @@
            "a": [],
            "c": [],
            "raw": "!(await discardDraft(d.id, { expiredAt: now }))",
-           "more": true
-          },
-          {
-           "t": "если photos + videos > 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "photos + videos > 0",
            "more": true
           }
          ]

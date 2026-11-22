@@ -390,28 +390,25 @@ async function queueClipFromDraftVideo(propertyId: string, media: PropertyDraftM
   }
 }
 
-/** За сколько до конца срока предупреждаем автора, что черновик исчезнет. */
-export const DRAFT_EXPIRY_WARNING_MS = 2 * 24 * 60 * 60 * 1000;
 /** Закачка, обновлявшаяся недавно, считается живой: черновик с ней не удаляем,
  *  даже если срок истёк (агент грузит ролик с телефона по плохой сети). */
-export const DRAFT_ACTIVE_UPLOAD_MS = 6 * 60 * 60 * 1000;
+export const DRAFT_ACTIVE_UPLOAD_MS = 30 * 60 * 1000;
 
 /**
- * УБОРКА ПРОСРОЧЕННЫХ ЧЕРНОВИКОВ — раз в сутки, вместе с остальной ночной
- * работой. Брошенный черновик держит на диске десятки мегабайт снимков и сотни
- * мегабайт роликов; без уборки диск сервера кончится молча.
+ * УБОРКА ПРОСРОЧЕННЫХ ЧЕРНОВИКОВ — каждые 15 минут (cron.ts). Срок — 4 часа с
+ * последнего сохранения (PROPERTY_DRAFT_TTL_HOURS, решение владельца 22.11.2026);
+ * каждое сохранение мастера, шаг и кусок файла двигают expiresAt заново, так что
+ * открытый и редактируемый черновик не удаляется. Закрытие черновика и стирание
+ * файлов — одна существующая discardDraft. Брошенный черновик держит на диске
+ * десятки мегабайт снимков и сотни мегабайт роликов.
  *
- * НЕ МОЛЧА ДЛЯ АВТОРА (07.10.2026): за двое суток до срока — пуш «черновик будет
- * удалён» (тег с датой срока: продлил черновик — сигнал выйдет заново, не продлил
- * — второй ночной проход его не повторит); при удалении черновика с файлами —
- * запись в ленту со счётчиком. Черновик с закачкой в статусе UPLOADING,
- * обновлённой за последние 6 часов, не трогаем: ролик ещё едет.
+ * БЕЗ УВЕДОМЛЕНИЙ (владелец 22.11.2026): ни «будет удалён», ни «удалён».
+ * Черновик с закачкой UPLOADING, обновлённой за последние 30 минут, не трогаем:
+ * ролик ещё едет. Идемпотентна: второй проход ничего не находит.
  *
  * Возвращает число удалённых черновиков.
  */
 export async function cleanupExpiredPropertyDrafts(now: Date = new Date()): Promise<number> {
-  await warnAboutExpiringDrafts(now);
-
   const expired = await prisma.propertyDraft.findMany({
     where: { closedAt: null, expiresAt: { lte: now } },
     select: {
@@ -427,43 +424,6 @@ export async function cleanupExpiredPropertyDrafts(now: Date = new Date()): Prom
     if (d.media.some((m) => m.status === "UPLOADING" && m.updatedAt >= activeSince)) continue;
     if (!(await discardDraft(d.id, { expiredAt: now }))) continue;
     removed++;
-    const photos = d.media.filter((m) => m.kind === "PHOTO").length;
-    const videos = d.media.filter((m) => m.kind === "VIDEO").length;
-    if (photos + videos > 0) {
-      await sendPushToAgent(d.agentId, {
-        title: "🗑 Черновик объекта удалён",
-        body: `Срок черновика истёк, удалено файлов: фото ${photos}, видео ${videos}. Загрузите их заново при создании объекта`,
-        url: "/properties/new",
-        tag: `property-draft-expired-${d.id}`,
-      }).catch((err) => console.error("[черновик] пуш об удалении:", err instanceof Error ? err.message : err));
-    }
   }
   return removed;
-}
-
-/** Предупреждение автору: черновик с наработкой исчезнет менее чем через двое суток. */
-async function warnAboutExpiringDrafts(now: Date): Promise<void> {
-  const soon = await prisma.propertyDraft.findMany({
-    where: { closedAt: null, expiresAt: { gt: now, lte: new Date(now.getTime() + DRAFT_EXPIRY_WARNING_MS) } },
-    select: { id: true, agentId: true, step: true, expiresAt: true, _count: { select: { media: true } } },
-    take: 200,
-  });
-  for (const d of soon) {
-    if (d._count.media === 0 && d.step === 0) continue; // пустой черновик терять нечего
-    const tag = `property-draft-expiring-${d.id}-${d.expiresAt.getTime()}`;
-    try {
-      if (await prisma.notification.findFirst({ where: { agentId: d.agentId, tag }, select: { id: true } })) continue;
-      await sendPushToAgent(d.agentId, {
-        title: "⏳ Черновик объекта будет удалён",
-        body:
-          d._count.media > 0
-            ? `Черновик с ${d._count.media} файлами исчезнет в ближайшие два дня — завершите создание объекта`
-            : "Черновик исчезнет в ближайшие два дня — завершите создание объекта",
-        url: "/properties/new",
-        tag,
-      });
-    } catch (err) {
-      console.error("[черновик] пуш «будет удалён»:", err instanceof Error ? err.message : err);
-    }
-  }
 }
