@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 793,
-  "forks": 4228,
+  "forks": 4227,
   "mounts": 89,
   "cron": 145,
   "jobs": 34,
@@ -96556,7 +96556,7 @@
   },
   {
    "id": "expired-property-drafts-cleanup",
-   "when": "56 3 * * *",
+   "when": "*/15 * * * *",
    "tree": [
     {
      "k": "try",
@@ -96608,21 +96608,6 @@
              "t": "continue;",
              "a": [
               "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "photos + videos > 0",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await sendPushToAgent(d.agentId, { title: \"🗑 Черновик объекта удалён\", body: `Срок черновика истёк, удалено …",
-             "a": [
-              "push-уведомление"
              ],
              "c": []
             }

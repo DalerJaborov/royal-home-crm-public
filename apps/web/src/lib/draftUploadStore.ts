@@ -15,6 +15,8 @@
  * ради экономии одного `indexedDB.open()`.
  */
 
+import { PROPERTY_DRAFT_TTL_MS } from "@royal-home/shared";
+
 export interface StoredDraftFile {
   uploadKey: string;
   kind: "photo" | "video";
@@ -25,6 +27,9 @@ export interface StoredDraftFile {
   /** Absent only for files stored by a build before draft session identities. */
   draftId?: string | null;
   blob: Blob;
+  /** Когда файл положили (мс). Без метки — запись старой сборки: при чтении ей
+   *  ставят «сейчас», и срок жизни считается с этого дня. */
+  savedAt?: number;
 }
 
 const DB_NAME = "royal-home-draft-media";
@@ -84,7 +89,7 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
  */
 export async function putDraftFile(rec: StoredDraftFile): Promise<void> {
   if (rec.kind === "video" && rec.size > MAX_STORED_VIDEO_BYTES) return;
-  await tx("readwrite", (s) => s.put(rec) as IDBRequest<IDBValidKey>);
+  await tx("readwrite", (s) => s.put({ ...rec, savedAt: rec.savedAt ?? Date.now() }) as IDBRequest<IDBValidKey>);
 }
 
 export async function deleteDraftFile(uploadKey: string): Promise<void> {
@@ -93,9 +98,27 @@ export async function deleteDraftFile(uploadKey: string): Promise<void> {
 
 /** Всё, что лежит в хранилище для этого агента — остальное (чужой агент на
  *  том же устройстве) не возвращаем. */
-export async function readAllDraftFiles(agentId: string): Promise<StoredDraftFile[]> {
+export async function readAllDraftFiles(agentId: string, now: number = Date.now()): Promise<StoredDraftFile[]> {
   const all = await tx<StoredDraftFile[]>("readonly", (s) => s.getAll() as IDBRequest<StoredDraftFile[]>);
-  return all.filter((f) => f.agentId === agentId);
+  const own = all.filter((f) => f.agentId === agentId);
+  // Срок жизни локальной копии — тот же, что у черновика на сервере
+  // (PROPERTY_DRAFT_TTL_MS): сервер такой черновик уже стёр, и без этой
+  // уборки файлы лежали бы в браузере вечно, а «Продолжить черновик» висел бы
+  // в каталоге объектов (22.11.2026, владелец: «черновик висит вечно»).
+  const ttlMs = PROPERTY_DRAFT_TTL_MS;
+  const live: StoredDraftFile[] = [];
+  for (const f of own) {
+    if (typeof f.savedAt !== "number") {
+      const stamped = { ...f, savedAt: now };
+      await tx("readwrite", (s) => s.put(stamped) as IDBRequest<IDBValidKey>).catch(() => undefined);
+      live.push(stamped);
+    } else if (now - f.savedAt > ttlMs) {
+      await deleteDraftFile(f.uploadKey).catch(() => undefined);
+    } else {
+      live.push(f);
+    }
+  }
+  return live;
 }
 
 /** Clear one actor and one draft generation. A shared browser may still contain

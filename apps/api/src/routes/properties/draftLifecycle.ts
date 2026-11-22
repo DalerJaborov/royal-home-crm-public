@@ -1,7 +1,7 @@
 import type { Prisma } from "../../generated/prisma/client.js";
 import { createHash } from "node:crypto";
 import { prisma, type TxClient } from "../../db.js";
-import { PROPERTY_DRAFT_TTL_DAYS, type PropertyDraftView } from "@royal-home/shared";
+import { PROPERTY_DRAFT_TTL_MS, type PropertyDraftView } from "@royal-home/shared";
 import { DRAFT_MEDIA_ORDER } from "./shared.js";
 
 export const DRAFT_INCLUDE = { media: { orderBy: DRAFT_MEDIA_ORDER } } satisfies Prisma.PropertyDraftInclude;
@@ -46,7 +46,7 @@ export function withDraftLock<T>(agentId: string, action: (tx: TxClient) => Prom
   return prisma.$transaction(async (tx) => { await lockOwnDraft(tx, agentId); return action(tx); }, { timeout });
 }
 
-export function draftExpiry(): Date { return new Date(Date.now() + PROPERTY_DRAFT_TTL_DAYS * 86400000); }
+export function draftExpiry(): Date { return new Date(Date.now() + PROPERTY_DRAFT_TTL_MS); }
 
 export function checkDraftReference(draft: DraftRecord | null, reference: DraftReference, allowLegacy = true): asserts draft is DraftRecord {
   if (!draft || draft.closedAt || (reference.draftId !== undefined && reference.draftId !== draft.id) ||

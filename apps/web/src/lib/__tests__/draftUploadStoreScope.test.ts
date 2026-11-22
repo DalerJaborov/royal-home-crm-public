@@ -21,6 +21,7 @@ beforeEach(() => {
     transaction: () => {
       const transaction = { pending: 0, oncomplete: null as (() => void) | null, objectStore: () => ({
         getAll: () => request(() => [...records.values()], transaction),
+        put: (rec: StoredDraftFile) => request(() => { records.set(rec.uploadKey, rec); return rec.uploadKey; }, transaction),
         delete: (key: string) => request(() => { records.delete(key); }, transaction),
         clear: () => request(() => { records.clear(); }, transaction),
         openCursor: () => {
@@ -63,3 +64,22 @@ describe("draft media storage deletion is scoped", () => {
     expect([...records.keys()].sort()).toEqual(["A-owned", "B-null"]);
   });
 });
+
+describe("local draft files expire with the server draft (4 hours)", () => {
+  const HOUR = 3_600_000;
+  it("drops files older than 4 h, keeps fresher ones, stamps legacy records", async () => {
+    const now = Date.now();
+    add("old", "A", "d"); records.get("old")!.savedAt = now - 4 * HOUR - 5 * 60_000;
+    add("fresh", "A", "d"); records.get("fresh")!.savedAt = now - 3 * HOUR - 55 * 60_000;
+    add("legacy", "A", "d");
+    add("other", "B", "d"); records.get("other")!.savedAt = now - 9 * HOUR;
+    const store = await import("../draftUploadStore");
+    const live = await store.readAllDraftFiles("A", now);
+    expect(live.map((f) => f.uploadKey).sort()).toEqual(["fresh", "legacy"]);
+    expect([...records.keys()].sort()).toEqual(["fresh", "legacy", "other"]);
+    expect(records.get("legacy")!.savedAt).toBe(now);
+    // second pass is idempotent
+    expect((await store.readAllDraftFiles("A", now)).length).toBe(2);
+  });
+});
+
