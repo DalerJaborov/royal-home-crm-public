@@ -100089,15 +100089,15 @@
             },
             {
              "k": "do",
-             "t": "const identity = await instagramTokenIdentity(creds.igToken);",
+             "t": "const publisher = await resolveInstagramPublisher(creds.igToken);",
              "a": [
-              "зовёт instagramTokenIdentity()"
+              "зовёт resolveInstagramPublisher()"
              ],
              "c": []
             },
             {
              "k": "if",
-             "t": "!identity.ok",
+             "t": "!publisher.ok",
              "a": [],
              "c": [
               {
@@ -100210,7 +100210,7 @@
               },
               {
                "k": "do",
-               "t": "const permalink = await fetchInstagramPermalink(result.postId, creds.igToken);",
+               "t": "const permalink = await fetchInstagramPermalink(result.postId, publisher.token);",
                "a": [
                 "зовёт fetchInstagramPermalink()"
                ],
@@ -134083,17 +134083,17 @@
          "c": [
           {
            "k": "do",
-           "t": "const identity = await instagramTokenIdentity(creds.igToken);",
+           "t": "const publisher = await resolveInstagramPublisher(creds.igToken);",
            "a": [
-            "зовёт instagramTokenIdentity()"
+            "зовёт resolveInstagramPublisher()"
            ],
            "c": []
           },
           {
            "k": "do",
-           "t": "r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…",
+           "t": "r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramCarousel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
           }
@@ -137205,17 +137205,17 @@
          "c": [
           {
            "k": "do",
-           "t": "const identity = await instagramTokenIdentity(creds.igToken);",
+           "t": "const publisher = await resolveInstagramPublisher(creds.igToken);",
            "a": [
-            "зовёт instagramTokenIdentity()"
+            "зовёт resolveInstagramPublisher()"
            ],
            "c": []
           },
           {
            "k": "do",
-           "t": "r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…",
+           "t": "r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramCarousel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
           }
@@ -139562,15 +139562,15 @@
        "c": [
         {
          "k": "do",
-         "t": "const identity = await instagramTokenIdentity(igToken);",
+         "t": "const publisher = await resolveInstagramPublisher(igTarget.token);",
          "a": [
-          "зовёт instagramTokenIdentity()"
+          "зовёт resolveInstagramPublisher()"
          ],
          "c": []
         },
         {
          "k": "if",
-         "t": "identity.ok",
+         "t": "publisher.ok",
          "a": [],
          "c": [
           {
@@ -139607,9 +139607,9 @@
           },
           {
            "k": "do",
-           "t": "const result = await publishInstagramReel( owner.id, identity.id, igToken, videoUrl, igCaption, coverUrl, col…",
+           "t": "const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token)",
            "a": [
-            "зовёт publishInstagramReel()"
+            "зовёт publishViaInstagramPublisher()"
            ],
            "c": []
           },
@@ -139620,7 +139620,7 @@
            "c": [
             {
              "k": "do",
-             "t": "result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;",
+             "t": "result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;",
              "a": [
               "зовёт fetchInstagramPermalink()"
              ],

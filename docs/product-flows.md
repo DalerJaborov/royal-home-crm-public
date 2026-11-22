@@ -22477,9 +22477,9 @@
         - если !creds.igToken
           - continue;
             · переходит к следующему
-        - const identity = await instagramTokenIdentity(creds.igToken);
-          · зовёт instagramTokenIdentity()
-        - если !identity.ok
+        - const publisher = await resolveInstagramPublisher(creds.igToken);
+          · зовёт resolveInstagramPublisher()
+        - если !publisher.ok
           - continue;
             · переходит к следующему
         - await prisma.pendingInstagramContainer.update({ where: { id: row.id }, data: { lastCheckedAt: new Date() } });
@@ -22504,7 +22504,7 @@
         - если row.kind === "REEL"
           - await prisma.pendingInstagramContainer.update({ where: { id: row.id }, data: { status: "PUBLISHED", resolvedA…
             · меняет в базе: pendingInstagramContainer
-          - const permalink = await fetchInstagramPermalink(result.postId, creds.igToken);
+          - const permalink = await fetchInstagramPermalink(result.postId, publisher.token);
             · зовёт fetchInstagramPermalink()
           - await applySucceededPublishResults(row.propertyId, [{ channel: "INSTAGRAM", postId: result.postId }], permali…
             · зовёт applySucceededPublishResults()
@@ -29756,10 +29756,10 @@
       - r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
         · дословно из кода
     - иначе
-      - const identity = await instagramTokenIdentity(creds.igToken);
-        · зовёт instagramTokenIdentity()
-      - r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…
-        · зовёт publishInstagramCarousel()
+      - const publisher = await resolveInstagramPublisher(creds.igToken);
+        · зовёт resolveInstagramPublisher()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Фото-пост в Instagram (объект ${propertyId}) не удался: ${r.error}`, { dedupKey:…
         · запись в журнал ошибок
@@ -30429,10 +30429,10 @@
       - r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
         · дословно из кода
     - иначе
-      - const identity = await instagramTokenIdentity(creds.igToken);
-        · зовёт instagramTokenIdentity()
-      - r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…
-        · зовёт publishInstagramCarousel()
+      - const publisher = await resolveInstagramPublisher(creds.igToken);
+        · зовёт resolveInstagramPublisher()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Повтор в Instagram (объект ${propertyId}, круг ${round}) не удался: ${r.error}`,…
         · запись в журнал ошибок
@@ -30929,9 +30929,9 @@
       - void logSystemError("youtube", `Публикация в YouTube Shorts (${ownerText}) не удалась: ${result.error}`);
         · запись в журнал ошибок
   - для каждого: const igTarget of igTargets
-    - const identity = await instagramTokenIdentity(igToken);
-      · зовёт instagramTokenIdentity()
-    - если identity.ok
+    - const publisher = await resolveInstagramPublisher(igTarget.token);
+      · зовёт resolveInstagramPublisher()
+    - если publisher.ok
       - const property = owner.kind === "property" ? await prisma.property.findUnique({ where: { id: owner.id }, sele…
         · читает в базе: property
       - const ownerAgentId = property ? propertyOwnerAgentId(property) : null;
@@ -30940,10 +30940,10 @@
         · читает в базе: agent
       - const collaborators = instagramCollaboratorsFor({ settingsRaw: settings?.instagramCollaborators ?? null, agen…
         · зовёт instagramCollaboratorsFor()
-      - const result = await publishInstagramReel( owner.id, identity.id, igToken, videoUrl, igCaption, coverUrl, col…
-        · зовёт publishInstagramReel()
+      - const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
       - если result.ok && result.postId
-        - result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;
+        - result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;
           · зовёт fetchInstagramPermalink()
       - если igKey
         - result.destinationKey = igKey;

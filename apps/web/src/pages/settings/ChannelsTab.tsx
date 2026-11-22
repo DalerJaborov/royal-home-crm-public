@@ -4,7 +4,7 @@ import { GEMINI_VOICES, TELEPHONY_OPTIONS, voiceGenderLabel } from "@royal-home/
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
-import { MetaEternalKeys } from "./MetaEternalKeys";
+import { CompanyKeyScopesCheck, MetaEternalKeys } from "./MetaEternalKeys";
 import { useSearchParams } from "react-router-dom";
 import {
   AtSign,
@@ -268,7 +268,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
 
         <SecretKeyEditor
           title="Маркер удаления Instagram"
-          description="Отдельный от маркера переписки выше — тот ходит на graph.instagram.com и удалять не умеет вовсе. Этот получается через Facebook Login (не «Настройка API для входа в Instagram»): права instagram_basic + instagram_manage_contents, Standard access без App Review. Не задан — «Убрать из соцсетей» по-прежнему оставляет Instagram в ручном списке, как раньше."
+          description="Отдельный от маркера переписки выше — тот ходит на graph.instagram.com и удалять не умеет вовсе. Этот получается через Facebook Login (не «Настройка API для входа в Instagram»): права instagram_basic + instagram_manage_contents, Standard access без App Review. Не задан — «Убрать из соцсетей» по-прежнему оставляет Instagram в ручном списке, как раньше. Ключ системного пользователя здесь же (срок «никогда») ещё и публикует ролики, истории и фото, если у него есть instagram_content_publish и pages_read_engagement, — тогда смена пароля Instagram публикацию не остановит. Что выдано — кнопка «Проверить права» ниже."
           placeholder="Маркер доступа (Facebook Login)"
           configured={settings ? !!settings.metaIgManageTokenMasked : undefined}
           masked={settings?.metaIgManageTokenMasked}
@@ -276,6 +276,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(v) => updateSecretKey.mutateAsync({ metaIgManageToken: v })}
           onClear={() => updateSecretKey.mutateAsync({ metaIgManageToken: "" })}
         />
+        {settings?.metaIgManageTokenMasked && <CompanyKeyScopesCheck />}
 
         <SecretKeyEditor
           title="Секрет приложения Instagram"
