@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **797**. Развилок в самих путях: **2528**; вместе с задачами по расписанию и фоновыми заданиями — **4245**. Модулей: **90**.
+Путей: **797**. Развилок в самих путях: **2529**; вместе с задачами по расписанию и фоновыми заданиями — **4246**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4549,14 +4549,16 @@
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
-  · зовёт pendingDeleteHideWhere()
+- const base = await clientsScopeBaseWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт clientsScopeBaseWhere()
 - const today = dushanbeDayRange(now);
   · зовёт dushanbeDayRange()
 - const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   · зовёт dushanbeDayRange()
 - const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
   · зовёт dushanbeDayRange()
+- const awaitingWhere = awaitingAcceptanceWhere(base);
+  · зовёт awaitingAcceptanceWhere()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
 - const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldestCandidates, neverContacted…
@@ -10633,10 +10635,13 @@
 
 `apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !body.success
+  - return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
+    · ответ 400 — «Неверные данные: поле withoutInstagram — да или нет»
 - const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…
   · зовёт completeEditing()
 - если !outcome.ok
-  - return res.status(outcome.status).json({ error: outcome.error });
+  - return res.status(outcome.status).json({ error: outcome.error, code: outcome.code, ...(outcome.blockers ? { b…
     · ответ (код зависит от условия)
 - если outcome.siteSyncError
   - return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError…

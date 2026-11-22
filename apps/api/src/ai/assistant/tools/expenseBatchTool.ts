@@ -44,6 +44,11 @@ import { AD_CHANNELS, adChannelOf, salaryNameOf, specialArticleOf } from "../exp
 export const ADD_EXPENSES_TOOL = "add_expenses";
 /** Не ограничение для людей, а предохранитель: таблица больше этого — несколько карточек. */
 export const MAX_BATCH_ROWS = 1000;
+/**
+ * Сколько карточка пачки ждёт «Записать» (17.11.2026): 10 минут брокера мало — директор проверяет строки
+ * позже, и 10–11.11 две карточки истекли. Повтор безопасен: двойную запись держит ключ строки.
+ */
+export const ADD_EXPENSES_TTL_MS = 60 * 60_000;
 const monthSchema = z.string().regex(/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/);
 const opt = <T extends z.ZodTypeAny>(schema: T) => schema.nullish().transform((v) => v ?? undefined);
 const hash64 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -402,6 +407,7 @@ const executor: AssistantActionExecutor<BatchArgs> = {
   privateTelegram: true,
   transactional: true,
   transactionTimeoutMs: 120_000,
+  ttlMs: ADD_EXPENSES_TTL_MS,
   parseArgs: (raw) => parseBatchArgs(raw),
   async authorize(_args, actor) {
     await assertFinanceWriter(actor);
@@ -563,7 +569,11 @@ export const addExpensesPlugin: AssistantWriteToolPlugin = {
     "голосом или текстом, на любом языке. Каждую названную трату — отдельной строкой items; сумма числом; " +
     "currency — только если валюту назвали (TJS — сомони, USD — доллары); не назвали — не ставь, карточка спросит. " +
     "Другая валюта (евро, рубли) — otherCurrency, такую строку CRM пока не запишет. " +
-    "Дата YYYY-MM-DD, если назван день («вчера» — посчитай от сегодня), иначе month YYYY-MM, если назван месяц. " +
+    "Список в несколько строк («Иҷора 5000», «Интернет 400»…) и просьбы «ҳамин хароҷотҳоро ворид кун», «сабт кун», «внеси эти» " +
+    "о списке выше в разговоре — ОДИН вызов со всеми строками. " +
+    "Дата YYYY-MM-DD, если назван день («вчера» — посчитай от сегодня), иначе month YYYY-MM, если назван месяц: " +
+    "«прошлый месяц», «моҳи гузашта» — месяц перед сегодняшним; месяц без года («октябрь», «октябр») — последний уже " +
+    "наступивший такой месяц, не будущий. Строк с суммами нет — не зови инструмент, одной фразой попроси список «статья — сумма» или фото. " +
     "category: ADVERTISING (реклама, нужен source), SALARY (зарплата, нужен agentName), " +
     "OFFICE (аренда, интернет, связь, канцтовары, коммуналка), OTHER (остальное: бензин, такси, еда). " +
     "categoryTitle — только если человек назвал подраздел из справочника. lang — язык человека (ru, tg, uz, en). " +
