@@ -24,6 +24,7 @@ import { pultWriteRefresh } from "./lib/pultWriteRefresh.js";
 import { authRouter } from "./routes/auth.js";
 import { testPasswordLoginRouter } from "./auth/testPasswordLogin.js";
 import { meRouter } from "./routes/me.js";
+import { showingQuestionsRouter } from "./routes/showingQuestions.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { propertyOffersRouter } from "./routes/propertyOffers.js";
 import { agentsRouter } from "./routes/agents.js";
@@ -718,6 +719,7 @@ app.use("/api/v1/events", eventsRouter);
 app.use("/api/v1/me/2fa", totpLimiter);
 app.use("/api/v1/me", meRouter);
 app.use("/api/v1/me/notifications", notificationsRouter);
+app.use("/api/v1/showing-questions", showingQuestionsRouter);
 app.use("/api/v1/agents", agentsRouter);
 // Карточка сотрудника для руководства (GET /agents/:id/overview) живёт в team.ts —
 // agents.ts занят админским CRUD, а карточка доступна и менеджеру.

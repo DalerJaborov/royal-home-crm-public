@@ -7,7 +7,7 @@ import { formatClientCode, formatPropertyCode, type PermissionId } from "@royal-
  * Ссылки на карточки в ответах Шабнам про рынок (14.11.2026, ревью architect).
  *
  * Ответ помощницы со ссылкой /properties/ID или /clients/ID сверяется со ссылками, которые вернули инструменты ЭТОГО
- * хода (ai/assistant/cardLinkEvidence.ts); неизвестная ссылка подменяется на «Не удалось подтвердить ссылки».
+ * хода (ai/assistant/cardLinkEvidence.ts); неизвестная ссылка становится обычным текстом (с 17.11.2026; раньше — отказ на весь ответ).
  * Сторож класса: каждый инструмент ЧТЕНИЯ, который отдаёт ссылку или номер карточки, обязан быть известен
  * cardLinkEvidence. Иначе новый инструмент молча «ломает» ссылки в ответах, и тесты самого инструмента этого не видят.
  * Сквозной тест идёт через цикл помощницы (модель подменена), а не через tool.run напрямую.
@@ -156,11 +156,13 @@ describe("цикл помощницы: ссылка на карточку пос
     expect(reply).not.toContain("Не удалось подтвердить ссылки");
   });
 
-  it("контроль: ссылка на карточку, которую инструменты не возвращали, по-прежнему подменяется отказом", async () => {
+  it("контроль: ссылка на карточку, которую инструменты не возвращали, ссылкой не уходит (остаётся текстом)", async () => {
     callGeminiTools
       .mockResolvedValueOnce(callsTurn([{ name: "market_property_price", args: { propertyId: String(propertyShortId) }, id: "c-prop" }]))
       .mockResolvedValueOnce(textTurn(`Смотрите [другой](/properties/${propertyShortId + 9999}).`));
     const outcome = await runAssistantDetailed([{ role: "user", content: "Цена объекта?" }], actor(), { confirmUi: false, channel: "crm", deadlineMs: 20_000 });
-    expect((outcome as { reply: string }).reply).toContain("Не удалось подтвердить ссылки");
+    // С 17.11.2026 — не отказ на весь ответ, а подпись без ссылки (cardLinkEvidence.sanitize).
+    expect((outcome as { reply: string }).reply).toBe("Смотрите другой.");
+    expect((outcome as { reply: string }).reply).not.toContain(`/properties/${propertyShortId + 9999}`);
   });
 });

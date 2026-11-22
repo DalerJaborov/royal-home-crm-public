@@ -6,6 +6,8 @@ import * as shared from "@royal-home/shared";
 import * as zod from "zod";
 import { expect, it, vi } from "vitest";
 import * as reply from "../src/telegram/assistantReply.js";
+import * as chatCommands from "../src/telegram/assistantChatCommands.js";
+import * as sentLog from "../src/telegram/sentMessageLog.js";
 import { unstubbedModule } from "./helpers/unstubbedModule.js";
 
 const source = readFileSync(new URL("../src/telegram/assistantReadResults.ts", import.meta.url), "utf8");
@@ -125,7 +127,10 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     // «Править текст» озвучки (11.11.2026): ожидания нет — сообщение идёт дальше обычным путём.
     "./assistantNarration.js": { handleNarrationTextReply: async () => false },
     // «Озвучь текст» (16.11.2026): просьбы нет — сообщение идёт дальше обычным путём.
-    "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false },
+    "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false, looksLikeNarrationDictation: () => false },
+    // «Повтори голосом» и «удали присланное» (17.11.2026) — настоящие, без базы и сети.
+    "./assistantChatCommands.js": chatCommands,
+    "./sentMessageLog.js": sentLog,
     // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.
     "./staffClip.js": { handleStaffClipText: async () => false, handleStaffClipMessage: async () => false },
     "./staffSocialPost.js": { handleStaffSocialText: async () => false, handleStaffSocialPhoto: async () => false },
@@ -134,6 +139,8 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "../lib/describeError.js": { describeError: (error: unknown) => String(error) },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantExpenseCard.js": { applyExpenseFixMessage: async () => false },
+    // Расходы списком и «вот фото / повтори карточку» (17.11.2026): фраза не про расходы — дальше.
+    "./assistantExpenseFollowup.js": { handleExpenseTextMessage: async () => false, handleExpenseFollowupText: async () => false },
     "./assistantReadResults.js": f.delivery,
     // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
     "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },

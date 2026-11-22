@@ -66,6 +66,7 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
+import { ShowingQuestionsPanel } from "../components/ShowingQuestionsPanel";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalClientFacts, RoyalClientTabs, royalPhoneFact, type RoyalClientFact } from "../components/look/clients/RoyalClients";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
@@ -1540,6 +1541,9 @@ function ClientDetailCard() {
             )}
           </div>
         )}
+
+        {/* «У вас был показ?» / «Договорились о показе?» по этому клиенту (22.11.2026) — тот же вопрос, что в Шабнам. */}
+        {!locked && <ShowingQuestionsPanel clientId={client.id} />}
 
         {/* Шапка: аватар, имя, плашки, агент */}
         <CleanClientDetailHeader enabled={clean}>

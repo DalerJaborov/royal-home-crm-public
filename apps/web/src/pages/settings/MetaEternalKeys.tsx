@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { KeyRound, Megaphone, MessageCircle, Phone } from "lucide-react";
 import {
+  META_ETERNAL_PUBLISH_ROUTE_LABEL,
   META_ETERNAL_ROUTE_LABEL,
   META_ETERNAL_STATE_LABEL,
   metaCompanyPagesSchema,
@@ -138,7 +139,7 @@ export function MetaEternalKeys() {
               ? `Ключ компании работает${data.systemUser.name ? ` (${data.systemUser.name})` : ""}.` +
                 (data.systemUser.missingScopes.length ? ` Не хватает прав: ${data.systemUser.missingScopes.join(", ")}.` : "")
               : data.systemUser.configured
-                ? `Ключ компании не работает: ${data.systemUser.detail ?? "Meta не ответила"}.`
+                ? (data.systemUser.detail ?? "Meta не приняла ключ компании.")
                 : "Ключ компании не задан — вставьте его в поле «Маркер удаления Instagram» ниже."}
           </p>
           {data.rows.length > 0 && (
@@ -160,6 +161,71 @@ export function MetaEternalKeys() {
               Проверить ещё раз
             </button>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * «ПРОВЕРИТЬ ПРАВА» КЛЮЧА КОМПАНИИ (22.11.2026) — стоит рядом с полем «Маркер удаления
+ * Instagram». Тот же запрос, что у «Вечных ключей» выше (GET /settings/meta-eternal: сервер
+ * спрашивает Meta /me и /me/permissions), второго пути нет. В ответе — только названия прав,
+ * маркер сервер не отдаёт никогда. Один экран для компьютера и телефона: строки `.row`.
+ */
+export function CompanyKeyScopesCheck() {
+  const client = useQueryClient();
+  const status = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: async () => metaEternalStatusSchema.parse(await api("/settings/meta-eternal")),
+    staleTime: 60_000,
+  });
+  const user = status.data?.systemUser;
+  const checks = user?.scopeChecks ?? [];
+  // Необязательные (ads_*) не зовут перевыпускать ключ: без них публикация пробует, а при
+  // отказе Meta сама уходит личным ключом (сервер, lib/instagramPublisher.ts).
+  const missing = checks.filter((c) => !c.granted && !c.optional);
+  const extra = (user?.grantedScopes ?? []).filter((s) => !checks.some((c) => c.scope === s));
+  return (
+    <div style={{ marginTop: "var(--s3)" }}>
+      <div className="wrap">
+        <button
+          className="pill ghost sm"
+          type="button"
+          disabled={status.isFetching}
+          onClick={() => void client.invalidateQueries({ queryKey: QUERY_KEY })}
+        >
+          {status.isFetching ? "Проверяю права…" : "Проверить права"}
+        </button>
+      </div>
+      {status.isError && <p className="quiet" role="alert">Не удалось проверить права. Попробуйте ещё раз.</p>}
+      {user && !user.configured && <p className="quiet">Ключ компании не задан — проверять нечего.</p>}
+      {/* Текст готовит сервер — по-русски и без кодов Meta; сам ответ Meta остаётся в журнале. */}
+      {user?.configured && !user.ok && <p className="quiet" role="alert">{user.detail ?? "Meta не приняла ключ компании."}</p>}
+      {user?.ok && checks.length > 0 && (
+        <>
+          <p className="quiet">
+            {missing.length
+              ? `Ключ компании пока не может: ${missing.map((c) => c.forWhat).join("; ")}. Выпустите ключ системного пользователя заново и отметьте права, помеченные «Нет».`
+              : "Все нужные права выданы."}
+          </p>
+          <div className="list">
+            {checks.map((c) => (
+              <div className="row" key={c.scope}>
+                <div className="t">
+                  <b style={{ display: "flex", alignItems: "center", gap: "var(--s2)", flexWrap: "wrap" }}>
+                    <span>{c.forWhat}</span>
+                    <span className={`chip ${c.granted ? "ok" : c.optional ? "" : "crit"}`}>
+                      {c.granted ? "Есть" : c.optional ? "Не обязательно" : "Нет"}
+                    </span>
+                  </b>
+                  {/* Название права — мелко: его ищут в Business Suite при перевыпуске ключа. */}
+                  <span>{c.scope}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {extra.length > 0 && <p className="quiet">Ещё выдано: {extra.join(", ")}.</p>}
         </>
       )}
     </div>
@@ -190,6 +256,7 @@ function EternalRow({
           <span className={`chip ${ok ? "ok" : calm ? "" : "crit"}`}>{META_ETERNAL_STATE_LABEL[row.state]}</span>
         </b>
         {row.route && <span>{META_ETERNAL_ROUTE_LABEL[row.route]}</span>}
+        {row.publishRoute && <span>{META_ETERNAL_PUBLISH_ROUTE_LABEL[row.publishRoute]}</span>}
         {row.accessLostAt && <span>Доступ закрыт Meta: {dushanbeDateTime(row.accessLostAt)}</span>}
         {row.pageName && <span>Страница: {row.pageName}</span>}
         {row.lastSentAt && (

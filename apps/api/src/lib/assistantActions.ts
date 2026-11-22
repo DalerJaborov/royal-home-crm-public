@@ -159,6 +159,12 @@ export interface AssistantActionExecutor<A = unknown> {
     ) => Promise<{ afterCommit?: () => void | Promise<void> }>;
   };
   undoWindowMs?: number;
+  /**
+   * Сколько карточка ждёт нажатия; по умолчанию ASSISTANT_ACTION_TTL_MS (10 минут). Длиннее — только
+   * там, где человек подтверждает позже и повтор безопасен своими ключами (пачка расходов: директор
+   * проверяет строки, а двойную запись держит ключ строки, 17.11.2026).
+   */
+  ttlMs?: number;
 }
 
 export class AssistantActionError extends Error {
@@ -369,7 +375,7 @@ export async function createPendingAssistantAction(
           preview: asJson(preview),
           snapshotBefore: asJson(snapshot),
           idempotencyKey,
-          expiresAt: new Date(now.getTime() + ASSISTANT_ACTION_TTL_MS),
+          expiresAt: new Date(now.getTime() + (executor.ttlMs ?? ASSISTANT_ACTION_TTL_MS)),
         },
       });
       return toView(row);

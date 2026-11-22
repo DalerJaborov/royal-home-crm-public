@@ -40,8 +40,8 @@ export async function hasNearbyShowing(clientId: string, at: Date): Promise<bool
  * ни в напоминаниях (аудит 14.08.2026).
  *
  * `nextAction: "Показ объекта"` обязателен: именно по непустому nextAction
- * напоминания (lib/meetingReminders.ts, TASK_WHERE) находят встречу и шлют пуши
- * за 2 часа и за 40 минут.
+ * напоминания (lib/meetingReminders.ts, TASK_WHERE) находят встречу и шлют одно
+ * напоминание за 2 часа (владелец 20.09 и 22.11.2026).
  */
 export async function scheduleShowing(input: {
   clientId: string;

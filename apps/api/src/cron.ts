@@ -142,6 +142,7 @@ import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
 import { sellerSwitchOn } from "./lib/sellerSwitches.js";
 import { sweepStaffSocialPosts } from "./lib/staffSocialPostSweep.js";
+import { runShowingQuestionsTick } from "./telegram/showingQuestionNotice.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -688,6 +689,19 @@ export function startCronJobs() {
 
   /** Свободные ролики в соцсети (12.10.2026): раз в минуту запускает ролики, чьё время по расписанию пришло,
    *  и снимает оборванные публикации. Сама публикация идёт заданием очереди (jobs/socialVideoPublish.ts). */
+  /** Вопросы агенту о показе (владелец 22.11.2026): «Договорились о показе?» через минуту после
+   *  неясного разбора и «У вас был показ?» через час после показа — в Шабнам, страховка пушем в CRM.
+   *  Раз в минуту, запросы узкие (индексы status+askAt); вне 08:00–22:00 вопросы ждут утра.
+   *  telegram/showingQuestionNotice.ts, рубильники — Настройки → Автоматика. */
+  scheduleTracked("showing-questions", "* * * * *", async () => {
+    try {
+      const { planned, sent, pushed } = await runShowingQuestionsTick();
+      if (planned || sent || pushed) console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);
+    } catch (err) {
+      reportCronTickError("Ошибка вопросов о показах", err);
+    }
+  });
+
   scheduleTracked("social-video-schedule", "* * * * *", async () => {
     try {
       const { started, recovered } = await runSocialVideoScheduleTick();
@@ -698,8 +712,8 @@ export function startCronJobs() {
   });
 
   /** Напоминания перед встречей — каждые 5 минут. Тик частый, но запрос узкий: окно
-   *  по индексированному nextActionDate. Ступени: показ — за 2 часа и за 40 минут
-   *  (пробки), прочие задачи — за час. Здесь же контроль непроведённых показов:
+   *  по индексированному nextActionDate. Ступени: показ и встреча — одно напоминание
+   *  за 2 часа (владелец 20.09 и 22.11.2026), прочие задачи — за час. Здесь же контроль непроведённых показов:
    *  тот же тик, отдельный запрос, руководству уходит один push на показ. */
   /** Сообщения клиентов, застрявшие в буфере дебаунса из-за перезапуска API
    *  посреди ожидания (см. recoverStuckPendingMessages в messengers/conversation.ts,

@@ -63,7 +63,8 @@ import { tellStaffSocialPostResult } from "../telegram/staffSocialPostResult.js"
 import { sharpFromUpload } from "./heicInput.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
 import { publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
-import { instagramTokenIdentity, loadCredentials } from "../messengers/meta.js";
+import { loadCredentials } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — сервис (12.10.2026).
@@ -1397,10 +1398,11 @@ async function runPhotoDestinations(row: Pick<Row, "id" | "imagePaths" | "captio
         if ("error" in target) r = { ok: false, error: target.error };
         else if (urls.length === 0) r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
         else {
-          const identity = await instagramTokenIdentity(target.token);
-          r = identity.ok
-            ? await publishInstagramCarousel(id, identity.id, target.token, urls, row.caption)
-            : { ok: false, error: `Не удалось определить аккаунт Instagram: ${identity.error}` };
+          // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+          const publisher = await resolveInstagramPublisher(target.token);
+          r = publisher.ok
+            ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(id, igUserId, token, urls, row.caption))).result
+            : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
         }
       } else if (d.channel === "FACEBOOK") {
         const creds = await loadCredentials();

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **795**. Развилок в самих путях: **2523**; вместе с задачами по расписанию и фоновыми заданиями — **4233**. Модулей: **89**.
+Путей: **797**. Развилок в самих путях: **2529**; вместе с задачами по расписанию и фоновыми заданиями — **4246**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4549,14 +4549,16 @@
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- const hideWhere = await pendingDeleteHideWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
-  · зовёт pendingDeleteHideWhere()
+- const base = await clientsScopeBaseWhere({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт clientsScopeBaseWhere()
 - const today = dushanbeDayRange(now);
   · зовёт dushanbeDayRange()
 - const yesterday = dushanbeDayRange(new Date(today.start.getTime() - 1));
   · зовёт dushanbeDayRange()
 - const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));
   · зовёт dushanbeDayRange()
+- const awaitingWhere = awaitingAcceptanceWhere(base);
+  · зовёт awaitingAcceptanceWhere()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
 - const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldestCandidates, neverContacted…
@@ -10633,10 +10635,13 @@
 
 `apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
+- если !body.success
+  - return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
+    · ответ 400 — «Неверные данные: поле withoutInstagram — да или нет»
 - const outcome = await completeEditing({ propertyId: req.params.id, actor: { agentId: req.agent!.id, can: (per…
   · зовёт completeEditing()
 - если !outcome.ok
-  - return res.status(outcome.status).json({ error: outcome.error });
+  - return res.status(outcome.status).json({ error: outcome.error, code: outcome.code, ...(outcome.blockers ? { b…
     · ответ (код зависит от условия)
 - если outcome.siteSyncError
   - return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError…
@@ -17271,6 +17276,43 @@
   - next(error);
     · дословно из кода
 
+## /api/v1/showing-questions
+
+### POST /api/v1/showing-questions/:id/answer
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если isReadOnlyRole(req.agent!.role)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если !z.string().uuid().safeParse(req.params.id).success
+  - return res.status(400).json({ error: "Неверный идентификатор вопроса" });
+    · ответ 400 — «Неверный идентификатор вопроса»
+- const parsed = showingQuestionAnswerSchema.safeParse(req.body);
+  · проверяет данные схемой showingQuestionAnswerSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный ответ", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный ответ»
+- const result = await answerShowingQuestion({ questionId: req.params.id, actorId: req.agent!.id, canActForOthe…
+  · зовёт answerShowingQuestion()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: result.message });
+  · ответ 200
+
+### GET /api/v1/showing-questions
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const items = await listShowingQuestions(req.agent!.id, { clientId: parsed.data.clientId });
+  · зовёт listShowingQuestions()
+- res.json({ items });
+  · ответ 200
+
 ## /api/v1/site-notifications
 
 ### POST /api/v1/site-notifications/:id/resolve
@@ -22435,9 +22477,9 @@
         - если !creds.igToken
           - continue;
             · переходит к следующему
-        - const identity = await instagramTokenIdentity(creds.igToken);
-          · зовёт instagramTokenIdentity()
-        - если !identity.ok
+        - const publisher = await resolveInstagramPublisher(creds.igToken);
+          · зовёт resolveInstagramPublisher()
+        - если !publisher.ok
           - continue;
             · переходит к следующему
         - await prisma.pendingInstagramContainer.update({ where: { id: row.id }, data: { lastCheckedAt: new Date() } });
@@ -22462,7 +22504,7 @@
         - если row.kind === "REEL"
           - await prisma.pendingInstagramContainer.update({ where: { id: row.id }, data: { status: "PUBLISHED", resolvedA…
             · меняет в базе: pendingInstagramContainer
-          - const permalink = await fetchInstagramPermalink(result.postId, creds.igToken);
+          - const permalink = await fetchInstagramPermalink(result.postId, publisher.token);
             · зовёт fetchInstagramPermalink()
           - await applySucceededPublishResults(row.propertyId, [{ channel: "INSTAGRAM", postId: result.postId }], permali…
             · зовёт applySucceededPublishResults()
@@ -25087,6 +25129,74 @@
 - в любом случае
   - isShowingConfirmRunning = false;
     · дословно из кода
+
+### showing-questions — * * * * *
+
+- пробует
+  - const { planned, sent, pushed } = await runShowingQuestionsTick();
+    · зовёт runShowingQuestionsTick()
+    - const planned = await planShowingOutcomeQuestions(now);
+      · зовёт planShowingOutcomeQuestions()
+    - если !isWithinDushanbeWindow(AGENT_ASK_START, AGENT_ASK_END, now)
+      - return { planned, sent: 0, pushed: 0 };
+        · дословно из кода
+    - const [agreementOn, outcomeOn] = await Promise.all([ automationSwitchOn("showingAgreementAskEnabled"), automa…
+      · зовёт automationSwitchOn()
+    - const due = await prisma.showingQuestion.findMany({ where: { status: "OPEN", askAt: { lte: now }, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of due
+      - пробует
+        - если !enabled(q.kind)
+          - await closeQuestion(q, { answer: "switch_off" }, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+      - если сорвалось
+        - void logSystemError("telegram", `Вопрос о показе не отправлен (${q.id}): ${describeError(err)}`, { dedupKey: …
+          · запись в журнал ошибок
+    - const silent = await prisma.showingQuestion.findMany({ where: { status: "OPEN", pushSentAt: null, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of silent
+      - пробует
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const claimed = await prisma.showingQuestion.updateMany({ where: { id: q.id, pushSentAt: null }, data: { push…
+          · меняет в базе: showingQuestion
+        - если claimed.count === 0
+          - continue;
+            · переходит к следующему
+        - const details = await loadQuestionDetails(q);
+          · зовёт loadQuestionDetails()
+        - если details
+          - await pushQuestion(details);
+            · дословно из кода
+          - pushed++;
+            · дословно из кода
+      - если сорвалось
+        - void logSystemError("api", `Пуш-страховка вопроса о показе не ушёл (${q.id}): ${describeError(err)}`, { dedup…
+          · запись в журнал ошибок
+  - если planned || sent || pushed
+    - console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка вопросов о показах", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### site-stats — 7 * * * *
 
@@ -29646,10 +29756,10 @@
       - r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
         · дословно из кода
     - иначе
-      - const identity = await instagramTokenIdentity(creds.igToken);
-        · зовёт instagramTokenIdentity()
-      - r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…
-        · зовёт publishInstagramCarousel()
+      - const publisher = await resolveInstagramPublisher(creds.igToken);
+        · зовёт resolveInstagramPublisher()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Фото-пост в Instagram (объект ${propertyId}) не удался: ${r.error}`, { dedupKey:…
         · запись в журнал ошибок
@@ -30319,10 +30429,10 @@
       - r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
         · дословно из кода
     - иначе
-      - const identity = await instagramTokenIdentity(creds.igToken);
-        · зовёт instagramTokenIdentity()
-      - r = identity.ok ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, capti…
-        · зовёт publishInstagramCarousel()
+      - const publisher = await resolveInstagramPublisher(creds.igToken);
+        · зовёт resolveInstagramPublisher()
+      - r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
     - если !r.ok && !r.pending
       - void logSystemError("meta", `Повтор в Instagram (объект ${propertyId}, круг ${round}) не удался: ${r.error}`,…
         · запись в журнал ошибок
@@ -30819,9 +30929,9 @@
       - void logSystemError("youtube", `Публикация в YouTube Shorts (${ownerText}) не удалась: ${result.error}`);
         · запись в журнал ошибок
   - для каждого: const igTarget of igTargets
-    - const identity = await instagramTokenIdentity(igToken);
-      · зовёт instagramTokenIdentity()
-    - если identity.ok
+    - const publisher = await resolveInstagramPublisher(igTarget.token);
+      · зовёт resolveInstagramPublisher()
+    - если publisher.ok
       - const property = owner.kind === "property" ? await prisma.property.findUnique({ where: { id: owner.id }, sele…
         · читает в базе: property
       - const ownerAgentId = property ? propertyOwnerAgentId(property) : null;
@@ -30830,10 +30940,10 @@
         · читает в базе: agent
       - const collaborators = instagramCollaboratorsFor({ settingsRaw: settings?.instagramCollaborators ?? null, agen…
         · зовёт instagramCollaboratorsFor()
-      - const result = await publishInstagramReel( owner.id, identity.id, igToken, videoUrl, igCaption, coverUrl, col…
-        · зовёт publishInstagramReel()
+      - const { result, publisher: used } = await publishViaInstagramPublisher(publisher, (igUserId, token)
+        · зовёт publishViaInstagramPublisher()
       - если result.ok && result.postId
-        - result.permalink = (await fetchInstagramPermalink(result.postId, igToken)) ?? undefined;
+        - result.permalink = (await fetchInstagramPermalink(result.postId, used.token)) ?? undefined;
           · зовёт fetchInstagramPermalink()
       - если igKey
         - result.destinationKey = igKey;

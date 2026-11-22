@@ -3154,6 +3154,52 @@ model StaffClipIntake {
 /// публикует ТОЛЬКО по кнопке «Опубликовать» того же сотрудника. Строка держит выбор сетей,
 /// подпись и захват кнопки (двойное нажатие и повтор апдейта не публикуют дважды).
 /// telegram/staffSocialPost.ts.
+/// ВОПРОС АГЕНТУ О ПОКАЗЕ (владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам»).
+/// AGREEMENT — «Договорились о показе?» (ИИ понял звонок/переписку не до конца), OUTCOME — «У вас был показ?»
+/// (через час после показа). Одна дверь — apps/api/src/lib/showingQuestions.ts: кнопки Шабнам и карточка CRM
+/// пишут ответ сюда, ответ в одном месте закрывает вопрос в другом. Строка без связей нарочно: вопрос живёт
+/// недолго и не должен держать удаление клиента или показа.
+model ShowingQuestion {
+  id                String    @id @default(uuid())
+  /// AGREEMENT | OUTCOME
+  kind              String
+  /// Один повод — один вопрос: `agreement:<CALL|CONVERSATION>:<id>` или `outcome:<id показа>`.
+  dedupKey          String    @unique
+  agentId           String
+  clientId          String
+  /// OUTCOME — показ (Interaction типа SHOWING); AGREEMENT — показ, записанный ответом.
+  showingId         String?
+  /// CALL | CONVERSATION — откуда договорённость (AGREEMENT).
+  sourceType        String?
+  sourceId          String?
+  /// Время показа из разговора (AGREEMENT). null — время не поняли.
+  proposedAt        DateTime?
+  /// Доказанный объект (resolveCallPropertyId / код из переписки). null — объект не поняли.
+  propertyId        String?
+  /// Короткая цитата из разговора — агенту вспомнить, о чём речь.
+  quote             String?
+  /// Когда спросить: через минуту после разбора (AGREEMENT) или через час после показа (OUTCOME).
+  askAt             DateTime
+  /// OPEN — ждёт ответа; ANSWERED — ответил человек; CLOSED — снят фактом (показ записали/отметили иначе).
+  status            String    @default("OPEN")
+  answer            String?
+  /// telegram | crm | fact
+  answeredVia       String?
+  answeredById      String?
+  answeredAt        DateTime?
+  telegramSentAt    DateTime?
+  telegramChatId    String?
+  telegramMessageId Int?
+  /// Страховка: вопрос продублирован пушем в CRM (нет Telegram или нет ответа).
+  pushSentAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, askAt])
+  @@index([agentId, status])
+  @@index([clientId, status])
+}
+
 model StaffSocialPost {
   id                String    @id @default(uuid())
   chatId            String
@@ -7416,6 +7462,11 @@ model Settings {
   /// аккаунт, прошедший проверку (ключ компании, права, Страница с этим Instagram), отвечает через Страницу,
   /// личный маркер — запасной. ВЫКЛ — все аккаунты Instagram на личных маркерах, как до 21.11.
   instagramCompanyKeyEnabled            Boolean @default(true)
+  /// «Шабнам переспрашивает о показе» (владелец 22.11.2026). ВКЛ: неясную договорённость о показе из звонка
+  /// или переписки агент подтверждает кнопкой в Шабнам (страховка — карточка и пуш в CRM). lib/showingQuestions.ts.
+  showingAgreementAskEnabled            Boolean @default(true)
+  /// «У вас был показ?» через час после показа (владелец 22.11.2026). ВКЛ. lib/showingQuestions.ts.
+  showingOutcomeAskEnabled              Boolean @default(true)
   /// «Кнопка «Записать результат» в карточке клиента» (владелец 22.11.2026). Реестр — automationSwitches.ts.
   /// ВЫКЛ по умолчанию: ИИ пишет итог звонка сам, ручная кнопка спрятана. ВКЛ — видна в меню «Ещё» и на телефоне.
   clientRecordResultEnabled             Boolean @default(false)

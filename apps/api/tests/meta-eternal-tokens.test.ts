@@ -379,6 +379,11 @@ describe("сторож мёртвых ключей", () => {
     expect(isMetaAuthFailureText("HTTP 400 (code 190): expired")).toBe(true);
     expect(isMetaAuthFailureText("HTTP 400 код 102: x")).toBe(true);
     expect(isMetaAuthFailureText("HTTP 400 (code 1900): x")).toBe(false);
+    // Только error.message от Meta, без кода и статуса (публикация, 22.11.2026): сообщения кода 190.
+    expect(isMetaAuthFailureText("Invalid OAuth access token - Cannot parse access token")).toBe(true);
+    expect(isMetaAuthFailureText("Malformed access token EAAx")).toBe(true);
+    expect(isMetaAuthFailureText("The access token could not be decrypted")).toBe(true);
+    expect(isMetaAuthFailureText("(#10) Application does not have permission for this action")).toBe(false);
   });
 
   it("пять одновременных отказов одного ключа — ровно одна тревога (замок, без гонки)", async () => {
