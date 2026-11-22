@@ -11,6 +11,8 @@ import { callAiText } from "./client.js";
 import { dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { applyAiCallOutcome } from "../lib/aiCallOutcome.js";
 import { hasNearbyShowing, scheduleShowing } from "../lib/scheduleShowing.js";
+import { findActiveShowing } from "../lib/showingBooking.js";
+import { askShowingAgreement } from "../lib/showingQuestionAsk.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
 import { sendPushToAgent } from "../push.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -521,41 +523,35 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
     }
 
     /**
-     * ДОГОВОРИЛИСЬ О ПОКАЗЕ — ЗАВОДИМ ОКНО «НАЗНАЧЬТЕ ПОКАЗ».
+     * ДОГОВОРИЛИСЬ О ПОКАЗЕ — ПОСТАВИТЬ САМОМУ ИЛИ СПРОСИТЬ АГЕНТА (владелец 22.11.2026).
      *
-     * Владелец 10.08.2026: «по телефону сказали, что надо сегодня встретиться в 18:00,
-     * а показ автоматически не назначился — должно было открыться окно с выбором
-     * объекта и назначением показа». Именно окно, а не автоматическое назначение:
-     * объект в разговоре чаще всего не назван («пришлю пару вариантов, потом
-     * съездим»), и выбрать его может только агент. Дата и время подставляются из
-     * разговора, агент их правит, если модель расслышала неверно.
+     * История: 10.08 — окно «Назначьте показ»; 18.08 — автоназначение, «только когда
+     * однозначно» (строгий подбор дал РОВНО один объект); 13.09 — окна удалены, и
+     * неясная договорённость (объектов 0 или 2+, нет времени) терялась: оставалась
+     * тихая запись BuyerShowingCandidate, которая никого не будит.
      *
-     * subjectName несёт дату: PendingSummary своих полей под данные не имеет, а окну
-     * нужно показать «Показ 10.08 в 18:00» ещё до того, как агент выберет объект.
-     * Разбирается обратно на сервере при выдаче окна (routes/me.ts).
+     * Аудит 21.11: объект показа брался ИЗ ПОДБОРА, а не из разговора. Подбор «ровно
+     * один» — это «единственный подходящий в каталоге», а не «тот, о котором говорили»;
+     * доказанный объект разговора (resolveCallPropertyId: объект в записи звонка или
+     * объект, по которому пришёл клиент) уже считался выше, но для показа не брался.
+     *
+     * Теперь (решение владельца 22.11: «показы делать уведомлением с кнопками в Шабнам»):
+     *  1. время понятно И объект доказан (и ещё продаётся) — показ ставится сам, как раньше;
+     *  2. иначе — через минуту Шабнам спрашивает агента «Договорились о показе?» с
+     *     кнопками (lib/showingQuestions.ts, telegram/showingQuestionNotice.ts), страховка —
+     *     тот же вопрос в CRM. Объект из подбора — только кнопкой на выбор, не сам;
+     *  3. рубильник «Шабнам переспрашивает» выключен — прежнее поведение 18.08: показ сам,
+     *     если подбор дал ровно один объект.
+     * Продавцу показ не ставится и вопрос не задаётся (см. ниже).
      */
-    if (showingAt) {
+    const quote = typeof extract.showingAgreementQuote === "string" ? extract.showingAgreementQuote.trim() : "";
+    // Цитата без времени считается, только если она правда есть в расшифровке (тот же
+    // порог, что у rememberCallShowingCandidate): модель не должна выдумать договорённость.
+    const quoteProven = quote.length >= 10 && interaction.transcript.includes(quote);
+    if (showingAt || quoteProven) {
       /**
-       * СТРАХОВКА, А НЕ ВТОРОЙ ВОПРОС (владелец 12.08.2026: «и ИИ открывает окно
-       * „назначьте показ“, и это наше окно тоже — это же не логично?»).
-       *
-       * Агент выбирает объект прямо в окне итога звонка, и показ создаётся там же
-       * (routes/me.ts, completeCallResultSummary). Разбор приходит позже, и если он
-       * снова попросит назначить показ, человек ответит на один вопрос дважды.
-       * Поэтому окно заводится, ТОЛЬКО когда агент показ не назначил: либо он
-       * выбрал другой исход, либо ещё не заполнил итог, а модель встречу расслышала.
-       * Тогда это по-прежнему ценно — ловит то, что забыли.
-       */
-      /**
-       * ЗАЩИТА ОТ ДУБЛЕЙ ПРИ РУЧНОМ И АВТО-НАЗНАЧЕНИИ (аудит 02.09.2026, §7 S11/S17)
-       * живёт НИЖЕ, в nearbyExists перед scheduleShowing — она гасит только
-       * АВТОНАЗНАЧЕНИЕ показа. Раньше `client` целиком обнулялся здесь, если
-       * поблизости уже есть показ, — и вместе с автоназначением пропадало окно
-       * requireSummary(showing_book): агент вообще не видел, что разговор был,
-       * дубль сам себя чинил молча, а не так, как задумано (§7: "окно остаётся,
-       * просто не блокирует экран"). Найдено 03.09.2026 регрессионным тестом
-       * «дубль не создаётся» — showings.length оставался верным (1), а window
-       * (requireSummary) пропадал вместе с ним.
+       * ЗАЩИТА ОТ ДУБЛЕЙ ПРИ РУЧНОМ И АВТО-НАЗНАЧЕНИИ (аудит 02.09.2026, §7 S11/S17):
+       * показ на это время уже стоит (агент поставил руками) — ни ставить, ни спрашивать.
        */
       const client = await prisma.client.findFirst({
         where: { id: interaction.clientId, deletedAt: null },
@@ -572,66 +568,74 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
        * ветки на человека, который просто отдавал нам свою квартиру; за три часа
        * их набралось семь, и владелец сказал «достало».
        *
-       * Выдержки из той расшифровки: агент едет «посмотреть» квартиру продавца,
-       * а модель записала «показать 3-комнатную квартиру клиенту» — направление
-       * перепутано на самом входе, и одна ошибка потянула весь каскад.
-       *
        * Правильный путь продавца — исход «Объект принят в работу» и окно «Итог
        * объекта» через 36 часов (см. propertyAcceptedAt и requirePropertySummaries).
        */
-      if (client && (!confirmedClientIntents(client).buys || extract.outcome === "SELLER_MEETING")) {
-        console.log(
-          `[разбор] показ не предлагаем: клиент ${interaction.clientId} — продавец, встреча по объекту это приём, а не показ`
-        );
+      if (!client || !confirmedClientIntents(client).buys || extract.outcome === "SELLER_MEETING") {
+        if (client) console.log(`[разбор] показ не предлагаем: клиент ${interaction.clientId} — продавец, встреча по объекту это приём, а не показ`);
         return { ok: true };
       }
       // Newly eligible dual-intent sellers are collected privately above. Do not
       // broaden the legacy live autobooking/push path without activation approval.
-      if (client?.kind === "SELLER") return { ok: true };
-      // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026): выключено —
-      // показ по звонку не назначается, остальной разбор звонка идёт как обычно.
-      if (client && (await automationSwitchOn("aiAgentShowingAutoBookEnabled"))) {
-        /**
-         * ПОКАЗ НАЗНАЧАЕТСЯ САМ — НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026,
-         * после того как это же самое уже пробовали и дважды отменяли: 05.08 —
-         * потребовал вернуть именно окно вместо мягкого баннера; 17.08 — живой
-         * сбой на продавце, семь окон за три часа). Условие сузили нарочно:
-         *
-         *  • строгий подбор findMatchingPropertiesForClient — НЕ тот, что с
-         *    запасным вариантом «весь каталог» (см. usePropertyPickerOptions на
-         *    фронте): пусто или несколько подходящих объектов — не однозначно,
-         *    выбор остаётся агенту;
-         *  • hasNearbyShowing — не создаём второй показ на то же время, если
-         *    агент уже назначил его руками (ни этот дубль-щит, ни сам показ
-         *    раньше не проверялись друг на друга вовсе).
-         *
-         * Не подошло ни то, ни другое — окно «Назначьте показ» остаётся, как и
-         * было, просто больше не блокирует экран (см. PendingSummaryBanner.tsx).
-         */
-        const matched = await findMatchingPropertiesForClient(client.id, { take: 2 });
-        const nearbyExists = matched.length === 1 ? await hasNearbyShowing(client.id, showingAt) : false;
-        if (matched.length === 1 && !nearbyExists) {
-          const booked = await scheduleShowing({
-            clientId: client.id,
-            agentId: interaction.agentId,
-            propertyId: matched[0].propertyId,
-            showingAt,
-            note: `Показ назначен автоматически по разговору: ${matched[0].title}`,
-          });
-          if (booked.ok) {
-            void sendPushToAgent(interaction.agentId, {
-              title: "✅ Показ назначен автоматически",
-              body: `${client.fullName} — ${matched[0].title}, ${showingAt.toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}`,
-              tag: `showing-auto-${interactionId}`,
-            }).catch(() => {});
-            return { ok: true };
-          }
-          // Назначить не удалось (например, объект удалили в ту же секунду) —
-          // не молчим, а падаем в обычное окно ниже, как будто автопути не было.
+      if (client.kind === "SELLER") return { ok: true };
+      const alreadyBooked = showingAt
+        ? await hasNearbyShowing(client.id, showingAt)
+        : !!(await findActiveShowing({ clientId: client.id, now: new Date() }));
+      if (alreadyBooked) return { ok: true };
+
+      // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026).
+      const autoBook = await automationSwitchOn("aiAgentShowingAutoBookEnabled");
+      const askAgent = await automationSwitchOn("showingAgreementAskEnabled");
+      // Доказанный объект годится, только пока его можно показать: проданный или
+      // удалённый объект — не «понятно», а повод спросить.
+      const provenProperty = callPropertyId
+        ? await prisma.property.findFirst({ where: { id: callPropertyId, deletedAt: null, status: "AVAILABLE" }, select: { id: true, title: true } })
+        : null;
+
+      const book = async (property: { id: string; title: string }) => {
+        const booked = await scheduleShowing({
+          clientId: client.id,
+          agentId: interaction.agentId!,
+          propertyId: property.id,
+          showingAt: showingAt!,
+          note: `Показ назначен автоматически по разговору: ${property.title}`,
+        });
+        if (booked.ok) {
+          void sendPushToAgent(interaction.agentId!, {
+            title: "✅ Показ назначен автоматически",
+            body: `${client.fullName} — ${property.title}, ${showingAt!.toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}`,
+            tag: `showing-auto-${interactionId}`,
+          }).catch(() => {});
         }
-        /* Окно «Назначить показ» здесь больше не заводится: механизм обязательных
-           окон удалён 13.09.2026. Договорённость остаётся в хронологии разговора,
-           а автоназначение показа выше работает как работало. */
+        // Назначить не удалось (например, объект удалили в ту же секунду) — не молчим,
+        // а идём дальше, как будто автопути не было.
+        return booked.ok;
+      };
+
+      if (autoBook && showingAt && provenProperty && (await book(provenProperty))) return { ok: true };
+
+      if (askAgent) {
+        await askShowingAgreement({
+          agentId: interaction.agentId,
+          clientId: client.id,
+          sourceType: "CALL",
+          sourceId: interactionId,
+          proposedAt: showingAt,
+          propertyId: provenProperty?.id ?? null,
+          quote: quoteProven ? quote : null,
+        });
+        return { ok: true };
+      }
+
+      /**
+       * ПРЕЖНЕЕ ПОВЕДЕНИЕ (рубильник «Шабнам переспрашивает» выключен): строгий подбор
+       * findMatchingPropertiesForClient — НЕ тот, что с запасным «весь каталог»; пусто
+       * или несколько подходящих — показ сам не ставится, договорённость остаётся в
+       * хронологии разговора.
+       */
+      if (autoBook && showingAt) {
+        const matched = await findMatchingPropertiesForClient(client.id, { take: 2 });
+        if (matched.length === 1) await book({ id: matched[0].propertyId, title: matched[0].title });
       }
     }
 

@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 795,
-  "forks": 4233,
-  "mounts": 89,
-  "cron": 145,
+  "endpoints": 797,
+  "forks": 4245,
+  "mounts": 90,
+  "cron": 146,
   "jobs": 34,
   "hidden": 0
  },
@@ -76556,6 +76556,157 @@
   },
   {
    "method": "POST",
+   "path": "/:id/answer",
+   "mount": "/api/v1/showing-questions",
+   "full": "/api/v1/showing-questions/:id/answer",
+   "file": "apps/api/src/routes/showingQuestions.ts",
+   "router": "showingQuestionsRouter",
+   "top": "apps/api/src/routes/showingQuestions.ts::showingQuestionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "isReadOnlyRole(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.string().uuid().safeParse(req.params.id).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор вопроса\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор вопроса»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = showingQuestionAnswerSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой showingQuestionAnswerSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный ответ\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный ответ»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await answerShowingQuestion({ questionId: req.params.id, actorId: req.agent!.id, canActForOthe…",
+     "a": [
+      "зовёт answerShowingQuestion()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!result.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(result.status).json({ error: result.error });",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, message: result.message });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/showing-questions",
+   "full": "/api/v1/showing-questions",
+   "file": "apps/api/src/routes/showingQuestions.ts",
+   "router": "showingQuestionsRouter",
+   "top": "apps/api/src/routes/showingQuestions.ts::showingQuestionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры запроса\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры запроса»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const items = await listShowingQuestions(req.agent!.id, { clientId: parsed.data.clientId });",
+     "a": [
+      "зовёт listShowingQuestions()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/resolve",
    "mount": "/api/v1/site-notifications",
    "full": "/api/v1/site-notifications/:id/resolve",
@@ -112342,6 +112493,322 @@
         "дословно из кода"
        ],
        "c": []
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "showing-questions",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { planned, sent, pushed } = await runShowingQuestionsTick();",
+       "a": [
+        "зовёт runShowingQuestionsTick()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const planned = await planShowingOutcomeQuestions(now);",
+         "a": [
+          "зовёт planShowingOutcomeQuestions()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!isWithinDushanbeWindow(AGENT_ASK_START, AGENT_ASK_END, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { planned, sent: 0, pushed: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const [agreementOn, outcomeOn] = await Promise.all([ automationSwitchOn(\"showingAgreementAskEnabled\"), automa…",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.showingQuestion.findMany({ where: { status: \"OPEN\", askAt: { lte: now }, telegramSen…",
+         "a": [
+          "читает в базе: showingQuestion"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const q of due",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!enabled(q.kind)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await closeQuestion(q, { answer: \"switch_off\" }, now);",
+               "a": [
+                "зовёт closeQuestion()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const fact = await closedByFact(q, now);",
+             "a": [
+              "зовёт closedByFact()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "fact",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await closeQuestion(q, fact, now);",
+               "a": [
+                "зовёт closeQuestion()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"telegram\", `Вопрос о показе не отправлен (${q.id}): ${describeError(err)}`, { dedupKey: …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const silent = await prisma.showingQuestion.findMany({ where: { status: \"OPEN\", pushSentAt: null, telegramSen…",
+         "a": [
+          "читает в базе: showingQuestion"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const q of silent",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const fact = await closedByFact(q, now);",
+             "a": [
+              "зовёт closedByFact()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "fact",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await closeQuestion(q, fact, now);",
+               "a": [
+                "зовёт closeQuestion()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const claimed = await prisma.showingQuestion.updateMany({ where: { id: q.id, pushSentAt: null }, data: { push…",
+             "a": [
+              "меняет в базе: showingQuestion"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "claimed.count === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const details = await loadQuestionDetails(q);",
+             "a": [
+              "зовёт loadQuestionDetails()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "details",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await pushQuestion(details);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "pushed++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Пуш-страховка вопроса о показе не ушёл (${q.id}): ${describeError(err)}`, { dedup…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runShowingQuestionsTick() — apps/api/src/telegram/showingQuestionNotice.ts"
+      },
+      {
+       "k": "if",
+       "t": "planned || sent || pushed",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка вопросов о показах\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }

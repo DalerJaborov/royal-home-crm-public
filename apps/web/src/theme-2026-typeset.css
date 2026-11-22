@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 857 (размер поднят у 847, гарнитура сведена у 50).
+ * Правил: 858 (размер поднят у 848, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 @media print {
@@ -22,6 +22,7 @@
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
 .rh2 .offer-status { font-size: 15px; }
 .rh2 .fs-code { font-size: 13px; }
+.sq-card button.sq-btn { font-size: 16px; }
 .rh2 .scr .cw2-btn .lbl { font-size: 13px; }
 html[data-shell="clean"] .clean-calendar-summary { font-size: 15px; }
 html[data-shell="clean"] .clean-calendar-page .mh .lane [role="tab"] { font-size: 16px; }
