@@ -43,15 +43,22 @@ export function assistantLimitMeasureOf(err: unknown): AssistantAttemptLimitErro
  * Было 9 попыток при Settings.aiAssistantMaxRounds = 30: каждый повтор после 503 и каждая
  * запасная модель тратят тот же счётчик (geminiClient.ts, callGeminiToolsWithRetries), и
  * оба сбоя attempt_limit на проде случились на 4–5 шаге, задолго до тридцатого. Теперь —
- * попытка на шаг плюс запас на повторы (половина шагов, не меньше шести).
+ * попытка на шаг плюс запас на повторы (четверть шагов, не меньше трёх), но не больше ATTEMPT_CAP_CEILING.
  * Отказ по этому пределу — reason «attempt_cap» (одна шкала причин, limitNotice.ts); что сказать
  * человеку — решает ход помощницы (assistant.ts: честная остановка, «сузьте вопрос» при отказах
  * по размеру, «ИИ перегружен», если попытки съели повторы после сбоя Google).
  */
 export function assistantTurnAttemptCap(maxRounds: number): number {
   const rounds = Number.isSafeInteger(maxRounds) && maxRounds > 0 ? maxRounds : 1;
-  return rounds + Math.max(6, Math.ceil(rounds / 2));
+  return Math.min(ATTEMPT_CAP_CEILING, rounds + Math.max(3, Math.ceil(rounds / 4)));
 }
+
+/**
+ * Потолок попыток одного хода (ревью волны 2, 22.11.2026): каждая попытка — платный вызов Gemini, и
+ * «шаги настроек + половина» давали 45 вызовов на один вопрос. Оба сбоя прода случились на 4–5 шаге из 9,
+ * то есть хватает запаса вдвое-втрое; 15 — это девять прежних плюс повторы после 503 и запасная модель.
+ */
+export const ATTEMPT_CAP_CEILING = 15;
 
 /** Reservations are intentionally not refunded after an uncertain provider outcome. */
 export function createAssistantAttemptLimit(reserve: () => Promise<boolean>, maximum = 9) {

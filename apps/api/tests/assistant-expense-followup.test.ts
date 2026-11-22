@@ -112,7 +112,10 @@ describe("слова просьбы о расходах (одно место н�
   it("просьба без данных — какая; с цифрами или про другое — не сюда", () => {
     expect(expenseFollowupKind("ҳамин хароҷотҳоро дар CRM ворид кун")).toBe("record");
     expect(expenseFollowupKind("внеси эти расходы")).toBe("record");
-    expect(expenseFollowupKind("мана акс")).toBe("photo");
+    // «Вот фото» без слова расхода и без глагола записи — не расходы (ревью волны 2): так шлют фото объекта.
+    expect(expenseFollowupKind("мана акс")).toBeNull();
+    expect(expenseFollowupKind("вот фото")).toBeNull();
+    expect(expenseFollowupKind("мана акс, ворид кун")).toBe("photo");
     expect(expenseFollowupKind("вот фото, внеси")).toBe("photo");
     expect(expenseFollowupKind("дуруст ворид кун")).toBe("write");
     expect(expenseFollowupKind("запиши")).toBe("write");

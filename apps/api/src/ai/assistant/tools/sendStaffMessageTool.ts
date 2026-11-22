@@ -74,7 +74,12 @@ async function assertSenderMayWrite(actor: AssistantActionActor): Promise<void> 
 function withoutCaseEnding(name: string): string | null {
   const stripped = name
     .split(/\s+/u)
-    .map((word) => (word.length > 4 ? word.replace(/(?:ой|ей|ом|ем|у|ю|е|а|я)$/iu, "") : word))
+    // Короткие имена в дательном («Нозе» ← Ноза, «Алие» ← Алия) тоже: основа не короче трёх букв.
+    .map((word) => {
+      if (word.length < 4) return word;
+      const cut = word.replace(/(?:ой|ей|ом|ем|у|ю|е|а|я)$/iu, "");
+      return cut.length >= 3 ? cut : word;
+    })
     .join(" ");
   return stripped !== name ? stripped : null;
 }

@@ -104,12 +104,15 @@ export function parseExpenseTextList(text: string, opts: { minRows?: number; tod
 /** Список → одна карточка `add_expenses`. Ключ — сообщение (`tg:<чат>:<сообщение>`), как у хода модели. */
 export async function stageExpenseTextList(params: {
   chatId: string; agentId: string; text: string; messageId?: number; lang: IntakeLang; minRows?: number;
+  /** Свой ключ повтора (список из прошлого сообщения: ключ по содержимому); по умолчанию — номер сообщения. */
+  chatRef?: string;
 }): Promise<boolean> {
   const parsed = parseExpenseTextList(params.text, { minRows: params.minRows });
   if (!parsed) return false;
   await stageExpenseBatch({
     chatId: params.chatId, agentId: params.agentId, rows: parsed.rows, lang: params.lang, kind: "chat",
-    ...(params.messageId ? { replyTo: params.messageId, chatRef: `tg:${params.chatId}:${params.messageId}` } : {}),
+    ...(params.messageId ? { replyTo: params.messageId } : {}),
+    ...(params.chatRef ? { chatRef: params.chatRef } : params.messageId ? { chatRef: `tg:${params.chatId}:${params.messageId}` } : {}),
     sourceText: params.text,
   });
   return true;

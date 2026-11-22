@@ -90,9 +90,33 @@ export function isDeleteSentRequest(text: string): boolean {
   return DELETE_VERB.test(normalized) && DELETE_OBJECT.test(normalized) && !CRM_SUBJECT.test(normalized);
 }
 
-/** «Удали последнее сообщение» / «паёми охиринро нест кун» — только самое свежее, иначе всё. */
-export function deleteSentScope(text: string): "last" | "all" {
-  return /(?:^|\s)(?:последн\p{L}*|охирин\p{L}*|охир)(?=\s|$)/u.test(normalizeChatCommand(text)) ? "last" : "all";
+/**
+ * Что стирать. «all» — только по явной фразе («удали всё», «весь чат», «всю переписку», «ҳамаи паёмҳо»)
+ * и без сужения («голосовые», «для Нозы», фото…). «last» — «последнее» или одно «сообщение» в единственном
+ * числе. Остальное — «ask»: ничего не стираем, спрашиваем (ревью волны 2: «убери голосовые ответы»
+ * и «удали сообщение для Нозы» стирали двое суток переписки).
+ */
+export type DeleteScope = "last" | "all" | "ask";
+
+const ALL_WORD = /(?:^|\s)(?:все|всех|весь|всю|хама\p{L}*)(?=\s|$)/u;
+const NARROWING = /(?:^|\s)(?:голосов\p{L}*|озвуч\p{L}*|аудио|овоз\p{L}*|для|барои|фото|файл\p{L}*|ролик\p{L}*|карточ\p{L}*|корт\p{L}*|ссылк\p{L}*)(?=\s|$)/u;
+const LAST_WORD = /(?:^|\s)(?:последн\p{L}*|охирин\p{L}*|охир)(?=\s|$)/u;
+const SINGLE_MESSAGE = /(?:^|\s)(?:сообщение|ответ|паем|чавоб)(?=\s|$)/u;
+
+export function deleteSentScope(text: string): DeleteScope {
+  const normalized = normalizeChatCommand(text);
+  if (LAST_WORD.test(normalized)) return "last";
+  if (ALL_WORD.test(normalized) && !NARROWING.test(normalized)) return "all";
+  if (/(?:^|\s)чат\p{L}*|(?:^|\s)переписк\p{L}*/u.test(normalized) && !NARROWING.test(normalized)) return "all";
+  if (SINGLE_MESSAGE.test(normalized) && !NARROWING.test(normalized)) return "last";
+  return "ask";
+}
+
+/** Вопрос вместо стирания: сказать словами, что именно убрать. */
+export function deleteSentAsk(lang: "ru" | "tg"): string {
+  return lang === "tg"
+    ? "Кадомашро нест кунам? Нависед «охиринро нест кун» — танҳо паёми охирини ман, ё «ҳамаашро нест кун» — ҳамаи паёмҳои ман дар ин чат."
+    : "Что убрать? Напишите «удали последнее» — уберу только моё последнее сообщение, или «удали всё» — все мои сообщения в этом чате за двое суток.";
 }
 
 /** Ответ на чистку: сколько удалила и почему не всё. Числа здесь — текст, не голос. */

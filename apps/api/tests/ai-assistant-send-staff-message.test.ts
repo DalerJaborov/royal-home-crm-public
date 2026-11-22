@@ -37,7 +37,7 @@ const runId = String(Date.now()).slice(-7);
 /** Буквы вместо цифр: имя получателя не должно содержать цифр. */
 const tag = runId.replace(/\d/g, (d) => "бвгджзклмн"[Number(d)]);
 
-const ids = { sender: "", limited: "", recipient: "", twinA: "", twinB: "", noTelegram: "", shareholder: "" };
+const ids = { sender: "", limited: "", recipient: "", twinA: "", twinB: "", noTelegram: "", shareholder: "", short: "" };
 const names = {
   sender: `Отправитель Ш${tag}`,
   limited: `Болтун Ш${tag}`,
@@ -46,6 +46,7 @@ const names = {
   twinB: `Двойник Ш${tag} Второй`,
   noTelegram: `Безтелеграмов Ш${tag}`,
   shareholder: `Акционеров Ш${tag}`,
+  short: `Ноза ${tag}`,
 };
 const chats: Record<string, string> = {};
 const clientIds: string[] = [];
@@ -81,6 +82,7 @@ beforeAll(async () => {
   await mkAgent("twinB", "AGENT", true);
   await mkAgent("noTelegram", "AGENT", false);
   await mkAgent("shareholder", "SHAREHOLDER", true);
+  await mkAgent("short", "AGENT", true);
 });
 
 beforeEach(() => sendHtmlMessage.mockClear());
@@ -126,6 +128,11 @@ describe("send_staff_message — превью и отправка", () => {
   it("имя в падеже («Получателю …») находит того же сотрудника", async () => {
     const pending = await createPendingAssistantAction(actorFor(ids.sender), TOOL, { to: `Получателю Ш${tag}`, text: "Привет" });
     expect(pending.preview.was).toEqual({ Кому: names.recipient });
+  });
+
+  it("короткое имя в дательном («Нозе» ← Ноза) находит сотрудника (ревью волны 2)", async () => {
+    const pending = await createPendingAssistantAction(actorFor(ids.sender), TOOL, { to: `Нозе ${tag}`, text: "Привет" });
+    expect(pending.preview.was).toEqual({ Кому: names.short });
   });
 
   it("карточка в Telegram показывает длинный текст целиком, без обрезки", async () => {

@@ -47,7 +47,7 @@ export function mentionsExpenses(text: string): boolean {
  * Просьба без самих данных — о том, что прислано раньше или будет прислано:
  * - `record` — «ҳамин хароҷотҳоро ворид кун», «внеси эти расходы», «вот фото расходов»;
  * - `card` — «повтори карточку», «кортро боз нишон деҳ»;
- * - `photo` — «мана акс», «вот фото, внеси»;
+ * - `photo` — «мана акс, ворид кун», «вот фото, внеси» (нужен глагол записи; одно «вот фото» — не расходы);
  * - `write` — короткое «дуруст ворид кун», «запиши» без другого предмета.
  * В сообщении с цифрами данных хватает — это не сюда (null), его разбирает список или модель.
  */
@@ -58,7 +58,9 @@ export function expenseFollowupKind(text: string): ExpenseFollowupKind | null {
   if (!clean || clean.length > 300 || hasDigits(clean)) return null;
   if (NOUN.test(clean) && (WRITE.test(clean) || HERE.test(clean) || PHOTO.test(clean))) return "record";
   if (CARD.test(clean) && (REPEAT.test(clean) || WRITE.test(clean))) return "card";
-  if (PHOTO.test(clean) && (HERE.test(clean) || WRITE.test(clean))) return "photo";
+  // «Вот фото» без слова «расход» и без глагола записи — не расходы: так присылают фото объекта, переписку,
+  // что угодно (ревью волны 2, 22.11.2026). «Мана акс, ворид кун» (с глаголом) — по-прежнему расходы.
+  if (PHOTO.test(clean) && WRITE.test(clean)) return "photo";
   if (clean.length <= 60 && WRITE.test(clean)) {
     const rest = clean.replace(new RegExp(WRITE.source, "giu"), " ").replace(FILLER, " ").replace(/[\s.,!?:;—–-]+/gu, "");
     if (!rest) return "write";

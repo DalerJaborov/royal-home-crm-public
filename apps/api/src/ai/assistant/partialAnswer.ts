@@ -10,6 +10,7 @@
  */
 import type { ClientLanguage } from "../clientLanguage.js";
 import { repliesInTajik } from "./languageRouting.js";
+import { BW, EW, TAIL } from "../wordBoundary.js";
 
 export const LAST_ROUND_INSTRUCTION =
   "\n\nЭТО ПОСЛЕДНИЙ ШАГ: инструменты больше не вызывай. Ответь по тому, что УЖЕ найдено выше. " +
@@ -182,13 +183,27 @@ const STOP_TEXTS: Record<ReplyLanguage, { failed: string; more: string; nothing:
   },
 };
 
+/**
+ * Часть текстов `error` инструментов написана для МОДЕЛИ («вызови сначала X», «передай поле Y», имена
+ * инструментов и параметров): человеку такое не показываем (ревью волны 2) — вместо неё общая фраза остановки.
+ */
+const MODEL_FACING = new RegExp(
+  `(?:${BW}[a-z]+_[a-z_]+${EW}|${BW}(?:вызови|вызовите|передай|передайте|используй|используйте|повтори\\s+вызов|не\\s+повторяй|аргумент${TAIL}|параметр${TAIL}|json|tool|schema)${EW})`,
+  "iu",
+);
+export function isModelFacingText(text: string): boolean {
+  return MODEL_FACING.test(text);
+}
+
 /** Смысл отказов инструментов (поле error) — без повторов и не длиннее строки. */
 function failureLines(collected: readonly CollectedToolResult[]): string[] {
   const seen = new Set<string>();
   for (const { result } of collected) {
     const error = (result as { error?: unknown } | null)?.error;
     if (typeof error !== "string" || !error.trim()) continue;
-    seen.add(error.trim().replace(/\s+/g, " ").slice(0, 200));
+    const line = error.trim().replace(/\s+/g, " ").slice(0, 200);
+    if (isModelFacingText(line)) continue;
+    seen.add(line);
     if (seen.size >= 2) break;
   }
   return [...seen];

@@ -57,6 +57,13 @@ describe("«удали присланное» — только просьба о
     expect(deleteSentScope("удали последнее сообщение")).toBe("last");
     expect(deleteSentScope("паёми охиринатро нест кун")).toBe("last");
     expect(deleteSentScope("удали все свои сообщения")).toBe("all");
+    // Неясное — не «всё»: спрашиваем (ревью волны 2).
+    expect(deleteSentScope("убери голосовые ответы")).toBe("ask");
+    expect(deleteSentScope("удали сообщение для Нозы")).toBe("ask");
+    expect(deleteSentScope("удали все голосовые")).toBe("ask");
+    expect(deleteSentScope("удали всё, что прислала")).toBe("all");
+    expect(deleteSentScope("очисти весь чат")).toBe("all");
+    expect(deleteSentScope("удали сообщение")).toBe("last");
   });
 
   it("честный ответ числом, на языке просьбы", () => {

@@ -23,7 +23,8 @@ import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
-import { deleteSentReply, deleteSentScope, isDeleteSentRequest, isVoiceReplayRequest } from "./assistantChatCommands.js";
+import { mergeAssistantDialog } from "./assistantDialogState.js";
+import { deleteSentAsk, deleteSentReply, deleteSentScope, isDeleteSentRequest, isVoiceReplayRequest } from "./assistantChatCommands.js";
 import { deletableSentMessages, forgetSentMessages, mergeSentEntries } from "./sentMessageLog.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
@@ -816,17 +817,15 @@ async function loadHistory(chatId: string, agentId: string): Promise<{ role: "us
 }
 
 async function saveHistory(chatId: string, agentId: string, history: { role: "user" | "assistant"; content: string }[]) {
-  // Чужое состояние в этом же чате (модерация, вопрос монтажёру) не затираем.
-  const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  if (row && row.kind !== DIALOG_KIND && row.expiresAt > new Date()) return;
-  const data = {
-    agentId,
-    kind: DIALOG_KIND,
+  // Сливаем с живым состоянием, а не пишем заново: запомненные фото расходов, «внеси расходы» и правка строки
+  // карточки лежат в том же payload и не должны пропадать после каждого хода модели (assistantDialogState.ts).
+  // Чужое состояние в этом же чате (модерация, вопрос монтажёру) не затираем — это внутри merge.
+  await mergeAssistantDialog({
+    chatId, agentId,
     // sent — номера своих сообщений этого чата (sentMessageLog.ts): «удали присланное» после перезапуска.
-    payload: { messages: trimAssistantHistory(history), sent: deletableSentMessages(chatId) },
-    expiresAt: new Date(Date.now() + DIALOG_TTL_MS),
-  };
-  await prisma.telegramDialogState.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
+    change: (payload) => ({ ...payload, messages: trimAssistantHistory(history), sent: deletableSentMessages(chatId) }),
+    expiresAt: () => new Date(Date.now() + DIALOG_TTL_MS),
+  });
 }
 
 /**
@@ -840,8 +839,11 @@ async function deleteOwnPrivateMessages(chatId: string, agentId: string, text: s
   if (row && row.kind === DIALOG_KIND && row.agentId === agentId) {
     mergeSentEntries(chatId, (row.payload as { sent?: unknown } | null)?.sent);
   }
+  const scope = deleteSentScope(text);
+  // Неясная фраза («убери голосовые ответы», «удали сообщение для Нозы») ничего не стирает — спрашиваем.
+  if (scope === "ask") return deleteSentAsk(lang);
   const all = deletableSentMessages(chatId);
-  const targets = deleteSentScope(text) === "last" ? all.slice(-1) : all;
+  const targets = scope === "last" ? all.slice(-1) : all;
   const deleted: number[] = [];
   // По одному, с конца: Telegram держит частоту сам (call() ждёт retry_after).
   for (const entry of [...targets].reverse()) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ROLE_PRESETS, resolvePermissions, type PermissionId } from "@royal-home/shared";
-import { AssistantAttemptLimitError, assistantTurnAttemptCap, createAssistantAttemptLimit } from "../src/ai/assistant/attemptLimit.js";
+import { ATTEMPT_CAP_CEILING, AssistantAttemptLimitError, assistantTurnAttemptCap, createAssistantAttemptLimit } from "../src/ai/assistant/attemptLimit.js";
 import { honestStopAnswer } from "../src/ai/assistant/partialAnswer.js";
 import { resolvePermissionRef } from "../src/ai/assistant/tools/permissionLookup.js";
 import { permissionNoChangeMessage, resolvePermissionArgs } from "../src/ai/assistant/tools/staffWriteTools.js";
@@ -12,10 +12,13 @@ import { permissionNoChangeMessage, resolvePermissionArgs } from "../src/ai/assi
  */
 describe("предел попыток хода", () => {
   it("выводится из числа шагов Настроек с запасом на повторы, а не равен девяти", () => {
-    expect(assistantTurnAttemptCap(30)).toBe(45);
-    expect(assistantTurnAttemptCap(4)).toBe(10);
-    expect(assistantTurnAttemptCap(Number.NaN)).toBe(7);
-    expect(assistantTurnAttemptCap(30)).toBeGreaterThan(30);
+    // Потолок 15 (ревью волны 2): каждая попытка — платный вызов, 45 на один вопрос — слишком много.
+    expect(assistantTurnAttemptCap(30)).toBe(ATTEMPT_CAP_CEILING);
+    expect(ATTEMPT_CAP_CEILING).toBeLessThanOrEqual(15);
+    expect(assistantTurnAttemptCap(4)).toBe(7);
+    expect(assistantTurnAttemptCap(Number.NaN)).toBe(4);
+    expect(assistantTurnAttemptCap(1000)).toBeLessThanOrEqual(15);
+    expect(assistantTurnAttemptCap(30)).toBeGreaterThan(9);
   });
 
   // Причина — одна шкала с #316 (limitNotice.ts): предел хода — «attempt_cap», дневной счётчик —
@@ -34,6 +37,14 @@ describe("предел попыток хода", () => {
 });
 
 describe("честная остановка: что успела / что не вышло", () => {
+  it("служебные фразы для модели человеку не показываем (имена инструментов, «вызови»)", () => {
+    const text = honestStopAnswer([{ name: "x", result: { error: "Сначала вызови search_properties и передай параметр query." } }], "ru");
+    expect(text).not.toMatch(/search_properties|вызови|query/u);
+    expect(text).toContain("Напишите");
+    const human = honestStopAnswer([{ name: "x", result: { error: "Нет права смотреть финансы." } }], "ru");
+    expect(human).toContain("Не получилось: Нет права смотреть финансы.");
+  });
+
   it("отказ инструмента — его смысл и как продолжить, а не «запрос слишком широкий»", () => {
     const text = honestStopAnswer([{ name: "set_staff_permissions", result: { error: "Не нашла право «x».", code: "UNKNOWN_PERMISSION" } }], "ru");
     expect(text).toContain("Не получилось: Не нашла право «x».");
