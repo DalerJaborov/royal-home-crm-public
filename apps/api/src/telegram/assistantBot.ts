@@ -23,7 +23,7 @@ import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
-import { mergeAssistantDialog } from "./assistantDialogState.js";
+import { clearAssistantDialog, lastUserTurnMessageId, mergeAssistantDialog, patchLiveAssistantDialog, userTurnRecord } from "./assistantDialogState.js";
 import { deleteSentAsk, deleteSentReply, deleteSentScope, isDeleteSentRequest, isVoiceReplayRequest } from "./assistantChatCommands.js";
 import { deletableSentMessages, forgetSentMessages, mergeSentEntries } from "./sentMessageLog.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
@@ -805,25 +805,39 @@ const HELP_TEXT =
   "Я помощник CRM. Напишите или надиктуйте просьбу: «найди клиента …», «покажи ОБ-123», «снизь цену ОБ-123 до 90000». " +
   "Всё, что меняет данные, я показываю карточкой «было → станет» и жду вашего «Подтвердить». «Добавь объект» — открыть мастер в личке. /new — начать разговор заново.";
 
-async function loadHistory(chatId: string, agentId: string): Promise<{ role: "user" | "assistant"; content: string }[]> {
+type HistoryMessage = { role: "user" | "assistant"; content: string };
+
+/** История разговора и номер Telegram-сообщения последней реплики человека в ней (если он записан). */
+async function loadDialog(chatId: string, agentId: string): Promise<{ messages: HistoryMessage[]; lastUserMessageId?: number }> {
   const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  if (!row || row.kind !== DIALOG_KIND || row.agentId !== agentId || row.expiresAt <= new Date()) return [];
-  const messages = (row.payload as { messages?: unknown } | null)?.messages;
-  if (!Array.isArray(messages)) return [];
-  return messages.filter(
-    (m): m is { role: "user" | "assistant"; content: string } =>
-      !!m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
-  );
+  if (!row || row.kind !== DIALOG_KIND || row.agentId !== agentId || row.expiresAt <= new Date()) return { messages: [] };
+  const payload = (row.payload ?? null) as Record<string, unknown> | null;
+  const raw = payload?.messages;
+  const messages = Array.isArray(raw)
+    ? raw.filter((m): m is HistoryMessage => !!m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    : [];
+  const lastUser = messages.slice().reverse().find((m) => m.role === "user");
+  const lastUserMessageId = lastUser ? lastUserTurnMessageId(payload, lastUser.content) : undefined;
+  return { messages, ...(lastUserMessageId ? { lastUserMessageId } : {}) };
 }
 
-async function saveHistory(chatId: string, agentId: string, history: { role: "user" | "assistant"; content: string }[]) {
+async function loadHistory(chatId: string, agentId: string): Promise<HistoryMessage[]> {
+  return (await loadDialog(chatId, agentId)).messages;
+}
+
+async function saveHistory(chatId: string, agentId: string, history: HistoryMessage[], userMessageId?: number) {
   // Сливаем с живым состоянием, а не пишем заново: запомненные фото расходов, «внеси расходы» и правка строки
   // карточки лежат в том же payload и не должны пропадать после каждого хода модели (assistantDialogState.ts).
   // Чужое состояние в этом же чате (модерация, вопрос монтажёру) не затираем — это внутри merge.
+  const lastUser = history.slice().reverse().find((m) => m.role === "user");
   await mergeAssistantDialog({
     chatId, agentId,
     // sent — номера своих сообщений этого чата (sentMessageLog.ts): «удали присланное» после перезапуска.
-    change: (payload) => ({ ...payload, messages: trimAssistantHistory(history), sent: deletableSentMessages(chatId) }),
+    // lastUserTurn — номер сообщения последней реплики: список расходов из неё получает ключ этого сообщения.
+    change: (payload) => ({
+      ...payload, messages: trimAssistantHistory(history), sent: deletableSentMessages(chatId),
+      lastUserTurn: lastUser && userMessageId ? userTurnRecord(lastUser.content, userMessageId) : null,
+    }),
     expiresAt: () => new Date(Date.now() + DIALOG_TTL_MS),
   });
 }
@@ -836,9 +850,8 @@ async function saveHistory(chatId: string, agentId: string, history: { role: "us
  */
 async function deleteOwnPrivateMessages(chatId: string, agentId: string, text: string, lang: "ru" | "tg"): Promise<string> {
   const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  if (row && row.kind === DIALOG_KIND && row.agentId === agentId) {
-    mergeSentEntries(chatId, (row.payload as { sent?: unknown } | null)?.sent);
-  }
+  const own = Boolean(row && row.kind === DIALOG_KIND && row.agentId === agentId);
+  if (own) mergeSentEntries(chatId, (row!.payload as { sent?: unknown } | null)?.sent);
   const scope = deleteSentScope(text);
   // Неясная фраза («убери голосовые ответы», «удали сообщение для Нозы») ничего не стирает — спрашиваем.
   if (scope === "ask") return deleteSentAsk(lang);
@@ -851,18 +864,17 @@ async function deleteOwnPrivateMessages(chatId: string, agentId: string, text: s
   }
   // И удалённые, и неудаляемые (старше окна, уже стёрты руками) больше не пробуем.
   forgetSentMessages(chatId, targets.map((e) => e.id));
-  if (row && row.kind === DIALOG_KIND && row.agentId === agentId) {
-    const payload = (row.payload ?? {}) as Record<string, unknown>;
-    await prisma.telegramDialogState.update({
-      where: { chatId },
-      data: { payload: { ...payload, sent: deletableSentMessages(chatId) } as Prisma.InputJsonObject },
-    }).catch(() => undefined);
+  // Только поле sent и только в свежем состоянии под замком: payload, прочитанный ДО цикла удаления,
+  // затёр бы историю и запомненные фото, записанные за это время (assistantDialogState.ts).
+  if (own) {
+    await patchLiveAssistantDialog({ chatId, agentId, change: (payload) => ({ ...payload, sent: deletableSentMessages(chatId) }) })
+      .catch(() => false);
   }
   return deleteSentReply(lang, deleted.length, targets.length);
 }
 
 async function clearHistory(chatId: string) {
-  await prisma.telegramDialogState.deleteMany({ where: { chatId, kind: DIALOG_KIND } });
+  await clearAssistantDialog(chatId);
 }
 
 /** Голосовое → текст тем же путём, что POST /transcribe (ai/transcribe.ts). */
@@ -1059,13 +1071,15 @@ export async function handleAssistantPrivate(
     // личные отключения. ПОСЛЕ карточек (правка строки расходов, «ещё варианты»): рабочий
     // ответ на карточку важнее; разбор узкий и чужую фразу пропускает дальше (staffNotice.ts).
     if (ownWords && await handleNoticePreferenceText(msg, agent, text)) return;
-    const previous = await loadHistory(chatId, agent.id);
+    const dialog = await loadDialog(chatId, agent.id);
+    const previous = dialog.messages;
     // Расходы списком в этом сообщении — одна карточка кодом; «вот фото / внеси эти / повтори карточку»
     // без данных — запомненные фото, карточка за сутки или одна фраза, чего не хватает (17.11.2026).
     if (ownWords && await handleExpenseTextMessage({ chatId, agentId: agent.id, text, messageId: msg.message_id })) return;
     if (ownWords && await handleExpenseFollowupText({
       chatId, agentId: agent.id, text, messageId: msg.message_id,
       previousUserText: previous.slice().reverse().find((m) => m.role === "user")?.content,
+      previousUserMessageId: dialog.lastUserMessageId,
     })) return;
     if (ownWords && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
@@ -1101,7 +1115,7 @@ export async function handleAssistantPrivate(
         cardLanguage: assistantLanguage(history.slice(-6)),
       });
     }
-    await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
+    await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }], msg.message_id);
   } catch (err) {
     await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
     await send("Не получилось ответить, попробуйте ещё раз.").catch(() => {});

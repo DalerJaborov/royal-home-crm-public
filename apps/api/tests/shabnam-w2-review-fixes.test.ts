@@ -119,15 +119,15 @@ describe("блокер: после «Записано» «дуруст вори�
     expect(io.html.mock.calls.at(-1)![1]).toContain("уже записаны");
   });
 
-  it("список из прошлого сообщения: ключ карточки — по содержимому, второе «запиши» упирается в уже записанное", async () => {
+  it("список из прошлого сообщения (старая история без номера): ключ — отпечаток и день, второе «запиши» упирается в уже записанное", async () => {
     const w2 = await makeWriter(9_200_000_000, "82");
     const list = `расходы\nСвет ${tag} 180\nВода ${tag} 40`;
     await setHistory(w2, [{ role: "user", content: list }, { role: "assistant", content: "Уточните месяц." }]);
     await handleAssistantPrivate(textMsg(w2, "дуруст ворид кун"), w2);
     const [card] = await pendingCards(w2);
     expect(card).toBeTruthy();
-    // Ключ не зависит от номера нынешнего сообщения.
-    expect((card!.args as { chatRef?: string }).chatRef).toMatch(/^list:[0-9a-f]{32}$/u);
+    // Ключ не зависит от номера нынешнего сообщения; номера исходного в истории нет — отпечаток + день по Душанбе.
+    expect((card!.args as { chatRef?: string }).chatRef).toMatch(/^list:[0-9a-f]{32}:\d{4}-\d{2}-\d{2}$/u);
     await click(w2, button("as:ok:"));
     expect(await recorded(w2)).toBe(2);
     await handleAssistantPrivate(textMsg(w2, "запиши"), w2);

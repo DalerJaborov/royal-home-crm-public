@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "../db.js";
+import { mergeAssistantDialog, patchLiveAssistantDialog } from "./assistantDialogState.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import {
   AssistantActionError, createPendingAssistantAction, discardPendingAssistantAction,
@@ -458,28 +459,39 @@ async function replaceBatch(bundleId: string, agentId: string, change: (args: Ba
   return { kind: "replaced" as const, lang, bundleId: newBundle, args, notes: notesOf(loaded.row), actionId: action.id };
 }
 
-/** Ждём поправку строки: метка лежит в состоянии диалога помощницы, история не теряется. */
+/**
+ * Ждём поправку строки: метка лежит в состоянии диалога помощницы. Пишется через одну дверь слиянием:
+ * история, запомненные фото и вопрос про файл не стираются (ревью волны 2, assistantDialogState.ts).
+ */
 async function rememberFix(chatId: string, agentId: string, fix: { bundleId: string; row: number; messageId: number }) {
-  const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  if (state && state.kind !== DIALOG_KIND && state.expiresAt > new Date()) return false;
-  const live = state && state.kind === DIALOG_KIND && state.agentId === agentId && state.expiresAt > new Date();
-  const messages = live ? (state.payload as { messages?: unknown }).messages ?? [] : [];
-  const data = { agentId, kind: DIALOG_KIND, payload: { messages, expenseFix: { ...fix, until: Date.now() + FIX_TTL_MS } } as object, expiresAt: new Date(Date.now() + FIX_TTL_MS) };
-  await prisma.telegramDialogState.upsert({ where: { chatId }, create: { chatId, ...data }, update: data });
-  return true;
+  return mergeAssistantDialog({
+    chatId, agentId,
+    change: (payload) => ({ ...payload, expenseFix: { ...fix, until: Date.now() + FIX_TTL_MS } }),
+    expiresAt: (live) => new Date(Math.max(Date.now() + FIX_TTL_MS, live ? live.getTime() : 0)),
+  });
 }
 
 async function peekFix(chatId: string, agentId: string) {
   const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
   if (!state || state.kind !== DIALOG_KIND || state.agentId !== agentId) return null;
-  const payload = state.payload as { messages?: unknown; expenseFix?: { bundleId?: unknown; row?: unknown; messageId?: unknown; until?: unknown } };
+  const payload = state.payload as { expenseFix?: { bundleId?: unknown; row?: unknown; messageId?: unknown; until?: unknown } };
   const fix = payload.expenseFix;
   if (!fix || typeof fix.bundleId !== "string" || !Number.isInteger(fix.row) || !Number.isInteger(fix.messageId) || Number(fix.until) < Date.now()) return null;
-  return { bundleId: fix.bundleId, row: Number(fix.row), messageId: Number(fix.messageId), messages: payload.messages ?? [] };
+  return { bundleId: fix.bundleId, row: Number(fix.row), messageId: Number(fix.messageId) };
 }
 
-async function clearFix(chatId: string, messages: unknown) {
-  await prisma.telegramDialogState.updateMany({ where: { chatId, kind: DIALOG_KIND }, data: { payload: { messages } as object } });
+/** Снять метку правки — только ЭТУ (ту же карточку и строку): новую, поставленную за это время, не трогаем. */
+async function clearFix(chatId: string, agentId: string, fix: { bundleId: string; row: number }) {
+  await patchLiveAssistantDialog({
+    chatId, agentId,
+    change: (payload) => {
+      const live = payload.expenseFix as { bundleId?: unknown; row?: unknown } | undefined;
+      if (!live || live.bundleId !== fix.bundleId || Number(live.row) !== fix.row) return null;
+      const { expenseFix: _f, ...rest } = payload;
+      void _f;
+      return rest;
+    },
+  });
 }
 
 const AMOUNT_WORDS = /^(?:(?:сомони|сомонӣ|с\.?|tjs|usd|доллар\p{L}*|dollars?|тыс\.?|т\.?|тысяч\p{L}*|млн|миллион\p{L}*|ming|ҳазор|хазор|k|руб\p{L}*|евро|eur)(?:\s+|$))*$/iu;
@@ -558,7 +570,7 @@ export async function applyExpenseFixMessage(chatId: string, agentId: string, te
   const lang = loaded ? cardLang(loaded.args.lang) : "ru";
   const current = loaded?.args.items[fix.row];
   if (!loaded || !current || loaded.row.status !== "PENDING") {
-    await clearFix(chatId, fix.messages);
+    await clearFix(chatId, agentId, fix);
     await sendHtmlMessage(chatId, esc(TEXT[lang].stale), replyTo);
     return true;
   }
@@ -567,7 +579,7 @@ export async function applyExpenseFixMessage(chatId: string, agentId: string, te
     await sendHtmlMessage(chatId, esc(TEXT[lang].notUnderstood), replyTo);
     return true;
   }
-  await clearFix(chatId, fix.messages);
+  await clearFix(chatId, agentId, fix);
   const result = await replaceBatch(fix.bundleId, agentId, (args) => ({ ...args, items: args.items.map((row, i) => (i === fix.row ? corrected : row)) }))
     .catch((err: unknown) => ({ kind: "error" as const, message: err instanceof AssistantActionError ? err.message : TEXT[lang].stale }));
   if (result.kind === "error") { await sendHtmlMessage(chatId, esc(result.message), replyTo); return true; }

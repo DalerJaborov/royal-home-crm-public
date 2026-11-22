@@ -87,7 +87,20 @@ const CRM_SUBJECT = new RegExp(String.raw`(?:^|\s)(?:клиент|объект|�
 export function isDeleteSentRequest(text: string): boolean {
   const normalized = normalizeChatCommand(text);
   if (!normalized || normalized.split(" ").length > 10) return false;
-  return DELETE_VERB.test(normalized) && DELETE_OBJECT.test(normalized) && !CRM_SUBJECT.test(normalized);
+  if (CRM_SUBJECT.test(normalized) || !DELETE_VERB.test(normalized)) return false;
+  return DELETE_OBJECT.test(normalized) || isBareScopeDelete(normalized);
+}
+
+/**
+ * Подсказки из `deleteSentAsk` — «удали последнее», «удали всё», «охиринро нест кун», «ҳамаашро нест кун» —
+ * без слова «сообщение». Слова «всё»/«последнее» сами по себе предметом не считаем («убери всё лишнее из
+ * описания» — не про чат): принимаем, только когда кроме глагола и этого слова в реплике ничего нет.
+ */
+const SCOPE_WORD = /(?:^|\s)(?:последн\p{L}*|охирин\p{L}*|охир|все|всех|весь|всю|хама\p{L}*)(?=\s|$)/gu;
+const DELETE_VERB_ALL = new RegExp(DELETE_VERB.source, "gu");
+function isBareScopeDelete(normalized: string): boolean {
+  if (!new RegExp(SCOPE_WORD.source, "u").test(normalized)) return false;
+  return normalized.replace(DELETE_VERB_ALL, " ").replace(SCOPE_WORD, " ").trim() === "";
 }
 
 /**
