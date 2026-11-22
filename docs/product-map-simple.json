@@ -14,9 +14,9 @@
  "totals": {
   "screens": 51,
   "paths": 793,
-  "cron": 144,
+  "cron": 145,
   "jobs": 34,
-  "conditions": 4188,
+  "conditions": 4190,
   "untranslatedUnique": 476,
   "untranslatedTotal": 612,
   "partialUnique": 1127,
@@ -67444,6 +67444,68 @@
    ]
   },
   {
+   "id": "client-notes-plain-sweep",
+   "when": "50 3 * * *",
+   "label": "client-notes-plain-sweep",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если rows количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если залежался количество — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "client-scoring",
    "when": "0 2 * * *",
    "label": "Ночная оценка ИИ всех активных клиентов",
@@ -78247,12 +78309,6 @@
          "a": [],
          "c": [],
          "raw": "await handOverHolderToCurrentMontajer(montajerAgentId, now)"
-        },
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
         },
         {
          "t": "и так по каждому",

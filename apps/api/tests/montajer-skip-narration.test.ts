@@ -65,7 +65,7 @@ async function holderWithApprovedVoice() {
   const id = randomUUID();
   fx.propertyIds.push(id);
   const p = await prisma.property.create({ data: { id, title: "Synthetic skip property", type: "APARTMENT", areaSqm: 61, price: 400000, currency: "TJS", districtId: fx.districtId,
-    address: "Synthetic fixture only", condition: "GOOD", sellerClientId: sellerId, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date() }, include: { district: true } });
+    address: "Synthetic fixture only", condition: "GOOD", sellerClientId: sellerId, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(), videoHandoffDeliveredAt: new Date() }, include: { district: true } });
   const facts = narrationFacts(p);
   const storageKey = `${p.id}/${randomUUID()}.mp3`;
   fx.storageKeys.push(storageKey);
@@ -139,7 +139,7 @@ describe("«Сделаю позже» и голос", () => {
     await setHandoff(p.id, "QUEUED");
     expect((await executeNarrationDelivery(row!.id)).status).toBe("WAITING");
     // Вернулся к монтажёру давно, а отправку держит другая живая передача — ждущая не может уйти.
-    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(Date.now() - 3 * 3600_000) } });
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffSentAt: new Date(Date.now() - 3 * 3600_000), videoHandoffDeliveredAt: new Date(Date.now() - 3 * 3600_000) } });
     await prisma.propertyNarrationDelivery.create({ data: { propertyId: p.id, versionId: version.id, editorId: fx.montajerId, mode: "AUDIO_ONLY", requestKey: `blocker:${row!.id}`,
       createdById: fx.approverId, plan: row!.plan ?? {}, status: "SENDING", claimStartedAt: new Date(), executionMode: "LIVE" } });
     await runNarrationAutoFlow({});
@@ -148,7 +148,9 @@ describe("«Сделаю позже» и голос", () => {
     expect(alarm?.message).toContain("ждёт");
   });
 
-  it("голос уже ушёл в этом заходе — после «Сделаю позже» и возврата второй раз не уходит", async () => {
+  // Статус вернули без новой выдачи видео (файлы не слали) — выдача та же, голос второй раз не уходит. Настоящая
+  // новая выдача («Сделаю позже» → «Взять сейчас») шлёт файлы и голос заново — narration-follows-video.test.ts.
+  it("голос уже ушёл в этой выдаче видео — статус туда-обратно без новых файлов второй раз его не шлёт", async () => {
     const { p, version } = await holderWithApprovedVoice();
     await afterNarrationApproved(p.id, version.id);
     const [row] = await prisma.propertyNarrationDelivery.findMany({ where: { propertyId: p.id } });

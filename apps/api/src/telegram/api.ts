@@ -114,9 +114,12 @@ export function telegramRetryDelayMs(data: TelegramApiResponse<unknown>, attempt
 export class TelegramApiError extends Error {
   /** Новый id, если обычную группу превратили в супергруппу (ResponseParameters.migrate_to_chat_id). */
   public readonly migrateToChatId?: number;
+  /** Сколько секунд Telegram просит подождать при 429 (ResponseParameters.retry_after). */
+  public readonly retryAfterSec?: number;
   constructor(public readonly errorCode: number | undefined, method: string, description: string, parameters?: TelegramApiResponse<unknown>["parameters"]) {
     super(`Telegram API ${method}: ${description}`);
     if (typeof parameters?.migrate_to_chat_id === "number") this.migrateToChatId = parameters.migrate_to_chat_id;
+    if (typeof parameters?.retry_after === "number") this.retryAfterSec = parameters.retry_after;
   }
 }
 
