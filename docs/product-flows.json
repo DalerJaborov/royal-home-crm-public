@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 793,
-  "forks": 4227,
+  "endpoints": 795,
+  "forks": 4232,
   "mounts": 89,
   "cron": 145,
   "jobs": 34,
@@ -2715,6 +2715,175 @@
       }
      ],
      "from": "freezeStaffMember() — apps/api/src/lib/staffAdmin.ts"
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/glance/drill",
+   "mount": "/api/v1/agents",
+   "full": "/api/v1/agents/:id/glance/drill",
+   "file": "apps/api/src/routes/team.ts",
+   "router": "agentOverviewRouter",
+   "top": "apps/api/src/routes/team.ts::agentOverviewRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: team.viewFull"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const query = agentGlanceDrillQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой agentGlanceDrillQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный запрос\" });",
+       "a": [
+        "ответ 400 — «Неверный запрос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const drill = await loadAgentGlanceDrill(agent.id, query.data.key, query.data.period, req.agent!);",
+     "a": [
+      "зовёт loadAgentGlanceDrill()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!drill",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа к деньгам\" });",
+       "a": [
+        "ответ 403 — «Нет доступа к деньгам»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(drill);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/glance",
+   "mount": "/api/v1/agents",
+   "full": "/api/v1/agents/:id/glance",
+   "file": "apps/api/src/routes/team.ts",
+   "router": "agentOverviewRouter",
+   "top": "apps/api/src/routes/team.ts::agentOverviewRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: team.viewFull"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const query = agentGlanceQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой agentGlanceQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный период\" });",
+       "a": [
+        "ответ 400 — «Неверный период»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });",
+     "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!agent",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Сотрудник не найден\" });",
+       "a": [
+        "ответ 404 — «Сотрудник не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await loadAgentGlance(agent.id, query.data.period, req.agent!));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },

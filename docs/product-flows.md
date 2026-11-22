@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4227**. Модулей: **89**.
+Путей: **795**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4232**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -683,6 +683,45 @@
     · зовёт releaseReactivationOffersOfAgent()
   - void syncAgentQueuePresence(agent.id).catch(()
     · зовёт syncAgentQueuePresence()
+
+### GET /api/v1/agents/:id/glance/drill
+
+`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+
+- const query = agentGlanceDrillQuerySchema.safeParse(req.query);
+  · проверяет данные схемой agentGlanceDrillQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверный запрос" });
+    · ответ 400 — «Неверный запрос»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- const drill = await loadAgentGlanceDrill(agent.id, query.data.key, query.data.period, req.agent!);
+  · зовёт loadAgentGlanceDrill()
+- если !drill
+  - return res.status(403).json({ error: "Нет доступа к деньгам" });
+    · ответ 403 — «Нет доступа к деньгам»
+- res.json(drill);
+  · ответ 200
+
+### GET /api/v1/agents/:id/glance
+
+`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+
+- const query = agentGlanceQuerySchema.safeParse(req.query);
+  · проверяет данные схемой agentGlanceQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверный период" });
+    · ответ 400 — «Неверный период»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- res.json(await loadAgentGlance(agent.id, query.data.period, req.agent!));
+  · ответ 200
 
 ### POST /api/v1/agents/:id/handover
 

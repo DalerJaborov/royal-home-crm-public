@@ -28,6 +28,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
 vi.mock("../src/lib/telephony/callTracker.js", () => ({
   finishCall: vi.fn(),
   getCall: vi.fn(() => undefined),
+  liveOutgoingCalls: vi.fn(() => []),
   reconcileOrphanedOutgoingCalls: vi.fn().mockResolvedValue(0),
   setCallState: vi.fn(),
   talkSeconds: vi.fn(() => 0),
@@ -303,6 +304,26 @@ describe("resyncActiveChannels: звонок, начавшийся в разры
     await resyncActiveChannels(creds);
 
     expect(incoming.startIncomingCall).not.toHaveBeenCalled();
+  });
+
+  it("плечи нашего живого исходящего и канал в разговоре не подхватываются, входящий — да (разбор 21.11)", async () => {
+    const ari = await import("../src/lib/telephony/ariClient.js");
+    const incoming = await import("../src/lib/telephony/incomingCalls.js");
+    const tracker = await import("../src/lib/telephony/callTracker.js");
+    vi.mocked(tracker.liveOutgoingCalls).mockReturnValue([
+      { clientPhone: "+992930002002", dialingTo: "+992930003003" } as ReturnType<typeof tracker.liveOutgoingCalls>[number],
+    ]);
+    vi.mocked(ari.listActiveChannels).mockResolvedValue([
+      { ...channel("agent-leg", "992930003003"), state: "Up" },
+      { ...channel("client-leg", "992930002002"), state: "Ringing" },
+      channel("real-in", "992930001001"),
+    ]);
+
+    const { resyncActiveChannels } = await import("../src/lib/telephony/ariEvents.js");
+    await resyncActiveChannels(creds);
+
+    expect(vi.mocked(incoming.startIncomingCall).mock.calls.map(([c]) => c.id)).toEqual(["real-in"]);
+    vi.mocked(tracker.liveOutgoingCalls).mockReturnValue([]);
   });
 
   it("сорвавшийся подхват одного звонка не уносит с собой остальные", async () => {

@@ -8,7 +8,7 @@
  */
 export const STRIP_CLASSES = [
   "seg-ai", "stg", "cef-pills", "cef-main-tabs", "seg", "rh-filters-scroll", "hscroll", "rh-tabs-scroll",
-  "ry-ctabs", "ry-chat-quick", "ry-deals-stages", "ry-set-tasks", "ry-gal-thumbs",
+  "ry-ctabs", "ry-chat-quick", "ry-deals-stages", "ry-set-tasks", "ry-gal-thumbs", "ry-agc-tabs",
 ] as const;
 export const STRIP_SELECTOR = STRIP_CLASSES.map((c) => `.${c}`).join(",");
 
