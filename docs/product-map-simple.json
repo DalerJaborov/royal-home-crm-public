@@ -17,8 +17,8 @@
   "cron": 145,
   "jobs": 34,
   "conditions": 4194,
-  "untranslatedUnique": 476,
-  "untranslatedTotal": 612,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 611,
   "partialUnique": 1128,
   "translatedShare": 85
  },
@@ -406,7 +406,6 @@
   "pendingDelayed(pending[0], new Date())",
   "photo.originalThumbUrl && photo.thumbUrl && photo.thumbUrl !== photo.originalThumbUrl",
   "photo.originalUrl && photo.url !== photo.originalUrl",
-  "photos + videos > 0",
   "previousActive >= 20 && goneIds.length > previousActive * MAX_GONE_RATIO",
   "previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId",
   "priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
@@ -2783,11 +2782,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 110,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 115,
      "direct": false,
      "conf": "через общую часть"
@@ -2806,16 +2800,6 @@
      "i": 127,
      "direct": false,
      "conf": "через общую часть"
-    },
-    {
-     "i": 132,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 133,
-     "direct": false,
-     "conf": "через часть экрана"
     },
     {
      "i": 141,
@@ -16852,9 +16836,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: success",
@@ -19326,9 +19308,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: клиент",
@@ -19425,9 +19405,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients/:id"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: клиент",
@@ -22118,6 +22096,19 @@
      "c": [
       {
        "t": "если нет: step или есть gate до принят",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если доступ — «transferred»",
        "k": "if",
        "a": [],
        "c": []
@@ -69539,7 +69530,7 @@
   },
   {
    "id": "expired-property-drafts-cleanup",
-   "when": "56 3 * * *",
+   "when": "*/15 * * * *",
    "label": "Удаляет просроченные черновики новых объектов",
    "tree": [
     {
@@ -69571,14 +69562,6 @@
            "a": [],
            "c": [],
            "raw": "!(await discardDraft(d.id, { expiredAt: now }))",
-           "more": true
-          },
-          {
-           "t": "если photos + videos > 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "photos + videos > 0",
            "more": true
           }
          ]

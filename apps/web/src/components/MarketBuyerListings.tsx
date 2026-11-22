@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { ExternalLink, Search } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { marketContactText, MARKET_BUYER_PLACED_MAX_DAYS, type MarketBuyerListing, type MarketBuyerListingsResponse, type MarketBuyerSummary } from "@royal-home/shared";
@@ -92,20 +91,13 @@ export function MarketBuyerListingsView({
       <div className="sec-h stack">
         <h2>С сайтов объявлений</h2>
       </div>
-      <p className="sub">
-        Чужие объявления с сайтов, не наши объекты. Цены в объявлениях — не цены сделок.
-        {data.criteria.length > 0 ? ` Ищем: ${data.criteria.join(", ")}.` : ""}
-        {data.freshDays > 0 ? ` Только объявления, размещённые за последние ${MARKET_BUYER_PLACED_MAX_DAYS} дней, и те, что были на сайте за последние ${data.freshDays} ${daysWord(data.freshDays)}.` : ""}
+      <p className="sub" title={data.freshDays > 0 ? `Размещены за последние ${MARKET_BUYER_PLACED_MAX_DAYS} дней, на сайте были за последние ${data.freshDays} ${daysWord(data.freshDays)}. Цены в объявлениях не цены сделок.` : undefined}>
+        Чужие объявления, не наши объекты{data.criteria.length > 0 ? `. Ищем: ${data.criteria.join(", ")}` : ""}.{data.ownersOnly?.enabled && data.ownersOnly.total > 0 ? ` Только собственники: ${data.ownersOnly.kept} из ${data.ownersOnly.total}.` : ""}
       </p>
       {data.status === "ok" && data.clientDistrictMissing && (
         <p className="sub" data-testid="market-district-missing">Район в пожеланиях не указан, поэтому подбор по всему городу.</p>
       )}
-      {data.ownersOnly?.enabled && data.ownersOnly.total > 0 && (
-        <p className="sub" data-testid="market-owners-only">
-          Показаны только собственники: {data.ownersOnly.kept} из {data.ownersOnly.total} объявлений.
-        </p>
-      )}
-      {data.market && marketBuyerLineText(data.market) && (
+      {data.market && data.market.status !== "insufficient" && marketBuyerLineText(data.market) && (
         <p className="sub" style={{ marginTop: 10, fontWeight: 600 }} data-testid="market-buyer-line">{marketBuyerLineText(data.market)}</p>
       )}
       {data.status === "no_criteria" ? (
@@ -120,8 +112,7 @@ export function MarketBuyerListingsView({
         <>
           <div className="list">
             {listings.map((l) => (
-              <Fragment key={l.sourceUrl}>
-              <div className="row wrapt">
+              <div className="row mk-row" key={l.sourceUrl}>
                 <div className="t">
                   <b>
                     <a
@@ -136,6 +127,7 @@ export function MarketBuyerListingsView({
                     </a>
                   </b>
                   <span>
+                    <span className="mk-tag" title="Чужое объявление, не наш объект">С сайта</span>{" "}
                     {[marketSourceName(l.source), l.districtUnknown ? "район не указан" : l.districtName, `размещено ${dushanbeDate(l.publishedAt)}`]
                       .filter(Boolean)
                       .join(" · ")}
@@ -144,22 +136,19 @@ export function MarketBuyerListingsView({
                     <span style={{ color: "var(--warn)" }} data-testid="market-contact-mark">{marketContactText(l.contact, dushanbeDate(l.contact.at))}</span>
                   )}
                 </div>
-                <span className="chip">Чужое</span>
-                <span className="meta">
+                <span className="meta mk-price">
                   <b>{formatMoney(l.priceTjs, "TJS")}</b>
-                  {l.pricePerSqmTjs != null && <small> · {formatMoney(l.pricePerSqmTjs, "TJS")}/м²</small>}
+                  {l.pricePerSqmTjs != null && <small>{formatMoney(l.pricePerSqmTjs, "TJS")}/м²</small>}
+                </span>
+                {/* Действия маленькими значками справа в строке (22.11.2026): три большие серые кнопки под каждой строкой убраны. */}
+                <span className="mk-acts">
+                  <MarketWhatsAppButton compact sourceUrl={l.sourceUrl} source={l.source} title={l.title} clientId={clientId} onDone={onContacted} />
+                  <MarketShowPhoneButton compact sourceUrl={l.sourceUrl} source={l.source} clientId={clientId} onDone={onContacted} />
+                  <a className="mk-ico" href={l.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label="Открыть объявление на сайте" title="Открыть объявление">
+                    <ExternalLink className="w-3.5 h-3.5" aria-hidden />
+                  </a>
                 </span>
               </div>
-              {/* Действия — отдельной строкой во всю ширину: на телефоне три кнопки не влезают рядом с ценой. */}
-              <div className="wrap" style={{ gap: 8, padding: "0 4px 14px" }}>
-                <MarketWhatsAppButton sourceUrl={l.sourceUrl} source={l.source} title={l.title} clientId={clientId} onDone={onContacted} />
-                <MarketShowPhoneButton sourceUrl={l.sourceUrl} source={l.source} clientId={clientId} onDone={onContacted} />
-                <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={l.sourceUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="w-3.5 h-3.5" aria-hidden />
-                  Объявление
-                </a>
-              </div>
-              </Fragment>
             ))}
           </div>
           {data.total > listings.length && (

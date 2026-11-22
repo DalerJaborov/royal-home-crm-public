@@ -78,11 +78,13 @@ afterAll(async () => {
 });
 
 describe("умолчание и подписи (packages/shared)", () => {
-  it("нет строки или поля — всё включено", () => {
+  it("нет строки или поля — всё включено, кроме «Записать результат» (по умолчанию выключено)", () => {
     for (const key of AUTOMATION_SWITCH_KEYS) {
-      expect(isAutomationSwitchOn(null, key)).toBe(true);
-      expect(isAutomationSwitchOn({}, key)).toBe(true);
+      const want = key !== "clientRecordResultEnabled";
+      expect(isAutomationSwitchOn(null, key)).toBe(want);
+      expect(isAutomationSwitchOn({}, key)).toBe(want);
       expect(isAutomationSwitchOn({ [key]: false }, key)).toBe(false);
+      expect(isAutomationSwitchOn({ [key]: true }, key)).toBe(true);
     }
     const [first, second] = AUTOMATION_SWITCH_KEYS;
     expect(isAutomationSwitchOn({ [first]: false }, second)).toBe(true);
@@ -122,8 +124,8 @@ describe("чтение из базы (lib/automationSwitches.ts)", () => {
       select: Object.fromEntries(AUTOMATION_SWITCH_KEYS.map((k) => [k, true])) as Record<string, true>,
     });
     expect(row).not.toBeNull();
-    for (const key of AUTOMATION_SWITCH_KEYS) expect((row as Record<string, unknown>)[key], key).toBe(true);
-    for (const key of AUTOMATION_SWITCH_KEYS) expect(await automationSwitchOn(key), key).toBe(true);
+    for (const key of AUTOMATION_SWITCH_KEYS) expect((row as Record<string, unknown>)[key], key).toBe(key !== "clientRecordResultEnabled");
+    for (const key of AUTOMATION_SWITCH_KEYS) expect(await automationSwitchOn(key), key).toBe(key !== "clientRecordResultEnabled");
   });
 
   it("выключен в базе — «нет» только у него", async () => {
@@ -139,7 +141,7 @@ describe("сохранение через PATCH /settings", () => {
     const auth = { Authorization: `Bearer ${token}` };
     const got = await request(app).get("/api/v1/settings").set(auth);
     expect(got.status).toBe(200);
-    for (const key of AUTOMATION_SWITCH_KEYS) expect(got.body[key], key).toBe(true);
+    for (const key of AUTOMATION_SWITCH_KEYS) expect(got.body[key], key).toBe(key !== "clientRecordResultEnabled");
 
     // Общую строку настроек держим выключенной только на время одного запроса и возвращаем сразу прямой записью
     // (не вторым PATCH): окно гонки с соседними файлами — миллисекунды. Ключ выбран тот, что читает один редкий тест.

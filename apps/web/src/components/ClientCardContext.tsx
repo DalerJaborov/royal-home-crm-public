@@ -1,5 +1,5 @@
 import { clientIntents, positiveBudget } from "@royal-home/shared";
-import { formatMoney, PROPERTY_TYPE_LABELS, relativeTime } from "../lib/format";
+import { formatMoney, PROPERTY_TYPE_LABELS } from "../lib/format";
 import type { Client } from "../types";
 
 export function ClientCardFacts({ client }: { client: Client }) {
@@ -13,16 +13,14 @@ export function ClientCardFacts({ client }: { client: Client }) {
   return facts.length ? <p className="client-card-facts"><b>Ищет:</b> {facts.join(" · ")}</p> : <p className="sub">Параметры покупки ещё не заполнены.</p>;
 }
 
-export function ClientNextStep({ client, locked, onSchedule, onRecord }: {
-  client: Client; locked: boolean; onSchedule: () => void; onRecord: () => void;
-}) {
-  if (client.pendingAcceptance && locked) return null;
-  const step = client.nextStep;
-  const overdue = !!step?.nextActionDate && new Date(step.nextActionDate).getTime() < Date.now();
-  return <section className="client-next-step" aria-label="Следующий шаг">
-    <div><b>{overdue ? "Просрочено" : "Следующий шаг"}</b>
-      <p>{step ? `${step.nextAction || "Связаться с клиентом"}${step.nextActionDate ? ` · ${relativeTime(step.nextActionDate)}` : ""}` : "Пока не назначен"}</p>
-    </div>
-    {!locked && <div className="client-workspace-nav"><button type="button" className="pill ghost sm" onClick={onSchedule}>Назначить показ</button><button type="button" className="pill ghost sm" onClick={onRecord}>Записать результат</button></div>}
-  </section>;
+/**
+ * Действия под кнопками звонка на телефоне. Блок «Следующий шаг · Пока не назначен» убран (владелец 22.11.2026),
+ * «Записать результат» показывается только при включённом рубильнике в Настройках (по умолчанию выкл): `onRecord` не передан — кнопки нет.
+ */
+export function ClientCardActions({ locked, onSchedule, onRecord }: { locked: boolean; onSchedule: () => void; onRecord?: () => void }) {
+  if (locked) return null;
+  return <div className="client-workspace-nav client-card-actions">
+    <button type="button" className="pill ghost sm" onClick={onSchedule}>Назначить показ</button>
+    {onRecord && <button type="button" className="pill ghost sm" onClick={onRecord}>Записать результат</button>}
+  </div>;
 }

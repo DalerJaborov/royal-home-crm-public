@@ -49,6 +49,7 @@ import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "../components/look
 import { pillTone, scorePillTone } from "../components/look/tileTone";
 import { CallSourceMark } from "../components/look/calls/CallSourceMark";
 import { RoyalCallsTop } from "../components/look/calls/RoyalCallsTop";
+import { clientDisplayName } from "../lib/clientFormat";
 
 /**
  * «Звонки» — как агентство разговаривает с клиентами.
@@ -113,7 +114,7 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
       <RoyalCallRow
         dir={noAnswer ? "missed" : "out"}
         dirLabel={noAnswer ? attemptLabel! : "Исходящий"}
-        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : "Клиент удалён"}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{clientDisplayName(call.client)}</Link> : "Клиент удалён"}
         meta={[
           noAnswer ? attemptLabel : "Исходящий",
           relativeTime(call.createdAt),
@@ -174,7 +175,7 @@ function CallRowItem({ call, showAgent, royal = false }: { call: CallRow; showAg
             {showAgent && call.agent ? `${call.agent.fullName} и ` : ""}
             {call.client ? (
               <Link className="lk" to={`/clients/${call.client.shortId}`}>
-                {call.client.fullName}
+                {clientDisplayName(call.client)}
               </Link>
             ) : (
               "Клиент удалён"
@@ -279,7 +280,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       <RoyalCallRow
         dir={call.answered ? "in" : "missed"}
         dirLabel={call.answered ? "Входящий" : "Пропущенный входящий"}
-        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{call.client.fullName}</Link> : caller}
+        title={call.client ? <Link className="ry-call-name" to={`/clients/${call.client.shortId}`}>{clientDisplayName(call.client)}</Link> : caller}
         meta={[
           call.answered ? "Входящий" : "Пропущенный",
           relativeTime(call.startedAt),
@@ -316,7 +317,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
         <b>
           {call.client ? (
             <Link className="lk" to={`/clients/${call.client.shortId}`}>
-              {call.client.fullName}
+              {clientDisplayName(call.client)}
             </Link>
           ) : (
             // Номер незнакомого звонившего — не телефон клиента из карточки:

@@ -386,7 +386,7 @@ export function MobileAgentHome() {
         ) : noContact[0] ? (
           <div className="card-s">
             <p className="hint">
-              {clientDisplayName(noContact[0].fullName)} — {NO_CONTACT_TEXT.item}.
+              {clientDisplayName(noContact[0])} — {NO_CONTACT_TEXT.item}.
               Короткий звонок сегодня дешевле, чем новая заявка завтра.
             </p>
             <div className="chips">
@@ -395,7 +395,7 @@ export function MobileAgentHome() {
                 phone={noContact[0].phone}
                 variant="full"
                 className="btn soft sm"
-                label={`Позвонить: ${clientDisplayName(noContact[0].fullName).split(" ")[0]}`}
+                label={`Позвонить: ${clientDisplayName(noContact[0]).split(" ")[0]}`}
                 stopPropagation={false}
               />
               <button
@@ -442,7 +442,7 @@ export function MobileAgentHome() {
                     {dushanbeTime(s.nextActionDate!)}
                     {s.property?.title ? ` · ${s.property.title}` : ""}
                   </span>
-                  <span className="s">{s.client?.fullName ?? s.nextAction ?? ""}</span>
+                  <span className="s">{s.client ? clientDisplayName(s.client) : (s.nextAction ?? "")}</span>
                 </span>
                 <ChevronRight className="i" aria-hidden="true" />
               </button>
@@ -578,7 +578,7 @@ function PendingRow({
         style={{ textAlign: "left" }}
         onClick={() => navigate(`/clients/${c.shortId}`)}
       >
-        <span className="n">{c.fullName}</span>
+        <span className="n">{clientDisplayName(c)}</span>
         <span className={expired || escalated ? "s crit" : "s warn"}>
           {left === null ? (
             `ждёт ${relativeTime(c.assignedAt)}`
@@ -631,7 +631,7 @@ function ReactivationRow({ offer: o }: { offer: ReactivationOffer }) {
         style={{ textAlign: "left" }}
         onClick={() => navigate(`/clients/${o.shortId}`)}
       >
-        <span className="n">{o.fullName}</span>
+        <span className="n">{clientDisplayName(o)}</span>
         <span className="s">написал снова, вернуть карточку себе?</span>
       </button>
       <button
@@ -673,7 +673,7 @@ function DuplicateRow({ review: r }: { review: DuplicateReviewItem }) {
         style={{ textAlign: "left" }}
         onClick={() => r.duplicateReviewOfClient && navigate(`/clients/${r.duplicateReviewOfClient.shortId}`)}
       >
-        <span className="n">{r.fullName}</span>
+        <span className="n">{clientDisplayName(r)}</span>
         <span className="s warn">похоже на «{r.duplicateReviewOfClient?.fullName ?? "?"}» — тот же человек?</span>
       </button>
       <button
@@ -767,7 +767,7 @@ function FocusCard({ task }: { task: Interaction }) {
           {client?.fullName?.[0]?.toUpperCase() ?? "?"}
         </span>
         <div>
-          <div className="n">{client?.fullName ?? "Клиент"}</div>
+          <div className="n">{client ? clientDisplayName(client) : "Клиент"}</div>
           <div className="s">{task.property?.title ?? task.nextAction ?? "Ждёт ответа"}</div>
         </div>
       </div>
@@ -868,7 +868,7 @@ function TaskSwipeRow({ task, tone }: { task: Interaction; tone: number }) {
         <button type="button" className="t" style={{ textAlign: "left" }} onClick={open}>
           <span className="n">{task.property?.title ?? task.nextAction ?? "Задача"}</span>
           <span className="s">
-            {client?.fullName ?? "Клиент"}
+            {client ? clientDisplayName(client) : "Клиент"}
             {task.nextActionDate ? ` · к ${dushanbeTime(task.nextActionDate)}` : ""}
           </span>
         </button>

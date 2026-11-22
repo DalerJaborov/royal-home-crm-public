@@ -576,15 +576,6 @@
 /* Строка «Не связывались: 4» и «Показать» — кнопка уходит строкой ниже, а не рвёт подпись. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .quiet { flex-wrap: wrap; }
 
-/* «Следующий шаг» под шапкой карточки клиента (пачка D1, 20.11.2026): отдельной поверхностью,
-   сразу под кнопками «Позвонить / Написать», на телефоне и на ПК. */
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step {
-  margin: 12px 0; padding: 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card);
-  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
-}
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step b { font-size: var(--rh-fs-md); }
-:root[data-ui-look="royal"] .rh2.screens[data-ry-section="clients"] .scr > .client-next-step p { font-size: var(--rh-fs-md); color: var(--rh-ui-text, var(--ink)); }
-
 /* Строка клиента нажимается целиком (конституция: цель ≥ 44 px; было — только имя, 21 px в
    высоту). Ссылка на карточку растянута на строку подложкой ::after, кнопки действий над ней. */
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"].clean-clients-page .ry-crow { position: relative; }
@@ -608,8 +599,6 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-match-common { margin: 8px 0 14px; padding: 12px 14px; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-match-common p:first-child { margin-top: 0; }
 /* «Взять из разговора» — одна кнопка под запросом покупателя. */
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk { margin: 10px 0 4px; }
-:root[data-ui-look="royal"] .rh2[data-ry-section="clients"] .client-take-from-talk .pill { min-height: 44px; white-space: normal; text-align: left; height: auto; padding-block: 10px; }
 
 /* Строка без кнопки звонка: на телефоне колонка действий не резервируется (она отнимала 58 px у имени,
    и «Мухаммадшарифджон» рвался по буквам, К10.1); на ПК остаётся пустой клеткой таблицы — чтобы колонки

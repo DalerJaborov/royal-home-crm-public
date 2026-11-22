@@ -15,27 +15,31 @@ export function MarketShowPhoneButton({
   source,
   clientId,
   onDone,
+  compact = false,
 }: {
   sourceUrl: string;
   source: string;
   clientId?: string;
   onDone?: () => void;
+  /** Маленькая иконка в строке объявления (22.11.2026); подпись уходит в aria-label и подсказку. */
+  compact?: boolean;
 }) {
+  const btn = compact ? "mk-ico" : "pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!";
   const [phone, setPhone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (source !== "somon.tj") {
     return (
-      <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={sourceUrl} target="_blank" rel="noopener noreferrer">
+      <a className={btn} href={sourceUrl} target="_blank" rel="noopener noreferrer" aria-label="Номер на сайте" title="Номер на сайте">
         <Phone className="w-3.5 h-3.5" aria-hidden />
-        Номер на сайте
+        {!compact && "Номер на сайте"}
       </a>
     );
   }
 
   if (phone) {
     return (
-      <a className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]!" href={`tel:${phone}`} aria-label={`Позвонить продавцу ${phone}`}>
+      <a className={compact ? "mk-phone" : btn} href={`tel:${phone}`} aria-label={`Позвонить продавцу ${phone}`}>
         <Phone className="w-3.5 h-3.5" aria-hidden />
         {phone}
       </a>
@@ -66,10 +70,11 @@ export function MarketShowPhoneButton({
       onClick={reveal}
       disabled={busy}
       aria-label="Показать номер продавца"
-      className="pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]! disabled:opacity-50"
+      title={compact ? "Показать номер" : undefined}
+      className={compact ? btn : `${btn} disabled:opacity-50`}
     >
       <Phone className="w-3.5 h-3.5" aria-hidden />
-      {busy ? "Получаем…" : "Показать номер"}
+      {!compact && (busy ? "Получаем…" : "Показать номер")}
     </button>
   );
 }
