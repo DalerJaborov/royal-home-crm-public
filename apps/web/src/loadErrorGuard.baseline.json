@@ -4,7 +4,6 @@
   "components/BottomNav.tsx::{ data: settings }=useSettings",
   "components/CallClientButton.tsx::{ data: activeCall }=useActiveCallValue",
   "components/CallWindow.tsx::{ data: outgoingLive }=useActiveCall",
-  "components/ClientBuyerRequirementsEditor.tsx::suggestion=useQuery",
   "components/ClientChatPanel.tsx::cost=useAiConversationCost",
   "components/ClientFormModal.tsx::{ data: districts }=useDistricts",
   "components/ClientFormModal.tsx::{ data: settings }=useSettings",

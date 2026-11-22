@@ -40,6 +40,7 @@ import { RoyalCallFlag, RoyalCallListen, RoyalCallRow } from "../look/calls/Roya
 import { pillTone, scorePillTone } from "../look/tileTone";
 import { CallSourceMark } from "../look/calls/CallSourceMark";
 import { RoyalInboxSwitch } from "../look/chats/RoyalInboxSwitch";
+import { clientDisplayName } from "../../lib/clientFormat";
 
 /**
  * Мобильные «Звонки»: `MobileCallsSupervisor` (руководство) и `MobileCallsAgent`
@@ -118,7 +119,7 @@ function MhJournalRow({ call, showAgent, royal = false }: { call: CallRow; showA
   const noAnswer = !!call.callAttempt && call.callAttempt !== "TALKED";
   const attemptLabel = noAnswer ? (CALL_ATTEMPT_LABELS[call.callAttempt!] ?? "Не дозвонились") : null;
   const expandable = !noAnswer && (call.hasRecording || !!call.transcript || !!analysis);
-  const name = call.client?.fullName ?? "Клиент удалён";
+  const name = (call.client ? clientDisplayName(call.client) : "Клиент удалён");
 
   // «Новый вид» (пачка calls): та же строка, что на ПК. Звонок — ВСЕГДА в строке
   // (как было): у строки с записью два круга 44 — зелёный «позвонить» и
@@ -266,7 +267,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
   // Метки «без разбора» в строке нет (владелец 21.11.2026): это внутренний учёт, а не факт о звонке;
   // неразобранные входящие — отдельным срезом «Без разбора» над списком.
   const staff = call.staff ?? null;
-  const name = call.client?.fullName ?? (staff ? `Сотрудник · ${staff.fullName}` : call.phone);
+  const name = call.client ? clientDisplayName(call.client) : (staff ? `Сотрудник · ${staff.fullName}` : call.phone);
   // «Новый вид»: те же пометки и действия, что у прежней строки ниже.
   if (royal) {
     return (
@@ -1155,7 +1156,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
   const attemptLabel = outNoAnswer ? (CALL_ATTEMPT_LABELS[call.callAttempt!] ?? "Не дозвонились") : null;
   const missedLook = kind.dir === "missed" || outNoAnswer;
   const expandable = call.kind === "OUT" && !outNoAnswer && (call.hasRecording || !!call.transcript || !!call.analysis);
-  const name = call.client?.fullName ?? (call.staff ? `Сотрудник · ${call.staff.fullName}` : (call.phone ?? "Номера нет"));
+  const name = call.client ? clientDisplayName(call.client) : (call.staff ? `Сотрудник · ${call.staff.fullName}` : (call.phone ?? "Номера нет"));
   const analysis = call.analysis ?? null;
   const detailsId = `mfeed-${call.id}`;
 

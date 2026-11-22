@@ -16,8 +16,14 @@ export interface RoyalRowTextInput extends ClientDisplayNameInput {
   displayNameParts?: { name: string; anchor: string | null } | null;
 }
 
+/** Подпись строки покупателя без запроса — по ней видно, что показывать нечего. */
+export const EMPTY_REQUEST_TEXT = "Запрос пока не заполнен";
+
 export function royalClientRowText(c: RoyalRowTextInput, request: string): { name: string; request: string } {
   const parts = c.displayNameParts ?? clientNameParts(c);
   if (c.kind === "SELLER") return { name: parts.name, request: parts.anchor ?? "Адрес объекта не указан" };
+  // Запрос пуст (письмо из WhatsApp без требований) — вторая строка берёт якорь: объект,
+  // на который написал покупатель, или ориентир (22.11.2026). Заполнен — остаётся запрос.
+  if (request === EMPTY_REQUEST_TEXT && parts.anchor) return { name: parts.name, request: parts.anchor };
   return { name: parts.name, request };
 }
