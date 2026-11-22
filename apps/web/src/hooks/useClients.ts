@@ -108,7 +108,7 @@ export interface ClientsSummary {
   newYesterday: number;
   awaitingAgent: {
     count: number;
-    oldest: { id: string; shortId: number; fullName: string; kind: string; waitingMinutes: number } | null;
+    oldest: { id: string; shortId: number; fullName: string; kind: ClientKind | null; waitingMinutes: number } | null;
   };
   /** «Не связывались» — клиенты в работе, с кем ни разу не связывался сотрудник
    *  (packages/shared/src/clientNoContact.ts). */

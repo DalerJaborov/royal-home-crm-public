@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 795,
-  "forks": 4232,
+  "forks": 4233,
   "mounts": 89,
   "cron": 145,
   "jobs": 34,
@@ -11329,9 +11329,17 @@
     },
     {
      "k": "do",
+     "t": "const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c)",
+     "a": [
+      "зовёт loadClientDisplayLabels()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const rows = [ ...outgoing.map((i)",
      "a": [
-      "зовёт clientNamePhoneSafe()"
+      "зовёт presentClientRef()"
      ],
      "c": []
     },
@@ -11476,6 +11484,14 @@
      "t": "const calledBackIds = await findCallbackContacts( overdue.flatMap((c)",
      "a": [
       "зовёт findCallbackContacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const clientLabels = await loadClientDisplayLabels(items.map((c)",
+     "a": [
+      "зовёт loadClientDisplayLabels()"
      ],
      "c": []
     },
@@ -11925,6 +11941,14 @@
      "a": [
       "читает в базе: interaction",
       "считает в базе: interaction"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const clientLabels = await loadClientDisplayLabels(items.map((i)",
+     "a": [
+      "зовёт loadClientDisplayLabels()"
      ],
      "c": []
     },
@@ -18571,9 +18595,9 @@
     },
     {
      "k": "do",
-     "t": "const sellerPropertyAddress = client.kind === \"SELLER\" && access !== \"transferred\" ? await loadSellerProperty…",
+     "t": "const nameFacts = access === \"transferred\" ? undefined : (await loadClientAnchorFacts([client])).get(client.i…",
      "a": [
-      "зовёт loadSellerPropertyAddress()"
+      "зовёт loadClientAnchorFacts()"
      ],
      "c": []
     },
@@ -20516,9 +20540,9 @@
     },
     {
      "k": "do",
-     "t": "const sellerAddresses = sellerIds.length ? await loadSellerPropertyAddresses(sellerIds) : new Map<string, str…",
+     "t": "const anchorFacts = await loadClientAnchorFacts(items);",
      "a": [
-      "зовёт loadSellerPropertyAddresses()"
+      "зовёт loadClientAnchorFacts()"
      ],
      "c": []
     },
@@ -20565,6 +20589,28 @@
         "зовёт phoneSafeText()"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const nameFactsFor = (id: string, access: string, gated: boolean)",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "access === \"transferred\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return undefined;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -23388,6 +23434,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const labels = await loadClientDisplayLabels(pageRows.map((r)",
+     "a": [
+      "зовёт loadClientDisplayLabels()"
+     ],
+     "c": []
     },
     {
      "k": "do",

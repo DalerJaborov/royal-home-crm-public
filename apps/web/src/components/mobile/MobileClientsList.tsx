@@ -35,6 +35,7 @@ import {
   CLIENT_SOURCE_LABELS,
   formatClientCode,
   formatClientName,
+  clientDisplayName,
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
 import { NoContactTile } from "./NoContactTile";
@@ -422,7 +423,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 <div className="ln">
                   <i className="c" aria-hidden />
                   <span>
-                    {oldest.fullName} ждёт агента {waitLabel}.{" "}
+                    {clientDisplayName(oldest)} ждёт агента {waitLabel}.{" "}
                     <Link className="lnk" to={`/clients/${oldest.shortId}`} style={{ marginLeft: 12, textDecoration: "underline" }}>
                       Открыть
                     </Link>
@@ -485,7 +486,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
             >
               <div className={summary.awaitingAgent.count > 0 ? "v crit" : "v"}>{num(summary.awaitingAgent.count)}</div>
               <div className={summary.awaitingAgent.count > 0 ? "l crit" : "l"}>
-                ждут принятия · {oldest ? `дольше всех ${oldest.fullName}` : "все приняты"}
+                ждут принятия · {oldest ? `дольше всех ${clientDisplayName(oldest)}` : "все приняты"}
               </div>
             </button>
             <NoContactTile
