@@ -1489,6 +1489,8 @@ export async function createPropertyCover(
       currency: property.currency,
       districtName: property.district?.name ?? null,
       address: property.address,
+      type: property.type,
+      totalFloors: property.totalFloors,
     },
     { usdToTjs: coverRate }
   );
@@ -1714,7 +1716,7 @@ async function storeCovers(
 }
 
 /** Версия шаблонной обложки в хэше: поменяли шаблон/ретушь — кэш объектов сбрасывается. */
-const TEMPLATE_COVER_VERSION = "royal-green-1";
+const TEMPLATE_COVER_VERSION = "royal-green-2";
 
 /** Сколько первых фото объекта смотрит выбор обложки: дальше обычно детали и санузлы. */
 export const COVER_PHOTO_PICK_LIMIT = 8;

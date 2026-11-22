@@ -18,6 +18,8 @@ import { runLimited } from "../lib/concurrency.js";
 import { INCLUDE_FORMER_STAFF_PARAM, RATED_ROLES, wantsFormerStaff } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { loadStaffLive, ONLINE_WINDOW_MS } from "../lib/staffLive.js";
+import { loadAgentGlance, loadAgentGlanceDrill } from "../lib/agentGlance.js";
+import { agentGlanceDrillQuerySchema, agentGlanceQuerySchema } from "@royal-home/shared";
 import {
   AGENT_LOSS_SERIES_WINDOW_MS,
   findAgentLossSeries,
@@ -734,4 +736,27 @@ agentOverviewRouter.get("/:id/live", requireAuth, requirePermission("team.viewFu
   const live = await loadStaffLive(req.params.id, req.agent!);
   if (!live) return res.status(404).json({ error: "Сотрудник не найден" });
   res.json(live);
+});
+
+/**
+ * «Одним взглядом» (22.11.2026): плитки за неделю или месяц, график по дням и замечания
+ * «покупатели / продавцы». Тело — lib/agentGlance.ts; комиссия только при finance.view.
+ */
+agentOverviewRouter.get("/:id/glance", requireAuth, requirePermission("team.viewFull"), async (req, res) => {
+  const query = agentGlanceQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: "Неверный период" });
+  const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  if (!agent) return res.status(404).json({ error: "Сотрудник не найден" });
+  res.json(await loadAgentGlance(agent.id, query.data.period, req.agent!));
+});
+
+/** Список записей за плиткой «одним взглядом»: то же окно и те же условия, что у цифры. */
+agentOverviewRouter.get("/:id/glance/drill", requireAuth, requirePermission("team.viewFull"), async (req, res) => {
+  const query = agentGlanceDrillQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: "Неверный запрос" });
+  const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  if (!agent) return res.status(404).json({ error: "Сотрудник не найден" });
+  const drill = await loadAgentGlanceDrill(agent.id, query.data.key, query.data.period, req.agent!);
+  if (!drill) return res.status(403).json({ error: "Нет доступа к деньгам" });
+  res.json(drill);
 });

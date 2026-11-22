@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
-import { daysOffSentenceRu, formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
+import { formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
+import {
+  backState, callAttemptText, callHeadline, canPauseLeads, chatChip, deviceKindLabel, headerSubtitle, lastActionText, leadsPaused, nextTaskText, weekScoreTone,
+} from "../lib/agentCardText";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";
 import {
@@ -16,7 +19,7 @@ import {
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useRoyalLook } from "../hooks/useRoyalLook";
-import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RoyalAgentCard } from "../components/look/team/RoyalAgentCard";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
@@ -87,102 +90,6 @@ function totalProblems(data: AgentOverview | undefined): number {
     p.sellerPropertyMissing.total +
     (p.lossSeries ? 1 : 0)
   );
-}
-
-/** «с телефона»/«с компьютера» — сервер отдаёт `now.device` человекочитаемой
- *  строкой («Chrome · Windows», «Safari · iOS», см. apps/api/src/lib/device.ts),
- *  не литералом «MOBILE»/«DESKTOP»: различаем по ОС внутри строки. */
-function deviceKindLabel(device: string | null): string | null {
-  if (!device) return null;
-  return /ios|android/i.test(device) ? "с телефона" : "с компьютера";
-}
-
-/** Строка под именем в шапке: роль · онлайн/был(а) в сети · устройство ·
- *  отсутствие. Общая для ПК и телефона — блок 1 задания. */
-function headerSubtitle(roleLabel: string, live: AgentLive | undefined, member: TeamMember | undefined): string {
-  const parts = [roleLabel];
-  if (live) {
-    parts.push(
-      live.now.online
-        ? "в сети"
-        : live.now.lastSeenAt
-          ? `был(а) в сети ${relativeTime(live.now.lastSeenAt)}`
-          : "не в сети"
-    );
-    const device = deviceKindLabel(live.now.device);
-    if (device) parts.push(device);
-  }
-  if (member?.frozen) parts.push(absenceLabel(member));
-  else if (member && leadsPaused(member)) parts.push(`пауза заявок до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
-  // Личные выходные (11.10.2026) — одной строкой и на ПК, и на телефоне (подзаголовок общий).
-  if (member?.weeklyDaysOff?.length) parts.push(daysOffSentenceRu(member.weeklyDaysOff));
-  return parts.join(" · ");
-}
-
-/** Действующая пауза приёма лидов (своя или от руководителя), 24.09.2026. */
-function leadsPaused(member: TeamMember): boolean {
-  return !!member.leadsPausedUntil && new Date(member.leadsPausedUntil).getTime() > Date.now();
-}
-
-/** Кнопку паузы видит руководитель у работающего агента: замороженному лиды и так не идут. */
-function canPauseLeads(member: TeamMember): boolean {
-  return member.role === "AGENT" && member.isActive && !member.frozen;
-}
-
-function elapsedLabel(fromIso: string | null): string {
-  if (!fromIso) return "";
-  const mins = Math.max(0, Math.round((Date.now() - new Date(fromIso).getTime()) / 60000));
-  return mins < 1 ? "меньше минуты" : `${mins} мин`;
-}
-
-/** Блок «Сейчас», строка звонка. Живой звонок — ИЗ ПАМЯТИ (`now.call`):
- *  `null` значит «не на звонке прямо сейчас через CRM», а не «звонков не
- *  было» — эту разницу нельзя стирать (см. задание, 2.4, «Честность обязательна»). */
-function callHeadline(call: AgentLive["now"]["call"]): { text: string; clientShortId: number | null } | null {
-  if (!call) return null;
-  const name = call.clientName ?? "клиентом";
-  const text = call.state === "talking" ? `Говорит с ${name} · ${elapsedLabel(call.answeredAt)}` : `Набирает ${name}`;
-  return { text, clientShortId: call.clientShortId };
-}
-
-function whenLabel(at: string): string {
-  return dushanbeDayKey(at) === dushanbeTodayKey() ? `сегодня в ${dushanbeTime(at)}` : dushanbeDateTime(at);
-}
-
-function nextTaskText(task: NonNullable<AgentLive["now"]["nextTask"]>): string {
-  const title = task.title ?? INTERACTION_TYPE_LABELS[task.type] ?? "задача";
-  return `Ближайшее: ${title} ${whenLabel(task.at)} — ${task.client.fullName}`;
-}
-
-function lastActionText(i: AgentOverview["activity"]["recentInteractions"][number]): string {
-  return `Последнее действие: ${INTERACTION_TYPE_LABELS[i.type] ?? i.type} · ${i.client.fullName} · ${relativeTime(i.createdAt)}`;
-}
-
-/** «Ждёт ответа»/«ответил бот»/ничего — чип строки переписки, блок 5. */
-function chatChip(lastFrom: "client" | "agent" | "bot"): { text: string; crit: boolean } | null {
-  if (lastFrom === "client") return { text: "ждёт ответа", crit: true };
-  if (lastFrom === "bot") return { text: "ответил бот", crit: false };
-  return null;
-}
-
-function callAttemptText(c: { callAttempt: string; durationSec: number | null }): string {
-  if (c.callAttempt === "TALKED") return `поговорили ${formatCallDuration(c.durationSec)}`;
-  if (c.callAttempt === "NO_ANSWER") return "клиент не ответил";
-  if (c.callAttempt === "AGENT_NO_PICKUP") return "сам не снял трубку";
-  if (c.callAttempt === "CANCELLED") return "звонок отменён";
-  return "";
-}
-
-function weekScoreTone(score: number): "ok" | "warn" | "crit" {
-  if (score >= 70) return "ok";
-  if (score >= 40) return "warn";
-  return "crit";
-}
-
-/** `state`, который несут ссылки на карточку клиента: «назад» возвращает
- *  СЮДА, на карточку сотрудника, а не в общий список (блок 8-10 задания). */
-function backState(id: string, fullName: string) {
-  return { from: `/team/${id}`, fromLabel: fullName };
 }
 
 /** Карточку не запрашиваем: нет права team.viewFull или в пути нет настоящего id. */
@@ -299,11 +206,53 @@ export function TeamMemberDetail() {
     statusNow,
   };
 
-  // «Новый вид»: метка раздела team и для окон, открытых из карточки (права, отпуск, передача дел).
+  // «Новый вид»: одна карточка «одним взглядом» на все ширины (22.11.2026); прежний вид — ниже, как был.
+  if (royal) {
+    const nowText = callInfo?.text ?? (nextTask ? nextTaskText(nextTask) : lastInteraction ? lastActionText(lastInteraction) : null);
+    const revertNote = {
+      ok: revertResult
+        ? `Возвращено: клиентов ${revertResult.clients}, задач ${revertResult.tasks}, объектов ${revertResult.properties}${revertResult.reactivated ? " — учётная запись включена" : ""}${
+            revertResult.skippedClients > 0 || revertResult.skippedProperties > 0
+              ? `. Не тронуто: клиентов ${revertResult.skippedClients}, объектов ${revertResult.skippedProperties} — их уже передали дальше.`
+              : ""
+          }`
+        : null,
+      error: revertError,
+    };
+    return (
+      <RoyalAgentCard
+        id={id ?? ""}
+        errorText={overview.isError || blocked ? overviewErrorText(overview.error, blocked) : null}
+        loading={overview.isLoading}
+        onRetry={blocked ? undefined : () => void overview.refetch()}
+        data={data}
+        liveData={liveData}
+        liveFailed={live.isError}
+        member={member}
+        canManage={canManageAgents}
+        seesMoney={can("finance.view")}
+        nowText={nowText}
+        call={{
+          pending: callAgent.isPending,
+          error: callAgent.isError ? (callAgent.error instanceof Error ? callAgent.error.message : "Не удалось позвонить") : null,
+          run: () => callAgent.mutate(),
+        }}
+        pendingHandover={pendingHandover}
+        revertNote={revertNote}
+        onFreeze={() => setShowFreeze(true)}
+        onLeadPause={() => setShowLeadPause(true)}
+        onHandover={() => setShowHandover(true)}
+        onRevert={() => {
+          setRevertError(null);
+          setShowRevertConfirm(true);
+        }}
+        overlays={<CardDialogs {...shared} />}
+      />
+    );
+  }
+
   return (
-    <RoyalSection name={royal ? "team" : undefined}>
-      {mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />}
-    </RoyalSection>
+    <>{mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />}</>
   );
 }
 
@@ -338,6 +287,41 @@ interface SharedProps {
   lastInteraction: AgentOverview["activity"]["recentInteractions"][number] | null;
   nextTask: AgentLive["now"]["nextTask"] | null | undefined;
   statusNow: { text: string; crit: boolean } | null;
+}
+
+/** Окна карточки: отпуск, пауза заявок, передача дел, «вернуть дела». Общие для старого и нового вида. */
+function CardDialogs(props: SharedProps) {
+  const {
+    member, showFreeze, setShowFreeze, showLeadPause, setShowLeadPause, showHandover, setShowHandover,
+    pendingHandover, showRevertConfirm, setShowRevertConfirm, revertHandover, setRevertResult, setRevertError,
+  } = props;
+  return (
+    <>
+    {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
+    {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
+    {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
+    {showRevertConfirm && member && pendingHandover && (
+      <ConfirmDialog
+        title="Вернуть дела"
+        description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
+        confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
+        danger={false}
+        confirmDisabled={revertHandover.isPending}
+        onCancel={() => setShowRevertConfirm(false)}
+        onConfirm={() => {
+          setRevertError(null);
+          revertHandover.mutate(pendingHandover.id, {
+            onSuccess: (data) => {
+              setRevertResult(data);
+              setShowRevertConfirm(false);
+            },
+            onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
+          });
+        }}
+      />
+    )}
+    </>
+  );
 }
 
 /* ------------------------------------------------------------------------ */
@@ -949,29 +933,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
           </>
         )}
       </div>
-      {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
-      {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
-      {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
-      {showRevertConfirm && member && pendingHandover && (
-        <ConfirmDialog
-          title="Вернуть дела"
-          description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
-          confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
-          danger={false}
-          confirmDisabled={revertHandover.isPending}
-          onCancel={() => setShowRevertConfirm(false)}
-          onConfirm={() => {
-            setRevertError(null);
-            revertHandover.mutate(pendingHandover.id, {
-              onSuccess: (data) => {
-                setRevertResult(data);
-                setShowRevertConfirm(false);
-              },
-              onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
-            });
-          }}
-        />
-      )}
+      <CardDialogs {...props} />
     </div>
   );
 }
@@ -1647,29 +1609,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
           )}
         </div>
       </div>
-      {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
-      {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
-      {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
-      {showRevertConfirm && member && pendingHandover && (
-        <ConfirmDialog
-          title="Вернуть дела"
-          description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
-          confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
-          danger={false}
-          confirmDisabled={revertHandover.isPending}
-          onCancel={() => setShowRevertConfirm(false)}
-          onConfirm={() => {
-            setRevertError(null);
-            revertHandover.mutate(pendingHandover.id, {
-              onSuccess: (data) => {
-                setRevertResult(data);
-                setShowRevertConfirm(false);
-              },
-              onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
-            });
-          }}
-        />
-      )}
+      <CardDialogs {...props} />
     </div>
   );
 }
