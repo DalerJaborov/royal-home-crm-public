@@ -239,56 +239,53 @@ describe("discardDraft: падение удаления не стирает фа
   });
 });
 
-describe("cleanupExpiredPropertyDrafts: не молча для автора", () => {
-  it("черновик с закачкой, обновлённой за 6 часов, не удаляется даже по истёкшему сроку", async () => {
+describe("cleanupExpiredPropertyDrafts: срок 4 часа, без уведомлений", () => {
+  const MIN = 60 * 1000;
+  // Срок черновика = последнее сохранение + 4 часа (PROPERTY_DRAFT_TTL_HOURS).
+  const lastSaved = (minutesAgo: number) => new Date(Date.now() - minutesAgo * MIN + 4 * 60 * MIN);
+
+  it("закачка, обновлённая за 30 минут, не удаляется даже по истёкшему сроку", async () => {
     const a = await makeAgent();
-    const draft = await makeDraft(
-      a.id,
-      [{ kind: "VIDEO", status: "UPLOADING", updatedAt: new Date(Date.now() - 60 * 60 * 1000) }],
-      new Date(Date.now() - 60 * 1000)
-    );
+    const draft = await makeDraft(a.id, [{ kind: "VIDEO", status: "UPLOADING", updatedAt: new Date(Date.now() - 10 * MIN) }], lastSaved(4 * 60 + 5));
     await cleanupExpiredPropertyDrafts();
     expect(await prisma.propertyDraft.count({ where: { id: draft.id } })).toBe(1);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).toBeNull();
 
-    // Закачка старше шести часов — это уже брошенный черновик.
-    await prisma.$executeRaw`UPDATE "PropertyDraftMedia" SET "updatedAt" = ${new Date(Date.now() - 7 * 60 * 60 * 1000)} WHERE "draftId" = ${draft.id}`;
+    // Закачка старше получаса — это уже брошенный черновик.
+    await prisma.$executeRaw`UPDATE "PropertyDraftMedia" SET "updatedAt" = ${new Date(Date.now() - 40 * MIN)} WHERE "draftId" = ${draft.id}`;
     await cleanupExpiredPropertyDrafts();
     expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
   });
 
-  it("удаление черновика с файлами — запись автору со счётчиком файлов", async () => {
-    const a = await makeAgent();
-    const draft = await makeDraft(
-      a.id,
-      [
-        { kind: "PHOTO", status: "READY" },
-        { kind: "PHOTO", status: "READY" },
-        { kind: "VIDEO", status: "UPLOADING", updatedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      ],
-      new Date(Date.now() - 60 * 1000)
-    );
+  it("4 ч 05 мин без сохранений — удалён вместе с файлами, 3 ч 55 мин — жив; уведомлений нет", async () => {
+    const dead = await makeAgent();
+    const alive = await makeAgent();
+    const deadDraft = await makeDraft(dead.id, [{ kind: "PHOTO", status: "READY" }, { kind: "VIDEO", status: "READY" }], lastSaved(4 * 60 + 5));
+    const aliveDraft = await makeDraft(alive.id, [{ kind: "PHOTO", status: "READY" }], lastSaved(3 * 60 + 55));
+    const photo = await prisma.propertyDraftMedia.findFirstOrThrow({ where: { draftId: deadDraft.id, kind: "PHOTO" } });
+    const file = path.join(uploadsDir, path.basename(photo.url!));
+    fs.writeFileSync(file, "x");
+    createdFiles.push(file);
+
     await cleanupExpiredPropertyDrafts();
-    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
-    const call = sendPushToAgent.mock.calls.find(([, p]) => (p as { tag?: string }).tag === `property-draft-expired-${draft.id}`);
-    expect(call).toBeDefined();
-    expect(call![0]).toBe(a.id);
-    expect((call![1] as { body: string }).body).toContain("фото 2, видео 1");
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: deadDraft.id } })).closedAt).not.toBeNull();
+    expect(await prisma.propertyDraftMedia.count({ where: { draftId: deadDraft.id } })).toBe(0);
+    expect(fs.existsSync(file)).toBe(false);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: aliveDraft.id } })).closedAt).toBeNull();
+    expect(sendPushToAgent).not.toHaveBeenCalled();
   });
 
-  it("за двое суток до срока — предупреждение автору, и только один раз", async () => {
+  it("продолженный черновик отсчитывает срок заново; повторный проход ничего не удаляет", async () => {
     const a = await makeAgent();
-    const draft = await makeDraft(a.id, [{ kind: "PHOTO", status: "READY" }], new Date(Date.now() + 24 * 60 * 60 * 1000));
-    const warnTag = `property-draft-expiring-${draft.id}-${draft.expiresAt.getTime()}`;
+    const draft = await makeDraft(a.id, [{ kind: "PHOTO", status: "READY" }], lastSaved(4 * 60 + 5));
+    // Мастер сохранил шаг — срок сдвинут на 4 часа вперёд.
+    await prisma.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: new Date(Date.now() + 4 * 60 * MIN) } });
     await cleanupExpiredPropertyDrafts();
-    expect(sendPushToAgent.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === warnTag)).toHaveLength(1);
-    // Само уведомление в ленте пишет sendPushToAgent (здесь подменён) — имитируем его.
-    await prisma.notification.create({
-      data: { agentId: a.id, kind: "other", title: "t", body: "b", tag: warnTag },
-    });
-    sendPushToAgent.mockClear();
-    await cleanupExpiredPropertyDrafts();
-    expect(sendPushToAgent.mock.calls.filter(([, p]) => (p as { tag?: string }).tag === warnTag)).toHaveLength(0);
-    // Черновик живой — не удалён.
-    expect(await prisma.propertyDraft.count({ where: { id: draft.id } })).toBe(1);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).toBeNull();
+
+    await prisma.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: new Date(Date.now() - MIN) } });
+    expect(await cleanupExpiredPropertyDrafts()).toBeGreaterThanOrEqual(1);
+    expect(await cleanupExpiredPropertyDrafts()).toBe(0);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
   });
 });

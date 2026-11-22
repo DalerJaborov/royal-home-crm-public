@@ -6,6 +6,7 @@ import {
   confirmClientAnswer,
   finishCall,
   getCall,
+  liveOutgoingCalls,
   reconcileOrphanedOutgoingCalls,
   setCallState,
   collectRecordingAfterFinish,
@@ -32,7 +33,8 @@ import { reconcileRoutingModeOnReconnect } from "./routingModeSync.js";
 import { logSystemError } from "../systemError.js";
 import { closeNoAnswerPush } from "../noAnswerStreak.js";
 import { prisma } from "../../db.js";
-import type { AriEvent } from "./ariTypes.js";
+import type { AriChannel, AriEvent } from "./ariTypes.js";
+import { phoneTail } from "../clientPhones.js";
 
 export type { AriChannel, AriEvent } from "./ariTypes.js";
 
@@ -172,6 +174,51 @@ const RESYNC_TIMEOUT_MS = 5_000;
  * случаях заводить сотню карточек разом нельзя.
  */
 const RESYNC_PICKUP_LIMIT = 20;
+
+/**
+ * МОЖНО ЛИ ПОДХВАТИТЬ КАНАЛ ДОСИНХРОНИЗАЦИЕЙ КАК ВХОДЯЩИЙ (22.11.2026, разбор 21.11 18:14).
+ *
+ * Что было: агент звонила клиенту через CRM, разговор шёл. В 18:15 подписка ARI
+ * оборвалась (код 1006), на переподписке досинхронизация перебрала живые каналы и
+ * приняла ОБА транковых плеча нашего же исходящего (`SIP/out-…` к мобильному агента
+ * и к клиенту) за входящие: у плеча транка контекст `from-trunk-sip-out`, а номер в
+ * списке каналов уже заполнен (в событии ChannelCreated он пуст, и там такое плечо
+ * отсеивается как «короткий номер» — поэтому днём этого не видно). Итог: строка
+ * «пропущенный» с номером агента, а плечо клиента CRM «увела ответственному агенту»
+ * Redirect'ом в royalhome-agent-route — живой разговор оборвался на 84-й секунде,
+ * и станция заново позвонила агенту на мобильный (CDR станции, linkedid один).
+ *
+ * Три правила, каждое закрывает свою половину случая:
+ *  1. Канал уже в разговоре (`Up`) не подхватываем никогда: подхват отвечает каналу,
+ *     включает музыку и уводит звонок агенту (AMI Redirect не смотрит, с кем канал
+ *     в мосту) — для идущего разговора это обрыв. Так же оборвался бы и входящий,
+ *     который оператор снял за время разрыва. Настоящий входящий, ждущий ответа,
+ *     не отвечен: с 24.09.2026 `royalhome-inbound` начинается с Ringing(), а не
+ *     Answer() (ops/asterisk/extensions_custom.conf), — он в `Ring`/`Ringing`.
+ *  2. Канал — исходящее плечо, которое станция САМА набрала (Dial/Queue): Asterisk
+ *     ставит такому каналу приложение `AppDial`/`AppQueue` с данными
+ *     `(Outgoing Line)` (apps/app_dial.c, dial_exec_full). Входящий так выглядеть
+ *     не может. Нужно на случай, когда памяти об исходящем нет вовсе (рестарт
+ *     процесса посреди звонка), а плечо к клиенту ещё звонит и правило 1 молчит.
+ *  3. Номер канала совпадает с участником нашего живого исходящего (клиент или
+ *     номер, на который станция звонит агенту) — это наше плечо, а не звонок снаружи.
+ *     Страховка для станций, где app_name в списке каналов не приходит.
+ */
+const OUTGOING_LEG_APPS = new Set(["AppDial", "AppQueue"]);
+
+export function isResyncPickupCandidate(
+  channel: AriChannel,
+  outgoing: ReadonlyArray<{ clientPhone?: string; dialingTo?: string }>
+): boolean {
+  if (channel.state === "Up") return false;
+  const app = channel.dialplan?.app_name ?? "";
+  if (OUTGOING_LEG_APPS.has(app) || channel.dialplan?.app_data === "(Outgoing Line)") return false;
+  const tail = phoneTail(channel.caller?.number ?? "");
+  if (!tail) return true;
+  return !outgoing.some(
+    (c) => (c.clientPhone && phoneTail(c.clientPhone) === tail) || (c.dialingTo && phoneTail(c.dialingTo) === tail)
+  );
+}
 
 /** Не чаще раза в час одна и та же запись о неудавшейся досинхронизации: обрывы
  *  идут пачками, и журнал забился бы одинаковыми строками (образец — callTracker.ts). */
@@ -1040,9 +1087,11 @@ export async function resyncActiveChannels(creds: AriCredentials): Promise<void>
 
   // Сначала ОТБИРАЕМ, потом обрабатываем: перебор списка в памяти дёшев, а к базе
   // ходит только подхват. В норме отобранных ноль, и ни одного запроса не будет.
+  const outgoingNow = liveOutgoingCalls();
   const missed = channels
     .filter((channel) => !getCall(channel.id) && !isTrackedIncoming(channel.id))
     .filter((channel) => classifyInboundChannel(channel)?.inbound === true)
+    .filter((channel) => isResyncPickupCandidate(channel, outgoingNow))
     .slice(0, RESYNC_PICKUP_LIMIT);
   if (missed.length === 0) return;
 

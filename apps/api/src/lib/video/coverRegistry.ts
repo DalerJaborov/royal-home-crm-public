@@ -58,6 +58,12 @@ export interface CoverTemplateRecord {
   /** Листья поверх SVG-слоя, а не под ним: у «Royal Green» размытые листья
    *  лежат ПЕРЕД панелью и лентой, как на эталоне. */
   leavesOnTop?: boolean;
+  /** Фото занимает не весь холст, а полосу сверху (`top`, `height`); ниже холст кремовый
+   *  (`canvas`). У «Royal Green» (макет Reels 21.11.2026) фото кончается над плашкой, дальше
+   *  кремовый градиент рисует сам SVG. Нет поля — фото на весь холст, как у остальных. */
+  photoBox?: Partial<Record<CoverFormat, { top: number; height: number }>>;
+  /** Цвет холста под полосой фото (`#rrggbb`). */
+  photoCanvas?: string;
 }
 
 /** Ассеты встроенных шаблонов — путь от скомпилированного файла, как в `coverPoster.ts`. */
@@ -119,6 +125,9 @@ export const GREEN_COVER_TEMPLATE: CoverTemplateRecord = {
     square: path.join(COVER_ASSETS_DIR, "templates", "royal-green-square.svg"),
     story: path.join(COVER_ASSETS_DIR, "templates", "royal-green-story.svg"),
   },
+  // Макет Reels (21.11.2026): фото сверху, ниже кремовый градиент, плашка, три значка, волна.
+  photoBox: { square: { top: 0, height: 860 }, story: { top: 0, height: 1520 } },
+  photoCanvas: "#f3e6e0",
 };
 
 /** Шаблон рисуется SVG-файлом (свой или встроенный SVG), а не кодом «Royal Gold». */
@@ -271,6 +280,17 @@ export interface CoverTemplateValues {
   slogan?: string;
   /** «1», когда логотипа в Настройках нет и шаблон рисует свой векторный знак. */
   vectorLogo?: string;
+  /** Плашка «Royal Green»: тип объекта («ҲАВЛИИ») и вторая строка («2 ОШЁНА»). */
+  kind?: string;
+  kindSub?: string;
+  /** Тип без второй строки («ТИҶОРАТӢ», «ЗАМИН») — рисуется одной строкой по центру плашки. */
+  kindSolo?: string;
+  /** Крупная площадь справа в плашке: число, единица («м» или «сотих») и степень («2» у м²). */
+  areaBig?: string;
+  areaUnit?: string;
+  areaSup?: string;
+  /** «ноҳияи Сино» / «шаҳри Душанбе». */
+  placeLine?: string;
 }
 
 const PLACEHOLDER = /\{\{\s*([\p{L}0-9_]+)\s*(?:\|\s*(upper)\s*)?\}\}/gu;

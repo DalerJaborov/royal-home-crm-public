@@ -9,6 +9,7 @@ import { HomeBars, num } from "../charts";
 import { FullScreenToggle } from "./full";
 import { CallClientButton } from "../../../CallClientButton";
 import { pillTone } from "../../tileTone";
+import { clientDisplayName } from "../../../../lib/clientFormat";
 
 /**
  * ГЛАВНАЯ АГЕНТА — блоки ядра (перенесены из pages/TodayRoyal.tsx, home-core 20.11.2026).
@@ -52,7 +53,7 @@ export function AgentPending() {
       {pendingState ? pendingState
         : pending.length === 0 ? <RhGroup><RhRow lead={<RhCircle icon="list-checks" tone="ok" />} title="Новых заявок нет" /></RhGroup>
         : <RhGroup>{pending.slice(0, 6).map((client) => (
-          <RhRow key={client.id} to={`/clients/${client.shortId}`} lead={<RhAvatar name={client.fullName} />} title={client.fullName} sub="новая заявка" subTone="warn" />
+          <RhRow key={client.id} to={`/clients/${client.shortId}`} lead={<RhAvatar name={clientDisplayName(client)} />} title={clientDisplayName(client)} sub="новая заявка" subTone="warn" />
         ))}</RhGroup>}
     </RhSection>
   );
@@ -69,7 +70,7 @@ export function AgentShowings() {
         : <RhGroup>{showings.slice(0, 6).map((showing) => (
           <RhRow key={showing.id} to={showing.client?.shortId ? `/clients/${showing.client.shortId}` : "/calendar"}
             lead={<RhCircle icon="calendar-days" tone="a5" />}
-            title={showing.client?.fullName ?? "Показ"} sub={showing.confirmedAt ? "подтверждён" : "ждём ответ"} subTone={showing.confirmedAt ? "ok" : undefined}
+            title={showing.client ? clientDisplayName(showing.client) : "Показ"} sub={showing.confirmedAt ? "подтверждён" : "ждём ответ"} subTone={showing.confirmedAt ? "ok" : undefined}
             right={<span className="ry-row-time">{dushanbeTime(showing.nextActionDate!)}</span>} />
         ))}</RhGroup>}
     </RhSection>
@@ -102,11 +103,11 @@ export function AgentFirstCalls() {
             <div key={row.id} className="ry-agent-call-row">
               <RhRow to={`/clients/${row.shortId}`}
                 lead={<RhCircle icon={late ? "hourglass" : "phone-call"} tone={pillTone(late ? "overdue" : "today")} filled={late} />}
-                title={row.fullName}
+                title={clientDisplayName(row)}
                 sub={late ? ["срок вышел, позвоните сейчас", row.afterDue].filter(Boolean).join(" · ") : `первый звонок до ${dushanbeTime(row.dueAt)}`}
                 subTone={late ? "crit" : "warn"}
                 right={<span className="ry-row-time" data-tone={late ? pillTone("overdue") : undefined}>{dushanbeTime(row.dueAt)}</span>} />
-              <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${row.fullName}`}
+              <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${clientDisplayName(row)}`}
                 title="Позвонить через CRM" className="ry-agent-call-btn" stopPropagation={false} />
             </div>
           );
@@ -115,9 +116,9 @@ export function AgentFirstCalls() {
           <div key={`a-${row.id}`} className="ry-agent-call-row">
             <RhRow to={`/clients/${row.shortId}`}
               lead={<RhCircle icon="user-plus" tone="a1" />}
-              title={row.fullName}
+              title={clientDisplayName(row)}
               sub={row.byName ? `назначил ${row.byName}` : "назначил руководитель"} />
-            <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${row.fullName}`}
+            <CallClientButton clientId={row.id} phone={row.phone} variant="icon" label={`Позвонить: ${clientDisplayName(row)}`}
               title="Позвонить через CRM" className="ry-agent-call-btn" stopPropagation={false} />
           </div>
         ))}
