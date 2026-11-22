@@ -49,11 +49,14 @@
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head p b { color: var(--rh-ui-text); font-size: var(--rh-fs-md); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending {
+  /* Спокойный фильтр-чип в одну строку (владелец 21.11: плашки были крупные и тревожные): тон — из pillTone, цвет только по смыслу. */
   flex: none; max-width: 100%;
-  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--rh-r-full);
-  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-warn) 30%, transparent);
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer;
 }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending b { font-size: var(--rh-fs-sm); color: inherit; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="crit"] { background: var(--rh-ui-crit-soft, var(--rh-ui-raised)); color: var(--rh-ui-crit-text); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head-acts > a {
   min-height: 48px; padding: 0 16px; border-radius: var(--rh-r-full); color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600;
@@ -250,14 +253,15 @@
 
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag {
-  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 10px; border-radius: var(--rh-r-full);
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border-radius: var(--rh-r-full);
   background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 600; white-space: nowrap;
 }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
 
-:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: 2px 0 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat { display: inline-flex; align-items: baseline; gap: 4px; padding: 0; background: transparent; border: 0; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat b { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-md); font-weight: 700; color: var(--rh-ui-text); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat small { font-size: var(--rh-fs-sm); }
@@ -506,7 +510,7 @@
 
 /* На телефоне заголовок «Объекты» уже несёт шапка оболочки — второй не нужен. */
 :root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head-acts { margin-left: auto; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head-acts { flex: 1 1 100%; justify-content: space-between; flex-wrap: nowrap; }
 :root[data-ui-look="royal"][data-mobile-ux] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar > .inp { flex-basis: 100%; }
 :root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="gallery"] { margin-inline: 0; }
 /* Фото на телефоне — такая же карточка с отступами и скруглением, как соседние блоки (владелец 20.11.2026: фото шло во всю ширину без
@@ -579,4 +583,14 @@
 @media (max-width: 359.98px) {
   :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar > .inp { padding: 0 14px; }
   :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-filters { padding: 0 12px; }
+}
+
+/* Карточка объекта на узком телефоне при крупном тексте (К10/К11, сторож split/squeeze «очень крупный» 320):
+   колонка рядом с фото — ~150 px. «Снять с сайта» — одной строкой, уходит на свою строку под агента, а не
+   сжимается в две (на 320 поля 8 px, чтобы 18-пиксельная подпись влезла в 152); цена за метр («1 250 000 с. / м²» — 17 знаков) на 320 — ступенью ниже, чтобы не рваться по « / ». */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot { flex-wrap: wrap; row-gap: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { white-space: nowrap; }
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price small { font-size: var(--rh-fs-xs); white-space: nowrap; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { padding-inline: 8px; }
 }

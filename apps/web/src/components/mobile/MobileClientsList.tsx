@@ -28,6 +28,7 @@ import { CallClientButton } from "../CallClientButton";
 import { Pagination } from "../Pagination";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MhLane, MhListScreen, sinceLabel, type MhLaneChip } from "./mh/MhList";
+import { lastContactLabel } from "../../lib/clientRowFacts";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SORT_OPTIONS,
@@ -739,12 +740,12 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
   const wants = [c.desiredRooms ? `${c.desiredRooms}-комн` : null, c.desiredDistrict?.name ?? null]
     .filter(Boolean)
     .join(", ");
-  const step = c.nextStep?.nextAction?.trim();
+  // Следующий шаг в строку не выводится (владелец 21.11.2026: «зачем следующий шаг?»),
+  // он виден в карточке клиента.
   const parts = [
     showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null,
     wants || null,
     CLIENT_SOURCE_LABELS[c.source],
-    step || null,
   ].filter(Boolean) as string[];
 
   // Отметки статуса («горячий», «новый», «на контакте») убраны 16.11.2026:
@@ -847,7 +848,9 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
           )}
         </span>
         <span className="r relative z-10" style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>
-          <span className="tm">{sinceLabel(c.lastContactAt ?? c.assignedAt)}</span>
+          {/* Давность ПОСЛЕДНЕГО КОНТАКТА по общему правилу (lib/clientRowFacts.ts, 21.11.2026):
+              lastContactAt двигает любая заметка, а у новой карточки он равен моменту создания. */}
+          <span className="tm" title={lastContactLabel(c.lastStaffContactAt) ?? undefined}>{sinceLabel(c.lastStaffContactAt)}</span>
           {c.unread && <span className="unread dot" aria-label="Клиент написал, переписка не открыта" />}
           {/* Звонок прямо из строки — непринятому лиду кнопки нет: номер у
               него замаскирован (тот же разбор, что в ClientRow на ПК). */}

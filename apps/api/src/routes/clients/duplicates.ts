@@ -123,18 +123,23 @@ duplicatesRouter.get("/:id/similar-notes", requireAuth, requirePermission("clien
   if (!client.requirementsNotes?.trim()) {
     return res.json([]);
   }
-  const candidates = await fuzzySimilarClientNotes(client.id, client.requirementsNotes);
+  // Отклонённые руководителем пары («это разные люди») не всплывают снова —
+  // см. Client.dismissedSimilarClientIds. Отсекаются в самом SQL, до LIMIT.
+  const candidates = await fuzzySimilarClientNotes(
+    client.id,
+    client.requirementsNotes,
+    undefined,
+    undefined,
+    client.dismissedSimilarClientIds
+  );
   if (candidates.length === 0) return res.json([]);
 
   const canSeePhone = can(req, "clients.viewPhone");
   const byId = new Map(candidates.map((c) => [c.id, c.similarity]));
-  // Отклонённые руководителем пары («это разные люди») не всплывают снова —
-  // см. Client.dismissedSimilarClientIds.
-  const dismissed = new Set(client.dismissedSimilarClientIds);
   const clients = await prisma.client.findMany({
     // deletedAt — кандидаты отобраны SQL-ом с тем же условием, но карточка могла
     // уйти в Корзину между двумя запросами (глубокая проверка 02.10.2026, A5).
-    where: { id: { in: candidates.map((c) => c.id).filter((id) => !dismissed.has(id)) }, deletedAt: null },
+    where: { id: { in: candidates.map((c) => c.id) }, deletedAt: null },
     select: { id: true, shortId: true, fullName: true, phone: true, kind: true, requirementsNotes: true },
   });
   // Имя и заметка — тем же правом, что телефон (A5): «Похожие по заметкам» видит

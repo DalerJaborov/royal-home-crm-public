@@ -1,4 +1,5 @@
 import type { AdPacingResponse } from "@royal-home/shared";
+import { EmptyValue, lenBucket } from "../EmptyValue";
 import type { AdsBoard } from "../../hooks/useAds";
 import { formatMoneyExact, pluralizeRu } from "../../lib/format";
 import { agoRu } from "../../lib/adsView";
@@ -16,8 +17,9 @@ type Totals = AdsBoard["totals"];
  * сервер считает их по карточкам периода). Сравнение — та же доска за прошлый
  * отрезок той же длины (lib/adsCompare.ts).
  *
- * Три разных «нет» не смешиваются (ревью PR 336): нет данных (расчёт не пришёл),
- * нет расхода (цене не из чего взяться), нет заявок или сделок при расходе.
+ * Три причины «нет» не смешиваются (ревью PR 336), но показываются ОДНИМ словом «нет»
+ * (EmptyValue, К10 аудита 20.11), а причина — строкой под ним: расчёт не пришёл,
+ * расхода не было (цене не из чего взяться); «нет заявок» и «сделок пока нет» при расходе — словами.
  * Окупаемость — деньги компании: без права finance.view плитки нет вовсе (сервер
  * и так отдаёт комиссию и окупаемость пустыми).
  */
@@ -45,35 +47,42 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
   const romi = stats?.romi ?? null;
   const forecast = pacing ? describeForecast(pacing.forecastState, pacing.forecast) : null;
 
-  const leadValue = !stats ? "нет данных" : noSpend ? "—" : leadCost !== null ? formatMoneyExact(leadCost, "TJS") : "нет заявок";
+  const spendText = formatMoneyExact(spend, "TJS");
+  const leadValue = !stats || noSpend ? null : leadCost !== null ? formatMoneyExact(leadCost, "TJS") : "нет заявок";
   const leadSub = !stats
     ? "заявки с рекламы не посчитались"
     : noSpend
       ? "расхода не было"
       : `${stats.leads.toLocaleString("ru-RU")} ${pluralizeRu(stats.leads, ["заявка", "заявки", "заявок"])} с рекламы`;
-  const dealValue = !stats ? "нет данных" : noSpend ? "—" : dealCost !== null ? formatMoneyExact(dealCost, "TJS") : "сделок пока нет";
+  const dealValue = !stats || noSpend ? null : dealCost !== null ? formatMoneyExact(dealCost, "TJS") : "сделок пока нет";
   const dealSub = !stats
     ? "сделки с рекламы не посчитались"
     : noSpend
       ? "расхода не было"
       : `${stats.deals.toLocaleString("ru-RU")} ${pluralizeRu(stats.deals, ["сделка", "сделки", "сделок"])} с рекламных заявок`;
 
+  // Один кегль на весь ряд — по самой длинной сумме (ревью #351): плитки не прыгают размером.
+  const order = { s: 0, m: 1, l: 2 } as const;
+  const rowLen = ([spendText, leadValue, dealValue].filter((v): v is string => !!v && /\d/.test(v)).map(lenBucket).sort((a, b) => order[b] - order[a])[0] ?? "s");
   return (
     <>
       <div className="tiles ry-ads-tiles" aria-label="Главное о рекламе за период">
         <Tile
+          len={rowLen}
           label={`Потрачено за ${periodLabel}`}
-          value={formatMoneyExact(spend, "TJS")}
+          value={spendText}
           delta={<Rh2DeltaChip value={spend} previous={previous?.periodTjs} positiveIsGood={false} periodLabel={previousLabel} />}
           sub={syncedAt ? `сверено ${agoRu(syncedAt, Date.now())}` : "ещё не сверялись"}
         />
         <Tile
+          len={rowLen}
           label="Цена заявки"
           value={leadValue}
           delta={leadCost !== null ? <Rh2DeltaChip value={leadCost} previous={prevLeadCost} positiveIsGood={false} periodLabel={previousLabel} /> : null}
           sub={leadSub}
         />
         <Tile
+          len={rowLen}
           label="Цена сделки"
           value={dealValue}
           delta={dealCost !== null ? <Rh2DeltaChip value={dealCost} previous={prevDealCost} positiveIsGood={false} periodLabel={previousLabel} /> : null}
@@ -81,12 +90,13 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
         />
         {showRomi && stats && (
           <Tile
+          len={rowLen}
             label="Окупаемость"
-            value={romi !== null ? `${romi > 0 ? "+" : ""}${Math.round(romi * 100)} %` : "—"}
+            value={romi !== null ? `${romi > 0 ? "+" : ""}${Math.round(romi * 100)} %` : null}
             tone={romi === null ? undefined : romi >= 0 ? "ok" : "crit"}
             sub={romi !== null && stats.commissionTjs !== null
               ? `комиссия ${formatMoneyExact(stats.commissionTjs, "TJS")} на ${formatMoneyExact(spend, "TJS")} рекламы`
-              : "расхода не было — окупаться нечему"}
+              : noSpend ? "расхода не было — окупаться нечему" : "окупаемость не посчиталась — нет комиссии по сделкам с рекламы"}
           />
         )}
       </div>
@@ -102,15 +112,18 @@ export function AdsDirectorTiles({ totals, previous, previousLabel, pacing, sync
   );
 }
 
-function Tile({ label, value, sub, delta, tone }: { label: string; value: string; sub: string; delta?: React.ReactNode; tone?: "ok" | "crit" }) {
+function Tile({ label, value, sub, delta, tone, len }: { label: string; value: string | null; sub: string; delta?: React.ReactNode; tone?: "ok" | "crit"; len?: "s" | "m" | "l" }) {
+  // Цифра — крупно и по ширине ячейки (.rh-fit); слова («нет заявок», «сделок пока нет») — обычным
+  // шрифтом, не цифровым кеглем (К10.4 аудита 20.11).
+  const isNumber = value !== null && /\d/.test(value);
   return (
-    <div className="tile" data-tone={tone}>
+    <div className="tile rh-fit-host" data-tone={tone}>
       <div className="hd">{label}</div>
-      <b className="money" style={{ fontSize: "var(--fs-23)" }}>
-        {value}
+      <b className={isNumber ? "money rh-fit" : "money"} data-len={isNumber ? (len ?? lenBucket(value)) : undefined} style={{ fontSize: "var(--fs-23)" }}>
+        {value === null ? <EmptyValue reason={sub} /> : isNumber ? value : <span className="rh-empty">{value}</span>}
         {delta}
       </b>
-      <span style={{ fontSize: "var(--fs-13)", color: "var(--muted)" }}>{sub}</span>
+      <span className="rh-note" style={{ fontSize: "var(--fs-13)", color: "var(--muted)" }}>{sub}</span>
     </div>
   );
 }

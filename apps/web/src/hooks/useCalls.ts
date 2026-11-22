@@ -132,6 +132,10 @@ export interface IncomingCallRow {
   missingCallback: boolean;
   /** Порог бейджа выше, в часах — подписать бейдж («без перезвона 2ч+»), не зашивая число. */
   missedCallbackHours: number;
+  /** Звонил действующий сотрудник со своего номера (21.11.2026): это не клиент —
+   *  строка подписывается его именем, без «в базе нет», «никто не перезвонил»
+   *  и «Больше не звонить». null — обычный звонящий. */
+  staff?: { id: string; fullName: string } | null;
 }
 
 export function useIncomingCalls(
@@ -340,6 +344,10 @@ export interface CallFeedRow {
   client: { id: string; shortId: number; fullName: string } | null;
   /** Номер звонившего — только у входящих и только если право позволяет. */
   phone: string | null;
+  /** Звонил действующий сотрудник со своего номера (21.11.2026): это не клиент —
+   *  строка подписывается его именем, без «в базе нет», «никто не перезвонил»
+   *  и «Больше не звонить». null — обычный звонящий. */
+  staff?: { id: string; fullName: string } | null;
   /** Откуда звонок ("phone" | "whatsapp") — см. IncomingCallRow.source. */
   source?: string;
   durationSec: number | null;

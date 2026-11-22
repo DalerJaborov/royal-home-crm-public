@@ -50,13 +50,13 @@ const DIRECT_TELEGRAM_SENDS: Record<string, { calls: number; why: string }> = {
   "routes/expenseWorkspace.ts": { calls: 1, why: "выгрузка CSV по кнопке самого человека" },
   "routes/reportPdf.ts": { calls: 1, why: "PDF-отчёт себе в Telegram по кнопке самого человека (#189)" },
   "lib/reportPdf/monthlyFinance.ts": { calls: 1, why: "месячный финансовый PDF директору 1–3 числа: рубильник в Настройках, по умолчанию выключен (#189)" },
-  "telegram/bot.ts": { calls: 11, why: "ответы на сообщения и кнопки человека" },
-  "telegram/assistantBot.ts": { calls: 35, why: "ответы помощницы на просьбу человека" },
+  "telegram/bot.ts": { calls: 15, why: "ответы на сообщения и кнопки человека (включая просьбу номера клиенту и снятие кнопки)" },
+  "telegram/assistantBot.ts": { calls: 38, why: "ответы помощницы на просьбу человека (включая снятие клиентской кнопки номера на /start, /new и своём контакте)" },
   "telegram/assistantDelivery.ts": { calls: 7, why: "доставка ответа помощницы на просьбу" },
   "telegram/assistantVoice.ts": { calls: 6, why: "голосовой ответ на просьбу" },
   "telegram/assistantReadResults.ts": { calls: 3, why: "карточка/список в ответ на просьбу" },
   "telegram/assistantStaffPropertyCard.ts": { calls: 3, why: "карточка объекта по просьбе" },
-  "telegram/assistantPropertyDraft.ts": { calls: 36, why: "мастер объекта — ответы на шаги человека, в том числе на присланный файл с описанием" },
+  "telegram/assistantPropertyDraft.ts": { calls: 38, why: "мастер объекта — ответы на шаги человека, в том числе на присланный файл с описанием и на «готово / создавай» словами (21.11)" },
   "telegram/assistantPhotoQuality.ts": { calls: 2, why: "мастер объекта — ответ на присланное человеком сжатое фото (вопрос раз на черновик, #148)" },
   "telegram/assistantConfirmationPhotos.ts": { calls: 2, why: "фото к подтверждению, которое человек запросил" },
   "telegram/assistantExpenseAlbum.ts": { calls: 1, why: "ответ на присланный альбом чеков" },
@@ -86,7 +86,8 @@ function telegramSendCalls(source: string, file: string): number {
     if (!fromApi) continue;
     for (const part of m[1]!.split(",")) {
       const [orig, alias] = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/);
-      if (orig && /^send/.test(orig)) names.add((alias ?? orig).trim());
+      // removeKeyboard и requestContact — тоже sendMessage (21.11.2026: привязка сотрудника снимает клиентскую кнопку).
+      if (orig && /^(send|removeKeyboard$|requestContact$)/.test(orig)) names.add((alias ?? orig).trim());
     }
   }
   let count = 0;

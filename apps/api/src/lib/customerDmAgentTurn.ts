@@ -47,6 +47,7 @@ import { noteSpamFiltered, spamFilterApplies } from "./spamFilter.js";
 import { customerForeignShareSettled } from "./customerSharedPublication.js";
 import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
 import { logSystemError } from "./systemError.js";
+import { perceiveCustomerMediaSafely } from "./customerMediaPerceptionSafe.js";
 import { notifyEscalatedCustomerTurn } from "./customerHeldMessage.js";
 import { customerReplyCallsStaff } from "../ai/customerAgentStaffFollowUp.js";
 import { loadBotAnswersItself } from "./botAnswersItself.js";
@@ -248,9 +249,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (loaded.storedAttachments?.length) await recordCustomerRecruitmentAttachments(planningPrincipal, claim, loaded.storedAttachments);
         if (loaded.parts.length) {
           await spendTurnBudget(wait);
-          mediaPerception = { ...await runtime.perceiveMedia(loaded.parts, wait), incomplete: loaded.incomplete };
+          // Сбой разбора не роняет ход (21.11.2026, прод RangeError): без разбора — обычный ответ на вложение, причина в журнал.
+          const media = runtime;
+          const perceived = await perceiveCustomerMediaSafely({ perceive: () => media.perceiveMedia(loaded.parts, wait), wait, current });
+          if (perceived) mediaPerception = { ...perceived, incomplete: loaded.incomplete };
           if (!await current(wait)) throw new Error("Original media context changed");
-          await storeCustomerAgentMediaObservation(claim, mediaPerception);
+          if (mediaPerception) await storeCustomerAgentMediaObservation(claim, mediaPerception);
         }
       }
       if (mediaPerception) {
@@ -430,11 +434,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       // (объект определён этим сообщением или публикация найдена), чужой пост (предварительная метка ядра), фото и видео.
       const kinds = prepared.attachmentInput?.kinds ?? [];
       const ownPost = ownPublicationFound || (leadOnlyFocusFresh && kinds.length > 0);
+      const foreignPost = !ownPost && (prepared.foreignShareCandidate === true || kinds.includes("foreign_share"));
+      // Тишина на пост без слов — только по приговору сервера «чужой шум» (та же дверь, что у фильтра спама выше, но по фокусу
+      // ПОСЛЕ уточнений хода). Кандидат без приговора — вопрос «купить или продать?» (прод 21.11.2026, 6a122f7a).
+      const foreignQuiet = foreignPost && customerForeignShareSettled({ candidate: prepared.foreignShareCandidate === true, media: prepared.media,
+        focus: focus?.snapshot.focus, eventKey: lane.ticket.eventKey, text: fullInput(), captions: prepared.captions });
       const operatorTurn = () => planCustomerLeadOnlyTurn({ config: leadOnly, channel: planningPrincipal.scope.channel, peer: planningPrincipal.scope.peer,
         conversationId: lane.ticket.conversationId, eventKey: claim.eventKey, inputText: fullInput(), focusPropertyId: leadOnlyFocusId,
-        turns: remembered.context.turns, attachments: {
+        turns: remembered.context.turns, endpointScopeId: planningPrincipal.scope.endpointScopeId, attachments: {
           voice: kinds.includes("audio") ? (mediaPerception?.transcript?.trim() ? "transcribed" : "failed") : "none",
-          ownPost, foreignPost: !ownPost && (prepared.foreignShareCandidate === true || kinds.includes("foreign_share")),
+          ownPost, foreignPost, foreignQuiet,
           media: kinds.some(kind => kind === "image" || kind === "video") } });
       let operatorDone: CustomerDmAgentTurnResult | null = null, handedToRecruiter = false;
       // Р14: решение на устаревшей памяти не пишется — ход решается заново от свежей памяти (одна повторная попытка).

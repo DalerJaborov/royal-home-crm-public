@@ -50,7 +50,7 @@ export function initialOperatorState(): OperatorState {
   return { version: 2, role: "unknown", step: "start", language: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
     propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
     outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false, bothRoles: false,
-      roleChangedFrom: null, clientTurns: 0, phoneAskTurn: 0, signaled: [], closedBy: null }, leadAccepted: false,
+      roleChangedFrom: null, clientTurns: 0, phoneAskTurn: 0, agentTopicPending: false, signaled: [], closedBy: null }, leadAccepted: false,
     staffCalled: false, closed: false, jobAnswered: null };
 }
 
@@ -126,7 +126,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   let handoff: OperatorDecision["handoff"];
 
   // ── язык: липкий, меняет только осмысленный текст ─────────────────────────
-  if (u.language) s.language = u.language;
+  // Переход на русский посреди таджикского разговора — только по русской фразе (служебные слова, без таджикских букв), а не по
+  // перечню «этаж, комната, цена» (часовая сверка 21.11.2026, b16a44b4: «ш.Ваҳдат… квартира 8 этаж» → ответ по-русски).
+  if (u.languagePreference) s.language = u.languagePreference;
+  else if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
   // В сообщении языка нет (номер, «ок»): язык разговора — по последней реплике с ясным языком (клиента или сотрудника), а не
   // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски).
   else if (u.contextLanguage) s.language = u.contextLanguage;
@@ -218,9 +221,18 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (!u.hasText && !u.attachments.ownPost) {
     const before = answers.length;
     if (u.attachments.voice === "failed") { if (!said("voice_failed")) answers.push(draft("voice_failed")); }
-    // Чужой пост без слов (владелец 21.11.2026: «спамерам не отвечать»): тишина сразу, без ответа и без сигнала. Свой пост
-    // (наш аккаунт, наш объект) сюда не попадает — это `ownPost`, вопрос об объекте.
-    else if (u.attachments.foreignPost) return finish();
+    // Чужой пост без слов (владелец 21.11.2026: «спамерам не отвечать»): без ответа и без сигнала. Свой пост (наш аккаунт, наш
+    // объект) сюда не попадает — это `ownPost`, вопрос об объекте. ОДНО исключение (прод 21.11.2026, 6a122f7a: новый клиент
+    // первым и единственным сообщением переслал пост и остался без ответа): сервер чужим шумом его НЕ признал (`foreignQuiet`
+    // нет: подпись о жилье, поиск не закончился, не CDN Meta), а бот в разговоре ещё ничего не спрашивал — как живой оператор,
+    // один короткий вопрос «купить или продать?», без «Спасибо, получил» (это только на своё вложение, SPEC п. 5) и без
+    // просьбы номера. Дальше такие посты подряд — тишина без сигнала, как прежде.
+    else if (u.attachments.foreignPost) {
+      if (!u.attachments.foreignQuiet && !s.leadAccepted && s.role === "unknown" && s.asked.role === 0) {
+        flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
+      }
+      return finish();
+    }
     else if (u.attachments.media && s.role === "seller" && !said("photo_ack")) answers.push(draft("photo_ack"));
     else if (!s.leadAccepted && s.role === "unknown" && !said("media_received") && !said("photo_ack")) {
       answers.push(draft("media_received"));
@@ -437,6 +449,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
    * звонок, назвал время или детали. Вопрос об объекте, цене, месте — ответ и ОДИН раз предложение звонка, без просьбы
    * номера в том же сообщении. Номер в словах клиента — заявка всегда.
    */
+  // Детали внутри ПЕРВОГО вопроса («хонаҳои бо таъмир ипотека медиҳад ё на?») — это ещё вопрос, а не интерес к звонку: сначала
+  // ответ и предложение звонка (часовая сверка 21.11.2026, da83282b). Детали без вопроса или после предложения — интерес.
+  const questionTurn = u.question !== "none" || !!u.placeQuestion || !!u.agentTopic;
+  const detailsInterest = u.hasDetails && !(questionTurn && !said("offer_call"));
   const agreedToCall = said("offer_call") && u.declines !== true && (u.agrees === true || u.ackOnly);
   /**
    * Второй вопрос по делу после предложения звонка — тоже интерес (слепое ревью #345: на рекламе объекта клиент спрашивал цену,
@@ -450,7 +466,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const roleInterest = ((s.role === "buyer" || s.role === "seller") && !(u.roleByQuestion && leadRole(prev.role) !== leadRole(s.role))) ||
     ((u.role === "buyer" || u.role === "seller") && !u.roleByQuestion);
   const strongInterest = !!u.phone || roleInterest || u.showing === true || agreedToCall || u.bargain ||
-    askedAgain || u.question === "staff" || u.botQuestion || u.hasDetails || !!u.callback.when || u.callback.textOnly;
+    askedAgain || u.question === "staff" || u.botQuestion || detailsInterest || !!u.callback.when || u.callback.textOnly;
   /**
    * За ответом «скажет агент» пойдёт номер или заявка: иначе это обещание без пути (клиент просил не звонить, номер не дали,
    * или интереса нет, а предложение звонка уже звучало — тогда «скажет агент» не обещаем).
@@ -460,6 +476,12 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   /** Не больше двух просьб номера за разговор и не в соседних ходах: следующая — через два содержательных хода клиента. */
   const phoneAsksMax = Math.min(ctx.maxPhoneAsks, 2);
   const phoneAskCooled = () => s.asked.phone === 0 || (s.flags.clientTurns ?? 0) - (s.flags.phoneAskTurn ?? 0) >= 2;
+  /** Отложенное «об этом расскажет агент» (вопрос об ипотеке до роли) — сейчас, когда есть путь к агенту. */
+  const pendingTopic = () => {
+    if (!s.flags.agentTopicPending) return;
+    s.flags.agentTopicPending = false;
+    if (!answers.length && !said("topic_by_agent")) answers.push(draft("topic_by_agent"));
+  };
   const contact = () => {
     if (u.phone || (phoneKnown() && strongInterest)) {
       acceptLeadSilently(s, u, ctx, actions);
@@ -470,7 +492,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // остаётся и без ответа, и без человека).
     if (s.noCall) { if (!flow.length && !answers.length) signal("no_phone"); return; }
     if (!strongInterest) {
-      if (!said("offer_call")) flow.push(draft("offer_call"));
+      if (!said("offer_call")) { pendingTopic(); flow.push(draft("offer_call")); }
       else if (!flow.length && !answers.length) signal("no_phone");
       return;
     }
@@ -486,6 +508,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
         if (!flow.length && !answers.length) { if (u.hasText && !u.ackOnly && !u.thanksOnly) flow.push(draft("got_it")); else signal("no_phone"); }
         return;
       }
+      pendingTopic();
       flow.push(draft(s.role === "seller" ? "ask_phone_seller" : "ask_phone")); s.asked.phone += 1; s.flags.phoneAskTurn = s.flags.clientTurns ?? 0; s.step = "contact";
       return;
     }
@@ -518,6 +541,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (u.greeting && !said("greet") && !said("greet_assalom") && !ctx.staffThread) {
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
     }
+    // Ипотека, рассрочка, документы без названной роли: сначала честный ответ, потом вопрос о роли (21.11.2026).
+    // Ипотека, документы без роли: «расскажет агент» — пока не обещание без пути к агенту; сначала вопрос о роли, фраза про
+    // агента — вместе с предложением звонка или просьбой номера (ревью #358).
+    if (u.agentTopic) s.flags.agentTopicPending = true;
     flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
     return finish();
   }
@@ -534,6 +561,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
           : draft("property_place", { id, place }));
       } else {
         if (placeAsked && !facts.sold) answers.push(draft("place_by_agent"));
+        // Ипотека, кредит, документы по ИЗВЕСТНОМУ объекту — тоже честный ответ, а не только цена (ревью #358).
+        else if (u.agentTopic) answers.push(draft("topic_by_agent"));
         flow.push(facts.sold ? draft("property_sold", { id }) : facts.priceText ? draft("property_price", { id, price: facts.priceText[language] })
           : draft("property_no_price", { id }));
       }
@@ -543,12 +572,12 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       // Объект не определён: на вопрос — честный ответ, а не голая просьба номера (владелец 21.11.2026, прод fc9996a9).
       if (!answers.length && contactPathOpen()) {
         if (placeAsked) answers.push(draft("place_by_agent"));
-        else if (QUESTION_FOR_AGENT.has(u.question) || (u.aboutThisProperty && u.question !== "none")) answers.push(draft("details_by_agent"));
+        else if (QUESTION_FOR_AGENT.has(u.question) || (u.aboutThisProperty && u.question !== "none")) answers.push(draft(u.agentTopic ? "topic_by_agent" : "details_by_agent"));
       }
     }
     // Объект известен, его строка уже звучала, а клиент спрашивает другое («документы готовы?»): не голая просьба номера.
     if (facts && !answers.length && !flow.length && QUESTION_FOR_AGENT.has(u.question) && u.question !== "property_price" && contactPathOpen()) {
-      answers.push(draft("details_by_agent"));
+      answers.push(draft(u.agentTopic ? "topic_by_agent" : "details_by_agent"));
     }
     contact();
     greetBack();
@@ -565,7 +594,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   }
   // Вопрос по делу, на который у бота нет фактов: честно «скажет агент», потом номер или заявка (не голая просьба номера).
   if (!answers.length && !flow.length && QUESTION_FOR_AGENT.has(u.question) && contactPathOpen()) {
-    answers.push(draft(u.placeQuestion ? "place_by_agent" : "details_by_agent"));
+    answers.push(draft(u.agentTopic ? "topic_by_agent" : u.placeQuestion ? "place_by_agent" : "details_by_agent"));
   }
   // Явная роль, номера нет (решение 21.11.2026 к SPEC п. 8, владелец: «слишком быстро он номер берет»): первым ответом — тёплое
   // слово и ОДИН короткий вопрос по делу (покупателю — район, комнаты, бюджет; продавцу — что и где), номер — следующим ходом.

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, narrationPronunciationRuleHeldBack, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
+import { NARRATION_LISTEN_PER_PERSON_DEFAULT, NARRATION_PROPERTY_TYPES, NARRATION_PROPERTY_TYPE_LABELS, NARRATION_TAJIK_MODELS, narrationPronunciationRuleHeldBack, type NarrationConfig, type NarrationEnding, type NarrationPropertyType, type NarrationSettingsView, type NarrationTemplate } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { NarrationMusicLibrary } from "./NarrationMusicLibrary";
 
@@ -27,7 +27,7 @@ export function NarrationSettingsPanel() {
   const [ownMusic, setOwnMusic] = useState<boolean | null>(null);
   const [textOverlay, setTextOverlay] = useState<boolean | null>(null);
   const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
-  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string; gap?: string }>({});
+  const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string; gap?: string; listenPerson?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
   const [rulesDraft, setRulesDraft] = useState<Rule[] | null>(null);
 
@@ -92,10 +92,12 @@ export function NarrationSettingsPanel() {
 
       <fieldset className="space-y-2" disabled={readOnly || busy}>
         <legend className="text-sm font-semibold">Пределы расхода</legend>
+        <p className="text-sm text-[var(--muted)]">Сверх дневного предела озвучка роликов не останавливается: руководству приходит одно уведомление в сутки. Предел 0 выключает озвучку совсем.</p>
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="block text-sm">Символов в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.chars ?? String(config.dailyCharLimit ?? 20000)} onChange={(e) => setLimitsText({ ...limitsText, chars: e.target.value })} /></label>
           <label className="block text-sm">Озвучек в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gens ?? String(config.dailyGenerationLimit ?? 40)} onChange={(e) => setLimitsText({ ...limitsText, gens: e.target.value })} /></label>
           <label className="block text-sm">Промежуток между роликами после новой озвучки, мин<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.gap ?? String(config.narrationPublishGapMin ?? 15)} onChange={(e) => setLimitsText({ ...limitsText, gap: e.target.value })} /></label>
+          <label className="block text-sm">Прослушиваний в мастере на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.listenPerson ?? String(config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT)} onChange={(e) => setLimitsText({ ...limitsText, listenPerson: e.target.value })} /></label>
           <label className="block text-sm">Пауза после правки, мин<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.pause ?? String(config.debounceMinutes ?? 3)} onChange={(e) => setLimitsText({ ...limitsText, pause: e.target.value })} /></label>
         </div>
       </fieldset>
@@ -117,9 +119,9 @@ export function NarrationSettingsPanel() {
           Агент выбирает голос, и текст ставится сам: случайный шаблон этого языка, подходящий типу объекта, и случайная концовка. Новый объект
           не получает тот же шаблон и ту же концовку, что прошлый. У агента есть кнопка «Другой вариант», а выбранный им шаблон остаётся.
           Тип «ничего не отмечено» значит: подходит любому объекту. «Только вручную»: шаблон сам не выбирается и концовку не получает, его берут руками.
-          Слова в фигурных скобках подставляются из объекта: {"{объект} {вид} {комнаты} {сколько_комнат} {площадь} {метраж} {сотки} {этаж} {этаж_пор} {этажей} {этажность} {этажность_род} {район} {цена}"}.
+          Слова в фигурных скобках подставляются из объекта: {"{объект} {вид} {комнаты} {сколько_комнат} {площадь} {метраж} {сотки} {этаж} {этаж_пор} {район} {цена}"}. Этаж говорим без этажности дома («ошёнаи сенздаҳум», «тринадцатый этаж»): {"{этажей}"}, {"{этажность}"} и {"{этажность_род}"} в озвучке не звучат, в новых текстах их писать нельзя.
           {" {объект}"}: что продаётся — «хонаи чорҳуҷрагӣ», «ҳавлӣ», «қитъаи замин» / «четырёхкомнатная квартира», «частный дом»; ставьте его подлежащим: {"«Дар ноҳияи {район} {объект} фурӯхта мешавад»"}.
-          {" {этажность}"}: «шонздаҳошёна» / «шестнадцатиэтажный», {"{этажность_род}"}: «шестнадцатиэтажного». {"{сколько_комнат}"}: «шаш ҳуҷра» / «шесть комнат». {"{метраж}"}: площадь вместе с «метри мураббаъ» / «квадратных метров».
+          {" {сколько_комнат}"}: «шаш ҳуҷра» / «шесть комнат». {"{метраж}"}: площадь вместе с «метри мураббаъ» / «квадратных метров».
           {" {сотки}"}: участок в сотках (у дома — участок дома; половина — «ва ним», другая дробь — в метрах), у квартиры пусто. Квадратные скобки: «если есть».
           Цифры в тексте писать нельзя ни по-таджикски, ни по-русски (числа только словами), «Директ» пишем по-русски, слово «брон» нельзя.
         </p>
@@ -184,6 +186,7 @@ export function NarrationSettingsPanel() {
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, config.debounceMinutes),
+          narrationListenPerPersonDaily: Math.min(1000, Math.max(1, number(limitsText.listenPerson, config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT) ?? NARRATION_LISTEN_PER_PERSON_DEFAULT)),
           freeNarrationEnabled: freeEnabled ?? config.freeNarrationEnabled !== false,
           freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
           freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),

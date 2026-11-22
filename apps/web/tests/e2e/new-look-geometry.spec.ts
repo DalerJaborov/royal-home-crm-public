@@ -1,6 +1,6 @@
 import { test, expect, webkit, devices, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import { contextForRole, type RoleName } from "./pages/roleAuth";
-import { ANDROID_UA, CONSTITUTION_KINDS, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
+import { ANDROID_UA, GEOMETRY_KINDS, IPHONE_UA, OWNER_WIDTHS, geometryFindings, type GeometryKind } from "./helpers/lookGeometry";
 import { LOOK_CONVERSATION_ID, stubLookVisualData } from "./helpers/lookVisualFixtures";
 
 /**
@@ -25,18 +25,20 @@ type Screen = { url: string; ready: string; skip?: string; kinds?: readonly Geom
 /** Экраны с кадров владельца — полный ряд ширин, обе темы, оба телефона. */
 const OWNER_SCREENS: Screen[] = [
   { url: "/properties", ready: ".ry-objects-head" },
-  // «Реклама» — раздел директора: 20.11 его переделывает параллельная ветка (feat/look-director-sections),
-  // её ссылки-подписи и строки отчёта ниже 44 px. Конституция (цель 44, текст 13, список) — после её влития.
-  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile', kinds: GEOMETRY_KINDS.filter((k) => !CONSTITUTION_KINDS.includes(k)) },
+  // «Реклама» — раздел директора: переведён на токены (база audit:look пуста, 21.11), конституция — как везде.
+  { url: "/ads", ready: '[data-ry-section="marketing"] .tiles .tile' },
   // Чат ждёт пузыри, а не кнопку: в новом виде номер в реплике — тихое «номер скрыт»
   // (решение владельца «как WhatsApp», ветка look-chat-clean), кнопки может не быть.
   // Окно переписки целиком у ветки look-chat-clean (#332): здесь только «Позвонить»
   // в реплике и размытость заголовков; раскладку пузырей сторожит та ветка.
-  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur"] },
+  // + lowContrast: время в исходящем пузыре было 4,05:1 (белый 86% на синем, К05.1).
+  { url: `/messages?open=${LOOK_CONVERSATION_ID}`, ready: ".bub", kinds: ["ghostCall", "blur", "lowContrast"] },
   { url: "/", ready: ".ry-today" },
   { url: "/clients", ready: '[data-ry-section="clients"]' },
   // Настройки: квадрат-рамка внутри капсулы поиска (ревью #337) — двойная рамка поля и мелкий текст.
   { url: "/settings", ready: ".ry-search", kinds: ["fieldFrame", "smallText", "selectClip"] },
+  // Дашборд директора (21.11.2026): ответы подменены (stubDirectorDashboard в lookVisualFixtures) — длинное имя менеджера, нули, деньги.
+  { url: "/director", ready: ".dd-head" },
 ];
 
 type Device = { name: string; widths: readonly number[]; options: (width: number) => BrowserContextOptions };
@@ -117,11 +119,15 @@ test("новый вид, геометрия при «Очень крупном»
     const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(width));
     const page = await context.newPage();
     await stubLookVisualData(page, { textSize: "xlarge" });
-    for (const screen of OWNER_SCREENS.filter((s) => s.url !== "/ads")) {
+    for (const screen of OWNER_SCREENS) {
       await open(page, screen);
       await expect(page.locator("html")).toHaveAttribute("data-text-size", "xlarge");
       await page.evaluate(() => document.fonts.ready.then(() => true));
-      for (const f of await geometryFindings(page, { skip: screen.skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
+      // «Мухаммадшарифджон» (17 букв из «грязных» данных стенда) при +25% на 320 — 22 px × 17 знаков ≈ 215 px,
+      // а в строке клиента остаётся ~200: слово длиннее строки рвётся физически; имя при этом читается целиком
+      // (две строки) и лежит в `title`. Строка имени (.ry-crow-main) проверку слов не проходит только в этом тесте.
+      const skip = [screen.skip, width === 320 && screen.url === "/clients" ? ".ry-crow-main" : null].filter(Boolean).join(", ") || undefined;
+      for (const f of await geometryFindings(page, { skip, kinds: kindsAt(width, screen.kinds) })) problems.push(`${screen.url} @${width} xlarge: ${f}`);
     }
     await context.close();
   }
@@ -207,6 +213,30 @@ test("новый вид, «Реклама»: выпадашки одной ши�
 });
 
 /**
+ * «Пол» текста не сжимает крупное (ревью #351): на 390 цена в карточке объекта — не мельче 20, цифра плитки
+ * главной — не мельче 20 (до пачки look-sizes стояло 20–32; жёсткое правило по тегу `p`/`small` сжимало их до 15).
+ * Сравнения с main в e2e нет, поэтому — список ключевых крупных элементов с минимумами.
+ */
+test("новый вид, крупные цифры не сжаты «полом» текста — iPhone 390 @smoke", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "контекст задаётся внутри теста");
+  const context = await contextForRole(browser, "DIRECTOR", phone(IPHONE_UA, "light")(390));
+  const page = await context.newPage();
+  await stubLookVisualData(page);
+  const KEY: { url: string; ready: string; selector: string; min: number }[] = [
+    { url: "/properties", ready: ".ry-objects-head", selector: ".ry-obj-price", min: 20 },
+    { url: "/", ready: ".ry-today", selector: ".ry-tile-value", min: 20 },
+  ];
+  for (const k of KEY) {
+    await open(page, { url: k.url, ready: k.ready });
+    await page.locator(k.selector).first().waitFor({ state: "visible", timeout: 20_000 });
+    const sizes = await page.locator(k.selector).evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 0).map((e) => parseFloat(getComputedStyle(e).fontSize)));
+    expect(sizes.length, `${k.selector} на ${k.url} найден`).toBeGreaterThan(0);
+    expect(Math.min(...sizes), `${k.selector} на ${k.url}: размеры ${sizes}`).toBeGreaterThanOrEqual(k.min);
+  }
+  await context.close();
+});
+
+/**
  * СТОРОЖ ПРОВЕРЕН ПОЛОМКОЙ. Зелёный прогон одинаково выглядит и когда всё хорошо, и когда
  * сломана сама проверка (CLAUDE.md, 29.09). Поэтому каждая поломка с кадров владельца
  * вносится в страницу нарочно — и каждый вид проверки обязан её назвать.
@@ -218,7 +248,7 @@ test("новый вид, сторож геометрии ловит каждую
   const page = await context.newPage();
   await stubLookVisualData(page);
   const R = ':root[data-ui-look="royal"]';
-  const breaks: { url: string; ready: string; css: string; kind: GeometryKind; optional?: boolean }[] = [
+  const breaks: { url: string; ready: string; css: string; kind: GeometryKind; optional?: boolean; inject?: string }[] = [
     // пилюля наезжает на «Найдено: 117» — буквы на буквах
     { url: "/properties", ready: ".ry-objects-pending", kind: "overlap", css: `${R} .ry-objects-pending { margin-left: -140px !important; }` },
     // пилюля «Ждут вашей проверки» сжата в круг, «Найдено: 117» рвётся
@@ -251,6 +281,10 @@ test("новый вид, сторож геометрии ловит каждую
     { url: "/", ready: ".ry-section-link", kind: "smallTap", css: `${R} .ry-section-link { min-width: 0 !important; min-height: 20px !important; padding: 0 !important; }` },
     { url: "/settings", ready: ".ry-search input", kind: "fieldFrame", css: `${R} .ry-search input { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line) !important; }` },
     { url: "/", ready: ".ry-today", kind: "selectClip", optional: true, css: `${R} .clean-shell .clean .clean-decision-select { field-sizing: fixed !important; width: 72px !important; flex: none !important; }` },
+    // число рвётся посреди цифр («123 458 55 / 1 с.», полоса «Деньги» на 768): узкая колонка и перенос где угодно
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "wordBreak", inject: "123456789012", css: `${R} #zz-num { display: block !important; width: 30px !important; overflow-wrap: anywhere !important; white-space: normal !important; }` },
+    // бледный серый: время и подписи ниже 4,5:1 (К05 аудита 20.11)
+    { url: "/clients", ready: ".ry-crow .ry-crow-name", kind: "lowContrast", css: `${R} [data-ry-section="clients"] .ry-crow-name { color: #c4c8d2 !important; }` },
   ];
   for (const b of breaks) {
     await open(page, { url: b.url, ready: b.ready });
@@ -258,6 +292,7 @@ test("новый вид, сторож геометрии ловит каждую
     if (b.optional && b.kind === "selectClip" && (await page.locator(".clean-decision-select").count()) === 0) continue;
     await page.evaluate(() => document.fonts.ready.then(() => true));
     expect(await geometryFindings(page, { kinds: [b.kind] }), `${b.kind} без поломки на ${b.url}`).toEqual([]);
+    if (b.inject) await page.evaluate((t) => { const e = document.createElement("b"); e.id = "zz-num"; e.textContent = t; (document.querySelector("main") ?? document.body).prepend(e); }, b.inject);
     await page.addStyleTag({ content: b.css });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     expect((await geometryFindings(page, { kinds: [b.kind] })).length, `${b.kind}: нарочная поломка не поймана (${b.css})`).toBeGreaterThan(0);
@@ -271,7 +306,7 @@ test("новый вид, сторож геометрии ловит каждую
  */
 const ALL_SCREENS: Record<"DIRECTOR" | "MANAGER" | "AGENT", string[]> = {
   DIRECTOR: ["/", "/clients", "/sellers", "/properties", "/deals", "/calendar", "/messages", "/calls", "/ads", "/marketing", "/social-videos",
-    "/finance", "/reports", "/team", "/oversight", "/mission-control", "/settings", "/profile", "/notifications", "/archive", "/vacancies",
+    "/finance", "/reports", "/director", "/team", "/oversight", "/mission-control", "/settings", "/profile", "/notifications", "/archive", "/vacancies",
     "/security", "/activity", "/pult", "/funnel", "/sources", "/insights", "/health", "/comments", "/site-changes", "/market", "/more",
     "/hall-of-fame", "/lead-funnel", "/hot-clients", "/lost-clients", "/inactive-clients", "/deferred-clients", "/other-inquiries",
     "/clients/all-mine", "/telephony", "/integrations", "/backups", "/stuck-work", "/ai-learning", "/bot-training", "/pipeline", "/settings/roles"],
@@ -282,15 +317,17 @@ const ALL_SCREENS: Record<"DIRECTOR" | "MANAGER" | "AGENT", string[]> = {
 for (const role of Object.keys(ALL_SCREENS) as (keyof typeof ALL_SCREENS)[]) {
   // Агенту на телефоне новый вид решает сервер по своей настройке (#329), подмена /ui-shell
   // его не включает — агент проверяется на ПК.
-  for (const device of role === "AGENT" ? [DEVICES[3]] : [DEVICES[0], DEVICES[3]]) {
+  // Директор — ещё и тёмная тема на телефоне: белый текст на синей кнопке ночью давал 4,2:1 (lowContrast).
+  // ПК — обе темы, планшет 768 (в ряду телефонов) и 1024/1280/1366 (ревью #351).
+  for (const device of role === "AGENT" ? [DEVICES[3], DEVICES[4]] : role === "DIRECTOR" ? [DEVICES[0], DEVICES[1], DEVICES[3], DEVICES[4]] : [DEVICES[0], DEVICES[3]]) {
     test(`новый вид, геометрия всех экранов — ${role}, ${device.name} @geometry-full`, async ({ browser }, testInfo) => {
       test.skip(testInfo.project.name !== "chromium", "контексты и ширины задаются внутри теста");
       test.setTimeout(30 * 60_000);
-      // Конституция (цель 44, текст 13, список) на всех экранах — пока без них: обязательна на
-      // экранах с кадров владельца (@smoke выше); по остальным — после прохода по разделам (пачка C, 20.11).
-      // Двойная рамка поля (fieldFrame) уже проверяется везде: 48 экранов пройдены (повторное ревью #337).
-      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS.filter((k) => k === "fieldFrame" || !CONSTITUTION_KINDS.includes(k)) }));
-      const narrowed = { ...device, widths: device.widths.filter((w) => [320, 390, 1440].includes(w)) };
+      // Все виды сторожа — и конституция (текст 13, цель 44, список, рамка поля, бледный текст) — на
+      // всех экранах (пачка look-sizes 21.11: раньше без неё «пока по разделам»; разделы директора
+      // переведены на токены, база audit:look пуста).
+      const screens = ALL_SCREENS[role].map((url) => ({ url, ready: "main#main", kinds: GEOMETRY_KINDS }));
+      const narrowed = { ...device, widths: device.widths.filter((w) => (process.env.GEO_WIDTHS ? process.env.GEO_WIDTHS.split(",").map(Number) : [320, 390, 768, 1024, 1280, 1366, 1440]).includes(w)) };
       expect(await sweep(browser, role, narrowed, screens), "поломки геометрии").toEqual([]);
     });
   }

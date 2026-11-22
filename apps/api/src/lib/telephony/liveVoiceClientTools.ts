@@ -13,14 +13,13 @@ import { loadDaysOffCalendar } from "../daysOffCalendar.js";
 import type { LiveVoiceFunctionDeclaration, LiveVoiceToolCall } from "../../ai/liveVoiceClient.js";
 import { loadBotCapabilities } from "../../messengers/botCapabilities.js";
 import { recordContactFacts, setContactCategory } from "../contactProfiles.js";
-import { deliverToConversation, findClientDeliveryTarget, lastClientMessageAt } from "../conversationDelivery.js";
+import { deliverToConversation, findClientDeliveryTarget, messagingWindowStateOfTarget } from "../conversationDelivery.js";
 import type { DeliveryTarget } from "../conversationState.js";
 import { describeError } from "../describeError.js";
 import { DUSHANBE_OFFSET_MS, dushanbeDateString, dushanbeWallClock } from "../dushanbeTime.js";
 import { resolveGeoText } from "../geoResolve.js";
 import { boundingBoxAround, haversineMeters } from "../geoDistance.js";
 import { nearbyLandmarks, nearestPlaceArea } from "../landmarkPick.js";
-import { isMessagingWindowOpen } from "../messagingWindow.js";
 import { loadMoneyContext } from "../money.js";
 import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { BOT_OFFER_SELECT, botMayOffer, botOfferableWhere, botOfferLink, type BotOfferFields } from "../propertyMatch.js";
@@ -868,7 +867,7 @@ async function messengerTool(memory: PropertyCallMemory, args: Record<string, un
     return reply({ ok: false, error: "переписки с этим номером в WhatsApp или Telegram у нас нет — предложи прислать ссылки по СМС (send_property_sms)" }, "[мессенджер: переписки нет]");
   }
   const channel = target.kind === "telegram" ? "TELEGRAM" : target.channel;
-  if (!isMessagingWindowOpen(channel, await lastClientMessageAt(target))) {
+  if ((await messagingWindowStateOfTarget(target)) === "closed") {
     return reply(
       { ok: false, error: "человек давно не писал нам в WhatsApp — первыми туда написать нельзя; предложи СМС (send_property_sms) или попроси написать нам в WhatsApp" },
       `[мессенджер: ${channel} — окно закрыто]`

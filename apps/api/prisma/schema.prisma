@@ -1770,6 +1770,13 @@ model Notification {
   /// Человекочитаемая причина гашения — «клиент передан Иванову», «агент
   /// заморожен» и т.п. Пишется тем же вызовом, что ставит retiredAt.
   retiredReason String?
+  /// «ПРОСМОТРЕНО» — отдельно от «сделано» (владелец 21.11.2026: «прочитал, быстро
+  /// открыл, а метка на колокольчике не гаснет»). Ставится, когда человек открыл
+  /// список и строка была на экране. Метка на колокольчике считает только то, что
+  /// ещё не просмотрено; сама строка при этом остаётся «Новое»/«Ждёт решения» (read
+  /// не трогаем), пока по ней не сделано действие. Новое событие с тем же tag
+  /// (upsertByTag) сбрасывает отметку обратно в null и метка загорается снова.
+  seenAt        DateTime?
 
   @@index([agentId, read])
   @@index([agentId, createdAt])
@@ -3075,6 +3082,13 @@ model PropertyNarrationVersion {
   generationAttempts Int @default(0)
   /// Агенту ушло одно сообщение «прослушайте и одобрите»; повторов нет.
   approvalNotifiedAt DateTime?
+  /// Одобрить сразу, как будет готова, от имени этого сотрудника (21.11.2026, владелец: «одобрение сразу там же, чтобы
+  /// сверх быстро»): он сохранил выбор озвучки в мастере, нажал «Озвучить» в карточке, поменял цену или отправил на
+  /// перемонтаж. Одобряет та же approveNarrationVersionIn; доллары (#348) не одобряются. null — как раньше, ждёт человека.
+  approveAsId String?
+  /// Куда слать «прослушайте и одобрите», если одобрить сразу нельзя (21.11.2026, ревью): текст агента из мастера не
+  /// принят и подменён шаблоном. CRM — заводили в CRM, TELEGRAM — через Шабнам, только туда. null — как раньше, в оба места.
+  askVia String?
   approvalChatId String?
   /// Агент нажал «Править текст» в Шабнам: следующий его текст в течение 15 минут — новый текст озвучки.
   editRequestedAt DateTime?
@@ -3823,6 +3837,13 @@ model Client {
   /// он дозаполнит карточку; если жмёт кнопку бесконечно — это видно в хронологии.
   workingMarkedAt           DateTime?
   requirementsNotes         String?
+  /// «Заметки» без служебных ярлыков бота (lib/clientNoteLabels.ts) — по ним ищутся
+  /// «похожие карточки» (lib/fuzzySearch.ts). Пишет ТОЛЬКО перехват записи в db.ts
+  /// при каждой записи requirementsNotes; старые строки и смену списка ярлыков
+  /// досчитывает обход при старте worker (lib/clientNotesPlainSweep.ts).
+  requirementsNotesPlain    String?
+  /// Версия списка ярлыков, по которой посчитан requirementsNotesPlain (хеш списка).
+  requirementsNotesPlainRev Int?
   /// null только для kind=OTHER (работа/аренда/прочее) — такие обращения намеренно
   /// не распределяются агентам, ими занимается напрямую руководство.
   assignedAgentId           String?
@@ -4248,6 +4269,8 @@ model Client {
   /// ИИ-помощника): миграция 20261031141500_client_address_notes_trgm.
   @@index([address(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_address_trgm_idx")
   @@index([requirementsNotes(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_requirementsNotes_trgm_idx")
+  /// Похожие карточки по заметкам без ярлыков: оператор % (lib/fuzzySearch.ts).
+  @@index([requirementsNotesPlain(ops: raw("gin_trgm_ops"))], type: Gin, map: "Client_requirementsNotesPlain_trgm_idx")
   /// Ночной автостатус (lib/clientAutoStatus.ts) отбирает покупателей по kind и
   /// сортирует по давности контакта — без составного индекса это полный проход по
   /// всем клиентам каждую ночь (аудит 09.08.2026).
@@ -10104,8 +10127,8 @@ model StageEvent {
   /// "CLIENT" | "DEAL" — чей переход.
   entityType String
   entityId   String
-  /// Какое поле сменилось: "status" | "workStatus" | "stage" — у клиента их
-  /// два независимых, и без имени поля переходы двух машин состояний смешаются.
+  /// Какое поле сменилось: у клиента — "status" | "workStatus" | "source" (два состояния и источник
+  /// независимы, без имени поля переходы смешались бы), у сделки — "stage".
   field      String
   /// Откуда ушли. null — запись о создании: первый статус, прежнего не было.
   from       String?
@@ -12019,7 +12042,8 @@ enum RobotCallStopSource {
 model FreeNarration {
   id                  String    @id @default(uuid())
   agentId             String
-  /// TELEGRAM | API
+  /// TELEGRAM | API | LISTEN («▶ Прослушать» в мастере объекта, 21.11.2026: lib/narrationListen.ts, свой предел на человека,
+  /// requestKey = «listen:<сотрудник>:<отпечаток звука>» — тот же текст и голос второй раз не оплачиваются)
   source              String
   chatId              String?
   /// AWAITING_TEXT | AWAITING_VOICE | GENERATING | READY | FAILED | UNKNOWN

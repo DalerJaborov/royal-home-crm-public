@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **788**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4210**. Модулей: **88**.
+Путей: **795**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4233**. Модулей: **89**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -683,6 +683,45 @@
     · зовёт releaseReactivationOffersOfAgent()
   - void syncAgentQueuePresence(agent.id).catch(()
     · зовёт syncAgentQueuePresence()
+
+### GET /api/v1/agents/:id/glance/drill
+
+`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+
+- const query = agentGlanceDrillQuerySchema.safeParse(req.query);
+  · проверяет данные схемой agentGlanceDrillQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверный запрос" });
+    · ответ 400 — «Неверный запрос»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- const drill = await loadAgentGlanceDrill(agent.id, query.data.key, query.data.period, req.agent!);
+  · зовёт loadAgentGlanceDrill()
+- если !drill
+  - return res.status(403).json({ error: "Нет доступа к деньгам" });
+    · ответ 403 — «Нет доступа к деньгам»
+- res.json(drill);
+  · ответ 200
+
+### GET /api/v1/agents/:id/glance
+
+`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+
+- const query = agentGlanceQuerySchema.safeParse(req.query);
+  · проверяет данные схемой agentGlanceQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверный период" });
+    · ответ 400 — «Неверный период»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- res.json(await loadAgentGlance(agent.id, query.data.period, req.agent!));
+  · ответ 200
 
 ### POST /api/v1/agents/:id/handover
 
@@ -2603,6 +2642,9 @@
 - const calledBackIds = await findCallbackContacts( overdue.flatMap((c)
   · зовёт findCallbackContacts()
 - для каждого: const call of overdue
+  - если staffOf(call.phone)
+    - continue;
+      · переходит к следующему
   - если !calledBackIds.has(call.id)
     - missingCallbackById.set(call.id, true);
       · дословно из кода
@@ -3954,8 +3996,6 @@
 - если !target
   - return res.json(info);
     · ответ 200
-- const windowOpen = isMessagingWindowOpen(channel, lastAt);
-  · зовёт isMessagingWindowOpen()
 - res.json(info);
   · ответ 200
 
@@ -3989,7 +4029,7 @@
 - если !client.requirementsNotes?.trim()
   - return res.json([]);
     · ответ 200
-- const candidates = await fuzzySimilarClientNotes(client.id, client.requirementsNotes);
+- const candidates = await fuzzySimilarClientNotes( client.id, client.requirementsNotes, undefined, undefined, …
   · зовёт fuzzySimilarClientNotes()
 - если candidates.length === 0
   - return res.json([]);
@@ -4513,10 +4553,16 @@
   · зовёт dushanbeDayRange()
 - const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput
   · зовёт visibleInteractionWhere()
-- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldest, neverContacted, showToda…
+- const [ buyers, sellers, mine, other, newToday, newYesterday, awaitingCount, oldestCandidates, neverContacted…
   · считает в базе: client
   · читает в базе: client
   · считает в базе: interaction
+- const oldest = await (async ()
+  - если oldestCandidates.length === 0
+    - return null;
+      · дословно из кода
+  - const contact = await lastStaffContactAtByClient(oldestCandidates);
+    · зовёт lastStaffContactAtByClient()
 - const summary: ClientsSummary = { buyers, sellers, mine, other, newToday, newYesterday, awaitingAgent: { coun…
   · зовёт clientNamePhoneSafe()
 - res.json(summary);
@@ -4653,6 +4699,8 @@
   · зовёт loadSellerPropertyAddresses()
 - const leadReasons = await loadLeadReasons(items.filter((c)
   · зовёт loadLeadReasons()
+- const lastStaffContact = await lastStaffContactAtByClient(items);
+  · зовёт lastStaffContactAtByClient()
 - const nextStepFor = (clientId: string, gateUntilAccepted: boolean, seesPhone: boolean)
   - если !step || gateUntilAccepted
     - return null;
@@ -10087,6 +10135,20 @@
 - res.json({ ok: true, count: result.count });
   · ответ 200
 
+### POST /api/v1/me/notifications/seen
+
+`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = seenSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой seenSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный список уведомлений»
+- const result = await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.age…
+  · меняет в базе: notification
+- res.json({ ok: true, count: result.count });
+  · ответ 200
+
 ### GET /api/v1/me/notifications
 
 `apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -10098,14 +10160,14 @@
     · ответ 400 — «Неверный номер страницы»
 - const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
   · зовёт loadVisibleNotificationsWhere()
-- const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…
+- const [items, total, unreadCount, unseenCount, pinned, approvalCount, criticalCount] = await Promise.all([ pr…
   · читает в базе: notification
   · считает в базе: notification
 - const shown = <T extends { title: string; body: string }>(rows: T[]): T[]
   · зовёт maskPhonesInText()
 - const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…
   · зовёт attachOfferStates()
-- res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…
+- res.json({ items: itemsWithOffers, unreadCount, unseenCount, listedAt: listedAt.toISOString(), pinned: pinned…
   · ответ 200
 
 ## /api/v1/media
@@ -10912,7 +10974,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/approve
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
@@ -10944,7 +11006,7 @@
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const versionId = idSchema.safeParse(req.params.versionId);
   · проверяет данные схемой idSchema
@@ -10966,7 +11028,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/generate
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
@@ -11023,7 +11085,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/handoff-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
@@ -11061,7 +11123,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Результат проверяет руководство" });
@@ -11099,7 +11161,7 @@
 
 ### POST /api/v1/properties/:id/narration/deliveries/:deliveryId/queue
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11146,7 +11208,7 @@
 
 ### POST /api/v1/properties/:id/narration/delivery-reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Сверку сохраняет руководство" });
@@ -11188,7 +11250,7 @@
 
 ### POST /api/v1/properties/:id/narration/mode
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Озвучку объекта выбирает агент" });
@@ -11224,7 +11286,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11241,7 +11303,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-revoke
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11256,7 +11318,7 @@
 
 ### POST /api/v1/properties/:id/narration/publication-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -11271,7 +11333,7 @@
 
 ### POST /api/v1/properties/:id/narration/remix-retry
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const access = await narrationAccessForAgent(req.agent!.id, p.id);
   · зовёт narrationAccessForAgent()
@@ -11288,7 +11350,7 @@
 
 ### GET /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
@@ -11319,7 +11381,7 @@
 
 ### POST /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Монтажёр получает подтверждённую озвучку" });
@@ -11350,7 +11412,9 @@
   - если outcome.status !== "QUEUED"
     - return res.status(409).json({ error: outcome.status === "BUSY" ? "Предыдущая озвучка ещё готовится. Попробуйт…
       · ответ 409
-  - return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true });
+  - const adopted = listenId && !outcome.coalesced ? await adoptListenedNarration({ propertyId: p.id, versionId: …
+    · зовёт adoptListenedNarration()
+  - return res.status(201).json({ id: outcome.versionId, revision: outcome.revision, queued: true, ...(adopted ? …
     · ответ 201
 - const facts = narrationFacts(p);
   · зовёт narrationFacts()
@@ -13315,6 +13379,8 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
+- void autoLinkPropertyById(updated.id);
+  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -13885,7 +13951,7 @@
 
 ### GET /api/v1/properties/narration-free/:id/file
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const id = idSchema.safeParse(req.params.id);
   · проверяет данные схемой idSchema
@@ -13902,7 +13968,7 @@
 
 ### GET /api/v1/properties/narration-free/options
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const used = await freeNarrationUsedToday(req.agent!.id);
   · зовёт freeNarrationUsedToday()
@@ -13911,7 +13977,7 @@
 
 ### POST /api/v1/properties/narration-free
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const body = freeNarrationRequestSchema.safeParse(req.body);
   · проверяет данные схемой freeNarrationRequestSchema
@@ -13985,6 +14051,69 @@
   - вариант default
     - return res.status(404).json({ error: "Запрос не найден" });
       · ответ 404 — «Запрос не найден»
+
+### GET /api/v1/properties/narration-listen/:id/file
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const id = idSchema.safeParse(req.params.id);
+  · проверяет данные схемой idSchema
+- const file = id.success ? await narrationListenFilePath(id.data, req.agent!.id) : null;
+  · зовёт narrationListenFilePath()
+- если !file
+  - return res.status(404).json({ error: "Звука нет: прослушивание хранится сутки" });
+    · ответ 404 — «Звука нет: прослушивание хранится сутки»
+- res.setHeader("Cache-Control", "private, no-store");
+  · ставит заголовок ответа
+- res.type("audio/mpeg").sendFile(file);
+  · ответ 200
+  · ставит заголовок ответа
+
+### POST /api/v1/properties/narration-listen
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- const body = narrationListenRequestSchema.safeParse(req.body);
+  · проверяет данные схемой narrationListenRequestSchema
+- если !body.success
+  - return res.status(400).json({ error: "Нужны текст озвучки (от 10 знаков) и голос" });
+    · ответ 400 — «Нужны текст озвучки (от 10 знаков) и голос»
+- const out = await listenNarration({ agentId: req.agent!.id, ...body.data });
+  · зовёт listenNarration()
+- смотря что в: out.status
+  - вариант case "READY"
+    - return res.json(result);
+      · ответ 200
+  - вариант case "NO_ACCESS"
+    - return res.status(403).json({ error: "Нет доступа к озвучке" });
+      · ответ 403 — «Нет доступа к озвучке»
+  - вариант case "OFF"
+    - return res.status(409).json({ error: "Автоозвучка выключена в настройках: послушать можно будет в карточке об…
+      · ответ 409 — «Автоозвучка выключена в настройках: послушать можно будет в карточке…»
+  - вариант case "NOT_CONFIGURED"
+    - return res.status(409).json({ error: "Озвучка не настроена: нет ключа, модели или голосов" });
+      · ответ 409 — «Озвучка не настроена: нет ключа, модели или голосов»
+  - вариант case "VOICE_UNKNOWN"
+    - return res.status(400).json({ error: "Такого голоса нет в утверждённых для озвучки" });
+      · ответ 400 — «Такого голоса нет в утверждённых для озвучки»
+  - вариант case "TAJIK_MODEL"
+    - return res.status(400).json({ error: "Модель озвучки не знает таджикского. Руководству: выберите eleven_v4 в …
+      · ответ 400 — «Модель озвучки не знает таджикского. Руководству: выберите eleven_v4…»
+  - вариант case "INVALID"
+    - return res.status(400).json({ error: out.error });
+      · ответ 400
+  - вариант case "BUSY"
+    - return res.status(409).json({ error: "Звук уже готовится", busy: true });
+      · ответ 409 — «Звук уже готовится»
+  - вариант case "LIMIT_PERSON"
+    - return res.status(429).json({ error: `Сегодня уже ${out.limit} прослушиваний нового текста. Повтор того же те…
+      · ответ 429 — «Сегодня уже ${out.limit} прослушиваний нового текста. Повтор того же…»
+  - вариант case "BUDGET"
+    - return res.status(429).json({ error: "Дневной предел озвучки исчерпан. Попробуйте завтра." });
+      · ответ 429 — «Дневной предел озвучки исчерпан. Попробуйте завтра.»
+  - вариант case "FAILED"
+    - return res.status(out.quota ? 503 : 502).json({ error: out.quota ? "Кредиты ElevenLabs закончились. Сообщите …
+      · ответ (код зависит от условия)
 
 ### GET /api/v1/properties/narration-music/:id/file
 
@@ -14076,7 +14205,7 @@
 
 ### GET /api/v1/properties/narration-options
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices…
   · зовёт narrationAutoEnabled()
@@ -14085,7 +14214,7 @@
 
 ### GET /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
@@ -14095,7 +14224,7 @@
 
 ### PUT /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Голоса настраивает руководство" });
@@ -14140,7 +14269,7 @@
 
 ### GET /api/v1/properties/narration-voice-samples/:voiceId/:lang
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !params.success
   - return res.status(400).json({ error: "Некорректный голос" });
@@ -14160,7 +14289,7 @@
 
 ### POST /api/v1/properties/narration-voice-samples/prepare
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-voice-samples", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Образцы голосов готовит руководство" });
@@ -14931,6 +15060,101 @@
 - const counts = await countStuckConversationsByChannel();
   · зовёт countStuckConversationsByChannel()
 - res.json({ channels, totalWaiting: channels.reduce((sum, c)
+  · ответ 200
+
+## /api/v1/reports/director
+
+### GET /api/v1/reports/director/drill
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDrillQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDrillQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- const denied = drillPermissionsMissing(req, parsed.data.key);
+  · зовёт drillPermissionsMissing()
+- если denied
+  - return res.status(403).json({ error: denied });
+    · ответ 403
+- const presentName = (client: { fullName: string; source: string })
+  - const shown = withHiddenOrigin({ fullName: client.fullName, source: client.source as string | null }, viewer.…
+    · зовёт withHiddenOrigin()
+  - return { name: clientNamePhoneSafe(shown.fullName, viewer.seesPhone), source, sourceLabel: source ? (CLIENT_S…
+    · зовёт clientNamePhoneSafe()
+- return guarded(res, "список", async ()
+  · ответ 200
+
+### GET /api/v1/reports/director/export.xlsx
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "выгрузка", async ()
+  · ответ 200
+  · ставит заголовок ответа
+  - const data = await cachedDirectorDashboard(parsed.data, viewerOf(req));
+    · зовёт cachedDirectorDashboard()
+  - const file = writeXlsx(exportSheets(data));
+    · зовёт writeXlsx()
+  - const name = `director-${dushanbeDateString(new Date(data.period.from))}_${dushanbeDateString(new Date(data.p…
+    · зовёт dushanbeDateString()
+  - res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    · ставит заголовок ответа
+  - res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", "no-store");
+    · ставит заголовок ответа
+  - return res.send(file);
+    · ответ 200
+
+### GET /api/v1/reports/director/history
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = historyQuerySchema.safeParse(req.query);
+  · проверяет данные схемой historyQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- если !can(req, "clients.viewAll")
+  - return res.status(403).json({ error: "История доступна тем, кто видит всех клиентов" });
+    · ответ 403 — «История доступна тем, кто видит всех клиентов»
+- return guarded(res, "история", async ()
+  · ответ 200
+  · читает в базе: stageEvent
+  · читает в базе: auditLog
+  · читает в базе: agent
+  - const [events, agentChanges] = await Promise.all([ prisma.stageEvent.findMany({ where: { entityType: "CLIENT"…
+    · читает в базе: stageEvent
+    · читает в базе: auditLog
+  - для каждого: const e of events
+    - if (e.agentId) agentIds.add(e.agentId);
+      · дословно из кода
+  - для каждого: const a of agentChanges
+    - для каждого: const id of [a.agentId, m.fromAgentId, m.toAgentId]
+      - if (id) agentIds.add(id);
+        · дословно из кода
+  - const agents = await prisma.agent.findMany({ where: { id: { in: [...agentIds] } }, select: { id: true, fullNa…
+    · читает в базе: agent
+  - return res.json({ clientId, items });
+    · ответ 200
+
+### GET /api/v1/reports/director
+
+`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+
+- const parsed = directorDashboardQuerySchema.safeParse(req.query);
+  · проверяет данные схемой directorDashboardQuerySchema
+- если !parsed.success
+  - return badRequest(res, parsed.error);
+    · дословно из кода
+- return guarded(res, "сводка", async ()
   · ответ 200
 
 ## /api/v1/search-console
@@ -18043,87 +18267,6 @@
 
 ## /api/v1/ui-shell
 
-### GET /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage
-
-- res.setHeader("ETag", `"${version}"`);
-  · ставит заголовок ответа
-- res.json({ ...parseUiShellRollout(raw), version });
-  · ответ 200
-
-### PUT /api/v1/ui-shell/config
-
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен, requireShellAdministrator, есть право: settings.manage, requireElevation
-
-- const parsed = uiShellRolloutSchema.safeParse(req.body);
-  · проверяет данные схемой uiShellRolloutSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректные настройки оболочки", issues: parsed.error.issues });
-    · ответ 400 — «Некорректные настройки оболочки»
-- если !expected
-  - return res.status(428).json({ error: "Обновите настройки перед сохранением.", code: "UI_SHELL_VERSION_REQUIRE…
-    · ответ 428 — «Обновите настройки перед сохранением.»
-- пробует
-  - const version = await prisma.$transaction(async (tx)
-    · ошибка ShellConflict
-    · всё внутри — одной транзакцией
-    · читает в базе: settings
-    · читает в базе: agent
-    · создаёт в базе: settings
-    · меняет в базе: settings
-    · создаёт в базе: auditLog
-    - const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { uiShellRollout: true } …
-      · читает в базе: settings
-    - если expected !== `"${versionOf(raw)}"`
-      - throw new ShellConflict();
-        · ошибка ShellConflict
-    - если keepStoredLook && storedLook.length
-      - config.royalLookAgentIds = storedLook;
-        · дословно из кода
-    - если config.royalLookAgentIds?.length === 0
-      - delete config.royalLookAgentIds;
-        · дословно из кода
-    - если selectedIds.length
-      - const agents = await tx.agent.findMany({ where: { id: { in: selectedIds }, isActive: true }, select: { id: tr…
-        · читает в базе: agent
-      - если missing.length
-        - throw new InvalidShellAgents(missing);
-          · ошибка InvalidShellAgents — «missing»
-    - если !settings
-      - пробует
-        - await tx.settings.create({ data: { id: "singleton", uiShellRollout: envelope } });
-          · создаёт в базе: settings
-      - если сорвалось
-        - если error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
-          - throw new ShellConflict();
-            · ошибка ShellConflict
-        - throw error;
-          · пробрасывает ошибку дальше
-    - иначе
-      - const updated = await tx.settings.updateMany({ where: { id: "singleton", uiShellRollout: { equals: raw == nul…
-        · меняет в базе: settings
-      - если updated.count !== 1
-        - throw new ShellConflict();
-          · ошибка ShellConflict
-    - const author = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
-      · читает в базе: agent
-    - await tx.auditLog.create({ data: { action: "SETTINGS_UPDATE", entityType: "Settings", entityId: "singleton", …
-      · создаёт в базе: auditLog
-  - res.setHeader("ETag", `"${version}"`);
-    · ставит заголовок ответа
-  - res.json({ ...config, version });
-    · ответ 200
-- если сорвалось
-  - если error instanceof ShellConflict
-    - return res.status(409).json({ error: "Настройки уже изменены другим администратором. Обновите их и проверьте …
-      · ответ 409 — «Настройки уже изменены другим администратором. Обновите их и…»
-  - если error instanceof InvalidShellAgents
-    - return res.status(400).json({ error: "Некоторые сотрудники не найдены или отключены. Обновите список перед со…
-      · ответ 400 — «Некоторые сотрудники не найдены или отключены. Обновите список перед…»
-  - throw error;
-    · пробрасывает ошибку дальше
-
 ### GET /api/v1/ui-shell
 
 `apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
@@ -18929,7 +19072,10 @@
       · зовёт markMessageDeliveryStatus()
     - void noteFirstContactDelivery(s.mid, s.status, s.errorCode, s.error);
       · зовёт noteFirstContactDelivery()
-    - если s.status === "failed"
+    - если s.status === "failed" && isWhatsAppWindowFailure(s.errorCode, s.error)
+      - console.info(`[окно] WhatsApp ${s.recipientId}: вне 24 часов — свободный текст не доставлен (код ${s.errorCod…
+        · пишет строку в журнал сервера
+    - иначе если s.status === "failed"
       - void logSystemError( "meta", `WhatsApp не доставил наш ответ на ${s.recipientId}` + (s.error ? `: ${s.error}`…
         · запись в журнал ошибок
   - если waPhoneId
@@ -20669,6 +20815,32 @@
   - isRemindersRunning = false;
     · дословно из кода
 
+### client-notes-plain-sweep — 50 3 * * *
+
+- пробует
+  - await sweepClientNotesPlain();
+    · зовёт sweepClientNotesPlain()
+    - для каждого: seen < maxRows
+      - const rows = await prisma.$queryRaw<Array<{ id: string; notes: string | null; plain: string | null; rev: numb…
+        · обращается к базе своим SQL
+      - если rows.length === 0
+        - break;
+          · прекращает перебор
+      - const stale = rows .map((r)
+        · зовёт clientNotesPlain()
+      - если stale.length === 0
+        - continue;
+          · переходит к следующему
+      - const n = await prisma.$executeRaw(Prisma.sql` UPDATE "Client" AS c SET "requirementsNotesPlain" = v.plain, "…
+        · обращается к базе своим SQL
+- если сорвалось
+  - reportCronTickError("Сверка заметок без ярлыков", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### client-scoring — 0 2 * * *
 
 - console.log("[cron] Запуск ночного AI-скоринга клиентов...");
@@ -20944,6 +21116,9 @@
         - await prisma.constructionProject.updateMany({ where: { id: { in: goneIds } }, data: { removedAt: now } });
           · меняет в базе: constructionProject
       - для каждого: const target of needPage.slice(0, DETAILS_PER_RUN_CAP)
+        - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+          - break;
+            · прекращает перебор
         - пробует
           - const page: ParsedProjectPage = parseRegistryProjectPage(html);
             · зовёт parseRegistryProjectPage()
@@ -20958,6 +21133,9 @@
               · запись в журнал ошибок
         - await source.sleep(PAGE_PAUSE_MS);
           · зовёт sleep()
+      - если attempted >= LAYOUT_MIN_SAMPLE && layoutBad / attempted > LAYOUT_BAD_RATIO
+        - void logSystemError("cron", msg);
+          · запись в журнал ошибок
       - result.linked = await autoLinkAllProperties();
         · зовёт autoLinkAllProperties()
       - если settings.notify
@@ -24828,6 +25006,9 @@
         - если !target
           - continue;
             · переходит к следующему
+        - если isMessagingWindowClosedFor(target.kind === "bot" ? target.channel : "", await lastClientMessageAt(target))
+          - continue;
+            · переходит к следующему
         - const claimed = await prisma.interaction.updateMany({ where: { id: showing.id, confirmAskedAt: null }, data: …
           · меняет в базе: interaction
         - если claimed.count !== 1
@@ -24836,8 +25017,9 @@
         - const result = await deliverToConversation(target, text).catch((err: unknown)
           · зовёт deliverToConversation()
         - если !result.ok
-          - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
-            · пишет строку в журнал сервера
+          - если !("code" in result && result.code === "window_closed")
+            - console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
+              · пишет строку в журнал сервера
           - const current = await prisma.interaction.findUnique({ where: { id: showing.id }, select: { remindersSent: tru…
             · читает в базе: interaction
           - await prisma.interaction.update({ where: { id: showing.id }, data: { confirmAskedAt: null, remindersSent: (cu…
@@ -26289,8 +26471,6 @@
     - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
       - handedOver++;
         · дословно из кода
-    - await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err)
-      · запись в журнал ошибок
     - const holders = await prisma.property.findMany({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
       · читает в базе: property
     - const queuedCount = undelivered.length > 0 ? await prisma.property.count({ where: { videoHandoffStatus: "QUEU…

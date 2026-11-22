@@ -6,3 +6,5 @@
 /** Версия текущей сборки (GIT_SHA или момент сборки) — см. vite.config.ts и
  *  lib/appUpdate.ts. Подставляется `define` на этапе сборки, в dev — таймстамп. */
 declare const __APP_VERSION__: string;
+/** Момент сборки фронта, мс (vite.config.ts → define). */
+declare const __APP_BUILT_AT__: number;

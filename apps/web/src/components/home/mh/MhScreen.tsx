@@ -6,7 +6,7 @@ import { useNow } from "../../../hooks/useNow";
 // Поиск подгружается по нажатию: палитра не должна лежать во входном куске
 // сборки, который телефон читает до первой отрисовки.
 import { CommandPaletteLazy } from "../../CommandPaletteLazy";
-import { useNotifications } from "../../../hooks/useNotifications";
+import { badgeCountOf, useNotifications } from "../../../hooks/useNotifications";
 import { todayLabel } from "../../../lib/format";
 
 /**
@@ -67,7 +67,7 @@ export function MhScreen({ greeting, children }: { greeting: string; children: R
   const navigate = useNavigate();
   const [showSearch, setShowSearch] = useState(false);
   const { data: notifications } = useNotifications();
-  const unread = notifications?.unreadCount ?? 0;
+  const unread = badgeCountOf(notifications);
 
   return (
     <div className="rh2" style={MH_HOST}>

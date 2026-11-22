@@ -32,14 +32,21 @@ import type { Page } from "@playwright/test";
  *  - fieldFrame — поле с двойной рамкой: своя граница и внутренняя обводка разом, или поле с
  *                рамкой внутри обёртки-капсулы со своей рамкой (квадрат в капсуле поиска
  *                Настроек, ревью #337).
+ *  - lowContrast — серый текст бледнее 4,5:1 к своему фону (3:1 у крупного — от 24 px или от 19 px
+ *                жирным): время сообщения 4,05:1, «окно ошибки» 4,34:1 (К05 аудита 20.11). Фон — первый
+ *                непрозрачный предок, цвет с прозрачностью смешивается; поверх картинки или градиента
+ *                фон неизвестен — такой текст не считается.
+ *  - letterColumn — слово разорвано по буквам в ЛЮБОМ блоке, не только в кнопке: колонка с именем
+ *                файла сжата соседями до одного знака («IMG_1210.MOV» столбиком, 21.11, мастер объекта,
+ *                блок «Видео» на iPhone). Слово 5–24 знака на трёх и более строках — колонка уже 4 знаков.
  *
  * Каждая находка — строка «вид: что и где», чтобы сообщение теста называло место.
  * Без импортов в браузерной части: функция уходит в page.evaluate целиком.
  */
-export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame";
-export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame"];
+export type GeometryKind = "blur" | "squeeze" | "overlap" | "underNav" | "split" | "stripHint" | "ghostCall" | "lopsided" | "hole" | "navCrowd" | "wordBreak" | "emptyArea" | "smallText" | "smallTap" | "selectClip" | "fieldFrame" | "lowContrast" | "letterColumn";
+export const GEOMETRY_KINDS: readonly GeometryKind[] = ["blur", "squeeze", "overlap", "underNav", "split", "stripHint", "ghostCall", "lopsided", "hole", "navCrowd", "wordBreak", "emptyArea", "smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast", "letterColumn"];
 /** Виды конституции оболочки (critic-uiux.md §9): цель нажатия ≥ 44, текст ≥ 13, список не режет выбранное. */
-export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame"];
+export const CONSTITUTION_KINDS: readonly GeometryKind[] = ["smallText", "smallTap", "selectClip", "fieldFrame", "lowContrast"];
 
 /** Пропустить заведомо задуманное: селекторы, внутри которых проверка не идёт. */
 export type GeometryOptions = { skip?: string; kinds?: readonly GeometryKind[] };
@@ -362,6 +369,76 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
         if (Math.min(box.width, box.height) < 44 - 0.5) out.push(`smallTap: ${name(el)} — ${Math.round(box.width)}×${Math.round(box.height)}`);
       }
     }
+    // ---- lowContrast: бледный текст (< 4,5:1) ----
+    if (want.has("lowContrast")) {
+      type Rgba = [number, number, number, number];
+      const parse = (c: string): Rgba | null => {
+        const srgb = c.match(/^color\(srgb ([^)]+)\)/);
+        if (srgb) {
+          const v = srgb[1].split(/[ /]+/).filter(Boolean).map(parseFloat);
+          return v.length >= 3 ? [v[0] * 255, v[1] * 255, v[2] * 255, v[3] ?? 1] : null;
+        }
+        const m = c.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const v = m[1].split(/[ ,/]+/).filter(Boolean).map(parseFloat);
+        return v.length >= 3 ? [v[0], v[1], v[2], v[3] ?? 1] : null;
+      };
+      const over = (top: Rgba, bottom: Rgba): Rgba => {
+        const a = top[3] + bottom[3] * (1 - top[3]);
+        return a === 0 ? [0, 0, 0, 0] : [0, 1, 2].map((i) => (top[i] * top[3] + bottom[i] * bottom[3] * (1 - top[3])) / a).concat(a) as Rgba;
+      };
+      const lum = (c: Rgba) => {
+        const f = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+      };
+      /** Возможные фоны под текстом: у градиента — цвет каждой остановки (худший случай), у обычного — один. */
+      const backdrops = (el: Element): Rgba[] | null => {
+        let acc: Rgba[] = [[0, 0, 0, 0]];
+        for (let p: Element | null = el; p; p = p.parentElement) {
+          const s = getComputedStyle(p);
+          let layers: Rgba[] | null = null;
+          if (s.backgroundImage !== "none") {
+            if (/url\(/.test(s.backgroundImage)) return null; // фото: фон неизвестен
+            const stops = [...s.backgroundImage.matchAll(/rgba?\([^)]+\)|color\(srgb [^)]+\)/g)].map((m) => parse(m[0])).filter((c): c is Rgba => !!c);
+            if (stops.length) layers = stops;
+          }
+          const bg = parse(s.backgroundColor);
+          const under = bg && bg[3] > 0 ? [bg] : [];
+          const here = layers ?? under;
+          if (here.length) acc = acc.flatMap((a) => here.map((h) => over(a, h)));
+          if (acc.every((c) => c[3] >= 0.999)) return acc;
+        }
+        return acc.map((c) => over(c, [255, 255, 255, 1]));
+      };
+      const seen = new Set<string>();
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !(n.textContent ?? "").trim() || !visible(el) || skipped(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 2 || r.height <= 2) continue;
+        // Скрытый слой (подложка свайпа) и точка-метка 12×12 — не читаемый текст; отключённое — по правилам WCAG не считается.
+        if (el.closest("[disabled], [aria-disabled=\"true\"], [inert], [aria-hidden=\"true\"]") || el.closest("svg") || (r.width <= 12 && r.height <= 12)) continue;
+        const s = getComputedStyle(el);
+        let opacity = 1;
+        for (let p: Element | null = el; p; p = p.parentElement) opacity *= parseFloat(getComputedStyle(p).opacity);
+        const fg = parse(s.color);
+        const bgs = backdrops(el);
+        if (!fg || !bgs) continue;
+        const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 700;
+        const need = size >= 24 || (bold && size >= 18.66) ? 3 : 4.5;
+        let worst = Infinity;
+        for (const bg of bgs) {
+          const text = over([fg[0], fg[1], fg[2], fg[3] * opacity], bg);
+          const L1 = lum(text), L2 = lum(bg);
+          worst = Math.min(worst, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05));
+        }
+        if (worst < need - 0.01) {
+          const key = name(el);
+          if (!seen.has(key)) { seen.add(key); out.push(`lowContrast: ${key} — ${worst.toFixed(2)}:1`); }
+        }
+      }
+    }
     // ---- fieldFrame: двойная рамка у поля ----
     if (want.has("fieldFrame")) {
       const clear = (c: string) => /^transparent$|rgba\([^)]*,\s*0\)$/.test(c.trim());
@@ -411,17 +488,50 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
       }
     }
     if (want.has("wordBreak")) {
+      // Разрыв ВНУТРИ числа: «123 458 55 / 1 с.» — любой элемент, не только кнопка (ревью #351, полоса «Деньги»).
+      // Число — цифры с неразрывными пробелами/запятой; рвущееся по строкам, но короче 25 знаков (не код/ссылка).
+      const numWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = numWalker.nextNode(); n; n = numWalker.nextNode()) {
+        const el = n.parentElement;
+        if (!el || !visible(el) || skipped(el)) continue;
+        for (const m of (n.textContent ?? "").matchAll(/\d[\d  ,.]*\d/g)) {
+          if (m[0].replace(/\D/g, "").length < 3 || m[0].length > 24) continue;
+          const range = document.createRange();
+          range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
+          const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top / 4)));
+          if (tops.size > 1) out.push(`wordBreak: ${name(el)} — число «${m[0]}» разорвано на ${tops.size} строки`);
+        }
+      }
       for (const el of root.querySelectorAll("button, a, [role=tab], .chip, .pill")) {
         if (!visible(el) || skipped(el)) continue;
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
           const text = n.textContent ?? "";
           for (const m of text.matchAll(/[\p{L}\d]{4,}/gu)) {
+            // Слово длиннее 24 знаков не помещается ни в одну строку телефона (имя из 70 букв без пробелов,
+            // адрес, код): рвать его по буквам неизбежно — это не поломка вёрстки, а данные.
+            if (m[0].length > 24) continue;
             const range = document.createRange();
             range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
             const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
             if (tops.size > 1) out.push(`wordBreak: ${name(el)} — «${m[0]}» разорвано на ${tops.size} строки`);
           }
+        }
+      }
+    }
+
+    // ---- letterColumn: слово в любом блоке разорвано по буквам (колонка сжата соседями) ----
+    if (want.has("letterColumn")) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const el = n.parentElement;
+        // Не visible(): у схлопнутой колонки сама коробка шириной 0, а буквы торчат из неё — это и есть находка.
+        if (!el || skipped(el) || !el.checkVisibility() || el.closest("details:not([open])")) continue;
+        for (const m of (n.textContent ?? "").matchAll(/[\p{L}\d._-]{5,24}/gu)) {
+          const range = document.createRange();
+          range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length);
+          const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top / 4)));
+          if (tops.size >= 3) out.push(`letterColumn: ${name(el)} — «${m[0]}» столбиком на ${tops.size} строках`);
         }
       }
     }
@@ -479,7 +589,7 @@ export async function geometryFindings(page: Page, opts: GeometryOptions = {}): 
 }
 
 /** Ряд ширин владельца (20.11.2026): телефоны, планшеты, ПК. */
-export const OWNER_WIDTHS = [320, 360, 375, 390, 414, 430, 768, 820, 1024, 1280, 1440, 1920] as const;
+export const OWNER_WIDTHS = [320, 360, 375, 390, 414, 430, 768, 820, 1024, 1280, 1366, 1440, 1920] as const;
 
 /** Телефонные отпечатки — сторож гоняется и под iPhone, и под Android. */
 export const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";

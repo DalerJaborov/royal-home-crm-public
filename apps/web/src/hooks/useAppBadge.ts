@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNotifications } from "./useNotifications";
+import { badgeCountOf, useNotifications } from "./useNotifications";
 import { clearAppBadge, setAppBadge } from "../lib/appBadge";
 
 /**
@@ -41,7 +41,7 @@ export function useAppBadge() {
 
   useEffect(() => {
     if (!data) return;
-    setAppBadge(data.unreadCount);
+    setAppBadge(badgeCountOf(data));
   }, [data]);
 
   // Выход из системы уводит на /login, а с ним размонтируется и layout: значок

@@ -15,7 +15,7 @@ import { mediaRecipientHash } from "../src/lib/mediaExecution.js";
 describe("versioned narration delivery", () => {
   beforeEach(() => {
     vi.clearAllMocks(); vi.stubEnv("JWT_ACCESS_SECRET", "isolated-test-key"); vi.stubEnv("CRM_NARRATION_EXECUTION_MODE", "LIVE");
-    const property = { id: "p", shortId: 42, type: "APARTMENT", rooms: 2, areaSqm: "90", floor: 1, totalFloors: 3, district: null, deletedAt: null, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null };
+    const property = { id: "p", shortId: 42, type: "APARTMENT", rooms: 2, areaSqm: "90", floor: 1, totalFloors: 3, district: null, deletedAt: null, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: null, videoHandoffDeliveredAt: new Date() };
     const version = { id: "v", propertyId: "p", revision: 4, script: "Полный проверенный текст.", storageKey: "audio", status: "READY", factsHash: narrationHash(narrationFacts(property)) };
     s.property.mockResolvedValue(property); s.latest.mockResolvedValue(version); s.settings.mockResolvedValue({ videoMontajerAgentId: "editor" }); s.editor.mockResolvedValue({ id: "editor", telegramChatId: "chat" }); s.videos.mockResolvedValue([]);
     s.build.mockResolvedValue({ property, videos: [], factsText: "Факты" });

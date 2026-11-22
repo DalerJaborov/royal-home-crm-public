@@ -241,6 +241,16 @@ describe("property narration route boundaries", () => {
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{вид} барои фурӯш. Нархаш {цена}." }] })).status).toBe(200);
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{стоимость} барои фурӯш." }] })).status).toBe(400);
   });
+  it("settings PUT (21.11.2026): новый шаблон с {этажей} не принимается, этаж — можно; старый шаблон с {этажей} не мешает сохранить остальное", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "{вид} барои фурӯш. [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.]" };
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old] }, elevenLabsApiKey: "test" });
+    const bad = await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}и бинои {этажей} ошёна.]" }] });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/Этажность дома в озвучке не называем/u);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}.]" }] })).status).toBe(200);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [old], dailyCharLimit: 4000 })).status).toBe(200);
+  });
   it("settings PUT guards templates and endings (16.11.2026): digits in Tajik text, Direct in Latin, the word брон; types and endings are saved", async () => {
     s.role = "ADMIN"; s.configSave.mockResolvedValue({});
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [], autoGenerate: true }, elevenLabsApiKey: "test" });

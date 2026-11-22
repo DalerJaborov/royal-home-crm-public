@@ -7,7 +7,7 @@ import { useNavigation, type NavItem } from "../lib/navigation";
 import { useAuthStore } from "../store/auth";
 import { ROLE_LABELS } from "../lib/roles";
 import { signOut } from "../lib/signOut";
-import { useNotifications } from "../hooks/useNotifications";
+import { badgeCountOf, useNotifications } from "../hooks/useNotifications";
 import { hapticTap } from "../lib/haptics";
 
 /**
@@ -42,7 +42,7 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
   const agent = useAuthStore((s) => s.agent);
   const { all } = useNavigation();
   const { data: notifications } = useNotifications();
-  const unread = notifications?.unreadCount ?? 0;
+  const unread = badgeCountOf(notifications);
 
   const rows = useMemo<Row[]>(() => {
     const byTo = (to: string) => all.find((i) => i.to === to);

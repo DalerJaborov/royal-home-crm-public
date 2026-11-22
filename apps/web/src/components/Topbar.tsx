@@ -1,5 +1,6 @@
+import type { AppNotification } from "../types";
 import { LegacyAgentTopbar } from "./mobile/LegacyAgentTopbar";
-import { Children, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { Children, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
 import { useNavigation } from "../lib/navigation";
 import { defaultCleanNavigation } from "../lib/cleanNavigationOrder";
@@ -18,11 +19,15 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { MoreSheet } from "./MoreSheet";
 import { useShellStore } from "../store/shell";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useGoBack } from "../hooks/useGoBack";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import {
   useNotifications,
   useMarkNotificationRead,
   useAutoReadNotifications,
+  useSeenOnShow,
+  useMarkAllSeen,
+  badgeCountOf,
 } from "../hooks/useNotifications";
 
 export function Topbar({ clean = false }: { clean?: boolean }) {
@@ -35,16 +40,33 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
   const navigate = useNavigate();
   const { data: notifications, isError: notificationsFailed, isLoading: notificationsLoading, refetch: retryNotifications } = useNotifications();
   const markRead = useMarkNotificationRead();
-  const notificationItems = notifications?.items ?? [];
-  const unreadCount = notifications?.unreadCount ?? 0;
+  // В выпадающем списке закреплённое («Ждёт решения», «Критичное») идёт первым и
+  // дальше те же свежие записи: всё, что держит метку, видно в списке.
+  const notificationItems = useMemo(() => {
+    const seen = new Set<string>();
+    const out: AppNotification[] = [];
+    for (const n of [...(notifications?.pinned ?? []), ...(notifications?.items ?? [])]) {
+      if (seen.has(n.id)) continue;
+      seen.add(n.id);
+      out.push(n);
+    }
+    return out;
+  }, [notifications?.pinned, notifications?.items]);
+  const shownItems = notificationItems.slice(0, 12);
+  // Метка считает только непросмотренное; сам счёт «непрочитанных» нужен автопрочтению.
+  const unreadCount = badgeCountOf(notifications);
+  const rawUnreadCount = notifications?.unreadCount ?? 0;
+  const { markAllSeen, pending: markAllSeenPending } = useMarkAllSeen();
   // УВИДЕЛ — ЗНАЧИТ ПРОЧИТАНО (владелец 27.08.2026), см. useNotifications.ts.
   // Раньше это правило работало только на полноэкранной ленте /notifications:
   // открыв список прямо из колокольчика в шапке, счётчик так и оставался
   // «9+» — человек уже всё прочитал, а бейдж и подсветка «непрочитанного»
   // висели, будто он не заходил вовсе (жалоба владельца 30.08.2026).
-  // Показаны в выпадающем списке только первые 6 записей (см. ниже) — столько и
+  // Показаны в выпадающем списке до 12 записей (панель прокручивается) (см. ниже) — столько и
   // гасим, остальное и APPROVAL/CRITICAL автопрочтение не трогает (WEB-PAGES16).
-  useAutoReadNotifications(unreadCount, showNotifications, notificationItems.slice(0, 6));
+  useAutoReadNotifications(rawUnreadCount, showNotifications, shownItems);
+  // ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ, без таймера (владелец 21.11.2026).
+  useSeenOnShow(shownItems, showNotifications, { listedAt: notifications?.listedAt, unseenCount: notifications?.unseenCount });
   const [showSearch, setShowSearch] = useState(false);
   // Значка телефонии в шапке больше нет (владелец 18.08.2026). Он показывал
   // состояние браузерной трубки и вёл в «Телефонию», а трубку и роль оператора
@@ -65,6 +87,10 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
   const shellTitle = useShellStore((s) => s.title);
   const shellBack = useShellStore((s) => s.back);
   const shellOnBack = useShellStore((s) => s.onBack);
+  // «Назад» в шапке — ШАГ НАЗАД по истории приложения, а раздел-родитель — только запасной путь
+  // (lib/goBack.ts, 21.11.2026). Раньше стрелка делала переход на родителя: объект, открытый из переписки,
+  // «Назад» уводил в «Объекты» вместо переписки.
+  const goBackToShellParent = useGoBack(shellBack ?? "/");
   const shellActions = useShellStore((s) => s.actions);
   const ownHeader = useShellStore((s) => s.ownHeader);
   // «Сообщения» (MobileChats*) рисуют свою шапку всегда; Главная её рисует, пока
@@ -86,14 +112,16 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
       <TopbarRow
         pageTitle={pageTitle}
         back={shellBack}
-        onBack={shellOnBack}
+        onBack={shellOnBack ?? (shellBack ? goBackToShellParent : null)}
         actions={shellActions}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
         bellRef={bellRef}
         notifPos={notifPos}
         setNotifPos={setNotifPos}
-        notificationItems={notificationItems}
+        notificationItems={shownItems}
+        markAllSeen={markAllSeen}
+        markAllSeenPending={markAllSeenPending}
         notificationsFailed={clean && notificationsFailed}
         notificationsLoading={clean && notificationsLoading}
         retryNotifications={() => void retryNotifications()}
@@ -121,8 +149,10 @@ interface TopbarRowProps {
   bellRef: RefObject<HTMLButtonElement | null>;
   notifPos: { top: number; right: number } | null;
   setNotifPos: (p: { top: number; right: number }) => void;
-  notificationItems: { id: string; title: string; body?: string | null; read: boolean; url?: string | null }[];
+  notificationItems: (Pick<AppNotification, "id" | "title" | "read" | "url" | "level" | "seenAt"> & { body?: string | null })[];
   unreadCount: number;
+  markAllSeen: () => void;
+  markAllSeenPending: boolean;
   markRead: { mutate: (id: string) => void };
   navigate: (to: string) => void;
   showSearch: boolean;
@@ -147,6 +177,8 @@ function TopbarRow({
   setNotifPos,
   notificationItems,
   unreadCount,
+  markAllSeen,
+  markAllSeenPending,
   markRead,
   navigate,
   showSearch,
@@ -209,7 +241,7 @@ function TopbarRow({
                   ) : (
                     <>
                       <div className="list">
-                        {notificationItems.slice(0, 6).map((n) => (
+                        {notificationItems.map((n) => (
                           <button
                             key={n.id}
                             type="button"
@@ -226,7 +258,11 @@ function TopbarRow({
                               <span className="n">{n.title}</span>
                               {n.body && <span className="s">{n.body}</span>}
                             </span>
-                            {!n.read && <span className="chip warn">Новое</span>}
+                            {!n.read && (
+                              <span className="chip warn">
+                                {n.seenAt && (n.level === "APPROVAL" || n.level === "CRITICAL") ? "Ждёт действия" : "Новое"}
+                              </span>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -242,6 +278,16 @@ function TopbarRow({
                       >
                         Все уведомления
                       </button>
+                      <button
+                        type="button"
+                        onClick={markAllSeen}
+                        disabled={unreadCount === 0 || markAllSeenPending}
+                        data-mark-all-seen
+                        className="pill ghost"
+                        style={{ width: "100%", marginTop: "var(--s2)" }}
+                      >
+                        Убрать отметку
+                      </button>
                     </>
                   )}
                 </div>
@@ -251,7 +297,7 @@ function TopbarRow({
     return <LegacyAgentTopbar
       title={pageTitle}
       back={back}
-      onNavigate={navigate}
+      onNavigate={(path) => (onBack ? onBack() : navigate(path))}
       actions={phoneActions}
       onSearch={() => setShowSearch(true)}
       bellRef={bellRef}

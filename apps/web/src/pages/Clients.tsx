@@ -7,7 +7,7 @@ import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanCli
 import { CButton, cn } from "../components/clean/ui";
 import { useRoyalLook } from "../hooks/useRoyalLook";
 import { RoyalClientListHead, RoyalClientRow } from "../components/look/clients/RoyalClients";
-import { clientActionPillTone } from "../components/look/tileTone";
+import { pillTone } from "../components/look/tileTone";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RhButton } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
@@ -62,9 +62,9 @@ import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MutationError } from "../components/MutationError";
-import { formatWait, relativeTime } from "../lib/format";
+import { formatWait } from "../lib/format";
 import { readKindParam } from "../lib/clientsKindParam";
-import { clientAction } from "../lib/clientAction";
+import { clientRowFact, lastContactLabel } from "../lib/clientRowFacts";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SOURCE_LABELS,
@@ -74,6 +74,7 @@ import {
   formatClientName,
 } from "../lib/clientFormat";
 import type { Client } from "../types";
+import { budgetShort } from "../lib/budgetShort";
 
 /*
  * ЭКРАН «КЛИЕНТЫ» — ОДИН АДАПТИВНЫЙ ЭКРАН НА КОМПЬЮТЕР И ТЕЛЕФОН (контракт
@@ -99,28 +100,6 @@ import type { Client } from "../types";
  * `/inactive-clients`, `/clients/all-mine`, `/other-inquiries` рендерят этот же
  * компонент (App.tsx).
  */
-
-/** Одна цифра после запятой, без хвоста «,0»: 1,7 млн, но 2 млн. */
-const oneDecimal = (x: number) => (Math.round(x * 10) / 10).toLocaleString("ru-RU");
-
-/**
- * Бюджет для второй строки: «$55–70 тыс.», «до $45 тыс.», «от 1,2 млн с.».
- * Единица берётся по большему краю, чтобы «55–70» не превращалось в «55–70 000».
- */
-function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): string | null {
-  const min = c.budgetMin ? Number(c.budgetMin) : null;
-  const max = positiveBudget(c.budgetMax);
-  if (!min && !max) return null;
-  const ref = (max || min) as number;
-  const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
-  const unit = div === 1_000_000 ? " млн" : div === 1_000 ? " тыс." : "";
-  const sym = c.currency === "USD" ? "$" : "";
-  const tail = c.currency === "USD" ? "" : "\u00a0с.";
-  // glueNumbers: «1,1–1,3 млн с.» не рвётся на «1,3 / млн с.» на узком телефоне (20.11).
-  if (min && max) return glueNumbers(`${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`);
-  if (max) return glueNumbers(`до ${sym}${oneDecimal(max / div)}${unit}${tail}`);
-  return glueNumbers(`от ${sym}${oneDecimal((min as number) / div)}${unit}${tail}`);
-}
 
 const num = (n: number) => n.toLocaleString("ru-RU");
 
@@ -620,12 +599,11 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         {data && visibleItems.length > 0 && (
           <List aria-label="Клиенты" className={royal ? "ry-clist" : undefined}>
             {royal && <RoyalClientListHead showAgent={can("clients.viewAll")} />}
-            {clean && !royal && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Следующее действие</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
+            {clean && !royal && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Последний контакт</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
             {visibleItems.map((c) => (
               <ClientRow
                 key={c.id}
                 client={c}
-                mobile={mobile}
                 clean={clean}
                 royal={royal}
                 showKind={searchAcrossKinds || allKinds}
@@ -814,20 +792,19 @@ export { ReturnedBadge } from "../components/ReturnedBadge";
 
 /**
  * Строка списка клиентов на `Row` набора: аватар 44, имя (ссылка на всю строку),
- * вторая строка «3 комн · Сино · $55–70 тыс. · Instagram», один чип-действие и
+ * вторая строка «3 комн · Сино · $55–70 тыс. · Instagram», одна факт-метка и
  * справа трубка. Строка целиком ведёт в карточку; кнопки справа лежат поверх
  * растянутой ссылки и не открывают её.
  *
  * ВТОРАЯ СТРОКА, а не россыпь плашек. Раздел (при поиске по всем разделам),
  * «неактивный» и «вернулся» стали словами в строке описания: это факты о клиенте,
  * а не дела, и чипом они не бывают (review-statuses.md, один чип на строку).
- * Нет дела — на месте чипа стоит давность контакта; красная, если прошло больше
- * 14 дней. Следующий шаг из хронологии в строку не выведен: просроченный уже
- * говорит чипом «позвонить сейчас», остальное видно в карточке.
+ * Нет метки — на её месте «последний контакт ДД.ММ» по общему правилу контакта,
+ * всегда спокойным цветом. Советов («позвонить», «давно не связывались», следующий
+ * шаг) строка не рисует (владелец 21.11.2026, lib/clientRowFacts.ts).
  */
 function ClientRow({
   client: c,
-  mobile,
   showKind = false,
   showAgent = false,
   inSheet = false,
@@ -835,7 +812,6 @@ function ClientRow({
   royal = false,
 }: {
   client: Client;
-  mobile: boolean;
   showKind?: boolean;
   showAgent?: boolean;
   /** Строка внутри шторки «Не на виду»: смахивание там конфликтует со смахиванием шторки. */
@@ -844,8 +820,6 @@ function ClientRow({
   /** «Новый вид»: та же строка Clean, другая разметка (RoyalClientRow). */
   royal?: boolean;
 }) {
-  const daysSinceContact = Math.floor((Date.now() - new Date(c.lastContactAt).getTime()) / 86400000);
-  const stale = daysSinceContact > 14;
   // OTHER не назначается агенту вообще — acceptedAt для него всегда null, но это не
   // «ждёт принятия», а норма: руководство видит и работает с контактом сразу.
   const { isOther, isTrashed, pending, canRestore, canAcceptRow, canCall, restoreClient, requestRestore, acceptLead, declineLead, restoreRequested, confirmDecline, setConfirmDecline, acceptClient, restore, requestRestoration, confirmRejection } = useClientRowActions(c);
@@ -876,13 +850,17 @@ function ClientRow({
    * карточке, номер берёт сервер (аудит 23.09.2026, №54).
    */
 
-  const action = clientAction(c, Date.now(), canAcceptRow);
+  // Только факты (lib/clientRowFacts.ts, владелец 21.11.2026): отметка состояния карточки
+  // (Корзина, «Прочее», скрыта) либо «ждёт принятия». Советов «позвонить/ответить/первый
+  // звонок» и красной давности в строке больше нет.
+  const fact = clientRowFact(c);
   const primaryState = clientPrimaryState(c);
   const chip = primaryState && primaryState.id !== "pending" ? (
     <ClientStateBadge client={c} />
-  ) : action && action.id !== "accept" ? (
-    <Chip tone={royal ? clientActionPillTone(action) : action.tone}>{mobile ? action.short : action.label}</Chip>
+  ) : fact ? (
+    <Chip tone={royal ? pillTone("today") : "warn"}>{fact.label}</Chip>
   ) : null;
+  const contactLine = lastContactLabel(c.lastStaffContactAt);
 
   const name = c.displayName ?? formatClientName(c);
   const daysInWork = Math.max(0, Math.floor((Date.now() - new Date(c.createdAt).getTime()) / 86400000));
@@ -969,7 +947,6 @@ function ClientRow({
     />
   );
 
-  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending ? c.nextStep : null;
   const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен";
   // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью PR 331):
   // склейка «Имя · ищет …» обрезала имя, а сырой fullName терял заглушки и адрес продавца.
@@ -982,10 +959,8 @@ function ClientRow({
     identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),
     request: royalText ? royalText.request : rowRequest,
     source: CLIENT_SOURCE_LABELS[c.source] ?? c.source,
-    nextAction: canAcceptRow ? <Chip tone="warn">Нужно принять заявку</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null),
-    nextActionDate: !canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null,
-    lastContact: relativeTime(c.lastContactAt),
-    staleContact: stale && !chip && !canAcceptRow,
+    fact: chip,
+    lastContact: contactLine,
     showAgent,
     agentName: c.assignedAgent?.fullName,
     agentAssigned: !!c.assignedAgentId,
@@ -1006,11 +981,7 @@ function ClientRow({
       title={name}
       line={parts.length > 0 ? parts.join(" · ") : "—"}
       chip={chip}
-      meta={
-        chip || canAcceptRow ? undefined : (
-          <span className={stale ? "is-stale" : undefined}>{relativeTime(c.lastContactAt)}</span>
-        )
-      }
+      meta={chip || canAcceptRow || !contactLine ? undefined : <span>{contactLine}</span>}
       actions={actions}
       // Корзина: GET /clients/:id 404-ит удалённой карточке, открывать нечего.
       href={isTrashed ? undefined : `/clients/${c.shortId}`}

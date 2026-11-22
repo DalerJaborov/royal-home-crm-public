@@ -1,4 +1,5 @@
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { prisma } from "../db.js";
 import { CLIENT_IN_WORK_WHERE } from "./clientInWork.js";
 
 /**
@@ -100,4 +101,91 @@ export function noContactSinceWhere(cutoff: Date): Prisma.ClientWhereInput {
       { interactions: { none: { ...TALKED_CALL_WHERE, createdAt: { gte: cutoff } } } },
     ],
   };
+}
+
+/**
+ * ТО ЖЕ ПРАВИЛО КОНТАКТА ДЛЯ СЫРОГО SQL (21.11.2026) — «после момента `after` с клиентом
+ * связывались другим путём, не в чате»: срез «Ждут» в «Чатах» (lib/inboxWaiting.ts) —
+ * сырой запрос, и Prisma-условие `STAFF_CONTACT_INTERACTION_WHERE` ему не подставить.
+ * Живёт РЯДОМ с условием выше, чтобы две записи правила правились вместе; тест
+ * `inbox-waiting-truth.test.ts` прогоняет обе на одних и тех же записях и краснеет при
+ * расхождении. Добавили строку в `STAFF_CONTACT_INTERACTION_WHERE` — допишите её здесь.
+ *
+ * `clientId`/`after` — SQL-выражения (колонка присоединённого `Client`, время последней
+ * реплики клиента). Дополнительно `Client.lastAgentAttemptAt` позже `after`: сообщение
+ * агента из CRM и отказ станции на «Позвонить» не лежат записью хронологии.
+ */
+export function staffContactAfterSql(
+  clientId: Prisma.Sql,
+  after: Prisma.Sql,
+  lastAgentAttemptAt: Prisma.Sql,
+): Prisma.Sql {
+  return Prisma.sql`(
+    COALESCE(${lastAgentAttemptAt} > ${after}, FALSE)
+    OR EXISTS (
+      SELECT 1 FROM "Interaction" i
+      WHERE i."clientId" = ${clientId}
+        AND i."createdAt" > ${after}
+        AND i."archiveReview" = FALSE
+        AND (
+          (i."type"::text = 'CALL' AND i."callAttempt" IN ('TALKED', 'NO_ANSWER', 'CANCELLED'))
+          OR (i."type"::text = 'CALL' AND i."recordingDurationSec" > 0)
+          OR (i."type"::text = 'CALL' AND i."actorKind"::text = 'AGENT' AND i."callAttempt" IS NULL
+              AND i."notes" NOT LIKE ${INCOMING_CALL_NOTE_PREFIX + "%"})
+          OR (i."type"::text IN ('MEETING', 'SHOWING') AND i."actorKind"::text = 'AGENT')
+        )
+    )
+  )`;
+}
+
+export interface StaffContactFacts {
+  id: string;
+  /** Общая отметка «агент пытался» (сообщение из CRM, отказ станции на «Позвонить» и т.п.). */
+  lastAgentAttemptAt: Date | null;
+  /** «Когда карточку трогали» — запасная дата, только если правило говорит «связывались», а даты нет. */
+  lastContactAt: Date;
+}
+
+/**
+ * ПОСЛЕДНИЙ КОНТАКТ СОТРУДНИКА — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО «НЕ СВЯЗЫВАЛИСЬ» (21.11.2026).
+ *
+ * Строка списка клиентов писала «связывались 21.11 19:13» и «Давно не связывались ·
+ * 03.10» по `Client.lastContactAt`. Это метка «карточку трогали»: её двигает любая
+ * заметка, а у новой карточки она равна моменту создания (`@default(now())`), — то есть
+ * «связывались» у клиента, которому никто не звонил (кадры владельца 21.11). Здесь дата
+ * считается по ОДНОМУ правилу контакта (`STAFF_CONTACT_INTERACTION_WHERE` +
+ * `lastAgentAttemptAt`) и одним запросом на пачку, не по клиенту.
+ *
+ * Сообщение сотрудника прямо в мессенджере правило считает связью, но времени у него в
+ * базе нет (переписка — одно поле). Если других следов нет, а правило говорит «связывались»
+ * (клиент не входит в `neverContactedWhere`), берётся `lastContactAt` — его двигает и ответ
+ * агента в переписке (lib/conversationDelivery.ts). «Контакта ещё не было» (null) — только
+ * когда правило говорит «ни разу»: та же граница, что у счётчика «Не связывались».
+ *
+ * Возвращает дату по каждому id пачки; null — сотрудники с клиентом ни разу не связывались.
+ */
+export async function lastStaffContactAtByClient(clients: StaffContactFacts[]): Promise<Map<string, Date | null>> {
+  const result = new Map<string, Date | null>();
+  if (clients.length === 0) return result;
+  const ids = clients.map((c) => c.id);
+  const [byInteraction, never] = await Promise.all([
+    prisma.interaction.groupBy({
+      by: ["clientId"],
+      where: { clientId: { in: ids }, ...STAFF_CONTACT_INTERACTION_WHERE },
+      _max: { createdAt: true },
+    }),
+    prisma.client.findMany({ where: { id: { in: ids }, AND: [neverContactedWhere()] }, select: { id: true } }),
+  ]);
+  const interactionAt = new Map(byInteraction.map((row) => [row.clientId, row._max.createdAt]));
+  const neverIds = new Set(never.map((row) => row.id));
+  for (const c of clients) {
+    if (neverIds.has(c.id)) {
+      result.set(c.id, null);
+      continue;
+    }
+    const candidates = [interactionAt.get(c.id), c.lastAgentAttemptAt].filter((d): d is Date => d instanceof Date);
+    const latest = candidates.length ? new Date(Math.max(...candidates.map((d) => d.getTime()))) : null;
+    result.set(c.id, latest ?? c.lastContactAt);
+  }
+  return result;
 }

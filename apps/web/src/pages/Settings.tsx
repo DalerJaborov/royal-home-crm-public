@@ -7,7 +7,6 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { CleanSettingsTaskContent, SettingsTabContent } from "../components/settings/SettingsTabContent";
 import { isSettingsTabId, SETTINGS_TABS, type SettingsTabId } from "../lib/settingsTabs";
 import { SettingsTabs } from "../components/SectionTabs";
-import { UiShellRolloutSection } from "../components/settings/UiShellRolloutSection";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanSettingsNavigator } from "../components/clean/CleanSettingsNavigator";
 import { CleanSettingsSectionJump } from "../components/clean/CleanSettingsSectionJump";
@@ -172,7 +171,7 @@ export function Settings() {
               })}
             </nav>
 
-            <div className="sset-body">{active === "agency" && <UiShellRolloutSection />}{tabContent}</div>
+            <div className="sset-body">{tabContent}</div>
           </div>
       </div>
     </div>

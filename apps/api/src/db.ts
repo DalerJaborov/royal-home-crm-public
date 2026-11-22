@@ -2,6 +2,7 @@ import { txScope, openScope, type StageEventRow, type TxScope } from "./lib/tran
 import { PrismaClient, type Prisma } from "./generated/prisma/client.js";
 import { makePrismaAdapter } from "./lib/prismaAdapter.js";
 import { currentActorId } from "./lib/requestActor.js";
+import { withClientNotesPlain } from "./lib/clientNoteLabels.js";
 
 /**
  * ЖУРНАЛ ПЕРЕХОДОВ — ПЕРЕХВАТОМ ЗДЕСЬ, А НЕ ПРАВКОЙ СОРОКА МЕСТ (26.08.2026,
@@ -33,9 +34,15 @@ import { currentActorId } from "./lib/requestActor.js";
  *  - вложенные записи (deal.update({ client: { update: ... } })) не ловятся —
  *    в коде так статусы не меняют (проверено поиском на 26.08).
  */
+/**
+ * `source` (21.11.2026, ТЗ дашборда директора п.15 «история смены источника»):
+ * ловится только на ИЗМЕНЕНИИ. Источник задаётся при создании каждой карточки —
+ * запись «null → Instagram» на каждое создание была бы шумом, а первый источник
+ * и так лежит в самой карточке. Поэтому у полей есть отдельный список для create.
+ */
 const TRACKED = {
-  client: { entityType: "CLIENT", fields: ["status", "workStatus"] as const },
-  deal: { entityType: "DEAL", fields: ["stage"] as const },
+  client: { entityType: "CLIENT", fields: ["status", "workStatus", "source"] as const, createFields: ["status", "workStatus"] as const },
+  deal: { entityType: "DEAL", fields: ["stage"] as const, createFields: ["stage"] as const },
 } as const;
 
 /**
@@ -82,9 +89,18 @@ export type PropertyDefaultOmit = { embedding: true };
 const PROPERTY_DEFAULT_OMIT: PropertyDefaultOmit = { embedding: true };
 export type PropertyRecord = Prisma.PropertyGetPayload<{ omit: PropertyDefaultOmit }>;
 
+/**
+ * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — служебная копия для поиска
+ * похожих: в ответы API она не едет. Иначе presentClient отдавал бы слова клиента мимо маски
+ * номера (phoneSafeText маскирует только requirementsNotes). Читают её сырым SQL поиск и досчёт.
+ */
+const CLIENT_DEFAULT_OMIT = { requirementsNotesPlain: true, requirementsNotesPlainRev: true } as const;
+/** Строка клиента так, как её возвращает этот клиент базы (без служебной копии заметок). */
+export type ClientRecord = Prisma.ClientGetPayload<{ omit: typeof CLIENT_DEFAULT_OMIT }>;
+
 const base = new PrismaClient({
   adapter: makePrismaAdapter(process.env.DATABASE_URL ?? ""),
-  omit: { property: PROPERTY_DEFAULT_OMIT },
+  omit: { property: PROPERTY_DEFAULT_OMIT, client: CLIENT_DEFAULT_OMIT },
 });
 
 /** Новое значение из data: Prisma принимает и `status: "HOT"`, и `status: { set: "HOT" }`. */
@@ -198,7 +214,7 @@ function makeHooks(model: keyof typeof TRACKED) {
      *  (NEW/ACTIVE без явного поля в data) журналу не нужны — они и так дефолт;
      *  пишем только явно заданные, чтобы не плодить строку на каждый сид. */
     async create({ args, query }: UpdateHook) {
-      const changes = changesOf(args.data);
+      const changes = changesOf(args.data).filter((c) => (cfg.createFields as readonly string[]).includes(c.field));
       const result = (await query(args)) as { id?: string } | null;
       if (changes.length && result && typeof result.id === "string") {
         recordEvents(
@@ -361,9 +377,53 @@ const budgetGuard = {
   },
 };
 
+/**
+ * «ЗАМЕТКИ БЕЗ ЯРЛЫКОВ» — В ОДНОЙ ДВЕРИ ЗАПИСИ (22.11.2026, PR #382). Client.requirementsNotes
+ * пишут три десятка мест (бот, приём заявок, комментарии, звонки, карточка, ИИ-помощник,
+ * импорт, слияние); копия без служебных ярлыков (requirementsNotesPlain — по ней ищутся
+ * похожие карточки) обязана меняться вместе с ней. Здесь, а не в каждом из мест — та же
+ * причина, что у журнала переходов выше: новые места появляются каждую неделю.
+ * Мимо этой двери — только сырой SQL; сторож в tests/client-similar-notes-system-lines.test.ts.
+ */
+const notesPlainGuard = {
+  async create({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async createMany({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async createManyAndReturn({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async update({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async updateMany({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async updateManyAndReturn({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async upsert({ args, query }: UpdateHook) {
+    withClientNotesPlain((args as { create?: unknown }).create);
+    withClientNotesPlain((args as { update?: unknown }).update);
+    return query(args);
+  },
+};
+
 const withGuard = withHooks.$extends({
   query: {
     client: budgetGuard,
+  },
+}).$extends({
+  query: {
+    client: notesPlainGuard,
   },
 });
 

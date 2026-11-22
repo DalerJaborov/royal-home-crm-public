@@ -2,6 +2,9 @@ import { narrationMixByCrm } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadNarrationConfiguration, narrationQuotaExceededSince } from "./narrationGeneration.js";
 import { crmWillPrepareFirstNarration } from "./narrationPlan.js";
+import { mediaExecutionMode } from "./mediaExecution.js";
+import { narrationCurrencyError } from "@royal-home/shared";
+import { narrationFactsCurrent } from "./propertyNarration.js";
 
 /**
  * ОДНА СТРОКА ОБ ОЗВУЧКЕ В ЗАДАНИИ МОНТАЖЁРУ (12.11.2026). Задание на монтаж и перемонтаж
@@ -36,10 +39,35 @@ export function voicelessCopyHint(): string {
   return askMontajerForVoicelessCopy() ? ` ${VOICELESS_COPY_HINT}` : "";
 }
 
+/**
+ * УЙДЁТ ЛИ ГОЛОС СРАЗУ ЗА ФАЙЛАМИ ЭТОЙ ВЫДАЧИ (ревью 21.11.2026) — одно правило для строки задания и для
+ * «следующим сообщением» под файлами. Ровно условия, при которых крючок выдачи видео поставит передачу
+ * (narrationAutoFlow.ts::narrationAfterVideoIssued → narrationDelivery.ts::prepareNarrationDeliveryPlan):
+ * отправка голоса включена, у объекта не «Без озвучки», последняя версия не ручная маркетинга, готова и одобрена,
+ * факты объекта с ней совпадают (цену поменяли — будет новая версия) и цена в тексте не в долларах.
+ */
+export async function narrationFollowsVideoNow(propertyId: string): Promise<boolean> {
+  if (mediaExecutionMode("NARRATION") !== "LIVE") return false;
+  const [p, latest] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, include: { district: true } }),
+    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } }),
+  ]);
+  if (!p || p.deletedAt || p.narrationOff || !latest || (latest.source ?? "MANUAL") === "MANUAL") return false;
+  if (latest.status !== "READY" || !latest.approvedAt || !latest.storageKey) return false;
+  return narrationFactsCurrent(latest, p) && !narrationCurrencyError(latest.script);
+}
+
+/** Хвост итогового «отправлено N из N»: голос — следующим сообщением (оно и правда следующее), или null. */
+export async function narrationNextMessageLine(propertyId: string): Promise<string | null> {
+  if (!(await narrationFollowsVideoNow(propertyId))) return null;
+  const { config } = await loadNarrationConfiguration();
+  return narrationMixByCrm(config) ? "🎙 Озвучка — следующим сообщением: под неё длина и темп." : `🎙 Озвучка — следующим сообщением, вклейте её сами.${voicelessCopyHint()}`;
+}
+
 export async function narrationLineForMontajer(propertyId: string): Promise<string | null> {
   const [p, latest, { config, key }] = await Promise.all([
     prisma.property.findUnique({ where: { id: propertyId }, select: { narrationOff: true, videoMasterStorageKey: true } }),
-    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true } }),
+    prisma.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" }, select: { status: true, approvedAt: true, source: true, approveAsId: true } }),
     loadNarrationConfiguration(),
   ]);
   if (!p) return null;
@@ -47,16 +75,29 @@ export async function narrationLineForMontajer(propertyId: string): Promise<stri
   if (narrationMixByCrm(config)) {
     return latest || p.videoMasterStorageKey ? "🎙 Озвучку накладывает CRM: пришлите ролик БЕЗ голоса (музыка и звуки можно)." : null;
   }
-  if (!latest) return await crmWillPrepareFirstNarration(propertyId, config, key) ? `🎙 Озвучка готовится, придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}` : null;
+  if (!latest) return await crmWillPrepareFirstNarration(propertyId, config, key) ? `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}` : null;
   // Старая ручная озвучка маркетинга (до автоозвучки): сама она монтажёру не уходит — mp3 не обещаем
   // (ревью 12.11.2026). Если маркетинг передаст её кнопкой, она придёт отдельным сообщением.
   if ((latest.source ?? "MANUAL") === "MANUAL") return "🎙 Озвучку этого объекта ведёт маркетинг вручную: сама она сюда не придёт. Нужна — спросите маркетинг.";
-  if (latest.status === "READY" && latest.approvedAt) return `🎙 Озвучка одобрена и придёт (или уже пришла) отдельным mp3 — вклейте её сами.${voicelessCopyHint()}`;
+  // Одобренный голос уходит СЛЕДОМ за файлами этой же выдачи (21.11.2026, объект №211: голос раньше видео терялся) —
+  // при каждой выдаче заново, старый файл искать не нужно (videoHandoff.ts → narrationAutoFlow.ts::narrationAfterVideoIssued).
+  // Строка стоит в подписи ПЕРВОГО файла, поэтому здесь «сразу после файлов»; «следующим сообщением» — под итоговым
+  // «отправлено N из N» (narrationNextMessageLine). Уйдёт не сейчас (отправка выключена, цену поменяли — будет новая
+  // версия, в тексте доллары) — обещаем только «как будет готова» (ревью 21.11).
+  if (latest.status === "READY" && latest.approvedAt) {
+    return await narrationFollowsVideoNow(propertyId)
+      ? `🎙 Озвучка одобрена: mp3 придёт сразу после файлов ролика — вклейте её сами.${voicelessCopyHint()}`
+      : `🎙 Озвучка придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
+  }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && (await narrationQuotaExceededSince())) {
-    return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда отдельным mp3, как только будет готова.";
+    return "🎙 Озвучка задерживается: сервис озвучки на паузе. Придёт сюда, как будет готова.";
+  }
+  // Одобрена уже при сохранении (21.11.2026, approveAsId): ждать некого, только пока готовится звук.
+  if (["DRAFT", "GENERATING", "READY"].includes(latest.status) && latest.approveAsId) {
+    return `🎙 Озвучка готовится и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
   }
   if (["DRAFT", "GENERATING", "READY"].includes(latest.status)) {
-    return `🎙 Озвучка ждёт одобрения и придёт сюда отдельным mp3 — вклейте её.${voicelessCopyHint()}`;
+    return `🎙 Озвучка ждёт одобрения и придёт сюда, как будет готова, — вклейте её сами.${voicelessCopyHint()}`;
   }
   return null;
 }

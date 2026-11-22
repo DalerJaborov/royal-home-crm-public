@@ -91,6 +91,9 @@
 }
 
 :root[data-ui-look="royal"][data-theme="royal-home-2026-night"] {
+  --rh-ui-solid: #2a5fd9;
+  --rh-ui-solid-hover: #2457d6;
+  --rh-ui-money-amber: #f2b45a;
   --rh-ui-bg: #0e1014;
   --rh-ui-card: #161a21;
   --rh-ui-raised: #1d222b;
@@ -102,8 +105,9 @@
   --rh-ui-press: rgba(255, 255, 255, .08);
   --rh-ui-hover: rgba(255, 255, 255, .04);
   --rh-ui-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), 0 10px 24px -16px rgba(0, 0, 0, .7);
-  --rh-ui-primary: #3b74f5;
-  --rh-ui-primary-hover: #2c66f2;
+  /* Белый текст на кнопке ночью: #3b74f5 давал 4,2:1 (сторож lowContrast) — #2f6bf0 держит 4,7:1, а к карточке 3,7:1. */
+  --rh-ui-primary: #2f6bf0;
+  --rh-ui-primary-hover: #2459d6;
   --rh-ui-primary-ink: #9db8ff;
   --rh-ui-primary-soft: rgba(59, 116, 245, .18);
   --rh-ui-primary-soft-fg: #b9ccff;
@@ -211,6 +215,23 @@
   --rh-ui-brand-wa: #25d366;
   --rh-ui-brand-tg: #2aabee;
   --rh-ui-brand-fb: #0866ff;
+  --rh-ui-brand-ms: #0084ff;
+  --rh-ui-brand-yt: #ff0000;
+  --rh-ui-brand-tt: #000000;
+  /* Деньги: цвета категорий (одни значения на обе темы), синяя подложка под белым, янтарная заливка. */
+  --rh-ui-cat-office: #4a66e8;
+  --rh-ui-cat-ads: #c2571c;
+  --rh-ui-cat-salary: #26836d;
+  --rh-ui-cat-other: #7a68c9;
+  --rh-ui-solid: #2c66f2;
+  --rh-ui-solid-hover: #2459d6;
+  --rh-ui-money-amber: #e39a2d;
+  /* Цвета долей кольца (аналитика): текст долей, подписанных в легенде. */
+  --rh-ui-ink-aqua: #0d7f74;
+  --rh-ui-ink-lav: #6a4bc9;
+  --rh-ui-ink-sky: #0f6fa8;
+  --rh-ui-ink-lime: #5f7d0c;
+  --rh-ui-ink-faint: #8a8f9c;
   --rh-ui-brand-ig: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%);
   /* Граница поля ввода: >= 3:1 к карточке, фону и подложке поля (WCAG 1.4.11); сторож — theme-look-royal.test.ts. */
   --rh-ui-field-line: #7d8494;
@@ -558,6 +579,8 @@
 }
 :root[data-ui-look="royal"] .ry-avatar[data-size="44"] { width: 44px; height: 44px; }
 :root[data-ui-look="royal"] .ry-avatar[data-size="64"] { width: 64px; height: 64px; font-size: var(--rh-fs-xl); }
+/* Крупное круглое фото сотрудника (карточка сотрудника, 22.11.2026): без рамки и тени. */
+:root[data-ui-look="royal"] .ry-avatar[data-size="96"] { width: 96px; height: 96px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-2xl); }
 :root[data-ui-look="royal"] .ry-avatar img { width: 100%; height: 100%; object-fit: cover; }
 :root[data-ui-look="royal"] .ry-avatar[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
 :root[data-ui-look="royal"] .ry-avatar[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
@@ -650,7 +673,9 @@
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
-:root[data-ui-look="royal"] a.ry-tile:active { transform: scale(.98); }
+:root[data-ui-look="royal"] :is(a, button).ry-tile:active:not(:disabled) { transform: scale(.98); }
+/* Плитка-кнопка (открывает список за цифрой): та же плитка, без рамки и шрифта кнопки. */
+:root[data-ui-look="royal"] button.ry-tile { width: 100%; border: 0; font: inherit; text-align: left; cursor: pointer; }
 :root[data-ui-look="royal"] .ry-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] .ry-tile-value { color: var(--rh-ui-ink-tile-num); }
@@ -789,7 +814,7 @@
    (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
    снимает. Браузер без animation-timeline остаётся как был. */
 @supports (animation-timeline: scroll()) {
-  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs, .ry-agc-tabs) {
     /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
     animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
   }
@@ -847,6 +872,12 @@
 
 /* Нижнее меню на самых узких телефонах: подписи «Главная» и «Клиенты» стояли вплотную
    (зазор 4 px на 320, съёмка 20.11). Капсула ближе к краям, подписи чуть плотнее. */
+/* Подписи нижнего меню — как вторичный текст (15 на телефоне), а не 13: главная навигация
+   не должна быть мельче остального (аудит 20.11, К04.1). На 320–389 места на 15 не хватает (зазор между подписями 4 px при норме 6) — там 13. */
+@media (min-width: 390px) and (max-width: 767.98px) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label],
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-tab-label] { font-size: var(--rh-fs-sm); }
+}
 @media (max-width: 359.98px) {
   :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { left: max(6px, env(safe-area-inset-left, 0px)); right: max(6px, env(safe-area-inset-right, 0px)); padding-inline: 2px; }
   :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { gap: 0; }
@@ -937,3 +968,58 @@
 /* Поле прототипа (.rh2 .scr .inp) без своего правила в слое раздела: прототип снимает ему тень,
    и граница пропадала (отчёт 48 экранов, повторное ревью #337). Правило раздела весит больше. */
 :root[data-ui-look="royal"] .rh2 .scr .inp { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); }
+/* ======================= СУММА И ЧИСЛО ПО ШИРИНЕ ЯЧЕЙКИ (К10, 21.11.2026) =======================
+ * `.rh-fit` — крупное число или сумма в плитке (`.rh-fit-host` — сама плитка, container-type).
+ * Число НИКОГДА не переносится и не рвётся посреди: «5 499 999,45 с.» (до 17 знаков) стоит одной
+ * строкой, а на узкой ячейке уходит на ступень шкалы ниже (2xl → xl → lg → sm) по ширине ячейки.
+ * Пороги — ≈ 10 кеглей на сумму из 16–17 знаков (см. ниже data-len), для масштаба «Размера текста» 1, 1,12 и 1,25.
+ * Размер — с !important: у плиток разделов своё правило `… .tile b` с большей специфичностью.
+ * Слова в таком месте («нет») — `.rh-empty`, обычным шрифтом, не цифровым. */
+:root[data-ui-look="royal"] .rh-fit-host { container-type: inline-size; min-width: 0; }
+:root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-2xl) !important; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh-note { display: block; font-size: var(--rh-fs-sm) !important; line-height: 1.35; color: var(--rh-ui-hint) !important; }
+:root[data-ui-look="royal"] .rh-empty { font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: var(--rh-fs-lg); font-weight: 600; letter-spacing: 0; color: var(--rh-ui-hint); white-space: normal; }
+/* Ступень по длине строки (data-len на значении: s ≤ 9 знаков, m ≤ 13, l — длиннее): короткая сумма («5 000 с.») не
+ * мельчает раньше времени — порог ≈ 6 / 8 / 10 кеглей. Без data-len — как l. Масштабы «Размера текста» 1 / 1,12 / 1,25. */
+/* масштаб 1 */
+@container (max-width: 280px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 224px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 168px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 160px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 144px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 120px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 108px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+/* масштаб 1,12 */
+@container (max-width: 314px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 251px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 202px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 189px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 162px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 121px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+/* масштаб 1,25 */
+@container (max-width: 350px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 280px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 250px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 210px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 150px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+
+/* ======================= ТЕЛЕФОН: ПОДПИСИ КНОПОК И СВАЙП (К04, 21.11.2026) =======================
+ * Предложения и пояснения, которые в теме были ≤ 14 px, поднимает на телефоне генератор
+ * `npm run gen:typeset` (адресно, по селекторам темы, `theme-2026-typeset.css`, ветка ≤ 767.98).
+ * Здесь — только два узких места старой разметки: малая кнопка Clean и подпись под свайпом строки.
+ * Размеры — токены; жёсткого «пола» по имени тега (p, small, dt…) в виде нет: он сжимал крупные
+ * числа (цена объекта 32 → 15, плитка главной 20 → 15) — ревью #351. */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] [data-clean-size="sm"] { font-size: var(--rh-fs-sm); }
+  :root[data-ui-look="royal"] [data-clean-size="md"] { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .sw .under :is(.l, .r) { font-size: var(--rh-fs-sm); }
+}

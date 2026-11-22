@@ -25,6 +25,7 @@ const BY_PATH: Record<string, RoyalIconName> = {
   "/security": "shield-check",
   "/finance": "banknote",
   "/reports": "chart-no-axes-column",
+  "/director": "layout-dashboard",
   "/sources": "target",
   "/insights": "lightbulb",
   "/ads": "megaphone",

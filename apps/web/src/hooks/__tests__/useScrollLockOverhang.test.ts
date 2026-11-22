@@ -30,6 +30,8 @@ describe("useScrollLock: --rh-vv-over", () => {
     vi.stubGlobal("window", win);
     vi.stubGlobal("document", {
       body: { style: {} },
+      // Блокировка ещё и гасит лишние движения пальца (lib/touchScrollTrap.ts) — слушатель на документе.
+      addEventListener: () => undefined, removeEventListener: () => undefined,
       documentElement: { style: { setProperty: (k: string, v: string) => props.set(k, v), removeProperty: (k: string) => props.delete(k) } },
     });
   });

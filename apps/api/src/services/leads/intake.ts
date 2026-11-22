@@ -1,4 +1,6 @@
-import { Prisma, type Client } from "../../generated/prisma/client.js";
+import { Prisma } from "../../generated/prisma/client.js";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../../db.js";
 import { adPropertyForLead } from "../../lib/adPropertyRule.js";
 import { prisma, type TxClient } from "../../db.js";
 import { changeClientAgent, ClientOwnerRaceError } from "../../lib/changeClientAgent.js";

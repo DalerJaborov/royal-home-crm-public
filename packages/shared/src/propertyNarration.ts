@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
-import { numberToWords, russianGenitive, russianOrdinal } from "./spokenNumber.js";
+import { numberToWords, russianOrdinal } from "./spokenNumber.js";
 import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
 /**
@@ -107,7 +107,10 @@ const narrationConfigBase = z.object({
   autoGenerate: z.boolean().optional(),
   /** Пауза после последней правки, прежде чем платить за новую озвучку. */
   debounceMinutes: z.number().int().min(0).max(120).optional(),
-  /** Потолок расхода ElevenLabs за сутки по Душанбе: 0 — генерация остановлена. */
+  /** «▶ Прослушать» в мастере и карточке: новых звуков на человека в сутки (повтор того же бесплатен); по умолчанию 100. */
+  narrationListenPerPersonDaily: z.number().int().min(1).max(1000).optional(),
+  /** Дневной предел расхода ElevenLabs по Душанбе. Озвучку роликов он НЕ останавливает (владелец 21.11.2026: «не нужно
+   *  лимит жёсткий»): сверх предела она идёт, руководству одно уведомление в сутки. 0 — озвучка остановлена совсем. */
   dailyCharLimit: z.number().int().min(0).max(1_000_000).optional(),
   dailyGenerationLimit: z.number().int().min(0).max(1000).optional(),
   templates: z.array(narrationTemplateSchema).max(100).optional(),
@@ -286,6 +289,11 @@ export function narrationModelError(config: Pick<NarrationConfig, "modelId" | "t
 }
 
 export const NARRATION_LIMIT_DEFAULTS = { debounceMinutes: 3, dailyCharLimit: 20_000, dailyGenerationLimit: 40 } as const;
+/** Прослушиваний нового звука на человека в сутки по умолчанию (владелец 21.11.2026: предел не должен мешать работе). */
+export const NARRATION_LISTEN_PER_PERSON_DEFAULT = 100;
+export function narrationListenPerPersonDaily(config: Pick<NarrationConfig, "narrationListenPerPersonDaily">): number {
+  return config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT;
+}
 export function narrationLimits(config: Pick<NarrationConfig, "debounceMinutes" | "dailyCharLimit" | "dailyGenerationLimit">) {
   return {
     debounceMs: (config.debounceMinutes ?? NARRATION_LIMIT_DEFAULTS.debounceMinutes) * 60_000,
@@ -309,7 +317,8 @@ export type NarrationFacts = {
 export function suggestedNarration(facts: NarrationFacts): string {
   const types: Record<string, string> = { APARTMENT: "Квартира", HOUSE: "Дом", LAND: "Участок", COMMERCIAL: "Коммерческое помещение" };
   return [types[facts.type] ?? "Объект недвижимости", facts.rooms ? `${facts.rooms} комнат.` : "", `Площадь ${facts.areaSqm} квадратных метров.`,
-    facts.floor ? `Этаж ${facts.floor}${facts.totalFloors ? ` из ${facts.totalFloors}` : ""}.` : "",
+    // Этаж без этажности дома (владелец 21.11.2026): «13 из 15» в озвучку не идёт, этажность есть под роликом.
+    facts.floor ? `Этаж ${facts.floor}.` : "",
     facts.district ? `Район: ${facts.district}.` : "",
     "Цена и номер телефона указаны в описании под видео. Поделитесь этим видео с теми, кто ищет недвижимость.",
   ].filter(Boolean).join(" ");
@@ -457,19 +466,6 @@ export function narrationRoomsWords(rooms: number | null, lang: NarrationLang): 
   return lang === "tg" ? `${tajikCardinal(n)} ҳуҷра` : `${numberToWords(n, "ru", { feminine: true })} ${rubPlural(n, "комната", "комнаты", "комнат")}`;
 }
 
-/**
- * {этажность} и {этажность_род} (21.11.2026): этажность одним словом, слитно, как пишут и говорят — «шонздаҳошёна»,
- * «нӯҳошёна», «бисту панҷошёна»; по-русски «шестнадцатиэтажный» / «шестнадцатиэтажного», «двадцатиодноэтажный».
- * По-таджикски падежа нет — обе формы одинаковые. Больше шестидесяти — пусто (фраза в скобках выпадает).
- */
-export function narrationStoreysWords(totalFloors: number | null, lang: NarrationLang, genitive = false): string {
-  if (totalFloors === null || !Number.isFinite(totalFloors) || totalFloors < 1 || totalFloors > 60) return "";
-  const n = Math.round(totalFloors);
-  if (lang === "tg") return `${tajikCardinal(n)}ошёна`;
-  const stem = russianGenitive(n).replace(/одного$/u, "одно").replace(/\s+/gu, "");
-  return `${stem}этаж${genitive ? "ного" : "ный"}`;
-}
-
 function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
   const area = Number(facts.areaSqm);
   const landSotka = facts.landSotka === null || facts.landSotka === undefined || facts.landSotka === "" ? NaN : Number(facts.landSotka);
@@ -486,10 +482,12 @@ function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<s
       : narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
-    // По-русски этажность стоит после «из»: «пятый этаж из девяти».
-    этажей: lang === "ru" && facts.totalFloors && facts.totalFloors > 0 ? russianGenitive(facts.totalFloors) : spokenNumber(facts.totalFloors, lang),
-    этажность: narrationStoreysWords(facts.totalFloors, lang),
-    этажность_род: narrationStoreysWords(facts.totalFloors, lang, true),
+    // Этажность дома в озвучке НЕ говорим (владелец 21.11.2026: «13 этаж из 15» не надо, «просто этаж сказать»; остальное
+    // есть под роликом). Слова остаются в списке, чтобы старые шаблоны из Настроек читались; значение всегда пустое,
+    // обороты вокруг {этажей} снимает `withoutTotalFloors`, а скобка «[… {этажность}]» с пустым словом выпадает сама.
+    этажей: "",
+    этажность: "",
+    этажность_род: "",
     район: facts.district?.trim() ?? "",
     // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
     // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
@@ -571,8 +569,8 @@ function renderSegment(text: string, values: Record<string, string>): { out: str
   return { out, missing };
 }
 
-/** Предложение, где {цена} стоит вне скобок, выпадает целиком, когда цену сказать нельзя (иначе «Нархаш .»). */
-function dropPriceSentences(text: string): string {
+/** Предложение, где слово `token` («{цена}») стоит вне скобок, выпадает целиком (иначе «Нархаш .»). */
+function dropSentencesWith(text: string, token: string): string {
   // Предложения режутся только вне [ ]: фрагмент «если есть» с {цена} выпадет и сам (renderSegment).
   const sentences: Array<{ text: string; price: boolean }> = [];
   let current = "", price = false, depth = 0;
@@ -580,7 +578,7 @@ function dropPriceSentences(text: string): string {
     const ch = text[i]!;
     if (ch === "[") depth++;
     else if (ch === "]") depth = Math.max(0, depth - 1);
-    else if (depth === 0 && text.startsWith("{цена}", i)) price = true;
+    else if (depth === 0 && text.startsWith(token, i)) price = true;
     current += ch;
     // Конец предложения: «.!?» вне скобок или «[…предложение.]» — скобка, закрывшая целое предложение.
     const ends = /[.!?]/u.test(ch) || (ch === "]" && /[.!?]/u.test(text[i - 1] ?? ""));
@@ -592,9 +590,37 @@ function dropPriceSentences(text: string): string {
   if (current.trim()) sentences.push({ text: current, price });
   return sentences.filter((s) => !s.price).map((s) => s.text.trim()).join(" ");
 }
+/**
+ * ЭТАЖНОСТЬ ДОМА В ОЗВУЧКЕ НЕ ГОВОРИМ (владелец 21.11.2026, ролик №219: «ошёнаи сенздаҳуми бинои чордаҳ ошёна» — «просто
+ * этаж сказать и всё»). Шаблоны из Настроек не правим (данные прода): оборот вокруг {этажей} снимается при сборке текста,
+ * и фраза остаётся грамотной: «ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст» → «ошёнаи {этаж_пор} ҷойгир аст»
+ * (изафет «-и» перед снятым словом уходит вместе с ним), «{этаж_пор} этаж из {этажей}» → «{этаж_пор} этаж».
+ * Что осталось с {этажей} (фраза только про этажность дома: «Хона {этажей} ошёна дорад») — предложение выпадает целиком.
+ */
+export function withoutTotalFloors(text: string): string {
+  if (!text.includes("{этажей}")) return text;
+  const gap = String.raw`[ \u00a0]`;
+  const stripped = text
+    // tg: «{этаж_пор}и бинои {этажей} ошёна», «{этаж}ум бинои {этажей}-ошёна»
+    .replace(new RegExp(String.raw`(\{этаж(?:_пор)?\}(?:ум|юм)?)и?${gap}+(?:бинои|иморати|бино|ҳавлии|хонаи)${gap}+\{этажей\}[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?`, "giu"), "$1")
+    // tg: «ошёнаи {этаж_пор} аз {этажей}» и «аз {этажей} ошёна»
+    .replace(new RegExp(String.raw`${gap}+аз${gap}+\{этажей\}(?:[ \u00a0-]*ошёна(?:гӣ|и|ӣ)?)?`, "giu"), "")
+    // ru: «этаж из {этажей}», «из {этажей} этажей»
+    .replace(new RegExp(String.raw`${gap}+из${gap}+\{этажей\}(?:[ \u00a0-]+этаж\p{L}*)?`, "giu"), "")
+    // ru: «в {этажей}-этажном доме»
+    .replace(new RegExp(String.raw`,?${gap}+(?:в|на)${gap}+\{этажей\}[ \u00a0-]*этажн\p{L}*(?:${gap}+(?:доме|здании|комплексе|новостройке|бизнес-центре|многоэтажке))?`, "giu"), "");
+  return stripped.includes("{этажей}") ? dropSentencesWith(stripped, "{этажей}") : stripped;
+}
+/** Сторож сохранения шаблона в Настройках: {этажей} в новый или изменённый текст озвучки не принимаем. */
+export function narrationTotalFloorsError(text: string): string | null {
+  return /\{этажей\}|\{этажность(?:_род)?\}/u.test(text)
+    ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} и {этажность} вместе с оборотом вокруг них"
+    : null;
+}
 export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts): string {
   const values = placeholderValues(facts, template.lang);
-  const { out } = renderSegment(values.цена ? template.text : dropPriceSentences(template.text), values);
+  const source = withoutTotalFloors(template.text);
+  const { out } = renderSegment(values.цена ? source : dropSentencesWith(source, "{цена}"), values);
   return out
     .replace(/[ \t]+/gu, " ")
     .replace(/ +([.,!?])/gu, "$1")
@@ -750,6 +776,8 @@ export const narrationDraftSchema = z.object({
   endingId: z.string().trim().max(40).nullable().optional(),
   /** Агент правит текст или голос и сразу просит новое аудио (только при включённой автоозвучке). */
   generate: z.boolean().optional(),
+  /** Прослушал этот текст и голос кнопкой «▶ Прослушать» (21.11.2026): совпало — звук берётся без второй оплаты. */
+  listenId: z.string().uuid().optional(),
 });
 /** Выбор агента в конце мастера (CRM и Шабнам): одно поле запроса создания объекта. */
 export const narrationWizardChoiceSchema = z.object({
@@ -761,8 +789,23 @@ export const narrationWizardChoiceSchema = z.object({
   /** Шаблон и концовку мастер предвыбрал случайно, агент их не трогал: «последним выбором» они не становятся. */
   autoPicked: z.literal(true).optional(),
   voiceId: z.string().trim().max(100).optional(),
+  /**
+   * Сотрудник прослушал озвучку прямо в мастере (21.11.2026, владелец: «разве недостаточно, что выбрали озвучку?»).
+   * Сервер сам сверяет, что текст и голос версии совпали с прослушанным, и только тогда берёт этот звук готовым и
+   * одобренным (apps/api lib/narrationListen.ts). Не совпали — обычный путь: озвучка готовится и ждёт одобрения.
+   */
+  listenId: z.string().uuid().optional(),
 });
 export type NarrationWizardChoice = z.infer<typeof narrationWizardChoiceSchema>;
+/** «▶ Прослушать» в мастере: текст, голос и язык ровно так, как их видит сотрудник. */
+export const narrationListenRequestSchema = z.object({
+  script: z.string().trim().min(10).max(5000),
+  voiceId: z.string().trim().min(1).max(100),
+  lang: z.enum(["tg", "ru"]),
+}).strict();
+export type NarrationListenRequest = z.infer<typeof narrationListenRequestSchema>;
+/** Ответ «▶ Прослушать»: id звука (уходит в запрос создания как listenId) и ссылка на файл; cached — без оплаты. */
+export type NarrationListenResult = { id: string; fileUrl: string; cached: boolean };
 /** Карточка объекта: «Без озвучки» / «Включить озвучку». */
 export const narrationModeSchema = z.object({ off: z.boolean() }).strict();
 export const narrationActionSchema = z.object({ expectedRevision: z.number().int().positive(), confirmed: z.literal(true) });

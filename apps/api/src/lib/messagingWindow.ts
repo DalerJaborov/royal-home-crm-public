@@ -1,4 +1,8 @@
 import { prisma } from "../db.js";
+import { META_MESSAGING_WINDOW_MS, WINDOWED_CHANNELS, messagingWindowState } from "@royal-home/shared";
+
+// Одно правило окна на сервер и экран — packages/shared/src/messagingWindow.ts.
+export { META_MESSAGING_WINDOW_MS };
 
 /**
  * ЗАКРЫТОЕ ОКНО ПЕРЕПИСКИ У META — ОДНО ОПРЕДЕЛЕНИЕ НА ПРОЕКТ.
@@ -59,19 +63,14 @@ export function isMessagingWindowClosedError(message: string): boolean {
   return false;
 }
 
-/** Сутки Meta: столько после сообщения клиента ему можно писать свободным текстом. */
-export const META_MESSAGING_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Открыто ли окно ДО отправки (28.09.2026) — чтобы агент видел «не дойдёт» на
- * кнопке, а не в отказе после. Правило только у каналов Meta; Telegram и чат
- * на сайте окна не знают. Клиент не писал вовсе — окно закрыто: так бывает у
- * диалога, заведённого первым сообщением из CRM.
+ * Окно НЕ закрыто — ДО отправки (28.09.2026, правило сведено 21.11.2026).
+ * Считает packages/shared: «неизвестно» (клиент не писал или отметок времени нет)
+ * НЕ блокирует — решит сама платформа; блокируем только достоверно закрытое.
+ * Правило только у каналов Meta; Telegram и чат на сайте окна не знают.
  */
 export function isMessagingWindowOpen(channel: string, lastClientMessageAt: Date | null, now = Date.now()): boolean {
-  if (channel !== "WHATSAPP" && channel !== "INSTAGRAM" && channel !== "FACEBOOK") return true;
-  if (!lastClientMessageAt) return false;
-  return now - lastClientMessageAt.getTime() < META_MESSAGING_WINDOW_MS;
+  return messagingWindowState(channel, lastClientMessageAt, now) !== "closed";
 }
 
 /**
@@ -90,8 +89,6 @@ export function isMessagingWindowOpen(channel: string, lastClientMessageAt: Date
  * однажды получивший сообщение, пишет туда когда угодно, поэтому наличие ЛЮБОГО
  * телеграм-диалога у клиента уже само по себе делает «написать» возможным.
  */
-const WINDOW_MS = META_MESSAGING_WINDOW_MS;
-const WINDOWED_CHANNELS = ["WHATSAPP", "INSTAGRAM", "FACEBOOK"] as const;
 
 export async function hasOpenMessagingChannel(clientId: string, now: Date = new Date()): Promise<boolean> {
   const [metaConversations, telegram, telegramDirect] = await Promise.all([
@@ -103,5 +100,29 @@ export async function hasOpenMessagingChannel(clientId: string, now: Date = new 
     prisma.telegramDirectConversation.findFirst({ where: { clientId }, select: { id: true } }),
   ]);
   if (telegram || telegramDirect) return true;
-  return metaConversations.some((c) => c.lastMessageAt && now.getTime() - c.lastMessageAt.getTime() < WINDOW_MS);
+  return metaConversations.some((c) => c.lastMessageAt && now.getTime() - c.lastMessageAt.getTime() < META_MESSAGING_WINDOW_MS);
+}
+
+/**
+ * Отказ доставки WhatsApp «вне окна» по статусу `failed` из вебхука (21.11.2026).
+ *
+ * WhatsApp Cloud API принимает свободный текст синхронно (200) и сообщает отказ
+ * позже, статусом: код 131047 «Re-engagement message» («прошло больше 24 часов с
+ * последнего ответа клиента», документация Meta, Cloud API → Error codes).
+ * Это штатное правило платформы, а не поломка системы: в Журнал ошибок оно не
+ * идёт. Другие коды (131026 «номер не в WhatsApp», 131049, 131053) сюда не
+ * входят — это настоящие причины недоставки.
+ */
+export function isWhatsAppWindowFailure(errorCode: number | undefined, errorText: string | undefined): boolean {
+  if (errorCode === 131047) return true;
+  if (errorCode !== undefined) return false;
+  return isMessagingWindowClosedError(errorText ?? "");
+}
+
+/** Текст сотруднику, когда свободный текст вне окна не отправлен. */
+export function windowClosedStaffText(channel: string): string {
+  if (channel === "WHATSAPP") {
+    return "Прошло больше 24 часов, напишите клиенту шаблоном «Написать в WhatsApp».";
+  }
+  return "Клиент не писал последние 24 часа — Instagram и Messenger запрещают отправлять свободный текст, пока он не напишет первым. Дождитесь его сообщения или позвоните.";
 }
