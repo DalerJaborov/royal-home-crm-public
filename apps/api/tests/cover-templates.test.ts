@@ -410,9 +410,6 @@ describe("встроенный «Royal Green» (владелец, 29.09.2026 —
     { name: "минимум", p: { rooms: null, areaSqm: 90, floor: null, price: 890_000, currency: "TJS", districtName: null, address: null } },
     { name: "всё длинное разом", p: { rooms: 6, areaSqm: 12345.5, floor: 24, price: 12_500_000, currency: "USD", districtName: "Исмоили Сомонӣ (бывший Фрунзенский)", address: null } },
   ];
-  // Плашка цены в координатах квадрата (royal-green.build.mjs, v2 29.09): x 57…715.
-  const PLATE = { left: 57, right: 715 };
-
   it("по умолчанию выбирается «Royal Green»", async () => {
     const all = await listCoverTemplates();
     const pick = pickCoverTemplate(all, { coverTemplateMode: "FIXED", coverTemplateId: null, coverTemplateEnabledIds: [] });
@@ -434,27 +431,63 @@ describe("встроенный «Royal Green» (владелец, 29.09.2026 —
     }
   });
 
-  it("цена любой длины помещается в кремовую плашку (по пикселям)", async () => {
+  it("цена любой длины остаётся справа от знака и не выходит за край кадра (по пикселям)", async () => {
     const sharp = (await import("sharp")).default;
     for (const { name, p } of cases) {
       const values = buildCoverPosterValues(p, { usdToTjs: 10.9 });
-      const svg = await buildTemplateSvgLayer(GREEN_COVER_TEMPLATE, "square", values, false);
-      const open = /<svg[^>]*>/.exec(svg)?.[0];
-      const text = /<g id="price">[\s\S]*?(<text[\s\S]*?<\/text>)/.exec(svg)?.[1];
-      expect(open && text).toBeTruthy();
-      const { data, info } = await sharp(Buffer.from(`${open}${text}</svg>`)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      let x0 = info.width, x1 = 0;
-      for (let y = 0; y < info.height; y++) {
-        for (let x = 0; x < info.width; x++) {
-          if (data[(y * info.width + x) * 4 + 3] > 96) {
-            if (x < x0) x0 = x;
-            if (x > x1) x1 = x;
+      for (const format of ["story", "square"] as const) {
+        const svg = await buildTemplateSvgLayer(GREEN_COVER_TEMPLATE, format, values, false);
+        const open = /<svg[^>]*>/.exec(svg)?.[0];
+        const text = /<g id="price">[\s\S]*?(<text[\s\S]*?<\/text>)/.exec(svg)?.[1]?.replace(/ filter="[^"]*"/, "");
+        expect(open && text).toBeTruthy();
+        const { data, info } = await sharp(Buffer.from(`${open}${text}</svg>`)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        let x0 = info.width, x1 = 0;
+        for (let y = 0; y < info.height; y++) {
+          for (let x = 0; x < info.width; x++) {
+            if (data[(y * info.width + x) * 4 + 3] > 96) {
+              if (x < x0) x0 = x;
+              if (x > x1) x1 = x;
+            }
           }
         }
+        expect(x1 - x0, `${name}/${format}: цифры цены не нарисованы`).toBeGreaterThan(120);
+        // Знак стоит слева до x≈264, правый край кадра — 1080 (поле 40).
+        const ok = x0 >= 300 && x1 <= 1040;
+        expect(`${name}/${format}: ${ok ? "внутри" : `${x0}–${x1} вне поля`}`).toBe(`${name}/${format}: внутри`);
       }
-      expect(x1 - x0).toBeGreaterThan(150);
-      const inside = x0 >= PLATE.left + 8 && x1 <= PLATE.right - 8;
-      expect(`${name}: ${inside ? "внутри" : `${x0}–${x1} вне плашки`}`).toBe(`${name}: внутри`);
+    }
+  });
+
+  it("плашка: тип объекта, вторая строка и площадь — по типам (макет 21.11.2026)", () => {
+    const base = { rooms: 2, areaSqm: 90, floor: null, price: 900_000, currency: "TJS", districtName: "Фирдавсӣ", address: null };
+    const money = { usdToTjs: null };
+    const house = buildCoverPosterValues({ ...base, type: "HOUSE", totalFloors: 2 }, money);
+    expect([house.kind, house.kindSub, house.kindSolo, house.areaBig, house.areaUnit, house.areaSup]).toEqual(["ҲАВЛИИ", "2 ОШЁНА", null, "90", "м", "2"]);
+    expect(house.placeLine).toBe("ноҳияи Фирдавсӣ");
+    // Дом без этажности — комнаты; без комнат — одна строка «ҲАВЛИИ».
+    expect(buildCoverPosterValues({ ...base, type: "HOUSE" }, money).kindSub).toBe("2 ХОНАГА");
+    expect(buildCoverPosterValues({ ...base, rooms: null, type: "HOUSE" }, money).kindSolo).toBe("ҲАВЛИИ");
+    const apt = buildCoverPosterValues({ ...base, type: "APARTMENT", rooms: 3 }, money);
+    expect([apt.kind, apt.kindSub]).toEqual(["КВАРТИРАИ", "3 ХОНАГА"]);
+    const comm = buildCoverPosterValues({ ...base, rooms: null, type: "COMMERCIAL", districtName: null }, money);
+    expect([comm.kind, comm.kindSub, comm.kindSolo, comm.placeLine]).toEqual(["ТИҶОРАТӢ", null, "ТИҶОРАТӢ", "шаҳри Душанбе"]);
+    const land = buildCoverPosterValues({ ...base, rooms: null, type: "LAND", landAreaSotka: 6.5 }, money);
+    expect([land.kindSolo, land.areaBig, land.areaUnit, land.areaSup]).toEqual(["ЗАМИН", "6,5", "сотих", ""]);
+    // Старый вызов без типа не ломается: квартира по комнатам.
+    expect(buildCoverPosterValues(base, money).kind).toBe("КВАРТИРАИ");
+  });
+
+  it("плашка в SVG: две строки или одна по центру, подписи типа не пустые", async () => {
+    const base = { rooms: 2, areaSqm: 90, floor: null, price: 900_000, currency: "TJS", districtName: null, address: null };
+    const money = { usdToTjs: null };
+    for (const format of ["story", "square"] as const) {
+      const two = await buildTemplateSvgLayer(GREEN_COVER_TEMPLATE, format, buildCoverPosterValues({ ...base, type: "HOUSE", totalFloors: 2 }, money), false);
+      expect(two).toContain("ҲАВЛИИ");
+      expect(two).toContain("2 ОШЁНА");
+      expect(two).not.toContain('id="kindSolo"');
+      const one = await buildTemplateSvgLayer(GREEN_COVER_TEMPLATE, format, buildCoverPosterValues({ ...base, rooms: null, type: "COMMERCIAL" }, money), false);
+      expect(one).toContain("ТИҶОРАТӢ");
+      expect(one).not.toContain('id="kind"');
     }
   });
 
@@ -505,11 +538,11 @@ describe("встроенный «Royal Green» (владелец, 29.09.2026 —
       }
     });
 
-    it("фон на всю высоту: полоса кремовая от верхней кромки до панели, панель до нижней кромки с градиентом и золотой линией, знак внутри полосы по центру", async () => {
+    it("фон на всю высоту: фото сверху, кремовый переход, плашка и ряд на кремовом, волна до самого низа, знак на месте", async () => {
       const sharp = (await import("sharp")).default;
       const values = buildCoverPosterValues(cases[0].p, { usdToTjs: 10.9 });
-      // Светлая «фотография»: тёмное и золотое на ней — только то, что нарисовал шаблон.
-      const bg = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: { r: 236, g: 232, b: 218 } } }).jpeg().toBuffer();
+      // Тёмная «фотография»: светлое и зелёное в нижней части — только то, что нарисовал шаблон.
+      const bg = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: { r: 40, g: 60, b: 90 } } }).jpeg().toBuffer();
       const img = await renderCoverPosterImage(bg, values, "story", null, true, GREEN_COVER_TEMPLATE);
       const { data, info } = await sharp(img).raw().toBuffer({ resolveWithObject: true });
       expect([info.width, info.height]).toEqual([1080, 1920]);
@@ -517,50 +550,34 @@ describe("встроенный «Royal Green» (владелец, 29.09.2026 —
         const i = (y * info.width + x) * info.channels;
         return { r: data[i], g: data[i + 1], b: data[i + 2] };
       };
-      const cream = ({ r, g, b }: { r: number; g: number; b: number }) => r > 200 && g > 190 && b > 175 && r - b < 60;
-
-      // Полоса: кремовая в самом верху (строки 0…239) и дальше до панели, постоянной ширины.
-      for (const y of [0, 1, 60, 120, 200, 239, 260, 520]) {
-        for (const x of [3, 120, STRIP - 8]) expect(cream(at(x, y)), `полоса (${x},${y}) ${JSON.stringify(at(x, y))}`).toBe(true);
+      const cream = ({ r, g, b }: { r: number; g: number; b: number }) => r > 220 && g > 205 && b > 200 && r - b < 40;
+      // Фото сверху остаётся фото (тёмно-синее), кремовый переход его гасит к плашке.
+      expect(at(540, 100).b, "верх кадра — фото").toBeGreaterThan(at(540, 100).r + 20);
+      expect(cream(at(540, 1440)), `кремовое под плашкой ${JSON.stringify(at(540, 1440))}`).toBe(true);
+      expect(cream(at(300, 1425)), "кремовое между плашкой и рядом").toBe(true);
+      // Плашка: тёмно-зелёная у левого края на строках 1290…1380.
+      for (const y of [1300, 1333, 1375]) {
+        const { r, g, b } = at(20, y);
+        expect(g > r && g > b && r < 40, `плашка (20,${y}) ${JSON.stringify({ r, g, b })}`).toBe(true);
       }
-      expect(cream(at(330, 700))).toBe(true); // у правого края полосы панель начинается ниже
-      // Ни тёмных, ни золотых пикселей в полосе выше строки 240: знака и надписей там нет.
-      for (let y = 0; y < GRID_TOP; y++) {
-        for (let x = 0; x < STRIP - 4; x += 3) {
-          const { r, g, b } = at(x, y);
-          expect(r + g + b, `в полосе выше сетки есть рисунок (${x},${y})`).toBeGreaterThan(540);
-        }
-      }
-
-      // Панель продолжается до самого низа по всей ширине, внизу она глубже, чем у блока.
+      // Волна: до самого низа по всей ширине глубокий зелёный.
       for (const x of [3, 540, 1076]) {
         const bottom = at(x, 1919);
-        expect(bottom.r < 25 && bottom.g < 45 && bottom.b < 40, `низ панели (${x},1919) ${JSON.stringify(bottom)}`).toBe(true);
+        expect(bottom.r < 25 && bottom.g < 70 && bottom.b < 55 && bottom.g > bottom.r, `низ волны (${x},1919) ${JSON.stringify(bottom)}`).toBe(true);
       }
-      expect(at(540, 1700).g - at(540, 1915).g).toBeGreaterThanOrEqual(8);
-
-      // Ниже сетки (строки 1680…1919) нет светлого и золотого, кроме одной тонкой линии.
-      const lightRows: number[] = [];
-      for (let y = GRID_BOTTOM + 1; y < 1920; y++) {
-        let max = 0;
-        for (let x = 0; x < 1080; x += 3) {
+      // Ниже сетки Instagram (1680…1919) светлого и золотого нет вовсе — только глубокий зелёный.
+      for (let y = GRID_BOTTOM + 1; y < 1920; y += 7) {
+        for (let x = 0; x < 1080; x += 9) {
           const { r, g, b } = at(x, y);
-          max = Math.max(max, (r + g + b) / 3);
+          expect(r + g + b, `светлое ниже сетки (${x},${y})`).toBeLessThan(250);
         }
-        if (max > 90) lightRows.push(y);
       }
-      expect(lightRows.length, `светлые строки ниже сетки: ${lightRows.join(",")}`).toBeGreaterThanOrEqual(1); // линия есть
-      expect(lightRows.length, `светлые строки ниже сетки: ${lightRows.join(",")}`).toBeLessThanOrEqual(5); // и она тонкая
-      expect(at(540, lightRows[0]).r).toBeGreaterThan(120); // золотая
-
-      // Знак владельца целиком внутри полосы и по её центру (тёмные пиксели знака в строках 240…530).
-      let left = info.width;
-      let right = 0;
-      let top = info.height;
-      for (let y = GRID_TOP; y < 530; y++) {
-        for (let x = 0; x < STRIP; x++) {
+      // Знак владельца: тёмно-зелёные пиксели в боксе x 100…264, y 285…492.
+      let left = info.width, right = 0, top = info.height;
+      for (let y = 285; y < 500; y++) {
+        for (let x = 60; x < 330; x++) {
           const { r, g, b } = at(x, y);
-          if (r < 120 && g < 140 && b < 130) {
+          if (r < 60 && g > 30 && g < 110 && b < 90) {
             if (x < left) left = x;
             if (x > right) right = x;
             if (y < top) top = y;
@@ -568,17 +585,28 @@ describe("встроенный «Royal Green» (владелец, 29.09.2026 —
         }
       }
       expect(right, "знак не найден").toBeGreaterThan(left);
-      expect(left, `знак ${left}…${right} вылезает за левый край полосы`).toBeGreaterThanOrEqual(8);
-      expect(right, `знак ${left}…${right} вылезает за правый край полосы`).toBeLessThanOrEqual(STRIP - 8);
-      expect(Math.abs((left + right) / 2 - STRIP / 2), `знак ${left}…${right} не по центру полосы`).toBeLessThanOrEqual(12);
+      expect(left, `знак ${left}…${right} левее макета`).toBeGreaterThanOrEqual(95);
+      expect(right, `знак ${left}…${right} правее макета`).toBeLessThanOrEqual(270);
       expect(top).toBeGreaterThanOrEqual(GRID_TOP + 30);
     });
 
-    it("квадрат не тронут: ни градиента низа, ни золотой линии", async () => {
-      const fs = await import("node:fs/promises");
-      const squareSvg = await fs.readFile(GREEN_COVER_TEMPLATE.svgFiles!.square!, "utf8");
-      expect(squareSvg).not.toContain("goldLine");
-      expect(squareSvg).not.toContain('id="deep"');
+    it("квадрат: фото в полосе 0…860, под ней кремовый холст, волна у самого низа", async () => {
+      const sharp = (await import("sharp")).default;
+      expect(GREEN_COVER_TEMPLATE.photoBox?.square).toEqual({ top: 0, height: 860 });
+      expect(GREEN_COVER_TEMPLATE.photoBox?.story).toEqual({ top: 0, height: 1520 });
+      const values = buildCoverPosterValues(cases[0].p, { usdToTjs: 10.9 });
+      const bg = await sharp({ create: { width: 1080, height: 1080, channels: 3, background: { r: 40, g: 60, b: 90 } } }).jpeg().toBuffer();
+      const img = await renderCoverPosterImage(bg, values, "square", null, true, GREEN_COVER_TEMPLATE);
+      const { data, info } = await sharp(img).raw().toBuffer({ resolveWithObject: true });
+      const at = (x: number, y: number) => {
+        const i = (y * info.width + x) * info.channels;
+        return { r: data[i], g: data[i + 1], b: data[i + 2] };
+      };
+      expect(at(540, 60).b, "верх — фото").toBeGreaterThan(at(540, 60).r + 20);
+      const row = at(300, 880);
+      expect(row.r > 220 && row.g > 205 && row.b > 200, `кремовое под плашкой ${JSON.stringify(row)}`).toBe(true);
+      const bottom = at(540, 1079);
+      expect(bottom.g > bottom.r && bottom.r < 30, `низ — зелёная волна ${JSON.stringify(bottom)}`).toBe(true);
     });
   });
 });
