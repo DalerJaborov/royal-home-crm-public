@@ -92,8 +92,10 @@ export function RhSection({ id, title, to, linkLabel = "Все", children, class
  * по смыслу (вариант выдаёт `tileTone()` из ./tileTone): `calm` — ноль, серая;
  * `crit` — срочное, светло-красная с красной цифрой; `ok` — хороший итог, светло-зелёная.
  */
-export function RhTile({ variant, icon, label, value, unit, to, alert, note }: {
+export function RhTile({ variant, icon, label, value, unit, to, onClick, alert, note }: {
   variant: "brand" | "ink" | "plain" | "calm" | "crit" | "ok"; icon: RoyalIconName; label: string; value: ReactNode; unit?: string; to?: string;
+  /** Плитка-кнопка: открывает список за цифрой (шторку) на месте, без перехода. */
+  onClick?: () => void;
   /** Ошибка блока, к которому ведёт плитка: точка-знак, чтобы ошибку ниже сгиба было видно наверху. */
   alert?: boolean;
   /** Одна короткая строка под цифрой: период или пояснение («сегодня», «дольше всех ждёт 40 мин»). */
@@ -106,6 +108,7 @@ export function RhTile({ variant, icon, label, value, unit, to, alert, note }: {
   </>;
   if (to?.startsWith("#")) return <a href={to} className="ry-tile" data-variant={variant} onClick={scrollToHash(to)}>{inner}</a>;
   if (to) return <Link to={to} className="ry-tile" data-variant={variant}>{inner}</Link>;
+  if (onClick) return <button type="button" className="ry-tile" data-variant={variant} onClick={onClick}>{inner}</button>;
   return <div className="ry-tile" data-variant={variant}>{inner}</div>;
 }
 
@@ -266,7 +269,7 @@ export function RhSwitch({ checked, onChange, label, disabled }: { checked: bool
 }
 
 /** Аватар: фото или инициалы на пастели, тон закреплён за именем. */
-export function RhAvatar({ name, src, size = 48 }: { name: string; src?: string | null; size?: 44 | 48 | 64 }) {
+export function RhAvatar({ name, src, size = 48 }: { name: string; src?: string | null; size?: 44 | 48 | 64 | 96 }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
   let hash = 0;
   for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;

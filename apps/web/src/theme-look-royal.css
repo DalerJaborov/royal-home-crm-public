@@ -579,6 +579,8 @@
 }
 :root[data-ui-look="royal"] .ry-avatar[data-size="44"] { width: 44px; height: 44px; }
 :root[data-ui-look="royal"] .ry-avatar[data-size="64"] { width: 64px; height: 64px; font-size: var(--rh-fs-xl); }
+/* Крупное круглое фото сотрудника (карточка сотрудника, 22.11.2026): без рамки и тени. */
+:root[data-ui-look="royal"] .ry-avatar[data-size="96"] { width: 96px; height: 96px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-2xl); }
 :root[data-ui-look="royal"] .ry-avatar img { width: 100%; height: 100%; object-fit: cover; }
 :root[data-ui-look="royal"] .ry-avatar[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
 :root[data-ui-look="royal"] .ry-avatar[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
@@ -671,7 +673,9 @@
   background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
   transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
 }
-:root[data-ui-look="royal"] a.ry-tile:active { transform: scale(.98); }
+:root[data-ui-look="royal"] :is(a, button).ry-tile:active:not(:disabled) { transform: scale(.98); }
+/* Плитка-кнопка (открывает список за цифрой): та же плитка, без рамки и шрифта кнопки. */
+:root[data-ui-look="royal"] button.ry-tile { width: 100%; border: 0; font: inherit; text-align: left; cursor: pointer; }
 :root[data-ui-look="royal"] .ry-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none; }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
 :root[data-ui-look="royal"] .ry-tile[data-variant="ink"] .ry-tile-value { color: var(--rh-ui-ink-tile-num); }
@@ -810,7 +814,7 @@
    (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
    снимает. Браузер без animation-timeline остаётся как был. */
 @supports (animation-timeline: scroll()) {
-  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs, .ry-agc-tabs) {
     /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
     animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
   }
