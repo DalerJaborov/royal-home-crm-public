@@ -61,6 +61,9 @@ const OwnerQuestionsBanner = lazyWithReload(() =>
 const OwnerQuestionsStrip = lazyWithReload(() =>
   import("../components/OwnerQuestionsBanner").then((m) => ({ default: m.OwnerQuestionsStrip }))
 );
+const ShowingQuestionsPanel = lazyWithReload(() =>
+  import("../components/ShowingQuestionsPanel").then((m) => ({ default: m.ShowingQuestionsPanel }))
+);
 const CallWindow = lazyWithReload(() => import("../components/CallWindow").then((m) => ({ default: m.CallWindow })));
 const TransferConfirmWindow = lazyWithReload(() =>
   import("../components/TransferConfirmWindow").then((m) => ({ default: m.TransferConfirmWindow }))
@@ -327,6 +330,9 @@ export function AppLayout() {
                 когда установка возможна (lib/installHint.ts). Плавающим слоем над меню больше не висит
                 (аудит К06.1, 21.11.2026). */}
             {pathname === "/" && <InstallAppHint />}
+            {/* «У вас был показ?» / «Договорились о показе?» (22.11.2026): главный путь — кнопки в Шабнам,
+                здесь тот же вопрос для тех, у кого нет Telegram или кто не ответил там. Не блокирует экран. */}
+            {pathname === "/" && <ShowingQuestionsPanel />}
             {/* Плашки «Клиент просит звонок» здесь больше нет (владелец 24.09.2026:
                 «мне не нужна просьба позвонить и плашка» — её видели директор и
                 админ, хотя звонить должен агент). Прямая просьба о живом человеке

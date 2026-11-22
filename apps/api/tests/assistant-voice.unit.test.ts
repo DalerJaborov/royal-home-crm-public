@@ -16,7 +16,7 @@ import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/as
 import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
-import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
+import { ASSISTANT_TTS_DAILY_CHARS_DEFAULT, claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
 import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "../src/telegram/assistantElevenLabsAvailability.js";
 import { encryptSecret } from "../src/crypto.js";
 import { ASSISTANT_GROUP_GREETING } from "../src/telegram/assistantGroupPhrases.js";
@@ -124,6 +124,22 @@ it("isolates a Scribe rate limit from synthesis but shares account quota", async
 });
 it('transport error never synthesizes again', async () => { sendVoice.mockRejectedValue(new Error('timeout')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).toHaveBeenCalledTimes(1); });
 it('zero budget disables voice and rejects invalid amounts', async () => { vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '0'); expect(await claimAssistantTtsChars(1)).toBe(false); expect(await claimAssistantTtsChars(-1)).toBe(false); expect(query).not.toHaveBeenCalled(); });
+// 22.11.2026, владелец: «увеличь на максимум» — без переменной потолок 200 000 знаков в день, а не 8000.
+it("without ASSISTANT_TTS_DAILY_CHARS the daily cap is 200 000 chars; the variable still wins", async () => {
+  const saved = process.env.ASSISTANT_TTS_DAILY_CHARS;
+  delete process.env.ASSISTANT_TTS_DAILY_CHARS;
+  try {
+    expect(ASSISTANT_TTS_DAILY_CHARS_DEFAULT).toBe(200_000);
+    expect(await claimAssistantTtsChars(150_000)).toBe(true);
+    expect(query.mock.calls[0][0].values).toEqual(expect.arrayContaining([150_000, 200_000]));
+    expect(await claimAssistantTtsChars(200_001)).toBe(false);
+    expect(query).toHaveBeenCalledOnce();
+  } finally {
+    if (saved !== undefined) process.env.ASSISTANT_TTS_DAILY_CHARS = saved;
+  }
+  vi.stubEnv("ASSISTANT_TTS_DAILY_CHARS", "8000");
+  expect(await claimAssistantTtsChars(9000)).toBe(false);
+});
 it('budget uses shared atomic reservations', async () => { await claimAssistantTtsChars(10); await claimAssistantTtsChars(12); for (const [sql] of query.mock.calls) {
   expect(sql.strings.join(' ')).toContain('assistant-tts-global');
   expect(sql.strings.join(' ')).toContain('ON CONFLICT');

@@ -312,7 +312,9 @@ describe("1.6 — помощник целиком", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url).split(":").at(-1))).toEqual(["countTokens", "generateContent"]);
   });
 
-  it.each([false, true])("не отдаёт придуманную карточку без результата инструмента, stream=%s", async stream => {
+  // С 17.11.2026 неподтверждённая ссылка становится обычным текстом, а не отказом на весь ответ
+  // (cardLinkEvidence.sanitize): ссылкой выдуманная карточка человеку по-прежнему не уходит.
+  it.each([false, true])("не отдаёт придуманную карточку ссылкой без результата инструмента, stream=%s", async stream => {
     resetAssistantRuntimeCache();
     const fabricated = "Нашла [квартиру](/properties/00000000-0000-4000-8000-000000000099) за 530000 сомони";
     const tokens: unknown[] = [];
@@ -324,10 +326,11 @@ describe("1.6 — помощник целиком", () => {
     }));
     const result = await runAssistantDetailed([{ role: "user", content: "Найди квартиру" }], actor,
       stream ? { onToken: token => tokens.push(token) } : {});
-    const reply = "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+    const reply = "Нашла квартиру за 530000 сомони";
     expect(result).toEqual({ ok: true, reply });
     expect(tokens).toEqual(stream ? [{ text: reply }] : []);
-    expect(JSON.stringify(tokens)).not.toContain("530000");
+    expect(JSON.stringify(tokens)).not.toContain("/properties/");
+    expect(JSON.stringify(result)).not.toContain("00000000-0000-4000-8000-000000000099");
   });
 });
 

@@ -3,7 +3,7 @@ import {
   ABSENCE_KIND_LABELS,
   ABSENCE_KINDS,
   agentUpdateSchema,
-  isPermissionId,
+  DIRECTOR_ONLY_PERMISSIONS,
   isReadOnlyRole,
   normalizeOverrides,
   parsePermissionOverrides,
@@ -50,6 +50,7 @@ import {
   type StaffOutcome,
 } from "../../../lib/staffAdmin.js";
 import { maskStaffPhone } from "./staffPrivacy.js";
+import { resolvePermissionRef, type PermissionCandidate } from "./permissionLookup.js";
 import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 import type { AssistantActor } from "../actor.js";
@@ -677,7 +678,8 @@ export const resetStaffTwoFactorTool = staffTool({
 
 // ───────────────────────────── права ─────────────────────────────
 
-const permissionList = z.array(z.string().trim().min(1).max(64)).max(40).default([]);
+// 120 знаков: право можно назвать подписью («Видеть телефоны клиентов»), а не только id.
+const permissionList = z.array(z.string().trim().min(1).max(120)).max(40).default([]);
 const permissionsArgs = z.object({
   agentId: AGENT_ID,
   grant: permissionList,
@@ -704,23 +706,72 @@ export function mergePermissionChanges(role: Role, current: PermissionOverrides,
   return normalizeOverrides(role, { granted: [...granted], revoked: [...revoked] });
 }
 
-function unknownPermissions(args: PermissionsArgs): string[] {
-  return [...args.grant, ...args.revoke].filter((id) => !isPermissionId(id));
+/**
+ * Названия прав от модели → id реестра (permissionLookup.ts). Не нашлось или неоднозначно —
+ * отказ с кандидатами в details: модель переспросит человека по ним, а не будет перебирать
+ * догадки до предела попыток (журнал прода 17.11.2026, «закрой РОПу право видеть номера клиентов»).
+ */
+export function resolvePermissionArgs<T extends Pick<PermissionsArgs, "grant" | "revoke">>(args: T): T & { grant: PermissionId[]; revoke: PermissionId[] } {
+  const unknown: { asked: string; candidates: PermissionCandidate[] }[] = [];
+  const pick = (refs: readonly string[]) => refs.flatMap((ref) => {
+    const match = resolvePermissionRef(ref);
+    if (match.ok) return [match.id];
+    unknown.push({ asked: ref, candidates: match.candidates });
+    return [];
+  });
+  const grant = pick(args.grant);
+  const revoke = pick(args.revoke);
+  if (unknown.length > 0) {
+    const first = unknown[0];
+    const hint = first.candidates.length
+      ? ` Похожие: ${first.candidates.map((c) => `«${c.label}»`).join(", ")} — уточните у человека, какое из них.`
+      : " Похожих нет — уточните у человека, что именно открыть или закрыть.";
+    throw new AssistantActionError(400, "UNKNOWN_PERMISSION", `Не нашла право «${first.asked.slice(0, 80)}».${hint}`, {
+      candidates: unknown.slice(0, 5).map((u) => ({ asked: u.asked.slice(0, 80), options: u.candidates })),
+    });
+  }
+  return { ...args, grant, revoke };
+}
+
+const DIRECTOR_ONLY = new Set<string>(DIRECTOR_ONLY_PERMISSIONS);
+
+/**
+ * «Менять нечего» — с причиной по каждому праву, а не общим «права уже такие»: на «закрой РОПу
+ * право видеть номера» правильный ответ — «у него и так закрыто, это право есть только у
+ * директора» (clients.viewPhone — directorOnly с 16.11.2026), а не повод пробовать снова.
+ */
+export function permissionNoChangeMessage(
+  before: ReadonlySet<PermissionId>,
+  args: { grant: readonly PermissionId[]; revoke: readonly PermissionId[] },
+  personName: string,
+): string {
+  const parts: string[] = [];
+  for (const id of args.revoke) {
+    if (before.has(id)) continue;
+    parts.push(`у ${personName} и так нет права «${permissionLabel(id)}»${DIRECTOR_ONLY.has(id) ? " — оно есть только у директора" : ""}`);
+  }
+  for (const id of args.grant) {
+    if (DIRECTOR_ONLY.has(id)) parts.push(`право «${permissionLabel(id)}» выдаётся только директору — сотруднику его дать нельзя`);
+    else if (before.has(id)) parts.push(`у ${personName} право «${permissionLabel(id)}» уже есть`);
+  }
+  return parts.length ? `Менять нечего: ${parts.join("; ")}.` : "Права уже такие — менять нечего";
 }
 
 export const setStaffPermissionsTool = staffTool({
   name: "set_staff_permissions",
   statusPhrase: "Готовлю изменение прав…",
   description:
-    "Добавить (grant) или снять (revoke) сотруднику отдельные права, либо вернуть права как у роли (resetToRole). Названия прав — " +
-    "id из get_staff_card (раздел «Права»), не придумывай. У директора права не настраиваются; акционеру права не добавляются. " +
+    "Добавить (grant) или снять (revoke) сотруднику отдельные права, либо вернуть права как у роли (resetToRole). Право называй " +
+    "id из get_staff_card (раздел «Права») или подписью словами человека («видеть телефоны клиентов») — инструмент сопоставит сам. " +
+    "Если вернул отказ с вариантами (candidates) — не перебирай, а спроси человека, какой из них. " +
+    "У директора права не настраиваются; акционеру права не добавляются. " +
     "Сменить роль целиком — update_staff." + STEP_UP_NOTE,
   parameters: {
     type: "object",
     properties: {
       agentId: { type: "string" },
-      grant: { type: "array", items: { type: "string" } },
-      revoke: { type: "array", items: { type: "string" } },
+      grant: { type: "array", items: { type: "string" }, description: "Права, которые дать: id или подпись словами" },
+      revoke: { type: "array", items: { type: "string" }, description: "Права, которые закрыть: id или подпись словами" },
       resetToRole: { type: "boolean" },
     },
     required: ["agentId"],
@@ -731,20 +782,19 @@ export const setStaffPermissionsTool = staffTool({
   snapshot: async (args) => targetSnapshot(await loadTarget(args.agentId)),
   async preview(args, snap) {
     if (snap.exists === false || String(snap.phone ?? "").includes("-deleted:")) throw new AssistantActionError(404, "NOT_FOUND", "Агент не найден");
-    const unknown = unknownPermissions(args);
-    if (unknown.length > 0) {
-      throw new AssistantActionError(400, "UNKNOWN_PERMISSION", `Таких прав нет: ${unknown.slice(0, 5).join(", ")}. Возьмите названия из карточки сотрудника.`);
-    }
+    const resolved = resolvePermissionArgs(args);
     const role = snap.role as Role;
     if (role === "DIRECTOR") throw new AssistantActionError(400, "DIRECTOR", "У директора всегда полный доступ — права не настраиваются");
     const current = snap.permissions as PermissionOverrides;
-    const next = mergePermissionChanges(role, current, args);
+    const next = mergePermissionChanges(role, current, resolved);
     if (role === "SHAREHOLDER" && next.granted.length > 0) throw new AssistantActionError(400, "SHAREHOLDER", "Акционеру права не добавляются");
     const before = resolvePermissions(role, current);
     const after = resolvePermissions(role, next);
     const added = [...after].filter((p) => !before.has(p)).map(permissionLabel);
     const removed = [...before].filter((p) => !after.has(p)).map(permissionLabel);
-    if (added.length === 0 && removed.length === 0) throw new AssistantActionError(409, "NO_CHANGE", "Права уже такие — менять нечего");
+    if (added.length === 0 && removed.length === 0) {
+      throw new AssistantActionError(409, "NO_CHANGE", permissionNoChangeMessage(before, resolved, plainField(String(snap.fullName), 80) ?? "сотрудника"));
+    }
     return {
       title: `🔐 Права: ${plainField(String(snap.fullName), 80)} (${roleLabel(role)})`,
       was: { Добавлено: "—", Снято: "—" },
@@ -754,7 +804,7 @@ export const setStaffPermissionsTool = staffTool({
   },
   async execute(args, staff, actor, snap) {
     const role = snap.role as Role;
-    const next = mergePermissionChanges(role, snap.permissions as PermissionOverrides, args);
+    const next = mergePermissionChanges(role, snap.permissions as PermissionOverrides, resolvePermissionArgs(args));
     const before = resolvePermissions(role, snap.permissions as PermissionOverrides);
     unwrap(await setStaffPermissions(staff, args.agentId, next, via(actor)));
     const after = resolvePermissions(role, next);

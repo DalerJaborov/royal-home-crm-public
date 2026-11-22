@@ -652,3 +652,52 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .wiz .vrow .nm.fn .stem { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rh2 .wiz .vrow .nm.fn .ext { flex: none; white-space: nowrap; }
 .rh2 .wiz .vrow .act { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; flex: 0 0 auto; max-width: 100%; }
+
+/* ═══ ВОПРОСЫ О ПОКАЗЕ (components/ShowingQuestionsPanel.tsx) — 22.11.2026 ═══
+ * Карточка стоит и на Главной (старая оболочка), и в карточке клиента внутри `.rh2`, где общий
+ * сброс темы `.rh2 button { background:none; padding:0; font:inherit }` превращал кнопки в текст
+ * (кадры 04–06). Свои классы с весом выше сброса (`.sq-card button.sq-btn` — 0,2,1 против 0,1,1).
+ * Главная кнопка — один синий во всех темах: белый текст на #1d5fe0 даёт 5,6:1, а светлый
+ * ночной акцент чистой оболочки (139 177 255) с белым — меньше 2:1 (кадр 10). Вторичная — рамка и
+ * подложка, чтобы «Нет» и шаги «что дальше» читались кнопками, а не подписями. Не ниже 44 px. */
+.sq-card button.sq-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+.sq-card button.sq-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.sq-card button.sq-btn.sq-btn-primary {
+  background: #1d5fe0;
+  color: #ffffff;
+  border: 1px solid #1d5fe0;
+}
+@media (hover: hover) {
+  .sq-card button.sq-btn.sq-btn-primary:hover:not(:disabled) {
+    background: #154ab0;
+    border-color: #154ab0;
+  }
+  .sq-card button.sq-btn.sq-btn-secondary:hover:not(:disabled) {
+    border-color: rgb(var(--rgb-ink) / 0.45);
+  }
+}
+.sq-card button.sq-btn.sq-btn-secondary {
+  background: var(--c-hover-tint);
+  color: rgb(var(--rgb-ink));
+  border: 1px solid var(--c-line);
+}
+.sq-card button.sq-btn:focus-visible {
+  outline: 2px solid #1d5fe0;
+  outline-offset: 2px;
+}

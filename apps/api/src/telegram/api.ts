@@ -8,6 +8,7 @@ import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { requireModerationAccepted, telegramDeleteOutcome, type ModerationOutcome } from "../messengers/commentModerationOutcome.js";
+import { noteSentResult } from "./sentMessageLog.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -146,7 +147,12 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
       signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json()) as TelegramApiResponse<T>;
-    if (data.ok) return validateResult ? validateResult(data, res.status) : data.result as T;
+    if (data.ok) {
+      const result = validateResult ? validateResult(data, res.status) : data.result as T;
+      // Номер своего сообщения в личке — чтобы потом удалить его по просьбе (sentMessageLog.ts).
+      noteSentResult(method, body.chat_id, data.result);
+      return result;
+    }
     const waitMs = telegramRetryDelayMs(data, attempt);
     if (!singleAttempt && waitMs !== null) {
       await sleep(waitMs);
@@ -654,14 +660,20 @@ async function postMultipartWithRetry(
   label: string,
   singleAttempt = false,
 ): Promise<unknown> {
+  let sentChatId: unknown;
   for (let attempt = 0; ; attempt++) {
+    const form = buildForm();
+    sentChatId = form.get("chat_id");
     const res = await fetch(url, {
       method: "POST",
-      body: buildForm(),
+      body: form,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json()) as TelegramApiResponse<unknown>;
-    if (data.ok) return data.result;
+    if (data.ok) {
+      noteSentResult(url.slice(url.lastIndexOf("/") + 1), sentChatId, data.result);
+      return data.result;
+    }
     const waitMs = singleAttempt ? null : telegramRetryDelayMs(data, attempt);
     if (waitMs !== null) {
       await sleep(waitMs);

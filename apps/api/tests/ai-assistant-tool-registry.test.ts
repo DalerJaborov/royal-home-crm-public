@@ -89,6 +89,9 @@ describe("реестр инструментов помощника", () => {
       "get_team_load",
       "get_stuck_work",
       "get_construction_registry",
+      // Разбор клиентской базы и сообщение коллеге (17.11.2026).
+      "get_client_base_overview",
+      "send_staff_message",
       // «Режим директора» (17.11.2026, tools/directorTools.ts).
       "list_pending_requests",
       "decide_request",

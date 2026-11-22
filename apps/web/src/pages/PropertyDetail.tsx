@@ -20,6 +20,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { usableRouteId } from "../lib/routeId";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError } from "../lib/apiError";
+import { saleWithoutInstagramOffer } from "../lib/saleWithoutInstagram";
 import { MutationError } from "../components/MutationError";
 import {
   useApprovePropertyMaterial,
@@ -2292,11 +2293,19 @@ function EditorPropertyDetail({
 function CompleteEditingButton({ propertyId }: { propertyId: string }) {
   const complete = useCompleteEditing(propertyId);
   const [siteWarning, setSiteWarning] = useState<string | null>(null);
+  /**
+   * «Без Instagram» (17.11.2026, ОБ-000193): ролик принят и вышел в других сетях, а Instagram
+   * не опубликовал. Сервер сам говорит в отказе «Готово», можно ли ЭТОМУ человеку (директор/админ)
+   * вывести объект без ссылки, — экран правило не повторяет (lib/saleWithoutInstagram.ts).
+   * Остальным сервер отвечает текстом «попросите директора», его показывает MutationError.
+   */
+  const offer = saleWithoutInstagramOffer(complete.error);
+  const [confirmWithoutInstagram, setConfirmWithoutInstagram] = useState(false);
 
-  async function handleClick() {
+  async function run(withoutInstagram: boolean) {
     setSiteWarning(null);
     try {
-      const result = await complete.mutateAsync();
+      const result = await complete.mutateAsync({ withoutInstagram });
       if (result.siteSyncError) setSiteWarning(result.siteSyncError);
     } catch {
       // Ошибка (нет фото/видео) уже показана через MutationError ниже.
@@ -2313,12 +2322,43 @@ function CompleteEditingButton({ propertyId }: { propertyId: string }) {
           <span>CRM переведёт объект в продажу и опубликует его на сайте.</span>
         </div>
         <div className="acts">
-          <button className="pill sm" type="button" onClick={handleClick} disabled={complete.isPending}>
+          <button className="pill sm" type="button" onClick={() => void run(false)} disabled={complete.isPending}>
             {complete.isPending ? "Завершаем…" : "Готово, в продажу"}
           </button>
         </div>
       </div>
       <MutationError mutation={complete} fallback="Не удалось завершить подготовку" />
+      {offer && (
+        <div className="mod solve">
+          <div className="t">
+            <b>В Instagram ролик не вышел</b>
+            <span>Ролик вышел в {offer.channels.join(", ")}. Объект можно вывести в продажу и без Instagram.</span>
+          </div>
+          <div className="acts">
+            <button
+              className="pill ghost sm"
+              type="button"
+              onClick={() => setConfirmWithoutInstagram(true)}
+              disabled={complete.isPending}
+            >
+              Вывести в продажу без Instagram
+            </button>
+          </div>
+        </div>
+      )}
+      {confirmWithoutInstagram && offer && (
+        <ConfirmDialog
+          title="Вывести в продажу без Instagram?"
+          description={`Ролик вышел в ${offer.channels.join(", ")}, но не в Instagram. Объект станет «В продаже» и уйдёт на сайт; в истории запишется, что вы вывели его без Instagram. Ссылку на Instagram можно вписать позже.`}
+          confirmLabel="Вывести без Instagram"
+          danger={false}
+          onCancel={() => setConfirmWithoutInstagram(false)}
+          onConfirm={() => {
+            setConfirmWithoutInstagram(false);
+            void run(true);
+          }}
+        />
+      )}
       {siteWarning && (
         <div className="quiet warn">
           <span className="dot warn" />
