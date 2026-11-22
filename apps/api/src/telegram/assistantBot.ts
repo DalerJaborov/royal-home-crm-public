@@ -52,6 +52,7 @@ import { claimCallback } from "../lib/telegramModeration.js";
 import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
 import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
 import { handleTrashRestoreCallback } from "./trashRestoreNotice.js";
+import { handleShowingQuestionCallback, showingQuestionContext } from "./showingQuestionNotice.js";
 import { migrateAssistantGroupChat } from "../lib/assistantGroupMigration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
@@ -1006,7 +1007,10 @@ export async function handleAssistantPrivate(
     }
     const showTyping = fromVoice ? undefined : () => void sendChatAction(chatId).catch(() => {});
     showTyping?.();
-    const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
+    // Открытые вопросы Шабнам о показах (22.11.2026): «да, был», «перенесли на завтра в шесть» без
+    // справки не к чему привязать. Пусто, если вопросов нет; пересланное — чужие слова, справка не нужна.
+    const showingContext = forwardedEvidence ? "" : await showingQuestionContext(agent.id).catch(() => "");
+    const history = [...previous, { role: "user" as const, content: (showingContext + attachedRequest(text, attachedFileText)).slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
       attachedFile: Boolean(attachedFileText.trim()),
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
@@ -1811,6 +1815,8 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   if (await handleStaffNoticeCallback(query)) return true;
   // «♻️ Восстановить» под сообщением руководству об удалении своего объекта/клиента через Шабнам.
   if (await handleTrashRestoreCallback(query)) return true;
+  // «Договорились о показе?» / «У вас был показ?» (22.11.2026) — telegram/showingQuestionNotice.ts.
+  if (await handleShowingQuestionCallback(query)) return true;
   // «✅ Оплатил» / «⏰ Напомнить завтра» под напоминанием об оплате подписки.
   if (await handlePaymentReminderCallback(query)) return true;
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);

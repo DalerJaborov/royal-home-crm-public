@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **793**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4228**. Модулей: **89**.
+Путей: **795**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4240**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -17220,6 +17220,43 @@
   - next(error);
     · дословно из кода
 
+## /api/v1/showing-questions
+
+### POST /api/v1/showing-questions/:id/answer
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если isReadOnlyRole(req.agent!.role)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если !z.string().uuid().safeParse(req.params.id).success
+  - return res.status(400).json({ error: "Неверный идентификатор вопроса" });
+    · ответ 400 — «Неверный идентификатор вопроса»
+- const parsed = showingQuestionAnswerSchema.safeParse(req.body);
+  · проверяет данные схемой showingQuestionAnswerSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный ответ", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный ответ»
+- const result = await answerShowingQuestion({ questionId: req.params.id, actorId: req.agent!.id, canActForOthe…
+  · зовёт answerShowingQuestion()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
+- res.json({ ok: true, message: result.message });
+  · ответ 200
+
+### GET /api/v1/showing-questions
+
+`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const items = await listShowingQuestions(req.agent!.id, { clientId: parsed.data.clientId });
+  · зовёт listShowingQuestions()
+- res.json({ items });
+  · ответ 200
+
 ## /api/v1/site-notifications
 
 ### POST /api/v1/site-notifications/:id/resolve
@@ -25039,6 +25076,74 @@
 - в любом случае
   - isShowingConfirmRunning = false;
     · дословно из кода
+
+### showing-questions — * * * * *
+
+- пробует
+  - const { planned, sent, pushed } = await runShowingQuestionsTick();
+    · зовёт runShowingQuestionsTick()
+    - const planned = await planShowingOutcomeQuestions(now);
+      · зовёт planShowingOutcomeQuestions()
+    - если !isWithinDushanbeWindow(AGENT_ASK_START, AGENT_ASK_END, now)
+      - return { planned, sent: 0, pushed: 0 };
+        · дословно из кода
+    - const [agreementOn, outcomeOn] = await Promise.all([ automationSwitchOn("showingAgreementAskEnabled"), automa…
+      · зовёт automationSwitchOn()
+    - const due = await prisma.showingQuestion.findMany({ where: { status: "OPEN", askAt: { lte: now }, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of due
+      - пробует
+        - если !enabled(q.kind)
+          - await closeQuestion(q, { answer: "switch_off" }, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+      - если сорвалось
+        - void logSystemError("telegram", `Вопрос о показе не отправлен (${q.id}): ${describeError(err)}`, { dedupKey: …
+          · запись в журнал ошибок
+    - const silent = await prisma.showingQuestion.findMany({ where: { status: "OPEN", pushSentAt: null, telegramSen…
+      · читает в базе: showingQuestion
+    - для каждого: const q of silent
+      - пробует
+        - const fact = await closedByFact(q, now);
+          · зовёт closedByFact()
+        - если fact
+          - await closeQuestion(q, fact, now);
+            · зовёт closeQuestion()
+          - continue;
+            · переходит к следующему
+        - const claimed = await prisma.showingQuestion.updateMany({ where: { id: q.id, pushSentAt: null }, data: { push…
+          · меняет в базе: showingQuestion
+        - если claimed.count === 0
+          - continue;
+            · переходит к следующему
+        - const details = await loadQuestionDetails(q);
+          · зовёт loadQuestionDetails()
+        - если details
+          - await pushQuestion(details);
+            · дословно из кода
+          - pushed++;
+            · дословно из кода
+      - если сорвалось
+        - void logSystemError("api", `Пуш-страховка вопроса о показе не ушёл (${q.id}): ${describeError(err)}`, { dedup…
+          · запись в журнал ошибок
+  - если planned || sent || pushed
+    - console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка вопросов о показах", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### site-stats — 7 * * * *
 

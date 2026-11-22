@@ -100,9 +100,11 @@ beforeEach(async () => {
   sendPushToAgent.mockClear();
   callAiText.mockReset();
   await prisma.interaction.deleteMany({ where: { clientId } });
+  await prisma.showingQuestion.deleteMany({ where: { clientId } });
 });
 
 afterAll(async () => {
+  await prisma.showingQuestion.deleteMany({ where: { clientId } });
   await prisma.interaction.deleteMany({ where: { clientId } });
   await prisma.botConversation.deleteMany({ where: { clientId } });
   await prisma.client.deleteMany({ where: { id: clientId } });
@@ -223,7 +225,9 @@ describe("Разбор договорённости о показе в ручн�
     callAiText.mockResolvedValue({ found: true, day: "tomorrow", time: "17:00", propertyCode: propertyShortId });
     const target = { kind: "bot" as const, id: conversationId, channel: "WHATSAPP", subscriberId: "x", accountId: null };
 
+    // Выключены оба: «ИИ сам назначает» и «Шабнам переспрашивает» (22.11.2026) — ИИ не зовём совсем.
     switchesOff.add("aiAgentShowingAutoBookEnabled");
+    switchesOff.add("showingAgreementAskEnabled");
     try {
       await detectOperatorShowingAgreement(target, "Давайте завтра в 17:00 у вас на объекте?", agentSender());
       await flush();
@@ -231,13 +235,66 @@ describe("Разбор договорённости о показе в ручн�
       expect(await prisma.interaction.count({ where: { clientId, type: "SHOWING" } })).toBe(0);
     } finally {
       switchesOff.delete("aiAgentShowingAutoBookEnabled");
+      switchesOff.delete("showingAgreementAskEnabled");
     }
+
+    // Выключен только «ИИ сам назначает» — показ не ставится, но агента спрашивают (объект назван кодом — он и в вопросе).
+    switchesOff.add("aiAgentShowingAutoBookEnabled");
+    try {
+      await detectOperatorShowingAgreement(target, "Давайте завтра в 17:00 у вас на объекте?", agentSender());
+      await flush();
+      expect(await prisma.interaction.count({ where: { clientId, type: "SHOWING" } })).toBe(0);
+      const question = await prisma.showingQuestion.findFirst({ where: { clientId, kind: "AGREEMENT" } });
+      expect(question?.propertyId).toBe(propertyId);
+      expect(question?.proposedAt).not.toBeNull();
+    } finally {
+      switchesOff.delete("aiAgentShowingAutoBookEnabled");
+    }
+    callAiText.mockClear();
 
     // Включён (умолчание) — та же переписка назначает показ, как раньше.
     await detectOperatorShowingAgreement(target, "Давайте завтра в 17:00 у вас на объекте?", agentSender());
     expect(callAiText).toHaveBeenCalledTimes(1);
     // Запись показа идёт в фоне — ждём её, а не гоняемся с ней наперегонки.
     await waitFor(() => prisma.interaction.findFirst({ where: { clientId, type: "SHOWING" } }), { label: "показ по переписке агента" });
+  });
+
+  it("договорились, но объект не назван — показ сам не ставится, Шабнам спросит агента (22.11.2026)", async () => {
+    await makeConversation([
+      { role: "user", content: "Хочу посмотреть квартиру" },
+      { role: "assistant", content: "Давайте завтра в 16:00?", by: agentSender() },
+      { role: "user", content: "Да, буду" },
+    ]);
+    callAiText.mockResolvedValue({ found: true, day: "tomorrow", time: "16:00", propertyCode: null });
+    const target = { kind: "bot" as const, id: conversationId, channel: "WHATSAPP", subscriberId: "x", accountId: null };
+
+    await detectOperatorShowingAgreement(target, "Давайте завтра в 16:00?", agentSender());
+    await detectOperatorShowingAgreement(target, "Отлично, до завтра в 16:00", agentSender());
+    await flush();
+
+    expect(await prisma.interaction.count({ where: { clientId, type: "SHOWING" } })).toBe(0);
+    // Две реплики вокруг одной договорённости — один вопрос (одна переписка — один вопрос в день).
+    const questions = await prisma.showingQuestion.findMany({ where: { clientId, kind: "AGREEMENT", sourceType: "CONVERSATION" } });
+    expect(questions).toHaveLength(1);
+    expect(questions[0].propertyId).toBeNull();
+    expect(questions[0].proposedAt).not.toBeNull();
+    // Прежнего «Бот не смог назначить показ» агенту нет — вместо него вопрос.
+    expect(sendPushToAgent).not.toHaveBeenCalled();
+  });
+
+  it("показ уже записан (бот или агент раньше), реплика «до встречи» без кода — вопроса нет", async () => {
+    await prisma.interaction.create({
+      data: { clientId, agentId, type: "SHOWING", propertyId, notes: "Показ объекта", nextAction: "Показ объекта", nextActionDate: new Date(Date.now() + 26 * 3600_000) },
+    });
+    await makeConversation([
+      { role: "user", content: "Хочу посмотреть квартиру" },
+      { role: "assistant", content: "До встречи завтра!", by: agentSender() },
+    ]);
+    callAiText.mockResolvedValue({ found: true, day: null, time: null, propertyCode: null });
+    const target = { kind: "bot" as const, id: conversationId, channel: "WHATSAPP", subscriberId: "x", accountId: null };
+    await detectOperatorShowingAgreement(target, "До встречи завтра в 16:00!", agentSender());
+    await flush();
+    expect(await prisma.showingQuestion.count({ where: { clientId } })).toBe(0);
   });
 
   it("ответ не от агента (сам бот/служебная рассылка) — классификатор не запускается", async () => {
