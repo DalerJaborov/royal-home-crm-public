@@ -227,6 +227,15 @@ export function clientDisplayName(c: string | ClientNameSource | null | undefine
   return name;
 }
 
+/**
+ * Имя в шапке карточки клиента: с фамилией (раз её вписали, имя настоящее) — «Имя Фамилия»,
+ * иначе то же «Имя · Якорь», что и в списках.
+ */
+export function clientHeadingName(c: ClientNameSource & { lastName?: string | null }): string {
+  const last = c.lastName?.trim();
+  return last ? `${(c.fullName ?? "").trim()} ${last}`.trim() : clientDisplayName(c);
+}
+
 /** Всё, что может прийти о клиенте: полная карточка, строка списка или краткая ссылка. */
 export type ClientNameSource = ClientDisplayNameInput & { displayName?: string | null };
 

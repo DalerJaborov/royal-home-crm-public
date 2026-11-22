@@ -986,7 +986,7 @@ function ClientRow({
       actions={actions}
       // Корзина: GET /clients/:id 404-ит удалённой карточке, открывать нечего.
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
-      linkLabel={`Открыть карточку: ${c.fullName}`}
+      linkLabel={`Открыть карточку: ${clientDisplayName(c)}`}
       done={isTrashed}
       data-client-row={c.id}
     />

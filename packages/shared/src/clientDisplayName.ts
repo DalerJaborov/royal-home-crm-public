@@ -254,7 +254,9 @@ export function clientNameParts(
   const raw = stripEmoji((input.fullName ?? "").trim());
   const nameIsStub = isStubName(raw);
   const name = resolveNamePart(input) || (input.kind ? STUB_ROLE[input.kind] : "Клиент без имени");
-  const code = input.shortId ? formatClientCode(input.shortId, input.kind) : null;
+  // Срез без `kind`: префикс номера (ПК / ПР) читаем из самой заглушки «Продавец ПР-000388».
+  const codeKind = input.kind ?? (/^продавец/iu.test(raw) ? "SELLER" : null);
+  const code = input.shortId ? formatClientCode(input.shortId, codeKind) : null;
   const anchor = resolveAnchor(input, facts);
   // Якорь агент мог уже дописать в само имя («Зоир стадион Спартак») — угадывать,
   // какая часть имени это дописка, мы не пытаемся (см. шапку файла), но хотя бы не

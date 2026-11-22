@@ -1,4 +1,4 @@
-import { clientDisplayName } from "../../lib/clientFormat";
+import { clientHeadingName } from "../../lib/clientFormat";
 import { ShellOwnHeader } from "../rh2/ShellOwnHeader";
 import { type ReactNode } from "react";
 import { Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
@@ -164,7 +164,7 @@ export function MobileClientCard({
         ) : (
           <div className="cd-name-row">
             <h1 className="n">
-              {client.lastName ? `${client.fullName} ${client.lastName}` : clientDisplayName(client)}
+              {clientHeadingName(client)}
             </h1>
             {!locked && (
               <button type="button" className="cd-name-edit" onClick={onStartEditName} aria-label="Изменить имя">
