@@ -628,6 +628,7 @@ async function review(ctx: Context, draft: DraftRecord) {
     type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "",
     floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: district?.name ?? null,
     price: values.price ? String(values.price) : null, currency: values.currency ?? null,
+    landSotka: values.landAreaSotka ? String(values.landAreaSotka) : null,
     // Цена в озвучке только в сомони (21.11.2026): долларовую переводит общий курс из Настроек.
     usdToTjs: values.currency === "USD" ? await narrationRate() : null,
   }).text : null;

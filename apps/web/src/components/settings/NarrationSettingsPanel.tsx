@@ -26,6 +26,7 @@ export function NarrationSettingsPanel() {
   const [removeOld, setRemoveOld] = useState<boolean | null>(null);
   const [ownMusic, setOwnMusic] = useState<boolean | null>(null);
   const [textOverlay, setTextOverlay] = useState<boolean | null>(null);
+  const [liveWords, setLiveWords] = useState<boolean | null>(null);
   const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
   const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string; gap?: string; listenPerson?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
@@ -84,6 +85,7 @@ export function NarrationSettingsPanel() {
         <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос на ролик кладём мы: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает озвучку сам</Check>
         <Check checked={removeOld ?? config.removeOldPostsOnNarration !== false} onChange={setRemoveOld}>Снимать старые посты при новой озвучке: вышел новый ролик, старый в той же сети CRM снимает сама. Выключено: старые посты остаются рядом с новыми</Check>
         <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
+        <Check checked={liveWords ?? config.liveWords === true} onChange={setLiveWords}>Живые слова в текстах озвучки: {"{объект}"}, {"{сколько_комнат}"}, {"{метраж}"}, участок дома в {"{сотки}"}. Выключено: эти слова молчат и озвучка звучит как раньше</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>
@@ -119,7 +121,15 @@ export function NarrationSettingsPanel() {
           Агент выбирает голос, и текст ставится сам: случайный шаблон этого языка, подходящий типу объекта, и случайная концовка. Новый объект
           не получает тот же шаблон и ту же концовку, что прошлый. У агента есть кнопка «Другой вариант», а выбранный им шаблон остаётся.
           Тип «ничего не отмечено» значит: подходит любому объекту. «Только вручную»: шаблон сам не выбирается и концовку не получает, его берут руками.
-          Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {сотки} {этаж} {этаж_пор} {район} {цена}"}. Этаж говорим без этажности дома («ошёнаи сенздаҳум», «тринадцатый этаж»): {"{этажей}"} в озвучке не звучит, в новых текстах его писать нельзя. {"{сотки}"}: площадь участка в сотках (дробная — в метрах), у других объектов пусто. Квадратные скобки: «если есть».
+          {/* Новые слова — только при включённых «Живых словах» (ревью #363): выключены — они молчат, сервер не примет их вне скобок. */}
+          {(liveWords ?? config.liveWords === true) ? <>
+            Слова в фигурных скобках подставляются из объекта: {"{объект} {вид} {комнаты} {сколько_комнат} {площадь} {метраж} {сотки} {этаж} {этаж_пор} {район} {цена}"}. Этаж говорим без этажности дома («ошёнаи сенздаҳум», «тринадцатый этаж»): {"{этажей}"}, {"{этажность}"} и {"{этажность_род}"} в озвучке не звучат, в новых текстах их писать нельзя.
+            {" {объект}"}: что продаётся — «хонаи чорҳуҷрагӣ», «ҳавлӣ», «қитъаи замин» / «четырёхкомнатная квартира», «частный дом»; ставьте его подлежащим: {"«Дар ноҳияи {район} {объект} фурӯхта мешавад»"}.
+            {" {сколько_комнат}"}: «шаш ҳуҷра» / «шесть комнат». {"{метраж}"}: площадь вместе с «метри мураббаъ» / «квадратных метров».
+            {" {сотки}"}: участок в сотках (у дома — участок дома; половина — «ва ним», другая дробь — в метрах), у квартиры пусто. Квадратные скобки: «если есть».
+          </> : <>
+            Слова в фигурных скобках подставляются из объекта: {"{вид} {комнаты} {площадь} {сотки} {этаж} {этаж_пор} {район} {цена}"}. Этаж говорим без этажности дома («ошёнаи сенздаҳум», «тринадцатый этаж»): {"{этажей}"} в озвучке не звучит, в новых текстах его писать нельзя. {"{сотки}"}: площадь участка в сотках (дробная — в метрах), у других объектов пусто. Квадратные скобки: «если есть».
+          </>}
           Цифры в тексте писать нельзя ни по-таджикски, ни по-русски (числа только словами), «Директ» пишем по-русски, слово «брон» нельзя.
         </p>
         {templates.map((t, i) => <details key={t.id} className="space-y-1 rounded border p-2"><summary className="cursor-pointer text-sm font-medium">{t.name}{t.manualOnly ? " (вручную)" : ""} · {t.lang === "tg" ? "тоҷикӣ" : "рус."}</summary>
@@ -179,7 +189,7 @@ export function NarrationSettingsPanel() {
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const patch: Partial<NarrationConfig> = { modelId: model, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!config.ownerReportPreviewEnabled,
           autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, removeOldPostsOnNarration: removeOld ?? config.removeOldPostsOnNarration !== false,
-          narrationPublishGapMin: Math.min(180, Math.max(5, number(limitsText.gap, config.narrationPublishGapMin ?? 15) ?? 15)), ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true,
+          narrationPublishGapMin: Math.min(180, Math.max(5, number(limitsText.gap, config.narrationPublishGapMin ?? 15) ?? 15)), ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true, liveWords: liveWords ?? config.liveWords === true,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, config.debounceMinutes),

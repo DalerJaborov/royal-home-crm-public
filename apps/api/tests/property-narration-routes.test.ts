@@ -251,6 +251,20 @@ describe("property narration route boundaries", () => {
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}.]" }] })).status).toBe(200);
     expect((await request(app).put("/properties/narration-settings").send({ templates: [old], dailyCharLimit: 4000 })).status).toBe(200);
   });
+  it("settings PUT (ревью #363): «Живые слова» выключены — {объект} вне скобок не принимается (прозвучал бы пустым); в скобках и при ВКЛ — можно", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [] }, elevenLabsApiKey: "test" });
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    const live = { id: "tg-live", name: "Живой", lang: "tg", text: "[Дар ноҳияи {район} ]{объект} фурӯхта мешавад. Нархаш {цена}." };
+    const off = await put({ templates: [live] });
+    expect(off.status).toBe(400);
+    expect(off.body.error).toMatch(/\{объект\}.*Живых словах/u);
+    const ending = await put({ endings: [{ id: "end-live", lang: "ru", text: "Продаётся {объект}, пишите нам." }] });
+    expect(ending.status).toBe(400);
+    expect(s.configSave).not.toHaveBeenCalled();
+    expect((await put({ templates: [{ ...live, text: "{вид} фурӯхта мешавад.[ Ин {объект} аст.] Нархаш {цена}." }] })).status).toBe(200);
+    expect((await put({ templates: [live], liveWords: true })).status).toBe(200);
+  });
   it("settings PUT guards templates and endings (16.11.2026): digits in Tajik text, Direct in Latin, the word брон; types and endings are saved", async () => {
     s.role = "ADMIN"; s.configSave.mockResolvedValue({});
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [], autoGenerate: true }, elevenLabsApiKey: "test" });
@@ -298,7 +312,7 @@ describe("property narration route boundaries", () => {
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });
     const response = await request(app).get("/properties/narration-options");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [], usdToTjs: null });
+    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [], usdToTjs: null, liveWords: false });
   });
   it("an agent edit with generate is refused while auto narration is off", async () => {
     s.role = "AGENT";

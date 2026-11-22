@@ -95,6 +95,10 @@ const narrationConfigBase = z.object({
   ownerReportPreviewEnabled: z.boolean().optional(),
   /** Рубильник «Озвучка текста в помощнике» (16.11.2026). Не задан или true: включено для всех активных сотрудников. */
   freeNarrationEnabled: z.boolean().optional(),
+  /** Рубильник «живые слова озвучки» (22.11.2026): новые слова шаблона ({объект}, {сколько_комнат}, {метраж}, участок дома
+   *  в {сотки}, «ва ним» у половины сотки) работают. По умолчанию ВЫКЛЮЧЕН: пока владелец не утвердил тексты, озвучка
+   *  звучит как раньше. Миграция новых текстов (prisma/pending-data) включает его сама, вместе с заменой текстов. */
+  liveWords: z.boolean().optional(),
   /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); по умолчанию FREE_NARRATION_DEFAULTS. */
   freeNarrationPerPersonDaily: z.number().int().min(1).max(100).optional(),
   /** Предел знаков одного свободного текста; по умолчанию FREE_NARRATION_DEFAULTS. */
@@ -308,6 +312,9 @@ export type NarrationFacts = {
   price?: string | null; currency?: string | null;
   /** Курс доллара для `{цена}` (21.11.2026). Только для сборки текста: в хэш фактов не входит. */
   usdToTjs?: number | null;
+  /** Участок ДОМА в сотках (строка десятичного числа, 21.11.2026): только у HOUSE, для `{сотки}`. У участка (LAND)
+   *  сотки считаются из `areaSqm`. Сервер кладёт поле в факты только дому, поэтому у квартир хэш фактов прежний. */
+  landSotka?: string | null;
 };
 
 /** Прежний текст по фактам — остаётся, пока владелец не завёл ни одного шаблона. */
@@ -321,8 +328,18 @@ export function suggestedNarration(facts: NarrationFacts): string {
   ].filter(Boolean).join(" ");
 }
 
-/** Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть». */
-export const NARRATION_PLACEHOLDERS = ["вид", "комнаты", "площадь", "сотки", "этаж", "этаж_пор", "этажей", "район", "цена"] as const;
+/**
+ * Слова, которые владелец может ставить в шаблон; квадратные скобки — «если есть».
+ * 21.11.2026 (владелец: «с первых секунд должно быть ясно, ЧТО продаётся», «хона» размыто, «Комнат: три» — анкета):
+ *  {объект} — что продаётся, как говорят в Душанбе: «хонаи чорҳуҷрагӣ», «ҳавлӣ», «қитъаи замин», «ҷои тиҷоратӣ» /
+ *             «четырёхкомнатная квартира», «частный дом». Только подлежащим («… фурӯхта мешавад», «Продаётся …»):
+ *             изафет к нему не приклеивать (у «ҳавлӣ» он другой), русская форма — именительный падеж.
+ *  {сколько_комнат} — число со словом: «шаш ҳуҷра» / «шесть комнат», «две комнаты».
+ *  {этажность}, {этажность_род} — ЗАРЕЗЕРВИРОВАНЫ и всегда пусты: этажность дома в озвучке не говорим (решение владельца
+ *             21.11.2026, #376); слово оставлено, чтобы тексты с ним читались, скобка «[… {этажность}]» выпадает.
+ *  {метраж} — площадь с единицей: «саду бисту панҷ метри мураббаъ» / «сто двадцать один квадратный метр».
+ */
+export const NARRATION_PLACEHOLDERS = ["вид", "объект", "комнаты", "сколько_комнат", "площадь", "метраж", "сотки", "этаж", "этаж_пор", "этажей", "этажность", "этажность_род", "район", "цена"] as const;
 
 /** Русское «доллар / доллара / долларов» по числу. */
 function rubPlural(n: number, one: string, few: string, many: string): string {
@@ -391,29 +408,96 @@ function spokenNumber(value: number | null, lang: NarrationLang, ordinal = false
  * тогда метры — «шашсаду панҷоҳ метри мураббаъ». Не участок или нет площади — пусто, и фраза
  * в квадратных скобках выпадает.
  */
-export function narrationLandAreaWords(type: string, areaSqm: number | null, lang: NarrationLang): string {
-  if (type !== "LAND" || areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+export function narrationLandAreaWords(type: string, areaSqm: number | null, lang: NarrationLang, live = false): string {
+  if (type !== "LAND") return "";
+  return narrationSotkaWords(areaSqm, lang, live);
+}
+
+/**
+ * Площадь земли словами (21.11.2026, общее для участка и двора дома): целые сотки — «панҷ сотиқ» / «пять соток»;
+ * ровно половина — «се ва ним сотиқ», «якуним сотиқ» / «три с половиной сотки», «полторы сотки» (так говорят
+ * в объявлениях; только при `halves`, то есть при включённых живых словах — иначе, как до 21.11, метрами);
+ * другая дробь — метрами, сотками её без ошибки не сказать. Нет площади — пусто.
+ */
+export function narrationSotkaWords(areaSqm: number | null, lang: NarrationLang, halves = true): string {
+  if (areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
   const whole = Math.round(areaSqm);
+  const sotki = Math.floor(whole / 100);
   if (whole % 100 === 0) {
-    const sotki = whole / 100;
     return lang === "tg" ? `${tajikCardinal(sotki)} сотиқ` : `${numberToWords(sotki, "ru", { feminine: true })} ${rubPlural(sotki, "сотка", "сотки", "соток")}`;
   }
+  if (halves && whole % 100 === 50 && sotki >= 1) {
+    if (lang === "tg") return sotki === 1 ? "якуним сотиқ" : `${tajikCardinal(sotki)} ва ним сотиқ`;
+    return sotki === 1 ? "полторы сотки" : `${numberToWords(sotki, "ru", { feminine: true })} с половиной ${rubPlural(sotki, "сотки", "сотки", "соток")}`;
+  }
+  return narrationAreaWords(whole, lang);
+}
+
+/** {метраж}: «саду бисту панҷ метри мураббаъ» / «сто двадцать один квадратный метр» (русский — с согласованием). */
+export function narrationAreaWords(areaSqm: number | null, lang: NarrationLang): string {
+  if (areaSqm === null || !Number.isFinite(areaSqm) || areaSqm <= 0) return "";
+  const whole = Math.round(areaSqm);
   return lang === "tg" ? `${tajikCardinal(whole)} метри мураббаъ` : `${numberToWords(whole, "ru")} ${rubPlural(whole, "квадратный метр", "квадратных метра", "квадратных метров")}`;
 }
 
-function placeholderValues(facts: NarrationFacts, lang: NarrationLang): Record<string, string> {
+/** Сколько комнат в названии квартиры одним словом бывает (дальше — «бисёрҳуҷрагӣ» / «многокомнатная»). */
+const NAMED_ROOMS_MAX = 10;
+const RU_ROOMS_STEM = ["", "одно", "двух", "трёх", "четырёх", "пяти", "шести", "семи", "восьми", "девяти", "десяти"];
+
+/**
+ * {объект} — ЧТО продаётся, как называют в Душанбе (21.11.2026, разбор владельца по объекту 217: «хона» размыто —
+ * квартира, частный дом или комната). Квартира — форматом: «хонаи чорҳуҷрагӣ» / «четырёхкомнатная квартира»;
+ * частный дом — «ҳавлӣ» / «частный дом»; участок — «қитъаи замин» / «земельный участок»; коммерция — «ҷои
+ * тиҷоратӣ» / «коммерческое помещение». Комнат нет — просто «квартира» (так говорят и по-таджикски).
+ */
+export function narrationObjectWords(type: string, rooms: number | null, lang: NarrationLang): string {
+  const n = rooms !== null && Number.isFinite(rooms) ? Math.round(rooms) : 0;
+  if (type === "APARTMENT") {
+    if (n < 1) return "квартира";
+    if (lang === "tg") return n > NAMED_ROOMS_MAX ? "хонаи бисёрҳуҷрагӣ" : `хонаи ${tajikCardinal(n)}ҳуҷрагӣ`;
+    return n > NAMED_ROOMS_MAX ? "многокомнатная квартира" : `${RU_ROOMS_STEM[n]}комнатная квартира`;
+  }
+  const names: Record<NarrationLang, Record<string, string>> = {
+    tg: { HOUSE: "ҳавлӣ", LAND: "қитъаи замин", COMMERCIAL: "ҷои тиҷоратӣ" },
+    ru: { HOUSE: "частный дом", LAND: "земельный участок", COMMERCIAL: "коммерческое помещение" },
+  };
+  return names[lang][type] ?? "";
+}
+
+/** {сколько_комнат}: «шаш ҳуҷра» / «шесть комнат», «две комнаты», «одна комната». */
+export function narrationRoomsWords(rooms: number | null, lang: NarrationLang): string {
+  if (rooms === null || !Number.isFinite(rooms) || rooms < 1) return "";
+  const n = Math.round(rooms);
+  return lang === "tg" ? `${tajikCardinal(n)} ҳуҷра` : `${numberToWords(n, "ru", { feminine: true })} ${rubPlural(n, "комната", "комнаты", "комнат")}`;
+}
+
+/**
+ * `live` — рубильник «живые слова озвучки» (`liveWords` в настройках озвучки, по умолчанию ВЫКЛ, пока владелец не утвердил
+ * тексты). Выключен: новые слова ({объект}, {сколько_комнат}, {метраж}) пустые, у дома {сотки} пусто, половина сотки —
+ * метрами; то есть ровно как до 21.11.2026.
+ */
+function placeholderValues(facts: NarrationFacts, lang: NarrationLang, live: boolean): Record<string, string> {
   const area = Number(facts.areaSqm);
+  const landSotka = facts.landSotka === null || facts.landSotka === undefined || facts.landSotka === "" ? NaN : Number(facts.landSotka);
   return {
     вид: TYPE_WORDS[lang][facts.type] ?? (lang === "tg" ? "объект" : "объект"),
+    объект: live ? narrationObjectWords(facts.type, facts.rooms, lang) : "",
     комнаты: spokenNumber(facts.rooms, lang),
+    сколько_комнат: live ? narrationRoomsWords(facts.rooms, lang) : "",
     площадь: spokenNumber(Number.isFinite(area) ? area : null, lang),
-    сотки: narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang),
+    метраж: live ? narrationAreaWords(Number.isFinite(area) ? area : null, lang) : "",
+    // Участок: из площади объекта; дом: из участка дома (сотки × 100 = м²). У квартиры и коммерции пусто.
+    сотки: facts.type === "HOUSE"
+      ? (live ? narrationSotkaWords(Number.isFinite(landSotka) ? Math.round(landSotka * 100) : null, lang) : "")
+      : narrationLandAreaWords(facts.type, Number.isFinite(area) ? area : null, lang, live),
     этаж: spokenNumber(facts.floor, lang),
     этаж_пор: spokenNumber(facts.floor, lang, true),
     // Этажность дома в озвучке НЕ говорим (владелец 21.11.2026: «13 этаж из 15» не надо, «просто этаж сказать»; остальное
-    // есть под роликом). Слово остаётся в списке, чтобы старые шаблоны из Настроек читались; значение всегда пустое,
-    // обороты вокруг него снимает `withoutTotalFloors`.
+    // есть под роликом). Слова остаются в списке, чтобы старые шаблоны из Настроек читались; значение всегда пустое,
+    // обороты вокруг {этажей} снимает `withoutTotalFloors`, а скобка «[… {этажность}]» с пустым словом выпадает сама.
     этажей: "",
+    этажность: "",
+    этажность_род: "",
     район: facts.district?.trim() ?? "",
     // Нет цены — «договорная»; цену сказать нельзя (доллары без курса, перепутанная валюта) — пусто,
     // и предложение с {цена} выпадает целиком (renderNarrationTemplate).
@@ -539,12 +623,31 @@ export function withoutTotalFloors(text: string): string {
 }
 /** Сторож сохранения шаблона в Настройках: {этажей} в новый или изменённый текст озвучки не принимаем. */
 export function narrationTotalFloorsError(text: string): string | null {
-  return text.includes("{этажей}")
-    ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} вместе с оборотом вокруг него"
+  return /\{этажей\}|\{этажность(?:_род)?\}/u.test(text)
+    ? "Этажность дома в озвучке не называем: скажите только этаж ({этаж_пор}), остальное есть под роликом. Уберите {этажей} и {этажность} вместе с оборотом вокруг них"
     : null;
 }
-export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts): string {
-  const values = placeholderValues(facts, template.lang);
+/** Слова, которые звучат только при включённых «Живых словах» (config.liveWords); выключены — подставляется пустое. */
+export const NARRATION_LIVE_PLACEHOLDERS = ["объект", "сколько_комнат", "метраж"] as const;
+/**
+ * Сторож сохранения при ВЫКЛЮЧЕННЫХ «Живых словах» (ревью #363): слово из NARRATION_LIVE_PLACEHOLDERS вне квадратных скобок
+ * прозвучало бы пустым и порвало фразу («Дар ноҳияи Сино фурӯхта мешавад»). В скобках — можно: фрагмент «если есть» выпадет
+ * целиком. Проверяются все тексты, не только изменённые: так звучит каждый из них, пока рубильник выключен.
+ */
+export function narrationLiveWordsError(text: string): string | null {
+  let depth = 0, outside = "";
+  for (const ch of text) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth = Math.max(0, depth - 1);
+    else if (depth === 0) outside += ch;
+  }
+  const used = NARRATION_LIVE_PLACEHOLDERS.filter((word) => outside.includes(`{${word}}`));
+  return used.length
+    ? `${used.map((w) => `{${w}}`).join(", ")} звучит только при включённых «Живых словах» (Настройки → Озвучка). Включите «Живые слова» или поставьте это слово в квадратные скобки`
+    : null;
+}
+export function renderNarrationTemplate(template: Pick<NarrationTemplate, "text" | "lang">, facts: NarrationFacts, live = false): string {
+  const values = placeholderValues(facts, template.lang, live);
   const source = withoutTotalFloors(template.text);
   const { out } = renderSegment(values.цена ? source : dropSentencesWith(source, "{цена}"), values);
   return out
@@ -572,12 +675,13 @@ export function pickNarrationTemplate(config: Pick<NarrationConfig, "templates" 
  * (сверка «текст версии = шаблон по её фактам») всегда даёт то же самое. Нет кода или концовки другого
  * языка — текст без концовки (так выглядят все версии, сделанные до 16.11.2026).
  */
-export function narrationDraftText(config: Pick<NarrationConfig, "templates" | "defaultTemplateId" | "endings">, facts: NarrationFacts, templateId?: string | null, endingId?: string | null): { text: string; templateId: string | null; endingId: string | null; lang: NarrationLang } {
+export function narrationDraftText(config: Pick<NarrationConfig, "templates" | "defaultTemplateId" | "endings" | "liveWords">, facts: NarrationFacts, templateId?: string | null, endingId?: string | null): { text: string; templateId: string | null; endingId: string | null; lang: NarrationLang } {
   const template = pickNarrationTemplate(config, templateId);
   if (!template) return { text: suggestedNarration(facts), templateId: null, endingId: null, lang: "ru" };
   const ending = endingId ? (config.endings ?? []).find((e) => e.id === endingId && e.lang === template.lang) ?? null : null;
-  const body = renderNarrationTemplate(template, facts);
-  const tail = ending ? renderNarrationTemplate(ending, facts) : "";
+  const live = config.liveWords === true;
+  const body = renderNarrationTemplate(template, facts, live);
+  const tail = ending ? renderNarrationTemplate(ending, facts, live) : "";
   return { text: tail ? `${body} ${tail}` : body, templateId: template.id, endingId: ending?.id ?? null, lang: template.lang };
 }
 
@@ -761,6 +865,8 @@ export type NarrationOptionsView = {
   samples?: NarrationVoiceSampleRef[];
   /** Курс доллара из Настроек (21.11.2026): мастер говорит долларовую цену в сомони тем же правилом, что сервер. */
   usdToTjs?: number | null;
+  /** Рубильник «живые слова озвучки» (config.liveWords): мастер собирает текст тем же правилом, что сервер. */
+  liveWords?: boolean;
 };
 export type PropertyNarrationView = {
   versions: PropertyNarrationItem[]; suggestedScript: string; config: NarrationConfig;

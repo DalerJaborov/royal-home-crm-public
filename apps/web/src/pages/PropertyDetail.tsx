@@ -877,7 +877,7 @@ function PropertyViewCard({
   // Один блок озвучки на обе раскладки и телефон (18.11.2026). С 20.11.2026 он стоит рядом со строкой «Ролик», после
   // фото, цены и «кто ведёт», а не первым в карточке (владелец: «как будто это не часть карточки»).
   const narrationBlock = canEdit && !property.offSite ? <div id="rh-narration" className="scroll-mt-24"><PropertyNarrationManager propertyId={property.id} placement="card"
-    factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency].join("|")} /></div> : null;
+    factsKey={[property.type, property.rooms, property.areaSqm, property.floor, property.totalFloors, property.districtId, property.price, property.currency, property.landAreaSotka].join("|")} /></div> : null;
   // Блок ниже первого экрана — наверху короткая строка-ссылка к нему, только когда одобрить должен этот человек (ревью #334).
   const narrationNudge = canEdit && !property.offSite ? <NarrationApprovalNudge propertyId={property.id} onOpen={() => setTab("short")} /> : null;
   const matchDialog = matchOpen && <MatchPanel mode="property" property={property} open={matchOpen} onClose={() => setMatchOpen(false)} />;

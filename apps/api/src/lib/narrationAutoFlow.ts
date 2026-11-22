@@ -137,7 +137,7 @@ export async function requestAutoNarration(input: {
     const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: property.id }, orderBy: { revision: "desc" } });
     if (input.expectedRevision !== undefined && (latest?.revision ?? 0) !== input.expectedRevision) return { status: "CONFLICT" };
     if (latest && ["GENERATING", "UNKNOWN"].includes(latest.status)) return { status: "BUSY" };
-    const facts = narrationFacts(property);
+    const facts = narrationFacts(property, config.liveWords === true);
     const factsHash = narrationHash(facts);
     // Текст с долларами (сохранён до сторожа 21.11.2026) «не изменившимся» не считается: автоозвучка пересобирает его из шаблона.
     if (input.source === "AUTO" && latest && narrationFactsCurrent(latest, property) && latest.source !== "MANUAL" && !narrationCurrencyError(latest.script)) return { status: "UNCHANGED" };
@@ -718,13 +718,15 @@ export async function autoApproveSameChoice(versionId: string, config: Narration
     if (!property || property.deletedAt || latest?.id !== v.id) return null;
     // Ролик уже вышел (18.11.2026, владелец): утверждение = выпуск в соцсети, поэтому только человек.
     if (await clipCountsAsPublished(property.id, property, tx)) return null;
-    const facts = narrationFacts(property);
-    if (v.factsHash !== narrationHash(facts) || narrationDraftText(config, withNarrationRate(facts, snapshotNarrationRate(v.factsSnapshot)), v.templateId, v.endingId).text !== v.script) return null;
+    // Актуальность — общей сверкой (ревью #363): версия дома без участка в отпечатке при живых словах не «чужая».
+    const facts = narrationFacts(property, config.liveWords === true);
+    if (!narrationFactsCurrent(v, property) || narrationDraftText(config, withNarrationRate(facts, snapshotNarrationRate(v.factsSnapshot)), v.templateId, v.endingId).text !== v.script) return null;
     // Укороченная под длину ролика версия (16.11.2026): другой шаблон, но заказала её CRM вместо уже
     // одобренной — одобряется на того же человека, иначе ролик ждал бы агента.
     if (v.shortenedFromId) {
       const from = await tx.propertyNarrationVersion.findUnique({ where: { id: v.shortenedFromId } });
-      if (!from?.approvedById || !from.approvedAt || from.voiceId !== v.voiceId || from.factsHash !== v.factsHash) return null;
+      // Те же факты = обе версии актуальны (v проверена выше): у укороченной отпечаток может быть с участком дома, а у исходной без.
+      if (!from?.approvedById || !from.approvedAt || from.voiceId !== v.voiceId || !narrationFactsCurrent(from, property)) return null;
       const at = new Date();
       const ok = await tx.propertyNarrationVersion.updateMany({ where: { id: v.id, status: "READY", approvedAt: null }, data: { approvedAt: at, approvedById: from.approvedById, approvalNotifiedAt: at } });
       return ok.count ? { approvedById: from.approvedById } : null;
@@ -1032,8 +1034,10 @@ export async function requestShorterNarration(propertyId: string, versionId: str
     const property = await tx.property.findUnique({ where: { id: propertyId }, include: { district: true } });
     const v = await tx.propertyNarrationVersion.findFirst({ where: { propertyId }, orderBy: { revision: "desc" } });
     if (!property || property.deletedAt || property.narrationOff || !v || v.id !== versionId || v.shortenedFromId || !v.templateId || !v.voiceId) return null;
-    const facts = withNarrationRate(narrationFacts(property), snapshotNarrationRate(v.factsSnapshot));
-    if (v.factsHash !== narrationHash(narrationFacts(property)) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
+    // Актуальность — общей сверкой (ревью #363): прямое сравнение отпечатков не пускало версии до цены и дома без участка.
+    const current = narrationFacts(property, config.liveWords === true);
+    const facts = withNarrationRate(current, snapshotNarrationRate(v.factsSnapshot));
+    if (!narrationFactsCurrent(v, property) || narrationDraftText(config, facts, v.templateId, v.endingId).text !== v.script) return null;
     const lang = v.language === "tg" || v.language === "ru" ? v.language : null;
     const nowRank = FIT_RANK[planNarrationFit(voiceSec, masterSec).tier];
     const chars = Math.max(1, speechChars(v.script, lang));
@@ -1050,7 +1054,7 @@ export async function requestShorterNarration(propertyId: string, versionId: str
     }
     if (!best) return null;
     await tx.propertyNarrationVersion.updateMany({ where: { propertyId, status: "DRAFT", generateAfter: { not: null } }, data: { generateAfter: null } });
-    const created = await tx.propertyNarrationVersion.create({ data: { propertyId, revision: v.revision + 1, script: best.text, factsSnapshot: facts, factsHash: v.factsHash,
+    const created = await tx.propertyNarrationVersion.create({ data: { propertyId, revision: v.revision + 1, script: best.text, factsSnapshot: facts, factsHash: narrationHash(current),
       voiceId: v.voiceId, modelId: config.modelId, templateId: best.templateId, endingId: v.endingId, language: v.language, generateAfter: new Date(), source: "AUTO",
       createdById: v.approvedById ?? v.createdById, requestKey: randomUUID(), shortenedFromId: v.id } });
     return { versionId: created.id, revision: created.revision };

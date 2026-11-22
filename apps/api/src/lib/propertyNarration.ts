@@ -4,11 +4,21 @@ import { loadUsdRateInfo } from "./money.js";
 import { logSystemError } from "./systemError.js";
 export { suggestedNarration } from "@royal-home/shared";
 
-export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null; price?: { toString(): string } | number | null; currency?: string | null }): NarrationFacts {
+/**
+ * `landAreaSotka` ОБЯЗАТЕЛЕН в типе (21.11.2026): участок дома звучит в озвучке (`{сотки}`), и вызов, который выбрал
+ * из базы объект без этого поля, иначе молча дал бы другой хэш фактов — версия казалась бы «устаревшей».
+ * `liveWords` — рубильник «Живые слова» из Настроек (config.liveWords, по умолчанию ВЫКЛ, ревью #363): участок дома
+ * входит в факты (и в их отпечаток) ТОЛЬКО при включённом — выключен, и правка соток ничего в озвучке не меняет,
+ * факты ровно как до 21.11.2026. Параметр обязателен, чтобы ни один вызов не решил это молча.
+ */
+export function narrationFacts(p: { type: string; rooms: number | null; areaSqm: { toString(): string }; floor: number | null; totalFloors: number | null; district: { name: string } | null; price?: { toString(): string } | number | null; currency?: string | null; landAreaSotka: { toString(): string } | null }, liveWords: boolean): NarrationFacts {
   // Deliberate allowlist: no owner's identity, phone, free-form title/description.
   // Price is spoken since 11.11.2026 (owner decision), so a price change is a fact change.
+  // The house plot (sotka) is spoken since 21.11.2026 — only for HOUSE and only with live words on, so everything else keeps its old hash.
   return { type: p.type, rooms: p.rooms, areaSqm: p.areaSqm.toString(), floor: p.floor, totalFloors: p.totalFloors, district: p.district?.name ?? null,
-    price: p.price === null || p.price === undefined ? null : p.price.toString(), currency: p.currency ?? null };
+    price: p.price === null || p.price === undefined ? null : p.price.toString(), currency: p.currency ?? null,
+    // `== null`: объект, собранный не из базы (подмена в тесте, старый снимок), может не нести поле вовсе — это «участка нет».
+    ...(liveWords && p.type === "HOUSE" ? { landSotka: p.landAreaSotka == null ? null : p.landAreaSotka.toString() } : {}) };
 }
 /**
  * КУРС ДЛЯ {цена} (21.11.2026, владелец: цена в озвучке только в сомони). Курс — из Настроек, без
@@ -43,16 +53,28 @@ export function narrationHash(value: unknown): string { return createHash("sha25
  * сделанные раньше (в снимке фактов нет поля price), сравниваются без цены — иначе при включении
  * все старые ручные озвучки разом стали бы «устаревшими»: волна перегенерации и возвратов монтажёру,
  * их нельзя было бы одобрить, а поставленные передачи падали бы. Одно место для всех сравнений.
+ * Участок дома (landSotka, 21.11.2026, ревью #363): версия сверяется в той форме, в которой её сделали, — с участком
+ * (живые слова были включены, сотки звучат в её аудио) или без него (выключены или раньше 21.11 — сотки в ней не звучат,
+ * их правка версию не старит). Хэш с участком и без него совпасть не могут, поэтому рубильник для сверки не нужен,
+ * и снимок фактов тоже: работает и у вызовов, которые выбирают из базы только `factsHash`.
  */
+const FACTS_ADDED_LATER: ReadonlyArray<readonly (keyof NarrationFacts)[]> = [["price", "currency"]];
 export function narrationFactsCurrent(version: { factsHash: string; factsSnapshot?: unknown }, p: Parameters<typeof narrationFacts>[0]): boolean {
-  const facts = narrationFacts(p);
+  if (factsMatch(version, narrationFacts(p, false))) return true;
+  return p.type === "HOUSE" && factsMatch(version, narrationFacts(p, true));
+}
+function factsMatch(version: { factsHash: string; factsSnapshot?: unknown }, facts: NarrationFacts): boolean {
   if (version.factsHash === narrationHash(facts)) return true;
   const snapshot = version.factsSnapshot;
-  if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) && !("price" in snapshot)) {
-    const { price: _price, currency: _currency, ...withoutPrice } = facts;
-    return version.factsHash === narrationHash(withoutPrice);
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
+  // Поля, которых в снимке версии ещё не было, убираются из нынешних фактов; порядок остальных ключей прежний.
+  const trimmed: Record<string, unknown> = { ...facts };
+  let changed = false;
+  for (const group of FACTS_ADDED_LATER) {
+    if (group[0]! in snapshot) continue;
+    for (const key of group) if (key in trimmed) { delete trimmed[key]; changed = true; }
   }
-  return false;
+  return changed && version.factsHash === narrationHash(trimmed);
 }
 function narrationScriptLengthError(text: string): string | null {
   return text.length > 5000 ? "Текст длиннее 5000 символов — сократите его перед подтверждением." : null;
