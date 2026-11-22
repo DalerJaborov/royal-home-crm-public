@@ -34,6 +34,10 @@ describe("ShowingQuestionsPanel", () => {
     expect(html).toContain("Рудаки 12");
     expect(html).toContain("Да, был");
     expect(html).toContain(">Нет<");
+    // Кнопки — свои классы, которые бьют сброс `.rh2 button` (кадры 22.11): главная и видимая вторичная.
+    expect(html).toMatch(/class="sq-btn sq-btn-primary"[^>]*>Да, был</);
+    expect(html).toMatch(/class="sq-btn sq-btn-secondary"[^>]*>Нет</);
+    expect(html).not.toContain("max-w-2xl");
     // На Главной — имя клиента ссылкой на карточку; в карточке клиента — без него.
     expect(html).toContain('href="/clients/463"');
     expect(render("c1")).not.toContain('href="/clients/463"');

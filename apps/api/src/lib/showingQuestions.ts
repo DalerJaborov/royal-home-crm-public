@@ -1,7 +1,6 @@
 import {
   defaultShowingCallbackLocal,
   dushanbeLocalToIso,
-  formatClientName,
   formatPropertyCode,
   SHOWING_NEXT_STEP_LABELS,
   type ShowingNextStep,
@@ -213,7 +212,8 @@ export function toView(d: ShowingQuestionDetails): ShowingQuestionView {
     kind: d.q.kind as ShowingQuestionKind,
     clientId: d.client.id,
     clientShortId: d.client.shortId,
-    clientName: formatClientName(d.client),
+    // Без роли впереди («Покупатель …»): вопрос и так о покупателе (кадры 22.11).
+    clientName: d.client.fullName,
     showingId: d.q.showingId,
     at: d.at?.toISOString() ?? null,
     property: d.property,

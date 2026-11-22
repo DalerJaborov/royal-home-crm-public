@@ -480,6 +480,8 @@ describe("Экран CRM: GET /api/v1/showing-questions и ответ", () => {
     expect(list.status).toBe(200);
     expect(list.body.items.map((i: { id: string }) => i.id)).toContain(q.id);
     expect(list.body.items[0]).toMatchObject({ kind: "OUTCOME", clientShortId: client.shortId });
+    // Без роли впереди («Покупатель …») — кадры 22.11.
+    expect(list.body.items[0].clientName).toBe(client.fullName);
 
     const otherToken = await login(agents.other.phone);
     const foreign = await request(app).get(`/api/v1/showing-questions?clientId=${client.id}`).set("Authorization", `Bearer ${otherToken}`);

@@ -21,9 +21,9 @@ import { RuDateTimeField } from "./look/fields/RuFields";
  * клиента (ClientDetail и MobileClientCard — вопросы этого клиента).
  */
 
-const BTN = "glass-btn tap-target min-h-[44px] px-4 py-2 text-[15px]";
-const PRIMARY = `${BTN} glass-btn-primary`;
-const GHOST = `${BTN} glass-btn-ghost`;
+// Кнопки — свои классы (theme-2026-brand.css, «ВОПРОСЫ О ПОКАЗЕ»): внутри `.rh2` сброс темы гасил glass-btn.
+const PRIMARY = "sq-btn sq-btn-primary";
+const GHOST = "sq-btn sq-btn-secondary";
 
 /** ISO → значение поля «дата и время» по Душанбе (общая пара с разбором — @royal-home/shared). */
 function toDushanbeLocal(iso: string | null): string {
@@ -40,7 +40,7 @@ export function ShowingQuestionsPanel({ clientId }: { clientId?: string }) {
   const items = questions.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section aria-label="Вопросы о показах" className="mb-4 flex w-full max-w-2xl flex-col gap-3">
+    <section aria-label="Вопросы о показах" className="mb-4 flex w-full flex-col gap-3">
       {items.map((q) => (
         <ShowingQuestionCard key={q.id} q={q} showClient={!clientId} />
       ))}
@@ -82,7 +82,7 @@ function ShowingQuestionCard({ q, showClient }: { q: ShowingQuestionView; showCl
 
   if (done) {
     return (
-      <div className="glass-notice p-4" role="status">
+      <div className="sq-card glass-notice p-4" role="status">
         <p className="text-[15px] text-ink">{done}</p>
         {bookModal}
       </div>
@@ -90,7 +90,7 @@ function ShowingQuestionCard({ q, showClient }: { q: ShowingQuestionView; showCl
   }
 
   return (
-    <div className="glass-notice glass-notice-enter p-4">
+    <div className="sq-card glass-notice glass-notice-enter p-4">
       <div className="flex items-start gap-2.5">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] bg-blue/10 text-blue" aria-hidden>
           {q.kind === "OUTCOME" ? <Home className="h-4 w-4" /> : <CalendarCheck className="h-4 w-4" />}
