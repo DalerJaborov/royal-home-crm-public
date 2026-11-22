@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   estimateNarrationSec, narrationAreaWords, narrationConfigSchema, narrationDraftText, narrationFitsType, narrationObjectWords,
-  narrationRoomsWords, narrationSotkaWords, narrationStoreysWords, narrationTemplateError, type NarrationFacts, type NarrationLang,
+  narrationRoomsWords, narrationSotkaWords, narrationTemplateError, narrationTotalFloorsError, type NarrationFacts, type NarrationLang,
 } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { narrationFacts, narrationFactsCurrent, narrationHash } from "../src/lib/propertyNarration.js";
@@ -55,27 +55,10 @@ describe("новые слова шаблона: формы", () => {
     expect(narrationRoomsWords(null, "tg")).toBe("");
   });
 
-  it("{этажность}: слитно, 2–25 этажей; по-русски именительный и родительный", () => {
-    const tg = Array.from({ length: 24 }, (_, i) => narrationStoreysWords(i + 2, "tg"));
-    expect(tg).toEqual(["дуошёна", "сеошёна", "чорошёна", "панҷошёна", "шашошёна", "ҳафтошёна", "ҳаштошёна", "нӯҳошёна", "даҳошёна",
-      "ёздаҳошёна", "дувоздаҳошёна", "сенздаҳошёна", "чордаҳошёна", "понздаҳошёна", "шонздаҳошёна", "ҳабдаҳошёна", "ҳаждаҳошёна", "нуздаҳошёна",
-      "бистошёна", "бисту якошёна", "бисту дуошёна", "бисту сеошёна", "бисту чорошёна", "бисту панҷошёна"]);
-    const ru = Array.from({ length: 24 }, (_, i) => narrationStoreysWords(i + 2, "ru"));
-    expect(ru).toEqual(["двухэтажный", "трёхэтажный", "четырёхэтажный", "пятиэтажный", "шестиэтажный", "семиэтажный", "восьмиэтажный", "девятиэтажный",
-      "десятиэтажный", "одиннадцатиэтажный", "двенадцатиэтажный", "тринадцатиэтажный", "четырнадцатиэтажный", "пятнадцатиэтажный",
-      "шестнадцатиэтажный", "семнадцатиэтажный", "восемнадцатиэтажный", "девятнадцатиэтажный", "двадцатиэтажный", "двадцатиодноэтажный",
-      "двадцатидвухэтажный", "двадцатитрёхэтажный", "двадцатичетырёхэтажный", "двадцатипятиэтажный"]);
-    expect(narrationStoreysWords(16, "ru", true)).toBe("шестнадцатиэтажного");
-    expect(narrationStoreysWords(16, "tg", true)).toBe("шонздаҳошёна");
-    expect(narrationStoreysWords(1, "ru")).toBe("одноэтажный");
-    expect(narrationStoreysWords(1, "tg")).toBe("якошёна");
-    expect(narrationStoreysWords(null, "tg")).toBe("");
-  });
-
   it("{метраж} по-русски согласуется с числом; {сотки}: целые, половина, иначе метры", () => {
     expect([121, 122, 125].map((n) => narrationAreaWords(n, "ru"))).toEqual([
       "сто двадцать один квадратный метр", "сто двадцать два квадратных метра", "сто двадцать пять квадратных метров"]);
-    expect(narrationAreaWords(124.5, "tg")).toBe("саду бисту панҷ метри мураббаъ");
+    expect(narrationAreaWords(124.5, "tg")).toBe("яксаду бисту панҷ метри мураббаъ");
     expect(narrationSotkaWords(500, "tg")).toBe("панҷ сотиқ");
     expect(narrationSotkaWords(350, "tg")).toBe("се ва ним сотиқ");
     expect(narrationSotkaWords(150, "tg")).toBe("якуним сотиқ");
@@ -87,14 +70,14 @@ describe("новые слова шаблона: формы", () => {
 });
 
 describe("библиотека 21.11.2026: правила текста", () => {
-  const config = narrationConfigSchema.parse({ modelId: "eleven_v4", voices: [], templates: lib.templates, endings: lib.endings });
+  const config = narrationConfigSchema.parse({ modelId: "eleven_v4", voices: [], templates: lib.templates, endings: lib.endings, liveWords: true });
   const objectWord = (f: NarrationFacts, lang: NarrationLang) => narrationObjectWords(f.type, f.rooms, lang).toLocaleLowerCase("ru");
 
-  it("объект 217 звучит так, как владелец одобрил (без «васеъ»: у однокомнатной это было бы неправдой)", () => {
+  it("объект 217 звучит так, как владелец одобрил 21.11, но без этажности дома (#376) (без «васеъ»: у однокомнатной это было бы неправдой)", () => {
     expect(narrationDraftText(config, FACTS.APARTMENT!, "tg-apt-1", "end-a").text).toBe(
       "Барои оилаатон хона дар бинои бисёрошёна меҷӯед? Ин пешниҳодро аз даст надиҳед! Дар ноҳияи Сино хонаи чорҳуҷрагӣ фурӯхта мешавад. "
-      + "Масоҳаташ саду бисту панҷ метри мураббаъ буда, дар ошёнаи ёздаҳуми бинои шонздаҳошёна ҷойгир аст. "
-      + "Нархаш ду миллиону саду ҳафтоду ҳашт ҳазор сомонӣ. Танҳо аз рӯйи навор баҳо надиҳед, беҳтараш худатон омада бинед! "
+      + "Масоҳаташ яксаду бисту панҷ метри мураббаъ буда, дар ошёнаи ёздаҳум ҷойгир аст. "
+      + "Нархаш ду миллиону яксаду ҳафтоду ҳашт ҳазор сомонӣ. Танҳо аз рӯйи навор баҳо надиҳед, беҳтараш худатон омада бинед! "
       + "Барои тамошо худи ҳозир ба мо нависед ё занг занед.");
   });
 
@@ -146,6 +129,42 @@ describe("библиотека 21.11.2026: правила текста", () => {
       const { text } = narrationDraftText(config, house, t.id, null);
       expect(text, t.id).not.toMatch(/Нарх|Цена|\{|\[|\s[.,]/u);
     }
+  });
+});
+
+describe("рубильник «живые слова»: по умолчанию выключен, выключенный — озвучка как раньше", () => {
+  const tpl = (lang: NarrationLang, text: string) => ({ id: "t1", name: "Т", lang, text });
+  const config = (liveWords?: boolean, templates = [tpl("tg", "[Дар ноҳияи {район} ]{объект} фурӯхта мешавад. [Масоҳаташ {метраж}.] [{сколько_комнат}.] [Участка {сотки}.]")]) =>
+    narrationConfigSchema.parse({ modelId: "eleven_v4", voices: [], templates, ...(liveWords === undefined ? {} : { liveWords }) });
+
+  it("в настройках без поля рубильник выключен", () => {
+    expect(narrationConfigSchema.parse({ modelId: "m", voices: [] }).liveWords).toBeUndefined();
+    expect(config().liveWords).toBeUndefined();
+  });
+
+  it("выключен: новые слова и участок дома молчат, остальное звучит как раньше", () => {
+    const off = narrationDraftText(config(false), FACTS.HOUSE!, "t1", null).text;
+    expect(off).toBe("Дар ноҳияи Фирдавси фурӯхта мешавад.");
+    expect(narrationDraftText(config(), FACTS.HOUSE!, "t1", null).text).toBe(off);
+    const on = narrationDraftText(config(true), FACTS.HOUSE!, "t1", null).text;
+    expect(on).toBe("Дар ноҳияи Фирдавси ҳавлӣ фурӯхта мешавад. Масоҳаташ дусад метри мураббаъ. Ҳашт ҳуҷра. Участка панҷ сотиқ.");
+  });
+
+  it("выключен: участок с половиной сотки — метрами, как до 21.11; включён — «ва ним»", () => {
+    const land = { ...FACTS.LAND!, areaSqm: "650" };
+    const only = [tpl("tg", "Участок {сотки}.")];
+    expect(narrationDraftText(config(false, only), land, "t1", null).text).toBe("Участок шашсаду панҷоҳ метри мураббаъ.");
+    expect(narrationDraftText(config(true, only), land, "t1", null).text).toBe("Участок шаш ва ним сотиқ.");
+    // целые сотки одинаковы при любом положении
+    expect(narrationDraftText(config(false, only), FACTS.LAND!, "t1", null).text).toBe(narrationDraftText(config(true, only), FACTS.LAND!, "t1", null).text);
+  });
+
+  it("этажность дома не звучит ни при каком положении: {этажность} пустое, скобка выпадает", () => {
+    const only = [tpl("tg", "Хона дар ошёнаи {этаж_пор}[и бинои {этажность}] ҷойгир аст.")];
+    for (const live of [false, true]) {
+      expect(narrationDraftText(config(live, only), FACTS.APARTMENT!, "t1", null).text).toBe("Хона дар ошёнаи ёздаҳум ҷойгир аст.");
+    }
+    expect(narrationTotalFloorsError("бинои {этажность}")).not.toBeNull();
   });
 });
 

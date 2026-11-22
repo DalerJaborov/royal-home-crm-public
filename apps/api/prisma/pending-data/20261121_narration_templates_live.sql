@@ -6,6 +6,8 @@
 -- main goes to production within a minute, and the owner has to approve the texts first. After his «да» move it to
 -- prisma/migrations/<timestamp>_narration_templates_live/migration.sql (tests find it in either place) and ship.
 --
+-- The switch «live words» (propertyNarrationConfig.liveWords, Settings → Озвучка) is OFF by default in code; this migration turns it ON
+-- together with the texts. Until then the new words are silent and narration sounds as before.
 -- Rules (Settings."propertyNarrationConfig"; voices, model, keys, limits, dictionary stay untouched):
 --  * a template or ending whose current text is one of the KNOWN OLD texts (11.11 starters, 17.11 library, production on 21.11)
 --    is replaced by the new one with the same id (versions keep their templateId/endingId);
@@ -512,6 +514,8 @@ BEGIN
 
   cfg := jsonb_set(cfg, '{templates}', next_templates);
   cfg := jsonb_set(cfg, '{endings}', next_endings);
+  -- The new texts use the new words ({объект} …): they speak only while the switch «live words» is on, so it goes on with them.
+  cfg := jsonb_set(cfg, '{liveWords}', 'true'::jsonb);
   UPDATE "Settings" SET "propertyNarrationConfig" = cfg WHERE "id" = 'singleton';
 END
 $mig$;

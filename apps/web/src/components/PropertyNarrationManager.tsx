@@ -346,7 +346,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
   const defaultTemplateId = latest?.templateId ?? freshPick?.templateId ?? null;
   const defaultEndingId = latest ? latest.endingId ?? null : freshPick?.endingId ?? null;
   const defaultVoiceId = pickNarrationVoice(data.config, latest?.voiceId ?? last.voiceId);
-  const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript }) : null;
+  const resolved = facts ? resolveNarrationDraft({ templates, endings, facts, value: draft, defaultTemplateId, defaultEndingId, defaultVoiceId, defaultScript: currentScript, liveWords: data.config.liveWords === true }) : null;
   const listenedFresh = !!resolved && narrationListenFresh(draft.listened, resolved);
   const textOk = (resolved?.text.trim().length ?? 0) >= 10;
   // Поменяли текст или голос против текущей озвучки — утверждать старое аудио нельзя, только «Озвучить заново».
@@ -514,7 +514,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
 
       {composerOpen && facts && <div className="space-y-3 border-t border-line pt-3">
         {!data.configured && <p className="rounded-xl bg-[var(--warn-bg)] p-3 text-base">Озвучка ещё не настроена руководством. Голос и текст можно выбрать уже сейчас.</p>}
-        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data.config.voices} samples={data.samples} facts={facts} value={draft}
+        <NarrationComposer name={`${ids}-voice`} templates={templates} endings={endings} voices={data.config.voices} samples={data.samples} facts={facts} liveWords={data.config.liveWords === true} value={draft}
           onChange={(next) => { setDraft(next); setConfirmSame(false); }}
           defaultTemplateId={defaultTemplateId} defaultEndingId={defaultEndingId} defaultVoiceId={defaultVoiceId} defaultScript={currentScript} lastPickedVoiceId={last.voiceId ?? null}
           recommendedVoiceId={data.config.defaultVoiceId ?? null} disabled={busy} lengthCheck={length} canListen={!!data.autoGenerate} />

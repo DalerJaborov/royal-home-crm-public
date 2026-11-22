@@ -64,7 +64,7 @@ narrationRouter.get("/narration-options", async (_req, res) => {
   const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultTemplateId: config.defaultTemplateId ?? null, defaultVoiceId: config.defaultVoiceId ?? null, autoGenerate: narrationAutoEnabled(config),
     lastChoice: await narrationLastChoiceFor(_req.agent?.id, config),
-    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate() };
+    samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })), usdToTjs: await narrationRate(), liveWords: config.liveWords === true };
   res.json(view);
 });
 
@@ -211,16 +211,18 @@ narrationRouter.put("/narration-settings", async (req, res) => {
     // {этажей} (21.11.2026): этажность дома в озвучке не говорим; старый живой шаблон с ним читается (оборот снимается при сборке), новый не принимаем.
     return narrationTemplateStructureError(item.text) ?? (unchanged ? null : narrationTemplateRulesError(item.text, item.lang) ?? narrationTotalFloorsError(item.text));
   };
+  // Живые слова выключены — {объект} и др. пустые, проверка идёт так, как текст прозвучит на самом деле.
+  const live = parsed.data.liveWords === true;
   for (const template of parsed.data.templates ?? []) {
     // И вариант «цену сказать нельзя» (доллары без курса): шаблон не должен пустеть (ревью #348).
-    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS))
+    const problem = textRules(template, existing.templates) ?? narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS, live))
       // Только для нового или изменённого при этом сохранении шаблона: старый, не тронутый, сохранению не мешает.
-      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE))
+      ?? (!sameAsBefore(template, existing.templates) && narrationScriptError(renderNarrationTemplate(template, SAMPLE_FACTS_NO_PRICE, live))
         ? "без цены (нет курса доллара) от шаблона не остаётся ни одного предложения: добавьте фразу без {цена}" : null);
     if (problem) return res.status(400).json({ error: `Шаблон «${template.name}»: ${problem}` });
   }
   for (const ending of parsed.data.endings ?? []) {
-    const problem = textRules(ending, existing.endings) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS));
+    const problem = textRules(ending, existing.endings) ?? narrationScriptError(renderNarrationTemplate(ending, SAMPLE_FACTS, live));
     if (problem) return res.status(400).json({ error: `Концовка «${ending.text.slice(0, 40)}…»: ${problem}` });
   }
   // Словарь произношения (12.11.2026): правка правил — синхронизация с ElevenLabs, только для

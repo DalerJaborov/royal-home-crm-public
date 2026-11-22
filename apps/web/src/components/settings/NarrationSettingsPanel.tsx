@@ -26,6 +26,7 @@ export function NarrationSettingsPanel() {
   const [removeOld, setRemoveOld] = useState<boolean | null>(null);
   const [ownMusic, setOwnMusic] = useState<boolean | null>(null);
   const [textOverlay, setTextOverlay] = useState<boolean | null>(null);
+  const [liveWords, setLiveWords] = useState<boolean | null>(null);
   const [backfill, setBackfill] = useState<boolean | null>(null), [monthlyPreview, setMonthlyPreview] = useState<boolean | null>(null), [freeEnabled, setFreeEnabled] = useState<boolean | null>(null);
   const [limitsText, setLimitsText] = useState<{ chars?: string; gens?: string; pause?: string; freePerson?: string; freeMax?: string; freeShare?: string; gap?: string; listenPerson?: string }>({});
   const [templatesDraft, setTemplatesDraft] = useState<NarrationTemplate[] | null>(null), [endingsDraft, setEndingsDraft] = useState<NarrationEnding[] | null>(null);
@@ -84,6 +85,7 @@ export function NarrationSettingsPanel() {
         <Check checked={mixByCrm ?? config.mixByCrm === true} onChange={setMixByCrm}>Голос на ролик кладём мы: монтажёр присылает только ролик без голоса. Выключено: монтажёр вклеивает озвучку сам</Check>
         <Check checked={removeOld ?? config.removeOldPostsOnNarration !== false} onChange={setRemoveOld}>Снимать старые посты при новой озвучке: вышел новый ролик, старый в той же сети CRM снимает сама. Выключено: старые посты остаются рядом с новыми</Check>
         <Check checked={textOverlay ?? config.textOverlay === true} onChange={setTextOverlay}>Цену и субтитры на ролике рисует CRM: при перемонтаже CRM сама кладёт плашку с ценой из карточки и субтитры по тексту озвучки</Check>
+        <Check checked={liveWords ?? config.liveWords === true} onChange={setLiveWords}>Живые слова в текстах озвучки: {"{объект}"}, {"{сколько_комнат}"}, {"{метраж}"}, участок дома в {"{сотки}"}. Выключено: эти слова молчат и озвучка звучит как раньше</Check>
         <Check checked={backfill ?? config.backfillMontageQueue === true} onChange={setBackfill}>Озвучка к роликам, которые уже в монтаже: готовить по шаблону и голосу по умолчанию, одобряет владелец</Check>
         <Check checked={monthlyPreview ?? !!config.ownerReportPreviewEnabled} onChange={setMonthlyPreview}>Готовить черновик каждого месяца для уже согласованных отчётов собственнику. SMS не отправлять</Check>
       </fieldset>
@@ -182,7 +184,7 @@ export function NarrationSettingsPanel() {
         const number = (text: string | undefined, fallback: number | undefined) => text === undefined ? fallback : Math.max(0, Math.round(Number(text) || 0));
         const patch: Partial<NarrationConfig> = { modelId: model, voices, ownerReportPreviewEnabled: monthlyPreview ?? !!config.ownerReportPreviewEnabled,
           autoGenerate: autoGenerate ?? !!config.autoGenerate, mixByCrm: mixByCrm ?? config.mixByCrm === true, backfillMontageQueue: backfill ?? config.backfillMontageQueue === true, removeOldPostsOnNarration: removeOld ?? config.removeOldPostsOnNarration !== false,
-          narrationPublishGapMin: Math.min(180, Math.max(5, number(limitsText.gap, config.narrationPublishGapMin ?? 15) ?? 15)), ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true,
+          narrationPublishGapMin: Math.min(180, Math.max(5, number(limitsText.gap, config.narrationPublishGapMin ?? 15) ?? 15)), ownMusicRemix: ownMusic ?? config.ownMusicRemix === true, textOverlay: textOverlay ?? config.textOverlay === true, liveWords: liveWords ?? config.liveWords === true,
           ...(rulesDraft ? { pronunciationRules: rulesDraft.filter((r) => r.word.trim() && (r.alias?.trim() || r.phoneme?.trim())) } : {}),
           dailyCharLimit: number(limitsText.chars, config.dailyCharLimit), dailyGenerationLimit: number(limitsText.gens, config.dailyGenerationLimit),
           debounceMinutes: number(limitsText.pause, config.debounceMinutes),
