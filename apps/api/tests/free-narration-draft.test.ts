@@ -1,0 +1,240 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
+
+/**
+ * 23.11.2026: черновики текста перед озвучкой (голос → расшифровка, рекламный текст из фактов, кнопка под длинным
+ * текстом). База настоящая; Telegram, Gemini и ElevenLabs подменены: ни одного платного вызова. Главное: до «Озвучить»
+ * ElevenLabs не вызывается, текст озвучивается тот, что подтверждён, повтор нажатия не создаёт вторую заявку.
+ */
+const tg = vi.hoisted(() => ({
+  sendMessage: vi.fn(async () => ({ message_id: 1 })),
+  sendMessageWithButtons: vi.fn(async () => ({ message_id: 2 })),
+  answerCallbackQuery: vi.fn(async () => ({})),
+  sendDocumentFile: vi.fn(async () => ({ message_id: 3 })),
+  editMessageText: vi.fn(async () => undefined),
+  sendChatAction: vi.fn(async () => undefined),
+}));
+const ad = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>>, next: [] as Array<Record<string, unknown>> }));
+vi.mock("../src/telegram/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
+  sendMessage: tg.sendMessage, sendMessageWithButtons: tg.sendMessageWithButtons, answerCallbackQuery: tg.answerCallbackQuery,
+  sendDocumentFile: tg.sendDocumentFile, editMessageText: tg.editMessageText, sendChatAction: tg.sendChatAction, isTelegramEnabled: () => true,
+}));
+vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: () => "test-key" }));
+vi.mock("../src/ai/assistant/adScript.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/ai/assistant/adScript.js")>();
+  return { ...real, generateAdScript: vi.fn(async (input: Record<string, unknown>) => { ad.calls.push(input); return ad.next.shift() ?? { status: "OK", script: "Рудаки Тауэр в районе Рудаки. Свет, канализация, парковка. Звоните, расскажем подробнее.", lang: "ru" }; }) };
+});
+
+const { waitFor } = await import("./helpers/waitFor.js");
+const { prisma } = await import("../src/db.js");
+const { handleFreeNarrationMessage, handleFreeNarrationCallback, handleAdTextRequest, offerNarrationButton } = await import("../src/telegram/assistantFreeNarration.js");
+const { createFreeNarrationDraft, loadFreeNarrationDraft, purgeFreeNarrations } = await import("../src/lib/freeNarration.js");
+
+const runId = Date.now().toString(36);
+const tail = String(Date.now()).slice(-6);
+const voices = [{ id: `vA-${runId}`, name: "Мадина", gender: "female" as const }, { id: `vB-${runId}`, name: "Анна", gender: "female" as const }];
+const baseConfig = { modelId: "eleven_v4", voices, defaultVoiceId: voices[1].id, dailyCharLimit: 1_000_000, dailyGenerationLimit: 1000, freeNarrationPerPersonDaily: 50, freeNarrationBudgetPercent: 100 };
+let configBefore: unknown = null;
+const agentIds: string[] = [];
+let chatSeq = 0;
+
+async function setConfig(extra: Record<string, unknown> = {}) {
+  const value = { ...baseConfig, ...extra };
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: value }, update: { propertyNarrationConfig: value } });
+}
+async function makeAgent() {
+  const hash = await bcrypt.hash("testpass123", 4);
+  const n = agentIds.length;
+  const chat = 710_000_000 + Number(tail) * 10 + (chatSeq++);
+  const agent = await prisma.agent.create({ data: { fullName: `Черновик ${n}`, phone: `+99295${tail.slice(-4)}${String(n).padStart(3, "0")}`, role: "AGENT", passwordHash: hash, telegramChatId: String(chat) } });
+  agentIds.push(agent.id);
+  return { id: agent.id, chat };
+}
+const msg = (chat: number, text: string, extra: Record<string, unknown> = {}) => ({ message_id: 10, chat: { id: chat, type: "private" }, from: { id: chat }, text, ...extra }) as any;
+const click = (chat: number, data: string, id = `fd-${runId}-${randomUUID()}`) => ({ id, data, message: { chat: { id: chat, type: "private" }, message_id: 5, text: "Черновик" }, from: { id: chat } }) as any;
+const lastButtons = () => (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string, Array<Array<{ text: string; callback_data?: string }>>])[2];
+const lastText = () => (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string])[1];
+const FACTS = "RUDAKI TOWER, район Рудаки, рядом дворец Фарханг, свет, канализация, 3 лифта на блок, скидка 10–15%, парковка, детский двор, цена от 6500 смн за кв. м, от 59 кв. м";
+
+beforeAll(async () => {
+  configBefore = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } }))?.propertyNarrationConfig ?? {};
+  await setConfig();
+});
+beforeEach(() => { vi.clearAllMocks(); ad.calls.length = 0; ad.next.length = 0; });
+afterAll(async () => {
+  await prisma.freeNarration.deleteMany({ where: { agentId: { in: agentIds } } });
+  await prisma.telegramCallbackSeen.deleteMany({ where: { id: { startsWith: `fd-${runId}` } } });
+  await prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { propertyNarrationConfig: configBefore as object } });
+});
+
+describe("голос в ожидании текста: расшифровка черновиком", () => {
+  it("расшифровка показана кнопками, ElevenLabs не вызван; «Озвучить как есть» ведёт к выбору голоса", async () => {
+    const user = await makeAgent();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      expect(await handleFreeNarrationMessage(msg(user.chat, "озвучь текст:"), user)).toBe(true);
+      const transcribe = vi.fn(async () => ({ text: "Добро пожаловать в Рудаки Тауэр" }));
+      const voice = msg(user.chat, "", { text: undefined, voice: { file_id: "v1", duration: 5 } });
+      expect(await handleFreeNarrationMessage(voice, user, false, transcribe)).toBe(true);
+      expect(transcribe).toHaveBeenCalledTimes(1);
+      expect(lastText()).toContain("Добро пожаловать в Рудаки Тауэр");
+      const buttons = lastButtons().flat();
+      expect(buttons.map((b) => b.text).join("|")).toMatch(/как есть.*Исправить.*Отмена/u);
+      const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
+      expect(draft.script).toBe("Добро пожаловать в Рудаки Тауэр");
+      expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AWAITING_TEXT" } })).toBe(0);
+
+      const ok = buttons.find((b) => b.callback_data?.startsWith("fnr:o:"))!.callback_data!;
+      expect(await handleFreeNarrationCallback(click(user.chat, ok))).toBe(true);
+      expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "AWAITING_VOICE", script: "Добро пожаловать в Рудаки Тауэр" });
+      expect(lastButtons()[0][0].text).toContain("Анна"); // выбор голоса
+      // Повтор нажатия «Озвучить как есть» ничего не создаёт и не платит.
+      await handleFreeNarrationCallback(click(user.chat, ok));
+      expect(await prisma.freeNarration.count({ where: { agentId: user.id } })).toBe(1);
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("«Исправить»: черновик снят, ждём набранный текст, он идёт к выбору голоса; плохая расшифровка не теряет ожидание", async () => {
+    const user = await makeAgent();
+    await handleFreeNarrationMessage(msg(user.chat, "озвучь текст:"), user);
+    const voice = msg(user.chat, "", { text: undefined, voice: { file_id: "v2", duration: 5 } });
+    expect(await handleFreeNarrationMessage(voice, user, false, async () => ({ error: "Не удалось распознать" }))).toBe(true);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AWAITING_TEXT" } })).toBe(1);
+    await handleFreeNarrationMessage(voice, user, false, async () => ({ text: "Салом, хуш омадед ба Рудаки Тауэр" }));
+    const fix = lastButtons().flat().find((b) => b.callback_data?.startsWith("fnr:e:"))!.callback_data!;
+    await handleFreeNarrationCallback(click(user.chat, fix));
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "DRAFT" } })).toBe(0);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AWAITING_TEXT" } })).toBe(1);
+    expect(await handleFreeNarrationMessage(msg(user.chat, "Салом, хуш омадед ба Рудаки Тауэр, хонаҳои нав"), user)).toBe(true);
+    expect(await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "AWAITING_VOICE" } })).toMatchObject({ script: "Салом, хуш омадед ба Рудаки Тауэр, хонаҳои нав", lang: "tg" });
+  });
+
+  it("«Отмена» удаляет черновик", async () => {
+    const user = await makeAgent();
+    const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Какой-то текст для озвучки", kind: "VOICE" });
+    if (created.status !== "CREATED") throw new Error(created.status);
+    await handleFreeNarrationCallback(click(user.chat, `fnr:x:${created.row.id}`));
+    expect(await loadFreeNarrationDraft(created.row.id, user.id)).toBeNull();
+  });
+
+  it("чужой черновик нажатием не берётся", async () => {
+    const owner = await makeAgent(); const other = await makeAgent();
+    const created = await createFreeNarrationDraft({ agentId: owner.id, chatId: String(owner.chat), text: "Текст владельца для озвучки", kind: "VOICE" });
+    if (created.status !== "CREATED") throw new Error(created.status);
+    await handleFreeNarrationCallback(click(other.chat, `fnr:o:${created.row.id}`));
+    expect(await prisma.freeNarration.findUnique({ where: { id: created.row.id } })).toMatchObject({ status: "DRAFT" });
+  });
+});
+
+describe("рекламный текст из фактов", () => {
+  it("факты в просьбе: текст написан, показан с кнопками, ElevenLabs не вызван; «Озвучить» → выбор голоса", async () => {
+    const user = await makeAgent();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      expect(await handleAdTextRequest(String(user.chat), user.id, `сделай рекламный текст и озвучь: ${FACTS}`, "ru")).toBe(true);
+      expect(ad.calls).toHaveLength(1);
+      expect(String(ad.calls[0].facts)).toContain("RUDAKI TOWER");
+      expect(lastText()).toContain("Рудаки Тауэр в районе Рудаки");
+      expect(lastButtons().flat().map((b) => b.text).join("|")).toMatch(/Озвучить.*Править.*Переписать.*Отмена/u);
+      const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
+      expect(draft.errorCode).toBe("AD");
+      expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AD_FACTS" } })).toBe(1);
+
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${draft.id}`));
+      expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "AWAITING_VOICE" });
+      expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AD_FACTS" } })).toBe(0);
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("просьба без фактов: ждём факты, следующее сообщение пишется как факты, а не читается слово в слово", async () => {
+    const user = await makeAgent();
+    expect(await handleAdTextRequest(String(user.chat), user.id, "сделай рекламный текст и озвучь", "ru")).toBe(true);
+    expect(ad.calls).toHaveLength(0);
+    expect(await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "AWAITING_TEXT" } })).toMatchObject({ errorCode: "AD" });
+    expect(await handleFreeNarrationMessage(msg(user.chat, FACTS), user)).toBe(true);
+    expect(ad.calls).toHaveLength(1);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AWAITING_VOICE" } })).toBe(0);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "DRAFT" } })).toBe(1);
+  });
+
+  it("«Переписать»: новый вариант в том же черновике, счётчик растёт, предел пять", async () => {
+    const user = await makeAgent();
+    await handleAdTextRequest(String(user.chat), user.id, `сделай рекламный текст и озвучь: ${FACTS}`, "ru");
+    const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
+    ad.next.push({ status: "OK", script: "Другой заход: Рудаки Тауэр ждёт вас в районе Рудаки. Парковка и детский двор.", lang: "ru" });
+    await handleFreeNarrationCallback(click(user.chat, `fnr:r:${draft.id}`));
+    await waitFor(async () => (await prisma.freeNarration.findUnique({ where: { id: draft.id } }))?.chars === 1);
+    expect((await prisma.freeNarration.findUnique({ where: { id: draft.id } }))!.script).toContain("Другой заход");
+    expect(ad.calls.at(-1)).toMatchObject({ variant: 1 });
+    expect(String(ad.calls.at(-1)?.avoid)).toContain("Рудаки Тауэр в районе Рудаки");
+    await prisma.freeNarration.update({ where: { id: draft.id }, data: { chars: 5 } });
+    const before = ad.calls.length;
+    await handleFreeNarrationCallback(click(user.chat, `fnr:r:${draft.id}`));
+    expect(ad.calls.length).toBe(before);
+  });
+
+  it("модель не смогла без выдумки: честный отказ, черновика нет, ElevenLabs не вызван", async () => {
+    const user = await makeAgent();
+    ad.next.push({ status: "UNSAFE", reason: "числа" });
+    expect(await handleAdTextRequest(String(user.chat), user.id, `сделай рекламный текст: ${FACTS}`, "ru")).toBe(true);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id } })).toBe(0);
+    expect(String((tg.sendMessage.mock.calls.at(-1) as unknown as [string, string])[1])).toContain("только ваши факты");
+  });
+
+  it("рубильник «рекламный текст» выключен: просьба идёт дальше как раньше", async () => {
+    const user = await makeAgent();
+    await setConfig({ freeNarrationAdText: false });
+    try {
+      expect(await handleAdTextRequest(String(user.chat), user.id, `сделай рекламный текст и озвучь: ${FACTS}`, "ru")).toBe(false);
+      expect(ad.calls).toHaveLength(0);
+    } finally { await setConfig(); }
+  });
+
+  it("мало фактов: просим больше, модель не зовём", async () => {
+    const user = await makeAgent();
+    await handleAdTextRequest(String(user.chat), user.id, "сделай рекламный текст и озвучь", "ru");
+    await handleFreeNarrationMessage(msg(user.chat, "Рудаки Тауэр"), user);
+    expect(ad.calls).toHaveLength(0);
+    expect(String((tg.sendMessage.mock.calls.at(-1) as unknown as [string, string])[1])).toContain("Фактов маловато");
+  });
+});
+
+describe("кнопка «Озвучить этот текст»", () => {
+  const long = Array.from({ length: 34 }, (_, i) => `слово${i}`).join(" ");
+  it("под длинным текстом одна кнопка, второй раз в пять минут нет; нажатие ведёт к выбору голоса", async () => {
+    const user = await makeAgent();
+    expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(true);
+    expect(lastButtons().flat()[0].text).toContain("Озвучить этот текст");
+    expect(await offerNarrationButton(String(user.chat), user.id, `${long} ещё`, "ru")).toBe(false);
+    const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
+    expect(draft.errorCode).toBe("OFFER");
+    await handleFreeNarrationCallback(click(user.chat, `fnr:o:${draft.id}`));
+    expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "AWAITING_VOICE", script: long });
+  });
+  it("короткое, вопрос и рубильник: кнопки нет", async () => {
+    const user = await makeAgent();
+    expect(await offerNarrationButton(String(user.chat), user.id, "короткий текст", "ru")).toBe(false);
+    expect(await offerNarrationButton(String(user.chat), user.id, `${long}?`, "ru")).toBe(false);
+    await setConfig({ freeNarrationOfferButton: false });
+    try { expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(false); } finally { await setConfig(); }
+    expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+  });
+});
+
+describe("уборка", () => {
+  it("брошенные черновики и факты старше суток убираются", async () => {
+    const user = await makeAgent();
+    const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Текст, который забыли подтвердить", kind: "AD", facts: "факты для текста про дом" });
+    if (created.status !== "CREATED") throw new Error(created.status);
+    await prisma.freeNarration.updateMany({ where: { agentId: user.id }, data: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+    await purgeFreeNarrations();
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id } })).toBe(0);
+  });
+});
