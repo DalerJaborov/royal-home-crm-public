@@ -26,6 +26,7 @@ import { detectClientLanguage } from "./clientLanguage.js";
 import { guardReply } from "./offTopicGuard.js";
 import { guardFired } from "./guardMetrics.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
+import { stripCallTimePromise } from "./callTimePromiseGuard.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { isPublicAgencyPhone, isRetiredPublicAgencyPhone, publicAgencyContactContext, renderPublicAgencyContact } from "../lib/publicAgencyContact.js";
 
@@ -1568,7 +1569,9 @@ export function cleanOutgoingReply(
   // как начало строки. Порядок наоборот оставил бы отчёт нетронутым.
   const cleaned = stripMachineTypography(
     stripFillerWords(
-      stripBannedWords(stripForeignWords(stripLeadingAck(stripAddresseeVocative(stripGenderedAddress(stripSystemExcuses(withoutMarkup)), clientText))))
+      stripCallTimePromise(
+        stripBannedWords(stripForeignWords(stripLeadingAck(stripAddresseeVocative(stripGenderedAddress(stripSystemExcuses(withoutMarkup)), clientText))))
+      )
     )
   )
     .replace(/[ \t]{2,}/g, " ")
