@@ -139,6 +139,7 @@ export * from "./liveVoiceSpend.js";
 export * from "./metaEternal.js";
 export * from "./sellerAutomationSwitches.js";
 export * from "./securityAutomationSwitch.js";
+export * from "./assistantStaffTotpSwitch.js";
 export * from "./automationSwitches.js";
 export * from "./showingQuestions.js";
 export * from "./functionStatus.js";
