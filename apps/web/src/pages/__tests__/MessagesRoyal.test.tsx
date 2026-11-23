@@ -62,7 +62,6 @@ vi.mock("../../hooks/useConversations", async (importOriginal) => {
     useReplyToConversation: (id: string | null) => { h.replyTarget = id; return mutation(); },
     useSendVoiceMessage: mutation, useResumeConversationBot: mutation,
     usePauseConversationBot: (ids: unknown) => { h.pauseIds = ids; return mutation(); }, useUploadConversationMediaWithProgress: () => ({ start: h.mutation, retry: h.mutation, cancel: h.mutation }),
-    useReplyFeedback: mutation,
     isWindowClosedError: () => false,
   };
 });
@@ -258,22 +257,19 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(menuText()).toContain("Вернуть боту");
   });
 
-  it("message details: who answered and delivery for everyone, bot rating only for the director", () => {
-    h.perms = AGENT;
-    mount();
-    click(bubble("Да, могу прислать фото")?.querySelector('[aria-label="Сведения о сообщении"]'));
-    let sheet = document.body.textContent ?? "";
-    expect(sheet).toContain("Сведения о сообщении");
-    expect(sheet).toContain("Отправил");
-    expect(sheet).toContain("Прочитано");
-    expect(sheet).not.toContain("Верно");
-    unmount();
-    h.perms = DIRECTOR;
-    mount();
-    click(bubble("Да, могу прислать фото")?.querySelector('[aria-label="Сведения о сообщении"]'));
-    sheet = document.body.textContent ?? "";
-    expect(sheet).toContain("Верно");
-    expect(sheet).toContain("Неверно");
+  it("message details: who answered and delivery for everyone; no bot rating for anyone (removed with bot training)", () => {
+    for (const perms of [AGENT, DIRECTOR]) {
+      h.perms = perms;
+      mount();
+      click(bubble("Да, могу прислать фото")?.querySelector('[aria-label="Сведения о сообщении"]'));
+      const sheet = document.body.textContent ?? "";
+      expect(sheet).toContain("Сведения о сообщении");
+      expect(sheet).toContain("Отправил");
+      expect(sheet).toContain("Прочитано");
+      expect(sheet).not.toContain("Верно");
+      expect(sheet).not.toContain("Неверно");
+      unmount();
+    }
   });
 
   it("right click on a bubble opens the same details", () => {

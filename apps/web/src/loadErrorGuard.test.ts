@@ -273,7 +273,7 @@ export function dataHidingErrorLines(source: string, hooks: Set<string>): string
 }
 
 /** Страницы нового вида, чья ошибка читается руками (остальное нового вида — components/look/**). */
-const HIDING_PAGES = ["pages/Clients.tsx", "pages/ClientDetail.tsx", "pages/Properties.tsx", "pages/PropertyForm.tsx", "pages/AiLearning.tsx", "pages/settings/MessengerAccounts.tsx"];
+const HIDING_PAGES = ["pages/Clients.tsx", "pages/ClientDetail.tsx", "pages/Properties.tsx", "pages/PropertyForm.tsx", "pages/settings/MessengerAccounts.tsx"];
 
 describe("сторож К14, часть 2: ошибка запроса не прячет загруженные данные на экранах нового вида", () => {
   const hooks = queryHookNames();

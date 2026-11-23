@@ -1968,10 +1968,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <RoyalMessageInfo
             message={m}
             text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length, channel: m.sourceChannel ?? conversation?.channel })}
-            conversationId={m.sourceConversationId ?? id}
-            messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? infoIndex}`}
-            index={m.sourceMessageIndex ?? infoIndex}
-            readOnly={readOnly}
             onClose={() => setInfoIndex(null)}
           />
         );

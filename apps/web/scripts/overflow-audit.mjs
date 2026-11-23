@@ -253,7 +253,7 @@ const mcZones = {
       { id: "a-3", fullName: "Манижа Юсупова", avatarUrl: null, activeLoad: 8, pendingAccept: 0, acceptedToday: 2, noContact: 1, buyerCount: 6, sellerCount: 2, lastSeenAt: "2026-09-09T16:40:00.000Z" },
     ],
   },
-  bot: { ai: { requestsToday: 812, errorsToday: 4, errorRatePercent: 0.5, costUsdToday: 1.8, avgMs: 940 }, guardHitsToday: 2, unresolvedFindings: 1 },
+  bot: { ai: { requestsToday: 812, errorsToday: 4, errorRatePercent: 0.5, costUsdToday: 1.8, avgMs: 940 }, guardHitsToday: 2 },
   marketing: { instagramCommentsWaiting: 6, funnelMonth: "2026-09", funnel: [] },
   video: { pipeline: { total: 24, awaitingReview: 6, awaitingPhotos: 9, awaitingVideo: 5, editing: 4, overdue: 3 } },
   properties: { available: 84, newThisWeek: 6, reserved: 11, portfolioValueTjs: 41200000, items: [] },
@@ -419,11 +419,6 @@ function body(url) {
     };
   }
 
-  if (u === "/bot-learning") return { rules: [], questions: [], rulesTotal: 0, questionsTotal: 0, activeCount: 0 };
-  if (u === "/bot-learning/lost") return { digests: [], pendingReviews: 0, reviewsTotal: 0 };
-  if (u === "/bot-audit") return { total: 0, unresolvedTotal: 0, resolvedTotal: 0, groups: [] };
-  if (u === "/bot-training/guard-stats") return { days: 14, totals: [] };
-  if (u === "/bot-training/next") return null;
   if (u === "/bot-scenarios") return { items: [] };
   if (u === "/insights") return [];
   if (u === "/dashboard/counters/seen") return {};
@@ -512,9 +507,7 @@ const routes = [
   ["/oversight", "oversight"],
   ["/mission-control", "mission-control"],
   ["/health", "health"],
-  ["/ai-learning", "ai-learning"],
   ["/insights", "insights"],
-  ["/bot-training", "bot-training"],
   ["/more", "more"],
   ["/notifications", "notifications"],
 ].filter(([p]) => !only || only.includes(p));

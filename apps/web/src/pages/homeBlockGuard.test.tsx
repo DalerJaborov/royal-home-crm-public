@@ -123,7 +123,7 @@ function fullSnapshot() {
     },
     bot: {
       ai: { requestsToday: 10, errorsToday: 0, errorRatePercent: 0, costUsdToday: 0.1, avgMs: 900 },
-      guardHitsToday: 0, outboundShieldToday: 0, unresolvedFindings: 0,
+      guardHitsToday: 0, outboundShieldToday: 0,
       attention: { silent: zone(0), waitingHuman: zone(2), liveCount: 1 },
     },
     marketing: {

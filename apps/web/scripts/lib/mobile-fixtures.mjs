@@ -251,7 +251,7 @@ export const mcZones = {
       { id: "a-3", fullName: "Манижа Юсупова", avatarUrl: null, activeLoad: 8, pendingAccept: 0, acceptedToday: 2, noContact: 1, buyerCount: 6, sellerCount: 2, lastSeenAt: "2026-09-09T16:40:00.000Z" },
     ],
   },
-  bot: { ai: { requestsToday: 812, errorsToday: 4, errorRatePercent: 0.5, costUsdToday: 1.8, avgMs: 940 }, guardHitsToday: 2, unresolvedFindings: 1 },
+  bot: { ai: { requestsToday: 812, errorsToday: 4, errorRatePercent: 0.5, costUsdToday: 1.8, avgMs: 940 }, guardHitsToday: 2 },
   marketing: { instagramCommentsWaiting: 6, funnelMonth: "2026-09", funnel: [] },
   video: { pipeline: { total: 24, awaitingReview: 6, awaitingPhotos: 9, awaitingVideo: 5, editing: 4, overdue: 3 } },
   properties: { available: 84, newThisWeek: 6, reserved: 11, portfolioValueTjs: 41200000, items: [] },

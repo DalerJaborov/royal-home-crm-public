@@ -58,30 +58,12 @@ vi.mock("../../../pages/settings/SystemTab", () => ({
   StuckConversationsSection: () => <div>Зависшие диалоги</div>,
   AuditLogSection: () => <div>Журнал действий</div>,
 }));
-vi.mock("../../../pages/settings/BotTab", () => ({
-  BotQuestionsSection: () => <div>Бот спрашивает</div>,
-  BotLessonsSection: () => <div>Правила бота</div>,
-  LostClientsSection: () => <div>Куда уходят</div>,
-}));
-vi.mock("../../BotAuditSection", () => ({ BotAuditSection: () => <div>Аудит</div> }));
-vi.mock("../../DistillNowButton", () => ({ DistillNowButton: () => <button type="button">Разобрать сейчас</button> }));
-vi.mock("../../BotTrainingPanels", () => ({
-  GuardStatsPanel: () => <div>Стражи</div>, PendingCasesPanel: () => <div>Ждут</div>,
-  SavedTrainingSamplesSection: () => <div>Образцы</div>, TrainingSession: () => <div>Тренировка</div>,
-}));
-vi.mock("../../trainer/BotTrainer", () => ({ BotTrainer: () => <div>Тренажёр</div> }));
-vi.mock("../../../hooks/useBotLearning", () => ({
-  useBotLearning: () => ok({ questionsGroupsTotal: 2, questionsTotal: 5, promptCount: 40, rulesGroupsTotal: 52, activeCount: 48, promptLimit: 40, rulesTotal: 60 }),
-}));
-vi.mock("../../../hooks/useBotAudit", () => ({ useBotAuditList: () => ok({ unresolvedTotal: 3 }) }));
-vi.mock("../../../hooks/useSettings", () => ({ useSettings: () => ({ data: { botTrainingScreenEnabled: true }, isLoading: false }) }));
 
 import { Oversight } from "../../../pages/Oversight";
 import { SecurityCenter } from "../../../pages/SecurityCenter";
 import { Backups } from "../../../pages/Backups";
 import { Health } from "../../../pages/Health";
 import { StuckWork } from "../../../pages/StuckWork";
-import { AiLearning } from "../../../pages/AiLearning";
 import { ControlRoot } from "./ControlRoot";
 import { controlTile } from "./controlTileIcon";
 
@@ -92,7 +74,6 @@ const SCREENS = [
   { name: "Резервные копии", url: "/backups", el: <Backups /> },
   { name: "Здоровье системы", url: "/health", el: <Health /> },
   { name: "Что не доехало", url: "/stuck-work", el: <StuckWork /> },
-  { name: "Обучение бота (правила)", url: "/ai-learning?tab=rules", el: <AiLearning /> },
 ];
 const render = (url: string, el: ReactElement) => renderToStaticMarkup(<MemoryRouter initialEntries={[url]}>{el}</MemoryRouter>);
 /** Что читает человек: текст без разметки (значки — svg без текста — сюда не попадают). */
@@ -166,7 +147,7 @@ describe("экраны контроля в новом виде: тот же те
 
   it("срочность плитки — одна переменная на подпись и на круг (ревью PR 305; проверено поломкой)", () => {
     const checked: string[] = [];
-    for (const page of ["Oversight", "SecurityCenter", "Health", "AiLearning"]) {
+    for (const page of ["Oversight", "SecurityCenter", "Health"]) {
       const src = readFileSync(new URL(`../../../pages/${page}.tsx`, import.meta.url), "utf8");
       for (const m of src.matchAll(/controlTile\("[\w-]+", ([^)]+)\)/g)) {
         expect(m[1], `${page}: второй аргумент controlTile — имя переменной, не выражение`).toMatch(/^\w+$/);
@@ -174,7 +155,7 @@ describe("экраны контроля в новом виде: тот же те
         checked.push(`${page}:${m[1]}`);
       }
     }
-    expect(checked.length).toBe(9);
+    expect(checked.length).toBe(7);
     // поломка: условие записано дважды — сторож краснеет
     const dup = 'controlTile("clock", summary.overdue > 0)';
     expect(/^\w+$/.test(/controlTile\("[\w-]+", ([^)]+)\)/.exec(dup)![1])).toBe(false);
