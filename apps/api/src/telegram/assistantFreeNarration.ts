@@ -16,11 +16,12 @@ import { pickNarrationVoice, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { claimCallback } from "../lib/telegramCallbackClaim.js";
 import { freeNarrationAdTextEnabled, freeNarrationLimits, freeNarrationOfferEnabled } from "@royal-home/shared";
+import { isAiAssistantEnabled } from "../ai/assistant.js";
 import { adFactsUsable, generateAdScript, parseAdTextRequest, type AdScriptResult } from "../ai/assistant/adScript.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
   cancelFreeNarration, claimFreeNarration, clearFreeNarrationTextWait, confirmFreeNarrationDraft, createFreeNarrationDraft, createFreeNarrationRequest, dropFreeNarrationDraft, executeFreeNarration,
-  freeNarrationFilePath, loadFreeNarrationDraft, pendingFreeNarrationTextWaitMode, replaceAdDraftScript, setFreeNarrationLang, startFreeNarrationTextWait, canUseFreeNarration,
+  freeNarrationFilePath, loadFreeNarrationDraft, pendingFreeNarrationTextWaitMode, lockAdRewrite, finishAdRewrite, setFreeNarrationLang, startFreeNarrationTextWait, canUseFreeNarration,
   FREE_NARRATION_AD_REWRITES_MAX, type FreeNarrationClaim, type FreeNarrationDraftKind, type FreeNarrationRow, type FreeNarrationRunOutcome,
 } from "../lib/freeNarration.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
@@ -260,7 +261,6 @@ async function createAndShow(chatId: string, agentId: string, text: string, lang
 }
 
 const DRAFT_PREVIEW_MAX = 3500;
-const draftPreview = (script: string) => (script.length > DRAFT_PREVIEW_MAX ? `${script.slice(0, DRAFT_PREVIEW_MAX)}…` : script);
 
 function draftButtons(rowId: string, kind: FreeNarrationDraftKind, lang: Lang): TelegramInlineButton[][] {
   const c = copy[lang];
@@ -277,14 +277,24 @@ function draftButtons(rowId: string, kind: FreeNarrationDraftKind, lang: Lang): 
 function draftText(row: FreeNarrationRow, kind: FreeNarrationDraftKind, lang: Lang): string {
   const c = copy[lang];
   if (kind === "OFFER") return c.offerHead(row.script.length);
-  return `${kind === "AD" ? c.adHead(row.script.length) : kind === "TEXT" ? c.textHead(row.script.length) : c.voiceDraftHead(row.script.length)}\n\n${draftPreview(row.script)}`;
+  return `${kind === "AD" ? c.adHead(row.script.length) : kind === "TEXT" ? c.textHead(row.script.length) : c.voiceDraftHead(row.script.length)}\n\n${row.script}`;
+}
+
+/** Черновик целиком (текст длиннее лимита Telegram идёт частями, кнопки под последней: человек подтверждает всё, что видел). */
+async function sendDraft(chatId: string, row: FreeNarrationRow, kind: FreeNarrationDraftKind, lang: Lang): Promise<void> {
+  const buttons = draftButtons(row.id, kind, lang);
+  const text = draftText(row, kind, lang);
+  if (text.length <= DRAFT_PREVIEW_MAX) { await sendMessageWithButtons(chatId, text, buttons); return; }
+  const parts = text.match(/[\s\S]{1,3500}/gu) ?? [text];
+  for (const part of parts.slice(0, -1)) await sendMessage(chatId, part);
+  await sendMessageWithButtons(chatId, parts[parts.length - 1], buttons);
 }
 
 /** Черновик текста со своим набором кнопок. Деньги ElevenLabs до «Озвучить» не тратятся. */
 async function createDraftAndShow(chatId: string, agentId: string, text: string, kind: FreeNarrationDraftKind, lang: Lang, facts?: string): Promise<boolean> {
   const c = copy[lang];
   const outcome = await createFreeNarrationDraft({ agentId, chatId, text, kind, facts });
-  if (outcome.status === "CREATED") { await sendMessageWithButtons(chatId, draftText(outcome.row, kind, lang), draftButtons(outcome.row.id, kind, lang)); return true; }
+  if (outcome.status === "CREATED") { await sendDraft(chatId, outcome.row, kind, lang); return true; }
   if (kind === "OFFER") return false;
   await sendMessage(chatId, outcome.status === "NO_ACCESS" ? c.noAccess : outcome.status === "OFF" ? c.off : outcome.status === "NOT_CONFIGURED" ? c.notConfigured
     : outcome.status === "TOO_SHORT" ? c.tooShort : outcome.status === "TOO_LONG" ? c.tooLong(outcome.max, outcome.length) : c.failed);
@@ -320,6 +330,8 @@ async function writeAd(facts: string, wallet: AssistantMoneyWallet, maxChars: nu
 
 async function adAllowed(agentId: string): Promise<"OK" | "NO_ACCESS" | "OFF" | "NOT_CONFIGURED"> {
   if (!await canUseFreeNarration(agentId)) return "NO_ACCESS";
+  // Выключенная помощница не зовёт Gemini и для рекламного текста.
+  if (!await isAiAssistantEnabled()) return "OFF";
   const { config, key } = await loadNarrationConfiguration();
   if (!freeNarrationAdTextEnabled(config)) return "OFF";
   return key ? "OK" : "NOT_CONFIGURED";
@@ -329,6 +341,10 @@ async function adAllowed(agentId: string): Promise<"OK" | "NO_ACCESS" | "OFF" | 
 async function writeAdAndShow(chatId: string, agentId: string, facts: string, lang: Lang, wallet: AssistantMoneyWallet): Promise<void> {
   const c = copy[lang];
   if (!adFactsUsable(facts)) { await sendMessage(chatId, c.adShort); return; }
+  // Права, рубильники и ключ проверяются ДО Gemini (ожидание фактов могло пережить смену настроек).
+  const allowed = await adAllowed(agentId);
+  if (allowed !== "OK") { await sendMessage(chatId, allowed === "NO_ACCESS" ? c.noAccess : allowed === "OFF" ? c.off : c.notConfigured); return; }
+  await sendMessage(chatId, c.adWorking);
   void sendChatAction(chatId).catch(() => {});
   const { config } = await loadNarrationConfiguration();
   const result = await writeAd(facts, wallet, freeNarrationLimits(config).maxChars);
@@ -380,8 +396,9 @@ export async function offerNarrationButton(chatId: string, agentId: string, text
   if (!await canUseFreeNarration(agentId)) return false;
   const { config, key } = await loadNarrationConfiguration();
   if (!freeNarrationOfferEnabled(config) || !key || text.trim().length > freeNarrationLimits(config).maxChars) return false;
-  const recent = await prisma.freeNarration.findFirst({ where: { chatId, status: "DRAFT", errorCode: "OFFER", createdAt: { gte: new Date(Date.now() - 5 * 60_000) } }, select: { id: true } });
-  if (recent) return false;
+  // Не чаще раза в 15 минут и никогда поверх чужого открытого черновика или ожидания текста.
+  const busy = await prisma.freeNarration.findFirst({ where: { chatId, status: { in: ["DRAFT", "AWAITING_TEXT"] }, createdAt: { gte: new Date(Date.now() - 15 * 60_000) } }, select: { id: true } });
+  if (busy) return false;
   return createDraftAndShow(chatId, agentId, text.trim(), "OFFER", lang);
 }
 
@@ -417,6 +434,8 @@ export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, a
       }
       if (text.startsWith("/")) { await clearFreeNarrationTextWait(chatId); return false; }
       if (CANCEL_WORDS.test(text)) { await clearFreeNarrationTextWait(chatId); await sendMessage(chatId, c.cancelled); return true; }
+      // Ожидание фактов не забирает обычные вопросы и команды помощнице: они идут дальше как всегда.
+      if (waitMode === "AD" && (COMMAND_START.test(text) || /[?？]\s*$/u.test(text))) { await clearFreeNarrationTextWait(chatId); return false; }
       if (waitMode === "AD") { await writeAdAndShow(chatId, agent.id, text, lang, wallet ?? createAssistantMoneyWallet()); return true; }
       await createAndShow(chatId, agent.id, text, lang);
       return true;
@@ -516,6 +535,7 @@ async function handleDraftAction(action: "o" | "e" | "r", id: string, agentId: s
   const draft = await loadFreeNarrationDraft(id, agentId);
   if (!draft) { await answer(c.stale); return; }
   if (action === "o") {
+    if (draft.busy) { await answer(c.adWorking); return; }
     const row = await confirmFreeNarrationDraft(id, agentId);
     if (!row) { await answer(c.stale); return; }
     await answer();
@@ -534,25 +554,35 @@ async function handleDraftAction(action: "o" | "e" | "r", id: string, agentId: s
   }
   // r: «Переписать».
   if (draft.kind !== "AD" || !draft.facts) { await answer(c.stale); return; }
+  if (draft.busy) { await answer(c.adWorking); return; }
   if (draft.row.chars >= FREE_NARRATION_AD_REWRITES_MAX) { await answer(c.adRewriteLimit); return; }
+  // Занять черновик: два нажатия подряд дают одну генерацию, «Озвучить» ждёт нового текста.
+  if (!await lockAdRewrite(id, agentId)) { await answer(c.adWorking); return; }
   await answer(c.adWorking);
   void trackBackgroundTask(rewriteAd(id, agentId, chatId, messageId, draft.row.script, draft.facts, draft.row.chars + 1, lang));
 }
 
 async function rewriteAd(id: string, agentId: string, chatId: string, messageId: number | undefined, previous: string, facts: string, variant: number, lang: Lang): Promise<void> {
   const c = copy[lang];
+  // Черновик занят (lockAdRewrite): любой исход обязан его освободить, иначе «Озвучить» не пройдёт до уборки.
+  let finished = false;
   try {
     const { config } = await loadNarrationConfiguration();
     const result = await writeAd(facts, createAssistantMoneyWallet(), freeNarrationLimits(config).maxChars, { variant, avoid: previous });
-    if (result.status !== "OK") { await sendMessage(chatId, adFailureText(result, lang)); return; }
-    if (!await replaceAdDraftScript(id, agentId, result.script)) { await sendMessage(chatId, c.adRewriteLimit); return; }
+    if (result.status !== "OK") { await finishAdRewrite(id, agentId); finished = true; await sendMessage(chatId, adFailureText(result, lang)); return; }
+    if (!await finishAdRewrite(id, agentId, result.script)) { finished = true; await sendMessage(chatId, c.stale); return; }
+    finished = true;
     const fresh = await loadFreeNarrationDraft(id, agentId);
     if (!fresh) { await sendMessage(chatId, c.stale); return; }
     const text = draftText(fresh.row, "AD", lang);
-    const buttons = draftButtons(id, "AD", lang);
-    if (messageId) await editMessageText(chatId, messageId, text, buttons).catch(async () => { await sendMessageWithButtons(chatId, text, buttons); });
-    else await sendMessageWithButtons(chatId, text, buttons);
+    // Новый текст показывается целиком, кнопки под ним; старое сообщение теряет кнопки, чтобы не подтвердили не то.
+    if (messageId) await editMessageText(chatId, messageId, `${previous.slice(0, 3000)}
+
+↻`, null).catch(() => {});
+    if (text.length <= DRAFT_PREVIEW_MAX && messageId) await sendMessageWithButtons(chatId, text, draftButtons(id, "AD", lang));
+    else await sendDraft(chatId, fresh.row, "AD", lang);
   } catch (err) {
+    if (!finished) await finishAdRewrite(id, agentId).catch(() => false);
     void logSystemError("telegram", `Рекламный текст, «Переписать» в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-ad-rewrite" });
     await sendMessage(chatId, c.failed).catch(() => {});
   }

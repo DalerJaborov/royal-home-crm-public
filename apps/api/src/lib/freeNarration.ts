@@ -114,7 +114,7 @@ export async function pendingFreeNarrationTextWait(agentId: string, chatId: stri
  */
 /** TEXT — набранный текст «озвучь вот это» (просьба снята и показан принятый текст). */
 export type FreeNarrationDraftKind = "VOICE" | "AD" | "OFFER" | "TEXT";
-const DRAFT_KINDS: readonly string[] = ["AD", "OFFER", "TEXT"];
+const DRAFT_KINDS: readonly string[] = ["AD", "AD_BUSY", "OFFER", "TEXT"];
 export const FREE_NARRATION_AD_REWRITES_MAX = 5;
 export type FreeNarrationDraftOutcome = { status: "CREATED"; row: FreeNarrationRow } | Exclude<FreeNarrationCreateOutcome, { status: "CREATED" | "EXISTS" | "KEY_CONFLICT" }>;
 
@@ -128,7 +128,8 @@ export async function createFreeNarrationDraft(input: { agentId: string; chatId:
   if (text.length < FREE_NARRATION_MIN_CHARS) return { status: "TOO_SHORT" };
   const { maxChars } = freeNarrationLimits(config);
   if (text.length > maxChars) return { status: "TOO_LONG", max: maxChars, length: text.length };
-  await prisma.freeNarration.deleteMany({ where: { chatId: input.chatId, status: { in: ["AWAITING_TEXT", "DRAFT", "AD_FACTS"] } } });
+  // Кнопка под длинным текстом (OFFER) чужих черновиков и ожиданий не трогает, снимает только прежнюю такую же кнопку.
+  await prisma.freeNarration.deleteMany({ where: input.kind === "OFFER" ? { chatId: input.chatId, status: "DRAFT", errorCode: "OFFER" } : { chatId: input.chatId, status: { in: ["AWAITING_TEXT", "DRAFT", "AD_FACTS"] } } });
   const row = await prisma.freeNarration.create({ data: { agentId: input.agentId, source: "TELEGRAM", chatId: input.chatId, status: "DRAFT", script: text, errorCode: input.kind } });
   if (input.kind === "AD" && input.facts) {
     await prisma.freeNarration.create({ data: { agentId: input.agentId, source: "TELEGRAM", chatId: input.chatId, status: "AD_FACTS", script: input.facts, requestKey: `adfacts:${row.id}` } });
@@ -136,12 +137,13 @@ export async function createFreeNarrationDraft(input: { agentId: string; chatId:
   return { status: "CREATED", row };
 }
 
-export async function loadFreeNarrationDraft(id: string, agentId: string): Promise<{ row: FreeNarrationRow; kind: FreeNarrationDraftKind; facts: string | null } | null> {
+export async function loadFreeNarrationDraft(id: string, agentId: string): Promise<{ row: FreeNarrationRow; kind: FreeNarrationDraftKind; facts: string | null; busy: boolean } | null> {
   const row = await prisma.freeNarration.findUnique({ where: { id } });
   if (!row || row.agentId !== agentId || row.status !== "DRAFT") return null;
-  const kind = (row.errorCode && DRAFT_KINDS.includes(row.errorCode) ? row.errorCode : "VOICE") as FreeNarrationDraftKind;
+  const stored = row.errorCode && DRAFT_KINDS.includes(row.errorCode) ? row.errorCode : "VOICE";
+  const kind = (stored === "AD_BUSY" ? "AD" : stored) as FreeNarrationDraftKind;
   const factsRow = kind === "AD" ? await prisma.freeNarration.findUnique({ where: { requestKey: `adfacts:${id}` }, select: { script: true } }) : null;
-  return { row, kind, facts: factsRow?.script ?? null };
+  return { row, kind, facts: factsRow?.script ?? null, busy: stored === "AD_BUSY" };
 }
 
 /** «Озвучить как есть»: черновик становится заявкой на выбор голоса. Одно нажатие = один переход (повтор вернёт null). */
@@ -149,15 +151,23 @@ export async function confirmFreeNarrationDraft(id: string, agentId: string): Pr
   const row = await prisma.freeNarration.findUnique({ where: { id }, select: { script: true, agentId: true } });
   if (!row || row.agentId !== agentId) return null;
   const { config } = await loadNarrationConfiguration();
-  const moved = await prisma.freeNarration.updateMany({ where: { id, agentId, status: "DRAFT" }, data: { status: "AWAITING_VOICE", errorCode: null, chars: 0, lang: effectiveLang(detectFreeNarrationLang(row.script), config) } });
+  const moved = await prisma.freeNarration.updateMany({ where: { id, agentId, status: "DRAFT", errorCode: { not: "AD_BUSY" } }, data: { status: "AWAITING_VOICE", errorCode: null, chars: 0, lang: effectiveLang(detectFreeNarrationLang(row.script), config) } });
   if (!moved.count) return null;
   await prisma.freeNarration.deleteMany({ where: { requestKey: `adfacts:${id}` } });
   return prisma.freeNarration.findUnique({ where: { id } });
 }
 
-/** «Переписать»: новый текст сценария в том же черновике; счётчик переписываний в chars. false — предел или черновика нет. */
-export async function replaceAdDraftScript(id: string, agentId: string, script: string): Promise<boolean> {
-  const moved = await prisma.freeNarration.updateMany({ where: { id, agentId, status: "DRAFT", errorCode: "AD", chars: { lt: FREE_NARRATION_AD_REWRITES_MAX } }, data: { script, chars: { increment: 1 } } });
+/**
+ * «Переписать»: ЗАНЯТЬ черновик (одно нажатие = одна генерация; пока идёт переписывание, «Озвучить» не пропускается:
+ * человек не озвучит текст, которого не видел). Счётчик переписываний в chars. false — предел, занято или черновика нет.
+ */
+export async function lockAdRewrite(id: string, agentId: string): Promise<boolean> {
+  const moved = await prisma.freeNarration.updateMany({ where: { id, agentId, status: "DRAFT", errorCode: "AD", chars: { lt: FREE_NARRATION_AD_REWRITES_MAX } }, data: { errorCode: "AD_BUSY", chars: { increment: 1 } } });
+  return moved.count > 0;
+}
+/** Конец переписывания: новый текст (если есть) и снятие занятости. */
+export async function finishAdRewrite(id: string, agentId: string, script?: string): Promise<boolean> {
+  const moved = await prisma.freeNarration.updateMany({ where: { id, agentId, status: "DRAFT", errorCode: "AD_BUSY" }, data: script === undefined ? { errorCode: "AD" } : { errorCode: "AD", script } });
   return moved.count > 0;
 }
 

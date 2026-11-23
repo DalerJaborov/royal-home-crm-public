@@ -27,9 +27,9 @@ export function freeNarrationAdTextEnabled(config: Pick<NarrationConfig, "freeNa
   return freeNarrationEnabled(config) && config.freeNarrationAdText !== false;
 }
 
-/** Рубильник кнопки «Озвучить этот текст» под длинным сообщением (23.11.2026). */
+/** Рубильник кнопки «Озвучить этот текст» под длинным сообщением (23.11.2026). По умолчанию ВЫКЛ (ревью: «редко беспокоить»): владелец включает в Настройках. */
 export function freeNarrationOfferEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationOfferButton">): boolean {
-  return freeNarrationEnabled(config) && config.freeNarrationOfferButton !== false;
+  return freeNarrationEnabled(config) && config.freeNarrationOfferButton === true;
 }
 
 /**

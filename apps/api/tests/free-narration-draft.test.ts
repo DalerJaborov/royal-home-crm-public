@@ -21,6 +21,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   sendMessage: tg.sendMessage, sendMessageWithButtons: tg.sendMessageWithButtons, answerCallbackQuery: tg.answerCallbackQuery,
   sendDocumentFile: tg.sendDocumentFile, editMessageText: tg.editMessageText, sendChatAction: tg.sendChatAction, isTelegramEnabled: () => true,
 }));
+vi.mock("../src/ai/assistant.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/assistant.js")>(), isAiAssistantEnabled: async () => true }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: () => "test-key" }));
 vi.mock("../src/ai/assistant/adScript.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/ai/assistant/adScript.js")>();
@@ -197,6 +198,26 @@ describe("рекламный текст из фактов", () => {
     } finally { await setConfig(); }
   });
 
+  it("пока идёт «Переписать», «Озвучить» не пропускается, второе нажатие не запускает вторую генерацию", async () => {
+    const user = await makeAgent();
+    await handleAdTextRequest(String(user.chat), user.id, `сделай рекламный текст и озвучь: ${FACTS}`, "ru");
+    const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
+    await prisma.freeNarration.update({ where: { id: draft.id }, data: { errorCode: "AD_BUSY" } });
+    const before = ad.calls.length;
+    await handleFreeNarrationCallback(click(user.chat, `fnr:o:${draft.id}`));
+    await handleFreeNarrationCallback(click(user.chat, `fnr:r:${draft.id}`));
+    expect(ad.calls.length).toBe(before);
+    expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "DRAFT", errorCode: "AD_BUSY" });
+  });
+
+  it("в ожидании фактов обычный вопрос помощнице не забирается и не тратит Gemini", async () => {
+    const user = await makeAgent();
+    await handleAdTextRequest(String(user.chat), user.id, "сделай рекламный текст и озвучь", "ru");
+    expect(await handleFreeNarrationMessage(msg(user.chat, "покажи мои заявки за сегодня"), user)).toBe(false);
+    expect(ad.calls).toHaveLength(0);
+    expect(await prisma.freeNarration.count({ where: { agentId: user.id, status: "AWAITING_TEXT" } })).toBe(0);
+  });
+
   it("мало фактов: просим больше, модель не зовём", async () => {
     const user = await makeAgent();
     await handleAdTextRequest(String(user.chat), user.id, "сделай рекламный текст и озвучь", "ru");
@@ -208,8 +229,19 @@ describe("рекламный текст из фактов", () => {
 
 describe("кнопка «Озвучить этот текст»", () => {
   const long = Array.from({ length: 34 }, (_, i) => `слово${i}`).join(" ");
-  it("под длинным текстом одна кнопка, второй раз в пять минут нет; нажатие ведёт к выбору голоса", async () => {
+  it("по умолчанию кнопки нет (рубильник выключен)", async () => {
     const user = await makeAgent();
+    expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(false);
+    expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+  });
+  it("под длинным текстом одна кнопка, второй раз скоро нет; нажатие ведёт к выбору голоса; чужой открытый черновик не трогает", async () => {
+    await setConfig({ freeNarrationOfferButton: true });
+    const user = await makeAgent();
+    const other = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Открытый черновик рекламы", kind: "AD", facts: "факты про дом" });
+    if (other.status !== "CREATED") throw new Error(other.status);
+    expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(false);
+    expect(await loadFreeNarrationDraft(other.row.id, user.id)).not.toBeNull();
+    await prisma.freeNarration.deleteMany({ where: { agentId: user.id } });
     expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(true);
     expect(lastButtons().flat()[0].text).toContain("Озвучить этот текст");
     expect(await offerNarrationButton(String(user.chat), user.id, `${long} ещё`, "ru")).toBe(false);
@@ -217,13 +249,12 @@ describe("кнопка «Озвучить этот текст»", () => {
     expect(draft.errorCode).toBe("OFFER");
     await handleFreeNarrationCallback(click(user.chat, `fnr:o:${draft.id}`));
     expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "AWAITING_VOICE", script: long });
+    await setConfig();
   });
   it("короткое, вопрос и рубильник: кнопки нет", async () => {
     const user = await makeAgent();
     expect(await offerNarrationButton(String(user.chat), user.id, "короткий текст", "ru")).toBe(false);
     expect(await offerNarrationButton(String(user.chat), user.id, `${long}?`, "ru")).toBe(false);
-    await setConfig({ freeNarrationOfferButton: false });
-    try { expect(await offerNarrationButton(String(user.chat), user.id, long, "ru")).toBe(false); } finally { await setConfig(); }
     expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
   });
 });

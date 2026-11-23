@@ -108,7 +108,7 @@ export function NarrationSettingsPanel() {
         <legend className="text-sm font-semibold">Озвучка текста в помощнике</legend>
         <Check checked={freeEnabled ?? config.freeNarrationEnabled !== false} onChange={setFreeEnabled}>Сотрудники могут прислать Шабнам любой текст, выбрать голос и получить аудиофайл. Читается слово в слово</Check>
         <Check checked={freeAd ?? config.freeNarrationAdText !== false} onChange={setFreeAd}>Шабнам может написать рекламный текст из присланных фактов (без выдумок), показать его и после «Озвучить» озвучить</Check>
-        <Check checked={freeOffer ?? config.freeNarrationOfferButton !== false} onChange={setFreeOffer}>Под длинным присланным текстом Шабнам предлагает кнопку «Озвучить этот текст»</Check>
+        <Check checked={freeOffer ?? config.freeNarrationOfferButton === true} onChange={setFreeOffer}>Под длинным присланным текстом Шабнам предлагает кнопку «Озвучить этот текст»</Check>
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="block text-sm">Озвучек на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 5)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>
           <label className="block text-sm">Символов в одном тексте<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeMax ?? String(config.freeNarrationMaxChars ?? 1500)} onChange={(e) => setLimitsText({ ...limitsText, freeMax: e.target.value })} /></label>
@@ -198,7 +198,7 @@ export function NarrationSettingsPanel() {
           narrationListenPerPersonDaily: Math.min(1000, Math.max(1, number(limitsText.listenPerson, config.narrationListenPerPersonDaily ?? NARRATION_LISTEN_PER_PERSON_DEFAULT) ?? NARRATION_LISTEN_PER_PERSON_DEFAULT)),
           freeNarrationEnabled: freeEnabled ?? config.freeNarrationEnabled !== false,
           freeNarrationAdText: freeAd ?? config.freeNarrationAdText !== false,
-          freeNarrationOfferButton: freeOffer ?? config.freeNarrationOfferButton !== false,
+          freeNarrationOfferButton: freeOffer ?? config.freeNarrationOfferButton === true,
           freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
           freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),
           freeNarrationBudgetPercent: Math.min(100, Math.max(1, number(limitsText.freeShare, config.freeNarrationBudgetPercent ?? 30) ?? 30)),
