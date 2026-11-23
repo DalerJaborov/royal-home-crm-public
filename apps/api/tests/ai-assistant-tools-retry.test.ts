@@ -97,6 +97,21 @@ describe("1.2 — повторы на пути инструментов", () => 
     expect(String(fetchMock.mock.calls[1][0])).toContain(":generateContent");
   });
 
+  it("ответ оборван самой моделью (MAX_TOKENS): не «проверьте ключ и модель», а «повторите» — код stream_interrupted (23.11.2026)", async () => {
+    resetAssistantRuntimeCache();
+    const fetchMock = vi.fn(async (url: string | URL | Request) => String(url).endsWith(":countTokens")
+      ? new Response(JSON.stringify({ totalTokens: 1000 }))
+      : new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "обрыв" }] }, finishReason: "MAX_TOKENS" }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runAssistantDetailed([{ role: "user", content: "Озвучь рекламу" }], actor);
+
+    expect(outcome).toMatchObject({ ok: false, code: "stream_interrupted", retryable: true });
+  });
+
   it("503 без конца — повторы укладываются в срок, после него ни попытки, ни паузы", async () => {
     const fetchMock = vi.fn(async () => new Response("overloaded", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
