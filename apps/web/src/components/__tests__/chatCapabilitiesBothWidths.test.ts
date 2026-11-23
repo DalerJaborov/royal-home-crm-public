@@ -37,7 +37,7 @@ const SHARED_CHAT_CAPABILITIES = [
   { marker: "Paperclip", what: "прикрепить фото или видео" },
   { marker: "useUploadConversationMediaWithProgress", what: "отправить файл с показом хода загрузки" },
   { marker: "usePendingMediaUploads", what: "видеть пузырь загрузки в ленте" },
-  { marker: "validateOutgoingMediaPick", what: "получить отказ по размеру до загрузки" },
+  { marker: "planOutgoingMediaPick", what: "получить отказ по размеру до загрузки" },
   { marker: "ChatPropertySend", what: "отправить объект прямо из чата" },
   { marker: "VoiceRecordButton", what: "записать голосовое" },
 ];
