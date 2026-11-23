@@ -724,6 +724,15 @@ describe("рубильник выключен (по умолчанию): дир�
     await waitFor(() => pushes("Учётка отключена").length === 1);
   });
 
+  it("включить отключённого обратно: без кода, но руководству сообщение — уволенного тихо не вернуть", async () => {
+    const target = await agent(`Цельвернуть${runId}`, "AGENT", { isActive: false });
+    const { actionId, bundleId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: true } });
+    await pressAs(bundleId, bossTg);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: target.id } })).isActive).toBe(true);
+    await waitFor(() => pushes("Учётка включена").some((c) => String((c[1] as { body: string }).body).includes(`Цельвернуть${runId}`)));
+  });
+
   it("права без кода: добавить право исполняется одним нажатием", async () => {
     const target = await agent(`Цельправа${runId}`, "AGENT");
     const { actionId, bundleId } = await bossCard("set_staff_permissions", { agentId: target.id, grant: ["finance.view"] });

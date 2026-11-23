@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **797**. Развилок в самих путях: **2530**; вместе с задачами по расписанию и фоновыми заданиями — **4247**. Модулей: **90**.
+Путей: **797**. Развилок в самих путях: **2532**; вместе с задачами по расписанию и фоновыми заданиями — **4249**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1063,6 +1063,8 @@
         · дословно из кода
   - const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: targetId }, select:…
     · читает в базе: agent
+  - const wasInactive = rest.isActive === true ? (await prisma.agent.findUnique({ where: { id: targetId }, select…
+    · читает в базе: agent
   - если rest.role !== undefined
     - const before = await prisma.agent.findUnique({ where: { id: targetId }, select: { role: true, permissions: tr…
       · читает в базе: agent
@@ -1106,6 +1108,9 @@
   - если rest.isActive === false && wasActive
     - notice(actor, opts, "deactivated", agent, deactivation?.clientsLeft ? `Клиентов в работе за ним: ${deactivati…
       · дословно из кода
+  - если rest.isActive === true && wasInactive
+    - notice(actor, opts, "reactivated", agent, "Снова может входить в CRM");
+      · дословно из кода
 
 ### GET /api/v1/agents/extensions/free
 
@@ -1146,6 +1151,11 @@
       · зовёт invalidateAgentAccess()
     - void syncAgentQueuePresence(batch.fromAgentId).catch(()
       · зовёт syncAgentQueuePresence()
+    - const back = await prisma.agent.findUnique({ where: { id: batch.fromAgentId }, select: { id: true, fullName: …
+      · читает в базе: agent
+    - если back
+      - notice(actor, opts, "reactivated", back, "Возврат передачи дел");
+        · дословно из кода
 
 ### GET /api/v1/agents
 

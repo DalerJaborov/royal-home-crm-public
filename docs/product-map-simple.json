@@ -16,10 +16,10 @@
   "paths": 797,
   "cron": 146,
   "jobs": 34,
-  "conditions": 4208,
+  "conditions": 4210,
   "untranslatedUnique": 476,
   "untranslatedTotal": 613,
-  "partialUnique": 1131,
+  "partialUnique": 1133,
   "translatedShare": 85
  },
  "untranslated": [
@@ -11908,6 +11908,12 @@
        "k": "if",
        "a": [],
        "c": []
+      },
+      {
+       "t": "если есть is активен и есть was неактивные",
+       "k": "if",
+       "a": [],
+       "c": []
       }
      ]
     }
@@ -12013,7 +12019,14 @@
        "t": "если есть reactivated",
        "k": "if",
        "a": [],
-       "c": []
+       "c": [
+        {
+         "t": "если есть back",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     }

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 797,
-  "forks": 4247,
+  "forks": 4249,
   "mounts": 90,
   "cron": 146,
   "jobs": 34,
@@ -4372,6 +4372,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "const wasInactive = rest.isActive === true ? (await prisma.agent.findUnique({ where: { id: targetId }, select…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "rest.role !== undefined",
        "a": [],
@@ -4581,6 +4589,21 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "if",
+       "t": "rest.isActive === true && wasInactive",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "notice(actor, opts, \"reactivated\", agent, \"Снова может входить в CRM\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
       }
      ],
      "from": "updateStaffMember() — apps/api/src/lib/staffAdmin.ts"
@@ -4758,6 +4781,29 @@
           "зовёт syncAgentQueuePresence()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "const back = await prisma.agent.findUnique({ where: { id: batch.fromAgentId }, select: { id: true, fullName: …",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "back",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "notice(actor, opts, \"reactivated\", back, \"Возврат передачи дел\");",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       }
