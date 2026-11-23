@@ -51,7 +51,7 @@ import {
   clientHeadingName,
 } from "../lib/clientFormat";
 import { dushanbeDate } from "../lib/date";
-import { ClientChatCard, ClientChatPanel, type ClientConversation } from "../components/ClientChatPanel";
+import { ClientChatCard, type ClientConversation } from "../components/ClientChatPanel";
 import { clientHistoryFacts } from "../lib/clientHistoryFacts";
 import { WhatsAppFirstContact } from "../components/WhatsAppFirstContact";
 import { ClientInsight } from "../components/ClientInsight";
@@ -146,11 +146,6 @@ export function ClientDetail() {
 
 function ClientDetailCard() {
   const id = usableRouteId(useParams().id);
-  // Переписка: открыта ли панель и нужно ли сразу поставить курсор в поле ответа
-  // (открыли, чтобы ответить, — а не чтобы прочитать; см. ClientChatPanel). Объявлен
-  // раньше useClient ниже: тот читает chat.open, чтобы включать поллинг карточки,
-  // пока панель на экране (06.09.2026, см. useClients.ts::useClient).
-  const [chat, setChat] = useState<{ open: boolean; focusReply: boolean }>({ open: false, focusReply: false });
   const {
     data: client,
     isLoading,
@@ -158,7 +153,7 @@ function ClientDetailCard() {
     error: clientError,
     fetchStatus: clientFetch,
     refetch: refetchClient,
-  } = useClient(id, { pollConversations: chat.open });
+  } = useClient(id);
   // «Подбор · N» (17.09.2026, docs/match-policy-plan-17-09.md §6) — грузится,
   // только пока карточка клиента открыта: тот же запрос, что и MatchPanel
   // (общий ключ кэша ["client-match", id]), второй раз по сети не уходит.
@@ -187,6 +182,10 @@ function ClientDetailCard() {
   const toCandidate = useClientToCandidate(client?.id ?? "");
   const navigate = useNavigate();
   const location = useLocation();
+  // «Написать» везде ведёт в обычный раздел «Чаты» на переписке этого клиента
+  // (владелец 23.11.2026: шторка-пузырь поверх карточки не нужна) — один путь на
+  // ПК и телефон, там же «Верно/Неверно», вложения и «Отправить объект».
+  const openClientChat = (clientId: string) => navigate(inboxClientConversationHref(clientId));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [kindChangeTarget, setKindChangeTarget] = useState<ClientKind | null>(null);
   const [confirmToCandidate, setConfirmToCandidate] = useState(false);
@@ -432,7 +431,7 @@ function ClientDetailCard() {
     // но повторно срабатывать он не должен.
     navigate(location.pathname, { replace: true, state: null });
     if (conversationsOf(client).length === 0) return;
-    setChat({ open: true, focusReply: true });
+    openClientChat(client.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, location.state]);
 
@@ -1265,7 +1264,7 @@ function ClientDetailCard() {
             // «Ждёт варианты» → открыть переписку (спецификация, «Путь покупателя»):
             // панель выезжает сразу с курсором в поле ответа.
             if (outcome !== "WAITING_OPTIONS" || conversations.length === 0) return;
-            setChat({ open: true, focusReply: true });
+            openClientChat(client.id);
           }}
         />
       )}
@@ -1382,21 +1381,6 @@ function ClientDetailCard() {
           />
         </MobileActionSheet>
       )}
-      {chat.open && conversations.length > 0 && (
-        <ClientChatPanel
-          clientId={client.id}
-          clientShortId={client.shortId}
-          clientName={formatClientName({
-            kind: client.kind,
-            fullName: `${client.fullName}${client.lastName ? ` ${client.lastName}` : ""}`,
-          })}
-          conversations={conversations}
-          readOnly={locked}
-          autoFocusReply={chat.focusReply}
-          agentActivelyAssigned={agentActivelyAssigned}
-          onClose={() => setChat({ open: false, focusReply: false })}
-        />
-      )}
     </>
   );
 
@@ -1486,8 +1470,7 @@ function ClientDetailCard() {
               // тот же роут ?open=, что у пуша о брошенном диалоге
               // (см. Messages.tsx). Панель-шторка остаётся резервом на случай,
               // если id диалога вдруг не нашёлся.
-              if (conversationsOf(client).length > 0) navigate(inboxClientConversationHref(client.id));
-              else setChat({ open: true, focusReply: true });
+              if (conversationsOf(client).length > 0) openClientChat(client.id);
             }}
             onShowInteraction={() => scheduleShowing()}
             onMerge={(c) => setShowMerge(c)}
@@ -1650,7 +1633,7 @@ function ClientDetailCard() {
                         className="pill ghost"
                         type="button"
                         disabled={conversations.length === 0}
-                        onClick={() => setChat({ open: true, focusReply: true })}
+                        onClick={() => openClientChat(client.id)}
                         title={conversations.length > 0 ? "Открыть переписку" : "Клиент ещё не писал ни в один канал"}
                       >
                         Написать
@@ -1724,7 +1707,7 @@ function ClientDetailCard() {
                   className="cd-act"
                   type="button"
                   disabled={conversations.length === 0}
-                  onClick={() => setChat({ open: true, focusReply: true })}
+                  onClick={() => openClientChat(client.id)}
                   title={conversations.length > 0 ? "Открыть переписку" : "Клиент ещё не писал ни в один канал"}
                 >
                   <MessageSquare className="i" />
@@ -1855,7 +1838,7 @@ function ClientDetailCard() {
               ) : conversations.length > 0 ? (
                 <ClientChatCard
                   conversations={conversations}
-                  onOpen={() => setChat({ open: true, focusReply: false })}
+                  onOpen={() => openClientChat(client.id)}
                   agentActivelyAssigned={agentActivelyAssigned}
                 />
               ) : (
