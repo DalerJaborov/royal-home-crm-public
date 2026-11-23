@@ -49,6 +49,25 @@ export function validateOutgoingMediaPick(file: File, channel: string | undefine
 }
 
 /**
+ * Выбор НЕСКОЛЬКИХ фото/видео за раз (23.11.2026, «отправить фото клиенту — в одно
+ * касание»): один файл идёт прежним путём (превью + подпись), несколько — сразу
+ * в отправку, без промежуточных шагов. Любой неподходящий файл останавливает весь
+ * выбор с понятной причиной: половину пачки молча не отправляем.
+ */
+export function planOutgoingMediaPick(
+  files: ArrayLike<File> | null | undefined,
+  channel: string | undefined,
+): { error: string | null; single: File | null; batch: File[] } {
+  const list = Array.from(files ?? []);
+  for (const file of list) {
+    const error = validateOutgoingMediaPick(file, channel);
+    if (error) return { error: list.length > 1 ? `${file.name}: ${error}` : error, single: null, batch: [] };
+  }
+  if (list.length === 1) return { error: null, single: list[0], batch: [] };
+  return { error: null, single: null, batch: list };
+}
+
+/**
  * Загрузка фото/видео в переписку С ПРОГРЕССОМ (18.08.2026), ЧАСТЯМИ с 17.11.2026.
  *
  * Одним запросом ролик объекта 100-300 МБ не доходил до сервера: Cloudflare и прокси режут
