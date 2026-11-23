@@ -37,6 +37,8 @@ export const OPERATOR_SELLER_FIELDS: readonly OperatorDetailField[] = ["district
 const ONCE_PER_CONVERSATION: ReadonlySet<PhraseKey> = new Set(["where_work", "work_hours", "identity", "bot_identity", "buyer_free"]);
 /** Отметки «передал агенту» после заявки: клиент дописывает подряд — отмечаем один раз на серию. */
 const ACK_KEYS: ReadonlySet<PhraseKey> = new Set(["note_added", "question_noted", "lead_status", "no_agent_noted"]);
+/** Фразы, после которых короткое «да» / «+» / «👍» — согласие на звонок (повторное ревью 23.11.2026). */
+const OFFER_KEYS: ReadonlySet<PhraseKey> = new Set(["offer_call", "ask_phone", "ask_phone_seller", "phone_where"]);
 /** Вопросы, на которые у бота до заявки фактов нет: ответ «скажет агент», а не голая просьба номера (владелец 21.11.2026). */
 const QUESTION_FOR_AGENT: ReadonlySet<Understanding["question"]> = new Set(["other", "property_other", "property_price"]);
 /** Шагов в ответе не больше двух: одна мысль на сообщение, не больше двух предложений (SPEC, правило 10 и «Тон»). */
@@ -130,12 +132,18 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // перечню «этаж, комната, цена» (часовая сверка 21.11.2026, b16a44b4: «ш.Ваҳдат… квартира 8 этаж» → ответ по-русски).
   if (u.languagePreference) s.language = u.languagePreference;
   else if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
+  // Язык клиента ещё не известен, а он поздоровался («Ассалому алайкум», «Салом», «Здравствуйте»): язык — по его приветствию, а
+  // не по прошлому ответу бота (прод 23.11.2026: на «😍» бот ответил по-русски по умолчанию, и этот же русский ответ потом
+  // решил язык «Ассалому алайкум»). Известный язык приветствие не меняет: русский клиент с «Салом» остаётся на русском.
+  else if (!s.language && u.greetingLanguage) s.language = u.greetingLanguage;
   // В сообщении языка нет (номер, «ок»): язык разговора — по последней реплике с ясным языком (клиента или сотрудника), а не
-  // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски).
-  else if (u.contextLanguage) s.language = u.contextLanguage;
-  else if (!s.language && u.languageHint) s.language = u.languageHint;
+  // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски). Пока язык
+  // клиента не известен, этот язык — только на ход, в память не ложится: им может оказаться прошлый ответ самого бота на языке
+  // по умолчанию, и тогда «по умолчанию» стал бы «языком клиента» навсегда (23.11.2026).
+  else if (u.contextLanguage && s.language) s.language = u.contextLanguage;
+  else if (!s.language && !u.contextLanguage && u.languageHint) s.language = u.languageHint;
   // Чужой пост при неизвестном языке — таджикский (SPEC, случай 20); язык разговора от этого не меняется.
-  const language: OperatorLanguage = s.language ?? (u.attachments.foreignPost ? "tg" : "ru");
+  const language: OperatorLanguage = s.language ?? u.contextLanguage ?? (u.attachments.foreignPost ? "tg" : "ru");
   let yielded = false;
   const finish = () => {
     // Справочный ответ (где работаем, часы, «вы бот?», «для покупателя бесплатно», «кто вы») звучит в разговоре ОДИН раз:
@@ -217,8 +225,24 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // Сотрудник писал раньше срока: бот снова ведёт разговор, а сотруднику — «клиент пишет в вашу переписку» раз в сутки.
   if (!s.leadAccepted && ctx.staffThread) signalDaily("staff_thread");
 
+  // ── реакция-эмодзи без слов и вложений (прод 23.11.2026: «😍» на ролик) ─────────────────────────────────────────────
+  // Не вложение («Спасибо, получил» — неправда), не ответ на вопрос и не заявка. Первым словом разговора — короткое спасибо и
+  // приглашение написать, без вопроса «купить или продать?» (вопрос — когда клиент заговорит). Посреди разговора и повтором —
+  // тишина без сигнала людям: это «ок» смайликом (владелец 10.11: людей зря не беспокоить).
+  // «+» / «👍» сразу после предложения звонка или просьбы номера — это «да» (слепое ревью 23.11): ход идёт обычным путём
+  // согласия (просьба номера, «куда позвонить»), а не в ветку реакций и вложений.
+  // Только на ПОСЛЕДНЮЮ фразу бота «предложение звонка / просьба номера»: «👍» после «Работаем по Душанбе» — не «звоните»
+  // (повторное ревью: иначе в WhatsApp такой знак молча заводил заявку с обещанием звонка).
+  const lastOffer = s.flags.lastOffer ?? (said("offer_call") || s.step === "contact");
+  const agreeing = !!u.agreeSign && !s.leadAccepted && lastOffer;
+  if (u.reaction && !agreeing) {
+    const firstWord = !s.leadAccepted && s.role === "unknown" && s.asked.role === 0 && !ctx.staffThread &&
+      Object.values(s.spoken).every(count => !count);
+    if (firstWord) answers.push(draft("reaction_thanks"), draft("reaction_invite"));
+    return finish();
+  }
   // ── вложение без своих слов: один короткий ответ, повтор — тишина и один сигнал человеку (20.11.2026) ─────────
-  if (!u.hasText && !u.attachments.ownPost) {
+  if (!u.hasText && !u.attachments.ownPost && !agreeing) {
     const before = answers.length;
     if (u.attachments.voice === "failed") { if (!said("voice_failed")) answers.push(draft("voice_failed")); }
     // Чужой пост без слов (владелец 21.11.2026: «спамерам не отвечать»): без ответа и без сигнала. Свой пост (наш аккаунт, наш
@@ -453,7 +477,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // ответ и предложение звонка (часовая сверка 21.11.2026, da83282b). Детали без вопроса или после предложения — интерес.
   const questionTurn = u.question !== "none" || !!u.placeQuestion || !!u.agentTopic;
   const detailsInterest = u.hasDetails && !(questionTurn && !said("offer_call"));
-  const agreedToCall = said("offer_call") && u.declines !== true && (u.agrees === true || u.ackOnly);
+  // Тот же класс, что у знаков: «ок» / «да» — согласие, только когда последней фразой бота было предложение звонка или просьба номера.
+  const agreedToCall = said("offer_call") && lastOffer && u.declines !== true && (u.agrees === true || u.ackOnly);
   /**
    * Второй вопрос по делу после предложения звонка — тоже интерес (слепое ревью #345: на рекламе объекта клиент спрашивал цену,
    * место, этаж, документы, ремонт, а бот отвечал «скажет агент», номер не просил, заявку не заводил). В WhatsApp — заявка.
@@ -540,6 +565,15 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // Приветствие в ответ на приветствие (SPEC «Тон») — всегда первым, даже рядом с ответом на вопрос (перенесено из 19.11).
     if (u.greeting && !said("greet") && !said("greet_assalom") && !ctx.staffThread) {
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
+    }
+    // Вопрос «купить или продать?» уже звучал, а клиент только поздоровался (прод 23.11.2026: «Ассалому алайкум» после вопроса
+    // получил тот же вопрос второй раз): приветствие — не ответ «не понял». Отвечаем на приветствие и приглашаем продолжить,
+    // тем же вопросом не давим и попытку не тратим (вторая — только после содержательного, но неясного ответа). Приглашение
+    // звучит раз в сутки (state.ts); ещё одно приветствие в тот же день — обычный путь: вопрос другими словами (слепое ревью:
+    // иначе повторные приветствия глушили бота навсегда).
+    if (u.greetingOnly && s.asked.role > 0 && !u.agentTopic && !said("greet_continue")) {
+      flow.push(draft("greet_continue"));
+      return finish();
     }
     // Ипотека, рассрочка, документы без названной роли: сначала честный ответ, потом вопрос о роли (21.11.2026).
     // Ипотека, документы без роли: «расскажет агент» — пока не обещание без пути к агенту; сначала вопрос о роли, фраза про
@@ -683,5 +717,7 @@ function compose(s: OperatorState, language: OperatorLanguage, answers: readonly
   }
   // Серия «передал агенту»: помним, что прошлый ответ был только отметкой (тишина серию не прерывает).
   if (steps.length) s.flags.lastAck = steps.every(step => ACK_KEYS.has(step.key));
+  // Тишина «последнюю фразу» не меняет: клиент мог помолчать и ответить «👍» на то же предложение.
+  if (steps.length) s.flags.lastOffer = steps.some(step => OFFER_KEYS.has(step.key));
   return { state: s, language, steps, actions, silent: steps.length === 0 };
 }
