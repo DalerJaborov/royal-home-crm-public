@@ -130,12 +130,18 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // перечню «этаж, комната, цена» (часовая сверка 21.11.2026, b16a44b4: «ш.Ваҳдат… квартира 8 этаж» → ответ по-русски).
   if (u.languagePreference) s.language = u.languagePreference;
   else if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
+  // Язык клиента ещё не известен, а он поздоровался («Ассалому алайкум», «Салом», «Здравствуйте»): язык — по его приветствию, а
+  // не по прошлому ответу бота (прод 23.11.2026: на «😍» бот ответил по-русски по умолчанию, и этот же русский ответ потом
+  // решил язык «Ассалому алайкум»). Известный язык приветствие не меняет: русский клиент с «Салом» остаётся на русском.
+  else if (!s.language && u.greeting) s.language = u.greeting === "ru" ? "ru" : "tg";
   // В сообщении языка нет (номер, «ок»): язык разговора — по последней реплике с ясным языком (клиента или сотрудника), а не
-  // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски).
-  else if (u.contextLanguage) s.language = u.contextLanguage;
-  else if (!s.language && u.languageHint) s.language = u.languageHint;
+  // «русский по умолчанию» и не устаревшая память (20.11.2026: таджикский разговор, номер, ответ ушёл по-русски). Пока язык
+  // клиента не известен, этот язык — только на ход, в память не ложится: им может оказаться прошлый ответ самого бота на языке
+  // по умолчанию, и тогда «по умолчанию» стал бы «языком клиента» навсегда (23.11.2026).
+  else if (u.contextLanguage && s.language) s.language = u.contextLanguage;
+  else if (!s.language && !u.contextLanguage && u.languageHint) s.language = u.languageHint;
   // Чужой пост при неизвестном языке — таджикский (SPEC, случай 20); язык разговора от этого не меняется.
-  const language: OperatorLanguage = s.language ?? (u.attachments.foreignPost ? "tg" : "ru");
+  const language: OperatorLanguage = s.language ?? u.contextLanguage ?? (u.attachments.foreignPost ? "tg" : "ru");
   let yielded = false;
   const finish = () => {
     // Справочный ответ (где работаем, часы, «вы бот?», «для покупателя бесплатно», «кто вы») звучит в разговоре ОДИН раз:
@@ -217,6 +223,16 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // Сотрудник писал раньше срока: бот снова ведёт разговор, а сотруднику — «клиент пишет в вашу переписку» раз в сутки.
   if (!s.leadAccepted && ctx.staffThread) signalDaily("staff_thread");
 
+  // ── реакция-эмодзи без слов и вложений (прод 23.11.2026: «😍» на ролик) ─────────────────────────────────────────────
+  // Не вложение («Спасибо, получил» — неправда), не ответ на вопрос и не заявка. Первым словом разговора — короткое спасибо и
+  // приглашение написать, без вопроса «купить или продать?» (вопрос — когда клиент заговорит). Посреди разговора и повтором —
+  // тишина без сигнала людям: это «ок» смайликом (владелец 10.11: людей зря не беспокоить).
+  if (u.reaction) {
+    const firstWord = !s.leadAccepted && s.role === "unknown" && s.asked.role === 0 && !ctx.staffThread &&
+      Object.values(s.spoken).every(count => !count);
+    if (firstWord) answers.push(draft("reaction_thanks"));
+    return finish();
+  }
   // ── вложение без своих слов: один короткий ответ, повтор — тишина и один сигнал человеку (20.11.2026) ─────────
   if (!u.hasText && !u.attachments.ownPost) {
     const before = answers.length;
@@ -540,6 +556,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // Приветствие в ответ на приветствие (SPEC «Тон») — всегда первым, даже рядом с ответом на вопрос (перенесено из 19.11).
     if (u.greeting && !said("greet") && !said("greet_assalom") && !ctx.staffThread) {
       flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
+    }
+    // Вопрос «купить или продать?» уже звучал, а клиент только поздоровался (прод 23.11.2026: «Ассалому алайкум» после вопроса
+    // получил тот же вопрос второй раз): приветствие — не ответ «не понял». Отвечаем на приветствие и приглашаем продолжить,
+    // тем же вопросом не давим и попытку не тратим (вторая — только после содержательного, но неясного ответа). Повтор
+    // приветствия — тишина без сигнала.
+    if (u.greetingOnly && s.asked.role > 0 && !u.agentTopic) {
+      if (!said("greet_continue")) flow.push(draft("greet_continue"));
+      return finish();
     }
     // Ипотека, рассрочка, документы без названной роли: сначала честный ответ, потом вопрос о роли (21.11.2026).
     // Ипотека, документы без роли: «расскажет агент» — пока не обещание без пути к агенту; сначала вопрос о роли, фраза про
