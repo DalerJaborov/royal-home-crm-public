@@ -15,6 +15,8 @@ import {
   type PermissionId,
   type PermissionOverrides,
   type Role,
+  staffPhoneLookupForms,
+  agentCreateSchema,
 } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
 import { loadAgentAccess } from "../../../auth/middleware.js";
@@ -234,7 +236,8 @@ const STEP_UP_NOTE = " Нужен код из Google Authenticator (в CRM — �
 
 const createArgs = z.object({
   fullName: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(5).max(32),
+  // Тот же разбор, что у карточки сотрудника: 9 цифр / с нулём → +992XXXXXXXXX; неполный — отказ (23.11.2026).
+  phone: agentCreateSchema.shape.phone,
   role: z.enum(ROLES),
   email: z.string().trim().email().optional(),
   sipExtension: z.string().trim().regex(/^\d{3,5}$/).optional(),
@@ -251,7 +254,7 @@ export const createStaffTool = staffTool({
     type: "object",
     properties: {
       fullName: { type: "string", description: "Имя и фамилия" },
-      phone: { type: "string", description: "Телефон, по нему сотрудник входит в CRM" },
+      phone: { type: "string", description: "Телефон, по нему сотрудник входит в CRM. Девять цифр, с нулём или с +992 — CRM запишет как +992XXXXXXXXX; в подтверждении показывай именно так. Неполный номер (меньше девяти цифр) — переспроси, не выдумывай цифры" },
       role: { type: "string", enum: [...ROLES] },
       email: { type: "string" },
       sipExtension: { type: "string", description: "Внутренний номер, если назван; иначе CRM выдаст сама" },
@@ -262,7 +265,7 @@ export const createStaffTool = staffTool({
   stepUp: true,
   schema: createArgs,
   async snapshot(args) {
-    const taken = await prisma.agent.findUnique({ where: { phone: args.phone }, select: { id: true } });
+    const taken = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(args.phone) } }, select: { id: true } });
     return { phoneTaken: taken !== null };
   },
   async preview(args, snap, staff) {
@@ -334,7 +337,7 @@ export const updateStaffTool = staffTool({
         type: "object",
         properties: {
           fullName: { type: "string" },
-          phone: { type: "string" },
+          phone: { type: "string", description: "Новый телефон: девять цифр, с нулём или с +992 — запишется как +992XXXXXXXXX; неполный — переспроси" },
           email: { type: "string" },
           role: { type: "string", enum: [...ROLES] },
           isActive: { type: "boolean" },
