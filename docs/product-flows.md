@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **773**. Развилок в самих путях: **2467**; вместе с задачами по расписанию и фоновыми заданиями — **4163**. Модулей: **86**.
+Путей: **774**. Развилок в самих путях: **2467**; вместе с задачами по расписанию и фоновыми заданиями — **4163**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15168,6 +15168,13 @@
 - const result = await testAriConnection(creds);
   · зовёт testAriConnection()
 - res.json(result);
+  · ответ 200
+
+### GET /api/v1/settings/bot-guard-stats
+
+`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+
+- res.json(await loadBotGuardStats());
   · ответ 200
 
 ### GET /api/v1/settings/branding

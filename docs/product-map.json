@@ -51,6 +51,13 @@
       "nav": null
     },
     {
+      "path": "/ai-learning",
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/settings?tab=bot&task=learning",
+      "nav": null
+    },
+    {
       "path": "/archive",
       "component": "Archive",
       "file": "apps/web/src/pages/Archive.tsx",
@@ -73,6 +80,13 @@
         "group": "system",
         "gate": ""
       }
+    },
+    {
+      "path": "/bot-training",
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/settings?tab=bot&task=learning",
+      "nav": null
     },
     {
       "path": "/calendar",
@@ -1135,15 +1149,15 @@
       "file": "apps/api/src/routes/settingsRestorePoints.ts",
       "endpoints": 2,
       "label": "Точки возврата настроек",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/settings",
       "router": "settingsRouter",
       "file": "apps/api/src/routes/settings.ts",
-      "endpoints": 61,
+      "endpoints": 62,
       "label": "Настройки CRM и точки возврата",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/ui-shell",

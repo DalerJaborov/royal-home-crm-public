@@ -40,6 +40,7 @@ import { areasOf as areasOfFields } from "./RestorePointsSection";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { SettingsSection, SettingsGroupLabel, SettingsSearchProvider } from "../../components/settings/SettingsSection";
 import { useBotScenarios, type ScenarioComparison, type ScenarioStats } from "../../hooks/useBotScenarios";
+import { BotGuardStatsSection } from "./BotGuardStatsSection";
 import { useInstagramComments } from "../../hooks/useInstagramComments";
 import { useCan } from "../../lib/permissions";
 import { StateWord, Switch, SwitchRow } from "../../components/Switch";
@@ -175,7 +176,8 @@ export function BotTab({ area }: { area?: "operation" | "answers" | "voice" | "l
 
         </>}
         {(!area || area === "learning") && <>
-        {!searching && <SettingsGroupLabel>Проверка манеры продажи</SettingsGroupLabel>}
+        {!searching && <SettingsGroupLabel>Проверка бота</SettingsGroupLabel>}
+        <BotGuardStatsSection />
         <BotScenariosSection />
         </>}
         {searching && found?.settings === 0 && (

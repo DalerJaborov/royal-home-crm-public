@@ -513,6 +513,11 @@ export default function App() {
         <Route path="integrations/:name" element={<ChannelDetail />} />
         <Route path="backups" element={<Backups />} />
         <Route path="stuck-work" element={<StuckWork />} />
+        {/* «Обучение бота» удалено 23.11.2026. Адреса остаются переходом на
+            Настройки → «Бот» (там же счётчики фильтров): они лежат в закладках и
+            в старых уведомлениях — старая ссылка не должна отдавать «не найдено». */}
+        <Route path="ai-learning" element={<Navigate to="/settings?tab=bot&task=learning" replace />} />
+        <Route path="bot-training" element={<Navigate to="/settings?tab=bot&task=learning" replace />} />
         {/* «Инсайты от ИИ» — разбор звонков с подсветкой ошибок и рекомендациями. */}
         <Route path="insights" element={<Insights />} />
         {/* «Ещё» — меню разделов для телефона (вкладка нижней навигации);

@@ -8,7 +8,7 @@ import { logSystemError } from "./systemError.js";
 /**
  * Counters and the owner-facing daily line for the grounded free-phrase channel (`say`, plan 24.10.2026, section 5).
  *
- * Every verdict is one `GuardHit` increment (`say_used`, `say_dropped_<reason>`), so the numbers appear on the «Обучение бота» screen with
+ * Every verdict is one `GuardHit` increment (`say_used`, `say_dropped_<reason>`), so the numbers appear in Settings → «Бот» → «Проверка бота» (lib/botGuardStats.ts) with
  * no new table. `shadow` is a VALID phrase that the mode did not send: for the drop rate it counts as accepted, since the question the
  * shadow week answers is "how often would the validator have let the phrase through".
  */
@@ -138,7 +138,7 @@ export async function reportCustomerAgentAnswerDay(now: Date = new Date()): Prom
 }
 
 /**
- * Counters of the model's words (`answer_used`, `answer_dropped_<reason>`) on the «Обучение бота» screen, plus the day line above.
+ * Counters of the model's words (`answer_used`, `answer_dropped_<reason>`) in Settings → «Бот» → «Проверка бота», plus the day line above.
  * Fire-and-forget by contract: a counter must never slow or fail the customer's reply.
  */
 export function recordCustomerAgentAnswer(answer: CustomerCoreAnswer | undefined, now: number = Date.now()): void {

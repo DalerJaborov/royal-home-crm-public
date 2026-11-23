@@ -1,7 +1,7 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 773,
+  "endpoints": 774,
   "forks": 4163,
   "mounts": 86,
   "cron": 142,
@@ -66971,6 +66971,33 @@
     {
      "k": "do",
      "t": "res.json(result);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/bot-guard-stats",
+   "mount": "/api/v1/settings",
+   "full": "/api/v1/settings/bot-guard-stats",
+   "file": "apps/api/src/routes/settings.ts",
+   "router": "settingsRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(await loadBotGuardStats());",
      "a": [
       "ответ 200"
      ],

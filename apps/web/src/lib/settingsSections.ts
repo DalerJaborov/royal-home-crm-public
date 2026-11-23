@@ -60,6 +60,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Шаблоны подписи под ролики" }, { title: "Личность живого голоса" },
     { title: "Комментарии под постами Instagram" },
     { title: "Живой голос по телефону", aliases: ["ElevenLabs", "Gemini Live", "Ключ ElevenLabs", "Код агента ElevenLabs", "Потолок минут робота", "Расход робота"] },
+    { title: "Фильтры ответов бота", aliases: ["Обучение бота", "Срабатывания фильтров", "Доля отброшенных ответов"] },
     { title: "Манеры продажи" },
   ],
   // SystemTab and the standalone sections explicitly mounted in SettingsTabContent.

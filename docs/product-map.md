@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 71 |
+| Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 32 |
 | Модулей сервера | 85 |
-| Адресов сервера всего | 767 |
+| Адресов сервера всего | 768 |
 | Задач по расписанию | 135 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -30,8 +30,10 @@
 | `/activity` | Activity | **Активность команды** | `apps/web/src/pages/Activity.tsx` |
 | `/ads` | Ads | **Реклама** | `apps/web/src/pages/Ads.tsx` |
 | `/ads/launch/*` | Navigate | переход на `/ads` | — |
+| `/ai-learning` | Navigate | переход на `/settings?tab=bot&task=learning` | — |
 | `/archive` | Archive | **Архив** | `apps/web/src/pages/Archive.tsx` |
 | `/backups` | Backups | **Резервные копии** | `apps/web/src/pages/Backups.tsx` |
+| `/bot-training` | Navigate | переход на `/settings?tab=bot&task=learning` | — |
 | `/calendar` | Calendar | **Календарь** | `apps/web/src/pages/Calendar.tsx` |
 | `/calls` | Calls | **Звонки** | `apps/web/src/pages/Calls.tsx` |
 | `/clients` | Clients | **Клиенты** | `apps/web/src/pages/Clients.tsx` |
@@ -176,8 +178,8 @@
 | `/api/v1/reports` | Отчёты за период | 24 | да (5 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/report-pdf` | **без подписи** | 2 | нет | `apps/api/src/routes/reportPdf.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
-| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
-| `/api/v1/settings` | Настройки CRM и точки возврата | 61 | да (11 мест) | `apps/api/src/routes/settings.ts` |
+| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (12 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
+| `/api/v1/settings` | Настройки CRM и точки возврата | 62 | да (12 мест) | `apps/api/src/routes/settings.ts` |
 | `/api/v1/ui-shell` | **без подписи** | 1 | нет | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |

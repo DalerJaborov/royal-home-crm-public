@@ -3884,7 +3884,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       }
     } else if (result.callbackRequest && !result.jobApplication) {
       // Просьбы не было вовсе — модель придумала. Ничего не теряем: разговор и так
-      // оформится обычной заявкой агенту, а счётчик на экране «Обучение бота»
+      // оформится обычной заявкой агенту, а счётчик в Настройках → «Бот» → «Проверка бота»
       // покажет, как часто это случается.
       guardFired("callback_not_asked");
     }
