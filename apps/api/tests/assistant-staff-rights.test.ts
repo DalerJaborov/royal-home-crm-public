@@ -316,6 +316,23 @@ describe("код Google Authenticator", () => {
     }
   });
 
+  it("номер без +992 (девять цифр, с нулём): в карточке и в базе +992XXXXXXXXX; неполный — отказ (23.11.2026)", async () => {
+    for (const [i, spell] of [(n: string) => n, (n: string) => `0${n}`, (n: string) => `+992 ${n.slice(0, 2)} ${n.slice(2)}`].entries()) {
+      await clearLock();
+      const national = `97${randomInt(1_000_000, 9_999_999)}`;
+      const { actionId, bundleId } = await telegramCard("create_staff", { fullName: `Новичок${runId} Номер${i}`, phone: spell(national), role: "AGENT" });
+      const row = await prisma.assistantAction.findUniqueOrThrow({ where: { id: actionId } });
+      expect(JSON.stringify(row.preview)).toContain(`+992${national}`);
+      await press(bundleId);
+      expect((await sendCode(await freshCode())).handled).toBe(true);
+      expect(await statusOf(actionId)).toBe("EXECUTED");
+      expect(await prisma.agent.count({ where: { phone: `+992${national}` } })).toBe(1);
+      expect(await prisma.agent.count({ where: { phone: national } })).toBe(0);
+    }
+    await expect(broker.createPendingAssistantAction(await telegramActor(directorId), "create_staff", { fullName: `Новичок${runId} Обрывок`, phone: "9712345", role: "AGENT" }))
+      .rejects.toBeDefined();
+  });
+
   it("без ожидания кода «123 456» — обычное сообщение, помощнице", async () => {
     const before = io.del.mock.calls.length;
     expect((await sendCode("123 456")).handled).toBe(false);

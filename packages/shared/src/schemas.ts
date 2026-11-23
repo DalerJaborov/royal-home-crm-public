@@ -27,6 +27,7 @@ import {
   type AbsenceKind,
 } from "./enums.js";
 import { isMaskedClientPhone } from "./maskContacts.js";
+import { normalizeStaffPhone } from "./tajikPhone.js";
 import { normalizeInstagramUrl, isValidInstagramPostUrl } from "./instagramLink.js";
 import { floorRuleError } from "./propertyFinish.js";
 import { propertyFieldRequired, propertyFieldShown, stripPropertyFieldsForType } from "./propertyTypeFields.js";
@@ -41,7 +42,16 @@ const staffPhoneSchema = z
   .trim()
   .min(5)
   .max(32)
-  .refine((v) => hasValidPhoneDigitCount(v), "Введите корректный номер телефона");
+  .refine((v) => hasValidPhoneDigitCount(v), "Введите корректный номер телефона")
+  // Один вид в базе — `+992XXXXXXXXX` (normalizeStaffPhone): это логин входа по СМС.
+  .transform((v, ctx) => {
+    const normalized = normalizeStaffPhone(v);
+    if (normalized === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Введите номер в виде +992 и девяти цифр, например +992 90 123 45 67" });
+      return z.NEVER;
+    }
+    return normalized;
+  });
 const staffNameSchema = z.string().trim().min(2).max(120);
 
 /**

@@ -762,7 +762,7 @@ describe("Роль DIRECTOR — иерархия прав", () => {
     const res = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ fullName: "Самозванец", phone: `+992997${runId}`, role: "DIRECTOR", password });
+      .send({ fullName: "Самозванец", phone: `+992997${String(runId).slice(-6)}`, role: "DIRECTOR", password });
     expect(res.status).toBe(403);
   });
 
@@ -807,7 +807,7 @@ describe("Роль DIRECTOR — иерархия прав", () => {
     const created = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${directorToken}`)
-      .send({ fullName: "Второй Директор", phone: `+992998${runId}`, role: "DIRECTOR", password });
+      .send({ fullName: "Второй Директор", phone: `+992998${String(runId).slice(-6)}`, role: "DIRECTOR", password });
     expect(created.status).toBe(201);
     director2Id = created.body.id as string;
 
