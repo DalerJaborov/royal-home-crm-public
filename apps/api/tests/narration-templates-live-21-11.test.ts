@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   estimateNarrationSec, narrationAreaWords, narrationConfigSchema, narrationDraftText, narrationFitsType, narrationObjectWords,
@@ -15,12 +15,11 @@ import { narrationFacts, narrationFactsCurrent, narrationHash } from "../src/lib
  *  2. правила библиотеки: что и где — в первом или втором предложении, без калек и анкеты, влезает в ролик;
  *  3. данные-миграцию: заменяет только известные старые тексты, правку владельца не трогает, повтор ничего не меняет.
  */
+// Владелец утвердил тексты 23.11.2026 («да включай»): файл — обычная миграция, её применяет `prisma migrate deploy`.
 const migrationsDir = new URL("../prisma/migrations/", import.meta.url);
-const moved = readdirSync(migrationsDir).find((d) => d.endsWith("_narration_templates_live"));
-// До «да» владельца файл лежит вне prisma/migrations (влитое в main сразу уходит на сайт); после — в обычной миграции.
-const sql = readFileSync(moved
-  ? new URL(`../prisma/migrations/${moved}/migration.sql`, import.meta.url)
-  : new URL("../prisma/pending-data/20261121_narration_templates_live.sql", import.meta.url), "utf8");
+const migrationName = readdirSync(migrationsDir).find((d) => d.endsWith("_narration_templates_live"));
+if (!migrationName) throw new Error("нет миграции *_narration_templates_live в prisma/migrations");
+const sql = readFileSync(new URL(`../prisma/migrations/${migrationName}/migration.sql`, import.meta.url), "utf8");
 const lib = JSON.parse(sql.split("$json$")[1]!) as {
   templates: Array<{ id: string; name: string; lang: NarrationLang; text: string; propertyTypes?: string[]; manualOnly?: boolean }>;
   endings: Array<{ id: string; lang: NarrationLang; text: string; propertyTypes?: string[] }>;
@@ -90,6 +89,15 @@ describe("библиотека 21.11.2026: правила текста", () => {
       expect(item.text, item.id).not.toMatch(CALQUES);
       expect(item.text, item.id).not.toMatch(/Директ|брон|доллар/iu);
     }
+  });
+
+  it("миграция не кладёт в тексты ни одного слова про этажность дома; включает рубильник; в prisma/migrations, не в pending-data", () => {
+    // Только новые тексты (не knownOld: там прежние, их этажность не наша забота). Разрешён один {этаж_пор} — этаж самой квартиры.
+    const texts = [...lib.templates, ...lib.endings].map((x) => x.text).join(" ");
+    expect(texts).not.toMatch(/\{этажей\}|\{этажность\}|\{этажность_род\}/u);
+    expect([...texts.matchAll(/\{этаж[^}]*\}/gu)].every((m) => m[0] === "{этаж_пор}")).toBe(true);
+    expect(sql).toMatch(/jsonb_set\(cfg, '\{liveWords\}', 'true'::jsonb\)/);
+    expect(existsSync(new URL("../prisma/pending-data/20261121_narration_templates_live.sql", import.meta.url))).toBe(false);
   });
 
   it("что и где — в первом или втором предложении; любая концовка влезает в ролик (≤ 40 с по осторожной скорости)", () => {
