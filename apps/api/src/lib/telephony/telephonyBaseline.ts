@@ -2,6 +2,8 @@ import { telephonyOptionTitle, type TelephonyOptionField } from "@royal-home/sha
 import { prisma } from "../../db.js";
 import { amiActionRetrying, type AmiCredentials } from "./amiClient.js";
 import { ROUTE_DIALPLAN_FILE } from "./dialplanContext.js";
+import { consultantStationMode, internalExtensionDigits, localDialDigits } from "./failoverSync.js";
+import { configuredRtpHost } from "./liveVoiceRtpConfig.js";
 
 /**
  * ЭТАЛОН РАБОЧЕЙ ТЕЛЕФОНИИ — И СТОРОЖ, КОТОРЫЙ ЗАМЕЧАЕТ ЛЮБОЙ ОТХОД ОТ НЕГО.
@@ -51,15 +53,24 @@ export interface BaselineRule {
  *  объяснением в комментарии — иначе сторож теряет смысл. */
 const EXPECTED = {
   /**
-   * Приём ведёт очередь, а не прямой аппарат.
+   * Приём ведёт ОФИСНЫЙ АППАРАТ 2020, а не очередь операторов.
    *
-   * Именно «аппарат» стоил тридцати дней тишины (21.08-19.09.2026): приём был
-   * переведён на 1003, а строку набора этого аппарата чужой эксперимент с
-   * браузерными звонками заменил на `PJSIP/rh-mobile-1003&PJSIP/rh-web-1003` —
-   * два эндпоинта без единого контакта. Dial падал мгновенно, запасное действие
-   * стояло «ничего не делать», и звонок обрывался за пятьдесят миллисекунд.
+   * До 23.11.2026 здесь стояло «очередь»: прямой аппарат стоил тридцати дней
+   * тишины (21.08-19.09.2026) — приём был переведён на 1003, а строку набора
+   * этого аппарата чужой эксперимент заменил на два PJSIP-плеча без контакта;
+   * Dial падал мгновенно, запасное действие было «ничего не делать».
+   *
+   * Решение владельца 18.11.2026 (docs/JOURNAL.md): незнакомые звонки — только на
+   * офисный аппарат 2020. Решение 23.11.2026: «звонки должны 10 секунд идти на
+   * 2020, если не отвечают — сразу директору». Сторож, оставшийся на «очереди»,
+   * кричал «сломан» на рабочую схему (ложная тревога, снята 23.11.2026).
+   * Урок 1003 не забыт, а закрыт иначе: аппарат обязан быть именно 2020, без
+   * ответа звонок обязан уходить директору (правило ниже), а выключенный в
+   * рабочее время аппарат ловит officeDeskPhoneWatch.ts.
    */
-  incomingPrimaryTarget: "queue",
+  incomingPrimaryTarget: "extension",
+  /** Какой аппарат принимает (решение владельца 18.11.2026, подтверждено 23.11.2026). */
+  incomingPrimaryExtension: "2020",
   /**
    * Известный клиент уходит своему агенту напрямую.
    *
@@ -77,14 +88,14 @@ const EXPECTED = {
    */
   asteriskAgentDialMode: "mobile",
   /**
-   * Сколько незнакомый ждёт ответа. 21.09.2026 владелец поставил две минуты
-   * («я точно отвечу»), но 24.09 станция перестала отвечать на звонок до
-   * человека (Ringing() вместо Answer(), гудки вместо музыки, минуты у
-   * звонящего только с ответа). Неотвеченный вызов держит сеть звонящего, а не
-   * мы, и две минуты она не держит — до автоответчика такой звонок не дожил
-   * бы. Решение владельца 24.09.2026: 40 секунд, дальше автоответчик.
+   * Сколько звонит аппарат приёма, прежде чем звонок уйдёт директору.
+   *
+   * История: 21.09.2026 — две минуты; 24.09.2026 — 40 секунд (неотвеченный вызов
+   * держит сеть звонящего, две минуты она не держит). Решение владельца
+   * 23.11.2026: 10 секунд на аппарате 2020, дальше сразу директору — директор
+   * отвечает быстрее, чем клиент успевает бросить трубку.
    */
-  incomingNoAnswerSeconds: 40,
+  incomingNoAnswerSeconds: 10,
   /**
    * Незнакомый номер идёт оператору, а не агенту.
    *
@@ -119,29 +130,61 @@ function rule(name: string, why: string, expected: string, actual: string, extra
   return { name, why, expected, actual, ok: expected === actual, ...extra };
 }
 
-/** Сверка настроек CRM с эталоном. Станцию не трогает — только свою базу. */
-export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
-  const s = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: {
-      incomingPrimaryTarget: true,
-      incomingRouteToAssignedAgent: true,
-      asteriskAgentDialMode: true,
-      incomingNoAnswerAction: true,
-      incomingNoAnswerSeconds: true,
-      incomingRoutingMode: true,
-    },
-  });
-  if (!s) return [];
+/** Поля настроек, которые читает сторож. Отдельным типом — чтобы сверку можно было проверить без базы. */
+export interface BaselineSettings {
+  incomingPrimaryTarget: string | null;
+  incomingPrimaryExtension: string | null;
+  incomingRouteToAssignedAgent: boolean;
+  asteriskAgentDialMode: string | null;
+  incomingNoAnswerAction: string | null;
+  incomingNoAnswerSeconds: number;
+  incomingRoutingMode: string | null;
+  incomingForwardPhone: string | null;
+}
 
+/** Что, кроме самих настроек, нужно сверке «не ответили — директору». */
+export interface BaselineContext {
+  /** Телефоны действующих директоров (как записаны в карточках сотрудников). */
+  directorPhones: string[];
+  /**
+   * Режим консультанта, который РЕАЛЬНО уедет на станцию (consultantStationMode в failoverSync.ts).
+   * Непусто — диалплан отдаёт неотвеченный звонок роботу, а не директору.
+   */
+  consultantStationMode: string;
+}
+
+/** Действия «если не ответили», при которых станция звонит на номер переадресации (extensions_custom.conf, метка forward). */
+const FORWARDING_ACTIONS = new Set(["forward", "both"]);
+
+/**
+ * Сверка настроек с эталоном — чистая функция, без базы и станции (ради теста).
+ * Номера читаются тем же разбором, что применяет failoverSync.ts (internalExtensionDigits,
+ * localDialDigits): сверяем то, что реально получит станция, а не сырую строку формы.
+ */
+export function evaluateSettingsBaseline(s: BaselineSettings, ctx: BaselineContext): BaselineRule[] {
   const rules: BaselineRule[] = [
     rule(
       "Куда идёт входящий",
-      "если приём настроен на один аппарат, а не на очередь, звонки могут не доходить: так было тридцать дней подряд (21.08-19.09.2026)",
+      "решение владельца 18.11.2026 и 23.11.2026: незнакомый звонок сначала звонит офисному аппарату 2020; " +
+        "операторов в очереди нет, и звонок, отправленный в очередь, никто не примет",
       EXPECTED.incomingPrimaryTarget,
       s.incomingPrimaryTarget ?? "",
       { field: "incomingPrimaryTarget" }
     ),
+  ];
+  if (s.incomingPrimaryTarget === EXPECTED.incomingPrimaryTarget) {
+    // Мусор в поле failoverSync отбрасывает целиком, и станция молча возвращается к
+    // очереди — поэтому сверяем уже разобранное значение, а не строку формы.
+    rules.push(
+      rule(
+        "Аппарат приёма",
+        "решение владельца 18.11.2026: принимает офисный аппарат 2020; другой номер или пустое поле уводят звонки не туда",
+        EXPECTED.incomingPrimaryExtension,
+        internalExtensionDigits(s.incomingPrimaryExtension) || "не задан"
+      )
+    );
+  }
+  rules.push(
     rule(
       "Известный клиент — своему агенту",
       "если выключено, все звонки идут оператору, а владелец решил 21.09.2026, что знакомый клиент звонит своему агенту",
@@ -156,8 +199,8 @@ export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
       { field: "asteriskAgentDialMode" }
     ),
     rule(
-      "Сколько ждёт незнакомый",
-      "решение владельца 24.09.2026: 40 секунд, потому что дольше сеть звонящего неотвеченный вызов не держит",
+      "Сколько звонит аппарат приёма",
+      "решение владельца 23.11.2026: 10 секунд звонит аппарат 2020, не ответили — сразу директору",
       String(EXPECTED.incomingNoAnswerSeconds),
       String(s.incomingNoAnswerSeconds),
       { unit: "с" }
@@ -170,8 +213,8 @@ export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
       EXPECTED.incomingRoutingMode,
       s.incomingRoutingMode || EXPECTED.incomingRoutingMode,
       { field: "incomingRoutingMode" }
-    ),
-  ];
+    )
+  );
 
   // Правило проверяет только «задано ли хоть что-то»: годится и автоответчик, и
   // переадресация дежурному, и «none». С 03.10.2026 в диалплане `none` — осознанный
@@ -190,7 +233,68 @@ export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
     field: "incomingNoAnswerAction",
   });
 
+  // НЕ ОТВЕТИЛИ НА АППАРАТЕ — ДИРЕКТОРУ (решение владельца 23.11.2026). Эта половина
+  // схемы и закрывает урок 1003 (21.08-19.09.2026): аппарат выключен или его не сняли —
+  // звонок всё равно доходит до человека. Ломается она тихо, и каждый способ сверяется
+  // так, как его увидит станция:
+  //  - действие не «переадресация» — директору никто не звонит;
+  //  - номер пустой — failoverSync без номера молча ставит станции «ничего»;
+  //  - номер не директора — звонок уходит другому человеку;
+  //  - робот на входящих: при непустом aimode диалплан ставит RH_ACTION=ai, ждёт
+  //    aiseconds вместо 10 с и отдаёт звонок роботу, а не директору.
+  const forwardDigits = localDialDigits(s.incomingForwardPhone);
+  const directorDigits = new Set(ctx.directorPhones.map((p) => localDialDigits(p)).filter((d) => d.length === 9));
+  const forwardActual = !FORWARDING_ACTIONS.has(action)
+    ? "не переадресуется (выбрано другое действие)"
+    : forwardDigits.length !== 9
+      ? "номер для переадресации не задан"
+      : !directorDigits.has(forwardDigits)
+        ? "номер для переадресации не директора"
+        : ctx.consultantStationMode
+          ? "трубку берёт робот, а не директор"
+          : "директору";
+  rules.push(
+    rule(
+      "Не ответили на аппарате — директору",
+      "решение владельца 23.11.2026: не ответили на 2020 за 10 секунд — звонок сразу уходит директору",
+      "директору",
+      forwardActual
+    )
+  );
+
   return rules;
+}
+
+/** Сверка настроек CRM с эталоном. Станцию не трогает — только свою базу. */
+export async function checkSettingsBaseline(): Promise<BaselineRule[]> {
+  const s = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: {
+      incomingPrimaryTarget: true,
+      incomingPrimaryExtension: true,
+      incomingRouteToAssignedAgent: true,
+      asteriskAgentDialMode: true,
+      incomingNoAnswerAction: true,
+      incomingNoAnswerSeconds: true,
+      incomingRoutingMode: true,
+      incomingForwardPhone: true,
+      liveVoiceEnabled: true,
+      liveVoiceInboundMode: true,
+    },
+  });
+  if (!s) return [];
+  const directors = await prisma.agent.findMany({
+    where: { role: "DIRECTOR", isActive: true, frozenAt: null },
+    select: { phone: true },
+  });
+  return evaluateSettingsBaseline(s, {
+    directorPhones: directors.map((d) => d.phone ?? "").filter(Boolean),
+    consultantStationMode: consultantStationMode({
+      enabled: s.liveVoiceEnabled,
+      mode: s.liveVoiceInboundMode,
+      rtpHost: configuredRtpHost(),
+    }),
+  });
 }
 
 /**
@@ -213,6 +317,20 @@ export async function checkOperatorsBaseline(): Promise<BaselineRule> {
     actual: `${count}`,
     ok: count > 0,
   };
+}
+
+/**
+ * Нужны ли операторы очереди при текущей схеме приёма.
+ *
+ * С 18.11.2026 (подтверждено владельцем 23.11.2026) незнакомый звонок звонит
+ * аппарату 2020, а не очереди: ноль операторов при этой схеме — норма, и тревога
+ * «операторов нет» была ложной (снята 23.11.2026). Если приём вернули в очередь,
+ * правило снова действует: тогда пустая очередь — та же тишина, что и раньше.
+ * Отдельной функцией — ради теста без базы.
+ */
+export function operatorsMatter(settingsRules: BaselineRule[]): boolean {
+  const target = settingsRules.find((r) => r.name === "Куда идёт входящий");
+  return !target || target.actual !== "extension";
 }
 
 /**
@@ -244,7 +362,9 @@ export async function checkDialplanBaseline(creds: AmiCredentials): Promise<Base
  * интересуют и в журнал не идут.
  */
 export async function collectBaselineDrift(creds: AmiCredentials | null): Promise<BaselineRule[]> {
-  const rules: BaselineRule[] = [...(await checkSettingsBaseline()), await checkOperatorsBaseline()];
+  const settingsRules = await checkSettingsBaseline();
+  const rules: BaselineRule[] = [...settingsRules];
+  if (operatorsMatter(settingsRules)) rules.push(await checkOperatorsBaseline());
   if (creds) {
     const dialplan = await checkDialplanBaseline(creds);
     if (dialplan) rules.push(dialplan);
