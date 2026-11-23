@@ -73,6 +73,11 @@ export interface AssistantActor {
    * Нужна инструменту set_group_quiet; без неё он не объявляется и отказывает.
    */
   groupChat?: { chatId: string; registeredAt: number };
+  /**
+   * Личка Telegram: id чата из апдейта (не из текста). Брокеру — для двери «директор без кода»
+   * (lib/assistantStaffStepUpWaiver.ts, 23.11.2026); вне лички не ставится.
+   */
+  telegramChatId?: string;
 }
 
 /** Актор помощника из прав сотрудника — тех же, что проверяет requireAuth. */

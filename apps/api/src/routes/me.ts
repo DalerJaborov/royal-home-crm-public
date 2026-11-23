@@ -15,6 +15,7 @@ import {
   type ActiveCallView,
   meTelegramModerationSchema,
   isReadOnlyRole,
+  staffPhoneLookupForms,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { createTelegramLinkCode } from "../lib/telegramAgentLink.js";
@@ -591,7 +592,7 @@ meRouter.patch("/", requireAuth, async (req, res) => {
     if (!isElevated(req.agent!.id)) {
       return res.status(428).json({ error: "Подтвердите личность кодом, чтобы сменить номер", stepUpRequired: true });
     }
-    const conflict = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+    const conflict = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id: { not: req.agent!.id } } });
     if (conflict) return res.status(409).json({ error: "Этот телефон уже используется другим сотрудником" });
   }
 

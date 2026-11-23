@@ -16,6 +16,7 @@ import {
   supervisorLeadPauseSchema,
   type PermissionId,
   type Role,
+  staffPhoneLookupForms,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { setKindMuted } from "./notificationPrefs.js";
@@ -350,7 +351,7 @@ export async function createStaffMember(actor: StaffActor, raw: unknown, opts?: 
   const roleDenied = forbiddenRoleGrant(actor, undefined, rest.role);
   if (roleDenied) return fail(403, roleDenied);
 
-  const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+  const existing = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) } } });
   if (existing) return fail(409, "Агент с таким телефоном уже существует");
 
   // Внутренний номер выдаётся сам, если директор не вписал его вручную: сотрудник
@@ -438,7 +439,7 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   // Телефон — логин сотрудника и уникален (аудит 23.09.2026, №63).
   if (rest.phone) {
     const holder = await prisma.agent.findFirst({
-      where: { phone: rest.phone, id: { not: targetId } },
+      where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id: { not: targetId } },
       select: { fullName: true },
     });
     if (holder) return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);
@@ -448,6 +449,11 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   const wasActive =
     rest.isActive === false
       ? (await prisma.agent.findUnique({ where: { id: targetId }, select: { isActive: true } }))?.isActive === true
+      : false;
+  // Включение обратно — переход «был отключён → активен» (23.11.2026): руководству сообщение, как об отключении.
+  const wasInactive =
+    rest.isActive === true
+      ? (await prisma.agent.findUnique({ where: { id: targetId }, select: { isActive: true } }))?.isActive === false
       : false;
 
   const data: Record<string, unknown> = { ...rest };
@@ -505,6 +511,7 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   if (rest.isActive === false && wasActive) {
     notice(actor, opts, "deactivated", agent, deactivation?.clientsLeft ? `Клиентов в работе за ним: ${deactivation.clientsLeft}` : undefined);
   }
+  if (rest.isActive === true && wasInactive) notice(actor, opts, "reactivated", agent, "Снова может входить в CRM");
   audit(actor, opts, "AGENT_UPDATE", agent.id, {
     fields: Object.keys(rest),
     // Выходные меняют раздачу лидов и штрафы агента — какие дни поставили, видно в журнале.
@@ -724,6 +731,9 @@ export async function revertStaffHandover(actor: StaffActor, batchId: string, op
     // Права и очередь входящих обязаны узнать, что человек снова в строю.
     invalidateAgentAccess(batch.fromAgentId);
     void syncAgentQueuePresence(batch.fromAgentId).catch(() => {});
+    // Тот же класс, что включение в карточке (23.11.2026): вернули в строй — руководству сообщение.
+    const back = await prisma.agent.findUnique({ where: { id: batch.fromAgentId }, select: { id: true, fullName: true } });
+    if (back) notice(actor, opts, "reactivated", back, "Возврат передачи дел");
   }
   audit(actor, opts, "AGENT_HANDOVER_REVERT", batch.fromAgentId, { batchId: batch.id, ...outcome.result });
   return done(outcome.result as unknown as Record<string, unknown>);

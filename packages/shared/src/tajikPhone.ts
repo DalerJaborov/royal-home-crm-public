@@ -113,3 +113,37 @@ export function stationDialRefusal(phone: string | null | undefined): string | n
   if (isDialableTajikNumber(raw)) return null;
   return isForeignPhone(raw) ? FOREIGN_PHONE_CALL_ERROR : INVALID_PHONE_CALL_ERROR;
 }
+
+/**
+ * ЕДИНЫЙ ВИД НОМЕРА СОТРУДНИКА В БАЗЕ (23.11.2026): `+992XXXXXXXXX`.
+ *
+ * Номер — логин входа по СМС (`Agent.phone`, @unique), и искать его `phoneCandidates` в
+ * `routes/auth.ts` должен по одной записи. Раньше сохранялось как ввели: у двух новых
+ * сотрудников легло `97XXXXXXX`, они вписали «+992 97…», учётка не нашлась, СМС не ушла.
+ *
+ * Таджикский номер в любой из трёх записей (`tajikNationalNumber`) приводится к
+ * `+992` + девять цифр. Иностранный остаётся как введён (обрезан по краям): так уже
+ * допускалось, СМС на него просто не идёт. Остальное (обрывок, закрытый маской номер,
+ * таджикский с опечаткой в длине) — null: сохранять такое нельзя.
+ */
+export function normalizeStaffPhone(phone: string | null | undefined): string | null {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return null;
+  const national = tajikNationalNumber(raw);
+  if (national) return `+992${national}`;
+  return isForeignPhone(raw) ? raw : null;
+}
+
+/**
+ * Все записи, в которых один и тот же номер сотрудника мог лечь в базу: «как ввели»,
+ * `+992N`, `992N`, `0N` и голые девять цифр. Единственный источник для поиска учётки
+ * по номеру (вход по СМС, проверка занятости, звонок сотрудника) — закрывает и уже
+ * записанные кривые номера, пока их не привели к одному виду.
+ */
+export function staffPhoneLookupForms(phone: string | null | undefined): string[] {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return [];
+  const national = tajikNationalNumber(raw);
+  const forms = national ? [`+992${national}`, `992${national}`, national, `0${national}`] : [];
+  return [...new Set([raw, ...forms])];
+}

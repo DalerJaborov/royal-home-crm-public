@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { normalizeStaffPhone } from "@royal-home/shared";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { makePrismaAdapter } from "../src/lib/prismaAdapter.js";
 
@@ -15,7 +16,7 @@ const prisma = new PrismaClient({ adapter: makePrismaAdapter(process.env.DATABAS
 const ADMIN_PHONE = (() => {
   const phone = process.env.SEED_ADMIN_PHONE?.trim();
   if (!phone) throw new Error("SEED_ADMIN_PHONE is required for the production seed");
-  return phone;
+  return normalizeStaffPhone(phone) ?? phone;
 })();
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME ?? "Директор";
 

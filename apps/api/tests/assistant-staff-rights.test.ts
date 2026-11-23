@@ -16,6 +16,12 @@ import type { PermissionId } from "@royal-home/shared";
  * подтверждение из CRM без подтверждения личности (428); сообщение руководству
  * (и из REST, и в ленту CRM); телефоны сотрудников модели не уходят; «↩️ Отменить»;
  * чистка ожиданий и каскад.
+ *
+ * 23.11.2026 (владелец: «шабнам добавляла и удаляла сотрудников из Телеграма директора без всяких
+ * разрешений»): рубильник «Код Google Authenticator для действий с сотрудниками в Telegram». Всё выше —
+ * при ВКЛЮЧЁННОМ рубильнике (как было). Блок «рубильник выключен» в конце: директор в своей личке
+ * добавляет, отключает, меняет права без кода; агент, админ, группа, чужой чат, директорские учётки,
+ * удаление навсегда — нет.
  */
 
 const io = vi.hoisted(() => ({
@@ -65,6 +71,10 @@ const { STEP_UP_MAX_FAILURES, STEP_UP_RETENTION_MS, parseStepUpCode, startStepUp
 const { runAssistantActionsSweep } = await import("../src/jobs/assistantActionsSweep.js");
 const { staffNoticeRecipients } = await import("../src/lib/staffSecurityNotify.js");
 const { cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
+const { bundleNeedsStepUpByIds } = await import("../src/telegram/assistantStepUp.js");
+const { staffStepUpWaived } = await import("../src/lib/assistantStaffStepUpWaiver.js");
+const { isForbiddenSwitchKey } = await import("../src/lib/settingsSwitches.js");
+const { ASSISTANT_STAFF_TOTP_KEY, isAssistantStaffTotpOn } = await import("@royal-home/shared");
 const { waitFor } = await import("./helpers/waitFor.js");
 
 type Actor = import("../src/lib/assistantActions.js").AssistantActionActor;
@@ -156,6 +166,12 @@ const statusOf = async (id: string) => (await prisma.assistantAction.findUniqueO
 const pushes = (title: string) => io.push.mock.calls.filter((c) => String((c[1] as { title: string }).title).includes(title));
 const clearLock = () => prisma.assistantStepUpChallenge.updateMany({ where: { agentId: directorId }, data: { attempts: 0 } });
 
+/** Рубильник компании «Код Google Authenticator для действий с сотрудниками в Telegram». */
+let staffTotpBefore: boolean | null = null;
+async function setStaffTotp(on: boolean) {
+  await prisma.settings.upsert({ where: { id: "singleton" }, update: { [ASSISTANT_STAFF_TOTP_KEY]: on }, create: { id: "singleton", [ASSISTANT_STAFF_TOTP_KEY]: on } });
+}
+
 beforeAll(async () => {
   directorPhone = phone();
   const director = await prisma.agent.create({
@@ -173,6 +189,9 @@ beforeAll(async () => {
   adminId = (await agent(`Админбезправ${runId}`, "ADMIN", {
     totpEnabled: true, totpSecret: encryptSecret(SECRET), permissions: { granted: [], revoked: ["permissions.manage"] },
   })).id;
+  // Всё, что ниже до блока «рубильник выключен», — при включённом рубильнике: поведение до 23.11.
+  staffTotpBefore = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { [ASSISTANT_STAFF_TOTP_KEY]: true } }))?.[ASSISTANT_STAFF_TOTP_KEY] ?? null;
+  await setStaffTotp(true);
 });
 
 beforeEach(async () => {
@@ -182,6 +201,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   revokeElevation(directorId);
+  if (staffTotpBefore !== null) await setStaffTotp(staffTotpBefore);
   const created = await prisma.agent.findMany({ where: { fullName: { contains: `Новичок${runId}` } }, select: { id: true } });
   agentIds.push(...created.map((c) => c.id));
   await cleanupAssistantActionAgents(agentIds);
@@ -314,6 +334,23 @@ describe("код Google Authenticator", () => {
       expect(io.del).toHaveBeenCalledWith(String(tgUser), messageId);
       expect(await statusOf(actionId)).toBe("EXECUTED");
     }
+  });
+
+  it("номер без +992 (девять цифр, с нулём): в карточке и в базе +992XXXXXXXXX; неполный — отказ (23.11.2026)", async () => {
+    for (const [i, spell] of [(n: string) => n, (n: string) => `0${n}`, (n: string) => `+992 ${n.slice(0, 2)} ${n.slice(2)}`].entries()) {
+      await clearLock();
+      const national = `97${randomInt(1_000_000, 9_999_999)}`;
+      const { actionId, bundleId } = await telegramCard("create_staff", { fullName: `Новичок${runId} Номер${i}`, phone: spell(national), role: "AGENT" });
+      const row = await prisma.assistantAction.findUniqueOrThrow({ where: { id: actionId } });
+      expect(JSON.stringify(row.preview)).toContain(`+992${national}`);
+      await press(bundleId);
+      expect((await sendCode(await freshCode())).handled).toBe(true);
+      expect(await statusOf(actionId)).toBe("EXECUTED");
+      expect(await prisma.agent.count({ where: { phone: `+992${national}` } })).toBe(1);
+      expect(await prisma.agent.count({ where: { phone: national } })).toBe(0);
+    }
+    await expect(broker.createPendingAssistantAction(await telegramActor(directorId), "create_staff", { fullName: `Новичок${runId} Обрывок`, phone: "9712345", role: "AGENT" }))
+      .rejects.toBeDefined();
   });
 
   it("без ожидания кода «123 456» — обычное сообщение, помощнице", async () => {
@@ -623,5 +660,187 @@ describe("слияние прав и уборка", () => {
     await prisma.assistantStepUpChallenge.create({ data: { agentId: temp.id, chatId: "cascade", bundleId: crypto.randomUUID(), expiresAt: new Date() } });
     await prisma.agent.delete({ where: { id: temp.id } });
     expect(await prisma.assistantStepUpChallenge.count({ where: { agentId: temp.id } })).toBe(0);
+  });
+});
+
+describe("рубильник выключен (по умолчанию): директор в своей личке — без кода (23.11.2026)", () => {
+  let bossId = "";
+  let rightsAdminId = "";
+  const bossTg = tgUser + 50_000;
+  const adminTg = tgUser + 50_001;
+
+  beforeAll(async () => {
+    // Директор без Google Authenticator, личка привязана кодом (telegramChatId) — как у владельца.
+    bossId = (await agent(`Директорбосс${runId}`, "DIRECTOR", { telegramChatId: String(bossTg), telegramUserId: String(bossTg) })).id;
+    rightsAdminId = (await agent(`Админсправами${runId}`, "ADMIN", { telegramChatId: String(adminTg), telegramUserId: String(adminTg) })).id;
+    await setStaffTotp(false);
+  });
+  afterAll(async () => {
+    revokeElevation(bossId);
+    revokeElevation(rightsAdminId);
+    await setStaffTotp(true);
+  });
+
+  const actorIn = async (id: string, chatId: string | null, telegramPrivate = true): Promise<Actor> => ({
+    ...(await telegramActor(id, telegramPrivate)),
+    ...(chatId ? { telegramChatId: chatId } : {}),
+  });
+  const boss = () => actorIn(bossId, String(bossTg));
+  async function bossCard(tool: string, args: Record<string, unknown>) {
+    const pending = await broker.createPendingAssistantAction(await boss(), tool, args);
+    const bundleId = crypto.randomUUID();
+    await prisma.assistantAction.update({ where: { id: pending.id }, data: { bundleId } });
+    return { actionId: pending.id, bundleId };
+  }
+  function pressAs(bundleId: string, user: number, chat: { id: number; type: "private" | "group" | "supergroup" } = { id: user, type: "private" }) {
+    return bot.handleAssistantCallback({
+      id: `staff-off-${runId}-${++callbackSeq}`,
+      from: { id: user },
+      message: { chat, message_id: 902 },
+      data: `as:ok:${bundleId}`,
+    } as never);
+  }
+  /** Отказ брокера целиком (сообщение проверяется отдельно: модель читает именно его). */
+  const failure = (attempt: Promise<unknown>) => attempt.then(
+    () => { throw new Error("ожидался отказ"); },
+    (err: unknown) => err as { status: number; code: string; message: string },
+  );
+  const auditOf = (action: string, entityId: string) =>
+    prisma.auditLog.findFirst({ where: { agentId: bossId, action, entityId }, orderBy: { createdAt: "desc" } });
+
+  it("по умолчанию выключен: нет строки или поля настроек — код не нужен", () => {
+    expect(isAssistantStaffTotpOn(null)).toBe(false);
+    expect(isAssistantStaffTotpOn({})).toBe(false);
+    expect(isAssistantStaffTotpOn({ [ASSISTANT_STAFF_TOTP_KEY]: true })).toBe(true);
+  });
+
+  it("добавить сотрудника: карточка без кода, одно нажатие «Подтвердить» исполняет; руководству сообщение, в журнале — без кода", async () => {
+    const newPhone = phone();
+    const { actionId, bundleId } = await bossCard("create_staff", { fullName: `Новичок${runId} Безкода`, phone: newPhone, role: "AGENT" });
+    expect(await bundleNeedsStepUpByIds([actionId], await boss())).toBe(false);
+    expect(await statusOf(actionId)).toBe("PENDING");
+    await pressAs(bundleId, bossTg);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    expect(await prisma.agent.count({ where: { phone: newPhone } })).toBe(1);
+    expect(await prisma.assistantStepUpChallenge.count({ where: { bundleId } })).toBe(0);
+    expect(String(lastEdit()?.[2] ?? "")).toContain("✅");
+    await waitFor(() => pushes("Новый сотрудник").length === 1);
+    const created = await prisma.agent.findFirstOrThrow({ where: { phone: newPhone }, select: { id: true } });
+    await waitFor(async () => Boolean(await auditOf("ASSISTANT_CREATE_STAFF", created.id)));
+    expect((await auditOf("ASSISTANT_CREATE_STAFF", created.id))?.meta).toMatchObject({ stepUpWaived: true, channel: "telegram" });
+  });
+
+  it("отключить сотрудника: isActive=false без кода, учётка не удалена; руководству сообщение", async () => {
+    const target = await agent(`Цельотключить${runId}`, "AGENT");
+    const { actionId, bundleId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: false } });
+    await pressAs(bundleId, bossTg);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    const after = await prisma.agent.findUniqueOrThrow({ where: { id: target.id }, select: { isActive: true, phone: true } });
+    expect(after.isActive).toBe(false);
+    expect(after.phone).toBe(target.phone);
+    await waitFor(() => pushes("Учётка отключена").length === 1);
+  });
+
+  it("включить отключённого обратно: без кода, но руководству сообщение — уволенного тихо не вернуть", async () => {
+    const target = await agent(`Цельвернуть${runId}`, "AGENT", { isActive: false });
+    const { actionId, bundleId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: true } });
+    await pressAs(bundleId, bossTg);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: target.id } })).isActive).toBe(true);
+    await waitFor(() => pushes("Учётка включена").some((c) => String((c[1] as { body: string }).body).includes(`Цельвернуть${runId}`)));
+  });
+
+  it("права без кода: добавить право исполняется одним нажатием", async () => {
+    const target = await agent(`Цельправа${runId}`, "AGENT");
+    const { actionId, bundleId } = await bossCard("set_staff_permissions", { agentId: target.id, grant: ["finance.view"] });
+    await pressAs(bundleId, bossTg);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    invalidateAgentAccess(target.id);
+    expect((await loadAgentAccess(target.id))!.permissions.has("finance.view")).toBe(true);
+  });
+
+  it("не директор — нет: админ с полными правами без кода получает отказ, агент — «нет прав»", async () => {
+    const args = { fullName: `Новичок${runId} Админ`, phone: phone(), role: "AGENT" };
+    const adminDenied = await failure(broker.createPendingAssistantAction(await actorIn(rightsAdminId, String(adminTg)), "create_staff", args));
+    expect(adminDenied).toMatchObject({ status: 412, code: "TOTP_REQUIRED" });
+    expect(adminDenied.message).not.toContain("Без кода в Telegram могу");
+    await expect(broker.createPendingAssistantAction(await actorIn(agentId, String(tgUser + 50_002)), "create_staff", args))
+      .rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+  });
+
+  it("в группе — нет: запись отказывает, нажатие в группе не исполняет карточку из лички", async () => {
+    await expect(broker.createPendingAssistantAction(await actorIn(bossId, null, false), "create_staff", { fullName: `Новичок${runId} Группа`, phone: phone(), role: "AGENT" }))
+      .rejects.toMatchObject({ code: "PRIVATE_CHAT_REQUIRED" });
+    expect(await staffStepUpWaived({ ...(await boss()), telegramPrivate: false }, "create_staff", { role: "AGENT" })).toBe(false);
+    const target = await agent(`Цельгруппа${runId}`, "AGENT");
+    const { actionId, bundleId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: false } });
+    await pressAs(bundleId, bossTg, { id: -1_000_000_000_000 - bossTg, type: "supergroup" });
+    expect(await statusOf(actionId)).toBe("PENDING");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: target.id } })).isActive).toBe(true);
+    await expect(broker.confirmAssistantAction(actionId, await actorIn(bossId, null, false))).rejects.toMatchObject({ code: "PRIVATE_CHAT_REQUIRED" });
+    await broker.cancelAssistantAction(actionId, await boss());
+  });
+
+  it("чужая или не привязанная личка — нужен код: карточки нет, исполнения нет", async () => {
+    await expect(broker.createPendingAssistantAction(await actorIn(bossId, "123456789"), "create_staff", { fullName: `Новичок${runId} Чужой чат`, phone: phone(), role: "AGENT" }))
+      .rejects.toMatchObject({ status: 412, code: "TOTP_REQUIRED" });
+    await expect(broker.createPendingAssistantAction(await actorIn(bossId, null), "create_staff", { fullName: `Новичок${runId} Без чата`, phone: phone(), role: "AGENT" }))
+      .rejects.toMatchObject({ status: 412, code: "TOTP_REQUIRED" });
+    const target = await agent(`Цельчат${runId}`, "AGENT");
+    const { actionId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: false } });
+    await expect(broker.confirmAssistantAction(actionId, await actorIn(bossId, "123456789"))).rejects.toMatchObject({ status: 428, code: "STEP_UP_REQUIRED" });
+    expect(await statusOf(actionId)).toBe("PENDING");
+    await broker.cancelAssistantAction(actionId, await boss());
+  });
+
+  it("за рамками — только с кодом: удалить навсегда, сменить телефон, создать директора, тронуть учётку директора, заморозить; отказ подсказывает, что можно без кода", async () => {
+    const target = await agent(`Цельрамки${runId}`, "AGENT");
+    const attempts: Array<[string, Record<string, unknown>]> = [
+      ["delete_staff", { agentId: target.id }],
+      ["update_staff", { agentId: target.id, changes: { phone: phone() } }],
+      ["create_staff", { fullName: `Новичок${runId} Директор`, phone: phone(), role: "DIRECTOR" }],
+      ["update_staff", { agentId: target.id, changes: { role: "DIRECTOR" } }],
+      ["update_staff", { agentId: director2Id, changes: { isActive: false } }],
+      ["freeze_staff", { agentId: target.id, reason: "отпуск на неделю" }],
+    ];
+    for (const [tool, args] of attempts) {
+      await expect(broker.createPendingAssistantAction(await boss(), tool, args), tool)
+        .rejects.toMatchObject({ status: 412, code: "TOTP_REQUIRED", message: expect.stringContaining("Без кода в Telegram могу") });
+    }
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: director2Id } })).isActive).toBe(true);
+  });
+
+  it("рубильник включён — как раньше: директору без Authenticator отказ, старая карточка без кода не исполняется", async () => {
+    const target = await agent(`Цельвкл${runId}`, "AGENT");
+    const { actionId, bundleId } = await bossCard("update_staff", { agentId: target.id, changes: { isActive: false } });
+    await setStaffTotp(true);
+    try {
+      const denied = await failure(broker.createPendingAssistantAction(await boss(), "create_staff", { fullName: `Новичок${runId} Вкл`, phone: phone(), role: "AGENT" }));
+      expect(denied).toMatchObject({ status: 412, code: "TOTP_REQUIRED" });
+      expect(denied.message).not.toContain("Без кода в Telegram могу");
+      expect(await bundleNeedsStepUpByIds([actionId], await boss())).toBe(true);
+      await pressAs(bundleId, bossTg);
+      expect(await statusOf(actionId)).toBe("PENDING");
+      expect((await prisma.agent.findUniqueOrThrow({ where: { id: target.id } })).isActive).toBe(true);
+      await expect(broker.confirmAssistantAction(actionId, await boss())).rejects.toMatchObject({ status: 428, code: "STEP_UP_REQUIRED" });
+    } finally {
+      await setStaffTotp(false);
+    }
+    await broker.cancelAssistantAction(actionId, await boss());
+  });
+
+  it("переключает только директор (админ — 403); помощнице этот рубильник не отдать", async () => {
+    expect(isForbiddenSwitchKey(ASSISTANT_STAFF_TOTP_KEY)).toBe(true);
+    const adminToken = signAccessToken({ sub: rightsAdminId, role: "ADMIN" });
+    grantElevation(rightsAdminId, 1);
+    const denied = await request(app).patch("/api/v1/settings").set("Authorization", `Bearer ${adminToken}`).send({ [ASSISTANT_STAFF_TOTP_KEY]: true });
+    expect(denied.status).toBe(403);
+    expect(isAssistantStaffTotpOn(await prisma.settings.findUnique({ where: { id: "singleton" }, select: { [ASSISTANT_STAFF_TOTP_KEY]: true } }))).toBe(false);
+    const bossToken = signAccessToken({ sub: bossId, role: "DIRECTOR" });
+    grantElevation(bossId, 1);
+    const ok = await request(app).patch("/api/v1/settings").set("Authorization", `Bearer ${bossToken}`).send({ [ASSISTANT_STAFF_TOTP_KEY]: true });
+    expect(ok.status).toBe(200);
+    expect(ok.body[ASSISTANT_STAFF_TOTP_KEY]).toBe(true);
+    await setStaffTotp(false);
   });
 });
