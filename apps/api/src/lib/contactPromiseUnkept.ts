@@ -1,5 +1,5 @@
 import type { ConversationMessage } from "@royal-home/shared";
-import { lastAgentContactPromise } from "./phoneLeadWatchdog.js";
+import { lastAgentContactPromise } from "./agentContactPromise.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
 
 /**
@@ -7,7 +7,7 @@ import { dushanbeStartOfToday } from "./dushanbeTime.js";
  * с вами свяжутся», а потом ни звонка агента (`Client.lastAgentAttemptAt`), ни ответа сотрудника в переписке не было. Клиент
  * пишет снова — второй раз бот не обещает (ai/operator/decide.ts), а агент и РОП получают сигнал (lib/clientWaitingAlert.ts).
  *
- * Обещание ищет тот же словарь, что и сторож лидов (ai/callbackPromiseGuard.ts через lib/phoneLeadWatchdog.ts), только в
+ * Обещание ищет тот же словарь, что и сторож лидов (ai/callbackPromiseGuard.ts через lib/agentContactPromise.ts), только в
  * репликах БОТА: слова сотрудника — не обещание бота. Обещанию, у которого прошло меньше двух РАБОЧИХ часов (окно из Настроек,
  * по Душанбе), ещё рано быть «не выполненным»: ночное «позвонит завтра с 09:30» в 01:00 не нарушено, и каждое «когда
  * позвонят?» через час не звало бы РОПа; старше трёх месяцев — уже не про этот
