@@ -7,6 +7,12 @@ export interface StaffWaiverActor {
   channel: "crm" | "telegram";
   telegramPrivate?: boolean;
   telegramChatId?: string;
+  /**
+   * Директор или администратор: код не нужен вовсе, ни в какой личке и ни на какое действие
+   * (решение владельца 23.11.2026, lib/stepUp.ts: stepUpExemptRole). Выставляют только места,
+   * где актор собран из настоящей роли сотрудника.
+   */
+  stepUpExempt?: boolean;
 }
 
 /**
@@ -79,6 +85,7 @@ export async function staffStepUpWaiverEligible(actor: StaffWaiverActor): Promis
 
 /** Главный вопрос: это действие этому нажавшему можно исполнить без кода. */
 export async function staffStepUpWaived(actor: StaffWaiverActor, tool: string, args: unknown): Promise<boolean> {
+  if (actor.stepUpExempt === true) return true;
   if (!isWaivableStaffAction(tool, args)) return false;
   if (!(await staffStepUpWaiverEligible(actor))) return false;
   const targetId = asRecord(args)?.agentId;

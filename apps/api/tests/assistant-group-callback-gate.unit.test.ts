@@ -47,6 +47,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: noop, editMessageText: noop, answerCallbackQuery: answer },
     // Константы модуля (потолок очереди помощницы) читаются при загрузке — общий пакет целиком.
     "@royal-home/shared": { ...shared, isReadOnlyRole: (role: string) => role === "SHAREHOLDER" },
+    // Директор и админ без кода (23.11.2026): роль решает по настоящему правилу, здесь защита «как была».
+    "../lib/stepUp.js": { stepUpExemptRole: () => false },
     "../auth/middleware.js": { loadAgentAccess: async (id: string) => ({ isActive: active, role: id === "test-director" ? "DIRECTOR" : "AGENT", permissions: new Set() }) },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => ({ id: id === "10" ? "test-director" : id === "1" ? "test-author" : "test-other", fullName: "Fixture" }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled },
