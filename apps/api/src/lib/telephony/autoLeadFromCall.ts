@@ -1,3 +1,4 @@
+import { staffPhoneLookupForms } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { extractIncomingCallLead, type IncomingCallLead } from "../../ai/incomingCallLead.js";
 import { callSoundsLikeJobSeeker } from "../../ai/jobSeekerCall.js";
@@ -292,7 +293,7 @@ async function decide(call: {
    * бы его номер уникальностью `Client.phone`, и настоящий клиент с этого номера уже
    * никогда бы не завёлся.
    */
-  const employee = await prisma.agent.findFirst({ where: { phone: call.phone }, select: { id: true } });
+  const employee = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(call.phone) } }, select: { id: true } });
   if (employee) return { status: "irrelevant", clientId: null, reason: "звонил сотрудник" };
 
   /**
