@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ROLES, resolvePermissions, parsePermissionOverrides, isReadOnlyRole, customerAgentPublishRequestSchema,
   customerAgentKillRequestSchema, customerAgentRegisterRequestSchema, customerAgentOwnerStateSchema, customerAgentRefreshRequestSchema } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
-import { isElevated } from "./stepUp.js";
+import { isElevated, stepUpExemptRole } from "./stepUp.js";
 import { settingsMaintenanceUntil, type SettingsMaintenanceActor } from "./settingsMaintenance.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { loadVerifiedCustomerAgentRevision, registerCurrentCustomerAgentRevision } from "./customerAgentRegistration.js";
@@ -29,7 +29,7 @@ async function actorTx(tx: TxClient, id: string, elevation = true) {
   const role = z.enum(ROLES).safeParse(row?.role);
   if (!row || !row.isActive || !role.success || !["DIRECTOR","ADMIN"].includes(role.data) || isReadOnlyRole(role.data) ||
       !resolvePermissions(role.data,parsePermissionOverrides(row.permissions)).has("settings.manage")) fail(403,"settings_permission_revoked");
-  if (elevation && !settingsStepUpSatisfied(row)) fail(428,"step_up_required");
+  if (elevation && !stepUpExemptRole(row.role) && !settingsStepUpSatisfied(row)) fail(428,"step_up_required");
   return row;
 }
 function settingsStepUpSatisfied(actor: SettingsMaintenanceActor & { id: string }) {
