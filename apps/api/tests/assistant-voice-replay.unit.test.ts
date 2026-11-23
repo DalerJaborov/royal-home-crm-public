@@ -127,7 +127,7 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     // «Править текст» озвучки (11.11.2026): ожидания нет — сообщение идёт дальше обычным путём.
     "./assistantNarration.js": { handleNarrationTextReply: async () => false },
     // «Озвучь текст» (16.11.2026): просьбы нет — сообщение идёт дальше обычным путём.
-    "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false, looksLikeNarrationDictation: () => false },
+    "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false, looksLikeNarrationDictation: () => false, isBareNarrationAsk: () => false },
     // «Повтори голосом» и «удали присланное» (17.11.2026) — настоящие, без базы и сети.
     "./assistantChatCommands.js": chatCommands,
     "./sentMessageLog.js": sentLog,

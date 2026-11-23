@@ -6,7 +6,10 @@ export function requestThinkingConfig(defaultConfig: Record<string, unknown>, re
 
 export function assertCompletedAssistantTurn(finishReason?: string, blockReason?: string): void {
   if (finishReason === "STOP" && !blockReason) return;
-  throw Object.assign(new Error("Незавершённый ответ ИИ: действия не исполнены"), {
-    code: "assistant_incomplete_turn", status: 400,
+  // Причину (MAX_TOKENS, SAFETY, MALFORMED_FUNCTION_CALL…) кладём в текст и поля: 23.11.2026 журнал
+  // прода показывал только «действия не исполнены», и разобрать, что оборвало ход, было нечем.
+  const why = [finishReason ? `finishReason=${finishReason}` : "finishReason пуст", blockReason ? `blockReason=${blockReason}` : ""].filter(Boolean).join(", ");
+  throw Object.assign(new Error(`Незавершённый ответ ИИ: действия не исполнены (${why})`), {
+    code: "assistant_incomplete_turn", status: 400, finishReason, blockReason,
   });
 }

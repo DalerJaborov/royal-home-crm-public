@@ -32,7 +32,7 @@ import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, isPro
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
-import { handleFreeNarrationCallback, handleFreeNarrationMessage, looksLikeNarrationDictation, narrationDictationReply } from "./assistantFreeNarration.js";
+import { handleFreeNarrationCallback, handleFreeNarrationMessage, isBareNarrationAsk, looksLikeNarrationDictation, narrationDictationReply, startFreeNarrationFromAsk } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
@@ -1089,6 +1089,12 @@ export async function handleAssistantPrivate(
     if (!forwardedEvidence && looksLikeNarrationDictation(text)) {
       await send(narrationDictationReply(textLang(), fromVoice));
       if (fromVoice) await send(text.slice(0, 3500));
+      return;
+    }
+    // Короткое «озвучь…» без текста (чаще голосом, 23.11.2026): ждём сам текст следующим сообщением,
+    // а не отдаём просьбу модели — она отвечала «пришлите данные по объекту» (telegram/assistantFreeNarration.ts).
+    if (!forwardedEvidence && !attachedFileText.trim() && !isVoiceReplayRequest(text) && isBareNarrationAsk(text)) {
+      await send(await startFreeNarrationFromAsk(agent.id, chatId, textLang()));
       return;
     }
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
