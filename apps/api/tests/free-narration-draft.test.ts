@@ -171,7 +171,7 @@ describe("рекламный текст из фактов", () => {
     const draft = (await prisma.freeNarration.findFirst({ where: { agentId: user.id, status: "DRAFT" } }))!;
     ad.next.push({ status: "OK", script: "Другой заход: Рудаки Тауэр ждёт вас в районе Рудаки. Парковка и детский двор.", lang: "ru" });
     await handleFreeNarrationCallback(click(user.chat, `fnr:r:${draft.id}`));
-    await waitFor(async () => (await prisma.freeNarration.findUnique({ where: { id: draft.id } }))?.chars === 1);
+    await waitFor(async () => (await prisma.freeNarration.findUnique({ where: { id: draft.id } }))?.script.includes("Другой заход") === true);
     expect((await prisma.freeNarration.findUnique({ where: { id: draft.id } }))!.script).toContain("Другой заход");
     expect(ad.calls.at(-1)).toMatchObject({ variant: 1 });
     expect(String(ad.calls.at(-1)?.avoid)).toContain("Рудаки Тауэр в районе Рудаки");
