@@ -1,9 +1,12 @@
-import { NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
+import { dushanbeDayKey, NARRATION_LANGS, NARRATION_VOICE_SAMPLE_TEXT, narrationConfigSchema, narrationCurrencyError, narrationTtsOptions, narrationLimits, narrationModelSupportsTajik, narrationSpeechText, type NarrationConfig, type NarrationLang } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
+import { logSystemError } from "./systemError.js";
 import { localVideoDelete, localVideoUpload } from "./localVideoStorage.js";
-import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_QUOTA_EXCEEDED } from "./propertyNarration.js";
+import { clipCountsAsPublished } from "./publishedClip.js";
+import { normalizeNarrationVoice } from "./narrationLoudness.js";
+import { generateNarrationAudio, narrationFactsCurrent, narrationHash, NARRATION_PRICE_NOT_IN_TJS, NARRATION_QUOTA_EXCEEDED, type NarrationAudioResult } from "./propertyNarration.js";
 
 /** Пауза после «кредиты кончились»: раз в час одна проверка, пока владелец не пополнит. */
 export const NARRATION_QUOTA_PAUSE_MS = 60 * 60_000;
@@ -27,10 +30,20 @@ export async function narrationQuotaExceededSince(db: Pick<Tx, "propertyNarratio
  */
 type Tx = TxClient;
 
-export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null }> {
+/**
+ * `unreadable` (17.11.2026): сохранённые настройки есть, но схема их не читает (например, шаблонов больше предела).
+ * Озвучка тогда выглядит ненастроенной — это попадает в журнал ошибок, а сохранение настроек с такой основой
+ * отклоняется (иначе оно молча стёрло бы голоса и шаблоны).
+ */
+export async function loadNarrationConfiguration(): Promise<{ config: NarrationConfig; key: string | null; unreadable: boolean }> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true, elevenLabsApiKey: true } });
-  const parsed = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});
-  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey) };
+  const raw = settings?.propertyNarrationConfig ?? {};
+  const parsed = narrationConfigSchema.safeParse(raw);
+  const unreadable = !parsed.success;
+  if (!parsed.success) {
+    void logSystemError("api", `Настройки озвучки не читаются, озвучка считается ненастроенной: ${parsed.error.issues.slice(0, 2).map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`, { dedupKey: "narration-config-unreadable" });
+  }
+  return { config: parsed.success ? parsed.data : { modelId: "", voices: [] }, key: resolveElevenLabsKey(settings?.elevenLabsApiKey), unreadable };
 }
 
 export function narrationProviderReady(config: NarrationConfig, key: string | null): boolean {
@@ -41,30 +54,110 @@ export function narrationProviderReady(config: NarrationConfig, key: string | nu
  * Расход за сутки по Душанбе: каждая начатая генерация, включая неудачные (деньги могли списаться).
  * Образцы голосов (11.11.2026) — в том же потолке: это та же платная озвучка.
  */
-export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample"> = prisma, now = new Date()) {
+export async function narrationBudgetUsage(db: Pick<Tx, "propertyNarrationVersion" | "narrationVoiceSample" | "freeNarration"> = prisma, now = new Date()) {
   const since = dushanbeStartOfToday(now);
-  const [rows, samples] = await Promise.all([
+  const [rows, samples, free] = await Promise.all([
     db.propertyNarrationVersion.findMany({ where: { generationStartedAt: { gte: since } }, select: { script: true, language: true }, take: 5000 }),
     db.narrationVoiceSample.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
+    // Озвучка свободного текста (16.11.2026) — тот же дневной потолок.
+    db.freeNarration.findMany({ where: { generationStartedAt: { gte: since } }, select: { chars: true }, take: 5000 }),
   ]);
   return {
     // Считаем то, что реально ушло в ElevenLabs: таджикские цифры уже словами (ревью 12.11.2026).
-    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0),
-    usedGenerations: (rows ?? []).length + (samples ?? []).length,
+    usedChars: (rows ?? []).reduce((sum, r) => sum + speechChars(r.script, r.language), 0) + (samples ?? []).reduce((sum, r) => sum + r.chars, 0) + (free ?? []).reduce((sum, r) => sum + r.chars, 0),
+    usedGenerations: (rows ?? []).length + (samples ?? []).length + (free ?? []).length,
   };
 }
 
 /** Длина текста, который уйдёт в синтез (цифры словами), — по ней потолок символов. */
 export function speechChars(script: string, language: string | null | undefined): number {
-  return narrationSpeechText(script, language === "tg" || language === "ru" ? language : null).length;
+  return narrationSpeechText(script, speechLang(language)).length;
+}
+function speechLang(language: string | null | undefined): NarrationLang | null {
+  return language === "tg" || language === "ru" ? language : null;
 }
 
-/** Под общим замком: две генерации одновременно не проскочат мимо потолка. */
-async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date): Promise<boolean> {
+/**
+ * ОДИН ПУТЬ ЗВУКА (21.11.2026, владелец: «прослушать прямо тут»). Звук ролика (generateNarrationVersion),
+ * «▶ Прослушать» в мастере (lib/narrationListen.ts) и озвучка своего текста (lib/freeNarration.ts) делаются
+ * только здесь: один запрос в ElevenLabs с теми же настройками голоса, языком и словарём произношения
+ * (narrationTtsOptions: непроверенные носителем чтения туда не попадают, #318) и одно выравнивание громкости.
+ * Иначе человек одобрил бы на слух не то, что услышит зритель. `speech` — текст УЖЕ для голоса (числа словами:
+ * objectNarrationSpeech у озвучки объекта; свой текст переводит freeNarration при захвате). Не бросает.
+ */
+export async function synthesizeNarrationSpeech(input: { speech: string; voiceId: string; lang: NarrationLang | null; config: NarrationConfig; apiKey: string; label: string },
+  fetcher?: typeof fetch): Promise<NarrationAudioResult> {
+  const result = await generateNarrationAudio({ script: input.speech, voiceId: input.voiceId, config: input.config, apiKey: input.apiKey, lang: input.lang }, fetcher);
+  if (result.status !== "READY") return result;
+  // Голос ElevenLabs тише ленты на 8–10 дБ — выравниваем один раз здесь: этот же файл получает монтажёр (21.11.2026).
+  // Не бросает (сбой — исходный mp3 и журнал); .catch — вторая страховка: оплаченный голос не теряется.
+  const audio = await normalizeNarrationVoice(result.audio, input.label).catch(() => result.audio);
+  return { ...result, audio };
+}
+
+/** Текст озвучки ОБЪЕКТА для голоса: числа словами. Одно место для звука ролика, прослушивания и отпечатка. */
+export function objectNarrationSpeech(script: string, language: string | null | undefined): string {
+  return narrationSpeechText(script, speechLang(language));
+}
+
+/**
+ * ОТПЕЧАТОК ЗВУКА: всё, от чего зависит звук озвучки объекта, — текст для голоса, язык, голос, модель и настройки
+ * синтеза (в них номер словаря произношения и его версия). Совпал отпечаток — звук тот же: прослушанный в мастере
+ * файл годится для ролика, а повторное «▶ Прослушать» не платит второй раз.
+ */
+export function narrationSoundKey(input: { script: string; language: string | null | undefined; voiceId: string; config: NarrationConfig }): string {
+  const lang = speechLang(input.language);
+  return narrationHash({ v: 1, speech: objectNarrationSpeech(input.script.trim(), lang), lang, voiceId: input.voiceId, modelId: input.config.modelId,
+    tts: narrationTtsOptions(input.config, input.voiceId, lang) });
+}
+
+/** Источник строк FreeNarration у «▶ Прослушать» мастера: у него свой предел на человека, долю «своего текста» он не ест. */
+export const NARRATION_LISTEN_SOURCE = "LISTEN";
+
+/** Расход свободных текстов («озвучь текст», 16.11.2026) за сутки по Душанбе: своя доля общего потолка. */
+export async function freeNarrationUsage(db: Pick<Tx, "freeNarration">, now = new Date()) {
+  // Прослушивание в мастере (LISTEN) — это озвучка объекта, а не свой текст: в общий потолок идёт, долю своего текста не ест.
+  const rows = await db.freeNarration.findMany({ where: { generationStartedAt: { gte: dushanbeStartOfToday(now) }, source: { not: NARRATION_LISTEN_SOURCE } }, select: { chars: true }, take: 5000 });
+  return { usedChars: (rows ?? []).reduce((sum, r) => sum + r.chars, 0), usedGenerations: (rows ?? []).length };
+}
+
+/**
+ * Под общим замком: две генерации одновременно не проскочат мимо потолка.
+ * `freeSharePercent` (озвучка свободного текста): сверх общего потолка эти озвучки ещё и не выедают больше
+ * этой доли знаков и озвучек за сутки, чтобы чужие тексты не оставили озвучку роликов без бюджета.
+ */
+export async function budgetAllows(tx: Tx, chars: number, config: NarrationConfig, now: Date, freeSharePercent?: number, soft?: "VIDEO"): Promise<boolean> {
   await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext('property-narration-budget'))) AS budget_lock`;
   const limits = narrationLimits(config);
   const used = await narrationBudgetUsage(tx, now);
-  return used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars;
+  const within = used.usedGenerations + 1 <= limits.dailyGenerations && used.usedChars + chars <= limits.dailyChars;
+  if (!within) {
+    // ОЗВУЧКА РОЛИКОВ НЕ ОСТАНАВЛИВАЕТСЯ ПРЕДЕЛОМ (владелец 21.11.2026: «не нужно лимит жёсткий. Вдруг будут больше нам
+    // нужны для перемонтажа»): звук ролика и прослушивание в мастере идут сверх предела, руководству — одно уведомление в
+    // сутки. Настоящая стена — только кончились кредиты ElevenLabs (NARRATION_QUOTA_EXCEEDED). Предел 0 — руководство
+    // выключило озвучку совсем: стоп. Свой текст и образцы голосов (soft не передают) держат предел, как раньше.
+    if (soft !== "VIDEO" || limits.dailyGenerations <= 0 || limits.dailyChars <= 0) return false;
+    reportNarrationDailyLimitExceeded({ used: used.usedGenerations + 1, limit: limits.dailyGenerations, usedChars: used.usedChars + chars, limitChars: limits.dailyChars }, now);
+    return true;
+  }
+  if (freeSharePercent === undefined) return true;
+  const free = await freeNarrationUsage(tx, now);
+  const maxChars = Math.floor(limits.dailyChars * freeSharePercent / 100);
+  const maxGenerations = limits.dailyGenerations > 0 ? Math.max(1, Math.floor(limits.dailyGenerations * freeSharePercent / 100)) : 0;
+  return free.usedGenerations + 1 <= maxGenerations && free.usedChars + chars <= maxChars;
+}
+
+/**
+ * «Дневной предел озвучки превышен: N из M» — ОДИН раз в сутки по Душанбе: журнал ошибок и тревога руководству «к
+ * сведению» (колокольчик сразу, без ночного звонка). Не бросает и не ждёт: зовётся под замком бюджета.
+ */
+export function reportNarrationDailyLimitExceeded(n: { used: number; limit: number; usedChars: number; limitChars: number }, now: Date = new Date()): void {
+  const day = dushanbeDayKey(now);
+  const line = n.used > n.limit ? `${n.used} озвучек из ${n.limit}` : `${n.usedChars} знаков из ${n.limitChars}`;
+  const text = `Дневной предел озвучки превышен: ${line}. Озвучка роликов продолжается; предел меняют в Настройках → Озвучка роликов.`;
+  void logSystemError("ai", text, { dedupKey: `narration-daily-limit:${day}`, dedupWindowMs: 24 * 3_600_000 });
+  void import("./channelKeyAlarm.js").then(({ raiseCriticalAlarm }) => raiseCriticalAlarm({ tag: `narration-daily-limit:${day}`, title: "Дневной предел озвучки превышен",
+    body: text, quiet: true, everyMs: 24 * 3_600_000, now })).catch(() => undefined);
 }
 
 export type NarrationGenerationOutcome =
@@ -95,18 +188,25 @@ export async function generateNarrationVersion(input: {
     if (!input.requireApproval && (!latest.generateAfter || latest.generateAfter > now)) return { kind: "REJECTED" as const };
     if (!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId) return { kind: "REJECTED" as const };
     if (await tx.propertyNarrationVersion.count({ where: { propertyId: input.propertyId, status: { in: ["GENERATING", "UNKNOWN"] } } })) return { kind: "REJECTED" as const };
-    if (!await budgetAllows(tx, speechChars(latest.script, latest.language), config, now)) return { kind: "BUDGET" as const };
+    if (!await budgetAllows(tx, speechChars(latest.script, latest.language), config, now, undefined, "VIDEO")) return { kind: "BUDGET" as const };
     // То же «сейчас», что у потолка и паузы «кредиты кончились»: иначе пауза считалась бы по двум часам сразу.
     const generationStartedAt = now;
     await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: "GENERATING", generationStartedAt, generationAttempts: { increment: 1 } } });
-    return { kind: "RUN" as const, row: { ...latest, generationStartedAt } };
+    // Ролик уже вышел: аудио по утверждённому тексту маркетинга снова ждёт человека после прослушивания (ниже).
+    const published = input.requireApproval && await clipCountsAsPublished(input.propertyId, current, tx);
+    return { kind: "RUN" as const, row: { ...latest, generationStartedAt }, published };
   });
   if (claimed.kind === "REJECTED") return { status: "REJECTED" };
   if (claimed.kind === "BUDGET") return { status: "BUDGET" };
   if (claimed.kind === "ALREADY") return { status: "ALREADY", current: claimed.current };
   const row = claimed.row;
-  const script = narrationSpeechText(row.script, (row.language as NarrationLang | null) ?? null);
-  const result = await generateNarrationAudio({ script, voiceId: row.voiceId!, config, apiKey: input.key, lang: row.language === "tg" || row.language === "ru" ? row.language : null });
+  // Текст объекта с долларами в ElevenLabs не уходит (21.11.2026, владелец: цена только в сомони) — даже версия,
+  // сохранённая до сторожа: денег не тратим, версия падает с кодом PRICE_NOT_IN_TJS. Обход озвучек
+  // (narrationAutoFlow.ts::generateDueNarrations) ловит такой черновик ещё раньше и пересобирает текст из шаблона;
+  // эта проверка — вторая дверь для ручного «Озвучить».
+  const result: NarrationAudioResult = narrationCurrencyError(row.script)
+    ? { status: "FAILED", errorCode: NARRATION_PRICE_NOT_IN_TJS }
+    : await synthesizeNarrationSpeech({ speech: objectNarrationSpeech(row.script, row.language), voiceId: row.voiceId!, config, apiKey: input.key, lang: speechLang(row.language), label: `версии ${row.revision}` });
   const guard = { id: row.id, status: "GENERATING", generationStartedAt: row.generationStartedAt };
   if (result.status !== "READY") {
     // Автоозвучка при кончившихся кредитах не теряет версию: она снова ждёт (через час), агенту ничего.
@@ -117,12 +217,20 @@ export async function generateNarrationVersion(input: {
     return { status: result.status, errorCode: result.errorCode, recorded: saved.count > 0 };
   }
   const storageKey = `${input.propertyId}/${row.id}.mp3`;
+  const audio = result.audio;
   try {
-    await localVideoUpload(storageKey, result.audio);
+    await localVideoUpload(storageKey, audio);
     const saved = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${input.propertyId} FOR UPDATE`;
       const changed = await tx.propertyNarrationVersion.updateMany({ where: guard, data: { status: "READY", storageKey, providerRequestId: result.requestId, generateAfter: null, errorCode: null } });
-      if (changed.count) return "READY";
+      if (changed.count) {
+        // ТЕКСТ УТВЕРЖДЁН ≠ ГОЛОС УСЛЫШАН (ревью 18.11): ролик уже вышел — утверждение = выпуск в сети, поэтому
+        // аудио по утверждённому тексту маркетинга снова ждёт человека после прослушивания.
+        if (claimed.published) {
+          await tx.propertyNarrationVersion.updateMany({ where: { id: row.id, status: "READY" }, data: { approvedAt: null, approvedById: null } });
+        }
+        return "READY";
+      }
       const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: row.id }, data: { storageKey, providerRequestId: result.requestId } });
       return retained.count ? "RECONCILED" : "REMOVED";
     });
@@ -157,10 +265,16 @@ export function voiceSampleLangs(config: NarrationConfig): NarrationLang[] {
   return [...langs].filter((lang) => lang !== "tg" || narrationModelSupportsTajik(config.modelId));
 }
 
-/** Хэш фразы образца; при заданных настройках синтеза они входят в ключ (без них — прежний хэш). */
+/**
+ * Хэш фразы образца; при заданных настройках синтеза они входят в ключ (без них — прежний хэш).
+ * Словарь произношения в ключ НЕ входит (22.11.2026): каждая правка словаря выпускает в ElevenLabs
+ * новую версию, и с ней в ключе все образцы молча «протухали» — 21.11 правка «яксад» погасила все
+ * 18 образцов, кнопка «Прослушать» пропала в мастере, карточке и Шабнам. Образец нужен, чтобы
+ * выбрать голос на слух; слово, которое поправил словарь, этот выбор не меняет.
+ */
 function voiceSampleHash(config: NarrationConfig, voiceId: string, lang: NarrationLang): string {
   const text = NARRATION_VOICE_SAMPLE_TEXT[lang];
-  const options = narrationTtsOptions(config, voiceId, lang);
+  const { pronunciation_dictionary_locators: _dictionary, ...options } = narrationTtsOptions(config, voiceId, lang);
   return Object.keys(options).length ? narrationHash([text, options]) : narrationHash(text);
 }
 
@@ -215,14 +329,28 @@ export async function generateVoiceSamples(input: {
   return report;
 }
 
-/** Готовые образцы для текущих голосов, модели и фраз — бесплатное чтение для экранов и Шабнам. */
+/**
+ * Готовые образцы для текущих голосов и модели — бесплатное чтение для экранов и Шабнам.
+ * На голос и язык — образец по текущим настройкам, а если его нет (поменяли настройки голоса или
+ * словарь) — последний готовый того же голоса, языка и модели (22.11.2026): кнопка «Прослушать»
+ * не пропадает, пока руководство не подготовит новые. Новый образец по-прежнему готовит только
+ * кнопка в Настройках — `generateVoiceSamples` сверяет точный ключ.
+ */
 export async function readyVoiceSamples(config: NarrationConfig): Promise<Array<{ voiceId: string; lang: NarrationLang; storageKey: string }>> {
   if (!config.modelId || !config.voices.length) return [];
-  // Ключ образца — голос + фраза + настройки синтеза: поменяли настройки голоса — образец готовится заново.
-  const hashes = new Map(config.voices.flatMap((v) => NARRATION_LANGS.map((lang) => [`${v.id}|${voiceSampleHash(config, v.id, lang)}`, lang] as const)));
+  const exact = new Set(config.voices.flatMap((v) => NARRATION_LANGS.map((lang) => `${v.id}|${lang}|${voiceSampleHash(config, v.id, lang)}`)));
   const rows = await prisma.narrationVoiceSample.findMany({
-    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, textHash: { in: [...new Set([...hashes.keys()].map((k) => k.split("|")[1]))] }, storageKey: { not: null } },
-    select: { voiceId: true, textHash: true, storageKey: true }, take: 400,
+    where: { status: "READY", modelId: config.modelId, voiceId: { in: config.voices.map((v) => v.id) }, lang: { in: [...NARRATION_LANGS] }, storageKey: { not: null } },
+    select: { voiceId: true, lang: true, textHash: true, storageKey: true }, orderBy: { createdAt: "desc" }, take: 400,
   });
-  return rows.flatMap((r) => { const lang = hashes.get(`${r.voiceId}|${r.textHash}`); return r.storageKey && lang ? [{ voiceId: r.voiceId, lang, storageKey: r.storageKey }] : []; });
+  const best = new Map<string, { voiceId: string; lang: NarrationLang; storageKey: string; exact: boolean }>();
+  for (const r of rows) {
+    if (!r.storageKey) continue;
+    const lang = r.lang as NarrationLang;
+    const key = `${r.voiceId}|${lang}`;
+    const isExact = exact.has(`${key}|${r.textHash}`);
+    const prev = best.get(key);
+    if (!prev || (isExact && !prev.exact)) best.set(key, { voiceId: r.voiceId, lang, storageKey: r.storageKey, exact: isExact });
+  }
+  return [...best.values()].map(({ voiceId, lang, storageKey }) => ({ voiceId, lang, storageKey }));
 }

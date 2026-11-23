@@ -70,7 +70,7 @@ type CaptionResult = { caption: string; updated: string[]; failed: { channel: st
 /** Одна запись из истории «что ушло монтажёру» — GET .../montajer-messages
  *  (первая отправка на монтаж, перемонтаж с причиной, снятие с монтажа,
  *  квитанция после приёма ролика; свежие сверху, сервер сам режет выборку). */
-type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED";
+type MontajerMessageKind = "HANDOFF" | "REMAKE" | "CANCELLED" | "PROPERTY_DELETED" | "RECEIPT" | "FACTS_CHANGED" | "QUEUE_CONTROL";
 type MontajerMessage = { id: string; kind: MontajerMessageKind; text: string; sentAt: string };
 
 /** Тот же предел, что режет выборку на сервере (routes/properties/videos.ts,
@@ -89,6 +89,7 @@ const MONTAJER_MESSAGE_KIND: Record<MontajerMessageKind, string> = {
   PROPERTY_DELETED: "Объект удалён",
   RECEIPT: "Ответ после приёма",
   FACTS_CHANGED: "Карточка изменена",
+  QUEUE_CONTROL: "Монтажёр: очередь",
 };
 
 /**
@@ -329,7 +330,10 @@ function MontageBlock({
   const [holdReason, setHoldReason] = useState("");
 
   const can = useCan();
-  const canModerateClip = can("properties.moderate");
+  const myId = useAuthStore((s) => s.agent?.id);
+  // Хозяин объекта решает по своему ролику наравне с модератором (14.11.2026,
+  // подтверждение хозяином; сервер проверяет то же правило заново).
+  const canModerateClip = can("properties.moderate") || (!!myId && vh?.clipReview.ownerAgentId === myId);
   const qc = useQueryClient();
   const [clipBusy, setClipBusy] = useState(false);
   const [clipMessage, setClipMessage] = useState<string | null>(null);
@@ -419,7 +423,7 @@ function MontageBlock({
         <p className="quiet ok">
           <span className="dot ok" />
           <span className="txt">
-            Ролик одобрил {vh.clipReview.decidedBy ?? "модератор"}
+            {vh.clipReview.decidedBy ? `Ролик одобрил ${vh.clipReview.decidedBy}` : "Ролик ушёл в публикацию автоматически: хозяин объекта не ответил вовремя"}
             {vh.clipReview.decidedAt ? ` в ${dushanbeTime(vh.clipReview.decidedAt)}` : ""}
           </span>
         </p>
@@ -670,8 +674,7 @@ export function PropertyVideoFixCard({
   const canEdit = requestedCanEdit && !property.offSite;
   const isMontajerView = viewer === "montajer";
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canUnpublish = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
+  const canUnpublish = useCan()("marketing.access");
   /* Подключённые сети — чтобы в ходе публикации не обещать выход туда, куда ролик
      и не собирался (05.10.2026). Только тем, кому статус каналов вообще виден. */
   const { data: channelsStatus } = useChannelsStatus(canUnpublish);
@@ -2180,7 +2183,7 @@ export function PropertyVideoFixCard({
                         ? "Не удалось получить список исходников"
                         : hasCurrentSource
                           ? keptSources
-                              .map((v) => `${v.filename} · ${formatMb(v.sizeBytes)}${v.hasAudio === false ? " · ⚠ без звука" : ""}`)
+                              .map((v) => `${v.filename} · ${formatMb(v.sizeBytes)}${v.hasAudio === false ? " · без звука" : ""}`)
                               .join(", ")
                           : "Исходников на сервере нет — их убрали после публикации. Загрузите новый."}
                   </span>
@@ -2423,8 +2426,8 @@ interface RepostRecord {
  */
 export function RepostBlock({ property, readOnly, canEdit }: { property: Property; readOnly?: boolean; canEdit: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canPublish = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
+  const canMarketing = useCan()("marketing.access");
+  const canPublish = !readOnly && canMarketing;
   const enabled = !readOnly && !property.offSite && property.status === "AVAILABLE";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2560,8 +2563,8 @@ interface SocialExtrasRemoval {
  */
 export function SocialExtrasBlock({ property, readOnly }: { property: Property; readOnly?: boolean }) {
   const qc = useQueryClient();
-  const role = useAuthStore((s) => s.agent?.role);
-  const canRemove = !readOnly && (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN");
+  const canMarketing = useCan()("marketing.access");
+  const canRemove = !readOnly && canMarketing;
   const propertyId = property.id;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);

@@ -7,12 +7,13 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { CleanSettingsTaskContent, SettingsTabContent } from "../components/settings/SettingsTabContent";
 import { isSettingsTabId, SETTINGS_TABS, type SettingsTabId } from "../lib/settingsTabs";
 import { SettingsTabs } from "../components/SectionTabs";
-import { UiShellRolloutSection } from "../components/settings/UiShellRolloutSection";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanSettingsNavigator } from "../components/clean/CleanSettingsNavigator";
 import { CleanSettingsSectionJump } from "../components/clean/CleanSettingsSectionJump";
 import { CLEAN_SETTINGS_LABELS, resolveCleanSettingsTask } from "../lib/cleanSettingsTasks";
 import { CLink } from "../components/clean/ui";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSettings } from "../components/look/team/RoyalSettings";
 
 /**
  * Настройки CRM — семь вкладок вместо одной длинной страницы.
@@ -52,6 +53,8 @@ export function Settings() {
   const navigate = useNavigate();
   const mobile = useMobileUx();
   const clean = useCleanShell();
+  // «Новый вид» (18.11.2026) — только другая разметка навигации поверх тех же блоков и форм.
+  const royal = useRoyalLook();
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get("tab");
   // На телефоне отсутствие ?tab= значит «список разделов» (push-меню макета),
@@ -94,6 +97,10 @@ export function Settings() {
     );
   }
 
+  if (clean && royal) {
+    return <RoyalSettings active={active} role={agent?.role} search={searchParams.toString()} params={searchParams} />;
+  }
+
   const tabContent = <SettingsTabContent tab={active ?? "agency"} agentRole={agent?.role} />;
 
   if (clean) {
@@ -126,7 +133,7 @@ export function Settings() {
         <div className="pg-h">
           <div>
             <h1>Настройки CRM</h1>
-            <p className="sub">Комиссия, лиды, каналы, бот, данные. Меняет только директор и администратор.</p>
+            <p className="sub">Комиссия, заявки, каналы, бот, данные. Меняет только директор и администратор.</p>
           </div>
           {/* Мостик в личный профиль: тема, вход по отпечатку, 2FA и личные
               данные живут там, не здесь. В эталоне — кнопка в шапке экрана. */}
@@ -164,7 +171,7 @@ export function Settings() {
               })}
             </nav>
 
-            <div className="sset-body">{active === "agency" && <UiShellRolloutSection />}{tabContent}</div>
+            <div className="sset-body">{tabContent}</div>
           </div>
       </div>
     </div>

@@ -31,7 +31,7 @@ async function mk(role: "DIRECTOR" | "MANAGER" | "AGENT", suffix: string) {
   return { id: a.id, token: res.body.accessToken as string };
 }
 
-const hot = () => ({ sliceKey: "stalled-clients", subjectId: hotClientId });
+const hot = () => ({ sliceKey: "no-contact-clients", subjectId: hotClientId });
 
 beforeAll(async () => {
   const s = await prisma.settings.findUnique({ where: { id: "singleton" } });
@@ -43,14 +43,15 @@ beforeAll(async () => {
   const owner = agentIds[2];
   const c = await prisma.client.create({
     data: {
-      fullName: `Горячий для ack ${runId}`,
+      fullName: `Без контакта для ack ${runId}`,
       phone: `+99297${runId}`,
       source: "PHONE_CALL",
+      kind: "BUYER",
       assignedAgentId: owner,
       status: "NEW",
-      aiScore: 95,
-      // Заведомо старше любых остатков чужих тестов — лента отдаёт давнее выше.
-      lastContactAt: new Date(Date.now() - 9000 * DAY),
+      // «Без контакта» считается от создания: карточка заведомо старше любых
+      // остатков чужих тестов — лента отдаёт давнее выше.
+      createdAt: new Date(Date.now() - 9000 * DAY),
     },
   });
   hotClientId = c.id;
@@ -69,10 +70,10 @@ describe("OversightAck", () => {
     expect(flags.status).toBe(200);
     expect(flags.body.items.length).toBeLessThanOrEqual(20);
     const mine = flags.body.items.find((f: { subjectId: string }) => f.subjectId === hotClientId);
-    expect(mine).toMatchObject({ sliceKey: "stalled-clients", href: "/oversight#slice-stalled-clients" });
-    expect(mine.title).toContain("горячий клиент без контакта");
+    expect(mine).toMatchObject({ sliceKey: "no-contact-clients", href: "/oversight#slice-no-contact-clients" });
+    expect(mine.title).toContain("ни разу не связывались");
 
-    const slice = await request(app).get("/api/v1/oversight/stalled-clients?pageSize=50").set("Authorization", `Bearer ${directorToken}`);
+    const slice = await request(app).get("/api/v1/oversight/no-contact-clients?pageSize=50").set("Authorization", `Bearer ${directorToken}`);
     const row = slice.body.items.find((i: { id: string }) => i.id === hotClientId);
     expect(row).toBeTruthy();
     expect(row.acked).toBeUndefined();
@@ -104,12 +105,12 @@ describe("OversightAck", () => {
     expect(again.status).toBe(200);
     expect(again.body.id).toBe(first.body.id);
     expect(again.body.note).toBe("вижу, разберусь");
-    expect(await prisma.oversightAck.count({ where: { sliceKey: "stalled-clients", subjectId: hotClientId } })).toBe(1);
+    expect(await prisma.oversightAck.count({ where: { sliceKey: "no-contact-clients", subjectId: hotClientId } })).toBe(1);
 
     const flags = await request(app).get("/api/v1/oversight/flags").set(auth);
     expect(flags.body.items.some((f: { subjectId: string }) => f.subjectId === hotClientId)).toBe(false);
 
-    const slice = await request(app).get("/api/v1/oversight/stalled-clients?pageSize=50").set(auth);
+    const slice = await request(app).get("/api/v1/oversight/no-contact-clients?pageSize=50").set(auth);
     const row = slice.body.items.find((i: { id: string }) => i.id === hotClientId);
     expect(row?.acked).toBe(true);
   });

@@ -10,7 +10,10 @@ import { AgentVideoStatus, PropertyVideoFixCard, FacebookGroupShareBlock, Repost
 import { PropertyCoverStatus } from "../PropertyCoverStatus";
 import { PropertyStatsCard } from "../PropertyStatsCard";
 import { PropertyVoiceDisclosure } from "../PropertyVoiceCard";
-import type { ComponentType, ReactNode, Dispatch, SetStateAction } from "react";
+import { OwnerReportCard } from "../OwnerReportCard";
+import { PropertyShareLink } from "../property/PropertyShareLink";
+import { ShowingQuickForm } from "../ShowingQuickForm";
+import { useState, type ComponentType, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { propertyFloorsLabel } from "@royal-home/shared";
 import type { Property } from "../../types";
 import type { useCan } from "../../lib/permissions";
@@ -29,6 +32,10 @@ interface ViewParts {
 }
 interface ViewSlots {
   trashedNotice: ReactNode; addressNotice: ReactNode; lockedNotice: ReactNode;
+  /** Озвучка наверху карточки (18.11.2026): тот же блок, что на ПК, без своей копии. */
+  narrationBlock?: ReactNode;
+  /** «Озвучка ждёт вашего одобрения» — ссылка к блоку озвучки ниже (ревью #334). */
+  narrationNudge?: ReactNode;
   reelsBlock: ReactNode; promotionBlock: ReactNode; shareOpensBlock: ReactNode;
   matchDialog: ReactNode; deleteDialog: ReactNode; requestDeleteDialog: ReactNode;
 }
@@ -39,14 +46,18 @@ interface Props {
   showSolve: boolean; viewSolve: ReactNode; dealSlot?: ReactNode; fieldsBlock: ReactNode;
   role: string | undefined; canMarkGroupShare: boolean; changeRequestBlock: ReactNode; sourcesBlock: ReactNode;
   isResponsibleForProperty: boolean; docsBlock: ReactNode;
+  /** То же право, что у «Назначить показ» на ПК (PropertyPriceCard.onSchedule). */
+  canSchedule?: boolean;
   deleteMode: "delete" | "request" | null; pendingDeleteRequest: PendingPropertyDeleteRequest | null;
   setRequestDeleteOpen: Toggle; setDeleteOpen: Toggle; setMatchOpen: Toggle;
   placeLine: (property: Property) => string;
   parts: ViewParts; slots: ViewSlots;
 }
 
-export function LegacyAgentPropertyView({ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine, parts, slots }: Props) {
+export function LegacyAgentPropertyView({ property, can, updateProperty, isTrashed, canEnterEdit, onEditParams, canInlineEdit, editingPhotos, setEditingPhotos, onInlineDone, showSolve, viewSolve, dealSlot, fieldsBlock, role, canMarkGroupShare, changeRequestBlock, sourcesBlock, isResponsibleForProperty, docsBlock, deleteMode, pendingDeleteRequest, setRequestDeleteOpen, setDeleteOpen, setMatchOpen, placeLine, canSchedule = false, parts, slots }: Props) {
   const { InlineDoneButton, InlineEditLink, DemandLine, DescriptionBlock } = parts;
+  const [showingOpen, setShowingOpen] = useState(false);
+  const canShare = !!property.siteUrl;
   const photos = property.photos ?? [];
   const floorsInfo = propertyFloorsLabel(property);
   const floorLabel = floorsInfo ? (floorsInfo.label === "Этаж" ? `, ${floorsInfo.value} этаж` : `, ${floorsInfo.value}`) : "";
@@ -68,6 +79,7 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
           />
           {slots.addressNotice}
           {slots.lockedNotice}
+          {slots.narrationNudge}
           <MobilePropertyHero photos={photos} />
           {/* Фото на телефоне правятся на месте (пункт 17 разбора): сетка-редактор
               появляется только по «Изменить фото» и уходит по «Готово» — в
@@ -90,12 +102,31 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
               <InlineEditLink label="Изменить фото" onClick={() => setEditingPhotos(true)} />
             ))}
           <MobilePriceCard property={property} canSeeMatch={!isTrashed && can("clients.viewAll")} />
+          {/* Действия под ценой — те же, что на ПК (17.11.2026, аудит F1-2: агент
+              на показе не мог ни скинуть клиенту ссылку, ни назначить показ с
+              карточки объекта). Компоненты общие с ПК: PropertyShareLink и
+              ShowingQuickForm; сторож lib/__tests__/cardActionParity.test.ts. */}
+          {(canSchedule || canShare) && (
+            <div className="card tight">
+              {/* Не `.wrap`: в теме это обёртка страницы с отступом 28px. */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {canSchedule && (
+                  <button type="button" className="pill" onClick={() => setShowingOpen(true)}>
+                    Назначить показ
+                  </button>
+                )}
+                <PropertyShareLink className="pill ghost" label="Поделиться ссылкой" property={property} />
+              </div>
+            </div>
+          )}
           <MobileParamTiles items={propertyParams(property)} />
           {!isTrashed && can("clients.viewAll") && <DemandLine count={property.demandCount} onOpen={() => setMatchOpen(true)} />}
           {property.instagramUrl && <MobileLinkButtons instagramUrl={property.instagramUrl} />}
 
           {showSolve && viewSolve}
           {dealSlot}
+          {/* Озвучка ролика — после фото, цены и «что решить», а не первой (20.11.2026, владелец). */}
+          {slots.narrationBlock}
 
           {/* Порядок на телефоне (24.09.2026): фото → цена → параметры → что решить
               → кто ведёт и описание → ролик, статистика, история. Раньше «Кто ведёт
@@ -132,6 +163,9 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
           {changeRequestBlock}
           {/* Статистика объекта — тот же компонент, что вкладка «Статистика» на
               компьютере: на телефоне вкладок нет, секции идут стопкой. */}
+          {/* «Отчёт владельцу» — тот же компонент и то же условие, что вкладка
+              «Статистика» на ПК: ведущий объект, не в корзине. */}
+          {isResponsibleForProperty && !isTrashed && <OwnerReportCard propertyId={property.id} />}
           <PropertyStatsCard propertyId={property.id} />
           {/* «Голос рынка» и диагноз — тот же компонент, что вкладка на компьютере; на
               телефоне свёрнут, чтобы не грузить шесть секций, пока их не открыли. */}
@@ -175,6 +209,7 @@ export function LegacyAgentPropertyView({ property, can, updateProperty, isTrash
           {deleteMode === "delete" && <button type="button" className="pill ghost" onClick={() => setDeleteOpen(true)}>Удалить объект</button>}
         </div>
         {slots.matchDialog}
+        {showingOpen && <ShowingQuickForm initialPropertyId={property.id} onClose={() => setShowingOpen(false)} />}
         {slots.deleteDialog}
         {slots.requestDeleteDialog}
       </div>

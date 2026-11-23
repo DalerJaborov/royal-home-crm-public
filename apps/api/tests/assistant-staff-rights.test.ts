@@ -266,7 +266,8 @@ describe("код Google Authenticator", () => {
     expect((await sendCode("мой пароль qwerty123")).handled).toBe(false);
     expect((await sendCode("мой код 123456 и ещё")).handled).toBe(false);
     expect(parseStepUpCode("код 123456")).toBe("123456");
-    expect(parseStepUpCode("123 456")).toBeNull();
+    // 14.11.2026: код с пробелами/тире — тоже код (решает только ожидание кода, ниже).
+    expect(parseStepUpCode("123 456")).toBe("123456");
     expect(await prisma.agent.count({ where: { phone: newPhone } })).toBe(0);
     expect(await statusOf(actionId)).toBe("PENDING");
     await press(bundleId, "no");
@@ -294,6 +295,31 @@ describe("код Google Authenticator", () => {
     expect(await prisma.agent.count({ where: { phone: newPhone } })).toBe(1);
     expect(await statusOf(actionId)).toBe("EXECUTED");
     expect(String(lastEdit()?.[2] ?? "")).toContain("✅");
+  });
+
+  it("код в любой записи — «123 456», «код: 12-34-56», арабские цифры — принимается и удаляется", async () => {
+    const arabic = (code: string) => Array.from(code, (d) => String.fromCodePoint(0x0660 + Number(d))).join("");
+    const spellings = [
+      (c: string) => `${c.slice(0, 3)} ${c.slice(3)}`,
+      (c: string) => `Код: ${c.slice(0, 2)}-${c.slice(2, 4)}-${c.slice(4)}`,
+      (c: string) => arabic(c),
+    ];
+    for (const spell of spellings) {
+      await clearLock();
+      const newPhone = phone();
+      const { actionId, bundleId } = await telegramCard("create_staff", { fullName: `Новичок${runId} Запись${spellings.indexOf(spell)}`, phone: newPhone, role: "AGENT" });
+      await press(bundleId);
+      const { handled, messageId } = await sendCode(spell(await freshCode()));
+      expect(handled).toBe(true);
+      expect(io.del).toHaveBeenCalledWith(String(tgUser), messageId);
+      expect(await statusOf(actionId)).toBe("EXECUTED");
+    }
+  });
+
+  it("без ожидания кода «123 456» — обычное сообщение, помощнице", async () => {
+    const before = io.del.mock.calls.length;
+    expect((await sendCode("123 456")).handled).toBe(false);
+    expect(io.del.mock.calls.length).toBe(before);
   });
 
   it("тот же код второй раз — «уже использован», это не ошибка; соседний шаг другой карточке подходит", async () => {

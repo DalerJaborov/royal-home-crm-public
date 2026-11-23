@@ -1,6 +1,4 @@
 import { prisma } from "../db.js";
-import { OCCUPIES_SLOT_WHERE, activeLeadCounts, loadLeadLimits, slotsTaken } from "./leadLimits.js";
-import { loadTrafficLightSettings } from "./inactiveTrafficLight.js";
 import { TASK_WHERE } from "./tasks.js";
 
 /**
@@ -8,10 +6,8 @@ import { TASK_WHERE } from "./tasks.js";
  *
  * ЗАЧЕМ ЭТО ЗАВЕДЕНО. За один день владелец нашёл руками четыре вещи, которые не
  * увидел ни один аудит по коду:
- *   • лимит активных лидов стоял 6, а портфели у людей были 10-17 — приём лидов
- *     не работал ни у кого;
- *   • перевод в «Неактивные» требовал двух разговоров дольше 30 секунд, и
- *     39 карточек из 52 нельзя было закрыть вообще ничем;
+ *   • лимит активных лидов стоял 6, а портфели у людей были 10-17 (сам лимит
+ *     убран 16.11.2026);
  *   • обязательное окно всплывало по карточке, удалённой полчаса назад;
  *   • значок на иконке приложения горел месяцами, у части людей за сотню.
  *
@@ -36,11 +32,6 @@ const SUMMARY_STALE_HOURS = 24;
 const UNREAD_ALARM = 20;
 
 export interface StuckPulse {
-  /** Агенты, у которых портфель упёрся в лимит: новых лидов они не получают. */
-  agentsAtLeadLimit: { name: string; active: number; limit: number }[];
-  /** Активные карточки, которые агент не может закрыть: гейт требует больше
-   *  попыток связаться, чем есть в хронологии. */
-  clientsBlockedFromInactive: { total: number; required: number; examples: string[] };
   /** Обязательные окна, висящие дольше суток. */
   staleSummaries: { total: number; oldestDays: number; byAgent: { name: string; count: number }[] };
   /** Люди, у которых уведомления копятся непрочитанными. */
@@ -56,83 +47,6 @@ async function agentNames(ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
   const rows = await prisma.agent.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } });
   return new Map(rows.map((a) => [a.id, a.fullName]));
-}
-
-/**
- * Кто упёрся в лимит активных лидов.
- *
- * Лимит 0 означает «выключен» — тогда упереться не во что и считать нечего
- * (см. lib/leadLimits.ts).
- */
-async function agentsAtLeadLimit(): Promise<StuckPulse["agentsAtLeadLimit"]> {
-  const limits = await loadLeadLimits();
-  if (limits.activeLimit <= 0) return [];
-
-  const agents = await prisma.agent.findMany({
-    where: { isActive: true, role: { notIn: ["SECURITY", "SHAREHOLDER"] } }, // акционер лидов не ведёт
-    select: { id: true, fullName: true },
-    take: 200,
-  });
-  const counts = await activeLeadCounts(agents.map((a) => a.id));
-  return agents
-    // active — штуки (их и показывает датчик), taken — занятые слоты, по ним и
-    // упирается лимит: со включёнными весами человек с восемью карточками может
-    // в лимит не упираться, и записывать его в «упёрлись» было бы неправдой.
-    .map((a) => ({
-      name: a.fullName,
-      active: counts.get(a.id)?.total ?? 0,
-      taken: slotsTaken(counts.get(a.id), limits),
-      limit: limits.activeLimit,
-    }))
-    .filter((a) => a.taken >= a.limit)
-    .map(({ name, active, limit }) => ({ name, active, limit }))
-    .sort((a, b) => b.active - a.active)
-    .slice(0, 10);
-}
-
-/**
- * Карточки, которые нельзя перевести в «Неактивные».
- *
- * Считаем ровно тем же правилом, что и сам гейт (countContactTrace в
- * lib/inactiveTrafficLight.ts), но сразу по всем клиентам: поштучный вызов дал
- * бы запрос на каждую карточку. Расхождение с гейтом здесь опаснее, чем
- * дублирование условия, поэтому условие одно и то же слово в слово.
- */
-async function clientsBlockedFromInactive(): Promise<StuckPulse["clientsBlockedFromInactive"]> {
-  const settings = await loadTrafficLightSettings();
-  const required = settings.inactivateMinAttempts;
-  if (required <= 0) return { total: 0, required, examples: [] };
-
-  const active = await prisma.client.findMany({
-    where: { ...OCCUPIES_SLOT_WHERE, deletedAt: null },
-    select: { id: true, fullName: true, shortId: true, lastClientMessageAt: true },
-    take: 500,
-  });
-  if (active.length === 0) return { total: 0, required, examples: [] };
-
-  const attempts = await prisma.interaction.groupBy({
-    by: ["clientId"],
-    where: {
-      clientId: { in: active.map((c) => c.id) },
-      type: "CALL",
-      OR: [
-        { callAttempt: { in: ["TALKED", "NO_ANSWER"] } },
-        { recordingDurationSec: { gt: 0 } },
-        { callAttempt: null, outcome: { not: null } },
-      ],
-    },
-    _count: { _all: true },
-  });
-  const byClient = new Map(attempts.map((a) => [a.clientId, a._count._all]));
-
-  const blocked = active.filter(
-    (c) => (byClient.get(c.id) ?? 0) + (c.lastClientMessageAt ? 1 : 0) < required
-  );
-  return {
-    total: blocked.length,
-    required,
-    examples: blocked.slice(0, 5).map((c) => `№${c.shortId} ${c.fullName}`),
-  };
 }
 
 /** Обязательные окна, висящие дольше суток: их уже не читают, а закрывают не глядя. */
@@ -234,17 +148,13 @@ async function overdueTasks(now: Date): Promise<StuckPulse["overdueTasks"]> {
  * начале сессии, и человек ждёт его на экране.
  */
 export async function loadStuckPulse(now: Date = new Date()): Promise<StuckPulse> {
-  const [limit, blocked, stale, unread, sections, overdue] = await Promise.all([
-    agentsAtLeadLimit(),
-    clientsBlockedFromInactive(),
+  const [stale, unread, sections, overdue] = await Promise.all([
     staleSummaries(now),
     unreadNotifications(),
     staleSections(now),
     overdueTasks(now),
   ]);
   return {
-    agentsAtLeadLimit: limit,
-    clientsBlockedFromInactive: blocked,
     staleSummaries: stale,
     unreadNotifications: unread,
     staleSections: sections,

@@ -33,8 +33,6 @@ import { pickNextAgentByKpiQueue } from "../leads.js";
 import { hadConductedShowing } from "./conductedShowing.js";
 import { loadHotScoreThreshold } from "./hotScoreThreshold.js";
 import { loadMaxTransfers, transfersExhausted } from "./leadTransfers.js";
-import { classifyClientLossFault } from "./clientLossFault.js";
-import { loadEventPoints, recordScoreEvent } from "./scoreJournal.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { sendPushToAgent } from "../push.js";
 import { alertRefusedHighScoreBuyer } from "./buyerNoCallAlarm.js";
@@ -42,6 +40,8 @@ import { dushanbeDateTimeString } from "./dushanbeTime.js";
 import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { lastConductedShowingPropertyId } from "./propertyVoice/showingProperty.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
+import { reportSecuritySignal, securityAutomationOn } from "./securityAutomation.js";
 
 export interface RefuseClientInput {
   clientId: string;
@@ -243,6 +243,11 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    * место с точно такой же формулой для отказа продавца через «Итог объекта».
    */
   const needsSecurityReview = REASONS_REQUIRING_SECURITY_REVIEW.includes(reason);
+  // Рубильник «Служба безопасности: автоматика» (владелец 18.11.2026). Выключен —
+  // отказ оформляется так же (карточка остаётся у агента, не передаётся дальше и не
+  // уходит в заявку на удаление), но «на проверку СБ» её не ставим: руководству —
+  // уведомление, закрытая запись в хронологии остаётся.
+  const securityAutoOn = needsSecurityReview && (await securityAutomationOn());
   const openDeal = await prisma.deal.findFirst({
     where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } },
     select: { id: true },
@@ -270,23 +275,21 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
       : needsSecurityReview
       ? `Отказ №${refusalCount} — работа по назначению завершена`
       : escalate
-      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, карточка помечена «Потерянный» и больше не распределяется автоматически`
+      ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, работа завершена — заявка на удаление отправлена руководителю`
       : !nextAgentId
         ? `Отказ №${refusalCount} — снят с агента, передан руководству`
         : `Отказ №${refusalCount}`,
   ].filter(Boolean);
 
   // toAgentId: nextAgentId — реальная передача; unassignToQueue — снятие в
-  // очередь руководителя; иначе (СБ/эскалация LOST) агент НЕ меняется — только
-  // escalatedAt/статус. changeClientAgent сам проставит lastAgentId, когда
-  // владелец действительно меняется (nextAgentId/unassignToQueue); для LOST
-  // (аудит владения 11.09.2026, дыра №2 — три пути в LOST по-разному обращались
-  // с агентом) lastAgentId ставим явно ниже, хотя assignedAgentId сохраняется.
+  // очередь руководителя; иначе (СБ/конец работы) агент НЕ меняется — только
+  // escalatedAt. changeClientAgent сам проставит lastAgentId, когда владелец
+  // действительно меняется (nextAgentId/unassignToQueue); при конце работы
+  // lastAgentId ставим явно ниже — его читает возврат клиента из Корзины.
   const toAgentId = nextAgentId ?? (unassignToQueue ? null : client.assignedAgentId);
 
   // Объект отказа читается ДО транзакции: это справочное чтение, ему незачем держать её.
   const refusalPropertyId = hadShowing ? await lastConductedShowingPropertyId(client.id) : null;
-  const lossSnapshot: { kind: Awaited<ReturnType<typeof classifyClientLossFault>> } = { kind: "client_lost_no_fault" };
 
   /**
    * ГОНКА С «/assign» (ночная проверка 24.09.2026, находка №5): снимок клиента
@@ -310,7 +313,6 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         throw new ClientOwnerRaceError("race");
       }
       if (!needsManagementDecision) {
-        if (escalate && !needsSecurityReview) lossSnapshot.kind = await classifyClientLossFault(client.id, new Date(), tx);
         await tx.interaction.updateMany({
           where: { clientId: client.id, OR: [{ nextAction: { not: null } }, { nextActionDate: { not: null } }], completedAt: null, taskCancelledAt: null },
           data: { taskCancelledAt: new Date() },
@@ -361,25 +363,20 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
           assignmentRefusedAt: new Date(),
           assignmentRefusedByAgentId: client.assignedAgentId,
           assignmentCompletedAt: needsManagementDecision ? null : new Date(),
-          // «Потерянный» перебивает и «горячего», и «холодного»: это не оценка
-          // клиента, а факт про нас — предел передач исчерпан, автоматика с этой
-          // карточкой закончила. Проверка СБ идёт ПЕРВОЙ по приоритету: пока
-          // человек не решил, карточка на проверке, а не «потерянная»/«холодная».
+          // Предел передач исчерпан — работа закончена: после этой транзакции
+          // руководителю уходит заявка на удаление (владелец 16.11.2026: состояния
+          // «Потерянный» больше нет, «пусть сами люди решают»). Проверка СБ идёт
+          // ПЕРВОЙ по приоритету: пока человек не решил, карточка на проверке.
+          // Статус карточки отказ больше не трогает: «Горячий»/«Холодный» сняты
+          // вместе с остальными статусами-папками (16.11.2026).
           ...(needsSecurityReview
-            ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null }
+            ? securityAutoOn ? { securityReview: "PENDING" as const, securityReviewRequestedAt: new Date(), securityReviewedAt: null, securityReviewedById: null } : {}
             : needsManagementDecision ? {}
             : escalate
-              ? {
-                  status: "LOST" as const,
-                  lostAt: new Date(),
-                  // LOST не занимает слот в портфеле (leadLimits.ts::TERMINAL_STATUSES) —
-                  // agent сохраняется, но lastAgentId всё равно ставим (решение
-                  // владельца 11.09.2026, см. markClientLost).
-                  ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
-                }
+              ? { ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
               : isHot
-                ? { hotSince: client.hotSince ?? new Date(), status: "HOT" as const }
-                : { status: "COLD" as const }),
+                ? { hotSince: client.hotSince ?? new Date() }
+                : {}),
           ...(needsManagementDecision ? {} : nextAgentId ? { assignedAt: new Date(), acceptedAt: null } : { escalatedAt: new Date() }),
         },
         tx,
@@ -391,32 +388,45 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     throw err;
   }
 
-  // A review or a preserved second role is not a lost client and earns no loss event.
-  if (escalate && !needsSecurityReview && client.assignedAgentId) {
-    const lostAgentId = client.assignedAgentId;
-    void (async () => {
-      const kind = lossSnapshot.kind;
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: lostAgentId,
-        kind,
-        delta: points[kind],
-        reason:
-          kind === "client_lost_agent_fault"
-            ? `Клиент потерян: на момент потери были просроченные обязательные окна/задачи — ${client.fullName}`
-            : `Клиент потерян без просрочек со стороны агента — ${client.fullName}`,
-        sourceId: `client-lost-${client.id}`,
-      });
-    })();
+  /**
+   * КОНЕЦ РАБОТЫ = ЗАЯВКА НА УДАЛЕНИЕ РУКОВОДИТЕЛЮ (владелец 16.11.2026: «ничего
+   * лишнего», «пусть сами люди решают»). Раньше карточка становилась «Потерянной»
+   * (status LOST) и через 90 дней уезжала в Корзину сама. Теперь в Корзину её
+   * убирает руководитель, одобрив заявку (lib/clientDeleteRequest.ts — та же
+   * очередь, что у кнопки агента). Причина отказа уже лежит в хронологии выше.
+   * Клиент, который снова напишет или позвонит, вернёт карточку и из Корзины
+   * (services/leads/intake.ts, resumeExistingChannelLead).
+   */
+  // Автоматика СБ выключена (18.11.2026): проверки не будет, а карточка без передачи
+  // висела бы ничьей — конец работы, заявка на удаление руководителю, решает человек.
+  if (needsSecurityReview && !securityAutoOn && !needsManagementDecision) {
+    await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
+      `Отказ клиента: ${reasonLabel}. Работа по карточке завершена.` +
+        (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
   }
+  if (escalate && !needsSecurityReview) {
+    await fileEndOfWorkDeleteRequest(client, input.actorAgentId ?? client.assignedAgentId,
+      `Отказ клиента: ${reasonLabel}. Предел передач (${maxTransfers}) исчерпан — работа по карточке завершена.` +
+        (comment?.trim() ? ` Комментарий агента: ${comment.trim()}` : ""));
+  }
+
+  // Событие Royal Score «клиент потерян по вине / не по вине агента» (штраф −5 при
+  // просроченной задаче) снято 16.11.2026 вместе с остальными автоматическими
+  // штрафами — решение владельца. Классификация вины живёт дальше только в
+  // кабинете СБ (lib/clientLossFault.ts, routes/security.ts).
 
   if (nextAgentId) {
     void sendPushToAgent(nextAgentId, {
-      title: isHot ? `🔥 Горячий клиент передан вам` : `🤝 Отказной лид передан вам`,
+      title: isHot ? `🔥 Горячий клиент передан вам` : `🤝 Отказная заявка передана вам`,
       body: `${client.fullName}: ${reasonLabel}${comment?.trim() ? ` — ${comment.trim().slice(0, 80)}` : ""}`,
       url: `/clients/${client.shortId}`,
       tag: `refusal-${client.id}`,
     }).catch(() => {});
+  } else if (needsSecurityReview && !securityAutoOn) {
+    // Запись «причина требует внутренней проверки» уже легла в хронологию выше.
+    await reportSecuritySignal({ clientId: client.id, subjectAgentId: client.assignedAgentId, source: "refusal-investigation",
+      dedupeKey: `refusal:${client.id}:${refusalCount}`, writeTimeline: false,
+      what: `агент оформил отказ с причиной «${reasonLabel}»${comment?.trim() ? `: ${comment.trim().slice(0, 80)}` : ""}. Руководителю ушла заявка на удаление карточки` });
   } else if (needsSecurityReview) {
     // Зовём тех, у кого есть право проверять, — по праву, а не по роли.
     // Часы алармов (владелец 07.09.2026): карточка уже ушла в очередь СБ прямо
@@ -483,7 +493,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     isHot,
     refusalCount,
     transferred: !!nextAgentId,
-    securityReview: needsSecurityReview,
+    securityReview: securityAutoOn,
     nextAgentId,
     message: needsManagementDecision
       ? "Отказ сохранён. Текущая работа сохранена до решения руководителя"

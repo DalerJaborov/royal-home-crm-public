@@ -57,9 +57,7 @@ export async function findTelegramAgentClients(text: string, actor: AssistantAct
   }).join("\n\n");
 }
 
-export function isVoiceReplayRequest(text: string): boolean {
-  return /^(?:(?:озвучь|озвучьте|прочитай)(?:\s+(?:это|ответ|последний ответ))?|(?:отправь|отправьте|пришли|пришлите|ответь|ответьте)(?:\s+(?:мне|это|ответ|предыдущий ответ)){0,3}\s+(?:голосом|голсоом|голосовым)(?:\s+(?:это|мне|ответ))?)[?!.]*$/iu.test(text.trim());
-}
+// «Повтори голосом» (по-русски и по-таджикски) распознаёт telegram/assistantChatCommands.ts.
 
 export async function replayTelegramAssistantVoice(chatId: string, text: string, replyTo?: number): Promise<boolean> {
   const clean = stripAssistantSpeechMarkup(sanitizeAssistantReply(splitReaction(text).text, true));

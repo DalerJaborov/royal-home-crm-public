@@ -19,6 +19,7 @@ import {
 import { FunnelEditor } from "../../pages/settings/FunnelEditor";
 import { FunnelRehearsal } from "../../pages/settings/FunnelRehearsal";
 import { campaignTerms, deliveryChip, followLabel } from "../../pages/settings/FunnelTab";
+import { useRoyalSectionName } from "../look/clients/RoyalSection";
 
 /**
  * Мобильная «Воронка» — тот же эталон темы «Royal Home 2026»
@@ -41,6 +42,8 @@ import { campaignTerms, deliveryChip, followLabel } from "../../pages/settings/F
  * следит Funnel.tsx до ветвления на мобильную/десктопную версию.
  */
 export function MobileFunnel() {
+  // Метка раздела «Нового вида» (пачка analytics); без признака — пусто, атрибута нет.
+  const section = useRoyalSectionName();
   const can = useCan();
   const canManage = can("settings.manage");
   const { data: campaigns, isLoading, error } = useLeadMagnets();
@@ -55,7 +58,7 @@ export function MobileFunnel() {
     // Обёртка темы и рамка экрана — здесь: редактор возвращается ВМЕСТО этого
     // экрана, и без `.rh2` его разметка макета осталась бы без единого стиля.
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <FunnelEditor campaign={resolveEditingCampaign(editing, campaigns)} onClose={() => setEditing(null)} />
         </div>
@@ -68,7 +71,7 @@ export function MobileFunnel() {
   const disabledCount = (campaigns?.length ?? 0) - enabledCount;
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
@@ -341,7 +344,7 @@ function CampaignCard({
           Журнал выдач
         </button>
         {canManage && (
-          <button className="lnk" type="button" onClick={onDelete}>
+          <button className="lnk" type="button" data-variant="danger" onClick={onDelete}>
             Удалить
           </button>
         )}

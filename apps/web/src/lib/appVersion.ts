@@ -1,26 +1,29 @@
 /**
- * Расхождение версий сервера и открытой вкладки — независимый от service
- * worker сигнал (владелец 20.08.2026, второе исследование по автообновлению).
+ * Заголовок X-App-Build в ответах API — ПОДСКАЗКА «загляни в /version.json», а
+ * не приговор «вкладка устарела» (21.11.2026).
  *
- * У триггеров «вкладка ушла в фон» и «переход между разделами» есть слепое
- * пятно: агент, который держит один и тот же экран открытым весь день не
- * сворачивая телефон и никуда не переходя, не поймает ни один из них — а API
- * тем временем может уже уйти на новый контракт.
+ * КАК БЫЛО И ПОЧЕМУ СЛОМАЛОСЬ. С 20.08.2026 расхождение заголовка с первым
+ * увиденным значением само по себе объявляло вкладку устаревшей. Но сервер
+ * кладёт туда момент запуска процесса API (apps/api/src/app.ts), а не версию
+ * фронта: любой перезапуск API без смены фронта (выкат только сервера, рестарт
+ * контейнера) помечал КАЖДУЮ открытую вкладку устаревшей. Вкладка честно
+ * перезагружалась в ту же самую сборку, счётчик попыток рос, и после третьего
+ * такого раза защита от петли глушила обновление навсегда — когда настоящая
+ * новая сборка выходила, вкладка её уже не брала (iPhone владельца, 21.11:
+ * «Страница не найдена» на новом разделе, старый интерфейс больше суток).
  *
- * `noteServerBuild` вызывается из api.ts на каждом ответе и сравнивает заголовок
- * X-App-Build (app.ts на сервере — момент запуска процесса) с тем, что видели
- * первым за эту сессию вкладки.
+ * КАК ТЕПЕРЬ. Смена заголовка лишь будит проверку /version.json
+ * (lib/appUpdate.ts → checkAppVersionNow). Решение «есть обновление» принимает
+ * ТОЛЬКО сравнение версии фронта из /version.json с версией вкладки
+ * (`__APP_VERSION__`) — один источник правды на оба сигнала.
  *
- * САМЫЙ БЫСТРЫЙ ИЗ ТРЁХ КАНАЛОВ — и с 10.09.2026 он больше не ждёт опроса.
- * Раньше `UpdatePrompt` спрашивал `isServerBuildStale()` раз в 20 секунд, то
- * есть знание о новой сборке лежало готовым до двадцати секунд впустую. Теперь
- * расхождение проталкивается подписчикам в тот же миг, когда пришёл ответ API —
- * а запросы в CRM идут постоянно, так что обычно это первый из трёх сигналов.
+ * Сигнал многоразовый: каждое новое значение заголовка — новый повод проверить
+ * (раньше сигнал был одноразовым, и второй выкат за жизнь вкладки им уже не
+ * ловился).
  */
 type Listener = () => void;
 
 let seenBuild: string | null = null;
-let stale = false;
 const listeners = new Set<Listener>();
 
 export function noteServerBuild(build: string | null): void {
@@ -29,9 +32,9 @@ export function noteServerBuild(build: string | null): void {
     seenBuild = build;
     return;
   }
-  if (build === seenBuild || stale) return;
-  stale = true;
-  for (const listener of listeners) {
+  if (build === seenBuild) return;
+  seenBuild = build;
+  for (const listener of [...listeners]) {
     try {
       listener();
     } catch {
@@ -40,27 +43,33 @@ export function noteServerBuild(build: string | null): void {
   }
 }
 
-export function isServerBuildStale(): boolean {
-  return stale;
-}
-
-/**
- * Подписка на расхождение сборок. Если оно уже случилось до подписки —
- * слушатель вызывается сразу: сигнал одноразовый, и пропустить его из-за
- * порядка монтирования нельзя.
- */
-export function onServerBuildStale(listener: Listener): () => void {
-  if (stale) {
-    listener();
-    return () => {};
-  }
+/** Подписка на смену заголовка X-App-Build. Возвращает отписку. */
+export function onServerBuildChange(listener: Listener): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /** Только для тестов: вернуть модуль в исходное состояние. */
 export function resetServerBuildState(): void {
   seenBuild = null;
-  stale = false;
   listeners.clear();
+}
+
+/**
+ * Заголовки «на какой сборке эта вкладка» — для сторожа на сервере
+ * (apps/api/src/lib/clientBuildWatch.ts): он считает вкладки, застрявшие на
+ * старой сборке дольше получаса после выхода новой, и раз в час пишет сводку в
+ * журнал. Без этого о застрявшем телефоне узнавали только от его хозяина.
+ *
+ * `typeof` — не украшение: в vitest константы сборки не определены.
+ */
+export function clientBuildHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (typeof __APP_VERSION__ === "string" && __APP_VERSION__) headers["X-Client-Build"] = __APP_VERSION__;
+  if (typeof __APP_BUILT_AT__ === "number" && Number.isFinite(__APP_BUILT_AT__)) {
+    headers["X-Client-Build-Time"] = String(__APP_BUILT_AT__);
+  }
+  return headers;
 }

@@ -55,13 +55,13 @@ const CLIENTS: ReadonlyArray<{
 }> = [
   { name: "Фаррух Назаров", line: "Показ · 3-комн · ул. Айни, 24", avatar: { label: "ФН", tone: "lime" }, chip: { label: "показ сегодня 14:00", tone: "lav" }, meta: "14:00" },
   { name: "Ситора Назарова", line: "Пришла в офис, смотрит дом с гаражом", avatar: { label: "СН", tone: "sky" }, chip: { label: "первый звонок", tone: "warn" }, meta: "сегодня" },
-  { name: "Комрон Валиев", line: "Не отвечает 2 недели", avatar: { label: "КВ" }, chip: { label: "принять лид", tone: "crit" }, meta: "2 окт" },
+  { name: "Комрон Валиев", line: "Не отвечает 2 недели", avatar: { label: "КВ" }, chip: { label: "принять заявку", tone: "crit" }, meta: "2 окт" },
   { name: "Джамшед Расулов", line: "2 комн · Фирдавси · до $45 тыс. · WhatsApp", avatar: { label: "ДР", tone: "aqua" }, chip: { label: "ответить", tone: "warn" }, meta: "вчера" },
   { name: "Умед Собиров", line: "3 комн · Сино · до $40 тыс. · Facebook", avatar: { label: "УС", tone: "pink" }, meta: "3 окт" },
 ];
 
 const CLIENT_CHIPS: ReadonlyArray<Action> = [
-  { label: "принять лид", tone: "crit" },
+  { label: "принять заявку", tone: "crit" },
   { label: "позвонить сейчас", tone: "warn" },
   { label: "ответить", tone: "warn" },
   { label: "первый звонок", tone: "warn" },
@@ -325,7 +325,7 @@ function Kit({ suffix }: { suffix: "" | "-390" }) {
       <Card data-testid={id("tiles")} title="Плитки">
         <Tiles>
           <Tile tone="lime" value={4} label="показа сегодня" />
-          <Tile tone="aqua" value={2} label="новых лида" />
+          <Tile tone="aqua" value={2} label="новые заявки" />
           <Tile tone="lav" value={3} label="ждут ответа" href="/dev/design-lab" />
         </Tiles>
         <p className="sec-t">Остальные тона</p>
@@ -449,7 +449,7 @@ function ClientsScreen() {
             />
           ))}
         </List>
-        <div className="quiet"><span className="dot" />Не на виду: 3 карточки</div>
+        <div className="quiet"><span className="dot" />В корзине: 3 карточки</div>
       </Card>
     </>
   );

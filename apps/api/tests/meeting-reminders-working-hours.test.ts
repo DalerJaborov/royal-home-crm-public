@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
- * Гейт «напоминания только в рабочие часы» (01.09.2026): notifyMissedShowings,
- * notifyOverdueTasks, notifyOverdueSummaries (штраф + пуш АГЕНТУ) молча
- * пропускают тик вне рабочих часов (Settings.workHoursStart/End) — не будят
- * агента ночью. sendHourBeforeReminders — исключение по плану («встреча есть
- * встреча независимо от времени суток») и здесь не проверяется.
+ * Агентская сторона (notifyMissedShowings/notifyOverdueTasks — штраф Royal Score)
+ * удалена 16.11.2026 вместе с автоматическими штрафами; остался только сборщик
+ * для руководства.
  *
  * Пуш РУКОВОДСТВУ по этим же событиям (07.09.2026, разбор часов алармов) —
  * отдельные сборщики notifySupervisorsOfOverdue / notifySupervisorsOfOverdueSummaries,
@@ -23,7 +21,7 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { notifyMissedShowings, notifyOverdueTasks, notifySupervisorsOfOverdue } = await import(
+const { notifySupervisorsOfOverdue } = await import(
   "../src/lib/meetingReminders.js"
 );
 
@@ -69,17 +67,6 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { id: clientId } });
   await prisma.notification.deleteMany({ where: { agentId: { in: [agentId, directorId] } } });
   await prisma.agent.deleteMany({ where: { id: { in: [agentId, directorId] } } });
-});
-
-describe("Вне рабочих часов — тихо пропускаем тик", () => {
-  it("notifyMissedShowings возвращает 0 ночью, не трогая записи", async () => {
-    await expect(notifyMissedShowings(NIGHT_UTC)).resolves.toBe(0);
-  });
-
-  it("notifyOverdueTasks возвращает 0 ночью", async () => {
-    await expect(notifyOverdueTasks(NIGHT_UTC)).resolves.toBe(0);
-  });
-
 });
 
 describe("Пуш руководству — отдельный гейт (часы алармов, не рабочие часы агента)", () => {
@@ -136,27 +123,5 @@ describe("Пуш руководству — отдельный гейт (час�
       ([, payload]) => typeof (payload as Record<string, string>).body === "string" && (payload as Record<string, string>).body.includes("Перезвонить")
     );
     expect(call).toBeUndefined();
-  });
-
-  it("не мешает агентской стороне: notifyMissedShowings/notifyOverdueTasks независимо штрафуют агента (пуша агенту больше нет)", async () => {
-    const interaction = await prisma.interaction.create({
-      data: {
-        clientId,
-        agentId,
-        type: "SHOWING",
-        notes: "Показ независимый",
-        nextAction: "Показ квартиры",
-        nextActionDate: new Date(ALARM_HOURS_NOW.getTime() - NO_SHOW_AFTER_MS - HOUR_MS),
-        completedAt: null,
-      },
-    });
-    interactionIds.push(interaction.id);
-
-    const notified = await notifyMissedShowings(ALARM_HOURS_NOW);
-    expect(notified).toBeGreaterThanOrEqual(1);
-    const updated = await prisma.interaction.findUnique({ where: { id: interaction.id } });
-    expect(updated?.noShowNotifiedAt).not.toBeNull();
-    // Агентский тик не трогает supervisorNotifiedAt вовсе — это дело отдельного сборщика.
-    expect(updated?.supervisorNotifiedAt).toBeNull();
   });
 });

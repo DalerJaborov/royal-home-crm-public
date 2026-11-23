@@ -38,7 +38,7 @@ export interface CallRow {
   transcriptionStage: CallTranscriptionStage | null;
   transcriptionProgress: number | null;
   agent: { id: string; fullName: string; avatarUrl: string | null } | null;
-  client: { id: string; shortId: number; fullName: string } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string } | null;
   analysis: CallAnalysis | null;
 }
 
@@ -103,6 +103,9 @@ export function useCalls(filters: CallFilters, options?: { enabled?: boolean }) 
 export interface IncomingCallRow {
   id: string;
   phone: string;
+  /** Откуда звонок: "phone" — линия, "whatsapp" — голосовой звонок WhatsApp
+   *  (INCOMING_CALL_SOURCES в @royal-home/shared). Необязательно: старый ответ без поля — линия. */
+  source?: string;
   startedAt: string;
   endedAt: string | null;
   answered: boolean;
@@ -112,7 +115,7 @@ export interface IncomingCallRow {
   /** Имя сотрудника с этим внутренним номером. null — такого в CRM нет, и тогда
    *  показывается сам номер: «оператор 1001» лучше, чем пустое место. */
   answeredByName: string | null;
-  client: { id: string; shortId: number; fullName: string; kind: "BUYER" | "SELLER" | "OTHER" } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string; kind: "BUYER" | "SELLER" | "OTHER" } | null;
   /** Кому поставлена задача перезвонить (только у пропущенных). */
   callbackAgent: { id: string; fullName: string } | null;
   /** Когда оператор указал тип обращения. null — звонок ждёт разбора. */
@@ -129,6 +132,10 @@ export interface IncomingCallRow {
   missingCallback: boolean;
   /** Порог бейджа выше, в часах — подписать бейдж («без перезвона 2ч+»), не зашивая число. */
   missedCallbackHours: number;
+  /** Звонил действующий сотрудник со своего номера (21.11.2026): это не клиент —
+   *  строка подписывается его именем, без «в базе нет», «никто не перезвонил»
+   *  и «Больше не звонить». null — обычный звонящий. */
+  staff?: { id: string; fullName: string } | null;
 }
 
 export function useIncomingCalls(
@@ -334,9 +341,15 @@ export interface CallFeedRow {
   kind: "OUT" | "IN" | "MISSED";
   id: string;
   at: string;
-  client: { id: string; shortId: number; fullName: string } | null;
+  client: { id: string; shortId: number; fullName: string; displayName?: string } | null;
   /** Номер звонившего — только у входящих и только если право позволяет. */
   phone: string | null;
+  /** Звонил действующий сотрудник со своего номера (21.11.2026): это не клиент —
+   *  строка подписывается его именем, без «в базе нет», «никто не перезвонил»
+   *  и «Больше не звонить». null — обычный звонящий. */
+  staff?: { id: string; fullName: string } | null;
+  /** Откуда звонок ("phone" | "whatsapp") — см. IncomingCallRow.source. */
+  source?: string;
   durationSec: number | null;
   /** См. CallRow.callAttempt — только у исходящих (kind "OUT"), у входящих null. */
   callAttempt: string | null;

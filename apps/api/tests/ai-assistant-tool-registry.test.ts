@@ -19,7 +19,10 @@ const { BUILTIN_ASSISTANT_TOOL_NAMES, pluginDeclarations } = await import("../sr
 const { getAssistantActionExecutor } = await import("../src/lib/assistantActions.js");
 const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 
-const plugins = listAssistantToolPlugins();
+// set_group_quiet объявляется только при прямом обращении в общей группе (actor.groupChat) — проверка ниже отдельно.
+const GROUP_ONLY = new Set(["set_group_quiet"]);
+const allPlugins = listAssistantToolPlugins();
+const plugins = allPlugins.filter((p) => !GROUP_ONLY.has(p.name));
 const writePlugins = plugins.filter((p) => p.level !== "A");
 /** Все права директора; feature flags проверяются отдельно от прав и каналов. */
 const fullActor = actorFromAccess("registry-test-director", {
@@ -60,15 +63,43 @@ describe("реестр инструментов помощника", () => {
       "get_property_work_status",
       "list_my_tasks",
       "change_client_agent",
+      "delete_client",
+      "restore_client",
+      "transfer_property",
       "change_property_price",
       "change_property_status",
+      "complete_property_editing",
       "request_property_change",
       "send_to_remake",
+      // Озвучка словами (18.11.2026, tools/narrationTools.ts).
+      "narration_status",
+      "send_narration_audio",
+      "request_narration",
+      "approve_narration",
       "book_showing",
       "reschedule_showing",
       "cancel_showing",
       "add_client_note",
       "index_company_knowledge",
+      // «Мозг компании» (17.11.2026, tools/brainReadTools.ts).
+      "get_day_snapshot",
+      "get_unworked",
+      "get_my_day",
+      "get_missed_calls",
+      "get_team_load",
+      "get_stuck_work",
+      "get_construction_registry",
+      // Разбор клиентской базы и сообщение коллеге (17.11.2026).
+      "get_client_base_overview",
+      "send_staff_message",
+      // «Режим директора» (17.11.2026, tools/directorTools.ts).
+      "list_pending_requests",
+      "decide_request",
+      "get_error_log",
+      "resolve_error",
+      "get_system_health",
+      "list_switches",
+      "set_switch",
     ]) {
       expect(names).toContain(name);
     }
@@ -152,5 +183,15 @@ describe("реестр инструментов помощника", () => {
       if (plugin.parameters) expect(d.parameters).toEqual(plugin.parameters);
       else expect("parameters" in d).toBe(false);
     }
+  });
+
+  it("set_group_quiet — только прямое обращение в общей группе, описание как у плагина", () => {
+    const plugin = allPlugins.find((p) => p.name === "set_group_quiet")!;
+    expect(plugin).toBeDefined();
+    const group = { ...fullActor, surface: "telegram-group" as const, groupChat: { chatId: "-100test", registeredAt: 0 } };
+    const declared = pluginDeclarations(group, false, "telegram").find((d) => d.name === "set_group_quiet");
+    expect(declared?.description).toBe(plugin.description);
+    expect(pluginDeclarations(fullActor, true, "crm").some((d) => d.name === "set_group_quiet")).toBe(false);
+    expect(pluginDeclarations({ ...fullActor, surface: "telegram-group" }, true, "telegram").some((d) => d.name === "set_group_quiet")).toBe(false);
   });
 });

@@ -11,6 +11,12 @@ vi.mock("../src/lib/inboundSideEffects.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/inboundSideEffects.js")>()),
   applyInboundSideEffects: vi.fn(async () => ({ status: "duplicate" as const })),
 }));
+// The «Обучение бота» counters, observed (the real function still runs): which drop reason the model's words got.
+vi.mock("../src/ai/guardMetrics.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/ai/guardMetrics.js")>();
+  return { ...actual, guardFired: vi.fn(actual.guardFired) };
+});
+import { guardFired } from "../src/ai/guardMetrics.js";
 import { customerActionIntentsSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -325,7 +331,8 @@ describe("actual accepted callback question → real next signed IN", () => {
     const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
     expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: ticket.conversationId! } } })).toBe(0);
   });
-  it.each([["ru", "Да"], ["tg", "Ҳа"]] as const)("%s accepted question and tiny yes commit exactly one real callback", async (language, yes) => {
+  // 14.11.2026: ordinary yes wording after our own accepted question (was lost: only bare «Да»/«Ҳа» counted).
+  it.each([["ru", "Да"], ["tg", "Ҳа"], ["ru", "Да, конечно"], ["ru", "Хорошо"], ["tg", "Ҳа, албатта"], ["tg", "Бале"]] as const)("%s accepted question and yes «%s» commit exactly one real callback", async (language, yes) => {
     const f = await fixture(), number = phone(), a = await f.questionA(language, number);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
     const attempt = await prisma.customerDeliveryAttempt.findFirstOrThrow({ where: { partId: a.part.id } });
@@ -414,6 +421,64 @@ describe("actual accepted callback question → real next signed IN", () => {
 
   // Three actual ingress/model/dispatch turns can exceed the global 20s budget
   // during a full Windows run under memory pressure. Keep the complete oracle.
+  // 14.11.2026: «Алишер 927…» / a bare number in reply to OUR callback question is consent with that number.
+  it.each([(n: string) => `Алишер ${n}`, (n: string) => n])("a name+number reply to the accepted callback question commits one callback with that number (%#)", async (reply) => {
+    const f = await fixture(), a = await f.questionA("ru", null);
+    expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });
+    const number = phone(), b = await f.intake(reply(number)), prepared = await f.beforeClaim(b);
+    const slot = customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback;
+    expect(slot).toMatchObject({ status: "open", consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: a.key, affirmationEventKey: b } } });
+    await f.run(b, [[{ functionCall: { name: "request_callback", args: { topic: "по звонку" }, id: "name-number" } }], decision("none", ["e0"])]);
+    const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: prepared.inquiry.id, kind: "callback" } });
+    expect(action).toMatchObject({ status: "COMMITTED" });
+    expect(await prisma.callbackRequest.findUniqueOrThrow({ where: { customerActionId: action.id } })).toMatchObject({ phone: number });
+  }, 60_000);
+
+  it("review #211 п.4: «да» to the model's OWN wording of the call question is consent (live answer, real seal, real yes)", async () => {
+    // Live is per channel since 17.11 (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS; empty = live nowhere): the fixture account is Instagram.
+    vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", "live"); vi.stubEnv("CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS", "INSTAGRAM");
+    try {
+      const f = await fixture(), key = await f.intake("Хочу купить квартиру, нужна консультация.");
+      const ask = "Хотите, чтобы сотрудник вам позвонил?";
+      const part = await f.run(key, [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "callback_consent",
+        answer: { lead: "Понимаю вас.", ask } }) }]]);
+      const payload = decodeCustomerOutboxPayload(part);
+      // Review #211 round 6: «Хорошо, …» is no longer a vetted lead (a «да» to the customer's terms); «Понимаю вас.» is.
+      expect(payload).toEqual({ kind: "text", text: `Понимаю вас.\n${ask}` });
+      expect(ask.endsWith(customerAgentCallbackQuestionText("ru"))).toBe(false);
+      expect(decodeCustomerOutboxPublicData(part)).toMatchObject({ agentRevisionId: revisionId, observations: [],
+        callbackQuestion: { version: 1, kind: "callback_consent", language: "ru" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "accepted" });
+      const b = await f.intake("Да"), prepared = await f.beforeClaim(b);
+      expect(customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback).toMatchObject({ status: "open",
+        consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: key } } });
+    } finally { vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", ""); vi.stubEnv("CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS", ""); }
+  }, 60_000);
+
+  // The agreement filter is about the BOT agreeing to the customer's terms. When the model's own words carry «Хорошо» they are
+  // refused, the template call question goes out instead, and the CUSTOMER's «Да» to it is still consent to the call.
+  it("live: model words with «Хорошо» are refused, the template call question goes out and the customer's «Да» still opens the callback", async () => {
+    // Live is per channel since 17.11 (CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS; empty = live nowhere): the fixture account is Instagram.
+    vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", "live"); vi.stubEnv("CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS", "INSTAGRAM");
+    try {
+      vi.mocked(guardFired).mockClear();
+      const f = await fixture(), key = await f.intake("Хочу купить квартиру, нужна консультация.");
+      const part = await f.run(key, [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "callback_consent",
+        answer: { lead: "Хорошо, понимаю вас.", ask: "Хотите, чтобы сотрудник вам позвонил?" } }) }]]);
+      const payload = decodeCustomerOutboxPayload(part);
+      expect(payload).toEqual({ kind: "text", text: customerAgentCallbackQuestionText("ru") });
+      // The same template would go out in shadow: the counter proves the words were refused as agreement, not dropped as shadow.
+      const fired = vi.mocked(guardFired).mock.calls.map(call => call[0]);
+      expect(fired).toContain("answer_dropped_agree");
+      expect(fired).not.toContain("answer_dropped_shadow");
+      expect(decodeCustomerOutboxPublicData(part)).toMatchObject({ callbackQuestion: { version: 1, kind: "callback_consent", language: "ru" } });
+      expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "accepted" });
+      const b = await f.intake("Да"), prepared = await f.beforeClaim(b);
+      expect(customerActionIntentsSchema.parse(prepared.inquiry.actionIntents).callback).toMatchObject({ status: "open",
+        consent: { originalEventKey: b, acceptedQuestion: { questionEventKey: key } } });
+    } finally { vi.stubEnv("CUSTOMER_AGENT_ANSWER_MODE", ""); vi.stubEnv("CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS", ""); }
+  }, 60_000);
+
   it("accepted yes with no phone keeps open generation; actual phone-only C completes that same intent", async () => {
     const f = await fixture(), a = await f.questionA("ru", null);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });

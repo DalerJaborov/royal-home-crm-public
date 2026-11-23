@@ -22,13 +22,12 @@ export interface DashboardSummary {
     potentialCommission: number;
   };
   funnel: { key: string; label: string; count: number; commission?: number }[];
-  /** Только у агента: сколько лидов у него в работе и лимит, после которого новые не назначаются. */
-  activeLeadLoad?: { count: number; limit: number };
   tasksToday: Interaction[];
   /** Принятые карточки этого агента, по которым срок первого звонка ещё не
    *  закрыт (задание 17.09.2026) — сортировано по dueAt, самая срочная первой.
    *  Пусто у руководства и когда непрозвоненных карточек нет. */
-  firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string }[];
+  /** afterDue — что будет после срока, фразой с сервера (firstCallAfterDue, 19.11.2026). */
+  firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string; afterDue?: string }[];
   /** Клиенты, которых руководитель сам назначил этому агенту (принятые сразу) и
    *  с которыми он ещё не связался — не дольше трёх суток (владелец 23.09.2026).
    *  Необязательное: старый сервер поля не присылает. */
@@ -72,13 +71,6 @@ export interface WeakLinkInsight {
   sum: number;
 }
 
-/** Где застревают клиенты: сколько их на стадии и сколько в среднем висят. */
-export interface StalledStageInsight {
-  status: string;
-  label: string;
-  count: number;
-  avgAgeHours: number;
-}
 
 /** Прогноз плана комиссии к концу месяца при текущем темпе. */
 export interface PlanForecastInsight {
@@ -99,7 +91,6 @@ export interface WorkloadInsight {
 
 export interface DashboardInsights {
   weakLink: WeakLinkInsight | null;
-  stalledStages: StalledStageInsight[];
   /** null без права finance.view: прогноз плана — деньги компании. */
   planForecast: PlanForecastInsight | null;
   workload: WorkloadInsight[];

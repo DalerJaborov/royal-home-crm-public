@@ -2,6 +2,10 @@ import { z } from "zod";
 import type { AttachmentSource } from "../messengers/attachments.js";
 import { isMetaCdnUrl } from "../messengers/sharedPostCard.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
+import type { CustomerPropertyEvidence } from "@royal-home/shared";
+import { customerDmForeignShareNoise } from "../ai/customerAgentAbuse.js";
+import { customerSpamInterest } from "../ai/customerSpamMute.js";
 
 const FIELDS = "id,permalink,media_type,media_url,children{id,media_type,media_url}";
 const assetSchema = z.object({ id: z.string().regex(/^\d{1,80}$/), media_type: z.string().max(40).optional(),
@@ -67,4 +71,29 @@ export function customerForeignShareCandidate(input: { kinds: readonly string[] 
   propertyEvidence: readonly { origin: string }[] }): boolean {
   return !!input.kinds?.length && input.kinds.every(kind => kind === "share") &&
     input.propertyEvidence.length > 0 && input.propertyEvidence.every(item => item.origin === "shared_media");
+}
+
+/**
+ * ЧУЖОЙ ПОСТ ИЛИ РОЛИК БЕЗ СЛОВ — ИЗВЕСТЕН ДО СКАЧИВАНИЯ И МОДЕЛИ (владелец 21.11.2026: «спамерам не отвечать и не тратить
+ * ИИ»; прод 1d15821e и 54fef009: чужой ролик скачивался, разбирался моделью и получал «Ин эълони мо нест…»). Все условия —
+ * факты сервера, модель их не ставит:
+ *  - вложение — только пересылка (`customerForeignShareCandidate`), своих слов нет или они шум (`customerDmForeignShareNoise`);
+ *  - поиск в НАШЕМ каталоге для этого события закончился «такого нет» (не сбой чтения);
+ *  - у каждого вложения ссылка CDN Meta: загрузчик всё равно не ищет такую публикацию в нашем аккаунте, «свой пост без
+ *    объекта» отсюда не получится (lib/customerDmMediaContent.ts);
+ *  - подпись пересланного поста не говорит о нас и о жилье (номер объекта, Royal Home, квартира, цена — уже не чужой шум).
+ * Иначе — прежний путь (скачать, понять). Оператор (ai/operator/decide.ts) молчит на пост без слов только по этому приговору
+ * (`foreignQuiet`); без него первый такой пост в разговоре получает вопрос «купить или продать?» (прод 21.11.2026).
+ */
+export function customerForeignShareSettled(input: {
+  candidate: boolean; media: readonly { url?: string | null }[];
+  focus: { eventKey?: string | null; status: string; evidence?: readonly CustomerPropertyEvidence[]; lookupAttempts?: number } | null | undefined;
+  eventKey: string; text: string; captions: readonly string[];
+}): boolean {
+  if (!input.candidate || !input.media.length || !customerDmForeignShareNoise(input.text)) return false;
+  const focus = input.focus;
+  if (!focus || focus.eventKey !== input.eventKey || focus.status !== "missing" ||
+    customerPropertyUnresolvedReason(focus.evidence, "missing", focus.lookupAttempts) !== "not_found") return false;
+  if (!input.media.every(item => !!item.url && isMetaCdnUrl(item.url))) return false;
+  return !input.captions.some(caption => customerSpamInterest(caption));
 }

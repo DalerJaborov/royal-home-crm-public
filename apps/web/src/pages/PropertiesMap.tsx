@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { parseShortCode } from "@royal-home/shared";
+import { parseShortCode, registrySourceCaption } from "@royal-home/shared";
 import { LocateFixed, Home as HomeIcon, Navigation, X } from "lucide-react";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
@@ -22,11 +22,18 @@ import { openRouteNative } from "../lib/openRoute";
 import { distanceMeters } from "../lib/geoDistance";
 import { toast } from "../store/toast";
 import { formatMoney } from "../lib/format";
-import type { PropertyMapExplorerHandle } from "../components/PropertyMapExplorer";
+import type { PropertyMapExplorerHandle, RegistryMapLayer } from "../components/PropertyMapExplorer";
+import { useRegistryMap } from "../hooks/useConstructionRegistry";
+import { useUsdToTjsRate } from "../hooks/useSettings";
+import { applyPermitFilter, registryProjectsForMap, PERMIT_FILTER_OPTIONS, type PermitFilter } from "../lib/registryMapFilter";
 import { savePendingMapPin } from "../lib/pendingMapPin";
 import { ObjectsTabs } from "../components/SectionTabs";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { useCleanShell } from "../hooks/useCleanShell";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { createLatestRequest } from "../lib/latestRequest";
 import { mapCardFacts } from "../lib/mapCardFacts";
+import { PropertyPhoto } from "../components/property/PropertyPhoto";
 
 // Самая тяжёлая зависимость экрана (MapLibre GL) — грузим только когда карта
 // реально открыта, тем же приёмом, что раньше был у Leaflet в Properties.tsx.
@@ -107,7 +114,7 @@ function MapPropertyCard({
     >
       <div className="map-card-photo">
         {p.coverPhotoUrl ? (
-          <img src={p.coverPhotoUrl} alt="" loading="lazy" />
+          <PropertyPhoto fill compact sources={[p.coverPhotoUrl]} />
         ) : (
           <div className="map-card-nophoto">
             <HomeIcon size={22} color="rgb(var(--rgb-ink) / 0.28)" />
@@ -135,16 +142,14 @@ function MapPropertyCard({
 function MapObjectCard({ p, onOpen, onClose }: { p: MapProperty; onOpen: () => void; onClose: () => void }) {
   const facts = mapCardFacts(p);
   const mobile = useMobileUx();
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => setPhotoFailed(false), [p.id]);
   return (
     <div className="map-obj-card" role="region" aria-label={p.title}>
       <button type="button" className="map-obj-close" aria-label="Закрыть" onClick={onClose}>
         <X size={18} />
       </button>
       <button type="button" className="map-obj-photo" onClick={onOpen} aria-label="Открыть объект">
-        {p.coverPhotoUrl && !photoFailed ? (
-          <img src={p.coverPhotoUrl} alt="" onError={() => setPhotoFailed(true)} />
+        {p.coverPhotoUrl ? (
+          <PropertyPhoto fill sources={[p.coverPhotoUrl]} />
         ) : (
           <span className="map-card-nophoto">
             <HomeIcon size={24} color="rgb(var(--rgb-ink) / 0.28)" />
@@ -209,6 +214,10 @@ function MapBuildingCard({
 }
 
 export function PropertiesMap() {
+  // «Новый вид» (облик royal): только класс страницы для слоя theme-look-royal-objects.css.
+  // Та же проверка, что у каталога и карточки: новый вид только поверх чистой оболочки.
+  const clean = useCleanShell();
+  const royal = useRoyalLook() && clean;
   const can = useCan();
   // Вкладка «Изменения на сайте» (перенос меню 15.09.2026) — тот же счётчик и
   // право, что в lib/navigation.ts / pages/Properties.tsx.
@@ -280,7 +289,29 @@ export function PropertiesMap() {
     return () => suggestSeq.invalidate();
   }, [debouncedQuery, suggestSeq]);
 
-  const { data, isLoading, error } = usePropertiesMap(scope === "mine" && agent ? { agentId: agent.id } : {});
+  const { data: rawData, isLoading, error } = usePropertiesMap(scope === "mine" && agent ? { agentId: agent.id } : {});
+
+  // Реестр разрешённых строек (20.11.2026): слой проектов, кольцо статуса у наших объектов, фильтр «Разрешение».
+  // Отдельный запрос; ответ /properties/map не меняется. Рубильник выключен — управляющих элементов нет.
+  const { data: registryData } = useRegistryMap(true);
+  const registryOn = registryData?.enabled === true;
+  const [registryLayerOn, setRegistryLayerOn] = useState(false);
+  const [permitFilter, setPermitFilter] = useState<PermitFilter>("all");
+  const usdRate = useUsdToTjsRate();
+  const activeFilter: PermitFilter = registryOn ? permitFilter : "all";
+  const data = useMemo(
+    () => (rawData ? applyPermitFilter(rawData, registryData?.propertyColors ?? {}, activeFilter, usdRate) : rawData),
+    [rawData, registryData, activeFilter, usdRate],
+  );
+  const registryLayer = useMemo<RegistryMapLayer | null>(() => {
+    if (!registryOn || !registryData) return null;
+    const colors = registryData.propertyColors;
+    return {
+      // Слой проектов виден только когда его включили; кольца статуса у наших объектов видны всегда.
+      projects: registryLayerOn ? registryProjectsForMap(registryData.projects, activeFilter) : [],
+      propertyColors: Object.fromEntries(Object.entries(colors).filter(([, c]) => activeFilter === "all" || c === activeFilter)),
+    };
+  }, [registryOn, registryData, registryLayerOn, activeFilter]);
 
   const ribbonItems = useMemo(() => {
     const items = (data?.properties ?? []).filter(
@@ -609,6 +640,7 @@ export function PropertiesMap() {
             onHoverProperty={setHoveredId}
             onEmptyClick={() => setSheet(null)}
             cardOpen={sheet != null}
+            registry={registryLayer}
           />
         )}
       </Suspense>
@@ -718,7 +750,8 @@ export function PropertiesMap() {
   );
 
   return (
-    <Rh2Screen>
+    <RoyalSection name={royal ? "objects" : undefined}>
+    <Rh2Screen className={royal ? "ry-objects-page ry-objects-map" : undefined}>
       <div className="pg-h">
         <div>
           <h1>Карта объектов</h1>
@@ -736,6 +769,37 @@ export function PropertiesMap() {
       </div>
 
       <ObjectsTabs />
+
+      {/* Реестр строек (только сотрудникам, рубильник в Настройках): слой проектов и фильтр по разрешению. */}
+      {registryOn && (
+        <div data-testid="registry-map-controls" style={{ margin: "0 0 8px" }}>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className={`chip${registryLayerOn ? " ok" : ""}`}
+              aria-pressed={registryLayerOn}
+              onClick={() => setRegistryLayerOn((v) => !v)}
+            >
+              Реестр строек
+            </button>
+            <span className="quiet">Разрешение:</span>
+            <div className="seg" role="tablist" aria-label="Разрешение на строительство">
+              {PERMIT_FILTER_OPTIONS.map((o) => (
+                <button key={o.id} type="button" role="tab" aria-selected={permitFilter === o.id} onClick={() => setPermitFilter(o.id)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(registryLayerOn || permitFilter !== "all") && (
+            <p className="quiet" style={{ margin: "6px 0 0" }}>
+              {registryLayerOn ? "Кольца без заливки: стройки из реестра, у наших объектов кольцо вокруг метки. " : ""}
+              {permitFilter !== "all" ? "Объекты без связи с реестром скрыты. " : ""}
+              {registrySourceCaption(registryData?.updatedAt ?? null)}
+            </p>
+          )}
+        </div>
+      )}
 
       {loadFailed && (
         <div className="state">
@@ -767,5 +831,6 @@ export function PropertiesMap() {
       )}
 
     </Rh2Screen>
+    </RoyalSection>
   );
 }

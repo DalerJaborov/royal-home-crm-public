@@ -8,9 +8,8 @@ import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
 export interface OversightSummary {
   overdueTasks: number;
-  agentsAtLimit: number;
-  staleHotClients: number;
-  recentInactive: number;
+  /** «Не связывались» — одно правило на всю CRM (packages/shared/src/clientNoContact.ts). */
+  noContactClients: number;
   recentTransfers: number;
   /** Красные флаги (антифрод, мозговой штурм владельца 20-21.08.2026). */
   silentAfterShowing: number;
@@ -26,28 +25,13 @@ export interface OversightSummary {
   agentLossSeries: number;
   agentLossSeriesThreshold: number;
   agentLossSeriesWindowDays: number;
-  leadLimit: number;
   recentWindowDays: number;
-}
-
-export interface AgentAtLimit {
-  id: string;
-  fullName: string;
-  avatarUrl: string | null;
-  frozen: boolean;
-  total: number;
-  own: number;
-  regular: number;
-  /** Сколько СЛОТОВ лимита занято. Совпадает с total, пока в Настройках
-   *  выключены «Взвешенные слоты»; со включёнными — дробное. */
-  slotsUsed: number;
 }
 
 interface ClientRef {
   id: string;
   shortId: number;
   fullName: string;
-  workStatus: "ACTIVE" | "INACTIVE";
 }
 
 export interface OverdueTaskRow {
@@ -59,14 +43,14 @@ export interface OverdueTaskRow {
   agent: AgentRef;
 }
 
-export interface StalledClientRow {
+export interface NoContactClientRow {
   id: string;
   shortId: number;
+  kind: string;
   fullName: string;
-  status: ClientStatus;
-  aiScore: number | null;
-  aiScoreReason: string | null;
-  lastContactAt: string;
+  createdAt: string;
+  /** Клиент писал сам (боту или в чат) — но сотрудник ему так и не ответил. */
+  lastClientMessageAt: string | null;
   assignedAgent: AgentRef | null;
 }
 
@@ -96,15 +80,6 @@ export function useOversightSummary(enabled = true) {
   });
 }
 
-export function useAgentsAtLimit(enabled = true) {
-  return useQuery({
-    refetchInterval: SAFETY_REFETCH_MS,
-    queryKey: ["oversight", "agents-at-limit"],
-    queryFn: () => api<{ items: AgentAtLimit[]; limit: number }>("/oversight/agents-at-limit"),
-    enabled,
-  });
-}
-
 export function useOverdueTasks(page: number, enabled = true) {
   return useQuery({
     refetchInterval: SAFETY_REFETCH_MS,
@@ -114,20 +89,11 @@ export function useOverdueTasks(page: number, enabled = true) {
   });
 }
 
-export function useStalledClients(page: number, enabled = true) {
+export function useNoContactClients(page: number, enabled = true) {
   return useQuery({
     refetchInterval: SAFETY_REFETCH_MS,
-    queryKey: ["oversight", "stalled-clients", page],
-    queryFn: () => api<Paginated<StalledClientRow>>(`/oversight/stalled-clients?page=${page}`),
-    enabled,
-  });
-}
-
-export function useInactiveClients(page: number, enabled = true) {
-  return useQuery({
-    refetchInterval: SAFETY_REFETCH_MS,
-    queryKey: ["oversight", "inactive-clients", page],
-    queryFn: () => api<Paginated<EventLogRow>>(`/oversight/inactive-clients?page=${page}`),
+    queryKey: ["oversight", "no-contact-clients", page],
+    queryFn: () => api<Paginated<NoContactClientRow>>(`/oversight/no-contact-clients?page=${page}`),
     enabled,
   });
 }
@@ -147,7 +113,6 @@ export interface SilentAfterShowingRow {
   id: string;
   shortId: number;
   fullName: string;
-  workStatus: "ACTIVE" | "INACTIVE";
   lastContactAt: string;
   assignedAgent: AgentRef | null;
 }
@@ -243,7 +208,7 @@ export interface EndlessNegotiationRow {
   dueAt: string;
   rounds: number;
   agent: AgentRef;
-  client: { id: string; shortId: number; fullName: string; workStatus: "ACTIVE" | "INACTIVE" };
+  client: { id: string; shortId: number; fullName: string };
 }
 
 export function useEndlessNegotiations(page: number, enabled = true) {
@@ -274,22 +239,6 @@ export function useAgentLossSeries(enabled = true) {
       api<{ items: AgentLossSeriesRow[]; threshold: number; windowDays: number }>("/oversight/agent-loss-series"),
     enabled,
   });
-}
-
-/**
- * «Светофор неактивных — сейчас» (аудит 03.09.2026 ночь, п.7): сколько клиентов
- * в каждом цвете (RED/YELLOW/GREEN), с разбивкой по агентам — см.
- * findTrafficLightSummary на сервере. Список коротко (штат агентов), без
- * пагинации, тем же приёмом, что и «Серия у одного агента».
- */
-export interface TrafficLightAgentRow {
-  agentId: string;
-  agentName: string;
-  avatarUrl: string | null;
-  red: number;
-  yellow: number;
-  green: number;
-  total: number;
 }
 
 /**
@@ -351,18 +300,3 @@ export function useShowingSurveyRecordingUrl() {
   });
 }
 
-export function useTrafficLightSummary(enabled = true) {
-  return useQuery({
-    queryKey: ["oversight", "traffic-light-summary"],
-    queryFn: () =>
-      api<{ totals: { red: number; yellow: number; green: number }; agents: TrafficLightAgentRow[] }>(
-        "/oversight/traffic-light-summary"
-      ),
-    enabled,
-    // Тот же интервал, что у остальной сводки этого экрана (useOversightSummary) —
-    // счётчики светофора не требуют живого поллинга каждые несколько секунд.
-    // ЗАПАСНОЙ ПУТЬ, А НЕ ОСНОВНОЙ (13.09.2026). Свежесть держит поток событий
-    // (lib/liveEvents.ts), таймер оставлен на случай, когда поток не дошёл.
-    refetchInterval: 300_000,
-  });
-}

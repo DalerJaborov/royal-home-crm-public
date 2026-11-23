@@ -1,4 +1,5 @@
 import { canReadInvestigations } from "../auth/investigations.js";
+import { normalizeDictationMime } from "../lib/dictationMime.js";
 import path from "node:path";
 import { Router, type Request } from "express";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import {
   ownerAnswerSchema,
   customerRequestTransitionSchema, customerRequestCloseSchema,
   uiPreferencesSchema,
+  homePreferencesSchema,
   montageCopiesUpdateSchema,
   migrateLegacyTheme,
   type ActiveCallView,
@@ -165,9 +167,16 @@ meRouter.patch("/montage-copies", requireAuth, async (req, res) => {
  * заводит одноразовый код и, если известно имя бота, готовую ссылку t.me/<бот>?start=<код>.
  * Сама привязка происходит, когда сотрудник переходит по ссылке (или пишет код
  * боту вручную) — обрабатывает telegram/bot.ts::handleAgentTelegramMessage.
+ *
+ * requireElevation (аудит безопасности 17.11.2026, S2): Telegram — канал кода
+ * входа (routes/auth.ts, «Прислать в Telegram»). Кто на 15 минут сел за чужую
+ * открытую вкладку, привязывал свой чат и дальше входил в учётку с любого
+ * устройства. Тот же замок, что у 2FA и ключей устройства ниже; о самой
+ * привязке владельцу учётки приходит сообщение (lib/telegramAgentLink.ts).
  */
-meRouter.post("/telegram-link", requireAuth, async (req, res) => {
+meRouter.post("/telegram-link", requireAuth, requireElevation, async (req, res) => {
   const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);
+  logAudit(req, "TELEGRAM_LINK_CODE_ISSUED", "Agent", req.agent!.id);
   res.json({ code, deepLink });
 });
 
@@ -346,10 +355,32 @@ meRouter.put("/preferences", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  const agent = await prisma.agent.update({
-    where: { id: req.agent!.id },
-    data: { preferences: parsed.data },
-    select: { preferences: true },
+  // Раскладка главной «Нового вида» (`home`) — своё поле с отдельным сохранением
+  // (ревью #326): тело БЕЗ неё (старая вкладка, обычное сохранение темы) её не
+  // стирает, а сохранённая остаётся. Сброс «Вернуть как было» шлёт `home: { blocks: {} }`.
+  // Чтение и запись — в одной транзакции, чтобы параллельное сохранение раскладки
+  // не потерялось между ними.
+  const agent = await prisma.$transaction(async (tx) => {
+    let data: typeof parsed.data = parsed.data;
+    if (data.home === undefined || data.textSize === undefined) {
+      const current = await tx.agent.findUnique({ where: { id: req.agent!.id }, select: { preferences: true } });
+      const saved = (current?.preferences ?? null) as { home?: unknown; textSize?: unknown } | null;
+      if (data.home === undefined) {
+        const kept = homePreferencesSchema.safeParse(saved?.home);
+        if (kept.success && kept.data) data = { ...data, home: kept.data };
+      }
+      // «Размер текста» (пачка C, 20.11.2026): клиент шлёт его, только когда человек его выбрал;
+      // сохранение без поля (тема, старая вкладка, другое устройство) выбранный размер не стирает.
+      if (data.textSize === undefined) {
+        const keptSize = uiPreferencesSchema.shape.textSize.safeParse(saved?.textSize);
+        if (keptSize.success && keptSize.data) data = { ...data, textSize: keptSize.data };
+      }
+    }
+    return tx.agent.update({
+      where: { id: req.agent!.id },
+      data: { preferences: data },
+      select: { preferences: true },
+    });
   });
   res.json(agent.preferences ?? {});
 });
@@ -688,6 +719,7 @@ meRouter.get("/active-call", requireAuth, (req, res) => {
     // уже состоявшийся звонок, а не отмена.
     cancelled: !!call.cancelledByAgent && !call.answeredAt,
     clientRang: !!call.clientRang,
+    archiveReview: !!call.archiveReview,
   };
   res.json(view);
 });
@@ -831,7 +863,7 @@ async function saveAndTranscribeVoiceNote(file: Express.Multer.File): Promise<{ 
   const filename = await saveVoiceNoteFile(file.buffer, file.mimetype);
   if (!filename) throw new Error(`Неподдерживаемый формат аудио: ${file.mimetype}`);
   const url = `/me/voice-notes/${filename}`;
-  const transcript = await transcribeAudio(file.buffer, file.originalname || "voice.webm", file.mimetype);
+  const transcript = await transcribeAudio(file.buffer, file.originalname || "voice.webm", normalizeDictationMime(file.mimetype) ?? file.mimetype);
   return { url, transcript: transcript?.trim() || null };
 }
 

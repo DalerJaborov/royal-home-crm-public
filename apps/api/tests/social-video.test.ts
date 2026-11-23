@@ -718,7 +718,7 @@ describe("расписание", () => {
   it("запланировать → тик запускает в свой час → публикуется; «вернуть в черновик» снимает", async () => {
     const row = await makeRow({ channels: ["INSTAGRAM"] });
     const at = new Date(Date.now() + 10 * 60_000).toISOString();
-    const scheduled = await request(app).post(`/api/v1/social-videos/${row.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at });
+    const scheduled = await request(app).post(`/api/v1/social-videos/${row.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at, acceptSlotConflict: true });
     expect(scheduled.status).toBe(202);
     expect(scheduled.body.status).toBe("SCHEDULED");
     expect(scheduled.body.scheduledAt).toBe(at);
@@ -735,7 +735,7 @@ describe("расписание", () => {
     expect((await prisma.socialVideoPost.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("DONE");
 
     const second = await makeRow({ channels: ["INSTAGRAM"] });
-    await request(app).post(`/api/v1/social-videos/${second.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at });
+    await request(app).post(`/api/v1/social-videos/${second.id}/publish`).set(auth("MARKETING")).send({ mode: "SCHEDULE", scheduledAt: at, acceptSlotConflict: true });
     const back = await request(app).post(`/api/v1/social-videos/${second.id}/unschedule`).set(auth("MARKETING"));
     expect(back.status).toBe(200);
     expect(back.body).toMatchObject({ status: "DRAFT", scheduledAt: null });
@@ -1117,5 +1117,87 @@ describe("ИИ-обложки: провайдеры и тренды", () => {
     expect(providers.status).toBe(200);
     expect(providers.body.defaultProvider).toBe("GEMINI");
     expect(providers.body.providers.map((p: { provider: string }) => p.provider)).toEqual(["GEMINI", "OPENAI"]);
+  });
+});
+
+describe("загрузка ролика частями (17.11.2026, 413 на 87 МБ одним запросом)", () => {
+  it.skipIf(!ffmpegOk)("старт → часть → сборка создают такой же черновик, как одиночная загрузка", async () => {
+    const src = path.join(os.tmpdir(), `sv-parts-${runId}.mp4`);
+    tmpFiles.push(src);
+    execFileSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=540x960:rate=30",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", src,
+    ], { stdio: "ignore" });
+    const bytes = await fs.promises.readFile(src);
+
+    const started = await request(app)
+      .post("/api/v1/social-videos/upload-sessions")
+      .set(auth("MARKETING"))
+      .send({ filename: "promo.mp4", sizeBytes: bytes.length });
+    expect(started.status).toBe(201);
+    const { sessionId, partSize, totalParts } = started.body as { sessionId: string; partSize: number; totalParts: number };
+    expect(partSize).toBe(8 * 1024 * 1024);
+    expect(totalParts).toBe(1);
+
+    // Сборка до частей — 409, а не пустой черновик.
+    const early = await request(app)
+      .post(`/api/v1/social-videos/upload-sessions/${sessionId}/complete`)
+      .set(auth("MARKETING"))
+      .send({ title: "x" });
+    expect(early.status).toBe(409);
+
+    // Часть не того размера — 400.
+    const wrong = await request(app)
+      .put(`/api/v1/social-videos/upload-sessions/${sessionId}/parts/1`)
+      .set(auth("MARKETING"))
+      .set("Content-Type", "application/octet-stream")
+      .send(bytes.subarray(0, 10));
+    expect(wrong.status).toBe(400);
+
+    // Чужая сессия не видна даже другому маркетологу с правом раздела.
+    const foreign = await request(app)
+      .put(`/api/v1/social-videos/upload-sessions/${sessionId}/parts/1`)
+      .set(auth("DIRECTOR"))
+      .set("Content-Type", "application/octet-stream")
+      .send(bytes);
+    expect(foreign.status).toBe(404);
+
+    const part = await request(app)
+      .put(`/api/v1/social-videos/upload-sessions/${sessionId}/parts/1`)
+      .set(auth("MARKETING"))
+      .set("Content-Type", "application/octet-stream")
+      .send(bytes);
+    expect(part.status).toBe(200);
+
+    const done = await request(app)
+      .post(`/api/v1/social-videos/upload-sessions/${sessionId}/complete`)
+      .set(auth("MARKETING"))
+      .send({ title: `Частями ${runId}`, caption: "Подпись", channels: JSON.stringify(["INSTAGRAM"]) });
+    expect(done.status).toBe(201);
+    videoIds.push(done.body.id);
+    expect(done.body.status).toBe("DRAFT");
+    expect(done.body.channels).toEqual(["INSTAGRAM"]);
+    expect(done.body.width).toBe(540);
+    expect(done.body.sizeBytes).toBeGreaterThan(0);
+
+    // Сессия израсходована: повтор сборки не делает второй черновик.
+    const again = await request(app)
+      .post(`/api/v1/social-videos/upload-sessions/${sessionId}/complete`)
+      .set(auth("MARKETING"))
+      .send({ title: "x" });
+    expect(again.status).toBe(404);
+  });
+
+  it("не тот формат и не та роль — отказ на старте", async () => {
+    const bad = await request(app)
+      .post("/api/v1/social-videos/upload-sessions")
+      .set(auth("MARKETING"))
+      .send({ filename: "note.txt", sizeBytes: 100 });
+    expect(bad.status).toBe(422);
+    const agent = await request(app)
+      .post("/api/v1/social-videos/upload-sessions")
+      .set(auth("AGENT"))
+      .send({ filename: "a.mp4", sizeBytes: 100 });
+    expect(agent.status).toBe(403);
   });
 });

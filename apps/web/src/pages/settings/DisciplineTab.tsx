@@ -1,16 +1,19 @@
 import { useState } from "react";
-import { INACTIVE_TRAFFIC_MAX_ATTEMPTS, inactiveTrafficHours, normalizeInactiveTrafficPolicy } from "@royal-home/shared";
 import { useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { MutationError } from "../../components/MutationError";
 import { SwitchRow } from "../../components/Switch";
+import { SellerAutomationSection } from "./SellerAutomationSection";
+import { SecurityAutomationSection } from "./SecurityAutomationSection";
+import { AutomationSwitchesSection } from "./AutomationSwitchesSection";
+import { RegistrySettingsSection } from "./RegistrySettingsSection";
 
 /**
  * Числа, по которым система требует работу от агента.
  *
  * Решение владельца 01.08.2026 звучит буквально: «любое число правится в
  * Настройках, ничего не остаётся в коде». Обязательные окна, пауза «не принимаю
- * лиды» и штраф за бездействие принесли с собой одиннадцать новых чисел — и без
+ * лиды» и (до 16.11.2026) штраф за бездействие принесли с собой одиннадцать новых чисел — и без
  * этого экрана они хоть и лежали в базе, но правились только разработчиком, то есть
  * фактически оставались в коде.
  *
@@ -35,13 +38,8 @@ export function DisciplineSection() {
     settings && {
       agentPauseMaxHours: String(settings.agentPauseMaxHours ?? 48),
       agentPauseCooldownHours: String(settings.agentPauseCooldownHours ?? 24),
-      inactivityWarnAfterDays: String(settings.inactivityWarnAfterDays ?? 3),
-      inactivityPenaltyAfterDays: String(settings.inactivityPenaltyAfterDays ?? 5),
       dealStaleSellerDays: String(settings.dealStaleSellerDays ?? 10),
       dealStaleBuyerDays: String(settings.dealStaleBuyerDays ?? 21),
-      inactiveGreenPingHours: String(settings.inactiveGreenPingHours ?? 24),
-      inactiveYellowPingHours: String(settings.inactiveYellowPingHours ?? 48),
-      inactiveRedPingHours: String(settings.inactiveRedPingHours ?? 36),
       lostReturnAcceptMinutes: String(settings.lostReturnAcceptMinutes ?? 120),
       sellerPropertyMissingWarnDays: String(settings.sellerPropertyMissingWarnDays ?? 3),
       sellerPropertyMissingCriticalDays: String(settings.sellerPropertyMissingCriticalDays ?? 5),
@@ -62,20 +60,15 @@ export function DisciplineSection() {
     e.preventDefault();
     /* Форма наполняется только внутри `if (settings)`. Без ответа сервера все
        поля пусты, и `Number("")`/`Number(undefined)` уехали бы в базу нулями и
-       NaN — то есть сроки обязательных окон и штрафы за бездействие
+       NaN — то есть сроки паузы и застоя
        переписались бы мусором (аудит 22.08.2026, раунд 6). */
     if (!settings) return;
     setSaved(false);
     await updateForm.mutateAsync({
       agentPauseMaxHours: Number(form.agentPauseMaxHours),
       agentPauseCooldownHours: Number(form.agentPauseCooldownHours),
-      inactivityWarnAfterDays: Number(form.inactivityWarnAfterDays),
-      inactivityPenaltyAfterDays: Number(form.inactivityPenaltyAfterDays),
       dealStaleSellerDays: Number(form.dealStaleSellerDays),
       dealStaleBuyerDays: Number(form.dealStaleBuyerDays),
-      inactiveGreenPingHours: Number(form.inactiveGreenPingHours),
-      inactiveYellowPingHours: Number(form.inactiveYellowPingHours),
-      inactiveRedPingHours: Number(form.inactiveRedPingHours),
       lostReturnAcceptMinutes: Number(form.lostReturnAcceptMinutes),
       sellerPropertyMissingWarnDays: Number(form.sellerPropertyMissingWarnDays),
       sellerPropertyMissingCriticalDays: Number(form.sellerPropertyMissingCriticalDays),
@@ -86,36 +79,29 @@ export function DisciplineSection() {
     setSaved(true);
   }
 
-  const warn = Number(form.inactivityWarnAfterDays);
-  const penalty = Number(form.inactivityPenaltyAfterDays);
   const sellerWarn = Number(form.sellerPropertyMissingWarnDays);
   const sellerCritical = Number(form.sellerPropertyMissingCriticalDays);
-  // Число проверок по цвету — константа с 01.11.2026 (packages/shared), на экране
-  // только интервалы.
-  const requestedTraffic = {
-    ...INACTIVE_TRAFFIC_MAX_ATTEMPTS,
-    inactiveGreenPingHours: Number(form.inactiveGreenPingHours),
-    inactiveYellowPingHours: Number(form.inactiveYellowPingHours),
-    inactiveRedPingHours: Number(form.inactiveRedPingHours),
-  };
-  const trafficReady = Object.values(requestedTraffic).every((value) => Number.isFinite(value) && value > 0);
-  const effectiveTraffic = normalizeInactiveTrafficPolicy(requestedTraffic);
-  const trafficHours = (color: "Green" | "Yellow" | "Red") => inactiveTrafficHours(effectiveTraffic, color);
-  const invertedTraffic = trafficReady && (
-    effectiveTraffic.inactiveGreenPingHours > requestedTraffic.inactiveGreenPingHours ||
-    effectiveTraffic.inactiveYellowPingHours > requestedTraffic.inactiveYellowPingHours);
 
   return (
     <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "var(--s4)" }}>
+      {/* Выключатели автоматики по продавцам (14.11.2026) — сохраняются сами, кнопка
+          «Сохранить» внизу их не касается. */}
+      <SellerAutomationSection />
+      {/* Рубильник автоматики СБ (18.11.2026) — сохраняется сам, как блок выше. */}
+      <SecurityAutomationSection />
+      {/* Выключатели автоматики ИИ и напоминаний (19.11.2026) — сохраняются сами. */}
+      <AutomationSwitchesSection />
+      {/* Реестр строек Душанбе (20.11.2026): два рубильника, статус забора и «Забрать сейчас». */}
+      <RegistrySettingsSection />
       {/* «Ждёт варианты» и «Ждёт показ» убраны с экрана 23.09.2026: блок обещал
           напоминания агенту и стоп на выдачу лидов, но ни напоминаний, ни стопа в
           коде нет — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026). Поля
           waitingCheckAfterMinutes/waitingCheckMaxRepeats остаются в базе. */}
       <section className="card">
         <div className="sec-h stack">
-          <h2>Пауза «не принимаю лиды»</h2>
+          <h2>Пауза «не принимаю заявки»</h2>
           <span className="note">
-            Агент выключает выдачу новых лидов сам — болезнь, отпуск, завал. KPI при этом идёт как обычно:
+            Агент выключает выдачу новых заявок сам — болезнь, отпуск, завал. Показатели при этом считаются как обычно:
             иначе пауза станет способом прятать просрочки
           </span>
         </div>
@@ -138,46 +124,9 @@ export function DisciplineSection() {
         </div>
       </section>
 
-      <section className="card">
-        <div className="sec-h stack">
-          <h2>Бездействие по клиенту</h2>
-          <span className="note">
-            Сначала предупреждение, и только потом штраф: наказывать за то, о чём не предупредили, нельзя.
-            Действием считается любая запись в хронологии клиента, а не открытие карточки. Сколько баллов
-            снимает штраф — в таблице баллов: «Сотрудники» → Royal Score, строка «Штраф за бездействие после
-            предупреждения»
-          </span>
-        </div>
-        <div className="fgrid">
-          <Field
-            label="Предупредить через, дней"
-            value={form.inactivityWarnAfterDays}
-            min={1}
-            max={60}
-            onChange={(v) => set("inactivityWarnAfterDays", v)}
-          />
-          <Field
-            label="Штраф через, дней"
-            value={form.inactivityPenaltyAfterDays}
-            min={1}
-            max={90}
-            onChange={(v) => set("inactivityPenaltyAfterDays", v)}
-            /* Условный рендер, а не hidden: на элементе сетки hidden не срабатывает. */
-            bad={penalty > 0 && warn > 0 && penalty <= warn}
-            hint={
-              penalty > 0 && warn > 0 && penalty <= warn
-                ? "Штраф наступает не позже предупреждения — тогда предупреждать уже некогда. Поставьте срок штрафа больше срока предупреждения."
-                : undefined
-            }
-          />
-          {/* «Цена штрафа, баллов» убрана с экрана 02.10.2026 (решение владельца «да, по
-              советам», глубокая проверка C11): счёт агента снимает цену из таблицы баллов
-              Royal Score, а это поле ни на что не влияло — директор ставил 10, счёт падал
-              на 3. Поле Settings.inactivityPenaltyPoints остаётся в базе, экран его не
-              показывает и не отправляет. */}
-        </div>
-      </section>
-
+      {/* «Бездействие по клиенту» (предупреждение, потом штраф) убрано 16.11.2026
+          вместе с автоматическими штрафами Royal Score — решение владельца. Поля
+          Settings.inactivity* остаются в базе, их больше никто не читает. */}
       <section className="card">
         <div className="sec-h stack">
           <h2>Застой сделки</h2>
@@ -206,71 +155,10 @@ export function DisciplineSection() {
 
       <section className="card">
         <div className="sec-h stack">
-          <h2>Светофор неактивных клиентов</h2>
+          <h2>Возврат клиента</h2>
           <span className="note">
-            Цвет отражает историю отношений: красный — ответа ещё не было, жёлтый — клиент отвечал,
-            зелёный — была встреча или показ. Проверки автоматические, уведомления агенту не отправляются.
-            После {INACTIVE_TRAFFIC_MAX_ATTEMPTS.inactiveGreenMaxAttempts} проверок и ещё одного интервала без контакта клиент уходит в Потерянные.
-            Новый разговор, сообщение или состоявшаяся встреча начинает отсчёт заново.
-          </span>
-        </div>
-        {settings && trafficReady && <p className="note">
-          Срок без нового контакта: зелёный — {trafficHours("Green")} ч., жёлтый — {trafficHours("Yellow")} ч.,
-          красный — {trafficHours("Red")} ч. При причинах «перестал отвечать», «просил позже» и «другое» срок на 25% короче.
-          Рабочее расписание может отложить проверку; живая сделка и объект продавца в работе защищены от автопотери.
-        </p>}
-        {invertedTraffic && <p className="note" role="status">
-          Сохранённые сроки идут в обратном порядке. Система удлиняет срок для более тёплого клиента:
-          зелёному даёт не меньше времени, чем жёлтому, а жёлтому — не меньше, чем красному.
-          Действующие сроки показаны выше. Заполните и сохраните согласованные значения.
-        </p>}
-        <button type="button" className="btn ghost" disabled={!settings} onClick={() => {
-          set("inactiveGreenPingHours", "24");
-          set("inactiveYellowPingHours", "48");
-          set("inactiveRedPingHours", "36");
-        }}>Заполнить сроки по глубине отношений</button>
-
-        <div className="grp-lab">Зелёный</div>
-        <div className="fgrid">
-          <Field
-            label="Интервал проверки, часов"
-            value={form.inactiveGreenPingHours}
-            min={1}
-            max={240}
-            onChange={(v) => set("inactiveGreenPingHours", v)}
-          />
-        </div>
-
-        <div className="grp-lab">Жёлтый</div>
-        <div className="fgrid">
-          <Field
-            label="Интервал проверки, часов"
-            value={form.inactiveYellowPingHours}
-            min={1}
-            max={240}
-            onChange={(v) => set("inactiveYellowPingHours", v)}
-          />
-        </div>
-
-        <div className="grp-lab">Красный</div>
-        <div className="fgrid">
-          <Field
-            label="Интервал проверки, часов"
-            value={form.inactiveRedPingHours}
-            min={1}
-            max={240}
-            onChange={(v) => set("inactiveRedPingHours", v)}
-          />
-        </div>
-
-      </section>
-
-      <section className="card">
-        <div className="sec-h stack">
-          <h2>Возврат потерянного или неактивного клиента</h2>
-          <span className="note">
-            Клиент из Потерянных и Неактивных, написавший сам, сначала идёт прежнему агенту. Если тот не
-            откликнулся за это время — уходит в общую очередь по KPI
+            Клиент из Корзины, написавший или позвонивший сам, сначала идёт прежнему агенту. Если тот не
+            откликнулся за это время — уходит в общую очередь по показателям
           </span>
         </div>
         <div className="fgrid">

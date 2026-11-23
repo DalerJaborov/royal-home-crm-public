@@ -30,7 +30,15 @@ interface CachedInsight {
 }
 
 const CACHE_MS = 24 * 60 * 60 * 1000;
-let cache: CachedInsight | null = null;
+/**
+ * ДВА КЭША, А НЕ ОДИН (21.11.2026). Разбор с деньгами компании (прибыль по
+ * проданным объектам, слова про комиссию) строится только для finance.view; без
+ * этого права модель вообще не видит этих чисел. Кэш был общий на всех, и текст
+ * с прибылью, построенный для директора, сутки отдавался маркетологу. Ключ —
+ * признак права, как у lib/marketingInsights.ts.
+ */
+type CacheKey = "money" | "plain";
+const cache: Record<CacheKey, CachedInsight | null> = { money: null, plain: null };
 
 export interface AdInsightsResult {
   /** null — разбора нет; почему именно, говорит reason. */
@@ -41,9 +49,21 @@ export interface AdInsightsResult {
   reason?: "empty" | "ai";
 }
 
-export async function buildAdInsights(month: string, force = false): Promise<AdInsightsResult> {
-  if (!force && cache && cache.month === month && Date.now() - cache.builtAt < CACHE_MS) {
-    return { text: cache.text, builtAt: new Date(cache.builtAt).toISOString(), cached: true };
+export interface AdInsightsOptions {
+  /** finance.view: только с ним в подсказку модели попадают прибыль и комиссия компании. */
+  seesCompanyMoney: boolean;
+}
+
+export async function buildAdInsights(
+  month: string,
+  force = false,
+  options: AdInsightsOptions = { seesCompanyMoney: false }
+): Promise<AdInsightsResult> {
+  const money = options.seesCompanyMoney;
+  const key: CacheKey = money ? "money" : "plain";
+  const hit = cache[key];
+  if (!force && hit && hit.month === month && Date.now() - hit.builtAt < CACHE_MS) {
+    return { text: hit.text, builtAt: new Date(hit.builtAt).toISOString(), cached: true };
   }
 
   const report = await buildAdSpendReport(month);
@@ -56,7 +76,7 @@ export async function buildAdInsights(month: string, force = false): Promise<AdI
   const lines = report.rows.slice(0, 25).map((r) => {
     const name = r.property ? `№${r.property.shortId} (${r.property.status})` : "Без объекта";
     const perConv = r.conversations > 0 ? (r.spendTjs / r.conversations).toFixed(2) : null;
-    const profit = r.profitTjs != null ? `, прибыль ${r.profitTjs.toFixed(2)} с.` : "";
+    const profit = money && r.profitTjs != null ? `, прибыль ${r.profitTjs.toFixed(2)} с.` : "";
     const comments = r.comments != null ? `, комментариев ${r.comments}` : "";
     return (
       `${name}: потрачено ${r.spendTjs.toFixed(2)} с., показов ${r.impressions}, кликов ${r.clicks}, ` +
@@ -125,8 +145,11 @@ export async function buildAdInsights(month: string, force = false): Promise<AdI
       system:
         "Ты таргетолог с опытом в недвижимости Душанбе. Клиент — агентство Royal Home: " +
         "продаёт и сдаёт квартиры и дома, реклама идёт в Instagram и Facebook, цель — переписки в Direct. " +
-        "Средняя комиссия со сделки — десятки тысяч сомони, поэтому даже дорогое обращение окупается, " +
-        "если приводит к показу; но деньги, потраченные без единого обращения, — чистый убыток.\n\n" +
+        (money
+          ? "Средняя комиссия со сделки — десятки тысяч сомони, поэтому даже дорогое обращение окупается, " +
+            "если приводит к показу; но деньги, потраченные без единого обращения, — чистый убыток.\n\n"
+          : "Деньги, потраченные на рекламу без единого обращения, — чистый убыток. " +
+            "Данных о доходах компании у тебя нет, о них не пиши и не гадай.\n\n") +
         "Разбери данные ниже и ответь коротко, как разбирают с владельцем за чаем:\n" +
         "1) ЧТО РАБОТАЕТ: какие объекты и креативы дают обращения дешевле остальных и чем они отличаются;\n" +
         "2) ЧТО ЖЖЁТ ДЕНЬГИ: где потрачено заметно, а обращений нет или они втрое дороже средних;\n" +
@@ -143,7 +166,7 @@ export async function buildAdInsights(month: string, force = false): Promise<AdI
       maxTokens: 1200,
     });
     if (!data?.analysis) return { text: null, reason: "ai" as const };
-    cache = { text: data.analysis, builtAt: Date.now(), month };
+    cache[key] = { text: data.analysis, builtAt: Date.now(), month };
     return { text: data.analysis, builtAt: new Date().toISOString(), cached: false };
   } catch (err) {
     void logSystemError("ads", `ИИ-разбор рекламы не построен: ${describeError(err)}`);
@@ -163,7 +186,8 @@ function firstMeaningfulLine(caption: string | null): string | null {
 
 /** Прогрев не нужен: разбор строится по первому запросу. Экспорт для тестов. */
 export function _clearInsightsCache(): void {
-  cache = null;
+  cache.money = null;
+  cache.plain = null;
 }
 
 /** Есть ли вообще данные, по которым можно что-то разбирать. */

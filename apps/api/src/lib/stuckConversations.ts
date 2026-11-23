@@ -14,6 +14,7 @@ import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
 import { isOutboundBlockedError } from "./outboundShield.js";
+import { handOverBlockedConversation, isMetaSendBlockError, metaSendBlockCoveringMessage, metaSendWarnedTurn, withoutMetaSendProbe } from "./metaSendBlock.js";
 import { accountTokenById, listAccounts } from "../messengers/accounts.js";
 import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
@@ -177,16 +178,18 @@ function stuckWhere(): Prisma.Sql {
  * «последнее сообщение без ответа»); без флага processMessengerTurn записал бы
  * её в BotConversation.messages второй раз (см. conversation.ts).
  */
-export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry"): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry",
+  /** Which run of this customer turn (the live turn was 1): a fallback bound on the core's runs (CHANNEL_CORE_MAX_ATTEMPTS). */
+  attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, source, text: row.lastText,
     knownContacts: row.name ? [row.name] : [] }, async () => {
-    const result = await retryStuckConversationImpl(row);
+    const result = await retryStuckConversationImpl(row, attempt);
     if (result === "failed" || result === "ai-down") traceOutcome("failed");
     else if (result === "no-reply") traceNoReply();
     return result;
   });
 }
-async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   if (await currentTurnHasCustomerOutbox(row.id)) return "no-reply";
   const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: {
     messages: true, lastMessageAt: true, channel: true, subscriberId: true, accountId: true,
@@ -200,9 +203,13 @@ async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-r
   if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
     stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
     original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";
-  return withLegacyMetaDmSource(row.lastMid, () => retryStuckConversationBody(row, row.lastMid ?? undefined));
+  const originalAt = typeof original.at === "string" && !Number.isNaN(Date.parse(original.at)) ? new Date(original.at) : row.lastMessageAt;
+  // Повтор — не проба «Meta снова пропускает?»: старый ответ клиенту, который ждал, решает человек (lib/metaSendBlock.ts).
+  return withLegacyMetaDmSource(row.lastMid, () =>
+    withoutMetaSendProbe(() => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt, originalAt)));
 }
-async function retryStuckConversationBody(row: StuckRow, originalMid?: string): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number,
+  originalAt: Date = row.lastMessageAt): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -232,6 +239,24 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string): 
     if (!customerTransport) return "no-reply";
     if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) return "no-reply";
     deliveryTransport = customerTransport;
+    /**
+     * META НЕ ПРОПУСКАЕТ ОТПРАВКУ АККАУНТА (18.11.2026, lib/metaSendBlock.ts). Реплика
+     * клиента ждала, пока действовал запрет (он идёт сейчас или снят уже после неё), —
+     * повтор её НЕ досылает и модель не зовёт: 17.11 этот путь готовил до 46 попыток
+     * с новым текстом каждый раз. Переписка уже у человека («клиент ждёт ответа» с
+     * настоящей причиной); здесь только убеждаемся, что сигнал был, и завершаем задание.
+     */
+    if (metaChannel) {
+      const block = await metaSendBlockCoveringMessage({ accountId: customerTransport.accountId ?? row.accountId, channel: metaChannel }, originalAt);
+      if (block) {
+        await handOverBlockedConversation(row.id, block).catch((err) =>
+          void logSystemError("meta", `Повтор зависшего ${row.id}: переписку не удалось передать человеку: ${describeError(err)}`));
+        traceOutcome("blocked");
+        return "no-reply";
+      }
+      // На этот ход Meta уже предупредила о навязчивой отправке (613/2018338): тому же получателю не повторяем.
+      if (await metaSendWarnedTurn(row.id)) { traceOutcome("blocked"); return "no-reply"; }
+    }
     const account =
       metaChannel && row.accountId ? (await listAccounts(metaChannel)).find((a) => a.id === row.accountId) : null;
     traceBindAccount(account?.externalId, row.id);
@@ -245,6 +270,7 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string): 
       skipSaveIncoming: true,
       // Повтор оплаченного хода: суточный бюджет ИИ не списывается второй раз.
       retryOfPaidTurn: true,
+      ...(attempt ? { retryAttempt: attempt } : {}),
     });
     // «Модель всё ещё лежит» и «отвечать не нужно по правилам» — разные исходы:
     // первый ретраит задание ai-reply-retry, второй завершает его как успех.
@@ -289,6 +315,13 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string): 
      * первое же сообщение живого человека снимет её само.
      */
     if (isOutboundBlockedError(err)) { traceOutcome("blocked"); return "no-reply"; }
+    // Meta не пропускает отправку по правилам — повторять нечего: очередь иначе пробовала бы
+    // ещё часами с новым текстом. Ответ помечен «не дошло», человек уже позван (lib/metaSendBlock.ts).
+    if (isMetaSendBlockError(err)) {
+      if (metaChannel) await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
+      traceOutcome("blocked");
+      return "no-reply";
+    }
     /**
      * ОТВЕТ, КОТОРЫЙ НЕ УШЁЛ, НЕ ДОЛЖЕН ВЫГЛЯДЕТЬ ОТПРАВЛЕННЫМ — И В ПОВТОРЕ ТОЖЕ
      * (24.09.2026, ночная проверка).

@@ -1,0 +1,352 @@
+/* «НОВЫЙ ВИД» — раздел «Сделки» (пачка deals, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл. Подключён после theme-look-royal.css, и КАЖДОЕ
+ * правило стоит под :root[data-ui-look="royal"] и меткой раздела
+ * [data-ry-section="deals"] — без признака не меняется ни один пиксель, чужие
+ * экраны и окна слой не трогает (сторож theme-look-royal.test.ts).
+ * Метку ставит только pages/Deals.tsx через RoyalSection: корень страницы
+ * (.ry-deals-page) и корень портала (Rh2Portal) окон, открытых из раздела:
+ * фильтры, новая сделка, подтверждения, «на закрытие», документы, аннулирование.
+ * Токены и общие детали (--rh-ui-*, .ry-btn, .ry-circle, .ry-tile) — из основы,
+ * здесь только раскладка раздела и детали components/look/deals/ (.ry-deal*).
+ * Кнопки со смысловым вариантом старой темы (danger и т.п.) цвет не теряют,
+ * запас под полоску iPhone у .sheet-f/.sheet-b не трогаем.
+ * Макета этого экрана нет: правила вида — как у «Клиентов» и «Объектов»
+ * (строка ~60, круг 48 со значком 24, карточки 24, одна синяя кнопка).
+ * Деньги: формат прежний (formatMoney), цифры табличные, ничего не обрезается.
+ */
+
+/* =============================== страница =============================== */
+
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] {
+  container: ry-deals / inline-size;
+  color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] > .scr { display: grid; gap: 16px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] > .scr > * { margin: 0; min-width: 0; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] > .scr > .pg-h { display: block; padding: 0; border: 0; }
+
+/* Шапка: заголовок 32, одна строка, «Фильтры» мягкой и одна синяя «Сделка». */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-text { display: grid; flex: 1 1 0; gap: 6px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head h1 {
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.08; letter-spacing: -.028em; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head p { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-head-acts .ry-btn[data-active="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-dot { width: 8px; height: 8px; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); }
+
+/* Сводка плитками: числа 40, сумма 28 — переносится, не обрезается. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-summary { display: grid; gap: 8px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles .ry-tile { min-height: 112px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles .ry-tile-label { font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles .ry-tile-value { font-size: var(--rh-fs-4xl); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-money-tile { grid-column: 1 / -1; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-money-tile .ry-tile-value { font-size: var(--rh-fs-2xl); line-height: 1.1; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-note { margin: 0; padding: 0 4px; font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
+/* Узко: «Закрыто за месяц» — во всю ширину строкой (подпись слева, число справа), без пустой клетки. */
+@container ry-deals (max-width: 759.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles > :nth-child(3) {
+    grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; min-height: 76px;
+  }
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles > :nth-child(3) .ry-tile-value { font-size: var(--rh-fs-3xl); }
+}
+/* Совсем узко (320): все три числа строками — «На согласовании» не влезает в половину ширины. */
+@container ry-deals (max-width: 339.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles > :is(:nth-child(1), :nth-child(2)) {
+    grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; min-height: 76px;
+  }
+}
+@container ry-deals (min-width: 760px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles[data-count="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-tiles[data-count="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-money-tile { grid-column: auto; }
+}
+
+/* Блоки (на согласовании, завершённые, отменённые): карточка 24, заголовок 20. */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight {
+  margin: 0; padding: 16px 20px; border: 0; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .sec-h {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 0 0 4px; padding: 0; border: 0;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .sec-h h2 {
+  margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; line-height: 1.2; letter-spacing: -.025em; text-transform: none; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .sec-h .note { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .sec-h .money { font-family: var(--rh-ui-font-num); font-weight: 700; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .wrap { display: flex; margin: 8px 0 0; }
+/* «Показать / Свернуть» архива и «и ещё N · Показать» — мягкие таблетки и ссылки. */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .wrap .pill {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .wrap .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .ry-deal-list > p.state { margin: 0; padding: 8px 0 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .ry-deal-list > p.state .lk {
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-weight: 600; text-decoration: none;
+}
+
+/* Состояния доски: загрузка, ошибка, отказ сервера при смене этапа, «пусто». */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .state {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 44px; margin: 0; padding: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .state .sk { display: inline-block; height: 14px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .state.err { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .state.err .lk { min-height: 44px; color: var(--rh-ui-primary-ink) !important; font-weight: 700; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .quiet {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 48px; padding: 0; font-size: var(--rh-fs-md); line-height: 1.4;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .quiet .txt { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .quiet .lnk {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-press); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
+}
+/* Точка смысла: срочно — сплошной красный круг с ореолом (не только оттенок). */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight :is(.state, .quiet) > .dot {
+  flex: none; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight :is(.state, .quiet) > .dot.crit {
+  width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .empty {
+  display: grid; justify-items: center; gap: 10px; padding: 20px 8px; text-align: center;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .empty .ic {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .empty .ic svg { width: 28px; height: 28px; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight > .empty p { max-width: 46ch; margin: 0; font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
+
+/* ================================ строки ================================ */
+
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-list { display: grid; gap: 0; margin: 0; padding: 0; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: var(--rh-ui-row-h); padding: 10px 0; min-width: 0;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-list > .ry-deal-row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-row-text { display: grid; flex: 1 1 160px; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-name {
+  font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.25; color: var(--rh-ui-text); overflow-wrap: anywhere;
+}
+/* Имя-кнопка: зона нажатия не меньше 44 (невидимое поле ::after), а строка не толстеет. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name {
+  position: relative; display: inline; justify-self: start; margin: 0; padding: 0;
+  border: 0; background: transparent; font: inherit; font-size: var(--rh-fs-lg); font-weight: 600; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name::after { content: ""; position: absolute; inset: -12px -6px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] button.ry-deal-name:hover:not(:disabled) { color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] :is(button.ry-deal-name, .ry-deal-link, .ry-deal-step, .ry-deals-stage):focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; border-radius: var(--rh-r-md); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-obj { font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-money { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-money b { font-weight: 700; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-note { display: flex; align-items: flex-start; gap: 6px; font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-note svg { flex: none; margin-top: 1px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-reason { font-size: var(--rh-fs-md); line-height: 1.4; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-figs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-price { font-size: var(--rh-fs-lg); line-height: 1.2; color: var(--rh-ui-text); white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-row-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-left: auto; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-row-acts .ry-btn { min-height: 44px; padding: 0 18px; }
+@container ry-deals (max-width: 599.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-row-acts { flex: 1 1 100%; margin-left: 0; }
+}
+
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-thumb {
+  display: block; flex: none; width: 48px; height: 48px; overflow: hidden; border-radius: var(--rh-r-md); background: var(--rh-ui-raised);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; outline: 1px solid var(--rh-ui-ring); outline-offset: -1px; }
+
+/* Метки: смысл значком/текстом и яркостью, не только оттенком. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tag {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 10px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tag[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); font-weight: 700; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tag[data-tone="warn"] {
+  background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-warn) 40%, transparent);
+}
+
+/* Тихие действия строки: синим словом; отмена и аннулирование — красным словом. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-link {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: 0; border-radius: var(--rh-r-full);
+  background: transparent; color: var(--rh-ui-primary-ink); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-link:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-link[data-tone="crit"] { color: var(--rh-ui-crit-text); }
+
+/* ================================ доска ================================ */
+
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-board {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; scroll-margin-top: 96px;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] #ry-deals-approval { scroll-margin-top: 96px; }
+@container ry-deals (min-width: 600px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container ry-deals (min-width: 1180px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Колонка этапа — дорожка без рамки; при перетаскивании над ней — синее кольцо. */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .kan-col.ry-deal-col {
+  display: grid; align-content: start; gap: 10px; min-width: 0; min-height: 140px; padding: 12px; border: 0; border-radius: var(--rh-r-lg);
+  background: color-mix(in srgb, var(--rh-ui-raised) 60%, transparent); box-shadow: none; outline: 0;
+  transition: background-color 160ms cubic-bezier(.23, 1, .32, 1), box-shadow 160ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .kan-col.ry-deal-col[data-over="true"] {
+  background: var(--rh-ui-primary-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-primary);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-col-head { display: grid; gap: 2px; padding: 4px 4px 2px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-col-head h3 {
+  display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.25; letter-spacing: -.01em; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-col-n {
+  display: inline-grid; place-items: center; min-width: 28px; height: 28px; margin-left: auto; padding: 0 8px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-sm); box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-col-sum { margin: 0; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-col-sum b { color: var(--rh-ui-text); font-weight: 700; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-empty { margin: 0; padding: 14px 8px; font-size: var(--rh-fs-md); text-align: center; color: var(--rh-ui-hint); }
+
+/* Карточка сделки: белая, радиус 20 внутри дорожки 24, тянется за пальцем/мышью. */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .dcard.ry-deal-tile {
+  display: grid; gap: 10px; margin: 0; padding: 14px; border: 0; border-radius: var(--rh-r-lg); min-width: 0;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  cursor: grab; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .dcard.ry-deal-tile:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] .dcard.ry-deal-tile[data-dragging="true"] {
+  cursor: grabbing; box-shadow: var(--rh-ui-shadow-lg), 0 0 0 2px var(--rh-ui-primary);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tile-head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tile-head .ry-deal-row-text { flex: 1 1 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tile .ry-deal-figs { margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tile .ry-deal-price { font-size: var(--rh-fs-xl); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-comm { font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-comm b { color: var(--rh-ui-ok); font-weight: 700; white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-agent { font-size: var(--rh-fs-sm); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-tile-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 4px; margin: -4px -10px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-steps {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; box-shadow: inset 0 1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-step {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 12px;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-press); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-step[data-wide="true"] { flex: 1 1 0; min-width: 0; padding-left: 16px; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-step:active { transform: scale(.97); }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-close { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 14px; text-align: center; }
+
+/* Телефон: этапы доски — таблетками в ряд, ряд листается сам, страница — нет. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages {
+  display: flex; flex-wrap: nowrap; gap: 6px; margin: 0 0 12px; padding: 2px; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+  scroll-snap-type: x proximity; scroll-padding-inline: 2px;
+}
+/* Справа ещё есть этапы — край ряда затухает (только тогда; data-more ставит RoyalDealStages). */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages[data-more="true"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stages::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stage {
+  display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 44px; padding: 0 8px 0 16px; border: 0; border-radius: var(--rh-r-full); scroll-snap-align: start;
+  background: var(--rh-ui-card); color: var(--rh-ui-hint); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; cursor: pointer;
+  box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stage[aria-pressed="true"] { background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-stage-n {
+  display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 8px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-sm);
+}
+
+/* «Как работать с доской» — та же раскрывашка, тихой строкой под доской. */
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-guide > details {
+  padding: 0 20px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-guide > details > summary {
+  display: flex; align-items: center; min-height: 52px; padding: 0; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deals-guide > details > p { margin: 0 0 16px; font-size: var(--rh-fs-md); line-height: 1.55; color: var(--rh-ui-hint); }
+
+/* ============================== телефон ============================== */
+
+/* На телефоне заголовок «Сделки» уже несёт шапка оболочки — второй не нужен (для чтеца остаётся). */
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="deals"] .ry-deals-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="deals"] .ry-deals-head-acts { flex: 1 1 100%; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="deals"] .ry-deals-head-acts .ry-btn { flex: 1 1 0; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-deals-page.rh2.screens[data-ry-section="deals"] .card.tight { padding: 14px 16px; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="deals"] .ry-deals-tiles .ry-tile-value { font-size: var(--rh-fs-3xl); }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="deals"] .ry-deals-money-tile .ry-tile-value { font-size: var(--rh-fs-2xl); }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-deals-page.rh2.screens[data-ry-section="deals"] .kan-col.ry-deal-col { padding: 8px; background: transparent; }
+
+/* =================== окна и шторки, открытые из раздела =================== */
+
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet {
+  border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet.right { border-radius: var(--rh-r-lg) 0 0 var(--rh-r-lg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-h { min-height: 64px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-h :is(h2, h3, b) { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
+/* Опасная кнопка (аннулировать, отменить сделку) — сплошная красная таблетка; смысл старой темы не теряется. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+/* Отключённая кнопка (пока не введена сумма или причина) — приглушена, в том числе красная. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+/* То же в блоках страницы — весом не легче самой тяжёлой перекраски кнопок раздела (сторож disabledDimGap). */
+:root[data-ui-look="royal"] .ry-deals-page.rh2.screens[data-ry-section="deals"] > .scr .card.tight :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  min-height: 48px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-md); box-shadow: none;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet input[type="number"] { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(input, select, textarea):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .fld { display: grid; gap: 6px; margin-top: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0 12px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet input[type="file"] {
+  min-height: 48px; padding: 10px 14px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-md); max-width: 100%;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sheet-b > .pill { margin-top: 12px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .lab { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .msg { font-size: var(--rh-fs-sm); line-height: 1.4; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .sec-t {
+  margin: 18px 0 8px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.02em; text-transform: none; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.state, .quiet) { font-size: var(--rh-fs-md); line-height: 1.45; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.state, .quiet) { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 10px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.state, .quiet) > .txt { flex: 1 1 0; min-width: 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.state, .quiet) > .dot { flex: none; width: 12px; height: 12px; margin-top: 5px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.state, .quiet) > .dot.crit { background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .money { font-family: var(--rh-ui-font-num); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-text); }
+/* Строки шторок (документы сделки, выбор клиента и объекта). */
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .list > .row {
+  min-height: var(--rh-ui-row-h); padding: 8px 4px; border: 0; border-radius: 0; background: transparent; gap: 4px 12px; flex-wrap: wrap;
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .list > .row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .list > .row .t b { font-size: var(--rh-fs-lg); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet .list > .row .t > span { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] .sheet :is(.lk, .lnk) {
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; text-align: left; overflow-wrap: anywhere;
+}
+
+/* Выключенная кнопка раздела приглушена всегда (пачка debt, ревью PR 286: сторож
+   disabledDimGaps сверяет покрытие каждой перекраски кнопок). :not(#ry-dim) — вес id
+   (такого id нет): правило тяжелее любой классовой перекраски выше и в шторках. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="deals"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+
+/* Узкий телефон, текст 17: широкий шаг «Дальше: Согласование» — во всю строку и вторичным
+   размером (15), а не в две строки внутри таблетки (сторож squeeze, отчёт 320 всех экранов, пачка C). */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="deals"] .ry-deal-step[data-wide="true"] { flex: 1 1 100%; padding: 0 12px; font-size: var(--rh-fs-sm); }
+}

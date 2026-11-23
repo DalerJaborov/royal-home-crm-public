@@ -10,7 +10,6 @@ const render = (node: ReactNode) => renderToStaticMarkup(<MemoryRouter>{node}</M
 const control: McControlGaps = {
   phones: { total: 0, online: 0, items: [], reason: null },
   overdueTasks: { count: 7, items: [], reason: null },
-  atLimit: { count: 2, items: [], reason: null },
   silentAfterShowing: { count: 3, reason: null },
 };
 const hero: McHero = {
@@ -28,9 +27,9 @@ const bot: McBot = {
 describe("Clean operational dashboard", () => {
   it("keeps control counters separate and respects destination permission", () => {
     const html = render(<CleanControlTiles control={control} allowed />);
-    for (const slice of ["slice-overdue-tasks", "slice-agents-at-limit", "slice-silent-after-showing"])
+    for (const slice of ["slice-overdue-tasks", "slice-silent-after-showing"])
       expect(html.match(new RegExp(`href="/oversight#${slice}"`, "g")) ?? []).toHaveLength(1);
-    for (const value of [7, 2, 3]) expect(html).toContain(`>${value}</strong>`);
+    for (const value of [7, 3]) expect(html).toContain(`>${value}</strong>`);
     expect(html).toContain("Без ответа после показа");
     expect(render(<CleanControlTiles control={control} allowed={false} />)).toBe("");
     expect(render(<CleanControlTiles control={undefined} allowed />)).toBe("");

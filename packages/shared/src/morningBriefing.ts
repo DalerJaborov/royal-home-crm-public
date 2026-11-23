@@ -14,8 +14,11 @@ export const briefingNumbersSchema = z.object({
   tasksToday: z.number().int().min(0),
   leadsYesterday: z.number().int().min(0),
   dealsYesterday: z.number().int().min(0),
-  /** Комиссия месяца в сомони (валютные сделки сконвертированы). */
-  commissionMonth: z.number().min(0),
+  /**
+   * Комиссия месяца в сомони (валютные сделки сконвертированы). null — у смотрящего
+   * нет права finance.view: деньги компании ему не отдаются ни числом, ни в тексте.
+   */
+  commissionMonth: z.number().min(0).nullable(),
   errorsYesterday: z.number().int().min(0),
   incomingYesterday: z.number().int().min(0),
   missedYesterday: z.number().int().min(0),

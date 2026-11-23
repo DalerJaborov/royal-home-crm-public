@@ -3,7 +3,6 @@ import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
 import { reactivateClientFromLost } from "../clientLifecycle.js";
 import { returningAgentStillAvailable } from "../returningClientRouting.js";
-import { returnDeferredClientEarly } from "../deferredClients.js";
 import { amiAction, loadAmiCredentials, withAmiConnection, type AmiCredentials } from "./amiClient.js";
 import {
   agentDeviceOnline,
@@ -19,6 +18,7 @@ import {
 import { hasLiveCall } from "./callTracker.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { findPhoneOwners } from "../clientPhones.js";
+import { agentMayCallArchived } from "../archiveReviewCall.js";
 import { whisperFileForCall } from "./whisperSync.js";
 import {
   ROUTE_DIALPLAN_FILE,
@@ -170,7 +170,7 @@ export const ROUTE_SKIP_TEXT: Record<RouteSkipReason, string> = {
   ambiguous_phone: "по номеру нашлось несколько карточек",
   client_deleted: "карточка в Корзине",
   no_agent: "у карточки нет ответственного",
-  lead_not_accepted: "ответственный ещё не принял лид",
+  lead_not_accepted: "ответственный ещё не принял заявку",
   client_closed: "сделка по клиенту закрыта или клиент потерян",
   agent_inactive: "ответственный отключён",
   agent_frozen: "ответственный временно заморожен (отсутствует)",
@@ -184,8 +184,13 @@ export const ROUTE_SKIP_TEXT: Record<RouteSkipReason, string> = {
   redirect_failed: "станция отказала в переводе",
 };
 
-/** Состояния клиента, при которых звонок агенту не адресуется (см. decideRoute). */
-const CLOSED_STATUSES = new Set(["DEAL_CLOSED", "LOST", "ARCHIVED"]);
+/**
+ * Состояния клиента, при которых звонок агенту не адресуется (см. decideRoute).
+ * Закрытая сделка и Архив. «Потерянных» больше нет (владелец 16.11.2026) —
+ * бывший потерянный звонит своему агенту. Архив владелец не трогал: это та же
+ * закрытая карточка (он считает его корзиной), звонок по ней идёт в очередь.
+ */
+const CLOSED_STATUSES = new Set(["DEAL_CLOSED", "ARCHIVED"]);
 
 /**
  * Карточка звонящего в том виде, в каком её видит решение. Все поля читаются из
@@ -265,21 +270,10 @@ export function decideRoute(candidate: RouteCandidate): RouteOutcome {
    */
   if (!client.acceptedAt) return { routed: false, reason: "lead_not_accepted" };
   /**
-   * Закрытые и потерянные не звонят своему бывшему агенту: сделка сдана, а LOST —
-   * настоящая потеря клиента (решение человека после показа, см.
-   * lib/clientTransfer.ts, либо ручная правка), а не техническая пауза. Такой
-   * клиент распределяется заново, и решать это должен человек в очереди.
-   *
-   * UNRESPONSIVE и COLD здесь НЕ перечислены нарочно: «клиент остыл» и «до клиента
-   * не дозвонились» — это ровно тот случай, когда его собственный звонок надо
-   * отдать агенту в первую очередь.
-   *
-   * WorkStatus.INACTIVE (владелец 20.08.2026, отмена прежнего правила от
-   * 11.08.2026) — ТОЖЕ переводим агенту напрямую. «Неактивный» — это освобождённый
-   * слот в лимите (агент сам отложил клиента, или лид, который никто не подхватил
-   * до первого разговора, см. leads.ts), а не решение расстаться: карточка при
-   * этом остаётся закреплена за тем же агентом, и его собственный звонок — именно
-   * то обращение, ради которого слот и держали за ним.
+   * Закрытая сделка или Архив — звонок в очередь: решать, кто теперь
+   * разговаривает с клиентом, должен человек в очереди. Остальные клиенты
+   * (включая бывших «Потерянных» и «Неактивных» — этих состояний нет с
+   * 16.11.2026) звонят своему агенту.
    */
   if (CLOSED_STATUSES.has(client.status)) return { routed: false, reason: "client_closed" };
 
@@ -529,6 +523,13 @@ export interface RouteRequest {
   recordId?: string;
   /** Снял ли оператор трубку ПРЯМО СЕЙЧАС. Спрашивается дважды: до и после станции. */
   isAnswered: () => boolean;
+  /**
+   * Клиент из Корзины перезванивает тому, кто недавно звонил ему для «разбора удалённого» (владелец
+   * 16.11.2026). С 17.11.2026 (владелец: «только РОПу, не надо никого переводить на оператора») — как свой
+   * клиент своему агенту: ждём занятого, не взял — мобильный, потом автоответчик и пуш ему. Карточка не оживает. Решение о праве и о живом владельце номера принято до этого
+   * (incomingCalls.setupIncomingCall).
+   */
+  archiveReviewerId?: string;
 }
 
 /**
@@ -540,7 +541,8 @@ export async function routeIncomingToAssignedAgent(request: RouteRequest): Promi
     if (!rememberAttempt(request.channelId)) return { routed: false, reason: "already_answered" };
     let outcome = await attemptRoute(request);
     // Причина «может пройти сама» и звонок ещё жив — не сдаёмся сразу: клиент
-    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026).
+    // ждёт своего агента, а не первого, кто ответит (владелец 04.09.2026). Перезвон из Корзины — так же:
+    // клиент ждёт РОПа, который ему звонил, оператору не уходит (владелец 17.11.2026).
     if (!outcome.routed && RETRYABLE_REASONS.has(outcome.reason) && !request.isAnswered()) {
       outcome = await waitAndRetry(request, outcome);
     }
@@ -567,7 +569,9 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
   if (!request.channelName) return { routed: false, reason: "redirect_failed" };
   if (request.isAnswered()) return { routed: false, reason: "already_answered" };
 
-  let { matchCount, client } = await loadRouteClient(request.phone, request.clientId);
+  let { matchCount, client } = request.archiveReviewerId
+    ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+    : await loadRouteClient(request.phone, request.clientId);
 
   /**
    * СНЯТИЕ LOST ВХОДЯЩИМ ЗВОНКОМ (аудит 02.09.2026, баг B3). Клиент в статусе
@@ -596,27 +600,6 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
       accept: !!previousAgentId,
     });
     if (reactivated.ok) {
-      const refreshed = await loadRouteClient(request.phone, request.clientId);
-      matchCount = refreshed.matchCount;
-      client = refreshed.client;
-    }
-  }
-
-  /**
-   * РАННИЙ ВОЗВРАТ ИЗ «ОТЛОЖЕННЫХ» ВХОДЯЩИМ ЗВОНКОМ (задача G, план 03-04.09.2026).
-   * decideRoute сам по себе НЕ проверяет workStatus (только status/acceptedAt/
-   * assignedAgent — см. документацию функции выше), поэтому звонок отложенного
-   * клиента и без этой правки ушёл бы напрямую тому же агенту. Но
-   * Client.workStatus остался бы DEFERRED навсегда (слот в лимите не
-   * освобождался бы обратно, а крон позже прислал бы избыточный «возврат по
-   * таймеру») — снимаем отсрочку здесь же, тем же принципом раннего возврата,
-   * что и у сообщений (services/leads/intake.ts), той же функцией
-   * (lib/deferredClients.ts::returnDeferredClientEarly). Агент не меняется —
-   * lastAgentId/requestedAgentStillAvailable здесь не нужны, карточка и так его.
-   */
-  if (client && !client.deletedAt && client.workStatus === "DEFERRED" && request.clientId) {
-    const returned = await returnDeferredClientEarly(request.clientId);
-    if (returned.ok) {
       const refreshed = await loadRouteClient(request.phone, request.clientId);
       matchCount = refreshed.matchCount;
       client = refreshed.client;
@@ -680,6 +663,7 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     viaMobile: decision.viaMobile,
     // Свой клиент: полное routeRingSeconds при любом режиме консультанта
     // (владелец 11.10.2026; с 02.10 при консультанте было не дольше его ожидания).
+    // Перезвон из Корзины — то же полное время (владелец 17.11.2026: «только РОПу»).
     ringSeconds: settings.routeRingSeconds,
     // Решение владельца 04.09.2026: автоответчик нигде не нужен — не позвонил
     // агент за routeRingSeconds, звонок просто кладётся, без записи и без
@@ -692,6 +676,8 @@ async function attemptRoute(request: RouteRequest): Promise<RouteOutcome> {
     // 11.10.2026 владелец: «робот НЕ отвечает клиентам агента» — "voicemail" ВСЕГДА,
     // и диалплан в этой ветке консультанта больше не зовёт (ни при каком aimode).
     // "ai" — только у перевода, который сделал сам консультант (liveVoiceTransfer.ts).
+    // Перезвон из Корзины: тоже автоответчик, НЕ очередь операторов (владелец 17.11.2026: «только РОПу,
+    // не надо никого переводить на оператора»); пуш о пропущенном получает звонивший (notifyMissed).
     fallback: "voicemail",
     isAnswered: request.isAnswered,
     whisperFile,
@@ -888,6 +874,43 @@ export async function continueStasisChannelToAgent(input: {
     return false;
   }
   return true;
+}
+
+/**
+ * Перезвон клиента из Корзины тому, кто звонил ему для разбора: «карточка» для решения о переводе — сам
+ * звонивший как ответственный. Дальше те же проверки (активен, не заморожен, есть аппарат, не занят);
+ * карточка в базе не меняется.
+ */
+async function loadArchiveReviewerRoute(
+  agentId: string
+): Promise<{ matchCount: number; client: RouteClient | null }> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: {
+      id: true,
+      isActive: true,
+      frozenAt: true,
+      sipExtension: true,
+      phone: true,
+      whisperLanguage: true,
+      role: true,
+      permissions: true,
+    },
+  });
+  // Право проверяется ещё раз прямо сейчас (в начале звонка оно уже сверялось, но между ними прошли секунды,
+  // а в «клиента нет» путь ведёт к оператору, как у незнакомого номера).
+  if (!agent || !agentMayCallArchived(agent)) return { matchCount: 0, client: null };
+  return {
+    matchCount: 1,
+    client: {
+      deletedAt: null,
+      status: "CONTACTED",
+      workStatus: "ACTIVE",
+      acceptedAt: new Date(),
+      lastAgentId: null,
+      assignedAgent: agent,
+    },
+  };
 }
 
 /**
@@ -1106,7 +1129,10 @@ export async function holdKnownClientAwayFromOperator(
 ): Promise<boolean> {
   if (OPERATOR_REASONS.has(reason)) return false;
   try {
-    const { client } = await loadRouteClient(request.phone, request.clientId);
+    // Перезвон из Корзины: «свой агент» — РОП, который звонил клиенту для разбора (владелец 17.11.2026).
+    const { client } = request.archiveReviewerId
+      ? await loadArchiveReviewerRoute(request.archiveReviewerId)
+      : await loadRouteClient(request.phone, request.clientId);
     const agent = client && !client.deletedAt ? client.assignedAgent : null;
     if (!agent) return false;
     if (request.isAnswered()) return true;

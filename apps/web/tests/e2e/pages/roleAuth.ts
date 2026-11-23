@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Browser, BrowserContext } from "@playwright/test";
+import type { Browser, BrowserContext, BrowserContextOptions } from "@playwright/test";
 import { request } from "@playwright/test";
+import { sessionStillValid } from "./sessionProbe";
 
 /**
  * Вход под конкретной ролью для ролевых проверок.
@@ -27,11 +28,16 @@ export const ROLE_PHONES = {
   MARKETING: "+992900000005",
   EDITOR: "+992900000006",
   SECURITY: "+992900000007",
+  SHAREHOLDER: "+992900000009",
+  // РОП (главные руководителей, 20.11.2026): учётка сида +992900000010.
+  HEAD_OF_SALES: "+992900000010",
 } as const;
 
 export type RoleName = keyof typeof ROLE_PHONES;
 
 const API = process.env.E2E_API_URL ?? "http://localhost:4000";
+/** Адрес приложения — тот же, что `baseURL` в playwright.config.ts. */
+const WEB = process.env.E2E_BASE_URL ?? (process.env.E2E_PROD === "1" ? "http://localhost:4173" : "http://localhost:5173");
 
 function stateFile(role: RoleName) {
   return path.join("playwright/.auth", `role-${role.toLowerCase()}.json`);
@@ -49,7 +55,14 @@ async function loginAndSave(role: RoleName) {
   // ним за тот же лимит устройств и валит весь прогон массовым 401.
   const headers = { "X-Device-Id": `e2e-role-${role.toLowerCase()}` };
   // Вход по коду: стенд запущен с LOGIN_CODE_DEV_ECHO=1 и возвращает devCode.
-  const sent = await api.post("/api/v1/auth/login/code", { data: { phone: ROLE_PHONES[role] }, headers });
+  let sent = await api.post("/api/v1/auth/login/code", { data: { phone: ROLE_PHONES[role] }, headers });
+  // Параллельный тест той же роли мог только что попросить код: сервер не даёт второй
+  // раньше минуты (LOGIN_SMS_RESEND_MS) — ждём отсчёт и пробуем снова.
+  for (let i = 0; i < 2 && sent.status() === 429; i++) {
+    const wait = Number(((await sent.json().catch(() => ({}))) as { resendAfterSec?: number }).resendAfterSec ?? 60);
+    await new Promise((resolve) => setTimeout(resolve, (wait + 1) * 1000));
+    sent = await api.post("/api/v1/auth/login/code", { data: { phone: ROLE_PHONES[role] }, headers });
+  }
   if (!sent.ok()) {
     throw new Error(`Код входа для роли ${role} не выдан: ${sent.status()} ${await sent.text()}`);
   }
@@ -59,27 +72,42 @@ async function loginAndSave(role: RoleName) {
   if (!res.ok()) {
     throw new Error(`Вход под ролью ${role} не удался: ${res.status()} ${await res.text()}`);
   }
-  await api.storageState({ path: file });
+  // Признак сессии в localStorage — тот же, что кладёт приложение после входа
+  // (store/auth.ts, ключ royal-home-auth): без него экран не пробует refresh-cookie
+  // и сразу уводит на /login (20.11.2026, перенос входа главной ролей сюда).
+  const { agent } = (await res.json()) as { agent: unknown };
+  const state = await api.storageState();
+  state.origins = [
+    ...state.origins.filter((o) => o.origin !== new URL(WEB).origin),
+    {
+      origin: new URL(WEB).origin,
+      localStorage: [
+        { name: "royal-home-auth", value: JSON.stringify({ state: { agent, hasSession: true }, version: 1 }) },
+        { name: "rh:greeting:skip", value: "1" },
+        { name: "rh:passkey-offer-dismissed", value: "1" },
+      ],
+    },
+  ];
+  fs.writeFileSync(file, JSON.stringify(state));
   await api.dispose();
 }
 
 /** Контекст браузера, уже вошедший под нужной ролью. Закрывать вызывающему. */
-export async function contextForRole(browser: Browser, role: RoleName): Promise<BrowserContext> {
+export async function contextForRole(browser: Browser, role: RoleName, options: BrowserContextOptions = {}): Promise<BrowserContext> {
   const file = stateFile(role);
   if (!fs.existsSync(file)) await loginAndSave(role);
-  let context = await browser.newContext({ storageState: file });
+  let context = await browser.newContext({ ...options, storageState: file });
 
   // Состояние могло протухнуть (сменили пароль, вытеснила сессия другого
-  // устройства). Проверяем делом, а не по возрасту файла: открываем главную и
-  // смотрим, не увело ли на вход. Увело — логинимся заново и пробуем ещё раз.
-  const probe = await context.newPage();
-  await probe.goto("/");
-  const dead = /\/login/.test(probe.url());
-  await probe.close();
+  // устройства). Проверяем делом, а не по возрасту файла: ответом /auth/refresh,
+  // а не адресом сразу после загрузки (pages/sessionProbe.ts — с вчерашним
+  // role-agent.json прежняя проверка пропускала мёртвую сессию, 20.11.2026).
+  // Живая — сохраняем перевыпущенную refresh-cookie (та же сессия, новый срок) обратно в файл.
+  const dead = !(await sessionStillValid(context, { onValid: () => context.storageState({ path: file }).then(() => undefined) }));
   if (dead) {
     await context.close();
     await loginAndSave(role);
-    context = await browser.newContext({ storageState: file });
+    context = await browser.newContext({ ...options, storageState: file });
   }
   return context;
 }

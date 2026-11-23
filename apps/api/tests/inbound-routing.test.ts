@@ -227,7 +227,7 @@ async function seedCall(channelId: string): Promise<string> {
 
 async function route(
   channelId: string,
-  options: { answered?: boolean; clientId?: string | null } = {}
+  options: { answered?: boolean; clientId?: string | null; archiveReviewerId?: string } = {}
 ): Promise<{ decision: string | null; routedToId: string | null }> {
   const recordId = await seedCall(channelId);
   await routeIncomingToAssignedAgent({
@@ -236,6 +236,7 @@ async function route(
     phone: clientPhone,
     clientId: options.clientId === null ? undefined : (options.clientId ?? clientId),
     recordId,
+    archiveReviewerId: options.archiveReviewerId,
     isAnswered: () => !!options.answered,
   });
   const row = await prisma.incomingCall.findUnique({
@@ -290,7 +291,8 @@ describe("решение о переводе — чистая функция", (
     ["нет ответственного", { ...base, client: candidateClient({ assignedAgent: null }) }, "no_agent"],
     ["лид не принят агентом", { ...base, client: candidateClient({ acceptedAt: null }) }, "lead_not_accepted"],
     ["сделка закрыта", { ...base, client: candidateClient({ status: "DEAL_CLOSED" }) }, "client_closed"],
-    ["клиент потерян", { ...base, client: candidateClient({ status: "LOST" }) }, "client_closed"],
+    // Архив владелец не трогал (16.11.2026) — это закрытая карточка, звонок в очередь.
+    ["карточка в Архиве", { ...base, client: candidateClient({ status: "ARCHIVED" }) }, "client_closed"],
     [
       "ответственный отключён",
       { ...base, client: candidateClient({ assignedAgent: { id: agentA, isActive: false, sipExtension: ext.first, phone: null } }) },
@@ -407,6 +409,82 @@ describe("перевод входящего на ответственного", 
     const result = await route(`ch-deleted-${runId}`);
     expect(result.decision).toBe("client_deleted");
     expect(redirects()).toEqual([]);
+  });
+
+  // ПЕРЕЗВОН ИЗ КОРЗИНЫ (владелец 17.11.2026): звонивший РОП берёт перезвон клиента, но коротко и без парковки.
+  const ARCHIVE_GRANTS = { granted: ["clients.callArchived", "archive.view", "clients.viewAll"], revoked: [] };
+  async function grantArchiveCalls(agentId: string, on = true): Promise<void> {
+    await prisma.agent.update({ where: { id: agentId }, data: { permissions: on ? ARCHIVE_GRANTS : { granted: [], revoked: [] } } });
+  }
+
+  describe("перезвон клиента из Корзины", () => {
+    beforeEach(async () => {
+      await prisma.client.update({ where: { id: clientId }, data: { deletedAt: new Date() } });
+      await grantArchiveCalls(agentB);
+      setEndpoints([{ technology: "SIP", resource: ext.second, state: "online" }]);
+    });
+    afterEach(async () => {
+      await grantArchiveCalls(agentB, false);
+      await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: null } });
+    });
+
+    it("уходит звонившему: полное время перевода и автоответчик, НЕ очередь операторов (владелец 17.11), карточка не оживает", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 150 } });
+      const result = await route(`ch-archive-cb-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(result).toEqual({ decision: "routed", routedToId: agentB });
+      expect(varSent("RH_ROUTE_TARGET")).toBe(ext.second);
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("150");
+      expect(varSent("RH_ROUTE_FALLBACK")).toBe("voicemail");
+      const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+      expect(card.deletedAt).not.toBeNull();
+      expect(card.assignedAgentId).toBe(agentA);
+    });
+
+    it("«без ограничения» (0) — как у своего агента: звонит, пока клиент не положит трубку", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 0 } });
+      await route(`ch-archive-cb0-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("0");
+    });
+
+    it("настройка короче 15 с (10) уважается", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 10 } });
+      await route(`ch-archive-cb10-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(varSent("RH_ROUTE_TIMEOUT")).toBe("10");
+    });
+
+    it("звонивший заморожен — звонок не переводится (как незнакомый номер), без ожидания", async () => {
+      await prisma.agent.update({ where: { id: agentB }, data: { frozenAt: new Date() } });
+      const started = Date.now();
+      const result = await route(`ch-archive-cb2-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(result.decision).toBe("no_client");
+      expect(redirects()).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(1500);
+    });
+
+    it("у звонившего сняли право звонить из Корзины — не переводится", async () => {
+      await grantArchiveCalls(agentB, false);
+      const result = await route(`ch-archive-cb-np-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(result.decision).toBe("no_client");
+      expect(redirects()).toEqual([]);
+    });
+
+    it("звонивший занят — клиент ждёт ЕГО в зале ожидания (как свой агент), освободился — перевод ему", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteRingSeconds: 2 } });
+      trackCall({ channelId: `archive-busy-${runId}`, agentId: agentB, clientId, clientShortId: 1, clientName: "Другой", dialingTo: agentMobile });
+      const donePromise = route(`ch-archive-cb3-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      setTimeout(() => resetCalls(), 200);
+      const result = await donePromise;
+      expect(result).toEqual({ decision: "routed", routedToId: agentB });
+      expect(redirects().some((r) => r.fields.Context === WAIT_CONTEXT)).toBe(true);
+    });
+
+    it("аппарат звонившего не на связи — оператору не отдаём: ждём его, как своего агента", async () => {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { asteriskAgentDialMode: "extension", incomingRouteRingSeconds: 1 } });
+      setEndpoints([{ technology: "SIP", resource: ext.second, state: "offline" }]);
+      const result = await route(`ch-archive-cb4-${runId}`, { clientId: null, archiveReviewerId: agentB });
+      expect(result.decision).toBe("agent_offline");
+      expect(redirects().some((r) => r.fields.Context === WAIT_CONTEXT)).toBe(true);
+    });
   });
 
   it("незнакомый номер — звонок остаётся в очереди", async () => {

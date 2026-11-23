@@ -2,7 +2,7 @@ import { dushanbeNextOccurrence, isWithinDushanbeWindow } from "../../lib/dushan
 
 /**
  * НИЖНЯЯ ГРАНИЦА ОКНА КАНДИДАТОВ ДЛЯ АВТО-КРУГОВ ЛИДА (найдено на проде 17.09.2026:
- * `penalizeMissedFirstCalls` и `reassignStaleLeads` выбирали кандидатов только по
+ * `handleMissedFirstCalls` и `reassignStaleLeads` выбирали кандидатов только по
  * верхней границе — «остыл раньше такого-то момента» — без нижней. Ручной возврат
  * старой карточки в работу (`revert-orphan-sellers`, `revert-carousel`,
  * `release-for-morning-wave`, вечер 16.09) переставляет `acceptedAt`/`assignedAt` на

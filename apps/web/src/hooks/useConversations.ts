@@ -2,12 +2,16 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ContactProfileView } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { sendToClient } from "../lib/clientSend";
+import { useSendIntent } from "./useSendIntent";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { keepWhilePaging } from "../lib/keepWhilePaging";
 import { ApiError } from "../lib/apiError";
-import { uploadConversationMedia } from "../lib/mediaUpload";
+import { cancelConversationMediaUpload, uploadConversationMedia } from "../lib/mediaUpload";
+import { UploadCancelledError } from "../lib/chunkedUpload";
 import { useMediaUploadsStore, type PendingMediaUpload } from "../store/mediaUploads";
 import type { ConversationMessage, Paginated } from "../types";
+import { audioFileNameFor } from "../lib/audioRecording";
 
 /**
  * Отказ отправки из-за закрытого 24-часового окна Meta (решение владельца
@@ -258,9 +262,11 @@ export function useAiConversationCost(conversationId: string | null, enabled = t
 
 export function useReplyToConversation(id: string | null) {
   const queryClient = useQueryClient();
+  // Ключ повтора: обрыв связи и второе нажатие не дают клиенту два сообщения (lib/clientSend.ts).
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: ({ text, pausedUntil }: { text: string; pausedUntil?: string }) =>
-      api(`/conversations/${id}/reply`, { method: "POST", body: { text, pausedUntil } }),
+      sendToClient(intent, `/conversations/${id}/reply`, { text, pausedUntil }),
     // silent: отправка сообщения клиенту — не сохранение, а тост «Сохранено» именно
     // это и утверждал. Успех виден сам: реплика появляется в переписке. Отказ обе
     // формы — Messages.tsx и mobile/MobileChatView.tsx — печатают строкой под
@@ -306,14 +312,12 @@ export function useReplyToConversation(id: string | null) {
  *  multipart вместо JSON: файл, а не строка. */
 export function useSendVoiceMessage(id: string | null) {
   const queryClient = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
-      form.append("audio", blob, "voice.webm");
-      return api<{ ok: boolean; pausedUntil: string }>(`/conversations/${id}/reply-voice`, {
-        method: "POST",
-        body: form,
-      });
+      form.append("audio", blob, audioFileNameFor(blob.type));
+      return sendToClient<{ ok: boolean; pausedUntil: string }>(intent, `/conversations/${id}/reply-voice`, form);
     },
     // silent: то же, что в useReplyToConversation — отправка, а не сохранение.
     // Отказ VoiceRecordButton отдаёт форме через onError, и обе формы показывают
@@ -329,15 +333,13 @@ export function useSendVoiceMessage(id: string | null) {
  *  multipart вместо JSON, только поле файла и подпись другие. */
 export function useSendMediaMessage(id: string | null) {
   const queryClient = useQueryClient();
+  const intent = useSendIntent();
   return useMutation({
     mutationFn: ({ file, caption }: { file: File; caption?: string }) => {
       const form = new FormData();
       form.append("media", file, file.name);
       if (caption) form.append("caption", caption);
-      return api<{ ok: boolean; pausedUntil: string }>(`/conversations/${id}/reply-media`, {
-        method: "POST",
-        body: form,
-      });
+      return sendToClient<{ ok: boolean; pausedUntil: string }>(intent, `/conversations/${id}/reply-media`, form);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -366,14 +368,22 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const run = useCallback(
     async (conversationId: string, upload: PendingMediaUpload) => {
       try {
-        await uploadConversationMedia(conversationId, upload.file, upload.caption, (percent) =>
-          setProgress(conversationId, upload.localId, percent)
+        // localId живёт с пузырём до успеха: «Повторить» идёт с тем же ключом.
+        await uploadConversationMedia(
+          conversationId,
+          upload.file,
+          upload.caption,
+          (percent) => setProgress(conversationId, upload.localId, percent),
+          `media:${upload.localId}`,
+          upload.localId
         );
         // Успех — сама реплика придёт с сервера через инвалидацию, локальный
         // пузырь-заглушку убираем, чтобы не показать её дважды.
         remove(conversationId, upload.localId);
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
       } catch (err) {
+        // Отменил человек — пузыря уже нет, ошибку показывать некуда и незачем.
+        if (err instanceof UploadCancelledError) return;
         setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось отправить");
       }
     },
@@ -411,6 +421,9 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const cancel = useCallback(
     (localId: string) => {
       if (!id) return;
+      // Сначала оборвать отправку: оставшиеся части не уходят, сборку не зовём —
+      // иначе пузырь исчезал, а файл всё равно доходил клиенту (ревью #254).
+      cancelConversationMediaUpload(localId);
       remove(id, localId);
     },
     [id, remove]
@@ -419,10 +432,16 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   return { start, retry, cancel };
 }
 
-export function useResumeConversationBot(id: string | null) {
+/** Одна переписка или все каналы общего чата клиента (новый вид, ревью #332):
+ *  руководитель ставит/снимает паузу разом во всех каналах разговора. */
+function botControlIds(id: string | readonly string[] | null): string[] {
+  return (Array.isArray(id) ? [...id] : id ? [id as string] : []).filter(Boolean);
+}
+
+export function useResumeConversationBot(id: string | readonly string[] | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api(`/conversations/${id}/resume`, { method: "POST" }),
+    mutationFn: () => Promise.all(botControlIds(id).map((one) => api(`/conversations/${one}/resume`, { method: "POST" }))),
     // Не silent, а свой текст: возврат диалога боту ничего не «сохраняет», но и
     // своей обратной связи у кнопки нет — ни Messages.tsx, ни MobileChatView не
     // рисуют отказ этой мутации. Заглушить её значило бы оставить оператора вовсе
@@ -438,10 +457,10 @@ export function useResumeConversationBot(id: string | null) {
 }
 
 /** Пауза без отправки сообщения — кнопки-пресеты в шапке инбокса. */
-export function usePauseConversationBot(id: string | null) {
+export function usePauseConversationBot(id: string | readonly string[] | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (pausedUntil: string) => api(`/conversations/${id}/pause`, { method: "POST", body: { pausedUntil } }),
+    mutationFn: (pausedUntil: string) => Promise.all(botControlIds(id).map((one) => api(`/conversations/${one}/pause`, { method: "POST", body: { pausedUntil } }))),
     // См. useResumeConversationBot: своей обратной связи у кнопок-пресетов нет,
     // поэтому тост оставляем — правим только слово.
     meta: { successText: "Бот на паузе — отвечаете вы" },

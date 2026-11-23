@@ -7,12 +7,20 @@ import { liveVoiceErrorForPerson } from "../../lib/telephony/liveVoiceUserError.
 import { markAgentAttempt } from "../../lib/clientWorkStalled.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { clientMessageSchema, robotCallStopUpdateSchema, type RobotCallStopState } from "@royal-home/shared";
+import {
+  clientMessageSchema,
+  FOREIGN_PHONE_CALL_ERROR,
+  isForeignPhone,
+  robotCallStopUpdateSchema,
+  stationDialRefusal,
+  type RobotCallStopState,
+} from "@royal-home/shared";
 import { maskClientPhone } from "../../lib/clientPhone.js";
 import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
 import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { ARCHIVE_REVIEW_START_NOTE, canCallArchivedClient } from "../../lib/archiveReviewCall.js";
 import { acceptLead } from "../../lib/leadAccept.js";
 import {
   agentSender,
@@ -79,7 +87,7 @@ communicationsRouter.post("/:id/message", requireAuth, async (req, res) => {
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   // Диалог, выбранный вкладкой канала в карточке; без него — самый живой. Чужой
@@ -128,7 +136,7 @@ communicationsRouter.post("/:id/message-voice", requireAuth, anyParams(voiceMess
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   const target = await resolveSendTarget(client.id, conversationId.data);
@@ -181,11 +189,26 @@ export async function originateCallToClient(
      *  и что его в принципе можно набрать (isDialableTajikNumber) — сюда
      *  приходит уже проверенным. */
     phoneOverride?: string;
+    /** Разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts): не работа агента. */
+    archiveReview?: boolean;
   }
 ): Promise<
   | { ok: true; channelId: string | undefined; dialing: { to: string; mode: "mobile" | "extension" } }
-  | { ok: false; status: number; error: string }
+  | { ok: false; status: number; error: string; code?: "not_dialable" }
 > {
+  /**
+   * ИНОСТРАННЫЙ НОМЕР — ОТКАЗ ДО ЗВОНКА, А НЕ «КЛИЕНТ НЕ ОТВЕТИЛ» (17.11.2026).
+   * Станция агентства набирает только Таджикистан: номер `+7…` уходил транку без
+   * международного выхода, оператор сбрасывал его за 0 секунд, а карточка получала
+   * исход «не ответил», задачу «перезвонить» и счёт недозвонов. Живые случаи —
+   * ПР-000835 и ПК-000832 (Instagram, российские номера). Агенту — понятная причина
+   * и что делать вместо звонка; запись в хронологию и попытка не заводятся.
+   */
+  const dialTarget = options?.phoneOverride ?? client.phone;
+  if (isForeignPhone(dialTarget)) {
+    return { ok: false, status: 422, error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" };
+  }
+
   const agent = await prisma.agent.findUnique({
     where: { id: agentId },
     select: { sipExtension: true, phone: true, whisperLanguage: true, fullName: true },
@@ -272,6 +295,7 @@ export async function originateCallToClient(
       whisper: whisper ?? undefined,
     });
     if (!result.ok) {
+      if (result.notDialable) return { ok: false, status: 422, error: result.error ?? FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" };
       return { ok: false, status: 502, error: result.error ?? "Не удалось совершить звонок" };
     }
     /**
@@ -285,7 +309,10 @@ export async function originateCallToClient(
       clientId: client.id,
       actor: { kind: "agent", agentId },
       type: "CALL",
-      notes: options?.continuesInteractionId
+      archiveReview: options?.archiveReview === true,
+      notes: options?.archiveReview
+        ? ARCHIVE_REVIEW_START_NOTE
+        : options?.continuesInteractionId
         ? "Звонок продолжен через мобильный — плохая связь в браузере"
         : options?.phoneOverride
           ? `Звонок инициирован из CRM на дополнительный номер (${options.phoneOverride})`
@@ -311,6 +338,7 @@ export async function originateCallToClient(
         // а не с полем карточки — при звонке на переопределённый номер это разные
         // строки, и сравнение с client.phone не опознало бы ответ клиента вовсе.
         clientPhone: dialedPhone,
+        archiveReview: options?.archiveReview === true,
       });
     }
 
@@ -365,12 +393,16 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   // клиенту» (аудит 24.09.2026, №121): «видеть все» (служба безопасности) не
   // даёт звонить чужому клиенту, а звонок из Корзины бессмысленен — карточку
   // сначала восстанавливают.
-  {
+  // КЛИЕНТ В КОРЗИНЕ: руководство с правом «Звонить клиентам из Корзины» звонит для РАЗБОРА (16.11.2026,
+  // lib/archiveReviewCall.ts) — без восстановления карточки и без права писать в чужую карточку.
+  // Остальным по-прежнему «сначала восстановите».
+  const archiveReview = Boolean(client.deletedAt) && canCallArchivedClient({ can: (p) => can(req, p) });
+  if (!archiveReview) {
     const denied = foreignWriteDenied(req, client, scopeToOwnAgent(req));
     if (denied) return res.status(403).json({ error: denied });
   }
-  if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
-  const selection = resolveClientPhoneSelection(client, parsed.data);
+  if (client.deletedAt && !archiveReview) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
+  const selection = resolveClientPhoneSelection(client, parsed.data, can(req, "clients.viewPhone"));
   if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
   /**
@@ -410,7 +442,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
    * которая подождёт до конца разговора.
    */
   const ownAgentIdForAccept = scopeToOwnAgent(req);
-  if (ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
+  if (!archiveReview && ownAgentIdForAccept && !client.acceptedAt && client.kind !== "OTHER" && client.assignedAgentId === ownAgentIdForAccept) {
     await acceptLead({ clientId: client.id, agentId: ownAgentIdForAccept }).catch((err) =>
       console.error("[leadAccept] автопринятие по звонку:", err)
     );
@@ -419,7 +451,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
   /**
    * ЗАПАСНОЙ НОМЕР ПРИХОДИТ МАСКОЙ — И ЭТО НЕ ПОВОД НЕ ЗВОНИТЬ (владелец 30.08.2026).
    *
-   * Агенту без права `clients.viewPhone` карточка отдаёт `+992•••••57` вместо цифр
+   * Агенту без права `clients.viewPhone` карточка отдаёт `+9929300••456` вместо цифр
    * (presentClient). Кнопка «Позвонить» на ОСНОВНОЙ номер это переживала — сервер
    * берёт `client.phone` по clientId сам, — а вот кнопка на ЗАПАСНОЙ слала цифры
    * обратно, и они приходили сюда маской: проверка принадлежности не проходила,
@@ -445,13 +477,26 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Этот номер не принадлежит карточке клиента" });
     }
     if (!isDialableTajikNumber(requestedPhone)) {
-      return res.status(400).json({ error: "Номер не таджикский — станция не сможет его набрать" });
+      return res.status(400).json({ error: stationDialRefusal(requestedPhone), code: "not_dialable" });
     }
     // Совпал с основным — override не нужен, звоним обычным путём.
     if (requestedTail !== phoneTail(client.phone)) phoneOverride = requestedPhone;
   }
 
-  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride });
+  const result = await originateCallToClient(req.agent!.id, client, { phoneOverride, archiveReview });
+  // В журнал — только состоявшаяся команда станции: двойной клик и отказ «нет SIP» звонком не были.
+  if (archiveReview && (result.ok || result.status === 502)) {
+    // След в журнале действий: кто и кому из Корзины звонил (номер маской, хозяин карточки не меняется).
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(phoneOverride ?? client.phone),
+      ownerAgentId: client.assignedAgentId,
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) {
     /**
      * СТАНЦИЯ ОТКАЗАЛА — ЭТО ПОПЫТКА АГЕНТА, А НЕ ЕГО ВИНА (владелец 29.09.2026:
@@ -462,8 +507,10 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
      * (services/leads/firstCall.ts, collectFirstCallFacts): таймер на экране
      * гаснет, штрафа и передачи лида нет. Только своему клиенту — byAgentId.
      */
-    if (result.status === 502) await markAgentAttempt(client.id, new Date(), req.agent!.id);
-    return res.status(result.status).json({ error: result.error });
+    // Иностранный номер (422) — НЕ попытка: звонка не было, обязанность связаться
+    // закрывает сообщение клиенту из CRM, туда агента и отправляет текст отказа.
+    if (result.status === 502 && !archiveReview) await markAgentAttempt(client.id, new Date(), req.agent!.id);
+    return res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) });
   }
 
   // Куда пошёл вызов — агенту видно сразу. Первый живой звонок 07.08.2026 «пропал»
@@ -516,7 +563,7 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
   if (ownAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   let propertyDescription: string | null = null;
@@ -641,7 +688,7 @@ async function loadClientForRobotStop(req: Request, id: string, write: boolean) 
     const denied = foreignWriteDenied(req, client, ownAgentId);
     if (denied) return { ok: false as const, status: 403, error: denied };
     if (client.deletedAt) return { ok: false as const, status: 409, error: "Карточка в Корзине — сначала восстановите её" };
-    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите лид — до принятия карточка закрыта" };
+    if (ownAgentId && !client.acceptedAt) return { ok: false as const, status: 403, error: "Сначала примите заявку — до принятия карточка закрыта" };
   }
   return { ok: true as const, client };
 }
@@ -732,9 +779,18 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
   if (digits.replace(/\D/g, "").length < 5) {
     return res.status(400).json({ error: "Слишком короткий номер" });
   }
+  // Иностранный номер — отказ ДО поиска и создания карточки: иначе ручной набор
+  // заводил карточку «Исходящий ***84» под звонок, который станция не наберёт,
+  // и вешал на неё ложное «клиент не ответил» (17.11.2026).
+  if (isForeignPhone(digits)) {
+    return res.status(422).json({ error: FOREIGN_PHONE_CALL_ERROR, code: "not_dialable" });
+  }
 
   const existing = await findClientByPhoneDigits(digits);
   let client: { id: string; shortId: number; phone: string; fullName: string; assignedAgentId: string | null };
+  // Номер удалённого клиента: звонок идёт, как решил владелец 18.08.2026, но это не работа агента
+  // (lib/archiveReviewCall.ts): без счёта звонков, Royal Score, статусов и задач карточки.
+  let archiveReview = false;
 
   if (existing) {
     // В Корзине или нет — звоним в любом случае: номер настоящий, блокировать
@@ -746,8 +802,10 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     // к существующей записи, какой бы она ни была.
     const full = await prisma.client.findUniqueOrThrow({
       where: { id: existing.id },
-      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true },
+      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true, deletedAt: true },
     });
+    // Помечаем разбором только тех, кому он разрешён; остальным звонок идёт как раньше (решение 18.08.2026).
+    archiveReview = full.deletedAt !== null && canCallArchivedClient({ can: (p) => can(req, p) });
     if (!canAccessAssignedAgent(req, full.assignedAgentId)) {
       return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });
     }
@@ -795,7 +853,19 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     });
   }
 
-  const result = await originateCallToClient(req.agent!.id, client);
+  const result = await originateCallToClient(req.agent!.id, client, { archiveReview });
+  if (archiveReview && (result.ok || result.status === 502)) {
+    logAudit(req, "ARCHIVE_REVIEW_CALL", "Client", client.id, {
+      shortId: client.shortId,
+      fullName: client.fullName,
+      phone: maskClientPhone(client.phone),
+      ownerAgentId: client.assignedAgentId,
+      via: "dial",
+      ok: result.ok,
+      channelId: result.ok ? (result.channelId ?? null) : null,
+      error: result.ok ? null : result.error.slice(0, 300),
+    });
+  }
   if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   res.json({

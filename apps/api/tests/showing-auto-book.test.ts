@@ -14,8 +14,16 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText }));
 
+// Выключатель автоматики (19.11.2026): подмена только в этом файле, строку Settings тест не трогает.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 const { prisma } = await import("../src/db.js");
 const { analyzeCall, parseShowingAt } = await import("../src/ai/callAnalysis.js");
+const { loadQuestionDetails } = await import("../src/lib/showingQuestions.js");
 
 /**
  * ПОКАЗ НАЗНАЧАЕТСЯ САМ, НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026).
@@ -32,6 +40,10 @@ const runId = Date.now();
 let agentId: string;
 let districtId: string;
 let otherDistrictId: string;
+let offDistrictId: string;
+let legacyDistrictId: string;
+let provenDistrictId: string;
+let soldDistrictId: string;
 const clientIds: string[] = [];
 const propertyIds: string[] = [];
 const interactionIds: string[] = [];
@@ -101,16 +113,23 @@ beforeAll(async () => {
   ).id;
   districtId = (await prisma.district.create({ data: { name: `Тест-район-показ-${runId}` } })).id;
   otherDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-другой-${runId}` } })).id;
+  // Свой район для проверки выключателя: объект в общем районе ломал бы тест «дубль не создаётся» (нужен ровно один подходящий).
+  offDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-выкл-${runId}` } })).id;
+  // Свои районы у новых проверок (22.11.2026): в каждом — ровно тот подбор, который проверка ждёт.
+  legacyDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-прежний-${runId}` } })).id;
+  provenDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-доказан-${runId}` } })).id;
+  soldDistrictId = (await prisma.district.create({ data: { name: `Тест-район-показ-продан-${runId}` } })).id;
 });
 
 afterAll(async () => {
   await prisma.callAnalysis.deleteMany({ where: { interactionId: { in: interactionIds } } });
+  await prisma.showingQuestion.deleteMany({ where: { agentId } });
   await prisma.pendingSummary.deleteMany({ where: { agentId } });
   await prisma.interaction.deleteMany({ where: { OR: [{ agentId }, { clientId: { in: clientIds } }] } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
-  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId] } } });
+  await prisma.district.deleteMany({ where: { id: { in: [districtId, otherDistrictId, offDistrictId, legacyDistrictId, provenDistrictId, soldDistrictId] } } });
 });
 
 /** Локальное время Душанбе, гарантированно в пределах окна допустимых дат
@@ -121,28 +140,130 @@ function tomorrowLocal(callAt: Date): string {
 }
 
 describe("Показ по разговору — автоназначение при однозначности", () => {
-  it("ровно один подходящий объект — показ назначается сам, окна нет", async () => {
+  it("ровно один подходящий объект, но в разговоре он не доказан — показ сам не ставится, Шабнам спросит агента (22.11.2026)", async () => {
     const property = await makeProperty(districtId, "один");
     const client = await makeBuyer(districtId);
     const callAt = new Date();
     const interaction = await makeCallInteraction(client.id, callAt);
     mockShowingExtract(tomorrowLocal(callAt));
 
-    const result = await analyzeCall(interaction.id);
-    expect(result.ok).toBe(true);
+    expect((await analyzeCall(interaction.id)).ok).toBe(true);
 
-    const showing = await prisma.interaction.findFirst({
-      where: { clientId: client.id, type: "SHOWING" },
-    });
-    expect(showing).not.toBeNull();
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
+    const question = await prisma.showingQuestion.findUnique({ where: { dedupKey: `agreement:CALL:${interaction.id}` } });
+    expect(question?.kind).toBe("AGREEMENT");
+    expect(question?.propertyId).toBeNull();
+    expect(question?.proposedAt?.toISOString()).toBe(parseShowingAt(tomorrowLocal(callAt), callAt)!.toISOString());
+    // Объект из подбора — только кнопкой на выбор, не сам.
+    const details = await loadQuestionDetails(question!);
+    expect(details?.options.map((o) => o.id)).toContain(property.id);
+  });
+
+  it("рубильник «Шабнам переспрашивает» выключен — прежнее поведение: единственный подходящий объект ставится сам", async () => {
+    const property = await makeProperty(legacyDistrictId, "прежний");
+    const client = await makeBuyer(legacyDistrictId);
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    switchesOff.add("showingAgreementAskEnabled");
+    try {
+      expect((await analyzeCall(interaction.id)).ok).toBe(true);
+    } finally {
+      switchesOff.delete("showingAgreementAskEnabled");
+    }
+    const showing = await prisma.interaction.findFirst({ where: { clientId: client.id, type: "SHOWING" } });
     expect(showing?.propertyId).toBe(property.id);
     expect(showing?.agentId).toBe(agentId);
-
-    const window = await prisma.pendingSummary.findFirst({
-      where: { kind: "showing_book", subjectId: interaction.id },
-    });
-    expect(window).toBeNull();
+    expect(await prisma.showingQuestion.count({ where: { clientId: client.id } })).toBe(0);
     expect(sendPushToAgent).toHaveBeenCalled();
+  });
+
+  it("объект доказан (клиент пришёл по нему) — показ ставится на НЕГО, а не на единственный объект из подбора", async () => {
+    // В районе клиента подбор даёт один объект — «не тот»; клиент пришёл по объекту из другого района.
+    const wrong = await makeProperty(provenDistrictId, "из-подбора");
+    const proven = await makeProperty(otherDistrictId, "доказанный");
+    const client = await makeBuyer(provenDistrictId);
+    await prisma.client.update({ where: { id: client.id }, data: { matchedPropertyId: proven.id } });
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    expect((await analyzeCall(interaction.id)).ok).toBe(true);
+
+    const showings = await prisma.interaction.findMany({ where: { clientId: client.id, type: "SHOWING" } });
+    expect(showings).toHaveLength(1);
+    expect(showings[0].propertyId).toBe(proven.id);
+    expect(showings[0].propertyId).not.toBe(wrong.id);
+    expect(await prisma.showingQuestion.count({ where: { clientId: client.id } })).toBe(0);
+  });
+
+  it("доказанный объект уже продан — показ сам не ставится, агента спрашивают без объекта", async () => {
+    const sold = await makeProperty(soldDistrictId, "продан");
+    await prisma.property.update({ where: { id: sold.id }, data: { status: "SOLD" } });
+    const client = await makeBuyer(soldDistrictId);
+    await prisma.client.update({ where: { id: client.id }, data: { matchedPropertyId: sold.id } });
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    await analyzeCall(interaction.id);
+
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
+    const question = await prisma.showingQuestion.findUnique({ where: { dedupKey: `agreement:CALL:${interaction.id}` } });
+    expect(question?.propertyId).toBeNull();
+  });
+
+  it("время не названо, но цитата о показе есть в расшифровке — вопрос без времени; выдуманная цитата — ничего", async () => {
+    const client = await makeBuyer(soldDistrictId);
+    const callAt = new Date();
+    const first = await makeCallInteraction(client.id, callAt);
+    callAiText.mockResolvedValueOnce({
+      score: 60, summary: "Договорились съездить посмотреть", outcome: "WAITING_SHOWING",
+      showingAt: null, showingAgreementQuote: "Разговор о показе квартиры завтра вечером",
+    });
+    await analyzeCall(first.id);
+    const question = await prisma.showingQuestion.findUnique({ where: { dedupKey: `agreement:CALL:${first.id}` } });
+    expect(question?.proposedAt).toBeNull();
+    expect(question?.quote).toContain("показе квартиры");
+
+    const second = await makeCallInteraction(client.id, callAt);
+    callAiText.mockResolvedValueOnce({
+      score: 60, summary: "Договорились съездить посмотреть", outcome: "WAITING_SHOWING",
+      showingAt: null, showingAgreementQuote: "Этой фразы в разговоре не было вовсе",
+    });
+    await analyzeCall(second.id);
+    expect(await prisma.showingQuestion.findUnique({ where: { dedupKey: `agreement:CALL:${second.id}` } })).toBeNull();
+  });
+
+  it("выключатель «ИИ сам назначает показ по разговору агента»: выключен — показ по звонку не назначается (агента спрашивают)", async () => {
+    const proven = await makeProperty(offDistrictId, "выключатель");
+    const client = await makeBuyer(offDistrictId);
+    await prisma.client.update({ where: { id: client.id }, data: { matchedPropertyId: proven.id } });
+    const callAt = new Date();
+    const interaction = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+
+    switchesOff.add("aiAgentShowingAutoBookEnabled");
+    try {
+      const result = await analyzeCall(interaction.id);
+      // Остальной разбор звонка идёт как обычно.
+      expect(result.ok).toBe(true);
+    } finally {
+      switchesOff.delete("aiAgentShowingAutoBookEnabled");
+    }
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(0);
+    // Сам ИИ не ставит — но и договорённость не теряется: вопрос агенту с доказанным объектом.
+    const question = await prisma.showingQuestion.findUnique({ where: { dedupKey: `agreement:CALL:${interaction.id}` } });
+    expect(question?.propertyId).toBe(proven.id);
+
+    // Включён (умолчание) — тот же звонок с доказанным объектом назначает показ: без этого
+    // проверка выше проходила бы и без выключателя.
+    await prisma.showingQuestion.deleteMany({ where: { clientId: client.id } });
+    const second = await makeCallInteraction(client.id, callAt);
+    mockShowingExtract(tomorrowLocal(callAt));
+    expect((await analyzeCall(second.id)).ok).toBe(true);
+    expect(await prisma.interaction.count({ where: { clientId: client.id, type: "SHOWING" } })).toBe(1);
   });
 
   it("два подходящих объекта — решение остаётся агенту, показ сам не создаётся", async () => {

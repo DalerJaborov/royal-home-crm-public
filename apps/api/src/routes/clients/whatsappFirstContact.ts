@@ -50,7 +50,7 @@ async function loadWritableClient(req: Request, res: Response, clientId: string)
     return null;
   }
   if (ownAgentId && !client.acceptedAt) {
-    res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
     return null;
   }
   return client;

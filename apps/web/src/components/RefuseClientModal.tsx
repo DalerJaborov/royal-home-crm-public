@@ -63,7 +63,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
       return;
     }
     if (!reason) {
-      setError("Выберите причину, без неё передать лид нельзя");
+      setError("Выберите причину, без неё передать заявку нельзя");
       return;
     }
     // Инициатор решает, уйдёт карточка в службу безопасности или следующему агенту
@@ -176,7 +176,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
         <CommentWithVoice
           value={comment}
           onChange={setComment}
-          placeholder="Что именно произошло, если есть что добавить, увидит руководство в «Потерянных клиентах»"
+          placeholder="Что именно произошло, если есть что добавить, увидит руководство в хронологии карточки"
         />
         <VoiceNoteButton uploadUrl="/me/voice-notes" value={voiceNote} onChange={setVoiceNote} />
       </div>

@@ -1,3 +1,4 @@
+import { RuDateField } from "./look/fields/RuFields";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRetryKey } from "../hooks/useRetryKey";
 import { createPortal } from "react-dom";
@@ -655,7 +656,8 @@ export function PropertyFormModal({
       } else {
         // Карточка нового объекта: agent видит, что объект реально создан, и
         // может сразу дозагрузить/проверить фото на верном объекте.
-        navigate(`/properties/${saved.shortId}`);
+        // Заменой: форма создания — экран-маршрут, «Назад» из новой карточки не должен открывать её снова.
+        navigate(`/properties/${saved.shortId}`, { replace: true });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : isEdit ? "Не удалось сохранить объект" : "Не удалось создать объект");
@@ -1301,7 +1303,7 @@ export function PropertyFormModal({
                   {isEdit ? "Контакт владельца" : "Телефон продавца *"}
                 </span>
                 {isEdit && property?.ownerContactHidden ? (
-                  <span className="msg" style={{ marginTop: 0 }}>Номер скрыт. Поменять его может тот, кому он виден.</span>
+                  <span className="msg" style={{ marginTop: 0 }}>Номер видит и меняет только директор. Позвонить продавцу — кнопкой «Позвонить» в карточке объекта.</span>
                 ) : (
                   <PhoneInput
                     value={form.ownerContact}
@@ -1372,8 +1374,7 @@ export function PropertyFormModal({
 
           <div className="fld">
             <span className="lab">Дата принятия объекта</span>
-            <input
-              type="date"
+            <RuDateField
               value={form.listingAcceptedAt}
               onChange={(e) => set("listingAcceptedAt", e.target.value)}
             />
@@ -1383,7 +1384,7 @@ export function PropertyFormModal({
             <span className="msg" style={{ marginTop: 0 }}>
               {form.offSite
                 ? "Описание объекта формируется автоматически по параметрам выше, отдельно вводить не нужно. SEO-текст для сайта не нужен: объект на сайт не идёт."
-                : "Описание объекта и SEO-текст для сайта формируются автоматически по параметрам выше, отдельно вводить не нужно."}
+                : "Описание объекта и текст для поиска на сайте формируются автоматически по параметрам выше, отдельно вводить не нужно."}
             </span>
           </div>
 

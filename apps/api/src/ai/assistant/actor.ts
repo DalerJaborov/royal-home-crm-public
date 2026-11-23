@@ -67,6 +67,12 @@ export interface AssistantActor {
    * показывать нельзя: комиссия по своим сделкам, запись без кнопки.
    */
   hiddenTools?: ReadonlySet<string>;
+  /**
+   * Общая группа Telegram, из которой пришло ПРЯМОЕ обращение к помощнице (не пересылка, не
+   * автоответ): `registeredAt` — createdAt строки группы на момент хода, как у «помолчи» без модели.
+   * Нужна инструменту set_group_quiet; без неё он не объявляется и отказывает.
+   */
+  groupChat?: { chatId: string; registeredAt: number };
 }
 
 /** Актор помощника из прав сотрудника — тех же, что проверяет requireAuth. */
@@ -112,7 +118,7 @@ export function trashActorOf(actor: AssistantActor): TrashActor {
 }
 
 export const FOREIGN_CLIENT_SCOPE_MESSAGE = "Нет доступа: клиент закреплён за другим агентом";
-export const UNACCEPTED_LEAD_MESSAGE = "Сначала примите лид — до принятия карточка закрыта";
+export const UNACCEPTED_LEAD_MESSAGE = "Сначала примите заявку — до принятия карточка закрыта";
 
 /**
  * МОЖНО ЛИ ПОМОЩНИКУ ПИСАТЬ В ЭТУ КАРТОЧКУ ОТ ИМЕНИ АКТОРА — ровно то, что

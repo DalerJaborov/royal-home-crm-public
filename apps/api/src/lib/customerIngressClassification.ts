@@ -11,14 +11,17 @@ const normalizeText = (value: string) => value.replace(/\s+/g, " ").trim();
 export async function readRecoveryOwnIdentities(db: ReadDb) {
   const accounts = await db.$queryRaw<Array<{ id: string; channel: string; username: string | null; externalId: string; messagingId: string | null; extraExternalIds: string[] }>>`
     SELECT "id","channel","username","externalId","messagingId","extraExternalIds" FROM "MessengerAccount" ORDER BY "id" LIMIT 129`;
-  const settings = await db.$queryRaw<Array<{ pageId: string | null; waId: string | null }>>`
-    SELECT "metaPageId" AS "pageId","metaWaPhoneId" AS "waId" FROM "Settings" WHERE "id"='singleton'`;
-  const staff = await db.$queryRaw<Array<{ phone: string }>>`SELECT "phone" FROM "Agent" ORDER BY "id" LIMIT 513`;
+  const settings = await db.$queryRaw<Array<{ pageId: string | null; waId: string | null; reviewers: string[] | null }>>`
+    SELECT "metaPageId" AS "pageId","metaWaPhoneId" AS "waId","botReviewerPhones" AS "reviewers" FROM "Settings" WHERE "id"='singleton'`;
+  // Только действующие сотрудники (как lib/staffPhoneGuard.ts: уволенный вправе стать клиентом), и не проверяющие из
+  // Настроек — с ними бот говорит как с клиентом (владелец 20.11.2026).
+  const staff = await db.$queryRaw<Array<{ phone: string }>>`SELECT "phone" FROM "Agent" WHERE "isActive" ORDER BY "id" LIMIT 513`;
   if (accounts.length > 128 || staff.length > 512 || settings.length !== 1) throw new Error("Own identity registry unavailable");
   const ids = new Set(accounts.flatMap(row => [row.externalId, row.messagingId, ...row.extraExternalIds]).filter((value): value is string => !!value));
   for (const value of [settings[0].pageId, settings[0].waId]) if (value) ids.add(value);
   const usernames = new Set(accounts.map(row => row.username).filter((value): value is string => !!value).map(normalizeName));
-  const staffPhones = new Set(staff.map(row => row.phone.replace(/\D/g, "")).filter(Boolean));
+  const reviewerTails = new Set((settings[0]?.reviewers ?? []).map(phone => phone.replace(/\D/g, "").slice(-9)).filter(tail => tail.length === 9));
+  const staffPhones = new Set(staff.map(row => row.phone.replace(/\D/g, "")).filter(digits => !!digits && !reviewerTails.has(digits.slice(-9))));
   return { ids, usernames, staffPhones, instagramComplete: accounts.filter(row => row.channel === "INSTAGRAM").every(row => !!row.username?.trim()),
     whatsappAccountIds: accounts.filter(row => row.channel === "WHATSAPP").map(row => row.id), installedWhatsappId: settings[0].waId,
     hash: createHash("sha256").update(JSON.stringify({ accounts, settings, staff })).digest("hex") };

@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
 import { ChevronLeft, ChevronRight, Headphones, Mail, Phone } from "lucide-react";
-import { CLIENT_STATUS_LABELS, daysOffSentenceRu, formatClientCode, type ClientStatus } from "@royal-home/shared";
+import { formatClientCode, NO_CONTACT_TEXT } from "@royal-home/shared";
+import {
+  backState, callAttemptText, callHeadline, canPauseLeads, chatChip, deviceKindLabel, headerSubtitle, lastActionText, leadsPaused, nextTaskText, weekScoreTone,
+} from "../lib/agentCardText";
 import { dealStageText } from "../lib/dealStageText";
 import { useAgentLive, useAgentOverview, type AgentLive, type AgentOverview } from "../hooks/useAgentOverview";
 import {
@@ -15,6 +18,8 @@ import {
 } from "../hooks/useAgents";
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalAgentCard } from "../components/look/team/RoyalAgentCard";
 import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
@@ -78,109 +83,13 @@ function totalProblems(data: AgentOverview | undefined): number {
   return (
     data.violations.flaggedShowingCalls +
     p.overdueTasks.total +
-    p.stalledClients.total +
+    p.noContactClients.total +
     p.silentAfterShowing.total +
     p.refusedHighScore.total +
     p.endlessNegotiations.total +
     p.sellerPropertyMissing.total +
     (p.lossSeries ? 1 : 0)
   );
-}
-
-/** «с телефона»/«с компьютера» — сервер отдаёт `now.device` человекочитаемой
- *  строкой («Chrome · Windows», «Safari · iOS», см. apps/api/src/lib/device.ts),
- *  не литералом «MOBILE»/«DESKTOP»: различаем по ОС внутри строки. */
-function deviceKindLabel(device: string | null): string | null {
-  if (!device) return null;
-  return /ios|android/i.test(device) ? "с телефона" : "с компьютера";
-}
-
-/** Строка под именем в шапке: роль · онлайн/был(а) в сети · устройство ·
- *  отсутствие. Общая для ПК и телефона — блок 1 задания. */
-function headerSubtitle(roleLabel: string, live: AgentLive | undefined, member: TeamMember | undefined): string {
-  const parts = [roleLabel];
-  if (live) {
-    parts.push(
-      live.now.online
-        ? "в сети"
-        : live.now.lastSeenAt
-          ? `был(а) в сети ${relativeTime(live.now.lastSeenAt)}`
-          : "не в сети"
-    );
-    const device = deviceKindLabel(live.now.device);
-    if (device) parts.push(device);
-  }
-  if (member?.frozen) parts.push(absenceLabel(member));
-  else if (member && leadsPaused(member)) parts.push(`пауза лидов до ${dushanbeDateTime(member.leadsPausedUntil!)}`);
-  // Личные выходные (11.10.2026) — одной строкой и на ПК, и на телефоне (подзаголовок общий).
-  if (member?.weeklyDaysOff?.length) parts.push(daysOffSentenceRu(member.weeklyDaysOff));
-  return parts.join(" · ");
-}
-
-/** Действующая пауза приёма лидов (своя или от руководителя), 24.09.2026. */
-function leadsPaused(member: TeamMember): boolean {
-  return !!member.leadsPausedUntil && new Date(member.leadsPausedUntil).getTime() > Date.now();
-}
-
-/** Кнопку паузы видит руководитель у работающего агента: замороженному лиды и так не идут. */
-function canPauseLeads(member: TeamMember): boolean {
-  return member.role === "AGENT" && member.isActive && !member.frozen;
-}
-
-function elapsedLabel(fromIso: string | null): string {
-  if (!fromIso) return "";
-  const mins = Math.max(0, Math.round((Date.now() - new Date(fromIso).getTime()) / 60000));
-  return mins < 1 ? "меньше минуты" : `${mins} мин`;
-}
-
-/** Блок «Сейчас», строка звонка. Живой звонок — ИЗ ПАМЯТИ (`now.call`):
- *  `null` значит «не на звонке прямо сейчас через CRM», а не «звонков не
- *  было» — эту разницу нельзя стирать (см. задание, 2.4, «Честность обязательна»). */
-function callHeadline(call: AgentLive["now"]["call"]): { text: string; clientShortId: number | null } | null {
-  if (!call) return null;
-  const name = call.clientName ?? "клиентом";
-  const text = call.state === "talking" ? `Говорит с ${name} · ${elapsedLabel(call.answeredAt)}` : `Набирает ${name}`;
-  return { text, clientShortId: call.clientShortId };
-}
-
-function whenLabel(at: string): string {
-  return dushanbeDayKey(at) === dushanbeTodayKey() ? `сегодня в ${dushanbeTime(at)}` : dushanbeDateTime(at);
-}
-
-function nextTaskText(task: NonNullable<AgentLive["now"]["nextTask"]>): string {
-  const title = task.title ?? INTERACTION_TYPE_LABELS[task.type] ?? "задача";
-  return `Ближайшее: ${title} ${whenLabel(task.at)} — ${task.client.fullName}`;
-}
-
-function lastActionText(i: AgentOverview["activity"]["recentInteractions"][number]): string {
-  return `Последнее действие: ${INTERACTION_TYPE_LABELS[i.type] ?? i.type} · ${i.client.fullName} · ${relativeTime(i.createdAt)}`;
-}
-
-/** «Ждёт ответа»/«ответил бот»/ничего — чип строки переписки, блок 5. */
-function chatChip(lastFrom: "client" | "agent" | "bot"): { text: string; crit: boolean } | null {
-  if (lastFrom === "client") return { text: "ждёт ответа", crit: true };
-  if (lastFrom === "bot") return { text: "ответил бот", crit: false };
-  return null;
-}
-
-function callAttemptText(c: { callAttempt: string; durationSec: number | null }): string {
-  if (c.callAttempt === "TALKED") return `поговорили ${formatCallDuration(c.durationSec)}`;
-  if (c.callAttempt === "NO_ANSWER") return "клиент не ответил";
-  if (c.callAttempt === "AGENT_NO_PICKUP") return "сам не снял трубку";
-  if (c.callAttempt === "CANCELLED") return "звонок отменён";
-  return "";
-}
-
-function weekScoreTone(score: number): "ok" | "warn" | "crit" {
-  if (score >= 70) return "ok";
-  if (score >= 40) return "warn";
-  return "crit";
-}
-
-/** `state`, который несут ссылки на карточку клиента: «назад» возвращает
- *  СЮДА, на карточку сотрудника, а не в общий список (блок 8-10 задания). */
-function backState(id: string, fullName: string) {
-  return { from: `/team/${id}`, fromLabel: fullName };
 }
 
 /** Карточку не запрашиваем: нет права team.viewFull или в пути нет настоящего id. */
@@ -200,6 +109,7 @@ export function TeamMemberDetail() {
   const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mobile = useMobileUx();
+  const royal = useRoyalLook();
   const can = useCan();
   // Все три ручки карточки (/overview, /live, /team) закрыты правом
   // team.viewFull: без него запрос заведомо даёт 403, поэтому не шлём его вовсе.
@@ -296,7 +206,54 @@ export function TeamMemberDetail() {
     statusNow,
   };
 
-  return mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />;
+  // «Новый вид»: одна карточка «одним взглядом» на все ширины (22.11.2026); прежний вид — ниже, как был.
+  if (royal) {
+    const nowText = callInfo?.text ?? (nextTask ? nextTaskText(nextTask) : lastInteraction ? lastActionText(lastInteraction) : null);
+    const revertNote = {
+      ok: revertResult
+        ? `Возвращено: клиентов ${revertResult.clients}, задач ${revertResult.tasks}, объектов ${revertResult.properties}${revertResult.reactivated ? " — учётная запись включена" : ""}${
+            revertResult.skippedClients > 0 || revertResult.skippedProperties > 0
+              ? `. Не тронуто: клиентов ${revertResult.skippedClients}, объектов ${revertResult.skippedProperties} — их уже передали дальше.`
+              : ""
+          }`
+        : null,
+      error: revertError,
+    };
+    return (
+      <RoyalAgentCard
+        id={id ?? ""}
+        errorText={overview.isError || blocked ? overviewErrorText(overview.error, blocked) : null}
+        loading={overview.isLoading}
+        onRetry={blocked ? undefined : () => void overview.refetch()}
+        data={data}
+        liveData={liveData}
+        liveFailed={live.isError}
+        member={member}
+        canManage={canManageAgents}
+        seesMoney={can("finance.view")}
+        nowText={nowText}
+        call={{
+          pending: callAgent.isPending,
+          error: callAgent.isError ? (callAgent.error instanceof Error ? callAgent.error.message : "Не удалось позвонить") : null,
+          run: () => callAgent.mutate(),
+        }}
+        pendingHandover={pendingHandover}
+        revertNote={revertNote}
+        onFreeze={() => setShowFreeze(true)}
+        onLeadPause={() => setShowLeadPause(true)}
+        onHandover={() => setShowHandover(true)}
+        onRevert={() => {
+          setRevertError(null);
+          setShowRevertConfirm(true);
+        }}
+        overlays={<CardDialogs {...shared} />}
+      />
+    );
+  }
+
+  return (
+    <>{mobile ? <TeamMemberDetailMobile {...shared} /> : <TeamMemberDetailDesktop {...shared} />}</>
+  );
 }
 
 interface SharedProps {
@@ -332,6 +289,41 @@ interface SharedProps {
   statusNow: { text: string; crit: boolean } | null;
 }
 
+/** Окна карточки: отпуск, пауза заявок, передача дел, «вернуть дела». Общие для старого и нового вида. */
+function CardDialogs(props: SharedProps) {
+  const {
+    member, showFreeze, setShowFreeze, showLeadPause, setShowLeadPause, showHandover, setShowHandover,
+    pendingHandover, showRevertConfirm, setShowRevertConfirm, revertHandover, setRevertResult, setRevertError,
+  } = props;
+  return (
+    <>
+    {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
+    {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
+    {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
+    {showRevertConfirm && member && pendingHandover && (
+      <ConfirmDialog
+        title="Вернуть дела"
+        description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
+        confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
+        danger={false}
+        confirmDisabled={revertHandover.isPending}
+        onCancel={() => setShowRevertConfirm(false)}
+        onConfirm={() => {
+          setRevertError(null);
+          revertHandover.mutate(pendingHandover.id, {
+            onSuccess: (data) => {
+              setRevertResult(data);
+              setShowRevertConfirm(false);
+            },
+            onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
+          });
+        }}
+      />
+    )}
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------------ */
 /* ПК                                                                        */
 /* ------------------------------------------------------------------------ */
@@ -344,9 +336,11 @@ function TeamMemberDetailDesktop(props: SharedProps) {
     revertError, setRevertError,
     lastInteraction, nextTask, statusNow,
   } = props;
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2 screens">
+    <div className={royal ? "rh2 screens ry-member" : "rh2 screens"} data-ry-section={royal ? "team" : undefined}>
       <div className="scr">
         {overview.isLoading && (
           <div className="card">
@@ -401,7 +395,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                     <>
                       {canPauseLeads(member) && (
                         <button className="pill ghost" type="button" onClick={() => setShowLeadPause(true)}>
-                          {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                          {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                         </button>
                       )}
                       <button className="pill ghost" type="button" onClick={() => setShowFreeze(true)}>
@@ -559,17 +553,17 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         ))}
                       </>
                     )}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <>
                         <p className="state" style={{ margin: "8px 0 0" }}>
-                          <b>Горячие клиенты без контакта</b> · {data.problems.stalledClients.total}
+                          <b>{NO_CONTACT_TEXT.title}</b> · {data.problems.noContactClients.total}
                         </p>
-                        {data.problems.stalledClients.items.map((c) => (
+                        {data.problems.noContactClients.items.map((c) => (
                           <Link key={c.id} className="row" to={`/clients/${c.shortId}`} state={backState(id, data.agent.fullName)}>
                             <div className="t">
                               <b>{c.fullName}</b>
                               <span>
-                                скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                                {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                               </span>
                             </div>
                           </Link>
@@ -709,9 +703,9 @@ function TeamMemberDetailDesktop(props: SharedProps) {
               ) : (
                 <div className="tiles">
                   <Link className="tile" to={`/clients?agentId=${id}`}>
-                    <span className="hd">Лидов в работе</span>
+                    <span className="hd">Заявок в работе</span>
                     <b>{liveData.leads.inWork}</b>
-                    <small>{liveData.leads.limit === 0 ? "без предела" : `из ${liveData.leads.limit}`}</small>
+                    {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
                   </Link>
                   <Link className="tile" to={`/calls?agentId=${id}`}>
                     <span className="hd">Звонков за неделю</span>
@@ -807,7 +801,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         </div>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className={royal ? "chip mute" : "chip warn"}>без договорённости</span>}
                       </Link>
                     ))}
                   </div>
@@ -815,44 +809,20 @@ function TeamMemberDetailDesktop(props: SharedProps) {
               </div>
             </div>
 
-            {/* 7. Лиды по этапам */}
-            <div className="sec">
-              <div className="sec-h">
-                <h2>Лиды по этапам</h2>
-              </div>
-              <div className="card">
-                {live.isError ? (
+            {/* 7. Не принятые заявки. «Лиды по этапам» (разбивка по статусам) сняты
+                16.11.2026 вместе со статусами-папками; число в работе — плитка выше. */}
+            {liveData && liveData.leads.unaccepted > 0 && (
+              <div className="sec">
+                <div className="card">
                   <p className="state err">
                     <span className="dot crit" />
-                    Не удалось загрузить портфель по этапам
+                    <Link className="lnk" to={`/clients?agentId=${id}`}>
+                      Выдано, но не принято: {liveData.leads.unaccepted}
+                    </Link>
                   </p>
-                ) : !liveData ? (
-                  <p className="state">Загружаем…</p>
-                ) : (
-                  <>
-                    {Object.keys(liveData.leads.byStatus).length === 0 ? (
-                      <p className="state">Клиентов в работе нет</p>
-                    ) : (
-                      <div className="wrap">
-                        {Object.entries(liveData.leads.byStatus).map(([status, n]) => (
-                          <Link key={status} className="chip" to={`/clients?agentId=${id}&status=${status}`}>
-                            {(CLIENT_STATUS_LABELS as Record<string, string>)[status] ?? status}: {n}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                    {liveData.leads.unaccepted > 0 && (
-                      <p className="state err" style={{ marginTop: 8 }}>
-                        <span className="dot crit" />
-                        <Link className="lnk" to={`/clients?agentId=${id}`}>
-                          Выдано, но не принято: {liveData.leads.unaccepted}
-                        </Link>
-                      </p>
-                    )}
-                  </>
-                )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 8. Объекты */}
             <div className="sec">
@@ -899,7 +869,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
                         <div className="t">
                           <b>{c.fullName}</b>
                           <span>
-                            {formatClientCode(c.shortId, c.kind)} · {CLIENT_STATUS_LABELS[c.status as ClientStatus]}
+                            {formatClientCode(c.shortId, c.kind)}
                           </span>
                         </div>
                       </Link>
@@ -941,7 +911,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
             {/* 11. KPI за последние дни */}
             <div className="sec">
               <div className="sec-h">
-                <h2>KPI за последние дни</h2>
+                <h2>Показатели за последние дни</h2>
               </div>
               <div className="card">
                 {data.kpiHistory.length === 0 ? (
@@ -963,29 +933,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
           </>
         )}
       </div>
-      {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
-      {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
-      {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
-      {showRevertConfirm && member && pendingHandover && (
-        <ConfirmDialog
-          title="Вернуть дела"
-          description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
-          confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
-          danger={false}
-          confirmDisabled={revertHandover.isPending}
-          onCancel={() => setShowRevertConfirm(false)}
-          onConfirm={() => {
-            setRevertError(null);
-            revertHandover.mutate(pendingHandover.id, {
-              onSuccess: (data) => {
-                setRevertResult(data);
-                setShowRevertConfirm(false);
-              },
-              onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
-            });
-          }}
-        />
-      )}
+      <CardDialogs {...props} />
     </div>
   );
 }
@@ -1005,9 +953,11 @@ function TeamMemberDetailMobile(props: SharedProps) {
   // Шаг назад вместо жёсткого перехода в «Команду»: иначе возврат терял срез и
   // место в списке (разбор в hooks/useGoBack.ts).
   const goBack = useGoBack("/team");
+  // «Новый вид» (18.11.2026): метка для оформления слоя, разметка та же.
+  const royal = useRoyalLook();
 
   return (
-    <div className="rh2" style={MH_HOST}>
+    <div className={royal ? "rh2 ry-member" : "rh2"} style={MH_HOST} data-ry-section={royal ? "team" : undefined}>
       <div className="mh">
         <ShellOwnHeader />
         <div className="top">
@@ -1091,7 +1041,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                 <div className="qa" role="group" aria-label="Действия руководителя" style={{ gridTemplateColumns: "repeat(2,1fr)", marginTop: 8 }}>
                   {canPauseLeads(member) && (
                     <button type="button" onClick={() => setShowLeadPause(true)}>
-                      {leadsPaused(member) ? "Вернуть в раздачу лидов" : "Пауза лидов"}
+                      {leadsPaused(member) ? "Вернуть в раздачу заявок" : "Пауза заявок"}
                     </button>
                   )}
                   <button type="button" onClick={() => setShowFreeze(true)}>
@@ -1252,19 +1202,19 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         <ChevronRight className="i" aria-hidden="true" />
                       </div>
                     ))}
-                    {data.problems.stalledClients.total > 0 && (
+                    {data.problems.noContactClients.total > 0 && (
                       <div className="quiet">
                         <div className="ln">
-                          <b>Горячие клиенты без контакта · {data.problems.stalledClients.total}</b>
+                          <b>{NO_CONTACT_TEXT.title} · {data.problems.noContactClients.total}</b>
                         </div>
                       </div>
                     )}
-                    {data.problems.stalledClients.items.map((c) => (
+                    {data.problems.noContactClients.items.map((c) => (
                       <div key={c.id} className="row" role="button" tabIndex={0} onClick={() => navigate(`/clients/${c.shortId}`, { state: backState(id, data.agent.fullName) })}>
                         <span className="t">
                           <span className="n">{c.fullName}</span>
                           <span className="s">
-                            скоринг {c.aiScore ?? "—"} · {c.lastContactAt ? `молчит с ${relativeTime(c.lastContactAt)}` : "контакта не было"}
+                            {c.lastClientMessageAt ? `писал(а) ${relativeTime(c.lastClientMessageAt)}` : `карточка ${relativeTime(c.createdAt)}`}
                           </span>
                         </span>
                         <ChevronRight className="i" aria-hidden="true" />
@@ -1395,11 +1345,8 @@ function TeamMemberDetailMobile(props: SharedProps) {
                   <div className="tiles">
                     <Link className="tile" to={`/clients?agentId=${id}`}>
                       <div className="v">{liveData.leads.inWork}</div>
-                      <div className="l">
-                        лидов в работе
-                        <br />
-                        {liveData.leads.limit === 0 ? "без предела" : `из ${liveData.leads.limit}`}
-                      </div>
+                      {/* «из N» снято 16.11.2026: лимитов заявок больше нет. */}
+                      <div className="l">заявок в работе</div>
                     </Link>
                     <Link className="tile" to={`/calls?agentId=${id}`}>
                       <div className="v">{liveData.calls.weekTotal}</div>
@@ -1522,59 +1469,29 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         </span>
                         {c.hasRecording && liveData.calls.canHear && <Headphones className="i" aria-label="Есть запись" />}
                         {c.score != null && <span className={`score ${weekScoreTone(c.score)}`}>{c.score}</span>}
-                        {c.agreedNextStep === false && <span className="chip warn">без договорённости</span>}
+                        {c.agreedNextStep === false && <span className={royal ? "chip mute" : "chip warn"}>без договорённости</span>}
                       </div>
                     ))}
                   </div>
                 )}
               </section>
 
-              {/* 7. Лиды по этапам */}
-              <section className="sec">
-                <div className="sec-t">
-                  <h2>Лиды по этапам</h2>
-                </div>
-                <div className="card-s" style={{ padding: 16 }}>
-                  {live.isError ? (
+              {/* 7. Не принятые заявки. «Лиды по этапам» (разбивка по статусам) сняты
+                  16.11.2026 вместе со статусами-папками; число в работе — плитка выше. */}
+              {liveData && liveData.leads.unaccepted > 0 && (
+                <section className="sec">
+                  <div className="card-s" style={{ padding: 16 }}>
                     <div className="quiet">
                       <div className="ln">
                         <i className="c" aria-hidden="true" />
-                        <span>Не удалось загрузить портфель по этапам</span>
+                        <Link className="lnk" to={`/clients?agentId=${id}`}>
+                          Выдано, но не принято: {liveData.leads.unaccepted}
+                        </Link>
                       </div>
                     </div>
-                  ) : !liveData ? (
-                    <div className="quiet">
-                      <div className="ln">Загружаем…</div>
-                    </div>
-                  ) : (
-                    <>
-                      {Object.keys(liveData.leads.byStatus).length === 0 ? (
-                        <div className="quiet">
-                          <div className="ln">Клиентов в работе нет</div>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {Object.entries(liveData.leads.byStatus).map(([status, n]) => (
-                            <Link key={status} className="chip" to={`/clients?agentId=${id}&status=${status}`}>
-                              {(CLIENT_STATUS_LABELS as Record<string, string>)[status] ?? status}: {n}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                      {liveData.leads.unaccepted > 0 && (
-                        <div className="quiet" style={{ marginTop: 8 }}>
-                          <div className="ln">
-                            <i className="c" aria-hidden="true" />
-                            <Link className="lnk" to={`/clients?agentId=${id}`}>
-                              Выдано, но не принято: {liveData.leads.unaccepted}
-                            </Link>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </section>
+                  </div>
+                </section>
+              )}
 
               {/* 8. Объекты */}
               <section className="sec">
@@ -1624,7 +1541,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
                         <span className="t">
                           <span className="n">{c.fullName}</span>
                           <span className="s">
-                            {formatClientCode(c.shortId, c.kind)} · {CLIENT_STATUS_LABELS[c.status as ClientStatus]}
+                            {formatClientCode(c.shortId, c.kind)}
                           </span>
                         </span>
                         <ChevronRight className="i" aria-hidden="true" />
@@ -1667,7 +1584,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
               {/* 11. KPI за последние дни */}
               <section className="sec">
                 <div className="sec-t">
-                  <h2>KPI за последние дни</h2>
+                  <h2>Показатели за последние дни</h2>
                 </div>
                 {data.kpiHistory.length === 0 ? (
                   <div className="card-s">
@@ -1692,29 +1609,7 @@ function TeamMemberDetailMobile(props: SharedProps) {
           )}
         </div>
       </div>
-      {showFreeze && member && <FreezeAgentModal agent={member} onClose={() => setShowFreeze(false)} />}
-      {showLeadPause && member && <LeadPauseAgentModal agent={member} onClose={() => setShowLeadPause(false)} />}
-      {showHandover && member && <HandoverModal agent={member} onClose={() => setShowHandover(false)} />}
-      {showRevertConfirm && member && pendingHandover && (
-        <ConfirmDialog
-          title="Вернуть дела"
-          description={`Вернуть ${member.fullName} всё, что было передано ${dushanbeDate(pendingHandover.createdAt, { day: "numeric", month: "long" })}: клиентов ${pendingHandover.clients}, задач ${pendingHandover.tasks}, объектов ${pendingHandover.properties}?${pendingHandover.deactivated ? " Учётная запись будет включена." : ""}`}
-          confirmLabel={revertHandover.isPending ? "Возвращаем…" : "Вернуть"}
-          danger={false}
-          confirmDisabled={revertHandover.isPending}
-          onCancel={() => setShowRevertConfirm(false)}
-          onConfirm={() => {
-            setRevertError(null);
-            revertHandover.mutate(pendingHandover.id, {
-              onSuccess: (data) => {
-                setRevertResult(data);
-                setShowRevertConfirm(false);
-              },
-              onError: (err) => setRevertError(err instanceof Error ? err.message : "Не удалось вернуть раздачу"),
-            });
-          }}
-        />
-      )}
+      <CardDialogs {...props} />
     </div>
   );
 }

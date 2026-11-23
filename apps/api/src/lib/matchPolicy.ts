@@ -160,7 +160,9 @@ export const DONE_BUYING_REFUSAL_REASONS = ["BOUGHT_SELF", "BOUGHT_VIA_OTHER_AGE
 /** Тот же ответ, что у waitingBuyerWhere по статусу и причине отказа, — для одной карточки. */
 export function clientDoneBuying(client: { status: string; refusalReason?: string | null }): boolean {
   if (client.status === "DEAL_CLOSED" || client.status === "ARCHIVED") return true;
-  return client.status === "LOST" && (DONE_BUYING_REFUSAL_REASONS as readonly string[]).includes(client.refusalReason ?? "");
+  // «Потерянных» нет с 16.11.2026: решает сама причина последнего отказа (её
+  // снимает новый заход клиента — возврат из Корзины, services/leads/intake.ts).
+  return (DONE_BUYING_REFUSAL_REASONS as readonly string[]).includes(client.refusalReason ?? "");
 }
 
 export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): Prisma.ClientWhereInput {
@@ -172,14 +174,10 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
     // Keep role predicates inside AND: consumers add their own geographical OR.
     confirmedBuyerWhere(),
     { OR: [{ requirementsFieldsKind: null }, { requirementsFieldsKind: "BUYER" }] },
-    // buyerStage не заполнен почти никогда (появляется только ПОСЛЕ показа) —
-    // `{ not: "NEGOTIATION" }` в SQL превращается в `<>`, а NULL <> значение даёт
-    // NULL, не true, и WHERE такую строку молча выбрасывает. Явный `null` в OR
-    // не даёт этому отсечь всех клиентов без единого проведённого показа.
-    { OR: [{ buyerStage: null }, { buyerStage: { not: "NEGOTIATION" } }] },
-    // Купил сам или через других (DONE_BUYING_REFUSAL_REASONS). Не через NOT: у LOST без
+    // Этапов покупателя («Подбор»/«Переговоры», Client.buyerStage) нет с 17.11.2026.
+    // Купил сам или через других (DONE_BUYING_REFUSAL_REASONS). Не через NOT: без
     // причины `refusalReason IN (...)` даёт NULL, и NOT(NULL) молча выбросил бы его.
-    { OR: [{ status: { not: "LOST" } }, { refusalReason: null }, { refusalReason: { notIn: [...DONE_BUYING_REFUSAL_REASONS] } }] },
+    { OR: [{ refusalReason: null }, { refusalReason: { notIn: [...DONE_BUYING_REFUSAL_REASONS] } }] },
     // Требования должны быть заполнены хоть чем-то — иначе сюда попадает любой
     // ждущий покупатель без единой заданной цифры.
     {
@@ -187,8 +185,8 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
         { desiredDistrictId: { not: null } },
         { desiredType: { not: null } },
         { desiredRooms: { not: null } },
-        { budgetMin: { not: null } },
-        { budgetMax: { not: null } },
+        { budgetMin: { gt: 0 } },
+        { budgetMax: { gt: 0 } },
         { desiredPlaces: { some: {} } },
       ],
     },
@@ -294,6 +292,7 @@ export function clientRequirementsForPropertyWhere(
     and.push({
       OR: [
         { budgetMin: null },
+        { budgetMin: { lte: 0 } }, // 0 — «бюджет не указан»
         { currency: "TJS", budgetMin: { lte: minTjs } },
         { currency: "USD", budgetMin: { lte: minTjs / rate } },
       ],
@@ -304,6 +303,7 @@ export function clientRequirementsForPropertyWhere(
   and.push({
     OR: [
       { budgetMax: null },
+      { budgetMax: { lte: 0 } }, // 0 — «бюджет не указан», а не «до нуля сомони»
       { currency: "TJS", budgetMax: { gte: maxTjs } },
       { currency: "USD", budgetMax: { gte: maxTjs / rate } },
     ],

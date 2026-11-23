@@ -1,3 +1,5 @@
+import { roundSpokenDecimals, speakPhoneNumbers } from "./speechNumberShared.js";
+
 const SMALL = [
   "сифр", "як", "ду", "се", "чор", "панҷ", "шаш", "ҳафт", "ҳашт", "нӯҳ",
   "даҳ", "ёздаҳ", "дувоздаҳ", "сенздаҳ", "чордаҳ", "понздаҳ", "шонздаҳ",
@@ -18,7 +20,8 @@ function underThousand(number: number): string {
     return number % 10 === 0 ? tens : connect(tens, SMALL[number % 10]);
   }
   const hundreds = Math.floor(number / 100);
-  const word = hundreds === 1 ? "сад" : `${SMALL[hundreds]}сад`;
+  // Сотня по-таджикски — «яксад»: «саду ҳашт» звучит неграмотно (владелец 21.11.2026), «як миллиону яксаду панҷоҳ ҳазор».
+  const word = `${SMALL[hundreds]}сад`;
   return number % 100 === 0 ? word : connect(word, underThousand(number % 100));
 }
 
@@ -44,7 +47,10 @@ function cardinal(number: number): string {
  * Dates, decimals, codes and unrecognised notation stay in the written reply.
  */
 export function tajikSpeechNumbers(text: string): string | null {
-  const spoken = text
+  // 17.11.2026: телефон — по группам цифр, дробная площадь и крупная сумма — до целого;
+  // этаж — порядковым, как в разговорнике: «ошёнаи ҳафтум аз шонздаҳ».
+  const spoken = roundSpokenDecimals(speakPhoneNumbers(text, { cardinal: (n) => cardinal(n), zero: "сифр", plus: "плюс" }))
+    .replace(/(ошёнаи[ \u00a0\u202f]+)(\d{1,3})(?:-?(?:ум|юм))?(?![\p{L}\p{N}_]|[.,:/−–-]\d)/giu, (match, head: string, digits: string) => Number(digits) ? `${head}${tajikOrdinal(Number(digits))}` : match)
     // Без «взгляда назад» (lookbehind): модуль в shared попадает в браузер, а Safari < 16.4 его не знает.
     // Вместо него захватывается соседний слева знак `lead` и возвращается как был.
     .replace(/(^|[^\p{L}\p{N}_:.,/+−–—-])(\d{1,5})(?:[ \u00a0\u202f]*[-–—][ \u00a0\u202f]*(\d{1,5}))?[ \u00a0\u202f]*(?:м[²2]|метри мураббаъ)(?![\p{L}\p{N}_])/giu, (match, lead: string, first: string, last?: string) => {

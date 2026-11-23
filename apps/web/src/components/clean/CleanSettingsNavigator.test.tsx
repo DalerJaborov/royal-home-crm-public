@@ -15,7 +15,7 @@ describe("Clean settings tasks", () => {
   });
   it.each([
     ["комиссия", "money/commission"], ["курс доллара", "money/currency"],
-    ["Бездействие по клиенту", "leads/deadlines"], ["Распределение лидов", "leads/distribution"],
+    ["Застой сделки", "leads/deadlines"], ["Распределение заявок", "leads/distribution"],
     ["ARI", "channels/phone"], ["YouTube Shorts", "channels/publishing"],
     ["WhatsApp", "channels/messengers"], ["Фид каталога", "channels/advertising"],
     ["ElevenLabs", "bot/voice"], ["Ключи моделей", "bot/models"],
@@ -24,8 +24,8 @@ describe("Clean settings tasks", () => {
     expect(findCleanSettingsTasks(query, "ADMIN").map((task) => `${task.tab}/${task.id}`)).toContain(destination);
   });
   it("does not leave client deadlines in money or distribution in employee accounts", () => {
-    expect(findCleanSettingsTasks("Бездействие по клиенту", "ADMIN").map((task) => task.tab)).toEqual(["leads"]);
-    expect([...new Set(findCleanSettingsTasks("Распределение лидов", "ADMIN").map((task) => task.tab))]).toEqual(["leads"]);
+    expect(findCleanSettingsTasks("Застой сделки", "ADMIN").map((task) => task.tab)).toEqual(["leads"]);
+    expect([...new Set(findCleanSettingsTasks("Распределение заявок", "ADMIN").map((task) => task.tab))]).toEqual(["leads"]);
   });
   it("keeps every existing public setting topic findable after relocation", () => {
     for (const sections of Object.values(SETTINGS_SECTIONS)) for (const section of sections) for (const query of [section.title, ...(section.aliases ?? [])]) {
@@ -46,10 +46,10 @@ describe("Clean settings tasks", () => {
     expect(cleanSettingsHref(null, "tab=money&task=currency")).toBe("/settings");
   });
   it("links search to the heading instead of a broad unrelated category", () => {
-    const task = findCleanSettingsTasks("Бездействие по клиенту", "ADMIN")[0];
-    const url = new URL(cleanSettingsSearchHref(task, "Бездействие по клиенту", "shell=clean"), "http://localhost");
+    const task = findCleanSettingsTasks("Застой сделки", "ADMIN")[0];
+    const url = new URL(cleanSettingsSearchHref(task, "Застой сделки", "shell=clean"), "http://localhost");
     expect(url.searchParams.get("tab")).toBe("leads"); expect(url.searchParams.get("task")).toBe("deadlines");
-    expect(url.searchParams.get("section")).toBe("Бездействие по клиенту");
+    expect(url.searchParams.get("section")).toBe("Застой сделки");
   });
   it("presents two named selectors instead of competing category pills", () => {
     const task = cleanSettingsTasks("channels", "ADMIN")[0];

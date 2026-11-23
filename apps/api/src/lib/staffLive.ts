@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { investigationRoleFor } from "../auth/investigations.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
 import { clientNamePhoneSafe, phoneSafeText } from "./clientPhone.js";
-import { activeLeadCounts, loadLeadLimits, NO_LEADS } from "./leadLimits.js";
+import { agentLoadCounts, NO_LOAD } from "./agentLoad.js";
 import { runLimited } from "./concurrency.js";
 import { activeCallFor } from "./telephony/callTracker.js";
 import { liveIncomingCalls } from "./telephony/incomingCalls.js";
@@ -72,7 +72,7 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
   const canSeePhone = viewer.can("clients.viewPhone");
   const canHear = viewer.can("calls.hearRecording");
 
-  const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, statusRows, loadCounts, limits, unaccepted] =
+  const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, loadCounts, unaccepted] =
     await runLimited(
       [
         // 1) Устройство и когда последний раз был.
@@ -158,6 +158,7 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
             where: {
               agentId: id,
               type: "CALL",
+              archiveReview: false,
               ...visibleInteractionWhere(viewerRole),
               client: { deletedAt: null },
               OR: [{ recordingUrl: { not: null } }, { transcript: { not: null } }],
@@ -175,19 +176,11 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
               callAnalysis: { select: { score: true, agreedNextStep: true } },
             },
           }),
-        // 8) Портфель по этапам.
-        () =>
-          prisma.client.groupBy({
-            by: ["status"],
-            where: { assignedAgentId: id, deletedAt: null },
-            _count: { _all: true },
-          }),
-        // 9) и 10) Нагрузка и лимит — теми же хелперами, что решают раздачу лидов;
-        // считать иначе нельзя, иначе полоса «у лимита» разойдётся с тем, что реально
-        // останавливает раздачу.
-        () => activeLeadCounts([id]),
-        () => loadLeadLimits(),
-        // 11) Выдано, но не принято.
+        // 8) «Портфель по этапам» (разбивка по статусам) снят 16.11.2026 вместе
+        // со статусами-папками — остались нагрузка и не принятые.
+        // 9) Нагрузка — тем же правилом, что очередь fair (lib/agentLoad.ts).
+        () => agentLoadCounts([id]),
+        // 10) Выдано, но не принято.
         () => prisma.client.count({ where: { assignedAgentId: id, deletedAt: null, acceptedAt: null } }),
       ],
       AGENT_LIVE_QUERY_CONCURRENCY
@@ -277,10 +270,8 @@ export async function loadStaffLive(id: string, viewer: StaffLiveViewer) {
       },
     },
     leads: {
-      inWork: (loadCounts.get(id) ?? NO_LEADS).total,
-      limit: limits.activeLimit, // 0 = раздача без предела, полосу не рисуем
+      inWork: (loadCounts.get(id) ?? NO_LOAD).total,
       unaccepted,
-      byStatus: Object.fromEntries(statusRows.map((r) => [r.status, r._count._all])),
     },
     chats,
     calls: {

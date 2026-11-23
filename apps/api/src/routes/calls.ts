@@ -6,6 +6,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { pageQuerySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { loadClientDisplayLabels, presentClientRef, viewerFromRequest } from "../lib/clientDisplayLabel.js";
 import { clientNamePhoneSafe, clientPhoneFor, maskPhonesDeep, phoneSafeText } from "../lib/clientPhone.js";
 import { dushanbeDayRange } from "../lib/dushanbeTime.js";
 import { listEndpoints, loadAriCredentials } from "../lib/telephony/ariClient.js";
@@ -15,8 +16,28 @@ import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
 import { liveOutgoingCalls } from "../lib/telephony/callTracker.js";
 import { incomingOperatorIds, loadIncomingSettings } from "../lib/telephony/incomingSettings.js";
-import { elapsedWorkingMinutes, findCallbackContacts } from "../lib/telephony/missedCallEscalation.js";
+import { elapsedWorkingMinutes, findCallbackContacts, missedWithoutCallbackIds } from "../lib/telephony/missedCallEscalation.js";
 import { loadDisciplineRules } from "../lib/disciplineRules.js";
+import { loadStaffPhoneChecker } from "../lib/staffPhoneGuard.js";
+
+/** Звонивший — действующий сотрудник (номер из его карточки), а не клиент. */
+type StaffRef = { id: string; fullName: string };
+
+/**
+ * НОМЕР СОТРУДНИКА В ЖУРНАЛЕ ЗВОНКОВ (21.11.2026). Агент перезвонил в офис со
+ * своего мобильного — строка читалась «пропущенный · в базе нет · никто не
+ * перезвонил» с кнопкой «Больше не звонить», будто потеряли клиента. Один
+ * запрос сотрудников на страницу, сравнение тем же правилом по хвосту, что и
+ * везде (lib/staffPhoneGuard.ts). Номер сверяется ДО маски.
+ */
+async function staffLookup(phones: string[]): Promise<(phone: string) => StaffRef | null> {
+  if (phones.length === 0) return () => null;
+  const check = await loadStaffPhoneChecker();
+  return (phone) => {
+    const m = check([phone]);
+    return m ? { id: m.agentId, fullName: m.fullName } : null;
+  };
+}
 
 /** Кто «принял» входящий, на который ответил консультант на телефоне (ИИ). */
 const CONSULTANT_ANSWERED_NAME = "консультант (ИИ)";
@@ -154,6 +175,7 @@ callsRouter.get("/", async (req, res) => {
 
   // Вырезать содержимое построчно здесь не нужно и было бы обманом: выборка выше уже
   // сужена до тех разговоров, которые этому сотруднику слушать можно (свои или все).
+  const clientLabels = await loadClientDisplayLabels(items.map((i) => i.client?.id), viewerFromRequest(req));
   res.json({
     /** Список сужен до собственных разговоров — интерфейс подписывает его иначе. */
     ownOnly: !seesEveryone,
@@ -179,7 +201,7 @@ callsRouter.get("/", async (req, res) => {
       agent: i.agent,
       // Имя карточки незнакомого звонившего CRM составляет из номера — то же
       // правило, что в presentClient (routes/clients/shared.ts).
-      client: i.client ? { ...i.client, fullName: clientNamePhoneSafe(i.client.fullName, canSeePhone) } : i.client,
+      client: presentClientRef(i.client, clientLabels, canSeePhone),
       analysis: maskPhonesDeep(i.callAnalysis, canSeePhone),
     })),
     total,
@@ -333,6 +355,8 @@ callsRouter.get("/feed", async (req, res) => {
       select: {
         id: true,
         phone: true,
+        // «WhatsApp» или линия — метка в строке ленты (lib/telephony/callSource.ts).
+        source: true,
         startedAt: true,
         answered: true,
         talkSeconds: true,
@@ -353,6 +377,8 @@ callsRouter.get("/feed", async (req, res) => {
       })
     : [];
   const nameByExtension = new Map(operators.map((a) => [a.sipExtension!, a.fullName]));
+  const staffOf = await staffLookup(incoming.map((c) => c.phone));
+  const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c) => c.client?.id), viewerFromRequest(req));
 
   /**
    * У исходящего отдаём и содержимое разговора — запись, расшифровку, разбор.
@@ -369,10 +395,13 @@ callsRouter.get("/feed", async (req, res) => {
       // Имя карточки — по тому же праву (22.09.2026): у заведённых до 20.08.2026
       // номер лежит В ИМЕНИ, и лента отдавала его рядом с закрытыми расшифровкой
       // и номером. В соседнем GET /calls это место сделано верно с самого начала.
-      client: i.client ? { ...i.client, fullName: clientNamePhoneSafe(i.client.fullName, canSeePhone) } : i.client,
+      client: presentClientRef(i.client, clientLabels, canSeePhone),
       // Телефона у исходящего в списке нет намеренно: он и так живёт на карточке
       // клиента, а звонок из строки идёт по clientId — как и раньше.
       phone: null as string | null,
+      staff: null as StaffRef | null,
+      // Исходящий через CRM всегда идёт по линии станции.
+      source: "phone" as string,
       durationSec: i.recordingDurationSec,
       callAttempt: i.callAttempt,
       agentName: i.agent?.fullName ?? null,
@@ -392,10 +421,12 @@ callsRouter.get("/feed", async (req, res) => {
       kind: (c.answered ? "IN" : "MISSED") as "IN" | "MISSED",
       id: c.id,
       at: c.startedAt,
-      client: c.client ? { ...c.client, fullName: clientNamePhoneSafe(c.client.fullName, canSeePhone) } : c.client,
+      client: presentClientRef(c.client, clientLabels, canSeePhone),
       // Номер закрывается тем же правилом, что и везде (см. lib/clientPhone.ts):
       // раздел открыт правом на разговоры, а видеть номера — право отдельное.
       phone: clientPhoneFor(c.phone, canSeePhone) as string | null,
+      staff: staffOf(c.phone),
+      source: c.source,
       durationSec: c.talkSeconds,
       // У входящего callAttempt не бывает — это поле станции для звонков через
       // CRM (см. outgoing выше). null здесь, а не отсутствие поля: строки ленты
@@ -503,17 +534,10 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
    * поэтому сперва выбираем id пропущенных без перезвона в пределах `since` (потолок
    * 1000 — тот же порядок, что и в countMissedCallsNoCallbackYesterday), а дальше
    * фильтруем обычный where по этому списку, чтобы skip/take и count остались честными.
+   * Сама выборка — общая дверь missedWithoutCallbackIds (её же читает помощница Шабнам).
    */
   if (noCallbackOnly) {
-    const candidates = await prisma.incomingCall.findMany({
-      where: { startedAt: { gte: since }, answered: false, irrelevant: false },
-      select: { id: true, clientId: true, startedAt: true },
-      take: 1000,
-    });
-    const calledBack = await findCallbackContacts(
-      candidates.flatMap((c) => (c.clientId ? [{ id: c.id, clientId: c.clientId, since: c.startedAt }] : [])),
-    );
-    where.id = { in: candidates.filter((c) => !calledBack.has(c.id)).map((c) => c.id) };
+    where.id = { in: await missedWithoutCallbackIds(since) };
   }
 
   const [items, total, missed, unqualified, periodTotal] = await Promise.all([
@@ -525,6 +549,8 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
       select: {
         id: true,
         phone: true,
+        // Откуда звонок: "phone" | "whatsapp" — метка «WhatsApp» в журнале входящих.
+        source: true,
         startedAt: true,
         endedAt: true,
         answered: true,
@@ -610,19 +636,23 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
   const calledBackIds = await findCallbackContacts(
     overdue.flatMap((c) => (c.client?.id ? [{ id: c.id, clientId: c.client.id, since: c.startedAt }] : [])),
   );
+  const staffOf = await staffLookup(items.map((c) => c.phone));
+  const clientLabels = await loadClientDisplayLabels(items.map((c) => c.client?.id), viewerFromRequest(req));
   const missingCallbackById = new Map<string, boolean>();
   for (const call of overdue) {
+    if (staffOf(call.phone)) continue; // свой сотрудник — клиенту перезванивать некому
     if (!calledBackIds.has(call.id)) missingCallbackById.set(call.id, true);
   }
 
   const safeItems = items.map((call) => ({
     ...call,
     phone: clientPhoneFor(call.phone, canSeePhone),
+    staff: staffOf(call.phone),
     // Имя карточки закрывается тем же правом, что и номер (22.09.2026): раздел
     // открыт правом calls.transcripts, которое есть у маркетинга и службы
     // безопасности, а clients.viewPhone у них нет — и «Входящий +992910001003»
     // проезжал мимо закрытого рядом `phone`.
-    client: call.client ? { ...call.client, fullName: clientNamePhoneSafe(call.client.fullName, canSeePhone) } : call.client,
+    client: presentClientRef(call.client, clientLabels, canSeePhone),
     // null — номер есть, а сотрудника с таким внутренним в CRM нет (номер выдали
     // на станции и забыли внести). Интерфейс в этом случае покажет сам номер.
     // Консультант на телефоне (ИИ, 24.09.2026) — «принял консультант (ИИ)», а не
@@ -805,7 +835,7 @@ callsRouter.get("/telephony/dashboard", supervisorOnly, async (req, res) => {
           .catch(() => ({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }))
       : Promise.resolve({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart } } }),
-    prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: dayStart }, ...visibleInteractionWhere(investigationViewerRole(req)) } }),
+    prisma.interaction.count({ where: { type: "CALL", archiveReview: false, createdAt: { gte: dayStart }, ...visibleInteractionWhere(investigationViewerRole(req)) } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart }, answered: false } }),
     prisma.incomingCall.count({
       where: { startedAt: { gte: dayStart }, ...AWAITING_REVIEW_WHERE },

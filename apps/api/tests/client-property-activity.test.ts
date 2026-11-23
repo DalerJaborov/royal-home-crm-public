@@ -69,8 +69,11 @@ describe("client property workspace data and access", () => {
   it("masks phones in property titles and respects independent origin visibility", async () => {
     const res = await activity("AGENT");
     expect(JSON.stringify(res.body)).not.toContain("900001234");
+    // 16.11.2026 номера только директору: ADMIN видит маску, DIRECTOR — номер целиком.
     const admin = await activity("ADMIN");
-    expect(JSON.stringify(admin.body)).toContain("900001234");
+    expect(JSON.stringify(admin.body)).not.toContain("900001234");
+    const director = await activity("DIRECTOR");
+    expect(JSON.stringify(director.body)).toContain("900001234");
   });
   it("phone permission never grants origin visibility, or vice versa", async () => {
     try {
@@ -78,7 +81,8 @@ describe("client property workspace data and access", () => {
       invalidateAgentAccess(agents[0]);
       const res = await activity("AGENT");
       expect(res.body.items[0].channel).toBeNull();
-      expect(res.body.items[0].property.title).toContain("900001234");
+      // 16.11.2026: выданное не-директору clients.viewPhone номер не открывает (directorOnly).
+      expect(res.body.items[0].property.title).not.toContain("900001234");
       await prisma.agent.update({ where: { id: agents[0] }, data: { permissions: { granted: ["clients.viewOrigin"], revoked: ["clients.viewPhone"] } } });
       invalidateAgentAccess(agents[0]);
       const reverse = await activity("AGENT");
@@ -124,11 +128,16 @@ describe("client property workspace data and access", () => {
     await prisma.interaction.update({ where: { id: showing }, data: { declinedAt: null, completedAt: new Date() } });
     expect((await activity("AGENT", buyer, "?section=showings")).body.items[0].state).toBe("completed");
   });
-  it("allows a former assigned agent to inspect without granting mutation access", async () => {
+  // Аудит 17.11.2026, S1 (lib/clientCardAccess.ts): прежний агент видит только
+  // «карточка передана» — пустой список, а не историю отправок и показов.
+  it("gives a former assigned agent an empty list instead of the client's history", async () => {
     try {
       await prisma.client.update({ where: { id: buyer }, data: { lastAgentId: agents.at(-1) } });
-      expect((await activity("FOREIGN")).status).toBe(200);
-      expect((await activity("FOREIGN", buyer, "?section=showings")).body.items[0].canManage).toBe(false);
+      const sent = await activity("FOREIGN");
+      expect(sent.status).toBe(200);
+      expect(sent.body.items).toEqual([]);
+      expect(sent.body.total).toBe(0);
+      expect((await activity("FOREIGN", buyer, "?section=showings")).body.items).toEqual([]);
     } finally { await prisma.client.update({ where: { id: buyer }, data: { lastAgentId: null } }); }
   });
   it("keeps a send receipt when its property has been removed", async () => {

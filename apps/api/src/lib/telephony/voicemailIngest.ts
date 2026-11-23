@@ -1,3 +1,4 @@
+import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { scheduleSellerFactsRefresh } from "../sellerFacts.js";
 import { transcribeAudio } from "../../ai/transcribe.js";
@@ -10,6 +11,7 @@ import { describeError } from "../describeError.js";
 import { readCapped } from "../safeFetch.js";
 import { toCrmPhone } from "./incomingCalls.js";
 import { maskClientPhone } from "../clientPhone.js";
+import { clientSourceForCall } from "./callSource.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { sendPushToAgent } from "../../push.js";
 import { recordingFetchConfig, type RecordingFetchConfig } from "./callRecordings.js";
@@ -298,7 +300,9 @@ export async function ingestVoicemails(): Promise<number> {
  */
 async function createVoicemailClient(
   vm: VoicemailFile,
-  defaultKind: string
+  defaultKind: string,
+  /** `IncomingCall.source` звонка, к которому относится сообщение: из WhatsApp — карточка «из WhatsApp». */
+  callSource: string | null = null
 ): Promise<{ id: string; shortId: number; fullName: string; assignedAgentId: string | null } | null> {
   try {
     return await prisma.client.create({
@@ -309,7 +313,7 @@ async function createVoicemailClient(
         // это право не проверяет). Настоящий номер лежит в поле `phone`.
         fullName: `Входящий ${maskClientPhone(vm.phone)}`,
         phone: vm.phone,
-        source: "PHONE_CALL",
+        source: clientSourceForCall(callSource),
         kind: defaultKind === "BUYER" || defaultKind === "SELLER" ? defaultKind : "OTHER",
         status: "NEW",
         currency: "TJS",
@@ -591,7 +595,7 @@ async function processVoicemail(config: RecordingFetchConfig, vm: VoicemailFile)
     );
   } else if (!client && settings.autoCreateClient) {
     if (transcript && transcript.trim().length >= MIN_TRANSCRIPT_FOR_CLIENT) {
-      client = await createVoicemailClient(vm, settings.defaultKind);
+      client = await createVoicemailClient(vm, settings.defaultKind, await voicemailCallSource(vm));
       created = client != null;
     } else {
       void logSystemError(
@@ -751,6 +755,37 @@ async function processVoicemail(config: RecordingFetchConfig, vm: VoicemailFile)
 }
 
 /**
+ * Какой звонок «тот самый» для сообщения автоответчика — одно условие на привязку
+ * (linkIncomingCall) и на источник карточки (voicemailCallSource), чтобы два места
+ * не разошлись.
+ */
+function voicemailCallMatchWhere(vm: VoicemailFile): Prisma.IncomingCallWhereInput {
+  return {
+    phone: vm.phone,
+    /**
+     * ЗВОНОК, КОТОРЫЙ ВЗЯЛ РОБОТ И ОТДАЛ АВТООТВЕТЧИКУ (03.10.2026), — тоже
+     * «тот самый»: консультант снял трубку, разговор не сложился (сбой, тишина,
+     * линия занята на возврате от агента), станция увела человека на
+     * автоответчик. С одним answered:false такое сообщение заводило ВТОРОЙ
+     * звонок — двойные лиды, задачи и пуши об одном обращении.
+     */
+    OR: [{ answered: false }, { answeredByConsultant: true }],
+    voicemailFile: null,
+    startedAt: { gte: new Date(vm.recordedAt.getTime() - CALL_MATCH_WINDOW_MS), lte: vm.recordedAt },
+  };
+}
+
+/** Источник звонка под сообщение (18.11.2026): уже привязанный или тот, что привяжется. Не нашли — линия. */
+async function voicemailCallSource(vm: VoicemailFile): Promise<string | null> {
+  const call =
+    (await prisma.incomingCall.findFirst({ where: { voicemailFile: vm.name }, select: { source: true } })) ??
+    (vm.phone
+      ? await prisma.incomingCall.findFirst({ where: voicemailCallMatchWhere(vm), orderBy: { startedAt: "desc" }, select: { source: true } })
+      : null);
+  return call?.source ?? null;
+}
+
+/**
  * Звонок в журнале, к которому относится это сообщение.
  *
  * СНАЧАЛА ИЩЕМ УЖЕ ЗАПИСАННЫЙ: сообщение оставляют после того, как станция позвонила
@@ -783,19 +818,7 @@ async function linkIncomingCall(
 
   // Скрытый номер не сводим ни с чьим звонком: сверять не по чему.
   const found = !vm.phone ? null : await prisma.incomingCall.findFirst({
-    where: {
-      phone: vm.phone,
-      /**
-       * ЗВОНОК, КОТОРЫЙ ВЗЯЛ РОБОТ И ОТДАЛ АВТООТВЕТЧИКУ (03.10.2026), — тоже
-       * «тот самый»: консультант снял трубку, разговор не сложился (сбой, тишина,
-       * линия занята на возврате от агента), станция увела человека на
-       * автоответчик. С одним answered:false такое сообщение заводило ВТОРОЙ
-       * звонок — двойные лиды, задачи и пуши об одном обращении.
-       */
-      OR: [{ answered: false }, { answeredByConsultant: true }],
-      voicemailFile: null,
-      startedAt: { gte: new Date(vm.recordedAt.getTime() - CALL_MATCH_WINDOW_MS), lte: vm.recordedAt },
-    },
+    where: voicemailCallMatchWhere(vm),
     orderBy: { startedAt: "desc" },
     select: { id: true, interactionId: true, answeredByConsultant: true },
   });
@@ -877,13 +900,15 @@ async function notify(input: {
       return;
     }
     if (input.needsHuman) {
-      // Часы алармов (владелец 07.09.2026): сообщение уже сохранено и лежит в
-      // «Без разбора» — откладывается только пуш о нём.
+      // Сообщение уже сохранено и лежит в «Без разбора». До 14.11.2026 пуш о нём
+      // ждал часов алармов (07.09) и приходил назавтра — клиент к тому времени
+      // уходил. Теперь срочно: колокольчик и пуш сразу (ночью — только колокольчик).
       await enqueueDirectorAlert({
         title: "💬 Сообщение на автоответчике не разобрано",
         body,
         url: "/calls",
         tag: `voicemail-${vm.name}`,
+        severity: "critical",
         recipientPermission: "calls.transcripts",
       });
     }

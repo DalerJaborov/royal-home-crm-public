@@ -1,8 +1,20 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { applySellerRefusal } from "../src/lib/sellerRefusalReview.js";
 import { propertyDeleteRequestSchema } from "@royal-home/shared";
+
+/**
+ * Рубильник «Служба безопасности: автоматика» (18.11.2026) после выката выключен.
+ * Этот файл проверяет поведение ВКЛЮЧЁННОЙ автоматики СБ (карточка уходит «на
+ * проверку»), поэтому включает её только у себя, не трогая общую строку Settings.
+ * Выключенное положение — tests/security-automation-switch.test.ts.
+ */
+vi.mock("../src/lib/securityAutomation.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/securityAutomation.js")>()),
+  securityAutomationOn: async () => true,
+}));
+
 
 /**
  * Отказ продавца, оформленный снятием объекта (владелец 09.09.2026).
@@ -118,7 +130,7 @@ describe("Последствия одобренной заявки", () => {
     expect(after!.lastAgentAttemptAt!.getTime()).toBeGreaterThan(before.getTime());
   });
 
-  it("объектов не осталось — карточка уходит в потерянные с причиной", async () => {
+  it("объектов не осталось — руководителю уходит заявка на удаление, причина в карточке", async () => {
     const { seller, property } = await makeSellerWithProperty();
 
     await applySellerRefusal({
@@ -129,8 +141,14 @@ describe("Последствия одобренной заявки", () => {
     });
 
     const after = await prisma.client.findUnique({ where: { id: seller.id } });
-    expect(after?.status).toBe("LOST");
+    // «Потерянных» больше нет (16.11.2026). В Корзину карточку убирает человек:
+    // CRM заводит заявку на удаление руководителю, сама не удаляет.
+    expect(after?.status).not.toBe("LOST");
+    expect(after?.deletedAt).toBeNull();
     expect(after?.refusalReason).toBe("OWNER_CANCELLED");
+    const request = await prisma.clientDeleteRequest.findFirst({ where: { clientId: seller.id, status: "PENDING" } });
+    expect(request?.requestedById).toBe(agentId);
+    expect(request?.comment).toContain("снял последний объект");
   });
 
   /** ГЛАВНАЯ ПРОВЕРКА: вход в СБ вернулся. */

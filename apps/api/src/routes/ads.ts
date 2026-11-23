@@ -1,3 +1,4 @@
+import { requireChannelAdmin } from "../lib/marketingRole.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -10,7 +11,7 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
-import { logAudit } from "../lib/audit.js";
+import { logAgentAudit, logAudit } from "../lib/audit.js";
 import { buildAdSpendReport, currentMonth } from "../lib/ads/adSpendReport.js";
 import { adSpendToTjsCents, centsToTjs, fromCents, loadMoneyContext, toCents } from "../lib/money.js";
 import {
@@ -24,7 +25,9 @@ import { textHasPrice, textHasRooms } from "../lib/ads/adMatching.js";
 import { EW } from "../ai/wordBoundary.js";
 import { dushanbeDateString } from "../lib/dushanbeTime.js";
 import { syncMetaAds, syncMetaAdsQuietly, FULL_SYNC_DAYS } from "../lib/ads/syncMetaAds.js";
-import { buildConnectUrl, completeConnect, MetaAdsConnectError } from "../lib/ads/metaAdsOAuth.js";
+import { buildConnectUrl, MetaAdsConnectError, saveAdsLoginToken } from "../lib/ads/metaAdsOAuth.js";
+import { consumeMetaLoginCode, dropMetaLoginState, MetaLoginError } from "../lib/metaLogin.js";
+import { openMetaLoginSession } from "../lib/metaLoginAssets.js";
 import { agentAccessCanWriteAds } from "../lib/ads/adsWriteAccess.js";
 import { buildAdInsights } from "../lib/ads/adInsights.js";
 import {
@@ -73,7 +76,7 @@ adsRouter.use(requireAuth);
 
 function requireAdsRead<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Требуется авторизация" });
-  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view")) return next();
+  if (req.agent.role === "MARKETING" || req.agent.permissions.has("finance.view") || req.agent.permissions.has("marketing.access")) return next();
   return res.status(403).json({ error: "Недостаточно прав" });
 }
 
@@ -155,7 +158,12 @@ adsRouter.get("/report", requireAdsRead, async (req, res) => {
 
   const freshness = await adsFreshness();
   const report = await buildAdSpendReport({ from: period.from, to: period.to });
-  res.json({ ...report, label: period.label, ...freshness });
+  // Прибыль по проданному объекту — доля компании в комиссии: без finance.view её нет
+  // (раздел открыт маркетингу; расход на рекламу им виден, деньги компании — нет).
+  const rows = req.agent!.permissions.has("finance.view")
+    ? report.rows
+    : report.rows.map((r) => ({ ...r, profitTjs: null, commissionTjs: null }));
+  res.json({ ...report, rows, label: period.label, ...freshness });
 });
 
 const unmatchedQuerySchema = z.object({
@@ -518,6 +526,8 @@ adsRouter.get("/board", requireAdsRead, async (req, res) => {
   const { from, to, label } = period;
 
   const BOARD_LIMIT = 500;
+  /** Комиссия компании и окупаемость — только с finance.view (раздел открыт маркетингу). */
+  const seesCompanyMoney = req.agent!.permissions.has("finance.view");
   const freshness = await adsFreshness();
   const [ads, foreignCount, asOf] = await Promise.all([
     prisma.ad.findMany({
@@ -738,18 +748,20 @@ adsRouter.get("/board", requireAdsRead, async (req, res) => {
       row.leadStats = leadStatsOf(
         toCents(row.period.spendTjs),
         found.total,
-        row.period.conversations
+        row.period.conversations,
+        { seesCompanyMoney }
       );
       // Те же доли денег и обращений, что в чипах объектов, — клиенты по тем же весам.
       for (const p of row.properties) {
         const counts = found.byProperty.get(p.id);
-        if (counts) p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true });
+        if (counts) p.leadStats = leadStatsOf(toCents(p.spendTjs), counts, p.conversations, { shares: true, seesCompanyMoney });
       }
     }
     totalLeadStats = leadStatsOf(
       rows.reduce((acc, r) => acc + toCents(r.period.spendTjs), 0),
       sum,
-      rows.reduce((acc, r) => acc + r.period.conversations, 0)
+      rows.reduce((acc, r) => acc + r.period.conversations, 0),
+      { seesCompanyMoney }
     );
   } catch (err) {
     void logSystemError("ads", `Клиенты объявлений не посчитаны (доска рекламы): ${describeError(err)}`, {
@@ -1019,7 +1031,7 @@ adsRouter.get("/property/:id", async (req, res) => {
     postUrl: ads.find((a) => a.postUrl)?.postUrl ?? null,
   };
   // Право то же, что у остальных ручек раздела: finance.view или роль MARKETING.
-  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view");
+  const canSeeMoney = req.agent!.role === "MARKETING" || req.agent!.permissions.has("finance.view") || req.agent!.permissions.has("marketing.access");
   if (!canSeeMoney) return res.json(base);
 
   /**
@@ -1082,7 +1094,7 @@ adsRouter.get("/property/:id", async (req, res) => {
       mine ?? { leads: 0, showings: 0, deals: 0, commissionCents: 0 },
       conversations,
       // Клиенты объекта из общих объявлений — доли (0.25 клиента), а не целые люди.
-      { shares: true }
+      { shares: true, seesCompanyMoney: req.agent!.permissions.has("finance.view") }
     );
   } catch (err) {
     void logSystemError("ads", `Клиенты объекта по рекламе не посчитаны: ${describeError(err)}`, {
@@ -1116,7 +1128,10 @@ adsRouter.get("/insights", requireAdsRead, async (req, res) => {
     return res.status(400).json({ error: "Неверный месяц", details: parsed.error.flatten() });
   }
   const month = parsed.data ?? currentMonth();
-  const result = await buildAdInsights(month, req.query.force === "1");
+  const result = await buildAdInsights(month, req.query.force === "1", {
+    // Прибыль и комиссия компании — только с finance.view (раздел открыт маркетингу).
+    seesCompanyMoney: req.agent!.permissions.has("finance.view"),
+  });
   // reason отличает «разбирать нечего» от «модель не ответила» — экран пишет
   // разное, и второе не должно выглядеть как отсутствие расходов.
   res.json(result ?? { text: null, reason: "empty" });
@@ -1128,7 +1143,7 @@ adsRouter.get("/insights", requireAdsRead, async (req, res) => {
  * Адрес выдаётся только авторизованному сотруднику с правом вести финансы, вместе с
  * одноразовым `state`; сам обмен происходит в /callback, куда Facebook вернёт человека.
  */
-adsRouter.post("/connect", requireAdsWrite, async (req, res) => {
+adsRouter.post("/connect", requireAdsWrite, requireChannelAdmin, async (req, res) => {
   try {
     const url = await buildConnectUrl(req.agent!.id);
     logAudit(req, "CONNECT_START", "Ad", "meta-ads", {});
@@ -1147,7 +1162,7 @@ adsRouter.post("/connect", requireAdsWrite, async (req, res) => {
  * перестанет ходить в кабинет», а не «сотри мне историю расходов за полгода».
  * Захочет вернуть — снова нажмёт «Подключить», данные продолжатся с того же места.
  */
-adsRouter.post("/disconnect", requireAdsWrite, async (req, res) => {
+adsRouter.post("/disconnect", requireAdsWrite, requireChannelAdmin, async (req, res) => {
   await prisma.settings.updateMany({
     where: { id: "singleton" },
     data: { metaAdsToken: null, metaAdsTokenRefreshedAt: null, metaAdsEnabled: false },
@@ -1172,17 +1187,37 @@ adsCallbackRouter.get("/", async (req, res) => {
   const code = typeof req.query.code === "string" ? req.query.code : null;
   const state = typeof req.query.state === "string" ? req.query.state : null;
 
+  /**
+   * С 13.11.2026 этот адрес — общий возврат входа через Facebook (lib/metaLogin.ts):
+   * сюда же возвращается «Войти через Facebook» из Каналов (цель "assets"). Цель
+   * лежит в state, по ней и решаем, к какой кнопке вернуть человека. Незнакомый
+   * state — прежний ответ рекламной кнопки.
+   */
   // Человек нажал «Отмена» в окне Facebook — это не ошибка, просто передумал.
   if (!code || !state) {
     const denied = typeof req.query.error === "string" ? req.query.error : "cancelled";
+    if (dropMetaLoginState(state) === "assets") {
+      return res.redirect(back({ metaLogin: "error", message: "Вход отменён — в окне Facebook не дали доступ." }));
+    }
     return res.redirect(back({ ads: "cancelled", reason: denied }));
   }
 
   try {
-    await completeConnect(code, state);
+    const login = await consumeMetaLoginCode(code, state);
+    if (login.purpose === "assets") {
+      const sessionId = openMetaLoginSession(login.agentId, login.token);
+      logAgentAudit(login.agentId, "CONNECT_CALLBACK", "MetaLogin", "assets", { ok: true });
+      return res.redirect(back({ metaLogin: sessionId }));
+    }
+    await saveAdsLoginToken(login.token);
     res.redirect(back({ ads: "connected" }));
   } catch (err) {
-    const message = err instanceof MetaAdsConnectError ? err.message : "Не удалось подключить кабинет";
+    const isLogin = err instanceof MetaLoginError;
+    const purpose = err instanceof MetaLoginError ? err.purpose : undefined;
+    if (purpose === "assets") {
+      return res.redirect(back({ metaLogin: "error", message: isLogin ? (err as Error).message : "Не удалось войти через Facebook" }));
+    }
+    const message = isLogin ? (err as Error).message : "Не удалось подключить кабинет";
     res.redirect(back({ ads: "error", message }));
   }
 });

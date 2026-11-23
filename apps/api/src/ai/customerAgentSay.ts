@@ -2,6 +2,7 @@ import type { CustomerAgentSayDropReason, CustomerAgentSurface, CustomerAgentVer
 import { clientOwnWords } from "./untrustedContent.js";
 import { detectClientLanguage } from "./clientLanguage.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { informalAddress, foreignLanguageWord, SERVICE_CLAIM_SOURCE, humanPhraseAgrees, humanPhraseOnlyAgrees, withoutAgreementOpenings } from "./customerAgentHumanText.js";
 
 /**
  * GROUNDED FREE-PHRASE CHANNEL (`say`) — the only model-written words a customer can read (plan 24.10.2026, section 3).
@@ -26,6 +27,12 @@ export const CUSTOMER_AGENT_SAY_EXAMPLES = {
   ru: ["Понял, вас интересует эта квартира.", "Спасибо, что рассказали о своей ситуации.", "Извините, что вам пришлось ждать ответа."],
   tg: ["Фаҳмидам, шуморо ин объект ҷалб кардааст.", "Ташаккур, ки дар бораи вазъияти худ навиштед.", "Бубахшед, ки шумо интизор шудед."],
 } as const;
+/**
+ * The Russian words the validator reads as a question or a request (plus every word that starts with «как»: какой, какая, каким, ...). ONE list: the validator
+ * pattern `ASKING` and the rules shown to the model are both built from it, so the model is never told less than the server drops (13.11.2026: 11 phrases a day
+ * were dropped as «question» while the guidance only said «no questions»).
+ */
+export const SAY_ASKING_WORDS_RU = ["сколько", "где", "когда", "почему", "зачем", "куда", "откуда", "кто", "подскажите", "скажите", "расскажите", "уточните", "напишите", "пришлите", "отправьте", "назовите", "сообщите", "ответьте", "укажите", "выберите"] as const;
 const sayExample = (text: string) => `{"kind":"reply","refs":[],"social":"none","question":"none","say":"${text}"}`;
 /**
  * The rules for the optional `say` field. They travel in the per-turn server context (`serverSurface.sayGuidance`, private messages only), NOT in the
@@ -37,7 +44,8 @@ export const CUSTOMER_AGENT_SAY_GUIDANCE = `Единственное исклю�
 Правила say:
 - без цифр, сумм, дат, дней недели, сроков, контактов, ссылок и @; без названий мест, которых клиент сам не писал;
 - без обещаний и будущих действий («позвоним», «уточню», «проверю», «запишу», «подберу»);
-- без вопросов и просьб что-то написать или прислать: вопрос задаёт сервер;
+- без вопросов и просьб что-то написать или прислать: вопрос задаёт сервер; без знака «?» и без слов как (и любых на «как»: какой, какая, каким), ${SAY_ASKING_WORDS_RU.join(", ")}, не подскажете — сервер отбрасывает фразу с любым из них, даже в обычном обороте («как важно», «какая квартира» тоже);
+- без слов согласия («Хорошо», «Конечно», «Да», «Ладно», «Договорились», «Хуб», «Майлаш», «Бале»): клиент прочтёт их как «да» на свою просьбу или предложение;
 - без слов «я бот», «ИИ», CRM, «инструмент», refs; не повторяй факты и слова клиента подряд;
 - не здоровайся в say и не повторяй прежние реплики.
 Сервер принимает say целиком или отбрасывает целиком и не правит; сомневаешься в фразе — не пиши say, ответ уйдёт по шаблону.
@@ -84,7 +92,7 @@ const NUMBER_WORDS = w([
   `двадцат${TAIL}`, `тридцат${TAIL}`, "сорок", "сорока", `пятьдесят${TAIL}`, `шестьдесят${TAIL}`, `семьдесят${TAIL}`, `восемьдесят${TAIL}`, "девяносто", "сто", "ста", "стам", `сотн${TAIL}`, "сотен",
   "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот", `тысяч${TAIL}`, "тыс", `миллион${TAIL}`, `миллиард${TAIL}`, `полтор${TAIL}`, "пара", "пару", "пары",
   // Tajik cardinals
-  "як", "ду", "се", "чор", "панҷ", "шаш", "ҳафт", "ҳашт", "нӯҳ", "даҳ", "бист", "си", "чил", "панҷоҳ", "шаст", "ҳафтод", "ҳаштод", "навад", "сад", "ҳазор",
+  "як", "ду", "се", "чор", "панҷ", "шаш", "ҳафт", "ҳашт", "нӯҳ", "даҳ", "бист", "си", "чил", "панҷоҳ", "шаст", "ҳафтод", "ҳаштод", "навад", "сад", "яксад", "ҳазор",
   // Property parameters read as figures: floors, rooms, areas
   `\\p{L}*комнатн${TAIL}`, `этаж${TAIL}`, `одн?ушк${TAIL}`, `двушк${TAIL}`, `тр[её]шк${TAIL}`, `квадрат${TAIL}`, `метр${TAIL}`, `сотк${TAIL}`, `ошёна${TAIL}`, `ҳуҷра${TAIL}`,
 ].join("|"));
@@ -95,7 +103,7 @@ const RELATIVE_TIME = w(`сегодня|завтра|вчера|послезав
 
 const QUESTION_MARK = /[?\uFF1F\u061F\u2047\u2048\u2049]/u;
 // A question without the sign, or a request for information: the single template question owns that slot.
-const ASKING = w(`как${TAIL}|сколько|где|когда|почему|зачем|куда|откуда|кто|подскажите|скажите|расскажите|уточните|напишите|пришлите|отправьте|назовите|сообщите|ответьте|укажите|выберите|не\\s+подскажете|нависед|фиристед|бигӯед|гӯед|маълум\\s+кунед|хабар\\s+диҳед|кадом|чанд|кай|куҷо|чаро`);
+const ASKING = w(`как${TAIL}|${SAY_ASKING_WORDS_RU.join("|")}|не\\s+подскажете|нависед|фиристед|бигӯед|гӯед|маълум\\s+кунед|хабар\\s+диҳед|кадом|чанд|кай|куҷо|чаро`);
 
 const META = rx(`${BW}(?:ии|ai|api|llm|gpt|gemini|json|markdown|crm|bot|prompt|ref|нейросет${TAIL}|искусственн${TAIL}\\s+интеллект${TAIL}|интеллект${TAIL}|модел${TAIL}|бот(?:а|у|ом|е|ы|ов|ам|ами|ах)?|ассистент${TAIL}|виртуальн${TAIL}|автоответ${TAIL}|робот${TAIL}|систем${TAIL}|инструмент${TAIL}|алгоритм${TAIL}|шаблон${TAIL}|зеҳни\\s+сунъӣ|сунъӣ|нейро${TAIL}|шабакаи\\s+асаб${TAIL})${EW}|[*_\`#{}\\[\\]<>|~\\\\]`);
 
@@ -114,6 +122,9 @@ const FACT_CLAIM = w([
   `ипотек${TAIL}`, `рассрочк${TAIL}`, `комисси${TAIL}`, `гаранти${TAIL}`, `юридическ${TAIL}`, `аренд${TAIL}`, `застройщик${TAIL}`, `новостройк${TAIL}`,
   `фурӯхта${TAIL}`, `фурӯхт${TAIL}`, `озод${TAIL}`, `тахфиф${TAIL}`, "савдо", `арзон${TAIL}`, `гарон${TAIL}`, `дастрас${TAIL}`, `мавҷуд${TAIL}`, `ёфт${TAIL}`, `нарх${TAIL}`, `пардохт${TAIL}`, `кироя${TAIL}`, "ҳаққи\\s+хизмат",
 ].join("|"));
+
+/** Yes/no, «we work / sell / rent», documents, years, distances, «free», amounts (customerAgentHumanText.ts: one list for say and answer). */
+const SERVICE_CLAIM = rx(SERVICE_CLAIM_SOURCE);
 
 const CLICHE = rx(`${BW}(?:отличн${TAIL}\\s+вопрос${TAIL}|хорош${TAIL}\\s+вопрос${TAIL}|интересн${TAIL}\\s+вопрос${TAIL}|рад\\s+помочь|рада\\s+помочь|с\\s+радостью|буду\\s+рад${TAIL}|понимаю\\s+ваш${TAIL}\\s+(?:беспокойств${TAIL}|чувств${TAIL}|волнени${TAIL}|эмоци${TAIL})|благодарю\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|спасибо\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|чем\\s+могу\\s+(?:быть\\s+)?полезн${TAIL}|чем\\s+могу\\s+помочь|обращайтесь|не\\s+стесняйтесь|безусловно|разумеется|непременно|ваш${TAIL}\\s+мнени${TAIL}\\s+важн${TAIL}|ценим\\s+ваш${TAIL}|всегда\\s+рады|рады\\s+помочь|к\\s+вашим\\s+услугам|саволи\\s+хуб|саволи\\s+ҷолиб|хурсанд\\s+мешавам|хурсандам|бо\\s+камоли\\s+майл|барои\\s+муроҷиат\\s+ташаккур|шуморо\\s+мефаҳмам)${EW}`);
 
@@ -166,6 +177,8 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   if (text.length < 2 || text.length > SAY_MAX_CHARS || sentenceCount(text) > SAY_MAX_SENTENCES) return bad("length");
   const folded = fold(text);
   if (QUESTION_MARK.test(text) || ASKING.test(folded)) return bad("question");
+  // Only a «да» («Конечно!», «Да.», «Хорошо.»): its own reason before the fact checks read «да» as a claim (review #211, round 7, п.5).
+  if (humanPhraseOnlyAgrees(text)) return bad("agree");
   if (/\p{Nd}/u.test(text) || NUMBER_WORDS.test(folded) || CURRENCY.test(folded) || MONTHS.test(folded) || WEEKDAYS.test(folded) || RELATIVE_TIME.test(folded)) return bad("number_or_date");
   if (META.test(folded)) return bad("meta");
   if (CONTACT.test(folded)) return bad("contact");
@@ -177,12 +190,24 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   const ownWords = clientOwnWords(input.inputText ?? "");
   if (unsupportedPlace(text, ownWords)) return bad("place");
   if (CLICHE.test(folded)) return bad("cliche");
+  if (informalAddress(text, input.language)) return bad("rude");
   const verdict = detectClientLanguage(text);
   const wrongLanguage = input.language === "ru"
     ? verdict === "tg" || verdict === "mixed" || TAJIK_LETTER.test(text)
     : verdict === "ru" || verdict === "mixed" || verdict !== "tg" && !TAJIK_LETTER.test(text);
-  if (wrongLanguage) return bad("language");
+  if (wrongLanguage || foreignLanguageWord(text, input.language)) return bad("language");
   if (echoes(text, ownWords)) return bad("echo");
+  // «Да, в Худжанде тоже работаем» carried no word of FACT_CLAIM and the customer had named the city (review #211): the shared
+  // service-claim list closes the same hole here. Last of the content checks, so the older, more specific reasons keep their codes.
+  // A promise word a receipt unlocked («Мо занг мезанем» after a callback receipt) is not a claim: it is cut out before the check.
+  const unlocked = [callUnlocked ? CALL_PROMISE : null, saveUnlocked ? SAVE_PROMISE : null]
+    .reduce((value, pattern) => pattern ? value.replace(new RegExp(pattern.source, "giu"), " ") : value, folded);
+  if (SERVICE_CLAIM.test(unlocked)) return bad("fact_claim");
+  // An agreement word anywhere («Хорошо, понимаю вас.»), or anything the last door would cut: refused HERE, as in the `answer` channel
+  // (review #211, round 7, п.3). Before, the phrase passed and the renderer's last door cut it and wrote the error journal on every new
+  // wording of the model (a new dedup key each time, a push to the directors). A model word is the model's mistake: a counter
+  // (`say_dropped_agree`), never the journal; the journal is only for a server TEMPLATE line the door had to cut.
+  if (humanPhraseAgrees(text) || withoutAgreementOpenings(text).removed.length) return bad("agree");
   const key = comparable(text);
   if ((input.priorAssistantTurns ?? []).some(turn => key && comparable(turn).includes(key))) return bad("repeat");
   if ((input.social === "greet" || (input.priorAssistantTurns?.length ?? 0) > 0) && GREETING.test(folded)) return bad("double_greet");
@@ -202,3 +227,18 @@ export function validateCustomerAgentSayForDecision(input: {
     priorAssistantTurns: (input.verifiedContext?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text),
     enabledLanguages: input.enabledLanguages });
 }
+
+/**
+ * One lexicon for both model-text channels. The whole-reply verifier (customerAgentAnswer.ts) reads the SAME patterns as `say`,
+ * so a promise, cliché or greeting rule can never differ between the two (owner rule «одна дверь»). Match against `foldSayText`.
+ */
+export const SAY_LEXICON = Object.freeze({ META, CALL_PROMISE, SAVE_PROMISE, ALWAYS_PROMISE, CLICHE, GREETING, KNOWN_PLACES,
+  NUMBER_WORDS, CURRENCY, MONTHS, WEEKDAYS, RELATIVE_TIME, CONTACT, FACT_CLAIM, ASKING });
+/** Lower-cased Tajik/Russian fold that every SAY_LEXICON pattern expects. */
+export const foldSayText = fold;
+export const sayWordStem = stem;
+export const sayTokens = tokens;
+export const sayComparable = comparable;
+export const sayEchoes = echoes;
+/** Folds the Tajik letters of a regex SOURCE (no lower-casing, so `\p{L}` survives): patterns and text fold the same way. */
+export const foldSayPattern = foldSource;

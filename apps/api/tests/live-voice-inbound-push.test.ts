@@ -6,6 +6,13 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgents: (...a: unknown[]) => sendPushToAgents(...a),
 }));
 
+// Выключатель «Робот взял звонок, послушайте» (19.11.2026): подмена только в этом файле.
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+});
+
 import { prisma } from "../src/db.js";
 import { notifyRobotTookInboundCall, resetInboundPushMemoryForTests } from "../src/lib/telephony/liveVoiceInboundPush.js";
 
@@ -25,6 +32,24 @@ describe("пуш руководству о входящем звонке роб�
     expect(sendPushToAgents).toHaveBeenCalledTimes(1);
     expect(sendPushToAgents.mock.calls[0][0]).toEqual(["dir-1"]);
     expect(sendPushToAgents.mock.calls[0][1]).toMatchObject({ url: "/calls", tag: `live-voice-listen-${key}` });
+    await notifyRobotTookInboundCall({ key, callerNumber: "+992901234567" });
+    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("выключатель выключен — никому не шлёт и разговор не «съедает»; включили — шлёт", async () => {
+    const spy = vi
+      .spyOn(prisma.agent, "findMany")
+      .mockResolvedValue([{ id: "dir-1", role: "DIRECTOR", permissions: null }] as never);
+    const key = `lv-push-off-${Date.now()}`;
+    switchesOff.add("notifyRobotTookCallEnabled");
+    try {
+      await notifyRobotTookInboundCall({ key, callerNumber: "+992901234567" });
+      expect(sendPushToAgents).not.toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      switchesOff.delete("notifyRobotTookCallEnabled");
+    }
     await notifyRobotTookInboundCall({ key, callerNumber: "+992901234567" });
     expect(sendPushToAgents).toHaveBeenCalledTimes(1);
     spy.mockRestore();

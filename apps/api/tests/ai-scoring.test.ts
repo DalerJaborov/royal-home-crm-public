@@ -91,7 +91,7 @@ describe("Скоринг видит живую переписку, а не то�
   it("работает и без переписки — только по хронологии, как раньше", async () => {
     aiReply = { score: 40, reason: "Пока присматривается" };
     await prisma.interaction.create({
-      data: { clientId, agentId, type: "SYSTEM", notes: "Лид принят агентом" },
+      data: { clientId, agentId, type: "SYSTEM", notes: "Заявка принята агентом" },
     });
 
     const result = await scoreClient(clientId);

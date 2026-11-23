@@ -114,7 +114,7 @@ describe("bare external URL decision recovery", () => {
 
     expect(result).toMatchObject({ status: "ready", rounds: 3, toolCalls: 1 });
     if (result.status !== "ready") return;
-    expect(result.text).toContain("Запрос на звонок создан.");
+    expect(result.text).toContain("Спасибо, заявку на звонок принял.");
     expect(result.text).not.toContain("Что пояснить подробнее?");
   });
 

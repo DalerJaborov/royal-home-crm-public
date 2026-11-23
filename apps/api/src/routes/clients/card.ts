@@ -10,7 +10,6 @@ import {
   clientUpdateSchema,
   clientDisplayName,
   CLIENT_KIND_LABELS,
-  CLIENT_STATUS_LABELS,
   isClientCardFilled,
   INTERACTION_TYPES,
   SALES_AGENT_ROLES,
@@ -29,6 +28,7 @@ import { notifySiteLeadStatus } from "../../lib/notifySite.js";
 import { logAudit } from "../../lib/audit.js";
 import { cancelClientCallbackRequests } from "../../lib/callbackRequests.js";
 import { trashClient } from "../../lib/trashClient.js";
+import { restoreClientFromTrash } from "../../lib/restoreClient.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { publishClientUpdated } from "../../lib/livePublish.js";
@@ -40,7 +40,7 @@ import { loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { refreshPropertiesOfSeller } from "../../lib/propertyAutoStatus.js";
 import { cardWhereFromParam } from "../../lib/cardIdParam.js";
 import { conductedShowingWhere } from "../../lib/conductedShowing.js";
-import { loadSellerPropertyAddress } from "../../lib/sellerPropertyAnchor.js";
+import { loadClientAnchorFacts } from "../../lib/sellerPropertyAnchor.js";
 import { presentMessages, type PresentedMessage } from "../../lib/messageAttachments.js";
 import type { MessageSender } from "@royal-home/shared";
 import { presentInteractions, transcriptAccess } from "../../lib/callTranscripts.js";
@@ -52,6 +52,7 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
 import { computeHiddenReason, foreignWriteDenied, normalizePhone, phoneOwnershipError, presentClient, restoreMaskedNotes } from "./shared.js";
 import { findFuzzyDuplicateCandidate } from "../../lib/duplicateReview.js";
 import { phoneTail } from "../../lib/clientPhones.js";
+import { dealTextPhoneSafe } from "../../lib/clientPhone.js";
 import { clientPhoneSelectionTokens } from "../../lib/clientPhoneSelection.js";
 import { presentExtraPhoneOrigins } from "../../lib/clientPhoneOrigins.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
@@ -64,6 +65,12 @@ import { removeClientAvatarFile } from "../../lib/clientAvatar.js";
 import { deleteDealDocumentFile } from "../../lib/dealDocumentFiles.js";
 import { loadClientCardActivity } from "../../lib/clientCardActivity.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
+import {
+  CLIENT_CARD_HISTORY_HIDDEN,
+  CLIENT_PROFILE_HIDDEN,
+  CLIENT_TRANSFERRED_HIDDEN,
+  resolveClientCardAccess,
+} from "../../lib/clientCardAccess.js";
 
 export const cardRouter = Router();
 
@@ -150,8 +157,9 @@ const CARD_TIMELINE_LIMIT = 200;
  * тех же id. Разбор разговора (callAnalysis) остаётся одним join'ом — он
  * на порядки легче расшифровки, а его счёт виден ещё до раскрытия записи.
  */
-const TIMELINE_INTERACTION_SELECT = {
+export const TIMELINE_INTERACTION_SELECT = {
   investigationOnly: true,
+  archiveReview: true,
   id: true,
   clientId: true,
   agentId: true,
@@ -204,7 +212,7 @@ const TIMELINE_INTERACTION_SELECT = {
  * догрузку, иначе догруженный разговор мог бы открыться тому, кому в карточке
  * он закрыт.
  */
-async function presentTimeline(
+export async function presentClientTimeline(
   req: Request,
   assignedAgentId: string | null,
   rows: Prisma.InteractionGetPayload<{ select: typeof TIMELINE_INTERACTION_SELECT }>[]
@@ -289,24 +297,15 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  // Пачка 16 (11.09.2026, docs/archive/agent-briefs/ownership-security-11-09.md): агент,
-  // у которого клиента забрали (lastAgentId — тот же самый), не должен получать
-  // 403 «Недостаточно прав» — карточка у него уже открыта в списках/пуше, а
-  // ссылка на нового владельца нужна, чтобы объяснить, что произошло. Доступ
-  // read-only, без переписки и требований дальше по коду не режется — режется
-  // только на фронте (кнопки скрыты) и на мутациях (foreignWriteDenied).
-  let transferAccess: TransferAccess | null = null;
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    // Клиент закреплён за другим агентом, но у текущего может быть сделка с ним
-    // (например, её так назначил админ) — тогда карточку видеть можно, иначе
-    // невозможно работать по собственной же сделке.
-    const hasDeal = client.deals.some((d) => d.agentId === ownAgentId);
-    const wasMine = client.lastAgentId === ownAgentId;
-    if (!hasDeal && !wasMine) return res.status(403).json({ error: "Недостаточно прав" });
-    if (!hasDeal && wasMine) {
-      transferAccess = await loadTransferAccess(client.id, ownAgentId);
-    }
-  }
+  // Кто что видит — одна дверь lib/clientCardAccess.ts (аудит 17.11.2026, S1/S2).
+  // Агент, у которого клиента забрали, получает не 403, а карточку «передана» —
+  // кому, когда и почему (Пачка 16, 11.09.2026): ссылка у него уже открыта в
+  // списках/пуше. Но только это и имя: контакты, требования, история и
+  // переписка закрыты на СЕРВЕРЕ, а не только кнопками на фронте.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  const transferAccess: TransferAccess | null =
+    access === "transferred" && ownAgentId ? await loadTransferAccess(client.id, ownAgentId) : null;
   // ОТКРЫЛ КАРТОЧКУ = ПРОЧИТАЛ ПЕРЕПИСКУ (владелец 31.08.2026: красный
   // индикатор в списке своих клиентов должен гаснуть, как в вотсапе). Только
   // когда карточку открывает СВОЙ агент — admin/director, заглянувший в чужую
@@ -420,7 +419,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    */
   const dealsOwnAgentId = scopeDealsToOwnAgent(req);
   const visibleDeals = dealsOwnAgentId ? client.deals.filter((d) => d.agentId === dealsOwnAgentId) : client.deals;
-  const scopedDeals = visibleDeals.map((d) => serializeDealMoney(d, seesDealMoney(req, d)));
+  // Заметки сделок — свободный текст: номер в них закрыт тем же правом (18.11.2026).
+  const scopedDeals = visibleDeals.map((d) =>
+    serializeDealMoney(dealTextPhoneSafe(d, can(req, "clients.viewPhone")), seesDealMoney(req, d))
+  );
 
   /**
    * ФАКТЫ ИСТОРИИ — ПО ПОЛНОЙ ТАБЛИЦЕ, А НЕ ПО 200 ЗАПИСЯМ КАРТОЧКИ (аудит
@@ -441,6 +443,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            archiveReview: false,
             ...visibleInteractionWhere(investigationViewerRole(req)),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
@@ -464,7 +467,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
      * calls.transcripts. Признак `hasRecording` остаётся всем: по нему в хронологии
      * видно, что разговор записан, — без этого он казался бы пропавшим бесследно.
      */
-    interactions: await presentTimeline(req, client.assignedAgentId, client.interactions),
+    interactions: await presentClientTimeline(req, client.assignedAgentId, client.interactions),
     interactionsTotal: client._count.interactions,
     // Служебный счётчик Prisma наружу не отдаём — число уже лежит в interactionsTotal.
     _count: undefined,
@@ -499,38 +502,17 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    * чужого клиента (эта ветка выше уже требует `hasDeal`, там `acceptedAt`
    * обычно не пуст, а если пуст — сделки без принятия лида не бывает).
    */
-  const gateUntilAccepted = !!ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt;
-  const responseClient = gateUntilAccepted
-    ? {
-        ...withMessages,
-        budgetMin: null,
-        budgetMax: null,
-        requirementsNotes: null,
-        desiredDistrictId: null,
-        desiredDistrict: null,
-        desiredRooms: null,
-        desiredType: null,
-        // Сводка ИИ — пересказ той самой переписки и хронологии, которые ниже
-        // закрыты: оставить её значило бы отдать закрытое содержимое коротким
-        // текстом. Скоринг (aiScore) при этом остаётся: как и matchScore, он
-        // помогает решить, принимать ли, и ничего о клиенте не рассказывает.
-        aiInsight: null,
-        aiInsightAt: null,
-        // matchScore НЕ прячем — это не требование клиента, а «совпадает ли он с
-        // ВАШИМ объектом», показывается прямо на кнопке «Принять» (Путь покупателя,
-        // п.5.1-5.2) и специально помогает решить, стоит ли принимать, а не наоборот.
-        interactions: [],
-        interactionsTotal: 0,
-        // История закрыта целиком — факты о ней не раскрываем.
-        hadConductedShowing: false,
-        callsCount: 0,
-        hadRealCall: false,
-        deals: [],
-        botConversation: [],
-        telegramConversation: null,
-        telegramDirectConversations: [],
-      }
-    : withMessages;
+  // Скоринг (aiScore) и matchScore до приёма НЕ прячем: это не требование
+  // клиента, а «совпадает ли он с ВАШИМ объектом» — показывается на кнопке
+  // «Принять» (Путь покупателя, п.5.1-5.2) и помогает решить, принимать ли.
+  // Бывшему агенту (transferred) не нужно и это — см. CLIENT_TRANSFERRED_HIDDEN.
+  const gateUntilAccepted = access === "nameOnly" || access === "transferred";
+  const responseClient =
+    access === "transferred"
+      ? { ...withMessages, ...CLIENT_PROFILE_HIDDEN, ...CLIENT_CARD_HISTORY_HIDDEN, ...CLIENT_TRANSFERRED_HIDDEN }
+      : access === "nameOnly"
+        ? { ...withMessages, ...CLIENT_PROFILE_HIDDEN, ...CLIENT_CARD_HISTORY_HIDDEN }
+        : withMessages;
 
   // canSeePhone форсированно снят тем же гейтом, что выше собрал responseClient:
   // право `clients.viewPhone` у агента почти всегда есть, но контакты (и
@@ -539,8 +521,11 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   // Отображаемое имя шапки («Джахонгир · Маяковский», владелец 21.09.2026) — тот
   // же расчёт, что в списке клиентов (routes/clients/list.ts), плюс адрес объекта
   // продавца одним точечным запросом (тут один клиент, а не страница — батч не нужен).
-  const sellerPropertyAddress =
-    client.kind === "SELLER" ? await loadSellerPropertyAddress(client.id) : null;
+  // Бывшему агенту адрес объекта продавца не отдаём — это тоже «где его найти».
+  const nameFacts = access === "transferred"
+    ? undefined
+    : (await loadClientAnchorFacts([client])).get(client.id);
+  const nameFactsShown = gateUntilAccepted && nameFacts ? { propertyAddress: nameFacts.propertyAddress } : nameFacts;
   const presentedClient = presentClient(
     responseClient,
     can(req, "clients.viewPhone") && !gateUntilAccepted,
@@ -558,7 +543,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     } : null,
     // Из УЖЕ показанной карточки, а не из сырой: иначе «Входящий +992…» и источник
     // клиента уходили в displayName мимо clients.viewPhone/viewOrigin (ACCESS-01).
-    displayName: clientDisplayName(presentedClient, { propertyAddress: sellerPropertyAddress }),
+    displayName: clientDisplayName(presentedClient, nameFactsShown),
     // Шапка карточки (18.09.2026, задание В §f п.2) — карточка сама уже удалена
     // отдаётся 404 (:206 выше), поэтому здесь может прийти только «мягкое»
     // скрытое состояние (OTHER/LOST/DEAL_CLOSED/ARCHIVED/INACTIVE/DEFERRED/
@@ -568,7 +553,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
 
-const timelineQuerySchema = z.object({
+export const timelineQuerySchema = z.object({
   /** Курсор — последняя уже показанная запись (createdAt, id); без него — с самой свежей. */
   before: z.coerce.date().optional(),
   beforeId: z.string().uuid().optional(),
@@ -600,19 +585,16 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Курсор задаётся парой before и beforeId" });
   }
 
-  const ownAgentId = scopeToOwnAgent(req);
   const client = await prisma.client.findUnique({
     where: cardWhere,
     select: { id: true, deletedAt: true, assignedAgentId: true, lastAgentId: true, acceptedAt: true },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    const hasDeal = (await prisma.deal.count({ where: { clientId: client.id, agentId: ownAgentId } })) > 0;
-    if (!hasDeal && client.lastAgentId !== ownAgentId) return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) {
-    return res.json({ items: [], total: 0, hasMore: false });
-  }
+  // Та же дверь, что у GET /:id (lib/clientCardAccess.ts): до приёма своего лида
+  // и после передачи клиента другому агенту история закрыта целиком.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  if (access !== "full") return res.json({ items: [], total: 0, hasMore: false });
 
   const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ? { type } : {}) };
   const where: Prisma.InteractionWhereInput =
@@ -630,7 +612,7 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
   ]);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  res.json({ items: await presentTimeline(req, client.assignedAgentId, page), total, hasMore });
+  res.json({ items: await presentClientTimeline(req, client.assignedAgentId, page), total, hasMore });
 });
 
 /** Подпись реплики бота для .txt/.json экспорта — тот же словарь смысла, что и
@@ -680,7 +662,6 @@ interface ExportRow {
 cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   const shortId = Number(req.params.id);
   if (!Number.isInteger(shortId)) return res.status(404).json({ error: "Клиент не найден" });
-  const ownAgentId = scopeToOwnAgent(req);
 
   const client = await prisma.client.findUnique({
     where: { shortId },
@@ -703,15 +684,13 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
 
-  if (ownAgentId && client.assignedAgentId !== ownAgentId) {
-    const hasDeal = client.deals.some((d) => d.agentId === ownAgentId);
-    const wasMine = client.lastAgentId === ownAgentId;
-    if (!hasDeal && !wasMine) return res.status(403).json({ error: "Недостаточно прав" });
-  }
-  // До приёма лида переписка не открыта агенту даже в самой карточке (см. GET
-  // /:id, gateUntilAccepted) — экспорт не должен открывать закрытое экрану.
-  if (ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt) {
-    return res.status(403).json({ error: "Лид ещё не принят — переписка не открыта" });
+  // Та же дверь, что у GET /:id (lib/clientCardAccess.ts): экспорт не может
+  // открыть то, что закрыто экрану — до приёма лида и после передачи клиента.
+  const access = await resolveClientCardAccess(req, client);
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Заявка ещё не принята — переписка не открыта" });
+  if (access === "transferred") {
+    return res.status(403).json({ error: "Клиент передан другому агенту — переписка закрыта" });
   }
 
   const attachmentsAllowed = can(req, "messages.viewAttachments");
@@ -824,104 +803,16 @@ cardRouter.delete("/:id", requireAuth, requirePermission("clients.delete"), asyn
  * это правило не перераспределяет.
  */
 cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete"), async (req, res) => {
-  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  if (!client || !client.deletedAt) return res.status(404).json({ error: "Клиент не найден в корзине" });
-
-  const eligible = (agent: { isActive: boolean; frozenAt: Date | null; role: string } | null | undefined) =>
-    !!agent?.isActive && agent.frozenAt === null && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role);
-  const owner = client.assignedAgentId
-    ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId }, select: { isActive: true, frozenAt: true, role: true } })
-    : null;
-  const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assignmentCompletedAt
-    ? await prisma.agent.findUnique({ where: { id: client.lastAgentId }, select: { id: true, isActive: true, frozenAt: true, role: true } }) : null;
-  const restoredAgentId = client.kind !== "OTHER" && eligible(historicalOwner) ? historicalOwner!.id : null;
-  const completedAssignment = Boolean(client.assignmentRefusedAt || client.assignmentCompletedAt);
-  const ownerGone = !completedAssignment && client.assignedAgentId != null && !eligible(owner);
-  /**
-   * КАРТОЧКА БЕЗ АГЕНТА ПОСЛЕ ВОССТАНОВЛЕНИЯ — В РАЗДАЧУ, И РУКОВОДСТВО ЗНАЕТ
-   * (23.09.2026, проверка раздачи, пункты 20 и 24). Раньше при уволенном агенте
-   * ставился escalatedAt без агента: утренняя волна такие карточки пропускает,
-   * напоминаний нет, в счётчиках её нет, пуша не было — карточка пропадала из
-   * виду. Карточка, лежавшая в Корзине вовсе без агента, тоже восстанавливалась
-   * молча, а в режиме «Вручную» о ней не узнавал никто. Теперь карточка для
-   * агентов (не «Прочее») встаёт в очередь как новый лид: волна отдаст её
-   * агенту, и тот примет её сам. Руководство получает пуш «назначьте агента».
-   */
-  const endsWithoutAgent = !restoredAgentId && (ownerGone || client.assignedAgentId == null);
-  const toQueue = !completedAssignment && endsWithoutAgent && client.kind !== "OTHER";
-  const queueData = toQueue
-    ? { escalatedAt: null, acceptedAt: null, assignedAt: new Date(), triedAgentIds: [], reassignCount: 0 }
-    : {};
-
-  const restoreConflict = new Error("Restore conflict");
-  const restored = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    const current = await tx.client.findUnique({ where: { id: client.id } });
-    if (!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()) {
-      return false;
-    }
-    const checkedOwners = [[client.assignedAgentId, eligible(owner)], [historicalOwner?.id ?? null, eligible(historicalOwner)]] as const;
-    // Не назначать сотрудника, которого заморозили/уволили между выбором и записью.
-    // FOR SHARE удерживает eligibility до коммита; одинаковый порядок исключает
-    // взаимную блокировку двух восстановлений с обратной парой владельцев.
-    for (const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))) {
-      if (id && !completedAssignment) {
-        await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
-        const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true } });
-        if (eligible(agent) !== expected) return false;
-      }
-    }
-    // Часы ночного переноса в Корзину — заново с момента восстановления
-    // (23.09.2026). Карточку, которую перенос убрал сам (Потерянный/Неактивный
-    // старше срока), он в ту же ночь уносил обратно: lostAt и inactiveSince
-    // оставались прежними. Статус не трогаем — это решение человека, а не кнопки.
-    const now = new Date();
-    await tx.client.update({
-      where: { id: client.id },
-      data: {
-        deletedAt: null,
-        deletedById: null,
-        ...(ownerGone ? {} : queueData),
-        ...(client.status === "LOST" ? { lostAt: now } : {}),
-        ...(client.workStatus === "INACTIVE" && client.inactiveSince ? { inactiveSince: now, inactivePingCount: 0 } : {}),
-      },
-    });
-    if (ownerGone || restoredAgentId) {
-      const changed = await changeClientAgent({
-        clientId: client.id,
-        toAgentId: restoredAgentId,
-        reason: restoredAgentId ? "Восстановление из Корзины: возвращена прежнему активному агенту" : "Восстановление из Корзины: агент карточки недоступен — карточка в очереди раздачи",
-        actorId: req.agent!.id,
-        source: "restore",
-        data: restoredAgentId ? { assignedAt: now, acceptedAt: null, escalatedAt: null } : toQueue ? queueData : { escalatedAt: new Date() },
-        tx,
-      });
-      if (!changed.ok) throw restoreConflict;
-    }
-    return true;
-  }).catch(error => { if (error === restoreConflict) return false; throw error; });
-  if (!restored) return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
-  if (toQueue) {
-    const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id) => id !== req.agent!.id);
-    sendPushToAgents(supervisors, {
-      title: "♻️ Карточка восстановлена без агента",
-      body: `${client.fullName} — вернулась из Корзины, агента у неё нет. Раздача отдаст её сама, либо назначьте вручную`,
-      url: `/clients/${client.shortId}`,
-      tag: `restore-no-agent-${client.id}`,
-    }).catch((err) => console.error("[push] восстановление без агента:", err));
-  }
-
-  logAudit(req, "RESTORE", "Client", client.id, {
-    shortId: client.shortId,
-    fullName: client.fullName,
-    phone: client.phone,
-    ownerReassignedToQueue: ownerGone,
+  // Само восстановление (проверка агента, очередь раздачи, пуш руководству) — lib/restoreClient.ts:
+  // ту же функцию зовёт кнопка «Восстановить» под сообщением Шабнам об удалении.
+  const result = await restoreClientFromTrash(req.params.id, req.agent!.id);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  logAudit(req, "RESTORE", "Client", result.client.id, {
+    shortId: result.client.shortId,
+    fullName: result.client.fullName,
+    phone: result.client.phone,
+    ownerReassignedToQueue: result.ownerReassignedToQueue,
   });
-  // Живое обновление ПОСЛЕ коммита (аудит 11.09.2026, второй заход по осиротевшим
-  // спутникам, п.4 задания): карточка ушла из Корзины и снова видна в списках —
-  // ownerGone=true уже опубликовал changeClientAgent сам (через
-  // closeOwnershipSatellites), здесь покрываем и обычный случай «агент тот же».
-  publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId] });
   res.status(204).send();
 });
 
@@ -961,7 +852,12 @@ cardRouter.delete("/:id/permanent", requireAuth, requirePermission("clients.purg
   // Аватар — в открытой uploads/avatars, после удаления строки его не найти (G10).
 
   await prisma.$transaction(async (tx) => {
-    await tx.botConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
+    // Отметка «карточку удалил человек» в черновике диалога (ревью 194-1, 15.11.2026): сторож
+    // «номер без карточки» и добор заводят заявку заново только по репликам НОВЕЕ этой отметки.
+    await tx.$executeRaw`UPDATE "BotConversation" SET "clientId"=NULL,
+      "leadDraft"=(CASE WHEN jsonb_typeof("leadDraft")='object' THEN "leadDraft" ELSE '{}'::jsonb END)
+        || jsonb_build_object('clientDeletedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+      WHERE "clientId"=${client.id}`;
     await tx.telegramConversation.updateMany({ where: { clientId: client.id }, data: { clientId: null } });
     // ОТЗЫВЫ ПО СДЕЛКАМ (аудит 04.10.2026, SCHEMA01). DealReview ссылается на клиента и на
     // сделку обязательными связями (ON DELETE RESTRICT, миграция 20260911190100). Строка
@@ -1233,7 +1129,7 @@ cardRouter.post("/", requireAuth, async (req, res) => {
   // проворонил окно до автопереназначения (Настройки → leadAcceptMinutes).
   if (!acceptedAt) {
     sendLeadPush(assignedAgentId, client.id, {
-      title: "🔔 Новый лид",
+      title: "🔔 Новая заявка",
       body: `${client.fullName} — примите заявку, иначе её передадут другому агенту`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
@@ -1255,7 +1151,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Недостаточно прав" });
   }
   if (ownAgentId && !existing.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
   // Правка чужой карточки — только закреплённому агенту и руководству, см.
   // foreignWriteDenied: «видеть все» само по себе права писать не даёт.
@@ -1328,13 +1224,16 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
    * не принимает — это та же промежуточная остановка, а интерфейс статус через
    * PATCH не шлёт вовсе (ни форма, ни хронология), так что штатные пути не задеты.
    */
-  const requestedKind = parsed.data.kind ?? existing.kind;
-  if (parsed.data.status && parsed.data.status !== existing.status && !can(req, "clients.assign")) {
-    return res.status(403).json({
-      error:
-        existing.kind === "SELLER" || requestedKind === "SELLER"
-          ? "Состояние продавца ставит CRM автоматически (закрытие сделки, «Итог объекта» и т.п.) — агенту менять статус вручную нельзя"
-          : "Состояние покупателя ставит CRM. Агенту доступны «Неактивный», «Передача» и «Завершить сделку»",
+  /**
+   * СТАТУС КЛИЕНТА ВРУЧНУЮ НЕ МЕНЯЕТСЯ НИКЕМ (владелец 17.11.2026: статусы клиента
+   * не показываются и не ставятся). Колонка осталась только для внутренних нужд
+   * (закрытая сделка, Архив) — их ставит сама CRM. Раньше руководитель мог
+   * прислать status в PATCH; теперь это отказ для всех, чтобы статус не вернулся
+   * обходным путём.
+   */
+  if (parsed.data.status && parsed.data.status !== existing.status) {
+    return res.status(400).json({
+      error: "Статус клиента вручную не меняется: в CRM его больше нет. Работу с клиентом ведите действиями карточки",
     });
   }
 
@@ -1383,7 +1282,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
         clientId: existing.id,
         actor: { kind: "agent", agentId: req.agent!.id },
         type: "STATUS_CHANGE",
-        notes: `Статус изменён с «${CLIENT_STATUS_LABELS[existing.status]}» на «${CLIENT_STATUS_LABELS[data.status]}»`,
+        notes: "Статус изменён",
         tx,
       });
     }

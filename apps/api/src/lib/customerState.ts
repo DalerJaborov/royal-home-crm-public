@@ -368,19 +368,26 @@ export async function reconcileCallbackConsentForInput(input: AuthenticatedCusto
     return { decision: "none", snapshot: null };
   }
   let event: CustomerStateEvent | null = null;
+  const slot = value.state.actionIntents.callback;
+  // A phone that continues an already-open consent keeps its generation. Only
+  // otherwise may a number reply to OUR accepted callback question («Алишер
+  // 927123456») become consent: before 14.11.2026 it was continue_phone with no
+  // open slot, matched neither branch and the lead was silently lost.
+  const phoneContinues = decision === "continue_phone" && evidence.provenance === "meta_signature" &&
+    evidence.protectedMetaEndpointScopeId === fence.endpoint.endpointScopeId && evidence.protectedMetaAccountId === fence.endpoint.accountId &&
+    slot?.status === "open" && !!slot.consent;
+  const answeredOurQuestion = (decision === "none" || (decision === "continue_phone" && !phoneContinues)) && !!acceptedQuestion &&
+    acceptedQuestion.affirmationEventKey === ticket.eventKey && acceptedQuestion.affirmationOrder === ticket.order;
   if (decision === "cancelled" || decision === "needs_review") {
     event = { type: "intent", kind: "callback", change: decision === "cancelled" ? "cancel" : "review", evidenceRefs: [ticket.eventKey] };
-  } else if ((decision === "requested" || (decision === "none" && acceptedQuestion &&
-      acceptedQuestion.affirmationEventKey === ticket.eventKey && acceptedQuestion.affirmationOrder === ticket.order)) && fence.nativeId && fence.ownerToken) {
+  } else if ((decision === "requested" || answeredOurQuestion) && fence.nativeId && fence.ownerToken) {
     event = { type: "callback_consent", consent: { matcherVersion: 1, originalEventKey: ticket.eventKey, originalOrder: ticket.order,
       nativeId: fence.nativeId, endpointScopeId: fence.endpoint.endpointScopeId, accountId: fence.endpoint.accountId,
       ownershipEpoch: fence.ownershipEpoch, bindingRevision: fence.bindingRevision, scopeRevision: fence.scopeRevision,
       policyRevision: fence.policyRevision, ownerToken: fence.ownerToken,
-      ...(acceptedQuestion && decision === "none" ? { acceptedQuestion } : {}) } };
-  } else if (decision === "continue_phone" && evidence.provenance === "meta_signature" &&
-      evidence.protectedMetaEndpointScopeId === fence.endpoint.endpointScopeId && evidence.protectedMetaAccountId === fence.endpoint.accountId) {
-    const slot = value.state.actionIntents.callback;
-    if (slot?.status === "open" && slot.consent) event = { type: "intent_evidence", kind: "callback", generation: slot.generation, eventKey: ticket.eventKey };
+      ...(acceptedQuestion && answeredOurQuestion ? { acceptedQuestion } : {}) } };
+  } else if (phoneContinues && slot) {
+    event = { type: "intent_evidence", kind: "callback", generation: slot.generation, eventKey: ticket.eventKey };
   }
   if (!event) return { decision, snapshot: value.state.snapshot };
   const result = await transitionCustomerState(db, fence, event);

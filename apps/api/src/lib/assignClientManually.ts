@@ -1,6 +1,8 @@
 import { canViewInvestigations } from "@royal-home/shared";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../db.js";
 import { prisma } from "../db.js";
-import { Prisma, type Client } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { closeLeadPushNotification, closeLeadPushNotifications, sendPushToAgent } from "../push.js";
 import { logAgentAudit } from "./audit.js";
 import { changeClientAgent } from "./changeClientAgent.js";
@@ -8,6 +10,7 @@ import { reactivationResetData } from "./clientLifecycle.js";
 import { SUPERVISOR_ASSIGN_REASON } from "./leadReason.js";
 import { publishClientUpdated, publishLeadAccepted } from "./livePublish.js";
 import { checkManualAssignTarget } from "./manualAssignTarget.js";
+import { recordRopTransfer } from "./ownershipTransferRecord.js";
 import { findAgentsWithPermission } from "./recipients.js";
 
 /**
@@ -133,7 +136,9 @@ export interface AssignClientManuallyInput {
   accept?: boolean;
   actor: ManualAssignActor;
   /** Откуда нажали. Помощник — `assistant`: хвост причины и поле `via` в AuditLog. */
-  via?: "rest" | "assistant";
+  via?: "rest" | "assistant" | "owner_confirm";
+  /** Причина, которую читает новый хозяин; для записи передачи РОП директору. */
+  note?: string;
   /**
    * Состояние, которое видел человек, подтверждая действие (снимок превью
    * помощника). Задано — запись идёт ТОЛЬКО если карточка всё ещё в нём:
@@ -203,7 +208,8 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
 
   const toSelf = toAgentId === actor.id;
   const supervisorName = supervisor?.fullName ?? "Руководитель";
-  const viaSuffix = input.via === "assistant" ? " (через ИИ-помощника)" : "";
+  const viaSuffix =
+    input.via === "assistant" ? " (через ИИ-помощника)" : input.via === "owner_confirm" ? " (возврат: директор отклонил передачу РОП)" : "";
   const assignReason =
     (accept || toSelf
       ? `${supervisorName} забрал(а) заявку себе и принял(а) её`
@@ -271,6 +277,15 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
   }
   const updated = (await prisma.client.findUnique({ where: { id: row.id } })) ?? row;
 
+  void recordRopTransfer({
+    kind: "CLIENT",
+    targetId: row.id,
+    fromAgentId: row.assignedAgentId,
+    toAgentId,
+    actorId: actor.id,
+    actorRole: actor.role,
+    reason: input.note ?? assignReason,
+  });
   logAgentAudit(actor.id, "LEAD_ASSIGN", "Client", row.id, {
     shortId: row.shortId,
     fullName: row.fullName,
@@ -278,7 +293,7 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
     toAgentName: target.fullName,
     accepted: true,
     previousAgentId: row.assignedAgentId,
-    ...(input.via === "assistant" ? { via: "assistant" } : {}),
+    ...(input.via === "assistant" || input.via === "owner_confirm" ? { via: input.via } : {}),
   });
 
   // Назначенному агенту нужен push — его никто не спрашивал, лид «прилетел» вручную.
@@ -296,7 +311,7 @@ export async function assignClientManually(input: AssignClientManuallyInput): Pr
   }
   publishLeadAccepted(row.id, toAgentId);
   // Прежний держатель заявки (если был и это не тот же агент) не должен видеть
-  // у себя в шторке «🔔 Новый лид» по карточке, которую руководитель только что
+  // у себя в шторке «🔔 Новая заявка» по карточке, которую руководитель только что
   // забрал/передал дальше — владелец 19.08.2026.
   if (row.assignedAgentId && row.assignedAgentId !== toAgentId) {
     closeLeadPushNotification(row.assignedAgentId, `lead-${row.id}`).catch((err) =>
@@ -355,11 +370,6 @@ export const MANUAL_ASSIGN_WRITTEN_FIELDS = [
   "lostAt",
   "refusalCount",
   "workStatus",
-  "inactiveLevel",
-  "inactiveReasonKey",
-  "inactiveSince",
-  "inactiveEnteredAt",
-  "inactivePingCount",
   "assignmentRefusedAt",
   "assignmentRefusedByAgentId",
   "assignmentCompletedAt",
@@ -382,8 +392,6 @@ const DATE_FIELDS = new Set<ManualAssignWrittenField>([
   "escalatedAt",
   "ownPropertyReminderSentAt",
   "lostAt",
-  "inactiveSince",
-  "inactiveEnteredAt",
   "assignmentRefusedAt",
   "assignmentCompletedAt",
   "reactivationOfferedAt",

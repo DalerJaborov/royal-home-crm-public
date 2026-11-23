@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Phone, X } from "lucide-react";
+import { FOREIGN_PHONE_CALL_ERROR, isForeignPhone } from "@royal-home/shared";
 import { useCallClient } from "../hooks/useClients";
 import { useCallCandidate } from "../hooks/useVacancies";
 import { useActiveCallValue } from "../hooks/useActiveCall";
@@ -25,7 +26,8 @@ interface CallClientButtonProps {
   /** icon — компактная кнопка для тесных списков/тайлов (только иконка).
    *  full — кнопка с подписью, как на карточке клиента. */
   variant?: "icon" | "full";
-  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить». */
+  /** Подпись рядом с иконкой в варианте full. По умолчанию — «Позвонить».
+   *  В варианте icon — имя кнопки для экранного чтеца («Перезвонить»); без неё — «Позвонить». */
   label?: string;
   className?: string;
   title?: string;
@@ -34,6 +36,10 @@ interface CallClientButtonProps {
   /** Анкета кандидата (раздел «Вакансии»): у неё нет карточки клиента, звонок
    *  идёт своим путём POST /vacancies/:id/call — тоже через станцию. */
   candidateId?: string;
+  /** Кнопка стоит ВНУТРИ строки текста (реплика клиента со скрытым номером, MessageText):
+   *  обёртка строчная, а не блочная. Блочный div рвал фразу и ставил «Позвонить» отдельной
+   *  строкой с пустой строкой над ней (кадр владельца 20.11.2026). */
+  inline?: boolean;
 }
 
 /**
@@ -100,6 +106,7 @@ export function CallClientButton({
   title,
   stopPropagation = true,
   candidateId,
+  inline = false,
 }: CallClientButtonProps) {
   const callClientMutation = useCallClient(clientId ?? "", callPhone, phoneKey);
   const callCandidate = useCallCandidate(candidateId ?? "");
@@ -116,11 +123,24 @@ export function CallClientButton({
   /** Телефона может не быть вовсе (лид без номера) — тогда это не маска, а пусто. */
   const safePhone = phone ?? "";
   const hasPhone = safePhone.length > 0;
+  /** Станция иностранный номер не наберёт: сразу показываем причину, а не живую кнопку (19.11.2026). */
+  const foreignBlocked = !candidateId && isForeignPhone(callPhone ?? phone);
 
   async function handleCall(e: React.MouseEvent) {
     if (stopPropagation) e.stopPropagation();
     if (readOnly) return;
     setError(null);
+    /**
+     * ИНОСТРАННЫЙ НОМЕР — ОБЪЯСНЕНИЕ ВМЕСТО ЗВОНКА (17.11.2026). Станция агентства
+     * звонит только по Таджикистану; раньше такой «звонок» кончался строкой
+     * «клиент не ответил», хотя телефон клиента не звонил. Сервер отказывает тем же
+     * текстом (packages/shared/tajikPhone.ts) — здесь только не гоняем запрос зря.
+     * Кандидата (вакансии) не трогаем: там номер проверяет свой маршрут.
+     */
+    if (foreignBlocked) {
+      setError(FOREIGN_PHONE_CALL_ERROR);
+      return;
+    }
     try {
       await callClient.mutateAsync();
       // Окно звонка (CallWindow) читает состояние с сервера раз в секунду.
@@ -148,10 +168,13 @@ export function CallClientButton({
   if (!clientId && !candidateId) {
     return (
       <span
+        // Кружок без подписи — не кнопка, но чтецу причина нужна словами (ревью #303).
+        role={variant === "icon" ? "img" : undefined}
+        aria-label={variant === "icon" ? (!hasPhone ? "Позвонить нельзя: нет телефона" : "Позвонить нельзя: нет карточки клиента") : undefined}
         title={
           !hasPhone
             ? "У клиента ещё нет телефона, звонить нечем"
-            : "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна (примите лид)"
+            : "Звонок идёт только через CRM из карточки клиента, а карточки здесь нет или она вам недоступна (примите заявку)"
         }
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} cursor-not-allowed opacity-50`}
       >
@@ -161,8 +184,18 @@ export function CallClientButton({
     );
   }
 
+  // Одно состояние кнопки на оба варианта: подпись full и имя значка для чтеца.
+  const Wrap = inline ? "span" : "div";
+  const stateLabel = isThisClient && callInProgress
+    ? "Идёт звонок…"
+    : callInProgress
+      ? "Линия занята"
+      : callClient.isPending
+        ? "Соединяем…"
+        : (label ?? "Позвонить");
+
   return (
-    <div className={variant === "icon" ? "relative shrink-0" : "relative"}>
+    <Wrap className={variant === "icon" ? "relative shrink-0" : inline ? "relative inline-flex align-middle" : "relative"} data-msg-call={inline || undefined}>
       <button
         type="button"
         // Метка для жеста «смахнуть строку — позвонить» (components/SwipeRow.tsx):
@@ -171,27 +204,28 @@ export function CallClientButton({
         data-call-button
         onClick={handleCall}
         disabled={callClient.isPending || callInProgress}
+        // Иностранный номер: кнопка приглушена, но нажимаема — на телефоне подсказки title
+        // нет, и нажатие открывает ту же причину плашкой. Строки под кнопкой нет: в ряду
+        // действий карточки она ломала ряд и на ПК, и на телефоне (кадры 19.11.2026).
+        aria-disabled={foreignBlocked || undefined}
+        data-foreign-phone={foreignBlocked || undefined}
         title={
-          callInProgress
+          foreignBlocked
+            ? FOREIGN_PHONE_CALL_ERROR
+            : callInProgress
             ? isThisClient
               ? "Звонок этому клиенту уже идёт"
               : "Сначала завершите текущий разговор"
             : (title ?? (variant === "icon" ? "Позвонить через CRM" : undefined))
         }
-        aria-label={variant === "icon" ? "Позвонить" : undefined}
+        // Значок озвучивается тем же состоянием, что подпись варианта full (ревью #303).
+        aria-label={variant === "icon" ? stateLabel : undefined}
         className={`${className ?? (variant === "icon" ? DEFAULT_ICON_CLASS : DEFAULT_FULL_CLASS)} ${
-          callInProgress ? "cursor-not-allowed" : ""
+          callInProgress ? "cursor-not-allowed" : foreignBlocked ? "opacity-60" : ""
         }`}
       >
         <Phone className={variant === "icon" ? "h-3.5 w-3.5" : "w-3.5 h-3.5"} />
-        {variant === "full" &&
-          (isThisClient && callInProgress
-            ? "Идёт звонок…"
-            : callInProgress
-              ? "Линия занята"
-              : callClient.isPending
-                ? "Соединяем…"
-                : (label ?? "Позвонить"))}
+        {variant === "full" && stateLabel}
       </button>
       {error && (
         // bg-card-solid, а НЕ bg-card: обычный --c-card полупрозрачен (матовое стекло,
@@ -223,6 +257,6 @@ export function CallClientButton({
           )}
         </div>
       )}
-    </div>
+    </Wrap>
   );
 }

@@ -20,7 +20,7 @@ import { useCommissionForecast } from "../../hooks/useFinance";
  */
 
 function somoni(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU")} с.`;
+  return `${Math.round(value).toLocaleString("ru-RU")}\u00a0с.`;
 }
 
 function planProgress(percent: number): string {

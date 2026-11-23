@@ -58,3 +58,11 @@ describe("retryDelayFor — потолок паузы перед повторо�
     expect(retryDelayFor(3, new Error("Failed to fetch"))).toBeLessThanOrEqual(8_000 * 1.3);
   });
 });
+
+describe("окно повторов — одно число (ревью #346)", () => {
+  it("RETRY_WINDOW_MS = сумма пауз 1+2+4+8 с = 15 с", async () => {
+    const { RETRY_WINDOW_MS, QUERY_RETRY_ATTEMPTS } = await import("../queryClient");
+    expect(QUERY_RETRY_ATTEMPTS).toBe(4);
+    expect(RETRY_WINDOW_MS).toBe(15_000);
+  });
+});

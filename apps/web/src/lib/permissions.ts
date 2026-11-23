@@ -29,10 +29,18 @@ export function usePermissions(): Set<PermissionId> {
   }, [granted, role, data?.role]);
 }
 
+/**
+ * Видит ли человек служебные срезы проверки — то же правило, что у сервера
+ * (apps/api/src/auth/investigations.ts): И роль ADMIN/DIRECTOR, И действующее право
+ * clients.securityReview. До 20.11.2026 здесь проверялась только роль: у директора с
+ * отозванным правом экран рисовал срезы, которые сервер отдаёт пустыми, — и «нет данных»
+ * выглядело как «всё спокойно» (ревью PR 336).
+ */
 export function useCanViewInvestigations(): boolean {
   const role = useAuthStore((s) => s.agent?.role);
   const { data } = useMyProfile();
-  return canViewInvestigations(data?.role ?? role);
+  const permissions = usePermissions();
+  return canViewInvestigations(data?.role ?? role) && permissions.has("clients.securityReview");
 }
 
 /** `const can = useCan(); ... can("finance.view")` — короткая проверка в разметке. */

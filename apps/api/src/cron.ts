@@ -11,29 +11,36 @@ import { expireExpensePhotoDrafts } from "./lib/telegramExpenseReceipts.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
-import { staleLeadCircleOpen, reassignStaleLeads, reassignStaleReturns, assignPendingLeads, penalizeMissedFirstCalls, remindDueFirstCalls, assignHeldLead, remindEscalatedLeads } from "./leads.js";
-import { runInactiveTrafficLightTick } from "./lib/inactiveTrafficLight.js";
-import { runDeferredClientsReturnTick } from "./lib/deferredClients.js";
+import { staleLeadCircleOpen, reassignStaleLeads, reassignStaleReturns, assignPendingLeads, handleMissedFirstCalls, remindDueFirstCalls, assignHeldLead, remindEscalatedLeads } from "./leads.js";
 import { escalateSellerPropertyMissing } from "./lib/sellerPropertyMissingAntifraud.js";
 import { runSellerNoPropertyAlarmTick } from "./lib/sellerNoPropertyAlarm.js";
 import { runSellerWorkStalledAlarmTick } from "./lib/sellerWorkStalledAlarm.js";
 import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
+import { runClipOwnerAutoPublishTick } from "./lib/clipReview.js";
 import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
-import { runClientPropertyCountAlarmTick } from "./lib/clientPropertyCountAlarm.js";
+import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
+import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
+import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
+import { runTelegramDeliveryWatch } from "./lib/telegramDeliveryWatch.js";
+import { runUnrecordedCustomerSummary } from "./lib/customerHeldMessage.js";
+import { runCommentNeedsHumanSweep } from "./lib/commentWaitingAlert.js";
+import { releaseCommentPhoneHolds } from "./lib/commentPhoneHold.js";
+import { runTransferRequestTick } from "./lib/ownershipTransferRequest.js";
 import { runAgentOffCrmAlarmTick } from "./lib/agentOffCrmAlarm.js";
 import { flushDirectorAlertQueue } from "./lib/directorAlertQueue.js";
 import { runBuyerThinkingSlowTrackTick } from "./lib/buyerThinkingSlowTrack.js";
-import { processNoAnswerTailAnchors } from "./lib/noAnswerStreak.js";
 import { calculateDailyKpiForAllAgents } from "./kpi.js";
 import { isWithinWorkingHours } from "./lib/workingHours.js";
 import { refreshUsdToTjsRateFromAlif } from "./lib/exchangeRate.js";
 import { logSystemError, type SystemErrorSource } from "./lib/systemError.js";
+import { somonCrawlSchedule } from "./lib/market/somonCrawlSchedule.js";
 import { dushanbeWallClock, DUSHANBE_OFFSET_MS } from "./lib/dushanbeTime.js";
 import { runDailyStoriesTick } from "./lib/dailyStories.js";
 import { prisma } from "./db.js";
@@ -49,16 +56,12 @@ import { insightDigestPeriod, isInsightMeetingDay } from "./lib/insightDigestPer
 import { scheduleRepostsTick } from "./lib/socialReposts.js";
 import { runSocialDigestsTick } from "./lib/socialDigests.js";
 import {
-  notifyMissedShowings,
-  notifyOverdueTasks,
   notifySupervisorsOfOverdue,
   notifyUnconfirmedShowings,
   sendHourBeforeReminders,
   sendShowingConfirmationRequests,
   sendTomorrowDigest,
 } from "./lib/meetingReminders.js";
-import { remindIncompleteCards } from "./lib/cardReminders.js";
-import { refreshStatusesByTime } from "./lib/clientAutoStatus.js";
 import { refreshPropertyStatusesByTime } from "./lib/propertyAutoStatus.js";
 import { runNightlyGeoMatchSweepTick } from "./lib/geoMatchSweep.js";
 import { runContactLinkSweepTick } from "./lib/contactLinkSweep.js";
@@ -78,11 +81,11 @@ import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
 import { runPublishedChannelsAuditTick } from "./lib/publishedChannelsAudit.js";
-import { runIntegrationHealthChecks } from "./lib/integrationHealth.js";
+import { checkBackupFreshness } from "./lib/backupFreshness.js";
+import { runBalanceWatch } from "./lib/balanceWatch.js";
+import { alertOnIntegrationBreakage, runIntegrationHealthChecks } from "./lib/integrationHealth.js";
 import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowUps.js";
 import { runDealStalePipeline } from "./lib/dealStalePipeline.js";
-import { runSilentClientAutoDeactivate } from "./lib/silentClientAutoDeactivate.js";
-import { runLostInactiveTrashSweep } from "./lib/lostInactiveTrashSweep.js";
 import { runReactivationCampaignTick } from "./lib/reactivationCampaign.js";
 import { sendBotMessageWithMid } from "./messengers/sendBotMessage.js";
 import { askCandidatePhone } from "./lib/askCandidatePhone.js";
@@ -107,6 +110,7 @@ import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFil
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
+import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
 import { cleanupTelegramBotApiVolume } from "./lib/telegramBotApiCleanup.js";
@@ -116,7 +120,6 @@ import { notifyStaleOwnerQuestions } from "./lib/ownerQuestionAnswer.js";
 import { notifyOverdueMaterials, notifyStuckMaterials } from "./lib/propertyPipeline.js";
 import { releaseExpiredReservations } from "./lib/dealReservation.js";
 import { expireStaleReactivationOffers, runReactivationOfferReminders } from "./lib/reactivationOffers.js";
-import { runInactivityCheck } from "./lib/inactivityPenalty.js";
 import { runBuyerNoCallAlarmTick, runRefusedHighScoreAlarmTick } from "./lib/buyerNoCallAlarm.js";
 import { runPhoneLeadWatchdogTick } from "./lib/phoneLeadWatchdog.js";
 import { sweepExpiredDuplicateReviews, runDuplicateFuzzyScanTick, remindDuplicateReviewsNearingExpiry } from "./lib/duplicateReview.js";
@@ -128,12 +131,15 @@ import { watchStaleSync } from "./lib/ads/adReconcile.js";
 import { refreshMetaAdsTokenIfDue } from "./lib/ads/metaAdsToken.js";
 import { refreshMetaUserTokensIfDue } from "./lib/metaUserTokenRefresh.js";
 import { recentMonths, upsertAiExpenses } from "./lib/ads/adExpenseSync.js";
-import { alertExpenseOverrun, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
+import { alertExpenseOverrun, freezeClosedAutoExpenseRates, processRecurringExpenses, upsertSalaryExpenses } from "./lib/financeAutomation.js";
 import { formatAdsDigestLine } from "./lib/ads/adsDigest.js";
 import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from "./lib/ads/adAlerts.js";
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
 import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
+import { sellerSwitchOn } from "./lib/sellerSwitches.js";
+import { sweepStaffSocialPosts } from "./lib/staffSocialPostSweep.js";
+import { runShowingQuestionsTick } from "./telegram/showingQuestionNotice.js";
 const MAX_REMINDER_HISTORY = 12;
 
 /**
@@ -411,9 +417,14 @@ export async function sendDirectorDigest(): Promise<number> {
       adsYesterday,
     },
     directors,
+    // Выключатель владельца «продавцы в утренней сводке» (14.11.2026,
+    // lib/sellerSwitches.ts): выключено — две строки о продавцах ниже не пишутся,
+    // остальная сводка уходит как обычно.
+    sellerLinesOn,
   ] = await Promise.all([
     loadMorningNumbers({ ads: true }),
     prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } }),
+    sellerSwitchOn("morningSellerLinesEnabled"),
   ]);
 
   const body = [
@@ -455,7 +466,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // Пачка 9 (11.09.2026): грубый градусник, не замена runSellerNoPropertyAlarmTick
     // (тот алармит директору лично по одному клиенту, от даты встречи) — см.
     // doc-comment у MorningNumbers.sellersWithoutPropertyOver7Days.
-    ...(sellersWithoutPropertyOver7Days > 0
+    ...(sellerLinesOn && sellersWithoutPropertyOver7Days > 0
       ? [
           `🏚️ ${sellersWithoutPropertyOver7Days} ${pluralizeRu(sellersWithoutPropertyOver7Days, ["продавец", "продавца", "продавцов"])} без объекта дольше недели`,
         ]
@@ -504,9 +515,10 @@ export async function sendDirectorDigest(): Promise<number> {
     ...(reviewsYesterday > 0
       ? [`⭐ ${reviewsYesterday} ${pluralizeRu(reviewsYesterday, ["отзыв", "отзыва", "отзывов"])} после сделки за вчера`]
       : []),
-    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас — по
-    // каждому отдельному звонку уже напоминает/эскалирует отдельный крон каждые
-    // 30 минут (lib/telephony/missedCallEscalation.ts), здесь только общий счёт.
+    // Пачка 18 (12.09.2026): пропущенные без перезвона за вчера, на сейчас. Крона, который
+    // каждые 30 минут эскалировал каждый пропущенный руководству, больше нет (убран владельцем
+    // 20.09.2026, см. ниже «ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА»): общий счёт здесь
+    // (lib/telephony/missedCallEscalation.ts::countMissedCallsNoCallbackYesterday), и всё.
     ...(missedCallsNoCallbackYesterday > 0
       ? [
           `📵 ${missedCallsNoCallbackYesterday} ${pluralizeRu(missedCallsNoCallbackYesterday, ["пропущенный", "пропущенных", "пропущенных"])} без перезвона за вчера`,
@@ -517,7 +529,7 @@ export async function sendDirectorDigest(): Promise<number> {
     // назад не поднимает никогда (см. doc-comment у
     // MorningNumbers.propertiesWithdrawnSellerRecovered), строка нужна, чтобы
     // разъезд не лежал незамеченным до случайной находки.
-    ...(propertiesWithdrawnSellerRecovered > 0
+    ...(sellerLinesOn && propertiesWithdrawnSellerRecovered > 0
       ? [
           `🏠↩️ ${propertiesWithdrawnSellerRecovered} ${pluralizeRu(propertiesWithdrawnSellerRecovered, ["объект снят", "объекта снято", "объектов снято"])} из-за «потерянного» продавца, хотя продавец уже не «Потерянный» — проверить возврат в продажу`,
         ]
@@ -553,6 +565,16 @@ export function startCronJobs() {
     const { runSomonMonitorTick } = await import("./lib/somonLeads/monitor.js");
     await runSomonMonitorTick();
   });
+  // Сторож тишины (17.11.2026): монитор включён, а заявок агентам нет сутки (на паузе — трое) → журнал ошибок.
+  scheduleTracked("somon-owner-leads-silence", "47 * * * *", async () => {
+    const { checkSomonOwnerLeadsSilence } = await import("./lib/somonLeads/silenceAlarm.js");
+    await checkSomonOwnerLeadsSilence();
+  });
+  // Сторож групп помощницы (20.11.2026): группа стала супергруппой (новый chat id) или бот вышел → регистрация переезжает / запись в журнал.
+  scheduleTracked("assistant-group-sweep", "12 * * * *", async () => {
+    const { sweepAssistantGroups } = await import("./lib/assistantGroupWatchdog.js");
+    await sweepAssistantGroups();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();
@@ -566,11 +588,32 @@ export function startCronJobs() {
     const { executeQueuedNarrationDeliveries } = await import("./lib/narrationDelivery.js");
     await executeQueuedNarrationDeliveries();
   });
+  // Озвучка свободного текста (16.11.2026): файлы и тексты старше суток, зависшие генерации.
+  // Рубильник Б «пропущенный звонок»: общая задача «перезвонить» по незнакомому номеру закрывается, когда он
+  // сам написал в WhatsApp (lib/telephony/missedCallFollowup.ts). Выключенный рубильник задач не заводит, проход пуст.
+  scheduleTracked("missed-call-task-whatsapp-close", "*/2 * * * *", async () => {
+    const { closeMissedCallTasksAnsweredInWhatsapp } = await import("./lib/telephony/missedCallFollowup.js");
+    await closeMissedCallTasksAnsweredInWhatsapp();
+  });
+  scheduleTracked("free-narration-purge", "*/30 * * * *", async () => {
+    const { purgeFreeNarrations } = await import("./lib/freeNarration.js");
+    await purgeFreeNarrations();
+  });
   // Автоозвучка (11.11.2026): черновик по фактам → генерация → одно сообщение агенту → монтажёру.
   scheduleTracked("narration-auto-flow", "* * * * *", async () => {
     const { runNarrationAutoFlow } = await import("./lib/narrationAutoFlow.js");
     const { notifyNarrationApproval, remindPendingNarrationApprovals } = await import("./telegram/assistantNarration.js");
     await runNarrationAutoFlow({ notifyAgent: notifyNarrationApproval, remindApprovals: remindPendingNarrationApprovals });
+  }, undefined, undefined, { timeoutMs: 170_000 });
+  // Новая озвучка вышла (18.11.2026): старые посты снимаются в каждой сети после нового там же — дозревший
+  // Instagram и повторы TikTok и Meta доводит этот обход (lib/remakeOldPosts.ts). Имя задачи прежнее («прослушать
+  // перед выпуском» убран тем же числом): заодно убирает кандидатов, оставшихся от него на момент выката.
+  scheduleTracked("narration-preview-due", "* * * * *", async () => {
+    const { clearLeftoverNarrationPreviews, reopenAutoApprovalsOnPublishedClips } = await import("./lib/narrationPreview.js");
+    const { finishOldPostsSweep } = await import("./lib/remakeOldPosts.js");
+    await clearLeftoverNarrationPreviews();
+    await reopenAutoApprovalsOnPublishedClips();
+    await finishOldPostsSweep();
   }, undefined, undefined, { timeoutMs: 170_000 });
   scheduleTracked("seller-control-episodes", "* * * * *", async () => {
     const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
@@ -615,6 +658,19 @@ export function startCronJobs() {
 
   /** Свободные ролики в соцсети (12.10.2026): раз в минуту запускает ролики, чьё время по расписанию пришло,
    *  и снимает оборванные публикации. Сама публикация идёт заданием очереди (jobs/socialVideoPublish.ts). */
+  /** Вопросы агенту о показе (владелец 22.11.2026): «Договорились о показе?» через минуту после
+   *  неясного разбора и «У вас был показ?» через час после показа — в Шабнам, страховка пушем в CRM.
+   *  Раз в минуту, запросы узкие (индексы status+askAt); вне 08:00–22:00 вопросы ждут утра.
+   *  telegram/showingQuestionNotice.ts, рубильники — Настройки → Автоматика. */
+  scheduleTracked("showing-questions", "* * * * *", async () => {
+    try {
+      const { planned, sent, pushed } = await runShowingQuestionsTick();
+      if (planned || sent || pushed) console.log(`[cron] Вопросы о показах: заведено ${planned}, отправлено ${sent}, пушей ${pushed}`);
+    } catch (err) {
+      reportCronTickError("Ошибка вопросов о показах", err);
+    }
+  });
+
   scheduleTracked("social-video-schedule", "* * * * *", async () => {
     try {
       const { started, recovered } = await runSocialVideoScheduleTick();
@@ -625,8 +681,8 @@ export function startCronJobs() {
   });
 
   /** Напоминания перед встречей — каждые 5 минут. Тик частый, но запрос узкий: окно
-   *  по индексированному nextActionDate. Ступени: показ — за 2 часа и за 40 минут
-   *  (пробки), прочие задачи — за час. Здесь же контроль непроведённых показов:
+   *  по индексированному nextActionDate. Ступени: показ и встреча — одно напоминание
+   *  за 2 часа (владелец 20.09 и 22.11.2026), прочие задачи — за час. Здесь же контроль непроведённых показов:
    *  тот же тик, отдельный запрос, руководству уходит один push на показ. */
   /** Сообщения клиентов, застрявшие в буфере дебаунса из-за перезапуска API
    *  посреди ожидания (см. recoverStuckPendingMessages в messengers/conversation.ts,
@@ -667,24 +723,11 @@ export function startCronJobs() {
       } catch (err) {
         reportCronTickError("Ошибка напоминаний о встречах", err);
       }
-      try {
-        const notified = await notifyMissedShowings();
-        if (notified) console.log(`[cron] Непроведённых показов, о которых сообщили: ${notified}`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля показов", err);
-      }
-      try {
-        const notified = await notifyOverdueTasks();
-        if (notified) console.log(`[cron] Просроченных встреч/задач, о которых сообщили: ${notified}`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля просроченных встреч/задач", err);
-      }
-      try {
-        const { reminded, escalated } = await remindIncompleteCards();
-        if (reminded || escalated) console.log(`[cron] Незаполненные карточки: ${reminded} агентам, ${escalated} руководству`);
-      } catch (err) {
-        reportCronTickError("Ошибка контроля карточек", err);
-      }
+      // notifyMissedShowings/notifyOverdueTasks и remindIncompleteCards
+      // (lib/cardReminders.ts) удалены 16.11.2026: после снятия штрафов Royal
+      // Score (showing_missed, meeting_overdue, task_overdue, card_not_filled)
+      // они только ставили отметки, которые никто не читал. Пуши агенту и
+      // руководителю из них убраны ещё 02.10.2026.
       /* Заведение и контроль обязательных окон итогов убраны 14.09.2026 вместе с самим
          механизмом (решение владельца). Опрос-звонок после показа (lib/showingSurvey.ts,
          антифрод) заменён 17.09.2026 на робозвонок «показ -> тишина» (lib/postShowingCall.ts,
@@ -1120,6 +1163,19 @@ export function startCronJobs() {
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
   }, { timezone: "Asia/Dushanbe" });
+  /**
+   * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — ночная сверка всех карточек
+   * в 03:50 по Душанбе: копию, поменянную мимо перехвата записи (сырой SQL, откат правки,
+   * вложенная запись), чинит здесь же; та же сверка идёт при старте worker.
+   */
+  scheduleTracked("client-notes-plain-sweep", "50 3 * * *", async () => {
+    try {
+      const { sweepClientNotesPlain } = await import("./lib/clientNotesPlainSweep.js");
+      await sweepClientNotesPlain();
+    } catch (err) {
+      reportCronTickError("Сверка заметок без ярлыков", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
   /** Журнал сообщений помощницы (StaffNotice) старше 90 дней — 03:40 по Душанбе. */
   scheduleTracked("staff-notice-cleanup", "40 3 * * *", async () => {
     try {
@@ -1202,25 +1258,8 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /** Статусы клиентов, которые зависят от ВРЕМЕНИ, а не от события: остывание
-   *  после недели тишины, «не отвечает» после трёх недозвонов, архив после двух
-   *  месяцев молчания. Событийные переходы (поговорили, назначили показ, закрыли
-   *  сделку) пересчитываются сразу в момент события — ждать ночи там незачем.
-   *  04:40 — после ночного разбора звонков и до утренних сводок, чтобы
-   *  руководитель с утра видел уже актуальные статусы. */
-  scheduleTracked(
-    "client-auto-statuses",
-    "40 4 * * *",
-    async () => {
-      try {
-        const { checked, changed } = await refreshStatusesByTime();
-        if (changed) console.log(`[cron] Автостатусы: проверено ${checked}, изменено ${changed}`);
-      } catch (err) {
-        reportCronTickError("Ошибка автостатусов", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  // Ночные автостатусы клиентов («остыл», «не отвечает», «в архиве») удалены
+  // 16.11.2026: владелец убрал статусы-папки, список клиентов один.
 
   /** Сверка статусов ОБЪЕКТОВ со сделками (см. lib/propertyAutoStatus.ts). В
    *  отличие от клиентских статусов, здесь ничего не зависит от времени: это
@@ -1430,13 +1469,25 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /** Просроченные черновики нового объекта (срок жизни 7 суток, см.
-   *  routes/properties/draftAttach.ts) — 03:56 по Душанбе, сразу за брошенными
-   *  загрузками видео. Брошенный черновик держит на диске десятки мегабайт
-   *  снимков и сотни мегабайт роликов: без уборки место кончится молча. */
+  /** Брошенные загрузки частями без записи в базе (общие сессии — ролик карточки, файл в
+   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
+   *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
+   *  старта загрузки. Каждый час, в 17 минут. */
+  scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
+    try {
+      const removed = await sweepStaleChunkedUploads();
+      if (removed) console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки брошенных загрузок частями", err);
+    }
+  });
+
+  /** Просроченные черновики нового объекта (срок жизни 4 часа с последнего
+   *  сохранения, см. routes/properties/draftAttach.ts) — каждые 15 минут. Брошенный
+   *  черновик держит на диске десятки мегабайт снимков и сотни мегабайт роликов. */
   scheduleTracked(
     "expired-property-drafts-cleanup",
-    "56 3 * * *",
+    "*/15 * * * *",
     async () => {
       try {
         const removed = await cleanupExpiredPropertyDrafts();
@@ -1607,25 +1658,10 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /** Бездействие по принятым клиентам: сначала предупреждение, потом штраф.
-   *  Раз в сутки утром, а не чаще: это разговор с человеком о его работе, и
-   *  повторять его каждый час — не контроль, а травля. 09:20, когда рабочий день
-   *  уже начался и предупреждение можно отработать сегодня же. */
-  scheduleTracked(
-    "inactivity-check",
-    "20 9 * * *",
-    async () => {
-      try {
-        const { warned, penalized } = await runInactivityCheck();
-        if (warned || penalized) {
-          console.log(`[cron] Бездействие: предупреждений ${warned}, штрафов ${penalized}`);
-        }
-      } catch (err) {
-        reportCronTickError("Ошибка проверки бездействия", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  /* «inactivity-check» (предупреждение, потом штраф за бездействие по клиенту)
+     удалён 16.11.2026 вместе с lib/inactivityPenalty.ts: автоматические штрафы
+     Royal Score сняты владельцем, а предупреждение было лишь нулевой строкой
+     журнала перед штрафом. */
 
   /** Ночной AI-скоринг клиентов (7.2) — каждый день в 02:00 по Душанбе.
    *  timezone здесь обязателен и раньше единственный из всех джобов его не имел:
@@ -1700,21 +1736,33 @@ export function startCronJobs() {
   );
 
   /**
-   * ПОЛНЫЙ ОБХОД SOMON РАЗ В НЕДЕЛЮ (владелец 02.11.2026): квартиры и дома в Душанбе.
-   * Свежие объявления Somon и так попадают в каталог из минутного парсера лидов; полный обход
-   * добирает остальное, обновляет цены и помечает ушедшие (порог 264 ч). Paydo с 03.11.2026 здесь
-   * НЕ ходит: у него свой ночной обход и инкремент ниже. Воскресенье 02:30. По умолчанию ВЫКЛЮЧЕН:
-   * MARKET_CRAWL_ENABLED=1 в .env сервера после первого ручного прогона. Весь трафик к Somon идёт
-   * через общий бюджет.
+   * ПОЛНЫЙ ОБХОД SOMON (владелец 02.11.2026): квартиры и дома в Душанбе. Частота — MARKET_SOMON_CRAWL_SCHEDULE
+   * (lib/market/somonCrawlSchedule.ts): по умолчанию раз в неделю (воскресенье 02:45), `nightly` — каждую ночь
+   * в 02:45 (17.11.2026: владелец частоту не выбрал, поведение прода по умолчанию не меняется). Имя тика прежнее,
+   * «weekly»: по нему живут отметка крона и карта продукта. Подбор под клиентов берёт только то, что сбор видел
+   * за 3 суток (Настройки, marketBuyerFreshDays). Около 180 страниц через общий бюджет fetchSomon
+   * (темп ≥ 10 с, уступает парсеру лидов) — примерно час. Paydo в 02:30 (около 10 минут) идёт раньше:
+   * замок обходов общий, и ночной Paydo в 03:00 при долгом Somon пропускался бы.
+   * Порог «исчезло» прежний (264 ч, marketStore.ts) — ночные обходы его только страхуют.
+   * Неполный обход (оборван, «собрано мало» против счётчика сайта или прежнего каталога) — НЕ успех тика:
+   * отметка крона краснеет, исчезнувшие не ставятся. По умолчанию ВЫКЛЮЧЕН: MARKET_CRAWL_ENABLED=1.
    */
+  const somonSchedule = somonCrawlSchedule();
+  if (somonSchedule.invalid !== undefined) {
+    void logSystemError("cron", `MARKET_SOMON_CRAWL_SCHEDULE «${somonSchedule.invalid}» не распознано (нужно weekly или nightly): полный обход Somon идёт раз в неделю`,
+      { dedupKey: `somon-crawl-schedule-invalid:${somonSchedule.invalid}` });
+  }
   scheduleTracked(
     "market-weekly-crawl",
-    "30 2 * * 0",
+    somonSchedule.cron,
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
         const { runMarketFullCrawl } = await import("./lib/market/nightly.js");
-        await runMarketFullCrawl();
+        const result = await runMarketFullCrawl();
+        if (result && !result.somon.complete) {
+          markCronTickFailed("Полный обход Somon неполный", new Error(`причина ${result.somon.stopReason ?? "неизвестна"}, страниц ${result.somon.pages}`));
+        }
       } catch (err) {
         markCronTickFailed("Ошибка недельного обхода рынка", err);
       }
@@ -1727,19 +1775,22 @@ export function startCronJobs() {
   );
 
   /**
-   * ПОЛНЫЙ ОБХОД PAYDO КАЖДУЮ НОЧЬ (владелец 03.11.2026): 03:00, оба раздела до конца выдачи,
-   * затем «исчезло» с порогом 72 ч (мимо трёх ночных обходов). Замок общий с Somon-обходом и
-   * инкрементом: занят — тик тихо пропускается (в воскресенье Somon-обход с 02:30 может ещё идти).
+   * ПОЛНЫЙ ОБХОД PAYDO КАЖДУЮ НОЧЬ (владелец 03.11.2026): с 17.11.2026 в 02:30 (до ночного Somon в 02:45),
+   * оба раздела до конца выдачи, затем «исчезло» с порогом 72 ч (мимо трёх ночных обходов). Замок общий с
+   * Somon-обходом и инкрементом: занят — тик тихо пропускается. Неполный обход — не успех тика.
    * Тот же флаг MARKET_CRAWL_ENABLED=1.
    */
   scheduleTracked(
     "market-paydo-daily",
-    "0 3 * * *",
+    "30 2 * * *",
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
         const { runPaydoFullCrawl } = await import("./lib/market/nightly.js");
-        await runPaydoFullCrawl();
+        const result = await runPaydoFullCrawl();
+        if (result && !result.complete) {
+          markCronTickFailed("Полный обход Paydo неполный", new Error(`причина ${result.stopReason ?? "неизвестна"}, страниц ${result.pages}`));
+        }
       } catch (err) {
         markCronTickFailed("Ошибка ночного обхода Paydo", err);
       }
@@ -1818,6 +1869,71 @@ export function startCronJobs() {
         await runOwnMatching();
       } catch (err) {
         markCronTickFailed("Ошибка сверки объектов с площадками", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * ИСТОРИЯ МЕДИАН РЫНКА (14.11.2026): раз в сутки в 06:30 по Душанбе — после ночных обходов (Paydo
+   * 03:00 идёт до 3 часов) — пишем медиану и усечённое среднее цены и цены за м² по сегментам
+   * район × комнаты × тип дома, «весь рынок» и «собственники» (lib/market/medianHistory.ts).
+   * Только чтение каталога и запись в свою таблицу, в сеть не ходит; повторный запуск в те же
+   * сутки переписывает строки суток. Тот же флаг MARKET_CRAWL_ENABLED=1: без сбора писать нечего.
+   */
+  scheduleTracked(
+    "market-median-history",
+    "30 6 * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { recordMedianHistory } = await import("./lib/market/medianHistory.js");
+        await recordMedianHistory();
+      } catch (err) {
+        markCronTickFailed("Ошибка ночной записи истории медиан рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * НОВОЕ ОБЪЯВЛЕНИЕ ПОД ПОКУПАТЕЛЯ (14.11.2026): через 5 минут после инкрементов Somon (7/22/37/52) и Paydo
+   * агенту уходит пуш, если в каталоге появилось объявление под его активного покупателя. Один раз на пару
+   * клиент+объявление, не больше 3 пушей на клиента за сутки по Душанбе. Только по каталогу, в сеть не ходит.
+   * Включается рубильником в Настройках (marketBuyerAlertsEnabled, по умолчанию выключен) и тем же
+   * MARKET_CRAWL_ENABLED=1. Вся логика и тест — lib/market/buyerAlerts.ts.
+   */
+  scheduleTracked(
+    "market-buyer-alerts",
+    "12,27,42,57 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runBuyerMarketAlerts } = await import("./lib/market/buyerAlerts.js");
+        await runBuyerMarketAlerts();
+      } catch (err) {
+        markCronTickFailed("Ошибка оповещения о новых объявлениях под покупателей", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК memor.pro (20.11.2026, владелец: раз в неделю, 4 раза в месяц) — понедельник, 04:30 по
+   * Душанбе, пока никто не работает: один запрос списка и страницы новых/изменившихся объектов с паузой (lib/
+   * constructionRegistry/sync.ts). Рубильник — Настройки → Каналы, выключенный останавливает и этот тик.
+   */
+  scheduleTracked(
+    "construction-registry-sync",
+    "30 4 * * 1",
+    async () => {
+      try {
+        const { runConstructionRegistrySync } = await import("./lib/constructionRegistry/sync.js");
+        const r = await runConstructionRegistrySync({ trigger: "cron" });
+        if (!r.ok && !r.skipped) markCronTickFailed("Реестр строек: забор не удался", new Error(r.error ?? "неизвестная ошибка"));
+        else if (r.ok && !r.skipped) console.log(`[cron] Реестр строек: в списке ${r.fetched}, новых ${r.created}, изменённых ${r.changed}, исчезло ${r.removed}, страниц ${r.detailsFetched}, связано объектов ${r.linked}`);
+      } catch (err) {
+        reportCronTickError("Ошибка еженедельного забора реестра строек", err);
       }
     },
     { timezone: "Asia/Dushanbe" }
@@ -2036,16 +2152,23 @@ export function startCronJobs() {
     if (isDistributionRunning) return;
     isDistributionRunning = true;
     try {
+      // Номер из комментария (18.11.2026): ответил боту или прошло 20 минут — карточка возвращается в раздачу ДО волны.
+      const held = await releaseCommentPhoneHolds();
+      if (held.answered + held.expired > 0) console.log(`[cron] Номер из комментария → в раздачу: ответили ${held.answered}, молчат ${held.expired}`);
+    } catch (err) {
+      reportCronTickError("Ошибка снятия придержки номера из комментария", err);
+    }
+    try {
       const assigned = await assignPendingLeads();
       if (assigned > 0) console.log(`[cron] Назначено лидов, ждавших агента: ${assigned}`);
     } catch (err) {
       reportCronTickError("Ошибка назначения накопленных лидов", err);
     }
     try {
-      const { penalized } = await penalizeMissedFirstCalls();
-      if (penalized > 0) console.log(`[cron] Первый звонок сорван, лид снят: ${penalized}`);
+      const { handled } = await handleMissedFirstCalls();
+      if (handled > 0) console.log(`[cron] Первый звонок сорван: ${handled}`);
     } catch (err) {
-      reportCronTickError("Ошибка штрафа за сорванный звонок", err);
+      reportCronTickError("Ошибка разбора сорванного первого звонка", err);
     }
     try {
       // Пуш агенту за 5 минут до срока (задание 17.09.2026) — тот же тик, что и
@@ -2088,41 +2211,12 @@ export function startCronJobs() {
     }
   });
 
-  /**
-   * СВЕТОФОР НЕАКТИВНЫХ (владелец 20-21.08.2026) — каждые 30 минут, сама функция
-   * решает, кому в этот тик действительно пора напоминание (шаг светофора считается
-   * часами, 30 минут — запас точности без лишней нагрузки на базу) и молчит вне
-   * рабочих часов (isWithinWorkingHours внутри runInactiveTrafficLightTick).
-   */
-  scheduleTracked("inactive-traffic-light", "*/30 * * * *", async () => {
-    try {
-      const { pinged, lost } = await runInactiveTrafficLightTick();
-      if (pinged > 0) console.log(`[cron] Светофор неактивных: напоминаний ${pinged}`);
-      if (lost > 0) console.log(`[cron] Светофор неактивных: переведено в Потерянные ${lost}`);
-    } catch (err) {
-      reportCronTickError("Ошибка светофора неактивных", err);
-    }
-  });
+  // Светофор неактивных и возврат «Отложенных» по таймеру удалены 16.11.2026
+  // вместе с самими состояниями (владелец: «ничего лишнего»).
 
   /**
-   * ВОЗВРАТ «ОТЛОЖЕННЫХ» (задача G, план 03-04.09.2026) — та же частота, что у
-   * светофора неактивных: тик дешёвый (индекс [workStatus, deferredUntil]),
-   * почти всегда выборка пустая. Ранний возврат (клиент написал/позвонил сам)
-   * этого тика не ждёт — см. services/leads/intake.ts и
-   * lib/telephony/inboundRouting.ts (returnDeferredClientEarly).
-   */
-  scheduleTracked("deferred-clients-return", "*/30 * * * *", async () => {
-    try {
-      const { returned } = await runDeferredClientsReturnTick();
-      if (returned > 0) console.log(`[cron] Отложенные: возвращено в работу ${returned}`);
-    } catch (err) {
-      reportCronTickError("Ошибка возврата отложенных клиентов", err);
-    }
-  });
-
-  /**
-   * АНТИФРОД «ПРОДАВЕЦ БЕЗ ОБЪЕКТА» (владелец 21.08.2026) — та же частота, что у
-   * светофора неактивных: критичные случаи (Settings.sellerPropertyMissingCriticalDays)
+   * АНТИФРОД «ПРОДАВЕЦ БЕЗ ОБЪЕКТА» (владелец 21.08.2026) — раз в 30 минут:
+   * критичные случаи (Settings.sellerPropertyMissingCriticalDays)
    * уходят в очередь СБ (lib/sellerPropertyMissingAntifraud.ts, дедуп встроен в саму
    * функцию — securityReview меняется только null→PENDING).
    */
@@ -2195,6 +2289,17 @@ export function startCronJobs() {
     }
   });
 
+  // Брошенные посты без объекта от Шабнам и зависшие ролики «к какому объекту» (21.11.2026,
+  // lib/staffSocialPostSweep.ts): черновики, файлы, захваты. Молча, без сообщений людям.
+  scheduleTracked("staff-social-post-sweep", "*/15 * * * *", async () => {
+    try {
+      const r = await sweepStaffSocialPosts();
+      if (r.expired + r.dropped + r.restored + r.released + r.files > 0) console.log(`[cron] Уборка постов Шабнам: ${JSON.stringify(r)}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки постов Шабнам", err);
+    }
+  });
+
   scheduleTracked("video-handoff-stale-alarm", "0 * * * *", async () => {
     try {
       const { alerted } = await runVideoHandoffStaleAlarmTick();
@@ -2255,6 +2360,20 @@ export function startCronJobs() {
       if (resent > 0) console.log(`[cron] Досылка проверки ролика модератору: ${resent}`);
     } catch (err) {
       reportCronTickError("Ошибка досылки проверки ролика", err);
+    }
+  });
+
+  /**
+   * ХОЗЯИН НЕ ОТВЕТИЛ ПО РОЛИКУ (11.11.2026, lib/clipReview.ts) — через
+   * Settings.clipOwnerAutoPublishHours ролик уходит в публикацию сам; ночью
+   * 00:00–07:00 по Душанбе тик ничего не делает, срок наступает в 07:00.
+   */
+  scheduleTracked("clip-owner-autopublish", "*/5 * * * *", async () => {
+    try {
+      const { published } = await runClipOwnerAutoPublishTick();
+      if (published > 0) console.log(`[cron] Автопубликация роликов без ответа хозяина: ${published}`);
+    } catch (err) {
+      reportCronTickError("Ошибка автопубликации ролика без ответа хозяина", err);
     }
   });
 
@@ -2537,21 +2656,121 @@ export function startCronJobs() {
   });
 
   /**
-   * АЛАРМ «ЗАЯВЛЕНО N, СДЕЛАНО M» — ПРОДАВЕЦ И ПОКУПАТЕЛЬ, ОДНО УВЕДОМЛЕНИЕ НА
-   * КЛИЕНТА (владелец 06.09.2026 п.3, объединено 07.09.2026, срок растянут по
-   * числу объектов 07.09.2026). Число ИИ услышал из разговора или переписки
-   * (sellerDeclaredPropertyCount / buyerDesiredPropertyCount) — если срок
-   * (2 дня на объект продавцу, 5 дней на объект покупателю) истёк, а в CRM
-   * меньше добавленных объектов/закрытых сделок, чем заявлено, директору
-   * уходит ОДНО уведомление на клиента с перечислением всех активных
-   * расхождений. См. lib/clientPropertyCountAlarm.ts.
+   * «КЛИЕНТ НАПИСАЛ — ЕМУ НИКТО НЕ ОТВЕТИЛ» (14.11.2026, аудит скрытых механизмов
+   * №4, lib/clientWaitingAlert.ts). Раз в 10 минут, только в часы раздачи:
+   * реплика клиента без ответа бота или человека дольше 30 минут — пуш
+   * закреплённому агенту, без агента — срочная тревога руководству. Один сигнал
+   * на эпизод молчания.
    */
-  scheduleTracked("client-property-count-alarm", "0 * * * *", async () => {
+  scheduleTracked("client-silence-sweep", "*/10 * * * *", async () => {
     try {
-      const { alerted } = await runClientPropertyCountAlarmTick();
-      if (alerted > 0) console.log(`[cron] Аларм «заявлено/сделано объектов»: ${alerted}`);
+      const { alerted } = await runClientSilenceSweep();
+      if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
     } catch (err) {
-      reportCronTickError("Ошибка аларма «заявлено/сделано объектов»", err);
+      reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
+   * СВЕРКА ПЕРЕПИСОК СТРАНИЦ С META (15.11.2026, lib/metaInboxReconcile.ts).
+   * Сторож выше видит только то, что уже в CRM; сообщение, которое Meta не
+   * прислала вебхуком (у приложения базовый доступ к Messenger чужой Страницы,
+   * обрыв на перезапуске), он не видит. Раз в 10 минут, круглые сутки (пуш ночью
+   * молчит по тихим часам, запись в колокольчике остаётся): не дошедшее — пуш
+   * «Ответьте вручную» тем, кто читает переписки. Только чтение Graph API.
+   * С 15.11.2026 и Direct аккаунтов Instagram (В4); у каждой площадки свой рубильник.
+   */
+  scheduleTracked("meta-inbox-reconcile", "3-59/10 * * * *", async () => {
+    try {
+      const { people, missed } = await runMetaInboxReconcile();
+      if (people > 0) console.log(`[cron] Сверка Страниц: не дошло до CRM ${missed} сообщ. от ${people} чел. — сотрудникам пуш`);
+    } catch (err) {
+      reportCronTickError("Ошибка сверки переписок Страниц", err);
+    }
+  });
+
+  /**
+   * ВЕБХУК WHATSAPP ЗАМОЛЧАЛ (15.11.2026, lib/whatsappWebhookWatch.ts). Входящие
+   * WhatsApp Meta отдаёт только вебхуком — сверить их, как Messenger, не с чем.
+   * Раз в 20 минут в рабочие часы: тишина дольше обычного — тревога руководству
+   * с причиной из Graph (только чтение). Рубильник Settings.whatsappWebhookWatchEnabled.
+   */
+  scheduleTracked("whatsapp-webhook-watch", "8-59/20 * * * *", async () => {
+    try {
+      const { alarmed, silenceMs } = await runWhatsappWebhookWatch();
+      if (alarmed) console.log(`[cron] WhatsApp молчит ${Math.round(silenceMs / 60_000)} мин в рабочие часы — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «вебхук WhatsApp замолчал»", err);
+    }
+  });
+
+  /**
+   * ЗВОНКИ WHATSAPP НЕ ДОХОДЯТ ДО СТАНЦИИ (18.11.2026, lib/whatsappCallingHealth.ts).
+   * Раз в час, только чтение Graph: звонки и SIP у номера включены, а Meta говорит,
+   * что номер не может принимать звонки через SIP (`can_receive_call_sip`), —
+   * тревога в «Здоровье системы» с причиной от Meta; снова AVAILABLE — гаснет сама.
+   * Звонки у номера выключены — сторож молчит.
+   */
+  scheduleTracked("whatsapp-calling-health", "23 * * * *", async () => {
+    try {
+      const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
+      if (alarmed) console.log(`[cron] Звонки WhatsApp через SIP: ${sipAvailability ?? "состояние неизвестно"} — тревога руководству`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «звонки WhatsApp»", err);
+    }
+  });
+
+  /**
+   * TELEGRAM НЕ ДОСТАВЛЯЕТ В CRM (15.11.2026, lib/telegramDeliveryWatch.ts): getWebhookInfo
+   * раз в 10 минут, только чтение — нет вебхука, свежая ошибка доставки, очередь копится —
+   * тревога руководству. Рубильник Settings.telegramDeliveryWatchEnabled.
+   */
+  scheduleTracked("telegram-delivery-watch", "4-59/10 * * * *", async () => {
+    try {
+      const { alarmed } = await runTelegramDeliveryWatch();
+      if (alarmed) console.log("[cron] Telegram не доставляет сообщения в CRM — тревога руководству");
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «Telegram не доставляет»", err);
+    }
+  });
+
+  /**
+   * СООБЩЕНИЕ БЕЗ ЧАТА CRM — СВОДКА «ОТВЕТЬТЕ ВРУЧНУЮ» (15.11.2026, customerHeldMessage.ts):
+   * раз в 2 минуты, круглые сутки (ночью пуш ждёт утра по тихим часам); одна сводка за тик.
+   */
+  scheduleTracked("customer-unrecorded-summary", "*/2 * * * *", async () => {
+    try {
+      const { people } = await runUnrecordedCustomerSummary();
+      if (people > 0) console.log(`[cron] Вне чата CRM: сводка «Ответьте вручную» по ${people} чел.`);
+    } catch (err) {
+      reportCronTickError("Ошибка сводки «сообщения вне чата CRM»", err);
+    }
+  });
+
+  /**
+   * КОММЕНТАРИЙ БЕЗ ОТВЕТА БОТА — ЧЕЛОВЕКУ (15.11.2026, lib/commentWaitingAlert.ts).
+   * Новое ядро ставит комментарию ESCALATED/FAILED и никого не зовёт; старый путь
+   * зовёт сам. Одна дверь для обоих: свежий ESCALATED/FAILED без уведомления — пуш.
+   */
+  scheduleTracked("comment-needs-human-sweep", "6-59/10 * * * *", async () => {
+    try {
+      const { alerted } = await runCommentNeedsHumanSweep();
+      if (alerted > 0) console.log(`[cron] Комментарии ждут человека: сигналов ${alerted}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа комментариев без ответа", err);
+    }
+  });
+
+  /**
+   * ПЕРЕДАЧА РОП (16.11.2026, lib/ownershipTransferRequest.ts): отклонённая директором передача,
+   * возврат которой не завершился (падение процесса), помечается FAILED.
+   */
+  scheduleTracked("transfer-request-tick", "*/5 * * * *", async () => {
+    try {
+      const { stuck, reminded } = await runTransferRequestTick();
+      if (stuck + reminded > 0) console.log(`[cron] Передачи РОП: не завершён возврат ${stuck}, напоминаний директору ${reminded}`);
+    } catch (err) {
+      reportCronTickError("Ошибка тика запросов передачи", err);
     }
   });
 
@@ -2584,8 +2803,13 @@ export function startCronJobs() {
    * просроченные ключи и т.д. — см. список мест в комментарии самого модуля).
    * Каждые 10 минут, а не раз в час: как только откроются часы алармов,
    * накопленное за ночь не должно ждать ещё почти час до следующего тика.
+   *
+   * КАЖДУЮ МИНУТУ (14.11.2026, аудит скрытых механизмов №1): колокольчик и
+   * срочные тревоги (ключ канала умер, бот молчит, кончились минуты робота)
+   * теперь идут сразу, мимо окна, — десять минут для них слишком долго. Вне
+   * окна выборка берёт только срочное и ещё не записанное в колокольчик.
    */
-  scheduleTracked("director-alert-queue-flush", "*/10 * * * *", async () => {
+  scheduleTracked("director-alert-queue-flush", "* * * * *", async () => {
     try {
       const sent = await flushDirectorAlertQueue();
       if (sent > 0) console.log(`[cron] Очередь алармов руководству: доставлено ${sent}`);
@@ -2627,29 +2851,7 @@ export function startCronJobs() {
     { timeoutMs: 5 * 60_000 }
   );
 
-  /**
-   * «ХВОСТ» ДОЗВОНА (01.09.2026, Settings.noAnswerTail*) — та же частота, что у
-   * соседних лёгких тиков выше: маячков в выборке за раз немного (см. take: 200 в
-   * processNoAnswerTailAnchors), гонять чаще незачем — задача агенту всё равно
-   * рассчитана на дни, а не минуты.
-   */
-  scheduleTracked(
-    "no-answer-tail",
-    "*/30 * * * *",
-    async () => {
-      try {
-        const created = await processNoAnswerTailAnchors();
-        if (created > 0) console.log(`[cron] Хвост дозвона: заведено задач ${created}`);
-      } catch (err) {
-        reportCronTickError("Ошибка хвоста дозвона", err);
-      }
-    },
-    undefined,
-    undefined,
-    // Тот же инцидент 11-12.09, что и у buyer-thinking-slow-track — оба тика
-    // делали до 200 последовательных findUnique/count на строку.
-    { timeoutMs: 5 * 60_000 }
-  );
+  // «Хвост» дозвона (no-answer-tail) удалён 16.11.2026 вместе со светофором.
 
   /**
    * ЭСКАЛАЦИЯ ПРОПУЩЕННЫХ РУКОВОДСТВУ УДАЛЕНА (владелец 20.09.2026: «полностью
@@ -2779,51 +2981,10 @@ export function startCronJobs() {
     { timezone: "Asia/Dushanbe" }
   );
 
-  /**
-   * МОЛЧАЛИВЫЙ КЛИЕНТ → АВТОМАТИЧЕСКИ В НЕАКТИВНЫЕ (владелец 30.08.2026) —
-   * 00:25 по Душанбе, следом за застоем сделки. Не срочный сигнал — раз в
-   * сутки достаточно, см. lib/silentClientAutoDeactivate.ts: клиент, чьё
-   * последнее слово в переписке с ботом было НАШИМ (бот или агент) дольше
-   * Settings.silentClientInactiveDays дней, уходит в Неактивные тем же путём,
-   * что и ручной перевод (workStatus, светофор RED/STOPPED_RESPONDING), без
-   * пуша — светофор напомнит по своему обычному расписанию.
-   */
-  scheduleTracked(
-    "silent-client-auto-deactivate",
-    "25 0 * * *",
-    async () => {
-      try {
-        const { deactivated } = await runSilentClientAutoDeactivate();
-        if (deactivated) console.log(`[cron] Молчаливых клиентов переведено в Неактивные: ${deactivated}`);
-      } catch (err) {
-        reportCronTickError("Ошибка автоперевода молчаливых клиентов", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
-
-  /**
-   * «ПОТЕРЯННЫЕ» И «НЕАКТИВНЫЕ» СТАРШЕ 3 МЕСЯЦЕВ → АВТОМАТИЧЕСКИ В КОРЗИНУ
-   * (владелец 30.08.2026) — 00:30 по Душанбе, следом за автопереводом
-   * молчаливых. Не срочный сигнал — раз в сутки достаточно, см.
-   * lib/lostInactiveTrashSweep.ts: обычное мягкое удаление (trashClient),
-   * восстановимо повторным обращением клиента (см. leads.ts::resumeExistingChannelLead).
-   */
-  scheduleTracked(
-    "lost-inactive-trash-sweep",
-    "30 0 * * *",
-    async () => {
-      try {
-        const { trashed, skipped } = await runLostInactiveTrashSweep();
-        if (trashed || skipped) {
-          console.log(`[cron] Автоуборка Потерянных/Неактивных в Корзину: убрано ${trashed}, пропущено ${skipped}`);
-        }
-      } catch (err) {
-        reportCronTickError("Ошибка автоуборки Потерянных/Неактивных в Корзину", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
+  // «Молчаливый клиент → в Неактивные» и «Потерянные/Неактивные старше 3 месяцев
+  // → в Корзину» удалены 16.11.2026 (владелец: «пусть сами люди решают»).
+  // Состояний «Неактивный»/«Потерянный» больше нет; в Корзину клиента убирает
+  // только человек.
 
   /** Месячный отчёт руководству — 1-го числа в 09:00 по Душанбе, за прошедший месяц.
    *  Не в полночь: отчёт нужен человеку в начале рабочего дня, а не push в три часа
@@ -2838,6 +2999,24 @@ export function startCronJobs() {
         if (created) console.log(`[cron] Месячный отчёт составлен за ${dushanbeWallClock(periodStart).toISOString().slice(0, 7)}`);
       } catch (err) {
         reportCronTickError("Ошибка месячного отчёта", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (14.11.2026). Выключен по
+   *  умолчанию тумблером в Настройках. 1–3 числа в 09:10: если 1-го файл не собрался,
+   *  следующий день повторит; уже разосланный месяц второй раз не уходит. */
+  scheduleTracked(
+    "finance-pdf-monthly",
+    "10 9 1-3 * *",
+    async () => {
+      try {
+        const { sendMonthlyFinancePdf } = await import("./lib/reportPdf/monthlyFinance.js");
+        const result = await sendMonthlyFinancePdf();
+        if (result.status === "sent") console.log(`[cron] Финансовый PDF за ${result.month}: доставлено ${result.delivered}, не доставлено ${result.failed}`);
+      } catch (err) {
+        reportCronTickError("Финансовый PDF за месяц не разослан", err);
       }
     },
     { timezone: "Asia/Dushanbe" }
@@ -2934,6 +3113,9 @@ export function startCronJobs() {
           `[cron] Внешние доступы: живых ${alive}, сломанных ${broken.length}` +
             (broken.length ? ` (${broken.join(", ")})` : "")
         );
+        // Переход «жив → сломан» — срочная тревога директору (пуш «новая проблема» отключён);
+        // ДО записи нового снимка: сравнивает с прошлым.
+        await alertOnIntegrationBreakage(checks);
         // Снимок для экрана /integrations (перенос мобильного макета 14.09.2026,
         // шаг 5) — раньше результат нигде не оставался, кроме консоли и ErrorLog
         // при отказе; upsert по имени канала, старый снимок просто перезаписан.
@@ -2981,6 +3163,11 @@ export function startCronJobs() {
       await step("Зарплатные строки не обновлены", "api", async () => {
         const salaries = await upsertSalaryExpenses();
         if (salaries) console.log(`[cron] Зарплатных строк обновлено: ${salaries}`);
+      });
+      // Курс закрытого месяца у строк рекламы и ИИ — один раз, когда месяц вышел из окна пересчёта.
+      await step("Курс закрытого месяца не закреплён", "api", async () => {
+        const frozen = await freezeClosedAutoExpenseRates();
+        if (frozen) console.log(`[cron] Курс закреплён у ${frozen} строк закрытого месяца`);
       });
       // Прогноз перерасхода и сигналы рекламы — НЕ здесь (04.09.2026): оба
       // толкают пуш директору/маркетингу, а этот тик — 01:20 ночи. Считаются
@@ -3190,6 +3377,28 @@ export function startCronJobs() {
       reportCronTickError("Ошибка сторожа пульса", err);
     }
   });
+
+  /** Сторож копий: нет удачной выгрузки наружу дольше 26 часов или последний прогон
+   *  вида провалился (lib/backupFreshness.ts). Раньше отчёт бэкапа оседал строкой на экране. */
+  scheduleTracked("backup-freshness", "17 * * * *", async () => {
+    try {
+      const alerts = await checkBackupFreshness();
+      if (alerts) console.log(`[cron] Сторож копий: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа свежести копий", err);
+    }
+  });
+
+  /** Остаток платных сервисов заранее: ElevenLabs по каждому ключу и счёт СМС (lib/balanceWatch.ts).
+   *  Раз в сутки, 09:20 Душанбе; только чтение остатка, ничего не тратит. */
+  scheduleTracked("balance-watch", "20 9 * * *", async () => {
+    try {
+      const alerts = await runBalanceWatch();
+      if (alerts) console.log(`[cron] Остатки платных сервисов: тревог поднято ${alerts}`);
+    } catch (err) {
+      reportCronTickError("Ошибка суточной проверки остатков", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
 
   // The ordinary durable queue still handles media once a minute. Customer
   // model turns and sends have separate bounded slots; both use runOne, DB

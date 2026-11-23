@@ -90,18 +90,18 @@ describe("pult inbox: нарушения", () => {
   it("лента флагов: строка с ключом среза и ссылкой в «Контроль»", async () => {
     calls.replies.set("/oversight/flags", {
       total: 3,
-      items: [{ sliceKey: "stalled-clients", subjectId: "c1", title: "Иванов: горячий клиент без контакта", who: "Алия", at: "2026-10-20T08:00:00Z", href: "/oversight#slice-stalled-clients" }],
+      items: [{ sliceKey: "no-contact-clients", subjectId: "c1", title: "Иванов: без контакта больше суток", who: "Алия", at: "2026-10-20T08:00:00Z", href: "/oversight#slice-no-contact-clients" }],
     });
     const r = await loadViolations();
     expect(r.total).toBe(3);
-    expect(r.items[0]).toMatchObject({ id: "violations:stalled-clients:c1", type: "flag", group: "violations", subjectId: "c1", href: "/oversight#slice-stalled-clients" });
+    expect(r.items[0]).toMatchObject({ id: "violations:no-contact-clients:c1", type: "flag", group: "violations", subjectId: "c1", href: "/oversight#slice-no-contact-clients" });
     expect(r.items[0].detail).toContain("агент Алия");
   });
 });
 
 describe("pult inbox: права и порядок", () => {
   it("очередь без права не заводится", () => {
-    const allowed = enabledInboxQueues((p) => p === "auditLog.view", "DIRECTOR");
+    const allowed = enabledInboxQueues((p) => p === "auditLog.view" || p === "marketing.access", "DIRECTOR");
     expect([...allowed].sort()).toEqual(["editor", "stuckConversations", "stuckWork", "videos", "violations"]);
     expect(enabledInboxQueues(() => true, "MANAGER").has("violations")).toBe(false);
     expect(enabledInboxQueues(() => false, "AGENT").size).toBe(0);

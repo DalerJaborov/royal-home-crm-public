@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRetryKey } from "../../hooks/useRetryKey";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NarrationWizardChoice, PropertyDraftView } from "@royal-home/shared";
-import { narrationChoiceForCreate } from "./NarrationChoice";
+import type { PropertyDraftView, PropertyWizardWarningConfirmations, PropertyWizardWarningField } from "@royal-home/shared";
+import { propertyWizardStepWarnings, propertyWizardWarningSignature } from "@royal-home/shared";
+import { narrationChoiceForCreate, type WizardNarrationValue } from "./NarrationChoice";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useCreateProperty } from "../../hooks/useProperties";
 import { PROPERTY_DRAFT_QUERY_KEY } from "../../hooks/usePropertyDraft";
@@ -39,7 +40,7 @@ import { registerWork } from "../../lib/workGuard";
 import { setDraftReminder } from "../../lib/draftReminder";
 import { toast } from "../../store/toast";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { canCloseWizard, decideSave, skippedMediaCount, skippedMediaMessage } from "./saveDecision";
+import { canCloseWizard, decideSave, skippedMediaCount, skippedMediaMessage, narrationTextRejected, narrationTextRejectedMessage } from "./saveDecision";
 import { SaveProgressOverlay } from "./SaveProgressOverlay";
 import { UploadProblemSheet } from "./UploadProblemSheet";
 import { draftMediaConflict, draftMediaConflictTitle } from "./draftMediaConflict";
@@ -53,6 +54,7 @@ import { StepPlace } from "./StepPlace";
 import { StepSeller } from "./StepSeller";
 import { StepReview } from "./StepReview";
 import { runRestartDraft } from "./restartDraft";
+import { WizardRoot } from "../look/wizard/WizardRoot";
 import {
   buildCreateBody,
   EMPTY_WIZARD_VALUES,
@@ -155,12 +157,14 @@ export function PropertyWizard({
   const [sellerImportPending, setSellerImportPending] = useState(false);
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // «Цена верная» / «Адрес верный» (21.11.2026, ревью #348): подтверждение для текущих значений; сохранению не мешает.
+  const [confirmedWarnings, setConfirmedWarnings] = useState<PropertyWizardWarningConfirmations>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   /** Совпадение по адресу+площади — только настоящий ответ сервера (409 при
    *  сохранении, DuplicatePropertyError в routes/properties/crud.ts). Живой
    *  проверки заранее нет, поэтому появляется только ПОСЛЕ попытки сохранить. */
   const [duplicate, setDuplicate] = useState<{ shortId: number; message: string } | null>(null);
-  const [narration, setNarration] = useState<NarrationWizardChoice>({});
+  const [narration, setNarration] = useState<WizardNarrationValue>({});
   const [saving, setSaving] = useState(false);
   const [waitingUploads, setWaitingUploads] = useState(false);
   /**
@@ -595,6 +599,9 @@ export function PropertyWizard({
       // /properties с `media: { attached, skipped }`); пока поля нет — молчим.
       const skipped = skippedMediaCount(saved);
       if (skipped > 0) toast.error(skippedMediaMessage(skipped));
+      // Текст озвучки агента не принят (ревью 21.11): сказать честно, почему, и что будет дальше.
+      const narrationRejected = narrationTextRejected(saved);
+      if (narrationRejected) toast.error(narrationTextRejectedMessage(narrationRejected));
 
       // Черновик сервер удалил сам вместе с переносом файлов; здесь убираем
       // только запасную копию в браузере и плитки текущего мастера.
@@ -616,7 +623,9 @@ export function PropertyWizard({
         return;
       }
       clearDraftMedia({ draftId: completedDraftId });
-      navigate(`/properties/${saved.shortId}`);
+      // Заменой, а не переходом: мастер сохранён и в истории ему не место — «Назад» из карточки нового объекта
+      // открывал мастер заново (ревью #375, 21.11.2026; сторож — routeFormReplaceGuard.test.ts).
+      navigate(`/properties/${saved.shortId}`, { replace: true });
     } catch (err) {
       // A lost POST response may mean the draft was already transferred. Retry
       // the frozen request/key before attempting any new draft write.
@@ -872,6 +881,9 @@ export function PropertyWizard({
   }
 
   const stepKey = WIZARD_STEPS[step].key;
+  const stepWarnings = propertyWizardStepWarnings(stepKey, values, confirmedWarnings);
+  const confirmWarning = (field: PropertyWizardWarningField) =>
+    setConfirmedWarnings((prev) => ({ ...prev, [field]: propertyWizardWarningSignature(field, values) }));
   const busy = saving || waitingUploads || sellerImportPending;
   const stepStates = wizardProgress(values, mediaSummary, errors, requireIntakeAgent);
 
@@ -889,7 +901,7 @@ export function PropertyWizard({
     const shortId = finishing?.shortId;
     const draftId = pendingCreateBody.current?.draftId;
     clearDraftMedia({ draftId: typeof draftId === "string" ? draftId : null });
-    if (shortId !== undefined) navigate(`/properties/${shortId}`);
+    if (shortId !== undefined) navigate(`/properties/${shortId}`, { replace: true });
   }
 
   /** Окно выбора: повторить упавшие и сохранить заново (дождавшись их). */
@@ -949,7 +961,7 @@ export function PropertyWizard({
   // Ответ про черновик ещё в пути — шагов не рисуем вовсе (см. `draftChecked`).
   if (agentId && !draftChecked) {
     return (
-      <div className="rh2">
+      <WizardRoot>
         <div className="wiz">
           <div className="whead">
             <div className="line1">
@@ -980,7 +992,7 @@ export function PropertyWizard({
             </div>
           </div>
         </div>
-      </div>
+      </WizardRoot>
     );
   }
 
@@ -1089,7 +1101,7 @@ export function PropertyWizard({
           offSite={values.offSite ?? false}
         />
       )}
-      {stepKey === "main" && <StepMain values={values} errors={errors} onChange={patch} />}
+      {stepKey === "main" && <StepMain values={values} errors={errors} onChange={patch} warnings={stepWarnings} onConfirmWarning={confirmWarning} />}
       {stepKey === "place" && (
         <StepPlace
           values={values}
@@ -1098,6 +1110,8 @@ export function PropertyWizard({
           districtsLoading={districtsLoading}
           onChange={patch}
           mapNote={photoSnapNote}
+          warnings={stepWarnings}
+          onConfirmWarning={confirmWarning}
         />
       )}
       {stepKey === "review" && (

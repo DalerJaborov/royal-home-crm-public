@@ -1,9 +1,10 @@
+import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState } from "react";
-import { GEMINI_VOICES, voiceGenderLabel } from "@royal-home/shared";
+import { GEMINI_VOICES, TELEPHONY_OPTIONS, voiceGenderLabel } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeTime, dushanbeTodayKey } from "../../lib/date";
 import { MessengerAccounts } from "./MessengerAccounts";
-import { MetaEternalKeys } from "./MetaEternalKeys";
+import { CompanyKeyScopesCheck, MetaEternalKeys } from "./MetaEternalKeys";
 import { useSearchParams } from "react-router-dom";
 import {
   AtSign,
@@ -11,6 +12,7 @@ import {
   Clapperboard,
   Megaphone,
   MessageSquare,
+  Mic,
   Music2,
   PhoneCall,
   PhoneIncoming,
@@ -36,7 +38,9 @@ import { SettingsSection, SettingsGroupLabel } from "../../components/settings/S
 import { pcmBase64ToWavUrl } from "../../lib/pcmToWav";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { useAgents } from "../../hooks/useAgents";
+import { useCan } from "../../lib/permissions";
 import { useConnectAds, useDisconnectAds } from "../../hooks/useAds";
+
 import { useConnectTikTok, useDisconnectTikTok, useTikTokCreatorInfo } from "../../hooks/useTikTok";
 import { useConnectThreads, useDisconnectThreads, useThreadsProfile } from "../../hooks/useThreads";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -69,9 +73,15 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { MissedCallSetting } from "./MissedCallSetting";
+import { NarrationSettingsPanel } from "../../components/settings/NarrationSettingsPanel";
 import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
+/** Подключать и отключать каналы компании может только директор (замок прав 16.11.2026): остальным кнопки не показываем. */
+const hideUnlessDirector = (allowed: boolean) => (allowed ? undefined : { display: "none" as const });
+
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   // silent: SecretKeyEditor ниже сам показывает «Ключ сохранён»/ошибку под полем —
@@ -105,6 +115,12 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
       {/* Обложки (28.09.2026): переключатель «наш шаблон | ChatGPT»; при шаблоне
           раздел сам показывает список шаблонов (CoverTemplatesSection). */}
       {(!area || area === "publishing") && <OpenAiCoversSection templateHeading={area ? "Шаблоны обложек" : undefined} />}
+      {/* 14.11.2026, владелец: техника озвучки — только здесь, в карточке объекта агент видит голос и текст. */}
+      {(!area || area === "publishing") && (
+        <SettingsSection icon={Mic} title="Озвучка роликов" badge="ElevenLabs">
+          <NarrationSettingsPanel />
+        </SettingsSection>
+      )}
       {(!area || area === "messengers") && <>
       <SettingsGroupLabel>Мессенджеры</SettingsGroupLabel>
 
@@ -150,6 +166,19 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             metaEnabled && !metaConfigured
               ? "Заполнены не все ключи ниже: нужны секрет приложения, проверочная строка и хотя бы один канал — WhatsApp (маркер вместе с номером), Instagram (аккаунт в списке или маркер) или Страница Facebook (маркер вместе с её идентификатором)."
               : null
+          }
+        />
+
+        {/* Вебхук WhatsApp замолчал (15.11.2026, lib/whatsappWebhookWatch.ts): входящие WhatsApp
+            приходят только вебхуком, сверить их не с чем — следим за потоком целиком. */}
+        <SwitchRow
+          title="Следить, что WhatsApp не замолчал"
+          on={settings?.whatsappWebhookWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ whatsappWebhookWatchEnabled: !(settings?.whatsappWebhookWatchEnabled ?? true) })}
+          hint={
+            settings?.whatsappWebhookWatchEnabled ?? true
+              ? "Если в рабочие часы входящих в WhatsApp нет дольше обычного, руководство получает тревогу с причиной: номер отключён, подписка слетела или вебхук не доходит."
+              : "Не следим: если Meta перестанет присылать сообщения WhatsApp, это заметят только по жалобам клиентов."
           }
         />
 
@@ -211,12 +240,22 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
             для тех, кто ещё не завёл аккаунты списком. */}
         <MessengerAccounts />
 
-        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании. */}
+        {/* Вечные ключи (12.11.2026): какой канал уже работает ключом компании.
+            Сверху — «Войти через Facebook» (13.11.2026). */}
         <MetaEternalKeys />
+
+        <PlainSetting
+          title="Номер конфигурации входа (config_id)"
+          description="Необязательно. Из Meta: приложение → «Вход через Facebook для бизнеса» → «Конфигурации». Пусто — кнопка «Войти через Facebook» просит нужные разрешения списком, а ключ получается личный. Чтобы WhatsApp не замолчал после смены пароля, в конфигурации выберите ключ системного пользователя и отметьте те же разрешения."
+          placeholder="1234567890123456"
+          value={settings?.metaLoginConfigId ?? ""}
+          pending={updateSettings.isPending}
+          onSave={(v) => updateSettings.mutate({ metaLoginConfigId: v })}
+        />
 
         <SecretKeyEditor
           title="Маркер Instagram"
-          description="ЗАПАСНОЙ путь: пока в списке «Аккаунты Instagram» выше есть основной аккаунт с маркером, работа идёт по ЕГО маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
+          description="Запасной путь: пока в списке «Аккаунты Instagram» выше есть основной аккаунт с маркером, работа идёт по его маркеру, а это поле не используется — перевыпущенный маркер вписывать в аккаунт, кнопкой с ключом. Само поле: Instagram → «Настройка API для входа в Instagram» → «Сгенерировать маркер». Показывается один раз."
           placeholder="Маркер доступа Instagram"
           configured={settings ? !!settings.metaIgTokenMasked : undefined}
           masked={settings?.metaIgTokenMasked}
@@ -229,7 +268,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
 
         <SecretKeyEditor
           title="Маркер удаления Instagram"
-          description="Отдельный от маркера переписки выше — тот ходит на graph.instagram.com и удалять не умеет вовсе. Этот получается через Facebook Login (не «Настройка API для входа в Instagram»): права instagram_basic + instagram_manage_contents, Standard access без App Review. Не задан — «Убрать из соцсетей» по-прежнему оставляет Instagram в ручном списке, как раньше."
+          description="Отдельный от маркера переписки выше — тот ходит на graph.instagram.com и удалять не умеет вовсе. Этот получается через Facebook Login (не «Настройка API для входа в Instagram»): права instagram_basic + instagram_manage_contents, Standard access без App Review. Не задан — «Убрать из соцсетей» по-прежнему оставляет Instagram в ручном списке, как раньше. Ключ системного пользователя здесь же (срок «никогда») ещё и публикует ролики, истории и фото, если у него есть instagram_content_publish и pages_read_engagement, — тогда смена пароля Instagram публикацию не остановит. Что выдано — кнопка «Проверить права» ниже."
           placeholder="Маркер доступа (Facebook Login)"
           configured={settings ? !!settings.metaIgManageTokenMasked : undefined}
           masked={settings?.metaIgManageTokenMasked}
@@ -237,6 +276,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(v) => updateSecretKey.mutateAsync({ metaIgManageToken: v })}
           onClear={() => updateSecretKey.mutateAsync({ metaIgManageToken: "" })}
         />
+        {settings?.metaIgManageTokenMasked && <CompanyKeyScopesCheck />}
 
         <SecretKeyEditor
           title="Секрет приложения Instagram"
@@ -283,6 +323,28 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
         />
 
+        {/* Сверка с Meta (15.11.2026, lib/metaInboxReconcile.ts): то, что видно у Meta, но не дошло до CRM. */}
+        <SwitchRow
+          title="Messenger: сверять, всё ли дошло"
+          on={settings?.messengerInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ messengerInboxReconcileEnabled: !(settings?.messengerInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.messengerInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет переписки Страниц с Meta: если человек написал, а до CRM сообщение не дошло, всем, кто читает переписки, приходит «Ответьте вручную»."
+              : "Не сверяем: сообщение в Messenger, которое Meta не прислала в CRM, никто не увидит, пока не откроет Business Suite."
+          }
+        />
+        <SwitchRow
+          title="Instagram: сверять, всё ли дошло"
+          on={settings?.instagramInboxReconcileEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ instagramInboxReconcileEnabled: !(settings?.instagramInboxReconcileEnabled ?? true) })}
+          hint={
+            settings?.instagramInboxReconcileEnabled ?? true
+              ? "Раз в 10 минут CRM сверяет Direct аккаунтов Instagram с Meta: не дошедшее до CRM — «Ответьте вручную» тем, кто читает переписки."
+              : "Не сверяем: сообщение в Direct, которое Meta не прислала в CRM, никто не увидит, пока не откроет Instagram."
+          }
+        />
+
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
@@ -296,10 +358,30 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         <div className="quiet">
           <span className="dot" />
           <span className="txt">
-            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника
+            Работает своим ботом, отдельно от Meta: включается токеном на сервере (TELEGRAM_BOT_TOKEN), рубильника канала
             здесь нет. Бот отвечает только клиентам, которые написали ему сами.
           </span>
         </div>
+        <SwitchRow
+          title="Клиент без ответа — сказать человеку"
+          on={settings?.telegramSilenceWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramSilenceWatchEnabled: !(settings?.telegramSilenceWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramSilenceWatchEnabled ?? true
+              ? "Клиент написал в Telegram, а за 30 минут ему не ответили ни бот, ни сотрудник — агенту клиента (или руководству) уходит пуш. В рабочие часы."
+              : "Не следим: молчание в Telegram никто не заметит, пока не откроет переписку."
+          }
+        />
+        <SwitchRow
+          title="Следить, что Telegram доставляет сообщения"
+          on={settings?.telegramDeliveryWatchEnabled ?? true}
+          onToggle={() => updateSettings.mutate({ telegramDeliveryWatchEnabled: !(settings?.telegramDeliveryWatchEnabled ?? true) })}
+          hint={
+            settings?.telegramDeliveryWatchEnabled ?? true
+              ? "Раз в 10 минут CRM спрашивает у Telegram, доходят ли сообщения бота: если нет — руководство получает тревогу с причиной."
+              : "Не следим: если Telegram перестанет доставлять сообщения в CRM, это заметят только по жалобам клиентов."
+          }
+        />
       </SettingsSection>
 
       </>}
@@ -345,7 +427,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
               копировать и вставлять ничего не нужно.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             {settings?.metaAdsConfigured && (
               <button
                 className="pill ghost sm"
@@ -859,6 +941,7 @@ const TIKTOK_PRIVACY_LABELS: Record<string, string> = {
  * нет отдельной кнопки «Сохранить» под блоком «Как публиковать».
  */
 function TikTokChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -953,7 +1036,7 @@ function TikTokChannelSection() {
               Нужен бизнес-аккаунт @royal.home.tjk — войдите под ним в окне TikTok, которое откроет кнопка.
             </span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -994,7 +1077,7 @@ function TikTokChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1121,6 +1204,7 @@ function TikTokChannelSection() {
  * Threads их не спрашивает, договор задания это подтверждает.
  */
 function ThreadsChannelSection() {
+  const canChannels = useCan()("finance.manage");
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const updateSecretKey = useUpdateSettings({ silent: true });
@@ -1214,7 +1298,7 @@ function ThreadsChannelSection() {
             <b>Аккаунт не подключён</b>
             <span style={{ whiteSpace: "normal" }}>Аккаунт Threads, привязанный к нашему Instagram.</span>
           </div>
-          <div className="acts">
+          <div className="acts" style={hideUnlessDirector(canChannels)}>
             <button
               className="pill sm"
               type="button"
@@ -1246,7 +1330,7 @@ function ThreadsChannelSection() {
                   : ""}
               </span>
             </div>
-            <div className="acts">
+            <div className="acts" style={hideUnlessDirector(canChannels)}>
               <button className="pill ghost sm" type="button" onClick={() => setConfirmingDisconnect(true)}>
                 Отключить
               </button>
@@ -1287,7 +1371,10 @@ function VideoHandoffFields() {
   const montajerId = settings?.videoMontajerAgentId ?? "";
   const rawReviewOn = settings?.rawReviewRequired ?? true;
   const clipReviewOn = settings?.clipReviewEnabled ?? false;
+  const clipOwnerOn = settings?.clipOwnerApproveEnabled ?? false;
+  const clipOwnerHours = settings?.clipOwnerAutoPublishHours ?? 3;
   const staffClipOn = settings?.staffClipIntakeEnabled !== false;
+  const queueControlOn = settings?.montajerQueueControlEnabled !== false;
 
   return (
     <>
@@ -1330,6 +1417,19 @@ function VideoHandoffFields() {
         warning={handoffOn && !montajerId ? "Монтажёр не выбран — объекты будут копиться в очереди без единой отправки." : null}
       />
 
+      {/* 19.11.2026, владелец: «дай монтажёру пропускать очередь кнопкой или передвигать её».
+          Сервер: lib/montajerQueueControl.ts. */}
+      <SwitchRow
+        title="Монтажёр управляет очередью из бота"
+        on={queueControlOn}
+        onToggle={() => updateSettings.mutate({ montajerQueueControlEnabled: !queueControlOn })}
+        hint={
+          queueControlOn
+            ? "В Telegram у монтажёра кнопки: пропустить объект (сделает позже или уже сделан), взять другой из очереди, передвинуть. Паузу очереди и отложенные объекты он не обходит. Снятие «уже сделан» приходит вам уведомлением."
+            : "Выключено — монтажёр только смотрит очередь, порядок меняет руководитель."
+        }
+      />
+
       {/* 12.11.2026, владелец: ролик снял СММщик или другой сотрудник — он присылает его Шабнам. */}
       <SwitchRow
         title="Ролики от сотрудников через Шабнам"
@@ -1367,6 +1467,48 @@ function VideoHandoffFields() {
             : "Принятый ролик сразу встаёт в расписание публикаций — монтажёр и есть последняя проверка."
         }
       />
+
+      {/* 11.11.2026, владелец: «все ролики что от монтажера обратно идут после
+          монтажа пусть идут к своим хозяином с кнопками подтвердить», страховка —
+          «автоматически поститься но не ночью с 12 по 7 утра». Сервер: lib/clipReview.ts. */}
+      <SwitchRow
+        title="Готовый ролик подтверждает хозяин объекта (в Telegram)"
+        on={clipOwnerOn}
+        onToggle={() => updateSettings.mutate({ clipOwnerApproveEnabled: !clipOwnerOn })}
+        hint={
+          clipOwnerOn
+            ? `Ролик от монтажёра приходит только агенту, за которым объект, с кнопками «Подтвердить» и «Вернуть монтажёру»; руководству и админу в Telegram он не приходит (в карточке объекта кнопки есть). ${
+                clipOwnerHours > 0
+                  ? `Не ответил за ${clipOwnerHours} ч — ролик публикуется сам, но не ночью: с 00:00 до 07:00 ждёт до 07:00.`
+                  : "Сам ролик не опубликуется, пока агент не решит; раз в 6 часов ему придёт напоминание."
+              }`
+            : "Выключено — решение по готовому ролику за руководством (переключатель выше)."
+        }
+      />
+      {clipOwnerOn && (
+        <div className="mod">
+          <div className="t">
+            <b>Через сколько часов публиковать без ответа</b>
+            <span style={{ whiteSpace: "normal" }}>Если хозяин объекта молчит, ролик уходит в публикацию сам. «Не публиковать сам» — ролик ждёт ответа хозяина.</span>
+          </div>
+          <div className="acts">
+            <select
+              className="inp"
+              style={{ maxWidth: 200 }}
+              aria-label="Через сколько часов публиковать без ответа"
+              value={clipOwnerHours}
+              onChange={(e) => updateSettings.mutate({ clipOwnerAutoPublishHours: Number(e.target.value) })}
+              disabled={updateSettings.isPending}
+            >
+              {[0, 1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h === 0 ? "Не публиковать сам" : `${h} ч`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1447,9 +1589,8 @@ function PublishWindowFields() {
           </span>
         </div>
         <div className="acts">
-          <input
+          <RuTimeField
             className="inp"
-            type="time"
             style={{ maxWidth: 120 }}
             aria-label="Начало окна публикаций"
             value={minToTime(startMin)}
@@ -1459,9 +1600,8 @@ function PublishWindowFields() {
               if (min !== null && min !== startMin) updateSettings.mutate({ publishScheduleWindowStartMin: min });
             }}
           />
-          <input
+          <RuTimeField
             className="inp"
-            type="time"
             style={{ maxWidth: 120 }}
             aria-label="Конец окна публикаций"
             value={minToTime(endMin)}
@@ -1509,23 +1649,7 @@ function PublishWindowFields() {
 }
 
 /** Куда станция звонит сотруднику перед соединением с клиентом. */
-const AGENT_DIAL_MODES = [
-  {
-    value: "auto",
-    title: "Сам выберет (рекомендуется)",
-    hint: "Аппарат сотрудника на связи — звоним на него бесплатно; выключен — на мобильный.",
-  },
-  {
-    value: "mobile",
-    title: "На мобильный сотрудника",
-    hint: "Ничего устанавливать не нужно. Оплачиваются два плеча: до сотрудника и до клиента.",
-  },
-  {
-    value: "extension",
-    title: "На внутренний номер (софтфон)",
-    hint: "Плечо до сотрудника бесплатное. Нужен софтфон на телефоне или IP-аппарат на столе.",
-  },
-] as const;
+const AGENT_DIAL_MODES = TELEPHONY_OPTIONS.asteriskAgentDialMode; // подписи — в packages/shared/src/telephonyOptions.ts, их же читает текст сервера
 
 function AgentDialModeSetting() {
   const { data: settings } = useSettings();
@@ -2464,8 +2588,7 @@ function IncomingHoursSetting() {
               ] as const
             ).map(({ field, label, value }) => (
               <span className="nf" key={field}>
-                <input
-                  type="time"
+                <RuTimeField
                   defaultValue={value}
                   key={value}
                   onBlur={(e) => save(field, e.target.value)}
@@ -2481,7 +2604,7 @@ function IncomingHoursSetting() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Это не «Рабочие часы» из раздела «Сотрудники»: те определяют, когда лид уходит агенту и когда консультант
+          Это не «Рабочие часы» из раздела «Сотрудники»: те определяют, когда заявка уходит агенту и когда консультант
           на телефоне отвечает сразу. Здесь — только когда CRM беспокоит пушем о пропущенном звонке. На станцию,
           очередь, ночное правило и консультанта эти часы не влияют. Журнал входящих ведётся круглосуточно, и задача
           перезвонить по пропущенному ставится в любое время.
@@ -2543,7 +2666,7 @@ function IncomingCallsSection() {
         <span className="dot" />
         <span className="txt">
           Входящий звонок всегда попадает в «Прочие обращения» — агенту он раздаётся только после разбора, когда
-          понятно, покупатель это или продавец. Иначе лидом становился бы каждый звонок, включая ошибочные и
+          понятно, покупатель это или продавец. Иначе заявкой становился бы каждый звонок, включая ошибочные и
           сообщения автоответчика.
         </span>
       </div>
@@ -2560,6 +2683,8 @@ function IncomingCallsSection() {
       <RouteToAgentSetting />
 
       <RoutingModeSetting />
+
+      <MissedCallSetting />
     </SettingsSection>
   );
 }
@@ -2659,7 +2784,7 @@ function CallWhisperSetting() {
                 {status?.ready
                   ? `Готово подсказок: ${status.ready} (входящих ${status.readyIncoming}, исходящих ${status.readyOutgoing}).`
                   : "Подсказки ещё не озвучены — фоновая озвучка проходит раз в пять минут."}
-                {status?.longestMs ? ` Самая длинная — ${(status.longestMs / 1000).toFixed(1)} с.` : ""}
+                {status?.longestMs ? ` Самая длинная — ${(status.longestMs / 1000).toFixed(1)}\u00a0с.` : ""}
               </span>
             </div>
             <div className="quiet">
@@ -2753,7 +2878,7 @@ function ConsultantOverridesNotice({ rule }: { rule: "night" | "noAnswer" }) {
         {rule === "night"
           ? mode === "always"
             ? "Сейчас это правило не действует: на входящих включён консультант (ИИ), он отвечает на каждый звонок первым, в том числе ночью."
-            : `Сейчас это правило не действует: на входящих включён консультант (ИИ), и звонок идёт к нему. Ночью он берёт трубку сразу — по рабочим часам из «Сотрудники → Когда лиды уходят агентам» (вне ${start}–${end}), а не по границам ниже.`
+            : `Сейчас это правило не действует: на входящих включён консультант (ИИ), и звонок идёт к нему. Ночью он берёт трубку сразу — по рабочим часам из «Сотрудники → Когда заявки уходят агентам» (вне ${start}–${end}), а не по границам ниже.`
           : mode === "always"
             ? "Сейчас это правило не действует: на входящих включён консультант (ИИ), он отвечает на каждый звонок первым."
             : "Сейчас это правило не действует: на входящих включён консультант (ИИ). Оператору звонят столько секунд, сколько задано в «ИИ-ассистент → Живой голос по телефону», потом трубку берёт консультант."}{" "}
@@ -2835,8 +2960,7 @@ function NightModeSetting() {
 function TimeField({ label, value, onSave }: { label: string; value: string; onSave: (v: string) => void }) {
   return (
     <span className="nf">
-      <input
-        type="time"
+      <RuTimeField
         defaultValue={value}
         aria-label={label}
         onBlur={(e) => e.target.value && e.target.value !== value && onSave(e.target.value)}
@@ -3026,18 +3150,7 @@ function AudioUploadRow({
  * нет намеренно — режим задаётся самим номером, иначе появилось бы состояние
  * «режим включён, номера нет», в котором звонок уходит в тишину.
  */
-const PRIMARY_TARGETS = [
-  {
-    value: "queue",
-    title: "Операторам в очередь",
-    hint: "Как было с запуска телефонии: звонок звонит у операторов на приёме.",
-  },
-  {
-    value: "extension",
-    title: "Прямо на SIP-аппарат",
-    hint: "Звонок идёт только на указанный внутренний номер — например, на софтфон в телефоне. Операторы при этом не звонят вовсе.",
-  },
-] as const;
+const PRIMARY_TARGETS = TELEPHONY_OPTIONS.incomingPrimaryTarget;
 
 function PrimaryTargetSetting() {
   const { data: settings } = useSettings();
@@ -3106,28 +3219,7 @@ function PrimaryTargetSetting() {
   );
 }
 
-const NO_ANSWER_ACTIONS = [
-  {
-    value: "none",
-    title: "Ничего не делать",
-    hint: "Клиент слышит гудки, пока не положит трубку сам или пока его сеть не сбросит звонок (обычно через 30–60 секунд).",
-  },
-  {
-    value: "forward",
-    title: "Позвонить дежурному",
-    hint: "Станция переводит звонок на номер ниже. Клиент почти всегда с кем-то поговорит; плечо платное.",
-  },
-  {
-    value: "voicemail",
-    title: "Предложить оставить сообщение",
-    hint: "CRM расшифрует сообщение, заведёт карточку и поставит задачу перезвонить. Бесплатно.",
-  },
-  {
-    value: "both",
-    title: "Дежурному, потом сообщение",
-    hint: "Сначала звонок дежурному, если и он не взял — запись сообщения. Максимум шансов не потерять клиента.",
-  },
-] as const;
+const NO_ANSWER_ACTIONS = TELEPHONY_OPTIONS.incomingNoAnswerAction;
 
 function NoAnswerRuleSetting() {
   const { data: settings } = useSettings();
@@ -3253,6 +3345,16 @@ function RouteToAgentSetting() {
           flex его перебивает — блок остался бы видимым (грабля этого проекта). */}
       {on && (
         <>
+          <SwitchRow
+            title="Перезвон клиента из Корзины — тому, кто ему звонил"
+            on={settings?.incomingArchiveCallbackEnabled ?? false}
+            hint={
+              settings?.incomingArchiveCallbackEnabled
+                ? "Клиент, которому РОП звонила из Корзины, перезвонил в течение 3 суток: звонок идёт только ей. Занята — клиент ждёт; не взяла — её мобильный, потом автоответчик и пуш ей. Оператору не уходит."
+                : "Такой звонок идёт оператору, как у незнакомого номера."
+            }
+            onToggle={() => updateSettings.mutate({ incomingArchiveCallbackEnabled: !(settings?.incomingArchiveCallbackEnabled ?? false) })}
+          />
           <RingSecondsSetting
             key={seconds}
             value={seconds}
@@ -3318,32 +3420,7 @@ function RouteToAgentSetting() {
  * — по календарной ротации списка ниже (lib/telephony/dutyRosterRouting.ts).
  * "ivr_menu" — единственный, кому диалплан правда нужен (DTMF-меню).
  */
-const ROUTING_MODES = [
-  {
-    value: "assigned_then_forward",
-    title: "Как сейчас: своему агенту, потом дежурному",
-    hint: "Работает прямо сейчас. Известного клиента станция уводит его агенту (настройка выше), незнакомого — по правилу «если оператор не ответил».",
-    live: true,
-  },
-  {
-    value: "kpi_queue",
-    title: "Очередь по KPI",
-    hint: "Незнакомый звонок и клиент без агента уходят лучшему свободному по Royal Score — тем же переводом, что известному клиенту. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "dedicated_operator",
-    title: "Дежурный по очереди",
-    hint: "Лёгкая версия вместо удалённой 18.08.2026 роли оператора — без рабочего места и отдельных прав, просто список ниже. Кто дежурит сегодня, выбирается по календарному дню. Отдельной настройки станции не требует.",
-    live: true,
-  },
-  {
-    value: "ivr_menu",
-    title: "Голосовое меню (IVR)",
-    hint: "«Нажмите 1 для продажи, 2 для покупки…». Нужна отдельная настройка станции.",
-    live: false,
-  },
-] as const;
+const ROUTING_MODES = TELEPHONY_OPTIONS.incomingRoutingMode.map((o) => ({ ...o, live: o.value !== "ivr_menu" }));
 
 function RoutingModeSetting() {
   const { data: settings } = useSettings();
@@ -3541,7 +3618,7 @@ function RingSecondsSetting({
         <span style={{ whiteSpace: "normal" }}>
           {value === 0
             ? `Сейчас без ограничения: станция звонит агенту, пока клиент сам не положит трубку, дальше звонок никуда не переходит.`
-            : `Сейчас ${value} с. Не взял агент — ${next}, в очередь операторов звонок не возвращается.`}{" "}
+            : `Сейчас ${value}\u00a0с. Не взял агент — ${next}, в очередь операторов звонок не возвращается.`}{" "}
           0 — без ограничения. Реальный потолок всё равно ставит оператор связи звонящего (обычно 30–60 секунд гудков
           до сброса неотвеченного звонка), а не CRM.
         </span>

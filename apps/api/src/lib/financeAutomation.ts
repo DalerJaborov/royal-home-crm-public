@@ -1,6 +1,7 @@
 import { expenseCentsToTjs } from "./money.js";
 import { prisma } from "../db.js";
 import { DEAL_SALARY_AUTO_KEY_PREFIX, dealSalaryAutoKey, isDealSalaryExpense } from "./companyProfit.js";
+import { warnManualOverlapsForAuto } from "./expenseAutoOverlap.js";
 import { describeError } from "./describeError.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, toCents, usdRateForWrite } from "./money.js";
@@ -99,6 +100,8 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
                 // Шаблоны без этих полей (заведены раньше) создают расход, как и раньше.
                 source: t.category === "ADVERTISING" ? t.source : null,
                 agentId: t.category === "SALARY" ? t.agentId : null,
+                vendor: t.vendor,
+                coversAiUsage: t.coversAiUsage,
                 note: `${t.title} — повторяющийся платёж, строка заведена автоматически.${t.note ? ` ${t.note}` : ""}`,
               },
             }),
@@ -231,6 +234,8 @@ export async function upsertSalaryExpenses(forMonth?: string): Promise<number> {
           note: `Доля агента по закрытым сделкам за ${month} — посчитано автоматически из снапшотов комиссий. Это «причитается», факт выплаты проводит человек.`,
         },
       });
+      // Ручная «доля по сделке» этого агента за месяц уже была — вычлась бы из прибыли дважды.
+      await warnManualOverlapsForAuto(autoKey, month);
       touched++;
     } catch (err) {
       void logSystemError("api", `Зарплатная строка ${autoKey} не записана: ${describeError(err)}`);
@@ -399,4 +404,39 @@ export async function alertExpenseOverrun(now: Date = new Date()): Promise<boole
     recipientRoles: [...FINANCE_RECIPIENT_ROLES],
   });
   return true;
+}
+
+/**
+ * КУРС ЗАКРЫТОГО МЕСЯЦА НЕ ПЛАВАЕТ (аудит денег 17.11.2026).
+ *
+ * Долларовые строки рекламы и ИИ хранятся без курса и переводились в сомони по СЕГОДНЯШНЕМУ курсу
+ * Настроек: закрытый месяц «ехал» каждую ночь вслед за alif.tj (сентябрь разошёлся со снимком на
+ * 12,42 с.). Теперь, когда месяц вышел из окна пересчёта (сверка Meta смотрит 7 дней назад, ИИ — 2),
+ * строкам этого месяца без курса проставляется курс Настроек на этот момент — один раз.
+ * Старые месяцы, закрытые до этой правки, здесь НЕ трогаются: их курс тех дат неизвестен, решение —
+ * за владельцем (скрипт дозаполнения — docs/journal/2026-11-17-dengi-odna-summa.md).
+ */
+/** Первый месяц, который закрывается уже по этому правилу (выкат 17.11.2026). */
+const FIRST_FROZEN_MONTH = new Date("2026-11-01T00:00:00.000Z");
+
+export async function freezeClosedAutoExpenseRates(now = new Date()): Promise<number> {
+  // Месяц закрыт, когда его последний день старше окна пересчёта рекламы (7 дней) с запасом в день.
+  const wall = dushanbeWallClock(now);
+  const edge = new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate() - 8));
+  const closedBefore = new Date(Date.UTC(edge.getUTCFullYear(), edge.getUTCMonth(), 1));
+  const previous = new Date(Date.UTC(closedBefore.getUTCFullYear(), closedBefore.getUTCMonth() - 1, 1));
+  // Все закрытые месяцы с ноября 2026 без курса (повтор безопасен: фильтр exchangeRate null) — сервер
+  // мог лежать в день закрытия, строку могла завести поздняя полная сверка (ревью 17.11). Месяцы,
+  // закрытые до этой правки (по октябрь 2026 включительно), ждут решения владельца — выкат их не трогает.
+  if (previous < FIRST_FROZEN_MONTH) return 0;
+  const rate = await usdRateForWrite();
+  if (!rate) return 0;
+  const result = await prisma.expense.updateMany({
+    where: {
+      month: { gte: FIRST_FROZEN_MONTH, lte: previous }, currency: "USD", exchangeRate: null, deletedAt: null,
+      OR: [{ autoKey: { startsWith: "ads:" } }, { autoKey: { startsWith: "ai:" } }],
+    },
+    data: { exchangeRate: rate, rateCapturedAt: new Date() },
+  });
+  return result.count;
 }

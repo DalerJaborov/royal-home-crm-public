@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { softenShouting } from "../lib/softenShouting";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
@@ -105,9 +106,9 @@ const SYSTEM_PATTERNS: { match: RegExp; style: TypeStyle }[] = [
   { match: /ссылк|предложен объект/i, style: { icon: Home, fg: "text-violet" } },
   { match: /показ/i, style: { icon: CalendarCheck, fg: "text-violet" } },
   { match: /отказ/i, style: { icon: UserX, fg: "text-red" } },
-  { match: /передан|переназнач|принял лид|назначен/i, style: { icon: ArrowRightLeft, fg: "text-blue" } },
+  { match: /передан|переназнач|принял (?:заявку|ли\u0434)|назначен/i, style: { icon: ArrowRightLeft, fg: "text-blue" } },
   { match: /напомин|бот/i, style: { icon: Bot, fg: "text-amber" } },
-  { match: /заявк|лид/i, style: { icon: Sparkles, fg: "text-green" } },
+  { match: /заявк|ли\u0434/i, style: { icon: Sparkles, fg: "text-green" } },
 ];
 
 function styleFor(type: string, notes: string | null | undefined): TypeStyle {
@@ -288,7 +289,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
   const isSystem = i.type === "SYSTEM";
   // humanNote — чтобы служебный код источника (`[lifecycle.assign]` и подобные)
   // не доезжал до экрана; в базе он остаётся, см. lib/clientFormat.ts.
-  const title = isSystem && i.notes ? humanNote(i.notes) : (INTERACTION_TYPE_LABELS[i.type] ?? i.type);
+  const title = isSystem && i.notes ? softenShouting(humanNote(i.notes)) : (INTERACTION_TYPE_LABELS[i.type] ?? i.type);
   const gist = isSystem ? null : i.notes;
   /**
    * КТО ДЕЙСТВОВАЛ — В ЗАГОЛОВКЕ, БЕЗ РАСКРЫТИЯ (П-10, 17.09.2026, владелец:
@@ -302,6 +303,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
 
   const statuses: { color: string; label: string }[] = [];
   if (i.taskCancelledAt) statuses.push({ color: "mute", label: "Отменено" });
+  if (i.archiveReview) statuses.push({ color: "mute", label: "Разбор удалённого клиента" });
   if (i.outcome) {
     statuses.push({
       color: OUTCOME_DOT[i.outcome] ?? "bg-gray-400",
@@ -440,7 +442,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
               <div className="ev-l">
                 <span className="kind">Заметка</span>
                 <span className="txt" style={{ overflowWrap: "anywhere" }}>
-                  {i.notes}
+                  {softenShouting(i.notes)}
                 </span>
               </div>
             )}
@@ -578,12 +580,15 @@ export function InteractionTimeline({
   total,
   truncated = false,
   type,
+  timelinePath,
 }: {
   interactions: Interaction[];
   clientId?: string;
   total?: number;
   truncated?: boolean;
   type?: Interaction["type"];
+  /** Куда ходить за более ранними записями; по умолчанию лента карточки. Для карточки из Корзины — разбор. */
+  timelinePath?: string;
 }) {
   const [limit, setLimit] = useState(INITIAL_EVENTS);
   // Догруженное держим вместе с ключом клиента/среза: другой клиент или срез —
@@ -626,7 +631,8 @@ export function InteractionTimeline({
         limit: String(OLDER_BATCH),
       });
       if (type) params.set("type", type);
-      const page = await api<OlderPage>(`/clients/${clientId}/timeline?${params.toString()}`);
+      const basePath = timelinePath ?? "/clients/" + clientId + "/timeline";
+      const page = await api<OlderPage>(basePath + "?" + params.toString());
       setOlder({
         key: ownerKey,
         pinned: state.pinned.length > 0 ? state.pinned : interactions,

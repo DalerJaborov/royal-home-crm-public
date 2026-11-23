@@ -1,20 +1,20 @@
 import { TRANSFER_REASON_LABELS, type TransferReason } from "@royal-home/shared";
+import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { pickNextAgentByKpiQueue, isAgentAvailableForLead, pickStrongestAvailableAgent } from "../leads.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
 import { loadMaxTransfers, transfersExhausted } from "./leadTransfers.js";
-import { classifyClientLossFault } from "./clientLossFault.js";
-import { loadEventPoints, recordScoreEvent } from "./scoreJournal.js";
 import { sendPushToAgent, closeLeadPushNotification } from "../push.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { hadConductedShowing } from "./conductedShowing.js";
 import { cancelPendingClientDeleteRequestOnTransfer } from "./trashClient.js";
-import { countContactTrace, loadTrafficLightSettings } from "./inactiveTrafficLight.js";
+import { countContactTrace, loadLeadCallMinSeconds } from "./contactTrace.js";
 import { noteAgentHandoffAndAlarmIfAnomalous } from "./agentHandoffAnomalyAlarm.js";
 import { changeClientAgent, ClientOwnerRaceError, throwIfNotClaimed } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { logTimeline } from "./timeline.js";
+import { fileEndOfWorkDeleteRequest } from "./clientDeleteRequest.js";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -53,8 +53,7 @@ export async function canTransferClient(clientId: string): Promise<TransferGate>
     return { allowed: false, reason: "После отказа новое назначение выполняет администратор или директор" };
   }
   if (await hadConductedShowing(clientId)) return { allowed: true };
-  const settings = await loadTrafficLightSettings();
-  const { attempts } = await countContactTrace(clientId, settings.leadCallMinSeconds);
+  const { attempts } = await countContactTrace(clientId, await loadLeadCallMinSeconds());
   if (attempts >= 1) return { allowed: true };
   return {
     allowed: false,
@@ -146,7 +145,7 @@ async function pickAgentByPropertyMatch(
   // Уже отсортированы по убыванию балла (findMatchingPropertiesForClient) —
   // берём первого попавшегося доступного, а не пересортировываем заново.
   for (const c of candidates) {
-    if (await isAgentAvailableForLead(c.intakeAgentId, true)) {
+    if (await isAgentAvailableForLead(c.intakeAgentId)) {
       return { agentId: c.intakeAgentId, propertyShortId: c.shortId, score: c.score };
     }
   }
@@ -215,23 +214,42 @@ async function routeTransferTarget(
  */
 async function noteTransferForQuota(
   agentId: string,
+  actorId: string,
   client: { id: string; shortId: number; fullName: string }
 ): Promise<void> {
   try {
     const since = new Date(Date.now() - 30 * MS_PER_DAY);
+    /**
+     * КТО НАЖАЛ ≠ ЧЕЙ КЛИЕНТ (аудит 18.11.2026, находка №1). С 16.11.2026
+     * «Передать» жмёт руководитель (`clients.assign`), а запись подписывалась
+     * агентом-владельцем — в журнале выходило, что клиента передал сам агент.
+     * Теперь `agentId`/`agentName` — нажавший, владелец — `meta.fromAgentId`.
+     * Квота по-прежнему считает передачи КЛИЕНТОВ АГЕНТА: новые строки — по
+     * `meta.fromAgentId`, строки до этой правки (без meta) — по `agentId`.
+     */
     const priorCount = await prisma.auditLog.count({
-      where: { action: "CLIENT_TRANSFER", agentId, createdAt: { gte: since } },
+      where: {
+        action: "CLIENT_TRANSFER",
+        createdAt: { gte: since },
+        OR: [
+          { meta: { path: ["fromAgentId"], equals: agentId } },
+          { agentId, meta: { equals: Prisma.AnyNull } },
+        ],
+      },
     });
     const ordinal = priorCount + 1;
 
     const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { fullName: true } });
+    const actor = actorId === agentId ? agent
+      : await prisma.agent.findUnique({ where: { id: actorId }, select: { fullName: true } });
     await prisma.auditLog.create({
       data: {
         action: "CLIENT_TRANSFER",
         entityType: "Client",
         entityId: client.id,
-        agentId,
-        agentName: agent?.fullName ?? "Неизвестно",
+        agentId: actorId,
+        agentName: actor?.fullName ?? "Неизвестно",
+        meta: { fromAgentId: agentId, fromAgentName: agent?.fullName ?? null },
       },
     });
 
@@ -273,6 +291,13 @@ export async function transferClientByAgent(input: {
   comment?: string;
   voiceNoteUrl?: string;
   voiceNoteTranscript?: string;
+  /**
+   * Кто нажал «Передать» (аудит 18.11.2026, находка №1). С 16.11.2026 это
+   * руководитель, а не агент-владелец (`agentId`): именно он идёт в
+   * хронологию, в `CLIENT_AGENT_CHANGE` и в `CLIENT_TRANSFER`. Не передан —
+   * нажал сам владелец (прежнее поведение).
+   */
+  actorId?: string;
 }): Promise<TransferByAgentResult> {
   /**
    * ГОНКА С «/assign» (ночная проверка 24.09.2026, находка №5). Между снимком
@@ -297,6 +322,13 @@ async function transferClientByAgentUnguarded(input: {
   comment?: string;
   voiceNoteUrl?: string;
   voiceNoteTranscript?: string;
+  /**
+   * Кто нажал «Передать» (аудит 18.11.2026, находка №1). С 16.11.2026 это
+   * руководитель, а не агент-владелец (`agentId`): именно он идёт в
+   * хронологию, в `CLIENT_AGENT_CHANGE` и в `CLIENT_TRANSFER`. Не передан —
+   * нажал сам владелец (прежнее поведение).
+   */
+  actorId?: string;
 }): Promise<TransferByAgentResult> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
@@ -312,7 +344,8 @@ async function transferClientByAgentUnguarded(input: {
   }
 
   // Квота — независимо от исхода передачи ниже (см. документацию функции).
-  await noteTransferForQuota(input.agentId, client);
+  const actorId = input.actorId ?? input.agentId;
+  await noteTransferForQuota(input.agentId, actorId, client);
   // Счётчик аномалий F-2 — с сужением TRANSFER_REASONS до NO_TRUST (задача F-1)
   // каждая передача и есть случай «не сложился контакт»; защитная проверка
   // reason на случай, если список причин когда-нибудь снова расширят.
@@ -327,26 +360,21 @@ async function transferClientByAgentUnguarded(input: {
   const note =
     `Передан другому агенту: ${reasonLabel}` +
     (input.comment?.trim() ? `. ${input.comment.trim()}` : "") +
-    (escalate ? `. Предел передач (${maxTransfers}) исчерпан — карточка помечена «Потерянный»` : "");
+    (escalate ? `. Предел передач (${maxTransfers}) исчерпан — кому отдать клиента, решает руководитель` : "");
 
   if (escalate) {
-    // lostAt — владелец 30.08.2026: момент перехода в «Потерянный», отдельно
-    // от updatedAt (см. Client.lostAt в schema.prisma) — по нему считается
-    // «через 3 месяца в корзину» (lib/lostInactiveTrashSweep.ts). Агент НЕ
-    // меняется (LOST не занимает слот в портфеле — leadLimits.ts::TERMINAL_STATUSES),
-    // но lastAgentId проставляем явно (аудит владения 11.09.2026, дыра №2:
-    // три пути в LOST раньше по-разному обращались с ним).
+    // Предел передач исчерпан. До 16.11.2026 карточка уходила в «Потерянные»
+    // (status LOST); этого состояния больше нет (владелец: «ничего лишнего»).
+    // Клиент остаётся у того же агента и на виду, а руководителю уходит заявка
+    // на удаление (ниже, после транзакции) — «пусть сами люди решают».
     await prisma.$transaction(async (tx) => {
       /**
-       * outcome="NEGATIVE" обязателен: по нему раздел «Потерянные клиенты»
-       * собирает цепочку «через кого прошёл и почему»
-       * (routes/clients.ts, GET /lost). Передачи его не ставили, и клиент,
-       * потерянный ровно после трёх передач, попадал в раздел с ПУСТОЙ
-       * цепочкой — без того единственного, ради чего раздел и делался.
+       * outcome="NEGATIVE": передача, исчерпавшая предел, — неудачный исход
+       * работы агента с клиентом, его видно в хронологии карточки.
        */
       await logTimeline({
         clientId: client.id,
-        actor: { kind: "agent", agentId: input.agentId },
+        actor: { kind: "agent", agentId: actorId },
         type: "SYSTEM",
         outcome: "NEGATIVE",
         notes: note,
@@ -358,25 +386,23 @@ async function transferClientByAgentUnguarded(input: {
         clientId: client.id,
         toAgentId: client.assignedAgentId,
         reason: note,
-        // Инициатор — агент, нажавший «Передать» (П-5/П-8, 17.09.2026): предел
+        // Инициатор — тот, кто нажал «Передать» (П-5/П-8, 17.09.2026): предел
         // передач исчерпан, но решение всё равно человеческое, а не автоматика.
-        actorId: input.agentId,
-        source: "lost.transfer",
+        actorId,
+        source: "transfer.exhausted",
         skipInteraction: true,
         data: {
           refusalCount,
-          status: "LOST" as const,
-          lostAt: new Date(),
           ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
         },
-        // Владелец из снимка — иначе «Потерянный» ложился бы на карточку, которую
+        // Владелец из снимка — иначе эскалация ложилась бы на карточку, которую
         // руководитель только что отдал другому (ночная проверка 24.09.2026).
         guardWhere: { assignedAgentId: input.agentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
         tx,
       });
       throwIfNotClaimed(changed);
     });
-    // Агент не меняется (LOST не занимает слот в портфеле), поэтому
+    // Агент не меняется, поэтому
     // changeClientAgent выше сам спутников не гасит — но пуш «новый лид» и
     // живое обновление экрана всё равно устарели (аудит 11.09.2026, второй
     // заход по осиротевшим спутникам: эта ветка не публиковала live вовсе).
@@ -387,29 +413,19 @@ async function transferClientByAgentUnguarded(input: {
       toAgentId: client.assignedAgentId,
       reason: note,
     });
-    void (async () => {
-      const kind = await classifyClientLossFault(client.id);
-      const points = await loadEventPoints();
-      recordScoreEvent({
-        agentId: input.agentId,
-        kind,
-        delta: points[kind],
-        reason: `Клиент потерян после ${maxTransfers}-й передачи — ${client.fullName}`,
-        sourceId: `client-lost-${client.id}`,
-      });
-    })();
+    // Штраф «клиент потерян по вине агента» снят 16.11.2026 (решение владельца).
     // Открытые требования по потерянному клиенту гасим — тот же приём, что у
     // promoteToLost/refuse (docs/audit-02-09-2026/01-lifecycle.md, баг B14).
     // reassignClientSummaries с toAgentId=null гасит ВСЕ виды (аудит 02.09 §7 шаг 6):
     // call_result/showing_book и так гасятся, а meeting/property/card_fill теперь
     // тоже закрываются вместо того чтобы висеть на агенте, у которого клиент уже LOST.
-    void enqueueDirectorAlert({
-      title: `⚠️ ${client.fullName}: предел передач исчерпан`,
-      body: `${reasonLabel}. Карточка помечена «Потерянный» — назначьте агента вручную.`,
-      url: `/clients/${client.shortId}`,
-      tag: `transfer-exhausted-${client.id}`,
-      recipientPermission: "clients.assign",
-    });
+    // Решение — руководителю заявкой на удаление (16.11.2026, та же очередь, что
+    // у кнопки агента и у отказа, lib/clientDeleteRequest.ts): одобрит — карточка
+    // в Корзине, отклонит — остаётся у агента. Пуш руководству шлёт сама заявка.
+    await fileEndOfWorkDeleteRequest(client, input.agentId,
+      `Предел передач (${maxTransfers}) исчерпан: ${reasonLabel}` +
+        (input.comment?.trim() ? `. ${input.comment.trim()}` : "") +
+        ". Работа по карточке завершена.");
     return { ok: true, lost: true };
   }
 
@@ -421,7 +437,7 @@ async function transferClientByAgentUnguarded(input: {
     await prisma.$transaction(async (tx) => {
       await logTimeline({
         clientId: client.id,
-        actor: { kind: "agent", agentId: input.agentId },
+        actor: { kind: "agent", agentId: actorId },
         type: "SYSTEM",
         notes: `${note}. Конфликт с клиентом — передано руководству`,
         voiceNoteUrl: input.voiceNoteUrl ?? null,
@@ -432,7 +448,7 @@ async function transferClientByAgentUnguarded(input: {
         clientId: client.id,
         toAgentId: client.assignedAgentId,
         reason: `${note}. Конфликт с клиентом — передано руководству`,
-        actorId: input.agentId,
+        actorId,
         source: "transfer.escalate",
         skipInteraction: true,
         data: { refusalCount, escalatedAt: new Date() },
@@ -460,12 +476,9 @@ async function transferClientByAgentUnguarded(input: {
     return { ok: true, lost: true };
   }
 
-  // respectLimit=true (найдено код-ревью 13.08.2026): «Передача» не единственный
-  // способ клиенту получить агента, в отличие от раздачи портфеля увольняющегося —
-  // получателя, уже перегруженного сверх лимита, здесь предпочитать не нужно.
   // Конкретного получателя routeTransferTarget уже проверил на доступность сам
   // (isAgentAvailableForLead/pickStrongestAvailableAgent) — вторая проверка не нужна.
-  const nextAgentId = routing.kind === "agent" ? routing.agentId : await pickNextAgentByKpiQueue([input.agentId], true);
+  const nextAgentId = routing.kind === "agent" ? routing.agentId : await pickNextAgentByKpiQueue([input.agentId]);
   const routedNote = routing.kind === "agent" ? `${note} — ${routing.explain}` : note;
   if (!nextAgentId) {
     // Некому передать прямо сейчас — не блокируем агента, эскалируем руководству,
@@ -473,7 +486,7 @@ async function transferClientByAgentUnguarded(input: {
     await prisma.$transaction(async (tx) => {
       await logTimeline({
         clientId: client.id,
-        actor: { kind: "agent", agentId: input.agentId },
+        actor: { kind: "agent", agentId: actorId },
         type: "SYSTEM",
         notes: `${note}. Свободных агентов нет — передано руководству`,
         voiceNoteUrl: input.voiceNoteUrl ?? null,
@@ -484,7 +497,7 @@ async function transferClientByAgentUnguarded(input: {
         clientId: client.id,
         toAgentId: client.assignedAgentId,
         reason: `${note}. Свободных агентов нет — передано руководству`,
-        actorId: input.agentId,
+        actorId,
         source: "transfer.pending",
         skipInteraction: true,
         data: { refusalCount, escalatedAt: new Date() },
@@ -523,10 +536,9 @@ async function transferClientByAgentUnguarded(input: {
     refusalCount,
     voiceNoteUrl: input.voiceNoteUrl,
     voiceNoteTranscript: input.voiceNoteTranscript,
-    // Кнопка самого агента (см. RefuseClientInput.actorId-style комментарий у
-    // transferClientToAgent) — input.agentId здесь и есть actorId, гейт
-    // POST /:id/transfer в routes/clients/lifecycle.ts уже проверил владение.
-    actorId: input.agentId,
+    // Нажавший кнопку (руководитель с 16.11.2026, либо сам владелец), а не
+    // владелец карточки по умолчанию — аудит 18.11.2026, находка №1.
+    actorId,
   });
 
   void sendPushToAgent(nextAgentId, {
@@ -623,7 +635,7 @@ export async function transferClientToAgent(input: {
     return t;
   });
   // Прежний агент больше не держатель заявки — если у него на устройстве всё
-  // ещё висит «🔔 Новый лид»/«🔄 Передан вам» по этому клиенту, гасим (владелец
+  // ещё висит «🔔 Новая заявка»/«🔄 Передан вам» по этому клиенту, гасим (владелец
   // 19.08.2026): не критично для работы CRM, поэтому не блокируем и не валим
   // передачу, если push не дошёл.
   closeLeadPushNotification(input.fromAgentId, `lead-${input.clientId}`).catch((err) =>
@@ -647,7 +659,7 @@ export async function transferClientToAgent(input: {
   publishClientUpdated({
     clientId: input.clientId,
     agentIds: [input.fromAgentId, input.toAgentId],
-    actorId: input.fromAgentId,
+    actorId: input.actorId ?? input.fromAgentId,
   });
 
   return { movedTasks: tasks.count };

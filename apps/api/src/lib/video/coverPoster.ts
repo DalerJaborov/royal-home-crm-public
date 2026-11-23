@@ -59,12 +59,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { propertyFieldShown } from "@royal-home/shared";
+import { meaningfulPropertyAddress, propertyFieldShown, propertyPriceTjs, propertyPriceTjsProblem, propertyPriceTjsProblemText } from "@royal-home/shared";
 import sharp, { type OverlayOptions, type Sharp } from "sharp";
 import { prisma } from "../../db.js";
 import { uploadsDir } from "../../upload.js";
 import { logSystemError } from "../systemError.js";
-import { toTjs, loadMoneyContext, type MoneyContext } from "../money.js";
+import { loadUsdRateInfo } from "../money.js";
 import { buildCoverTemplate, type CoverInkBox, type CoverSafeZone, type CoverTemplateData } from "./coverTemplate.js";
 import { applyTemplateValues, isSvgCoverTemplate, type CoverTemplateRecord } from "./coverRegistry.js";
 import { stylizeCoverPhotoWithGemini } from "../../ai/coverPosterStyle.js";
@@ -121,16 +121,39 @@ export interface CoverPosterValues {
   city: string;
   district: string | null;
   landmark: string | null;
+  /** Плашка «Royal Green»: тип объекта и вторая строка — «ҲАВЛИИ»/«2 ОШЁНА»; без второй строки —
+   *  `kindSolo` («ТИҶОРАТӢ», «ЗАМИН»), одна строка по центру. Остальные шаблоны эти поля не читают. */
+  kind: string;
+  kindSub: string | null;
+  kindSolo: string | null;
+  /** Площадь справа в плашке: число, единица («м» / «сотих»), степень («2» у м²). */
+  areaBig: string;
+  areaUnit: string;
+  areaSup: string;
+  /** «ноҳияи Сино» или, без района, «шаҳри Душанбе». */
+  placeLine: string;
 }
 
 /** Цена — ТОЛЬКО «NNN NNN TJS» (брифа раздел 5: «НЕ используй сомонӣ, сомон,
- *  $, USD, 890K»). Объект в долларах — переводим в сомони по курсу Настроек,
- *  тем же `toTjs`, что уже переводит суммы в отчётах (`lib/money.ts`);
- *  второго курса/форматтера цены заводить незачем. Второй валюты в скобках
- *  на постере, в отличие от подписи Reels (`buildPriceDisplay`), нет —
- *  постер должен читаться за одну секунду, а не нести полную бухгалтерию. */
-function priceTjsAmount(price: number | string | { toString(): string }, currency: string, money: MoneyContext): number {
-  return Math.round(toTjs(price, currency, money));
+ *  $, USD, 890K»). Число — общее `propertyPriceTjs` (ревью #348): то же, что говорит
+ *  голос и получает монтажёр; доллары — только по курсу из Настроек, без запасного.
+ *  Второй валюты в скобках на постере, в отличие от подписи Reels (`buildPriceDisplay`),
+ *  нет — постер должен читаться за одну секунду. */
+export class CoverPriceUnavailable extends Error {
+  constructor(problem: "NO_PRICE" | "NO_RATE" = "NO_RATE") {
+    const why = propertyPriceTjsProblemText(problem);
+    super(`Обложку с ценой не рисую: ${why}. ${problem === "NO_RATE" ? "Задайте курс в Настройках." : "Укажите цену в карточке объекта."}`);
+    this.name = "CoverPriceUnavailable";
+  }
+}
+/** Причина отказа обложки по цене (null — рисовать можно). */
+export function coverPriceProblem(price: unknown, currency: string, usdToTjs: number | null | undefined): CoverPriceUnavailable | null {
+  const problem = propertyPriceTjsProblem(price, currency, usdToTjs);
+  return problem ? new CoverPriceUnavailable(problem) : null;
+}
+/** Цена для обложки или null — рисовать нельзя (доллары без курса). Вызывающий проверяет до сборки. */
+export function coverPriceTjs(price: unknown, currency: string, usdToTjs: number | null | undefined): number | null {
+  return propertyPriceTjs(price, currency, usdToTjs);
 }
 
 export function buildCoverPosterValues(property: {
@@ -143,9 +166,14 @@ export function buildCoverPosterValues(property: {
   currency: string;
   districtName: string | null;
   address: string | null;
-}, money: MoneyContext): CoverPosterValues {
+  /** Тип объекта (`PropertyType`) — для плашки «Royal Green»; не задан — по комнатам/участку. */
+  type?: string | null;
+  /** Этажность дома — у дома во второй строке плашки «N ОШЁНА»; нет — комнаты. */
+  totalFloors?: number | null;
+}, money: { usdToTjs?: number | null }): CoverPosterValues {
   const withRooms = hasRoomsDigit(property.rooms);
-  const amount = priceTjsAmount(property.price, property.currency, money);
+  const amount = coverPriceTjs(property.price, property.currency, money.usdToTjs);
+  if (amount === null) throw coverPriceProblem(property.price, property.currency, money.usdToTjs) ?? new CoverPriceUnavailable();
   // Дробная площадь — с запятой, как пишут в Таджикистане: «112,5 м²».
   const areaNumber = property.areaSqm.toString().replace(".", ",");
   const areaRounded = Math.round(Number(property.areaSqm.toString()));
@@ -164,8 +192,29 @@ export function buildCoverPosterValues(property: {
     floor: property.floor != null ? `${property.floor} ошёна` : null,
     city: CITY_LABEL,
     district: property.districtName || null,
-    landmark: property.address || null,
+    landmark: meaningfulPropertyAddress(property.address),
+    ...buildPlateValues(property, withRooms, heroSotka, areaNumber),
+    placeLine: property.districtName ? `ноҳияи ${property.districtName}` : `шаҳри ${CITY_LABEL}`,
   };
+}
+
+/** Слова плашки «Royal Green» (макет владельца 21.11.2026): тип, вторая строка, площадь справа. */
+function buildPlateValues(
+  property: { rooms: number | null; totalFloors?: number | null; type?: string | null },
+  withRooms: boolean,
+  heroSotka: string | null,
+  areaNumber: string
+): Pick<CoverPosterValues, "kind" | "kindSub" | "kindSolo" | "areaBig" | "areaUnit" | "areaSup"> {
+  const type = property.type ?? (withRooms ? "APARTMENT" : heroSotka ? "LAND" : "COMMERCIAL");
+  const rooms = withRooms ? `${property.rooms} ХОНАГА` : null;
+  const floors = property.totalFloors != null && property.totalFloors > 0 ? `${property.totalFloors} ОШЁНА` : rooms;
+  // Участок: площадь в сотках крупно; остальные типы — квадраты.
+  const sotka = type === "LAND" && heroSotka;
+  const area = sotka ? { areaBig: heroSotka as string, areaUnit: "сотих", areaSup: "" } : { areaBig: areaNumber, areaUnit: "м", areaSup: "2" };
+  if (type === "HOUSE") return { kind: "ҲАВЛИИ", kindSub: floors, kindSolo: floors ? null : "ҲАВЛИИ", ...area };
+  if (type === "COMMERCIAL") return { kind: "ТИҶОРАТӢ", kindSub: null, kindSolo: "ТИҶОРАТӢ", ...area };
+  if (type === "LAND") return { kind: "ЗАМИН", kindSub: null, kindSolo: "ЗАМИН", ...area };
+  return { kind: "КВАРТИРАИ", kindSub: rooms, kindSolo: rooms ? null : "КВАРТИРА", ...area };
 }
 export interface CoverPosterResult {
   ok: boolean;
@@ -275,7 +324,14 @@ export async function generateCoverPoster(
 
 
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { companyLogoUrl: true } });
-  const money = await loadMoneyContext();
+  // Курс — только из Настроек (ревью #348): нет курса у долларовой цены — обложку не рисуем, причина в журнал.
+  const money = { usdToTjs: property.currency === "USD" ? (await loadUsdRateInfo()).rate : null };
+  const priceProblem = coverPriceProblem(property.price, property.currency, money.usdToTjs);
+  if (priceProblem) {
+    const error = priceProblem.message;
+    void logSystemError("storage", `Обложка объекта ${property.id}: ${error}`, { dedupKey: `cover-poster-no-rate:${property.id}`, dedupWindowMs: 24 * 60 * 60_000 });
+    return { ok: false, image: null, error, styleApplied: false };
+  }
   const values = buildCoverPosterValues(
     {
       // Этаж на обложке — только у квартиры и коммерции; у дома и участка его нет
@@ -288,6 +344,8 @@ export async function generateCoverPoster(
       currency: property.currency,
       districtName: property.district?.name ?? null,
       address: property.address,
+      type: property.type,
+      totalFloors: property.totalFloors,
     },
     money
   );
@@ -487,6 +545,13 @@ export async function buildTemplateSvgLayer(
     city: values.city,
     district: values.district ?? "",
     landmark: values.landmark ?? "",
+    kind: values.kind,
+    kindSub: values.kindSub ?? "",
+    kindSolo: values.kindSolo ?? "",
+    areaBig: values.areaBig,
+    areaUnit: values.areaUnit,
+    areaSup: values.areaSup,
+    placeLine: values.placeLine,
     vectorLogo: hasLogo && template.logoBoxes?.[aspect] ? "" : "1",
   });
 }
@@ -521,7 +586,18 @@ async function renderCustomTemplate(
         .catch(() => null);
     }
     const svg = await buildTemplateSvgLayer(template, aspect, values, Boolean(logoBuffer));
-    const photo = await cropPhoto(photoInput, width, height, aspect, styled);
+    const box = template.photoBox?.[aspect];
+    let photo: Buffer;
+    if (box) {
+      // Фото только в полосе сверху, под ней — холст шаблона (кремовый), дальше его SVG-слой.
+      const strip = await cropPhoto(photoInput, width, box.height, aspect, styled);
+      photo = await sharp({ create: { width, height, channels: 3, background: template.photoCanvas ?? "#ffffff" } })
+        .composite([{ input: strip, top: box.top, left: 0 }])
+        .png()
+        .toBuffer();
+    } else {
+      photo = await cropPhoto(photoInput, width, height, aspect, styled);
+    }
     const layers: OverlayOptions[] = [];
     const leavesPath = template.leavesFiles?.[aspect]
       ?? (template.leavesUrl ? path.join(uploadsDir, "cover-templates", path.basename(template.leavesUrl)) : null);

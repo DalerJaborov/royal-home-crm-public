@@ -37,7 +37,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "../db.js";
-import { loadCredentials, instagramTokenIdentity } from "../messengers/meta.js";
+import { loadCredentials } from "../messengers/meta.js";
+import { personalInstagramPublisher, publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 import {
   publishInstagramStory,
   publishInstagramStoryImage,
@@ -103,6 +104,9 @@ export interface StoriesPublishSummary {
   publishedParts: number;
   totalParts: number;
   error?: string;
+  /** Часть не вышла, потому что Meta не смогла скачать наш файл (18.11.2026, объект №208):
+   *  повтор пройдёт сам — его ставит lib/videoHandoff.ts (jobs/socialPublishRetry.ts). */
+  retriable?: boolean;
 }
 
 /** force bypasses scheduling switches, never the property's privacy boundary. */
@@ -178,11 +182,14 @@ export async function publishPropertyInstagramStories(
     return { attempted: true, publishedParts: 0, totalParts: 0, error };
   }
 
-  const identity = await instagramTokenIdentity(creds.igToken);
-  if (!identity.ok) {
-    void logSystemError("meta", `Истории Instagram (объект ${propertyId}): не удалось определить аккаунт — ${identity.error}`);
-    return { attempted: true, publishedParts: 0, totalParts: 0, error: identity.error };
+  // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+  const resolved = await resolveInstagramPublisher(creds.igToken);
+  if (!resolved.ok) {
+    void logSystemError("meta", `Истории Instagram (объект ${propertyId}): не удалось определить аккаунт — ${resolved.error}`);
+    return { attempted: true, publishedParts: 0, totalParts: 0, error: resolved.error };
   }
+  // Серия частей идёт одним ключом; отказ ключа компании до контейнера переводит её на личный.
+  let publisher = resolved;
 
   // Facebook (28.09.2026) — ПОВЕРХ Instagram, под своим тумблером, всегда
   // проверяемым (в отличие от instagramStoriesEnabled его не обходит force —
@@ -209,7 +216,16 @@ export async function publishPropertyInstagramStories(
   if (partsLeft === 0) {
     return { attempted: true, publishedParts: donePartIndexes.size, totalParts: segments.length };
   }
-  const limit = await checkInstagramPublishingLimit(identity.id, creds.igToken);
+  let limit = await checkInstagramPublishingLimit(publisher.igUserId, publisher.token);
+  if (!limit.ok && publisher.route === "company") {
+    // Ключу компании Meta не ответила даже на лимит (права, ключ) — это только чтение: один раз
+    // спрашиваем личным ключом и, если он жив, публикуем серию им (ревью #391, пункт 1).
+    const personal = await personalInstagramPublisher(publisher);
+    if (personal.ok) {
+      publisher = personal;
+      limit = await checkInstagramPublishingLimit(publisher.igUserId, publisher.token);
+    }
+  }
   if (limit.ok && limit.remaining < partsLeft) {
     const error = `Исчерпан дневной лимит публикаций Meta (осталось ${limit.remaining}, нужно ${partsLeft}) — попробуем позже`;
     void logSystemError("meta", `Истории Instagram (объект ${propertyId}): ${error}`);
@@ -250,7 +266,11 @@ export async function publishPropertyInstagramStories(
         void logSystemError("meta", `Истории Instagram (объект ${propertyId}): ${error}`);
         return { attempted: true, publishedParts, totalParts: segments.length, error };
       }
-      const result = await publishInstagramStory(propertyId, identity.id, creds.igToken, videoUrl, i);
+      const attempt = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+        publishInstagramStory(propertyId, igUserId, token, videoUrl, i)
+      );
+      const result = attempt.result;
+      publisher = attempt.publisher;
       if (!result.ok) {
         // pending (случай №111) — контейнер жив у Meta и сохранён на дозавершение
         // (см. savePendingInstagramContainer в socialPublish.ts), это не отказ:
@@ -258,9 +278,18 @@ export async function publishPropertyInstagramStories(
         // серию частей здесь же, как и при честном отказе — следующая часть всё
         // равно не может уйти, не зная, опубликуется ли эта.
         if (!result.pending) {
-          void logSystemError("meta", `Истории Instagram (объект ${propertyId}), часть ${i + 1}/${segments.length}: ${result.error}`);
+          void logSystemError(
+            "meta",
+            `Истории Instagram (объект ${propertyId}), часть ${i + 1}/${segments.length}: ${result.retriable ? "Meta не смогла скачать ролик, повторим сами через несколько минут — " : ""}${result.error}`
+          );
         }
-        return { attempted: true, publishedParts, totalParts: segments.length, error: result.error };
+        return {
+          attempted: true,
+          publishedParts,
+          totalParts: segments.length,
+          error: result.error,
+          ...(result.retriable ? { retriable: true } : {}),
+        };
       }
       await prisma.propertyStoryPost.create({
         data: { propertyId, channel: "INSTAGRAM", mediaId: result.postId ?? "", partIndex: i },
@@ -450,8 +479,8 @@ async function publishCardStory(params: {
   const creds = await loadCredentials();
   if (!creds.igToken) return fail(`Instagram не подключён — нечем публиковать историю «${label}»`);
 
-  const identity = await instagramTokenIdentity(creds.igToken);
-  if (!identity.ok) return fail(`не удалось определить аккаунт — ${identity.error}`);
+  const publisher = await resolveInstagramPublisher(creds.igToken);
+  if (!publisher.ok) return fail(`не удалось определить аккаунт — ${publisher.error}`);
 
   // Facebook — своя готовность (тумблер + токены) и свой кулдаун, считанный
   // ДО того, как Instagram ниже создаст свою строку PropertyStoryPost: иначе
@@ -481,7 +510,9 @@ async function publishCardStory(params: {
     const imageUrl = publicUploadUrl(publicPath);
     if (!imageUrl) return fail("Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать картинку истории");
 
-    const result = await publishInstagramStoryImage(propertyId, identity.id, creds.igToken, imageUrl, kind);
+    const { result } = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+      publishInstagramStoryImage(propertyId, igUserId, token, imageUrl, kind)
+    );
     let outcome: StoriesPublishSummary;
     if (!result.ok) {
       outcome = result.pending

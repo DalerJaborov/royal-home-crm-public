@@ -1,7 +1,8 @@
 import { txScope, openScope, type StageEventRow, type TxScope } from "./lib/transactionScope.js";
-import { PrismaClient } from "./generated/prisma/client.js";
+import { PrismaClient, type Prisma } from "./generated/prisma/client.js";
 import { makePrismaAdapter } from "./lib/prismaAdapter.js";
 import { currentActorId } from "./lib/requestActor.js";
+import { withClientNotesPlain } from "./lib/clientNoteLabels.js";
 
 /**
  * ЖУРНАЛ ПЕРЕХОДОВ — ПЕРЕХВАТОМ ЗДЕСЬ, А НЕ ПРАВКОЙ СОРОКА МЕСТ (26.08.2026,
@@ -33,9 +34,15 @@ import { currentActorId } from "./lib/requestActor.js";
  *  - вложенные записи (deal.update({ client: { update: ... } })) не ловятся —
  *    в коде так статусы не меняют (проверено поиском на 26.08).
  */
+/**
+ * `source` (21.11.2026, ТЗ дашборда директора п.15 «история смены источника»):
+ * ловится только на ИЗМЕНЕНИИ. Источник задаётся при создании каждой карточки —
+ * запись «null → Instagram» на каждое создание была бы шумом, а первый источник
+ * и так лежит в самой карточке. Поэтому у полей есть отдельный список для create.
+ */
 const TRACKED = {
-  client: { entityType: "CLIENT", fields: ["status", "workStatus"] as const },
-  deal: { entityType: "DEAL", fields: ["stage"] as const },
+  client: { entityType: "CLIENT", fields: ["status", "workStatus", "source"] as const, createFields: ["status", "workStatus"] as const },
+  deal: { entityType: "DEAL", fields: ["stage"] as const, createFields: ["stage"] as const },
 } as const;
 
 /**
@@ -62,7 +69,39 @@ const TRACKED = {
  * Ничего дополнительно в пул передавать не нужно: строка подключения уходит в
  * `PrismaPg` целиком.
  */
-const base = new PrismaClient({ adapter: makePrismaAdapter(process.env.DATABASE_URL ?? "") });
+/**
+ * ВЕКТОР ПОДБОРА НЕ ЕДЕТ В КАЖДЫЙ ЗАПРОС ОБЪЕКТА (17.11.2026, аудит скорости P1).
+ * Property.embedding — 768 чисел, 4 543 из 7 876 байт строки (58 %). Любой
+ * `property.findMany/findUnique` без `select` (список «Объекты», «Топ объектов» на
+ * Главной, карточка, подбор) тащил его из базы и разбирал в массив, а presentProperty
+ * потом выбрасывал. Теперь поле скрыто по умолчанию; кому вектор нужен, просит его
+ * явно: `select: { embedding: true }` (lib/embeddingSearch.ts) или
+ * `omit: { embedding: false }`. Запись (`data: { embedding }`) это не затрагивает.
+ *
+ * Типы: `PropertyRecord` — строка объекта так, как её возвращает этот клиент; в
+ * `Prisma.PropertyGetPayload<{ include: …; omit: PropertyDefaultOmit }>` то же правило
+ * для выборок с include. ОГОВОРКА: у `tx` внутри `prisma.$transaction(async (tx) => …)`
+ * Prisma теряет глобальный omit в ТИПАХ (в работе он действует) — тип там шире правды.
+ * Поэтому чтение `.embedding` вне разрешённых мест ловит сторож
+ * tests/property-embedding-omit.test.ts, а не только компилятор.
+ */
+export type PropertyDefaultOmit = { embedding: true };
+const PROPERTY_DEFAULT_OMIT: PropertyDefaultOmit = { embedding: true };
+export type PropertyRecord = Prisma.PropertyGetPayload<{ omit: PropertyDefaultOmit }>;
+
+/**
+ * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — служебная копия для поиска
+ * похожих: в ответы API она не едет. Иначе presentClient отдавал бы слова клиента мимо маски
+ * номера (phoneSafeText маскирует только requirementsNotes). Читают её сырым SQL поиск и досчёт.
+ */
+const CLIENT_DEFAULT_OMIT = { requirementsNotesPlain: true, requirementsNotesPlainRev: true } as const;
+/** Строка клиента так, как её возвращает этот клиент базы (без служебной копии заметок). */
+export type ClientRecord = Prisma.ClientGetPayload<{ omit: typeof CLIENT_DEFAULT_OMIT }>;
+
+const base = new PrismaClient({
+  adapter: makePrismaAdapter(process.env.DATABASE_URL ?? ""),
+  omit: { property: PROPERTY_DEFAULT_OMIT, client: CLIENT_DEFAULT_OMIT },
+});
 
 /** Новое значение из data: Prisma принимает и `status: "HOT"`, и `status: { set: "HOT" }`. */
 function plannedValue(data: Record<string, unknown>, field: string): string | undefined {
@@ -73,6 +112,26 @@ function plannedValue(data: Record<string, unknown>, field: string): string | un
     return typeof set === "string" ? set : undefined;
   }
   return typeof raw === "string" ? raw : undefined;
+}
+
+/**
+ * Дела «после фиксации» (TxScope.afterCommit) — по порядку постановки, в фоне:
+ * транзакция уже зафиксирована, и вызывающий не должен ждать спутников (так же
+ * fire-and-forget, как журнал переходов ниже). Каждое дело само отвечает за
+ * свои ошибки; здесь — последняя страховка, чтобы одно упавшее не отменило
+ * следующие.
+ */
+function runAfterCommit(jobs: Array<() => void | Promise<void>>): void {
+  if (!jobs.length) return;
+  void (async () => {
+    for (const job of jobs) {
+      try {
+        await job();
+      } catch (err) {
+        console.error("[after-commit] дело после фиксации:", err instanceof Error ? err.message : err);
+      }
+    }
+  })();
 }
 
 function writeEvents(events: StageEventRow[]): void {
@@ -155,7 +214,7 @@ function makeHooks(model: keyof typeof TRACKED) {
      *  (NEW/ACTIVE без явного поля в data) журналу не нужны — они и так дефолт;
      *  пишем только явно заданные, чтобы не плодить строку на каждый сид. */
     async create({ args, query }: UpdateHook) {
-      const changes = changesOf(args.data);
+      const changes = changesOf(args.data).filter((c) => (cfg.createFields as readonly string[]).includes(c.field));
       const result = (await query(args)) as { id?: string } | null;
       if (changes.length && result && typeof result.id === "string") {
         recordEvents(
@@ -250,8 +309,27 @@ async function fixInvertedBudget(
     .catch((err) => console.error("[budget-guard] запись в журнал:", err instanceof Error ? err.message : err));
 }
 
+/**
+ * Бюджет 0 или меньше не бывает (21.11.2026): «до 0 с.» отсекало всю базу в подборе. Любая запись нуля
+ * (разбор разговора, форма, бот) превращается в «не указан» (null) здесь, в одной двери записи.
+ */
+function nullifyNonPositiveBudget(data: Record<string, unknown> | undefined): void {
+  if (!data) return;
+  for (const field of ["budgetMin", "budgetMax"]) {
+    if (!(field in data)) continue;
+    const raw = data[field];
+    const value = raw && typeof raw === "object" && "set" in (raw as object) ? (raw as { set: unknown }).set : raw;
+    if (value == null) continue;
+    const num = Number(value);
+    if (!Number.isFinite(num) || num > 0) continue;
+    if (raw && typeof raw === "object" && "set" in (raw as object)) (raw as { set: unknown }).set = null;
+    else data[field] = null;
+  }
+}
+
 const budgetGuard = {
   async update({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const data = (args.data ?? {}) as Record<string, unknown>;
     const touchesMin = "budgetMin" in data;
     const touchesMax = "budgetMax" in data;
@@ -276,6 +354,7 @@ const budgetGuard = {
     return result;
   },
   async create({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
     const result = (await query(args)) as { id?: string } | null;
     const data = (args.data ?? {}) as Record<string, unknown>;
     const min = plannedNumber(data, "budgetMin");
@@ -287,11 +366,64 @@ const budgetGuard = {
     }
     return result;
   },
+  async updateMany({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined);
+    return query(args);
+  },
+  async upsert({ args, query }: UpdateHook) {
+    nullifyNonPositiveBudget((args as { create?: Record<string, unknown> }).create);
+    nullifyNonPositiveBudget(args.data as Record<string, unknown> | undefined ?? (args as { update?: Record<string, unknown> }).update);
+    return query(args);
+  },
+};
+
+/**
+ * «ЗАМЕТКИ БЕЗ ЯРЛЫКОВ» — В ОДНОЙ ДВЕРИ ЗАПИСИ (22.11.2026, PR #382). Client.requirementsNotes
+ * пишут три десятка мест (бот, приём заявок, комментарии, звонки, карточка, ИИ-помощник,
+ * импорт, слияние); копия без служебных ярлыков (requirementsNotesPlain — по ней ищутся
+ * похожие карточки) обязана меняться вместе с ней. Здесь, а не в каждом из мест — та же
+ * причина, что у журнала переходов выше: новые места появляются каждую неделю.
+ * Мимо этой двери — только сырой SQL; сторож в tests/client-similar-notes-system-lines.test.ts.
+ */
+const notesPlainGuard = {
+  async create({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async createMany({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async createManyAndReturn({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async update({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async updateMany({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async updateManyAndReturn({ args, query }: UpdateHook) {
+    withClientNotesPlain(args.data);
+    return query(args);
+  },
+  async upsert({ args, query }: UpdateHook) {
+    withClientNotesPlain((args as { create?: unknown }).create);
+    withClientNotesPlain((args as { update?: unknown }).update);
+    return query(args);
+  },
 };
 
 const withGuard = withHooks.$extends({
   query: {
     client: budgetGuard,
+  },
+}).$extends({
+  query: {
+    client: notesPlainGuard,
   },
 });
 
@@ -307,7 +439,7 @@ function scopedTransaction(arg: unknown, options?: unknown): Promise<unknown> {
   const fn = arg as (tx: unknown) => unknown;
   let scope: TxScope | undefined;
   return rawTransaction((tx: unknown) => {
-    const own: TxScope = { tx, open: true, pending: [] };
+    const own: TxScope = { tx, open: true, pending: [], afterCommit: [] };
     scope = own;
     return txScope.run(own, () =>
       Promise.resolve()
@@ -318,11 +450,17 @@ function scopedTransaction(arg: unknown, options?: unknown): Promise<unknown> {
     );
   }, options).then(
     (result) => {
-      if (scope) writeEvents(scope.pending);
+      if (scope) {
+        writeEvents(scope.pending);
+        runAfterCommit(scope.afterCommit.splice(0));
+      }
       return result;
     },
     (err: unknown) => {
-      if (scope) scope.pending.length = 0;
+      if (scope) {
+        scope.pending.length = 0;
+        scope.afterCommit.length = 0;
+      }
       throw err;
     }
   );

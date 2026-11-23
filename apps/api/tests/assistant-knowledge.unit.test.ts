@@ -5,7 +5,7 @@ vi.mock("../src/db.js",()=>({prisma:{$disconnect:vi.fn(),$queryRaw:mocks.query,$
 vi.mock("../src/auth/middleware.js",()=>({loadAgentAccess:mocks.access}));
 vi.mock("../src/ai/assistant/tools/showingToolSupport.js",()=>({loadToolActor:mocks.loadActor,asPluginExecutor:(executor:unknown)=>executor}));
 vi.mock("../src/lib/assistantActions.js",()=>({AssistantActionError:class extends Error{constructor(public status:number,public code:string,text:string){super(text);}}}));
-import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge,searchAssistantCompanyKnowledge} from "../src/ai/assistant/knowledge.js";
+import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge,searchAssistantCompanyKnowledge,searchKnowledgeForTool} from "../src/ai/assistant/knowledge.js";
 import {saveKnowledgeExecutor,archiveKnowledgeExecutor,knowledgeTools} from "../src/ai/assistant/tools/knowledgeTools.js";
 import {tajikGlossaryFor,TAJIK_GLOSSARY} from "../src/ai/assistant/tajikGlossary.js";
 const input={title:"Порядок показа",content:"Согласуйте время до выезда.",source:"Инструкция отдела"};
@@ -52,6 +52,22 @@ it("still looks up ordinary words and lets the explicit tool browse without keyw
   expect(await searchCompanyKnowledge("")).toEqual([entry]);
   expect(mocks.query.mock.calls[1][0].text).toContain("AND true");
 });
+it("auto-injected block never falls back to an unreviewed record for a pilot topic", async () => {
+  mocks.query.mockResolvedValueOnce([]);
+  expect(await searchAssistantCompanyKnowledge("какие правила показа")).toEqual([]);
+  expect(mocks.query).toHaveBeenCalledTimes(1);
+});
+it("explicit tool falls back to the word search for a pilot topic, labelled as not approved by the owner", async () => {
+  const own = { ...input, title: "Правила показа", content: "Показ только после звонка владельцу.", revision: 3 };
+  mocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([own]);
+  const found = await searchKnowledgeForTool("какие правила показа");
+  expect(found).toEqual({ rows: [own], unapproved: true });
+  expect(mocks.query.mock.calls[1][0].values).toContain("%правила%");
+  const context = knowledgeContext(found.rows, { unapproved: found.unapproved });
+  expect(context).toContain("не утверждено владельцем (черновик/изменено)");
+  expect(context).toContain("не выдавай за действующее правило");
+  expect(JSON.stringify(knowledgeContext([own]))).not.toContain("не утверждено владельцем");
+});
 it("normalizes key but does not collapse different titles",()=>{expect(knowledgeKey('  Порядок   показа ')).toBe('порядок показа');expect(knowledgeKey('Порядок')).not.toBe(knowledgeKey('Порядок показа'));});
 it("write tools always use confirmation level C",()=>{expect(knowledgeTools.filter(t=>t.level!=='A').map(t=>t.level)).toEqual(['C','C']);});
 it("preview preparation never writes and includes every content character",async()=>{
@@ -76,7 +92,16 @@ it("knowledge is untrusted data with source/version, never a system replacement"
  const context=knowledgeContext([{...input,id:'test-id',key:'key',authorId:'test-agent',revision:2,archived:false,validUntil:null,createdAt:new Date(),updatedAt:new Date()}]);
  expect(context).toContain('справочные данные');expect(context).toContain('Инструкция отдела');expect(context).toContain('"version":2');expect(context).toContain('crm_note');
 });
+it("glossary picks rows by whole word and never injects a canned refusal (14.11.2026)",()=>{
+ for (const q of ['Ҳоло овозатро равон кун','Инро ба ман нишон деҳ','Илтимос, кӯшиш кунед','Ҳоло хона нишон диҳед']) {
+  const g=tajikGlossaryFor(q);
+  expect(g).not.toMatch(/овоз кор намекунад|наметавонам|Ҳоло нашуд|недоступен|нет доступа|Не удалось/u);
+ }
+ expect(tajikGlossaryFor('нарх чанд?')).toContain('Цена → Нарх');
+ expect(tajikGlossaryFor('нархашро гӯед')).not.toContain('Цена → Нарх');
+ expect(tajikGlossaryFor('Нарх, чанд?')).toContain('Цена → Нарх');
+});
 it("glossary preserves semantic distinctions and bounds prompt size",()=>{
- expect(TAJIK_GLOSSARY).toHaveLength(36);expect(tajikGlossaryFor('пользователь квартира комиссия')).toContain('Пользователь системы не равен клиенту');
+ expect(TAJIK_GLOSSARY).toHaveLength(33);expect(JSON.stringify(TAJIK_GLOSSARY)).not.toMatch(/овоз|голос|наметавонам|нашуд|нет доступа|не удалось/iu);expect(tajikGlossaryFor('пользователь квартира комиссия')).toContain('Пользователь системы не равен клиенту');
  expect(tajikGlossaryFor('клиент')).toContain('Муштариро ёфтам');expect(tajikGlossaryFor('всё')).toContain('только если отвечаешь по-таджикски');
 });

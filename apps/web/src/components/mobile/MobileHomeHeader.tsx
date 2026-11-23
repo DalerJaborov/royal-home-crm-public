@@ -7,7 +7,7 @@ import { useCan } from "../../lib/permissions";
 import { CommandPaletteLazy } from "../CommandPaletteLazy";
 import { ThemeQuickSwitch } from "../Topbar";
 import { todayLabel } from "../../lib/format";
-import { useNotifications } from "../../hooks/useNotifications";
+import { badgeCountOf, useNotifications } from "../../hooks/useNotifications";
 import { Rh2Inline } from "../rh2/Rh2Scope";
 
 /**
@@ -29,7 +29,7 @@ export function MobileHomeHeader({ firstName }: { firstName: string }) {
   const canCall = can("calls.transcripts") || can("calls.ownTranscripts");
   const [showSearch, setShowSearch] = useState(false);
   const { data: notifications } = useNotifications();
-  const unreadCount = notifications?.unreadCount ?? 0;
+  const unreadCount = badgeCountOf(notifications);
 
   return (
     <Rh2Inline>

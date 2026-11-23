@@ -6,7 +6,7 @@ import { useNow } from "../../../hooks/useNow";
 import { mmss } from "../../../lib/countdown";
 import { clientDisplayName } from "../../../lib/clientFormat";
 import { focusReason } from "../../../lib/focusReason";
-import { pluralizeRu, relativeTime } from "../../../lib/format";
+import { relativeTime } from "../../../lib/format";
 import { leadHint, nextStepLine, type AgentTodoItem } from "../../../lib/agentFocus";
 import {
   CallWide,
@@ -14,6 +14,7 @@ import {
   PendingLeadActions,
   ReactivationActions,
 } from "./AgentActions";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 /**
  * «СНАЧАЛА ЭТО» (контракт 06.10.2026, раздел 4): одна тёмная карточка с одним
@@ -53,7 +54,7 @@ function PendingTimer({ assignedAt, escalated }: { assignedAt: string; escalated
   if (!Number.isFinite(assigned)) return null;
   const waited = now - assigned;
   const left = minutes !== null ? minutes * 60_000 - waited : null;
-  if (escalated) return <span className="rh-focus-note">никто не принял, лид ждёт</span>;
+  if (escalated) return <span className="rh-focus-note">никто не принял, заявка ждёт</span>;
   if (left !== null && left <= 0) return <span className="rh-focus-note">время вышло, примите сейчас</span>;
   if (left !== null) {
     return (
@@ -109,7 +110,7 @@ function describe(todo: AgentTodoItem): FocusView {
     case "pending": {
       const c = todo.client;
       return {
-        title: `Новый лид: ${clientDisplayName(c.fullName)}`,
+        title: `Новая заявка: ${clientDisplayName(c)}`,
         to: `/clients/${c.shortId}`,
         line: [leadHint(c), c.leadReason?.text].filter(Boolean).join(". "),
         timer: <PendingTimer assignedAt={c.assignedAt} escalated={!c.acceptedAt && !!c.escalatedAt} />,
@@ -120,7 +121,7 @@ function describe(todo: AgentTodoItem): FocusView {
       const r = todo.review;
       const other = r.duplicateReviewOfClient;
       return {
-        title: `Это ваш клиент? ${clientDisplayName(r.fullName)}`,
+        title: `Это ваш клиент? ${clientDisplayName(r)}`,
         to: other ? `/clients/${other.shortId}` : null,
         line: `Новая заявка похожа на «${other?.fullName ?? "?"}»`,
         actions: <DuplicateReviewActions review={r} />,
@@ -129,7 +130,7 @@ function describe(todo: AgentTodoItem): FocusView {
     case "reactivation": {
       const o = todo.offer;
       return {
-        title: `${clientDisplayName(o.fullName)} написал снова`,
+        title: `${clientDisplayName(o)} написал снова`,
         to: `/clients/${o.shortId}`,
         line: "Вернуть карточку себе?",
         actions: <ReactivationActions offer={o} />,
@@ -139,7 +140,7 @@ function describe(todo: AgentTodoItem): FocusView {
       const i = todo.item;
       const to = `/clients/${i.shortId}`;
       return {
-        title: `Позвонить: ${clientDisplayName(i.fullName)}`,
+        title: `Позвонить: ${clientDisplayName(i)}`,
         to,
         line: `${i.byName ? `Вам назначил(а) ${i.byName}` : "Вам назначил руководитель"}, клиент ждёт звонка`,
         actions: <CallAndOpen clientId={i.id} phone={i.phone} to={to} />,
@@ -149,7 +150,7 @@ function describe(todo: AgentTodoItem): FocusView {
       const i = todo.item;
       const to = `/clients/${i.shortId}`;
       return {
-        title: `Позвонить: ${clientDisplayName(i.fullName)}`,
+        title: `Позвонить: ${clientDisplayName(i)}`,
         to,
         line: "Первый звонок новому клиенту",
         timer: <Until at={i.dueAt} label="до срока первого звонка" doneText="срок вышел, звоните сейчас" />,
@@ -161,7 +162,7 @@ function describe(todo: AgentTodoItem): FocusView {
       const c = t.client;
       const to = c?.shortId != null ? `/clients/${c.shortId}` : "/calendar";
       return {
-        title: clientDisplayName(c?.fullName),
+        title: clientDisplayName(c),
         to,
         line: t.property?.title ?? (t.nextAction || "Ждёт ответа"),
         why: focusReason(t),
@@ -172,15 +173,15 @@ function describe(todo: AgentTodoItem): FocusView {
       const c = todo.client;
       const to = `/clients/${c.shortId}`;
       return {
-        title: `${clientDisplayName(c.fullName)}: ${todo.days} ${pluralizeRu(todo.days, ["день", "дня", "дней"])} без контакта`,
+        title: `${clientDisplayName(c)}: ${NO_CONTACT_TEXT.item}`,
         to,
-        line: `${nextStepLine(c)}. Последний контакт ${relativeTime(c.lastContactAt)}`,
+        line: `${nextStepLine(c)}. Карточка ${relativeTime(c.createdAt)}`,
         actions: <CallAndOpen clientId={c.id} phone={c.phone} to={to} />,
       };
     }
     case "client":
       // Строка портфеля в фокус не попадает (agentFocus.ts); ветка нужна полноте перечисления.
-      return { title: clientDisplayName(todo.client.fullName), to: `/clients/${todo.client.shortId}`, actions: null };
+      return { title: clientDisplayName(todo.client), to: `/clients/${todo.client.shortId}`, actions: null };
   }
 }
 

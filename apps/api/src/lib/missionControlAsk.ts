@@ -1,6 +1,7 @@
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { visibleCronWhere, visibleSystemErrorWhere } from "./investigationOperations.js";
 import { prisma } from "../db.js";
+import { noContactWhere } from "./noContact.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { countVisibleBackgroundJobs } from "./backgroundJobPrivacy.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
@@ -91,7 +92,7 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     seesMoney ? buildFinancePulse() : null,
     prisma.client.count({ where: { createdAt: { gte: startOfDay }, deletedAt: null } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay } } }),
-    prisma.interaction.count({ where: { investigationOnly: false, type: "CALL", createdAt: { gte: startOfDay } } }),
+    prisma.interaction.count({ where: { investigationOnly: false, archiveReview: false, type: "CALL", createdAt: { gte: startOfDay } } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
     prisma.agent.findMany({
       where: { role: { in: [...RATED_ROLES] }, isActive: true },
@@ -116,7 +117,8 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     }),
     prisma.client.groupBy({
       by: ["assignedAgentId"],
-      where: { assignedAgentId: { in: ids }, firstContactAt: null, ...ACTIVE_NOT_TERMINAL },
+      // «Не связывались» — одно правило на всю CRM (lib/noContact.ts).
+      where: { AND: [noContactWhere(), { assignedAgentId: { in: ids } }] },
       _count: { _all: true },
     }),
     prisma.deal.groupBy({

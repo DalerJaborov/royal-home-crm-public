@@ -217,7 +217,7 @@ const pushesFor = (title: string) =>
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
-  const admin = await prisma.agent.create({ data: { fullName: "Админ совпадений", phone: `+992960${runId}`, role: "ADMIN", passwordHash } });
+  const admin = await prisma.agent.create({ data: { fullName: "Админ совпадений", phone: `+992960${runId}`, role: "DIRECTOR", passwordHash } });
   const agent = await prisma.agent.create({ data: { fullName: "Агент совпадений", phone: `+992961${runId}`, role: "AGENT", passwordHash } });
   const outsider = await prisma.agent.create({ data: { fullName: "Чужой агент", phone: `+992962${runId}`, role: "AGENT", passwordHash } });
   adminId = admin.id;
@@ -558,7 +558,8 @@ describe("маршруты /market/matches", () => {
     const hidden = (await get(outsiderToken)).body.matches[0];
     expect(hidden.sellerPhone).toBeNull();
     expect(hidden.sellerPhoneHidden).toBe(true);
-    expect((await get(agentToken)).body.matches[0].sellerPhone).toBe(phoneFor(22));
+    // Свой объект номер не открывает (владелец 18.11.2026): видит только директор.
+    expect((await get(agentToken)).body.matches[0].sellerPhone).toBeNull();
     expect((await get(adminToken)).body.matches[0].sellerPhone).toBe(phoneFor(22));
   });
 
@@ -603,16 +604,42 @@ describe("POST /market/listing-contact", () => {
   });
   afterAll(() => vi.restoreAllMocks());
 
-  it("номер совпал с контактом владельца чужого объекта — 403 постороннему, 200 ответственному и админу", async () => {
+  it("номер совпал с контактом владельца объекта — 403 и постороннему, и ответственному (18.11.2026), 200 директору", async () => {
     await makeProperty(23, `Совпадение-${runId}-контакт`);
     const listing = await makeListing(23);
     const outsider = await click(outsiderToken, listing.sourceUrl);
     expect(outsider.status).toBe(403);
     expect(JSON.stringify(outsider.body)).not.toContain(tailFor(23));
     const own = await click(agentToken, listing.sourceUrl);
-    expect(own.status).toBe(200);
-    expect(own.body.phone).toBe(phoneFor(23));
-    expect((await click(adminToken, listing.sourceUrl)).status).toBe(200);
+    expect(own.status).toBe(403);
+    expect(JSON.stringify(own.body)).not.toContain(tailFor(23));
+    const director = await click(adminToken, listing.sourceUrl);
+    expect(director.status).toBe(200);
+    expect(director.body.phone).toBe(phoneFor(23));
+  });
+
+  it("отметка «номер брал»: пишется только когда номер отдан, с действием и без номера; закрытый номер — без отметки", async () => {
+    const listing = await makeListing(26, { sellerPhone: `+9929${runId.slice(-4)}0992` });
+    clock += 10_000;
+    const res = await request(app).post("/api/v1/market/listing-contact").set("Authorization", `Bearer ${outsiderToken}`)
+      .send({ sourceUrl: listing.sourceUrl, action: "PHONE" });
+    expect(res.status).toBe(200);
+    const marks = await prisma.marketListingContact.findMany({ where: { listingId: listing.id } });
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ action: "PHONE", clientId: null });
+    expect(JSON.stringify(marks[0])).not.toContain("0992");
+    // Неверное действие — 400, отметки нет.
+    clock += 10_000;
+    const bad = await request(app).post("/api/v1/market/listing-contact").set("Authorization", `Bearer ${outsiderToken}`)
+      .send({ sourceUrl: listing.sourceUrl, action: "SMS" });
+    expect(bad.status).toBe(400);
+    expect(await prisma.marketListingContact.count({ where: { listingId: listing.id } })).toBe(1);
+    // Номер совпал с закрытым контактом владельца: 403 и никакой отметки.
+    await makeProperty(27, `Совпадение-${runId}-контакт3`);
+    const closed = await makeListing(27);
+    expect((await click(outsiderToken, closed.sourceUrl)).status).toBe(403);
+    expect(await prisma.marketListingContact.count({ where: { listingId: closed.id } })).toBe(0);
+    await prisma.marketListingContact.deleteMany({ where: { listingId: { in: [listing.id, closed.id] } } });
   });
 
   it("номер не совпал ни с одним владельцем — отдаётся всем", async () => {
@@ -633,7 +660,9 @@ describe("POST /market/listing-contact", () => {
     // номер сохранён единым видом, чтобы прогон совпадений его нашёл
     expect((await prisma.marketListing.findUniqueOrThrow({ where: { id: listing.id } })).sellerPhone).toBe(phoneFor(25));
 
-    const ok = await click(agentToken, listing.sourceUrl);
+    // Ответственный за объект номер тоже не получает (18.11.2026) — только директор.
+    expect((await click(agentToken, listing.sourceUrl)).status).toBe(403);
+    const ok = await click(adminToken, listing.sourceUrl);
     expect(ok.status).toBe(200);
     expect(ok.body.phone).toBe(phoneFor(25));
     expect(fetchSomonPhone).toHaveBeenCalledTimes(1); // второй клик — из каталога

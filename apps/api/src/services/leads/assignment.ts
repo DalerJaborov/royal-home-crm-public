@@ -2,7 +2,6 @@ import { prisma, type TxClient } from "../../db.js";
 import { sendPushToAgents } from "../../push.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "../../lib/scoreJournal.js";
 import { findMatchingPropertiesForClient } from "../../routes/matching.js";
 import { findAgentByInstagramPost } from "../../lib/instagramPostLead.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
@@ -56,12 +55,12 @@ async function ownPropertyAgentStatuses(agentIds: string[], exclude: string[]): 
  * назначения важнее уведомления о ней.
  */
 function notifyOwnerUnavailable(agentName: string, status: OwnerAgentStatus): void {
-  const reason = status.frozenAt ? "заморожен" : "на паузе («не принимаю лиды»)";
+  const reason = status.frozenAt ? "заморожен" : "на паузе («не принимаю заявки»)";
   findAgentsWithPermission("clients.assign")
     .then((supervisors) =>
       sendPushToAgents(supervisors, {
-        title: "⏸️ Лид по объекту — хозяин недоступен",
-        body: `${agentName} ${reason}, но лид всё равно закреплён за ним по своему объекту`,
+        title: "⏸️ Заявка по объекту — хозяин недоступен",
+        body: `${agentName} ${reason}, но заявка всё равно закреплена за ним по своему объекту`,
         url: "/team",
         tag: `own-property-unavailable-${agentName}-${Date.now()}`,
       })
@@ -107,8 +106,8 @@ function notifyNoEligibleOwner(property: { id: string; shortId: number }): void 
     .then((supervisors) =>
       notifyFeedOnly(supervisors, {
         kind: "lead",
-        title: "⚠️ Лид по объекту без хозяина",
-        body: `Клиент пришёл по объекту №${property.shortId}, но агента у объекта нет (отключён или не агент) — лид ушёл в общую очередь. Передайте объект действующему агенту.`,
+        title: "⚠️ Заявка по объекту без хозяина",
+        body: `Клиент пришёл по объекту №${property.shortId}, но агента у объекта нет (отключён или не агент) — заявка ушла в общую очередь. Передайте объект действующему агенту.`,
         url: `/properties/${property.shortId}`,
         tag: `own-property-no-owner-${property.id}`,
       })
@@ -434,19 +433,19 @@ export async function recordAssignReasonTx(
       clientId,
       actor: { kind: "system", source: "lead-assignment", subjectAgentId: agentId },
       type: "SYSTEM",
-      notes: assignment.note ?? "Лид отдан вне очереди: клиент сам назвал этого сотрудника",
+      notes: assignment.note ?? "Заявка отдана вне очереди: клиент сам назвал этого сотрудника",
       tx,
     });
     return;
   }
   const note =
     assignment.reason === "own_property_explicit"
-      ? `Лид отдан вне очереди: клиент интересовался конкретным объектом №${assignment.propertyShortId} этого агента (ссылка с сайта или объект из разговора)`
+      ? `Заявка отдана вне очереди: клиент интересовался конкретным объектом №${assignment.propertyShortId} этого агента (ссылка с сайта или объект из разговора)`
       : assignment.reason === "instagram_post_link"
-        ? `Лид отдан вне очереди: клиент прислал ссылку на пост объекта №${assignment.propertyShortId} этого агента`
+        ? `Заявка отдана вне очереди: клиент прислал ссылку на пост объекта №${assignment.propertyShortId} этого агента`
         : assignment.reason === "own_property_shown"
-          ? `Лид отдан вне очереди: бот показывал клиенту объект №${assignment.propertyShortId} этого агента`
-          : `Лид отдан вне очереди: запрос клиента совпал с объектом №${assignment.propertyShortId} этого агента (совпадение ${assignment.score})`;
+          ? `Заявка отдана вне очереди: бот показывал клиенту объект №${assignment.propertyShortId} этого агента`
+          : `Заявка отдана вне очереди: запрос клиента совпал с объектом №${assignment.propertyShortId} этого агента (совпадение ${assignment.score})`;
   await tx.client.update({
     where: { id: clientId },
     data: {
@@ -478,35 +477,6 @@ export async function recordAssignReason(clientId: string, agentId: string, assi
   }
 }
 
-/**
- * Балл Royal Score за отказ №n подряд. Вызывается ТОЛЬКО после успешного атомарного
- * захвата в declineLead — n там инкрементится ровно раз на отказ, поэтому и балл
- * пишется ровно раз.
- *
- * sourceId — на конкретную выдачу лида (клиент + assignedAt), а не на пару
- * «агент + n» (23.09.2026, проверка раздачи, пункт 13). Принятие лида обнуляет
- * счётчик отказов, и следующая серия снова считает 1, 2, 3… с теми же ключами:
- * дедуп журнала молча выбрасывал каждый штраф второй и последующих серий.
- * Префикс `decline-${agentId}-${n}-` сохранён.
- */
-async function recordDeclineScore(
-  agentId: string,
-  n: number,
-  client: { id: string; fullName: string; assignedAt: Date | null }
-): Promise<void> {
-  const clientName = client.fullName;
-  const kind: ScoreEventKind =
-    n <= 1 ? "lead_declined_1" : n === 2 ? "lead_declined_2" : n === 3 ? "lead_declined_3" : "lead_declined_4plus";
-  const points = await loadEventPoints();
-  recordScoreEvent({
-    agentId,
-    kind,
-    delta: points[kind],
-    reason: `Отказ от лида подряд №${n}: ${clientName}`,
-    sourceId: `decline-${agentId}-${n}-${client.id}-${client.assignedAt?.getTime() ?? 0}`,
-  });
-}
-
 export type DeclineLeadResult =
   | { ok: true; reassignedTo: string | null; escalated: boolean; lost: boolean; declineCount: number }
   | { ok: false; reason: "not_found" | "not_own" | "already_accepted" };
@@ -515,11 +485,11 @@ export type DeclineLeadResult =
  * Агент нажал «Отклонить» на непринятом лиде (спецификация 01.08.2026, часть 1:
  * «Получение нового лида» — кнопки ✅ Принять / ❌ Отклонить).
  *
- * Royal Score: 1-й отказ подряд — без штрафа, 2-й/3-й/4-й+ — усиливающийся штраф
- * (см. scoreJournal.ts DEFAULT_EVENT_POINTS.lead_declined_*). Счётчик у АГЕНТА, не
- * у лида — «после успешной обработки любого нового лида счётчик обнуляется» (см.
- * routes/clients.ts POST /:id/accept). Штраф начисляется независимо от того,
- * нашёлся ли следующий агент — сам факт отказа уже произошёл.
+ * Счётчик отказов подряд у АГЕНТА, не у лида — «после успешной обработки любого
+ * нового лида счётчик обнуляется» (см. routes/clients.ts POST /:id/accept); он
+ * возвращается в ответе (declineCount). Баллы Royal Score за 2-й/3-й/4-й+ отказ
+ * подряд (lead_declined_*) сняты 16.11.2026 вместе с остальными автоматическими
+ * штрафами — решение владельца.
  *
  * Передача следующему свободному агенту использует тот же круг переназначения
  * (triedAgentIds), что и reassignStaleLeads: если
@@ -622,10 +592,10 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
       declinedNow.length > 0 &&
       !(await pickAgentForLead(withDeclined([agentId]), kind));
     const reason = client.ownPropertyLead
-      ? "Лид по объекту агента отклонён — передать другому нельзя, эскалация руководителю"
+      ? "Заявка по объекту агента отклонена — передать другому нельзя, эскалация руководителю"
       : allDeclined
-        ? "Лид отклонён — все доступные агенты уже отказались от него, эскалация руководителю"
-        : "Лид отклонён — других агентов, принимающих лиды, сейчас нет, эскалация руководителю";
+        ? "Заявка отклонена — все доступные агенты уже отказались от неё, эскалация руководителю"
+        : "Заявка отклонена — других агентов, принимающих заявки, сейчас нет, эскалация руководителю";
     const n = await prisma.$transaction(async (tx) => {
       // Условие по escalatedAt из снимка — арбитр двойного клика: первый запрос
       // ставит новую отметку, второй по старому значению уже никого не находит.
@@ -649,15 +619,14 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
       return agent.consecutiveLeadDeclines;
     });
     if (n === null) return { ok: false, reason: "not_own" };
-    void recordDeclineScore(agentId, n, client);
     const supervisors = await findAgentsWithPermission("clients.assign");
     sendPushToAgents(supervisors, {
-      title: "⚠️ Лид отклонён, эскалация",
+      title: "⚠️ Заявка отклонена, эскалация",
       body: client.ownPropertyLead
         ? `${client.fullName}: агент объекта отказался — назначьте вручную`
         : allDeclined
-          ? `${client.fullName}: все доступные агенты отказались от лида — назначьте вручную`
-          : `${client.fullName}: агент отказался, других агентов, принимающих лиды, сейчас нет`,
+          ? `${client.fullName}: все доступные агенты отказались от заявки — назначьте вручную`
+          : `${client.fullName}: агент отказался, других агентов, принимающих заявки, сейчас нет`,
       url: `/clients/${client.shortId}`,
       tag: `lead-escalated-${clientId}`,
     }).catch((err) => console.error("[push] эскалация после отказа:", err));
@@ -670,7 +639,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
     const claimed = await changeClientAgent({
       clientId,
       toAgentId: nextAgentId,
-      reason: "Лид переназначен: предыдущий агент отклонил",
+      reason: "Заявка переназначена: предыдущий агент отклонил",
       actorId: null,
       source: "decline.reassign",
       interactionAgentId: nextAgentId,
@@ -692,9 +661,8 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
     return agent.consecutiveLeadDeclines;
   });
   if (n === null) return { ok: false, reason: "not_own" };
-  void recordDeclineScore(agentId, n, client);
   sendLeadPush(nextAgentId, clientId, {
-    title: "🔔 Новый лид",
+    title: "🔔 Новая заявка",
     body: `${client.fullName} — передан вам`,
     url: `/clients/${client.shortId}`,
     tag: `lead-${clientId}`,

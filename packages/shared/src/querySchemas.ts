@@ -3,21 +3,13 @@ import {
   PROPERTY_TYPES,
   PROPERTY_STATUSES,
   CLIENT_SOURCES,
-  CLIENT_STATUSES,
   CLIENT_KINDS,
   DEAL_STAGES,
   INSTAGRAM_COMMENT_STATUSES,
   CURRENCIES,
   INTERACTION_TYPES,
-  WORK_STATUSES,
 } from "./enums.js";
 import { SECURITY_REVIEW_STATES } from "./schemas.js";
-
-/** Цвет светофора неактивных (см. apps/api/src/lib/inactiveTrafficLight.ts —
- *  InactiveLevel там же). Отдельный список, а не переэкспорт: тот модуль
- *  вычисляет цвет и не заводит на него zod-схему, здесь нужна только
- *  валидация query-параметра списка клиентов. */
-const INACTIVE_LEVELS = ["GREEN", "YELLOW", "RED"] as const;
 
 const uuid = z.guid();
 /**
@@ -144,8 +136,6 @@ export type PropertyQuery = z.infer<typeof propertyQuerySchema>;
 export const CLIENT_SORTS = [
   "name_asc",
   "name_desc",
-  "status_asc",
-  "status_desc",
   "score_asc",
   "score_desc",
   "budget_asc",
@@ -165,7 +155,10 @@ export const CLIENT_SORTS = [
 export type ClientSort = (typeof CLIENT_SORTS)[number];
 
 export const clientQuerySchema = z.object({
-  status: z.enum(CLIENT_STATUSES).optional(),
+  /** «1» — только карточки Архива (экран «Архив»). Общего фильтра по статусу
+   *  клиента больше нет (владелец 17.11.2026: статусы клиента не показываются),
+   *  Архив владелец не трогал — для него отдельный честный срез. */
+  archived: z.enum(["1"]).optional(),
   kind: z.enum(CLIENT_KINDS).optional(),
   /** «1» — только горячие клиенты (hotSince задан): отказные с заполненной карточкой
    *  или после показа, переданные сильному агенту. Не boolean-коэрция намеренно:
@@ -190,16 +183,13 @@ export const clientQuerySchema = z.object({
    * расхождение здесь дороже лишнего параметра. Не boolean-коэрция, как у `hot`.
    */
   noFirstContactYesterday: z.enum(["1"]).optional(),
+  /** «Не связывались» — одно правило на всю CRM (clientNoContact.ts): клиенты в работе,
+   *  с кем ни разу не связывался сотрудник (ни звонка, ни его сообщения, ни показа). */
+  noContact: z.enum(["1"]).optional(),
   districtId: uuid.optional(),
   agentId: uuid.optional(),
   /** Источник — фильтр шторки «Фильтры» экрана «Клиенты» (артефакт). */
   source: z.enum(CLIENT_SOURCES).optional(),
-  /** Раздел «Контроль руководителя» → «Светофор неактивных»: клик по числу
-   *  матрицы агент×цвет переходит сюда с этими двумя фильтрами (аудит
-   *  03.09.2026 ночь, п.7 — «весь светофор одним взглядом»). workStatus без
-   *  inactiveLevel — тоже валиден (все неактивные клиента/агента). */
-  workStatus: z.enum(WORK_STATUSES).optional(),
-  inactiveLevel: z.enum(INACTIVE_LEVELS).optional(),
   q: z.string().trim().max(200).optional(),
   /** «name» — прежнее значение до появления сортировки по всем колонкам; оставлено
    *  ради ссылок и кэша PWA со старой версией интерфейса (равно «name_asc»). */

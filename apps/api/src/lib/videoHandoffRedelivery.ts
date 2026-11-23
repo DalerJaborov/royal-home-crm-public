@@ -8,10 +8,12 @@ import {
   rearmPublishSkippedDuringManualWait,
   nextInQueue,
   sendGiveUpFallbackLinks,
+  restoreSkippedFinalWait,
+  recordMontajerMessage,
+  expireMontajerSkipMarks,
 } from "./videoHandoff.js";
 import { alertMontageStuck } from "./videoHandoffStaleAlarm.js";
 import { describeError } from "./describeError.js";
-import { handOverNarrationToCurrentMontajer } from "./narrationDelivery.js";
 import { alertNoMontajerIfWorkWaits, currentMontajerIsUsable, handOverHolderToCurrentMontajer } from "./montajerHandover.js";
 
 /**
@@ -106,15 +108,16 @@ export async function runVideoHandoffRedeliveryTick(
   const montajerAgentId = settings.videoMontajerAgentId;
 
   const manualExpired = await expireAbandonedManualWaits(now);
+  // Отметки «пропустил монтажёр» старше недели — уборка (второй круг ревью 19.11.2026); действовать
+  // они перестают и без неё (фильтр по времени в videoHandoff.ts::liveSkipMarkWhere).
+  await expireMontajerSkipMarks(now).catch((err) => logSystemError("video-handoff", `Старые отметки «пропустил монтажёр» не убраны: ${describeError(err)}`));
 
   // Монтажёра сменили (экраном, точкой возврата или руками в базе), а держатель
   // места доставлен прежнему — досылаем текущему (решение владельца 11.11.2026).
   let handedOver = 0;
   if (await handOverHolderToCurrentMontajer(montajerAgentId, now)) handedOver++;
-  // Озвучка держателя — своя посылка, тоже к текущему (её отправляет крон narration-version-delivery).
-  await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err) =>
-    logSystemError("video-handoff", `Озвучка не передана новому монтажёру: ${describeError(err)}`)
-  );
+  // Озвучка держателя уходит новому монтажёру сама, СЛЕДОМ за его файлами (21.11.2026): выдача видео зовёт
+  // крючок озвучки (videoHandoff.ts::dispatchToEditorAfterClaim), обход narrationAutoFlow.ts подстраховывает.
 
   const holders = await prisma.property.findMany({
     where: EDITOR_HOLDER_WHERE,
@@ -232,11 +235,23 @@ async function expireAbandonedManualWaits(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - MANUAL_WAIT_MAX_MS);
   const abandoned = await prisma.property.findMany({
     where: { videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: { lt: cutoff } },
-    select: { id: true, shortId: true, videoHandoffManualSince: true, videoHandoffFinalPath: true },
+    select: { id: true, shortId: true, videoHandoffManualSince: true, videoHandoffFinalPath: true, videoHandoffManualRestoreStatus: true },
     take: 50,
   });
   let expired = 0;
   for (const p of abandoned) {
+    // Пропущенный монтажёром объект, открытый под приём его ролика, — приём оборвался вместе с
+    // процессом (второй круг ревью 19.11.2026). Возвращаем, откуда взят: в очередь или в снятые,
+    // а не в NONE; отметка «пропустил монтажёр» остаётся — ролик всё ещё ждут.
+    if (p.videoHandoffManualRestoreStatus && p.videoHandoffManualSince) {
+      const back = await restoreSkippedFinalWait(p.id, p.videoHandoffManualSince);
+      if (!back) continue;
+      expired++;
+      const where = back === "QUEUED" ? "возвращён в очередь монтажа (в конец)" : "возвращён в снятые с монтажа";
+      void recordMontajerMessage(p.id, "QUEUE_CONTROL", `Ролик по объекту №${p.shortId} от монтажёра не пришёл: приём оборвался. Объект ${where}.`);
+      void logSystemError("video-handoff", `Объект №${p.shortId}: приём ролика от монтажёра оборвался — объект ${where}.`);
+      continue;
+    }
     const done = await prisma.property.updateMany({
       where: { id: p.id, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffManualSince: p.videoHandoffManualSince },
       data: {

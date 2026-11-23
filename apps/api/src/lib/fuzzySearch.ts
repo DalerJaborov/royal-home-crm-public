@@ -20,6 +20,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { toSearchTokens } from "./searchTokens.js";
+import { clientNotesLength, clientNotesPlain } from "./clientNoteLabels.js";
 
 export const FUZZY_SIMILARITY_THRESHOLD = 0.3;
 
@@ -143,22 +144,21 @@ export interface SimilarNotesCandidate {
 }
 
 /**
- * Строки-ярлыки intentLabel/callbackNote (messengers/conversation.ts:1000-1021) —
- * фиксированный текст, одинаковый у КАЖДОГО продавца/соискателя/переадресованной
- * заявки («🏷 ПРОДАВЕЦ — хочет разместить объект у нас (реклама бесплатно,
- * комиссия 2% при продаже)» и т.п.). requirementsNotes хранит его первой строкой
- * перед собственным текстом клиента, и triграммное сравнение засчитывало этот
- * общий ярлык за сходство — двум продавцам из разных районов с разной ценой
- * подсказка показывала «55-59% совпадения» на пустом месте (живой случай
- * владельца 24.08.2026: «Ака», «Варзоб», «Хикоят», «Саидчон» — четыре разных
- * человека). Вырезаем строки-ярлыки ДО сравнения — remainder это уже
- * собственные слова клиента, ради которых подсказка и задумана.
+ * Служебные строки бота в заметках («🏷 ПРОДАВЕЦ — …», «🌍 ВНЕ ДУШАНБЕ — клиент назвал
+ * «…»», «📞 ПРОСИТ ПЕРЕЗВОНИТЬ: …») одинаковы у десятков разных людей и не должны
+ * считаться сходством (живые случаи владельца 24.08.2026 — «55-59%» у четырёх разных
+ * продавцов, и 21.11.2026 — «82-84%» у трёх разных «Прочих обращений»). Что считается
+ * служебным — ОДИН список в lib/clientNoteLabels.ts. Очищенный текст хранится в
+ * Client.requirementsNotesPlain (пишет перехват записи в db.ts), поиск идёт по нему
+ * оператором % через GIN-индекс — без очистки регулярками на каждый запрос (она стоила
+ * 4 с на 5000 карточек, замер ревью #382).
+ *
+ * Короче SIMILAR_NOTES_MIN_LENGTH остаток заметок — не «уникальное содержание», а общая
+ * фраза пересказа («Клиент ищет дом»): у двух разных людей она совпадает дословно, и
+ * similarity даёт 100%. Живой случай, ради которого подсказка задумана, — подробное
+ * описание объекта (сто знаков и больше). Длина — в кодовых точках, как length() в Postgres.
  */
-const LABEL_LINE_PATTERN = "(^|\\n)(🏷|💼|🔑|❓|📞)[^\\n]*";
-
-function stripLabelLines(text: string): string {
-  return text.replace(/(^|\n)(🏷|💼|🔑|❓|📞)[^\n]*/g, "").trim();
-}
+export const SIMILAR_NOTES_MIN_LENGTH = 40;
 
 export async function fuzzySimilarClientNotes(
   clientId: string,
@@ -168,19 +168,30 @@ export async function fuzzySimilarClientNotes(
   // него стал бы слишком мягким): предложение слить карточки — это заведомо
   // редкое и уверенное совпадение, а не «может быть, похоже».
   threshold = 0.65,
-  limit = 3
+  limit = 3,
+  // Пары «это разные люди» (Client.dismissedSimilarClientIds) отсекаются ДО
+  // LIMIT: иначе три отклонённые пары занимали бы все места и закрывали
+  // четвёртую, настоящую.
+  excludeIds: string[] = []
 ): Promise<SimilarNotesCandidate[]> {
-  const trimmed = stripLabelLines(notes);
-  if (!trimmed) return [];
-  return prisma.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
-    SELECT id, similarity(trim(regexp_replace("requirementsNotes", ${LABEL_LINE_PATTERN}, '', 'g')), ${trimmed}) AS similarity
-    FROM "Client"
-    WHERE "deletedAt" IS NULL
-      AND id != ${clientId}
-      AND "requirementsNotes" IS NOT NULL
-      AND "requirementsNotes" != ''
-      AND similarity(trim(regexp_replace("requirementsNotes", ${LABEL_LINE_PATTERN}, '', 'g')), ${trimmed}) > ${threshold}
-    ORDER BY similarity DESC
-    LIMIT ${limit}
-  `);
+  const mine = clientNotesPlain(notes);
+  if (clientNotesLength(mine) < SIMILAR_NOTES_MIN_LENGTH) return [];
+  // Порог оператора % — настройка сессии (как у fuzzyIds выше): LOCAL, чтобы соседние
+  // запросы пула её не унаследовали. Число наше и константное — в текст запроса.
+  const level = Prisma.raw(String(Number(threshold)));
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SET LOCAL pg_trgm.similarity_threshold = ${level}`);
+    return tx.$queryRaw<SimilarNotesCandidate[]>(Prisma.sql`
+      SELECT id, similarity("requirementsNotesPlain", ${mine}) AS similarity
+      FROM "Client"
+      WHERE "requirementsNotesPlain" % ${mine}
+        AND "deletedAt" IS NULL
+        AND id != ${clientId}
+        AND id <> ALL(${excludeIds}::text[])
+        AND length("requirementsNotesPlain") >= ${SIMILAR_NOTES_MIN_LENGTH}
+        AND similarity("requirementsNotesPlain", ${mine}) > ${threshold}
+      ORDER BY similarity DESC
+      LIMIT ${limit}
+    `);
+  });
 }

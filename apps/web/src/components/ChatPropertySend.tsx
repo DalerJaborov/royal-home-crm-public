@@ -49,6 +49,9 @@ export function ChatPropertySend({
   clientShortId,
   conversationId,
   disabled,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: {
   clientId: string | null;
   clientShortId: string | null;
@@ -57,8 +60,21 @@ export function ChatPropertySend({
    *  WhatsApp, где Meta его не пропускала — «агенты не могут отправлять объекты». */
   conversationId?: string;
   disabled?: boolean;
+  /**
+   * Управление снаружи (новый вид чатов, 20.11.2026): «Объект» живёт в меню
+   * скрепки, своей кнопки в строке ввода нет. Без этих свойств — прежняя
+   * самостоятельная кнопка.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlledOpen ?? ownOpen;
+  const setOpen = (value: boolean) => {
+    if (onOpenChange) onOpenChange(value);
+    else setOwnOpen(value);
+  };
   const clientQuery = useClient(open && clientShortId ? clientShortId : undefined);
   /**
    * БЕЗ ОЖИДАНИЯ ПО ОЧЕРЕДИ (28.09.2026, владелец: «на телефоне без
@@ -74,7 +90,7 @@ export function ChatPropertySend({
     <>
       {/* 44x44 — единственные кнопки со значком без подложки в строке ответа,
           размер общий с ПК (сверка с макетом 390px, 10.09.2026). */}
-      <button
+      {!hideTrigger && <button
         type="button"
         onClick={() => setOpen(true)}
         disabled={disabled || !clientId || !clientShortId}
@@ -84,7 +100,7 @@ export function ChatPropertySend({
         title={
           clientId && clientShortId
             ? "Подбор — отправить объект клиенту"
-            : "У диалога нет карточки клиента, сначала создайте лид"
+            : "У диалога нет карточки клиента, сначала создайте заявку"
         }
         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-line-soft hover:text-gray-600 disabled:opacity-40"
       >
@@ -95,7 +111,7 @@ export function ChatPropertySend({
         ) : (
           <Building2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
         )}
-      </button>
+      </button>}
 
       {open && clientQuery.data && (
         <MatchPanel

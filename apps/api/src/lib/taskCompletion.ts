@@ -2,13 +2,18 @@ import { prisma, type TxClient } from "../db.js";
 import type { Interaction, Prisma } from "../generated/prisma/client.js";
 import { closeMeetingReminderPushes } from "./meetingReminders.js";
 import { closeStaleNextActions } from "./nextActionAutoClose.js";
-import { loadEventPoints, recordScoreEvent, recordScoreEventInTransaction, type ScoreEventKind } from "./scoreJournal.js";
+import { loadEventPoints, recordScoreEvent, recordScoreEventInTransaction, type ActiveScoreEventKind } from "./scoreJournal.js";
 
-/** У показов, встреч и обычных задач разные события Royal Score. */
-function completionEventKind(type: string, overdue: boolean): ScoreEventKind {
-  if (type === "SHOWING") return overdue ? "showing_missed" : "showing_done";
-  if (type === "MEETING") return overdue ? "meeting_overdue" : "meeting_done";
-  return overdue ? "task_overdue" : "task_on_time";
+/**
+ * У показов, встреч и обычных задач разные события Royal Score — только за
+ * закрытие ВОВРЕМЯ. Закрытие с опозданием раньше писало штраф (showing_missed,
+ * meeting_overdue, task_overdue); автоматические штрафы сняты владельцем
+ * 16.11.2026, и опоздание теперь не даёт ни плюса, ни минуса.
+ */
+function onTimeCompletionKind(type: string): ActiveScoreEventKind {
+  if (type === "SHOWING") return "showing_done";
+  if (type === "MEETING") return "meeting_done";
+  return "task_on_time";
 }
 
 /** После фиксации задачи закрываем устаревшие напоминания и, для встречи/показа, подсказки. */
@@ -39,15 +44,15 @@ export async function completeInteractionTask(
     data: { completedAt: now },
   });
 
-  if (claimed.count > 0 && taskOwnerId) {
-    const overdue = interaction.nextActionDate != null && interaction.nextActionDate < now;
-    const kind = completionEventKind(interaction.type, overdue);
+  const overdue = interaction.nextActionDate != null && interaction.nextActionDate < now;
+  if (claimed.count > 0 && taskOwnerId && !overdue) {
+    const kind = onTimeCompletionKind(interaction.type);
     const points = await loadEventPoints(db);
     const event = {
       agentId: taskOwnerId,
       kind,
       delta: points[kind],
-      reason: overdue ? "Закрыто с опозданием" : "Закрыто вовремя",
+      reason: "Закрыто вовремя",
       sourceId: interaction.id,
     };
     if (tx) await recordScoreEventInTransaction(tx, event);

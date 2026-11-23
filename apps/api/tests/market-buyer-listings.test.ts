@@ -5,8 +5,9 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { catalogRaw } from "./helpers/somonPage.js";
 import { loadMoneyContext, toTjs } from "../src/lib/money.js";
-import { buyerDistance, rankBuyerListings, type BuyerRow, type BuyerWants } from "../src/lib/market/buyerMatch.js";
-import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
+import {
+  buyerDistance, DEFAULT_MARKET_BUYER_RULES, marketBudgetWindowTjs, buyerListingsWhere, rankBuyerListings, type BuyerRow, type BuyerWants,
+} from "../src/lib/market/buyerMatch.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
 /**
@@ -14,11 +15,18 @@ import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
  * (10.11.2026). Что проверяем: попадание под район/комнаты, бюджет в валюте клиента (USD → сомони
  * общим курсом), исключение объявлений, признанных НАШИМИ объектами (CONFIRMED/CANDIDATE; DISMISSED —
  * чужое), склейку дублей между площадками, предел 10 и те же гейты, что у /match.
+ * Узкий подбор (17.11.2026): комнаты ровно как в запросе, цена ±10% бюджета, только то, что сбор видел за
+ * 3 суток, объявление без района — ниже и с пометкой, «Показать ещё» через offset, пороги — из Настроек.
  */
 
 const runId = `${Date.now()}`.slice(-8);
 const password = "testpass123";
 const DISTRICT = `Тест-площадки-${runId}`;
+/**
+ * Свой город: подбор берёт и объявления без района (они идут ниже), а такие лежат и у соседних файлов
+ * при параллельном прогоне. В своём городе чужие строки в выборку не попадают.
+ */
+const CITY = `Тест-город-${runId}`;
 const agentIds: string[] = [];
 const clientIds: string[] = [];
 const listingIds: string[] = [];
@@ -43,7 +51,7 @@ async function makeListing(key: string, over: Record<string, unknown> = {}) {
       sourceUrl: `https://somon.tj/adv/${runId}-${key}`,
       dealType: "SALE",
       propertyType: "APARTMENT",
-      city: "Душанбе",
+      city: CITY,
       districtName: DISTRICT,
       rooms: 2,
       areaSqm,
@@ -68,7 +76,7 @@ const get = (id: string, token = agentToken, qs = "") =>
 
 beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 10);
-  districtId = (await prisma.district.create({ data: { name: DISTRICT } })).id;
+  districtId = (await prisma.district.create({ data: { name: DISTRICT, city: CITY } })).id;
   const agent = await prisma.agent.create({
     data: { fullName: `Агент площадок ${runId}`, phone: `+992981${runId.slice(-7)}`, role: "AGENT", passwordHash },
   });
@@ -100,9 +108,15 @@ beforeAll(async () => {
   buyerId = buyer.id;
 
   await makeListing("inBudget", { priceTjs: ceilingTjs - 20_000, areaSqm: 62 });
-  // Допуск бюджета из политики +10%: +20 000 к потолку ~540 000 ещё проходит, +30% — нет.
+  // Цена ±10% бюджета (Настройки, по умолчанию): +20 000 к потолку ~540 000 ещё проходит, +30% и −20% — нет.
   await makeListing("withinTolerance", { priceTjs: ceilingTjs + 20_000, areaSqm: 75 });
   await makeListing("overBudget", { priceTjs: Math.round(ceilingTjs * 1.3) });
+  await makeListing("tooCheap", { priceTjs: Math.round(ceilingTjs * 0.8), areaSqm: 58, floor: 7 });
+  // Сбор видел 2 суток назад — свежее; 4 суток назад — дольше порога 3 суток (в каталоге ещё «активное»).
+  await makeListing("seen2d", { lastSeenAt: new Date(Date.now() - 2 * 24 * 3600_000), priceTjs: ceilingTjs - 8_000, areaSqm: 70, floor: 2 });
+  await makeListing("seen4d", { lastSeenAt: new Date(Date.now() - 4 * 24 * 3600_000), priceTjs: ceilingTjs - 9_000, areaSqm: 72, floor: 3 });
+  // Площадка не назвала район: не выбрасываем, а ставим ниже всех с районом и подписываем.
+  await makeListing("noDistrict", { districtName: null, priceTjs: ceilingTjs, areaSqm: 64, floor: 5 });
   await makeListing("junkCheap", { priceTjs: 1_000, areaSqm: 62 });
   await makeListing("junkPerSqm", { priceTjs: ceilingTjs - 10_000, areaSqm: 3 });
   await makeListing("nextRooms", { rooms: 3, priceTjs: ceilingTjs - 25_000, areaSqm: 85 });
@@ -140,32 +154,110 @@ afterAll(async () => {
 });
 
 describe("GET /clients/:id/market-listings", () => {
-  it("находит подходящие под район, комнаты и бюджет в долларах; наше, дорогое, неактивное и устаревшее — нет", async () => {
+  it("находит подходящие под район, комнаты и бюджет в долларах; наше, дорогое, дешёвое, неактивное и устаревшее — нет", async () => {
     const res = await get(buyerId);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
     expect(res.body.budgetMaxTjs).toBe(ceilingTjs);
     const urls = (res.body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
-    expect(urls).toContain(`https://somon.tj/adv/${runId}-inBudget`);
+    // Один объект на двух площадках — одна строка; остаётся та, что ближе к бюджету (здесь — с Paydo).
+    expect(urls.filter((u) => /-(inBudget|dupOnPaydo)$/.test(u))).toHaveLength(1);
     // «Не наш» (DISMISSED) — это чужое объявление, оно в подборе остаётся.
     expect(urls).toContain(`https://somon.tj/adv/${runId}-dismissed`);
-    // Допуск комнат ±1 из политики: 3 комнаты при запросе на 2 — подходят, 5 — нет; допуск бюджета +10%.
-    expect(urls).toContain(`https://somon.tj/adv/${runId}-nextRooms`);
+    // Комнаты по умолчанию ровно как в запросе: 3 при запросе на 2 — уже нет; бюджет ±10%.
+    expect(urls).not.toContain(`https://somon.tj/adv/${runId}-nextRooms`);
     expect(urls).toContain(`https://somon.tj/adv/${runId}-house`); // desiredType = null — «любой тип», а не «только квартиры»
     expect(urls).toContain(`https://somon.tj/adv/${runId}-withinTolerance`);
     // Выбросы цены (ниже порога; цена за м² вне границ) и наши объявления (CONFIRMED и CANDIDATE) в подбор не попадают.
-    for (const gone of ["overBudget", "fiveRooms", "inactive", "stale", "ours", "candidate", "junkCheap", "junkPerSqm"]) {
+    expect(urls).toContain(`https://somon.tj/adv/${runId}-seen2d`);
+    for (const gone of ["overBudget", "tooCheap", "fiveRooms", "inactive", "stale", "seen4d", "ours", "candidate", "junkCheap", "junkPerSqm"]) {
       expect(urls, gone).not.toContain(`https://somon.tj/adv/${runId}-${gone}`);
     }
-    for (const l of res.body.listings as { priceTjs: number }[]) expect(l.priceTjs).toBeLessThanOrEqual(ceilingTjs * 1.1);
+    for (const l of res.body.listings as { priceTjs: number }[]) {
+      expect(l.priceTjs).toBeLessThanOrEqual(ceilingTjs * 1.1);
+      expect(l.priceTjs).toBeGreaterThanOrEqual(ceilingTjs * 0.9);
+    }
     expect(res.body.criteria).toEqual(expect.arrayContaining([`район ${DISTRICT}`, "2-комнатные"]));
+    expect(res.body.freshDays).toBe(3);
+    expect(res.body.clientDistrictMissing).toBe(false);
+  });
+
+  it("объявление без района — в конце списка и с пометкой districtUnknown", async () => {
+    const res = await get(buyerId);
+    const rows = res.body.listings as { sourceUrl: string; districtUnknown: boolean }[];
+    const last = rows[rows.length - 1];
+    expect(last.sourceUrl).toBe(`https://somon.tj/adv/${runId}-noDistrict`);
+    expect(last.districtUnknown).toBe(true);
+    expect(rows.slice(0, -1).every((r) => !r.districtUnknown)).toBe(true);
+  });
+
+  it("«Показать ещё»: offset отдаёт следующую страницу без повторов", async () => {
+    const first = await get(buyerId, agentToken, "?limit=3&offset=0");
+    const second = await get(buyerId, agentToken, "?limit=3&offset=3");
+    expect(first.status).toBe(200);
+    expect(second.body.offset).toBe(3);
+    const a = (first.body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
+    const b = (second.body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
+    expect(a).toHaveLength(3);
+    expect(b.length).toBe(first.body.total - 3);
+    expect(a.filter((u) => b.includes(u))).toEqual([]);
+    expect((await get(buyerId, agentToken, "?offset=-1")).status).toBe(400);
+  });
+
+  it("пороги — из Настроек: допуск комнат 1 возвращает трёхкомнатную, свежесть 5 суток — виденное 4 суток назад", async () => {
+    const before = await prisma.settings.findUniqueOrThrow({
+      where: { id: "singleton" }, select: { marketBuyerRoomsTolerance: true, marketBuyerFreshDays: true },
+    });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { marketBuyerRoomsTolerance: 1, marketBuyerFreshDays: 5 } });
+    try {
+      const urls = ((await get(buyerId)).body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
+      expect(urls).toContain(`https://somon.tj/adv/${runId}-nextRooms`);
+      expect(urls).toContain(`https://somon.tj/adv/${runId}-seen4d`);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: before });
+    }
+  });
+
+  it("отметка «уже связывались»: чужой агент брал номер — видно имя и действие; сам — «byMe»; поиск собственников — OWNER_LEAD", async () => {
+    await prisma.marketListingContact.create({ data: { listingId: ids.dismissed, agentId: agentIds[1], action: "PHONE", clientId: buyerId } });
+    await prisma.somonDelivery.upsert({
+      where: { advertId: `${runId}-withinTolerance` },
+      create: { advertId: `${runId}-withinTolerance`, agentId: agentIds[0], status: "DISPATCHED" },
+      update: { agentId: agentIds[0], status: "DISPATCHED" },
+    });
+    try {
+      const rows = (await get(buyerId)).body.listings as { sourceUrl: string; contact: Record<string, unknown> | null }[];
+      const by = (key: string) => rows.find((r) => r.sourceUrl === `https://somon.tj/adv/${runId}-${key}`)?.contact;
+      expect(by("dismissed")).toMatchObject({ action: "PHONE", agentName: `Чужой агент ${runId}`, byMe: false });
+      expect(by("withinTolerance")).toMatchObject({ action: "OWNER_LEAD", byMe: true });
+      expect(by("seen2d")).toBeNull();
+      expect(JSON.stringify(rows)).not.toContain("+992");
+    } finally {
+      await prisma.marketListingContact.deleteMany({ where: { listingId: ids.dismissed } });
+      await prisma.somonDelivery.deleteMany({ where: { advertId: `${runId}-withinTolerance` } });
+    }
+  });
+
+  it("у клиента нет района: подбор по городу, сервер так и говорит (не выдумывает район)", async () => {
+    const c = await prisma.client.create({
+      data: {
+        fullName: `Без района ${runId}`, phone: `+992988${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER",
+        assignedAgentId: agentIds[0], acceptedAt: new Date(), budgetMax: 50_000, currency: "USD", desiredRooms: 2,
+      },
+    });
+    clientIds.push(c.id);
+    const res = await get(c.id);
+    expect(res.body.status).toBe("ok");
+    expect(res.body.clientDistrictMissing).toBe(true);
+    expect(res.body.criteria[0]).toContain("район не указан");
   });
 
   it("один объект на двух площадках показан один раз", async () => {
     const res = await get(buyerId);
     const same = (res.body.listings as { sourceUrl: string }[]).filter((l) => /inBudget|dupOnPaydo/.test(l.sourceUrl));
     expect(same).toHaveLength(1);
-    expect(res.body.total).toBe(5); // inBudget (с дублем), dismissed, withinTolerance, nextRooms, дом (тип не задан = любой)
+    // inBudget (с дублем), dismissed, withinTolerance, seen2d, дом (тип не задан = любой), объявление без района.
+    expect(res.body.total).toBe(6);
     expect(res.body.totalIsLowerBound).toBe(false);
   });
 
@@ -180,7 +272,7 @@ describe("GET /clients/:id/market-listings", () => {
     clientIds.push(c.id);
     const urls = ((await get(c.id)).body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
     expect(urls).not.toContain(`https://somon.tj/adv/${runId}-house`);
-    expect(urls).toContain(`https://somon.tj/adv/${runId}-inBudget`);
+    expect(urls.filter((u) => /-(inBudget|dupOnPaydo)$/.test(u))).toHaveLength(1);
   });
 
   it("не отдаёт телефоны и сырые данные, только ссылку и цифры", async () => {
@@ -196,7 +288,7 @@ describe("GET /clients/:id/market-listings", () => {
     const one = await get(buyerId, agentToken, "?limit=1");
     expect(one.status).toBe(200);
     expect(one.body.listings).toHaveLength(1);
-    expect(one.body.total).toBe(5);
+    expect(one.body.total).toBe(6);
     expect((await get(buyerId, agentToken, "?limit=11")).status).toBe(400);
     expect((await get(buyerId, agentToken, "?limit=0")).status).toBe(400);
     expect((await get(buyerId, agentToken, "?foo=1")).status).toBe(400);
@@ -240,20 +332,39 @@ describe("GET /clients/:id/market-listings", () => {
 });
 
 describe("rankBuyerListings (чистая часть)", () => {
+  // Относительно «сейчас»: фиксированная дата сама бы выпала из окна «размещено за 30 дней».
+  const FIRST_SEEN = new Date(Date.now() - 5 * 24 * 3600_000);
   const wants: BuyerWants = {
     districtName: "Сино", city: "Душанбе", rooms: 2, propertyType: "APARTMENT", areaMin: null,
-    budgetMinTjs: 400_000, budgetMaxTjs: 600_000, policy: DEFAULT_MATCH_POLICY,
+    budgetMinTjs: 400_000, budgetMaxTjs: 600_000, rules: DEFAULT_MARKET_BUYER_RULES,
   };
   const row = (over: Partial<BuyerRow>): BuyerRow => ({
     source: "somon.tj", sourceUrl: "u", title: "t", priceTjs: 500_000, pricePerSqmTjs: 8000, areaSqm: 60, rooms: 2, floor: 3,
-    totalFloors: 9, districtName: "Сино", firstSeenAt: new Date("2026-11-01"), publishedAt: null, ...over,
+    totalFloors: 9, districtName: "Сино", firstSeenAt: FIRST_SEEN, publishedAt: null, lastSeenAt: new Date(), ...over,
   });
 
   it("ближе к середине бюджета — выше; без даты публикации берётся firstSeenAt", () => {
     const { listings } = rankBuyerListings([row({ sourceUrl: "far", priceTjs: 410_000 }), row({ sourceUrl: "mid", priceTjs: 500_000 })], wants, 10);
     expect(listings.map((l) => l.sourceUrl)).toEqual(["mid", "far"]);
-    expect(listings[0].publishedAt).toBe("2026-11-01T00:00:00.000Z");
+    expect(listings[0].publishedAt).toBe(FIRST_SEEN.toISOString());
     expect(buyerDistance(row({ priceTjs: 500_000 }), wants)).toBe(0);
+  });
+
+  it("при равной близости свежее объявление выше; район не указан — ниже всех с районом", () => {
+    const now = Date.now();
+    const rows = [
+      row({ sourceUrl: "old", publishedAt: new Date(now - 25 * 24 * 3600_000), floor: 2 }),
+      row({ sourceUrl: "noDistrict", districtName: null, floor: 4 }),
+      row({ sourceUrl: "new", publishedAt: new Date(now - 1 * 24 * 3600_000), floor: 6 }),
+    ];
+    expect(rankBuyerListings(rows, wants, 10, 0, now).listings.map((l) => l.sourceUrl)).toEqual(["new", "old", "noDistrict"]);
+  });
+
+  it("окно бюджета: вилка — от «от» минус N% до «до» плюс N%; одна граница — ±N% от неё", () => {
+    expect(marketBudgetWindowTjs(400_000, 600_000, { budgetToleranceRatio: 0.1 })).toEqual({ min: 360_000, max: 660_000 });
+    expect(marketBudgetWindowTjs(null, 500_000, { budgetToleranceRatio: 0.1 })).toEqual({ min: 450_000, max: 550_000 });
+    expect(marketBudgetWindowTjs(500_000, null, { budgetToleranceRatio: 0.1 })).toEqual({ min: 450_000, max: 550_000 });
+    expect(marketBudgetWindowTjs(null, null, { budgetToleranceRatio: 0.1 })).toEqual({ min: null, max: null });
   });
 
   it("предел применяется после склейки дублей, total — число уникальных", () => {
@@ -263,5 +374,49 @@ describe("rankBuyerListings (чистая часть)", () => {
     const res = rankBuyerListings(rows, wants, 10);
     expect(res.listings).toHaveLength(10);
     expect(res.total).toBe(15);
+  });
+});
+
+describe("только свежие по дате размещения: не старше 30 дней (21.11.2026)", () => {
+  const wants: BuyerWants = {
+    districtName: null, city: "Душанбе", rooms: null, propertyType: null, areaMin: null,
+    budgetMinTjs: null, budgetMaxTjs: null, rules: DEFAULT_MARKET_BUYER_RULES,
+  };
+  const DAY = 24 * 3600_000;
+  const row = (over: Partial<BuyerRow>): BuyerRow => ({
+    source: "somon.tj", sourceUrl: "u", title: "t", priceTjs: 500_000, pricePerSqmTjs: 8000, areaSqm: 60, rooms: 2, floor: 3,
+    totalFloors: 9, districtName: "Сино", firstSeenAt: new Date(), publishedAt: null, lastSeenAt: new Date(), ...over,
+  });
+
+  it("размещено 2025 года (сбор видит его вчера) не показываем; 29 дней показываем, 31 нет", () => {
+    const now = Date.now();
+    const rows = [
+      row({ sourceUrl: "y2025", publishedAt: new Date("2025-08-27") }),
+      row({ sourceUrl: "d29", publishedAt: new Date(now - 29 * DAY) }),
+      row({ sourceUrl: "d31", publishedAt: new Date(now - 31 * DAY) }),
+    ];
+    expect(rankBuyerListings(rows, wants, 10, 0, now).listings.map((l) => l.sourceUrl)).toEqual(["d29"]);
+  });
+
+  it("даты размещения нет, считаем по дате, когда мы нашли: 5 дней назад показываем, 40 нет", () => {
+    const now = Date.now();
+    const rows = [
+      row({ sourceUrl: "found5", firstSeenAt: new Date(now - 5 * DAY) }),
+      row({ sourceUrl: "found40", firstSeenAt: new Date(now - 40 * DAY) }),
+    ];
+    expect(rankBuyerListings(rows, wants, 10, 0, now).listings.map((l) => l.sourceUrl)).toEqual(["found5"]);
+  });
+
+  it("запрос в базу режет так же: строка с датой размещения 2025 года в выборку не попадает", async () => {
+    await makeListing("age-old2025", { publishedAt: new Date("2025-08-27") });
+    await makeListing("age-fresh10", { publishedAt: new Date(Date.now() - 10 * DAY) });
+    await makeListing("age-noDateOld", { publishedAt: null, firstSeenAt: new Date(Date.now() - 40 * DAY) });
+    await makeListing("age-noDateNew", { publishedAt: null });
+    const keys = ["age-old2025", "age-fresh10", "age-noDateOld", "age-noDateNew"];
+    const found = await prisma.marketListing.findMany({
+      where: { AND: [buyerListingsWhere({ ...wants, city: CITY }), { id: { in: keys.map((k) => ids[k]) } }] },
+      select: { sourceId: true },
+    });
+    expect(found.map((f) => f.sourceId.replace(`${runId}-`, "")).sort()).toEqual(["age-fresh10", "age-noDateNew"]);
   });
 });

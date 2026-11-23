@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
-import { penalizeMissedFirstCalls } from "../src/services/leads/firstCall.js";
+import { handleMissedFirstCalls } from "../src/services/leads/firstCall.js";
 import { dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
 
 /**
  * ТУМБЛЕР ОБУЧЕНИЯ ПРОТИВ «/assign» РУКОВОДИТЕЛЯ (ночная проверка 24.09.2026,
- * находка №6). `penalizeMissedFirstCalls` читает кандидатов пачкой, потом на
+ * находка №6). `handleMissedFirstCalls` читает кандидатов пачкой, потом на
  * каждого — штраф, подбор следующего агента, транзакция. Руководитель за это
  * время через `/assign` отдаёт карточку Б и ставит `acceptedAt`. До починки
  * запись шла без условия на владельца из снимка: карточка уезжала к В с
@@ -39,7 +39,7 @@ const clientIds: string[] = [];
 /**
  * ОБЩАЯ БАЗА ШАРДА — ДВА ИСТОЧНИКА ЧУЖИХ РУК (24.09.2026, полный прогон: файл
  * упал один раз и был зелёным в одиночку). Ещё пять файлов зовут
- * `penalizeMissedFirstCalls` на той же базе, и в их процессах нашего хука нет:
+ * `handleMissedFirstCalls` на той же базе, и в их процессах нашего хука нет:
  *  1. их тик с настоящим «сейчас» подбирал и наш лид («принят 20 минут назад,
  *     звонка нет») и отдавал его своему следующему агенту — мимо хука;
  *  2. они же меняют `Settings.singleton` (тумблер передачи, окно часов) в своих
@@ -71,7 +71,7 @@ async function penalizeWithPinnedSettings() {
     return row ? { ...row, ...PINNED } : row;
   }) as never);
   try {
-    await penalizeMissedFirstCalls(NOW);
+    await handleMissedFirstCalls(NOW);
   } finally {
     spy.mockRestore();
   }
@@ -113,7 +113,8 @@ describe("Срыв первого звонка при включённом ту�
     const lead = await prisma.client.create({
       data: {
         fullName: `Лид гонки первого звонка ${runId}`,
-        phone: `+992982${runId}`,
+        // Настоящий таджикский номер (12 цифр): иначе срыв считается «номер не набирается» (19.11.2026).
+        phone: `+992982${String(runId).slice(-6)}`,
         source: "PHONE_CALL",
         kind: "BUYER",
         assignedAgentId: agentAId,
@@ -142,7 +143,7 @@ describe("Срыв первого звонка при включённом ту�
     expect(after?.acceptedAt).not.toBeNull();
     expect(after?.reassignCount).toBe(0);
     const trace = await prisma.interaction.findFirst({
-      where: { clientId: lead.id, notes: { contains: "Лид снят и переназначен" } },
+      where: { clientId: lead.id, notes: { contains: "Заявка снята и переназначена" } },
     });
     expect(trace).toBeNull();
   });

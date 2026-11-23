@@ -1,191 +1,101 @@
-// Сборка встроенного шаблона «Royal Green», вторая версия (владелец, 29.09.2026:
-// «мне не понравилась обложка» — прислал два макета и свой знак).
-// Источник правды — ЭТОТ файл: правьте его, а не собранные SVG. Запуск из apps/api:
+// Сборка встроенного шаблона «Royal Green», третья версия (владелец, 21.11.2026: макет
+// Reels — `Reels (new).psd`: фото сверху, кремовый градиент, зелёная плашка с золотой
+// окантовкой, три преимущества, золотая волна). Источник правды — ЭТОТ файл: правьте его,
+// а не собранные SVG. Запуск из apps/api:
 //   node assets/cover/templates/royal-green.build.mjs
-// Числа сняты попиксельно с макетов docs/cover-sources-29-09/reference-square.webp
-// (1254 → 1080) и reference-story.webp (941×1672 → 1080×1920). У квадрата и
-// вертикали СВОЯ раскладка — на макетах вертикаль не растянутый квадрат.
+// Числа — из слоёв PSD (1080×1920). Волна, плашка и значки — PNG-слои из того же PSD
+// (`assets/cover/royal-green-parts`), вшиваются в SVG base64. Шрифт макета — Montserrat,
+// у нас его нет с таджикскими буквами и метриками, поэтому TT Norms Pro 800/500.
+//
+// Вертикаль — макет как есть. Квадрат — тот же макет, сдвинутый вверх: верхний блок
+// (знак, цена) на `dyTop`, нижний (плашка, ряд, волна) на `dyLow`; фото в полосе сверху
+// (`photoBox` в coverRegistry.ts), кремовый градиент рисует сам SVG.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SERIF = "RH Playfair Lining";
 const SANS = "TT Norms Pro";
+const INK = "#01412f";
+const PRICE_INK = "#003d36";
 
-/** Гладкая кромка панели через точки, снятые с макета (Catmull-Rom → кубические кривые). */
-function smoothPath(points) {
-  let d = `M${points[0][0]} ${points[0][1]}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const [p1, p2] = [points[i], points[i + 1]];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
-    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-    d += ` C${c1.map((n) => n.toFixed(1)).join(" ")} ${c2.map((n) => n.toFixed(1)).join(" ")} ${p2[0]} ${p2[1]}`;
-  }
-  return d;
-}
+const part = (name) => `data:image/png;base64,${fs.readFileSync(path.join(here, "..", "royal-green-parts", name)).toString("base64")}`;
+const logo = `data:image/png;base64,${fs.readFileSync(path.join(here, "..", "royal-green-logo.png")).toString("base64")}`;
 
-const L = {
-  square: {
-    w: 1080,
-    h: 1080,
-    strip: 345,
-    edge: [[0, 195], [327, 440], [357, 482], [515, 740], [640, 835], [770, 880], [1080, 980]],
-    logo: { x: 131, y: 56, h: 206 },
-    digit: { x: 76, y: 622, size: 338, fit: 330 },
-    word: { x: 60, y: 715, size: 106, fit: 470 },
-    line: { x: 62, y: 736, w: 254 },
-    plate: { x: 57, y: 760, w: 658, h: 165, r: 18 },
-    price: { x: 84, y: 905, size: 200, cur: 66, dx: 12, fit: 596, ls: -17, bold: 2.4 },
-    row: {
-      icon: 56, top: 957, main: 30, sub: 19, big: 48,
-      area: { ix: 72, tx: 168, y1: 990, y2: 1027 },
-      div1: 357, div2: 688, divTop: 945, divH: 76,
-      floor: { ix: 400, tx: 483, y1: 985, y2: 1017, fit: 190 },
-      loc: { ix: 737, tx: 810, y1: 985, y2: 1017, y3: 1040, fit: 255 },
-    },
-  },
-  // ВЕРТИКАЛЬ — ДЛЯ СЕТКИ INSTAGRAM (владелец, 02.10.2026): профиль показывает у Reels
-  // центр кадра 3:4, строки 240…1679 из 1920. Всё важное — знак, цифра, «ХОНАГА», плашка
-  // цены, нижний ряд — собрано в «теле» 1080×1440 по центру (строки 300…1650), а фон
-  // (кремовая полоса от самого верха, панель до самого низа, мягкий градиент и золотая
-  // линия внизу) идёт на весь кадр 1080×1920. Раскладка — прежняя вертикаль, сжатая по
-  // высоте примерно в 0,84 (кегли и ширины как у квадрата), знак по центру полосы.
-  story: {
-    w: 1080,
-    h: 1920,
-    strip: 345,
-    edge: [[0, 545], [263, 700], [320, 752], [353, 800], [406, 905], [461, 1005], [534, 1105], [635, 1215], [698, 1280], [904, 1405], [1009, 1450], [1080, 1485]],
-    logo: { x: 0, y: 290, h: 220 }, // x ставится ниже: знак по центру полосы
-    digit: { x: 40, y: 1082, size: 450, fit: 400 },
-    word: { x: 48, y: 1218, size: 122, fit: 530 },
-    line: { x: 50, y: 1249, w: 300 },
-    plate: { x: 55, y: 1298, w: 760, h: 172, r: 20 },
-    price: { x: 86, y: 1447, size: 192, cur: 69, dx: 13, fit: 690, ls: -17, bold: 2.4 },
-    row: {
-      icon: 60, top: 1535, main: 34, sub: 22, big: 62,
-      // «²» после «163,2 м» упирался в разделитель: запас у вертикали шире (в квадрате не трогаем).
-      areaFitPad: 36,
-      area: { ix: 62, tx: 160, y1: 1578, y2: 1616 },
-      div1: 357, div2: 705, divTop: 1518, divH: 104,
-      floor: { ix: 398, tx: 490, y1: 1569, y2: 1609, fit: 200 },
-      loc: { ix: 745, tx: 832, y1: 1569, y2: 1609, y3: 1634, fit: 232 },
-    },
-    // Ниже блока (после 1680): мягкий глубокий градиент и тонкая золотая линия.
-    bottom: { from: 1560, line: 1775 },
-  },
+const FORMATS = {
+  story: { w: 1080, h: 1920, dyTop: 0, dyLow: 0 },
+  square: { w: 1080, h: 1080, dyTop: -215, dyLow: -561 },
 };
-{
-  const { strip, logo } = L.story;
-  logo.x = Math.round((strip - Math.round((logo.h * 510) / 642)) / 2);
-}
 
-/** Значки в своём боксе 56×56 — масштаб под формат задаёт `scale`. */
-const ICON_AREA = `<rect x="1.5" y="1.5" width="53" height="53" rx="2"/><path d="M13 43 L26 30 M13 43 L13 34 M13 43 L22 43 M43 13 L30 26 M43 13 L34 13 M43 13 L43 22"/>`;
-const ICON_FLOOR = `<path d="M28 4 L54 17 L28 30 L2 17 Z"/><path d="M8 26 L2 29 L28 42 L54 29 L48 26"/><path d="M8 38 L2 41 L28 54 L54 41 L48 38"/>`;
-const ICON_PIN = `<path d="M22 58 C10 43 1 32 1 21.5 A21 21 0 0 1 43 21.5 C43 32 34 43 22 58 Z"/><circle cx="22" cy="21.5" r="7.5"/>`;
+// Прозрачность кремового градиента (смещение от 1012 → доля), снята со слоя «Слой 3» макета.
+const FADE = [[0, 0], [40, 0.004], [80, 0.024], [120, 0.067], [160, 0.157], [200, 0.31], [240, 0.52], [280, 0.737], [320, 0.9], [360, 0.98], [400, 1]];
+const FADE_H = 568;
 
 function body(k) {
-  const c = L[k];
-  const r = c.row;
-  const s = (r.icon / 56).toFixed(4);
-  const panel = `${smoothPath(c.edge)} L${c.w} ${c.h} L0 ${c.h} Z`;
-  const logoW = Math.round((c.logo.h * 510) / 642);
-  const ph = c.plate;
+  const { w, h, dyTop: t, dyLow: d } = FORMATS[k];
+  const y = (v, dy) => +(v + dy).toFixed(1);
+  const fadeTop = y(1012, d);
+  const waveTop = y(1513, d);
   return `
 <g data-bg="1">
-  <rect x="0" y="0" width="${c.strip}" height="${c.h}" fill="url(#strip)"/>
-  <rect x="${c.strip - 3}" y="0" width="3" height="${c.h}" fill="#000" opacity="0.06"/>
-  <path d="${panel}" fill="url(#panel)"/>${
-    c.bottom
-      ? `
-  <rect x="0" y="${c.bottom.from}" width="${c.w}" height="${c.h - c.bottom.from}" fill="url(#deep)"/>
-  <rect x="140" y="${c.bottom.line}" width="${c.w - 280}" height="2" fill="url(#goldLine)"/>`
-      : ""
-  }
+  <rect x="0" y="${y(230, t)}" width="${w}" height="330" fill="url(#haze)"/>
+  <rect x="0" y="${fadeTop}" width="${w}" height="${FADE_H}" fill="url(#cream)"/>
+  <rect x="0" y="${fadeTop + FADE_H}" width="${w}" height="${Math.max(0, h - fadeTop - FADE_H)}" fill="#f3e6e0"/>
+  <image href="${part("footer-wave.png")}" x="0" y="${waveTop}" width="1080" height="407"/>
+  <image href="${part("plate.png")}" x="0" y="${y(1261, d)}" width="530" height="144"/>
+  <rect x="570" y="${y(1260, d)}" width="5" height="146" fill="#0a4b3a"/>
+  <image href="${part("pin.png")}" x="614" y="${y(1297, d)}" width="52" height="72"/>
+  <image href="${part("icon-home.png")}" x="90" y="${y(1455, d)}" width="61" height="61"/>
+  <image href="${part("icon-diamond.png")}" x="416" y="${y(1454, d)}" width="76" height="62"/>
+  <image href="${part("icon-pin-outline.png")}" x="754" y="${y(1455, d)}" width="43" height="61"/>
 </g>
-<image data-if="vectorLogo" href="LOGO_FALLBACK" x="${c.logo.x}" y="${c.logo.y}" width="${logoW}" height="${c.logo.h}" preserveAspectRatio="xMidYMid meet"/>
-<g id="rooms" data-if="rooms">
-  <text x="${c.digit.x}" y="${c.digit.y}" font-family="${SERIF}" font-size="${c.digit.size}" font-weight="700" fill="url(#gold)" filter="url(#lift)" data-fit="${c.digit.fit}">{{rooms}}</text>
-  <text x="${c.word.x}" y="${c.word.y}" font-family="${SERIF}" font-size="${c.word.size}" font-weight="700" fill="url(#cream)" letter-spacing="1" filter="url(#lift)" data-fit="${c.word.fit}">{{roomsWord|upper}}</text>
-  <rect x="${c.line.x}" y="${c.line.y}" width="${c.line.w}" height="2" fill="url(#line)"/>
-</g>
+<image data-if="vectorLogo" href="${logo}" x="100" y="${y(285, t)}" width="164" height="207" preserveAspectRatio="xMidYMid meet"/>
 <g id="price">
-  <rect x="${ph.x}" y="${ph.y}" width="${ph.w}" height="${ph.h}" rx="${ph.r}" fill="url(#plate)" filter="url(#plateShadow)"/>
-  <rect x="${ph.x + 1}" y="${ph.y + 1}" width="${ph.w - 2}" height="${ph.h - 2}" rx="${ph.r - 1}" fill="none" stroke="#fff8e6" stroke-opacity="0.55" stroke-width="1.5"/>
-  <text x="${c.price.x}" y="${c.price.y}" font-family="${SERIF}" font-weight="700" fill="#0b3a2e" data-fit="${c.price.fit}"><tspan font-size="${c.price.size}" letter-spacing="${c.price.ls}" stroke="#0b3a2e" stroke-width="${c.price.bold}" stroke-linejoin="round">{{priceNumber}}</tspan><tspan font-size="${c.price.cur}" dx="${c.price.dx}" dy="-6" letter-spacing="1">{{currency}}</tspan></text>
+  <text x="761" y="${y(400, t)}" text-anchor="middle" font-family="${SANS}" font-size="108" font-weight="500" fill="${PRICE_INK}" filter="url(#glow)" data-fit="450">{{priceNumber}}</text>
+  <text x="762" y="${y(445, t)}" text-anchor="middle" font-family="${SANS}" font-size="40" font-weight="500" fill="${PRICE_INK}" letter-spacing="5" filter="url(#glow)">СОМОНӢ</text>
+</g>
+<g id="kind" data-if="kindSub">
+  <text x="101" y="${y(1334, d)}" font-family="${SANS}" font-size="57" font-weight="800" fill="#ffffff" data-fit="262">{{kind}}</text>
+  <text x="101" y="${y(1378, d)}" font-family="${SANS}" font-size="47" font-weight="800" fill="#ffffff" data-fit="262">{{kindSub}}</text>
+</g>
+<g id="kindSolo" data-if="kindSolo">
+  <text x="101" y="${y(1356, d)}" font-family="${SANS}" font-size="62" font-weight="800" fill="#ffffff" data-fit="262">{{kindSolo}}</text>
 </g>
 <g id="area">
-  <g transform="translate(${r.area.ix} ${r.top}) scale(${s})" fill="none" stroke="url(#icon)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${ICON_AREA}</g>
-  <text x="${r.area.tx}" y="${r.area.y1}" font-family="${SANS}" font-size="${r.big}" font-weight="800" fill="#ffffff" data-fit="${r.div1 - r.area.tx - (r.areaFitPad ?? 14)}">{{areaNumber}}<tspan font-size="${Math.round(r.big * 0.86)}" dx="${Math.round(r.big * 0.16)}">м</tspan><tspan font-size="${Math.round(r.big * 0.6)}" dy="${-Math.round(r.big * 0.42)}">2</tspan></text>
-  <text x="${r.area.tx + 2}" y="${r.area.y2}" font-family="${SANS}" font-size="${r.sub}" font-weight="500" fill="#e9efe9" letter-spacing="${(r.sub * 0.14).toFixed(1)}">МАСОҲАТ</text>
+  <text x="512" y="${y(1353, d)}" text-anchor="end" font-family="${SANS}" font-size="66" font-weight="800" fill="#ffffff" data-fit="138">{{areaBig}}<tspan font-size="50" dx="7">{{areaUnit}}</tspan><tspan font-size="30" dy="-24">{{areaSup}}</tspan></text>
 </g>
-<rect x="${r.div1}" y="${r.divTop}" width="1.6" height="${r.divH}" fill="#d8c08c" opacity="0.6"/>
-<g id="floor" data-if="floor">
-  <g transform="translate(${r.floor.ix} ${r.top}) scale(${s})" fill="none" stroke="url(#icon)" stroke-width="2.6" stroke-linejoin="round">${ICON_FLOOR}</g>
-  <text x="${r.floor.tx}" y="${r.floor.y1}" font-family="${SANS}" font-size="${r.main}" font-weight="800" fill="#ffffff" data-fit="${r.floor.fit}">{{floor|upper}}</text>
-  <text x="${r.floor.tx + 1}" y="${r.floor.y2}" font-family="${SANS}" font-size="${r.sub}" font-weight="500" fill="#e9efe9" letter-spacing="${(r.sub * 0.14).toFixed(1)}">ЭТАЖ</text>
-</g>
-<rect x="${r.div2}" y="${r.divTop}" width="1.6" height="${r.divH}" fill="#d8c08c" opacity="0.6"/>
 <g id="location">
-  <g transform="translate(${r.loc.ix} ${r.top - Math.round(r.icon * 0.05)}) scale(${s})" fill="none" stroke="url(#icon)" stroke-width="2.6" stroke-linejoin="round">${ICON_PIN}</g>
-  <text x="${r.loc.tx}" y="${r.loc.y1}" font-family="${SANS}" font-size="${r.main}" font-weight="800" fill="#ffffff" data-fit="${r.loc.fit}">{{city|upper}}</text>
-  <text x="${r.loc.tx + 1}" y="${r.loc.y2}" font-family="${SANS}" font-size="${r.sub}" font-weight="500" fill="#e9efe9" letter-spacing="${(r.sub * 0.1).toFixed(1)}" data-if="district" data-fit="${r.loc.fit}">РАЙОН: {{district|upper}}</text>
-  <text x="${r.loc.tx + 1}" y="${r.loc.y3}" font-family="${SANS}" font-size="${Math.round(r.sub * 0.76)}" font-weight="500" fill="#e9efe9" letter-spacing="1.2" data-if="landmark" data-fit="${r.loc.fit}" data-fit-min="11">ОРИЕНТИР: {{landmark|upper}}</text>
+  <text x="697" y="${y(1341, d)}" font-family="${SANS}" font-size="31" font-weight="800" fill="${INK}" data-fit="286">{{placeLine}}</text>
+</g>
+<g id="perks" font-family="${SANS}" font-size="22" font-weight="800" fill="${INK}">
+  <text x="167" y="${y(1479, d)}">Банақшагирии</text><text x="167" y="${y(1503, d)}">васеъ</text>
+  <text x="508" y="${y(1479, d)}">Сатҳи баланди</text><text x="508" y="${y(1503, d)}">бароҳатӣ</text>
+  <text x="815" y="${y(1479, d)}">Ҷойгиршавии</text><text x="815" y="${y(1503, d)}">қулай</text>
 </g>`;
 }
 
 const defs = `
 <defs>
-  <linearGradient id="strip" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#e2d3c4"/><stop offset="0.16" stop-color="#ece3d9"/><stop offset="0.3" stop-color="#f2ede6"/><stop offset="1" stop-color="#f1ebe3"/>
-  </linearGradient>
-  <linearGradient id="panel" x1="0" y1="0" x2="0.3" y2="1">
-    <stop offset="0" stop-color="#0b3a2e"/><stop offset="0.5" stop-color="#05322a"/><stop offset="1" stop-color="#032a21"/>
-  </linearGradient>
-  <linearGradient id="gold" x1="0" y1="0" x2="0.3" y2="1">
-    <stop offset="0" stop-color="#fbe9c2"/><stop offset="0.35" stop-color="#ecd09a"/><stop offset="0.7" stop-color="#d9b173"/><stop offset="1" stop-color="#c3924f"/>
-  </linearGradient>
   <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#ffffff"/><stop offset="0.55" stop-color="#f8f1e2"/><stop offset="1" stop-color="#e8d3a8"/>
+${FADE.map(([o, a]) => `    <stop offset="${(o / FADE_H).toFixed(4)}" stop-color="#f3e6e0" stop-opacity="${a}"/>`).join("\n")}
+    <stop offset="1" stop-color="#f3e6e0"/>
   </linearGradient>
-  <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#e3c68b"/><stop offset="1" stop-color="#e3c68b" stop-opacity="0.75"/>
+  <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0"/><stop offset="0.3" stop-color="#ffffff" stop-opacity="0.5"/><stop offset="0.7" stop-color="#ffffff" stop-opacity="0.5"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
   </linearGradient>
-  <linearGradient id="plate" x1="0" y1="0" x2="0.15" y2="1">
-    <stop offset="0" stop-color="#fcf1da"/><stop offset="0.5" stop-color="#f2dcab"/><stop offset="1" stop-color="#e2bb77"/>
-  </linearGradient>
-  <linearGradient id="icon" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#f1d9a2"/><stop offset="1" stop-color="#d4a960"/>
-  </linearGradient>
-  <filter id="lift" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.35"/></filter>
-  <filter id="plateShadow" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#000" flood-opacity="0.3"/></filter>
-</defs>`;
-
-/** Градиенты низа кадра — только у вертикали (`bottom` в раскладке); квадрат остаётся прежним байт в байт. */
-const bottomDefs = `  <linearGradient id="deep" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#021a14" stop-opacity="0"/><stop offset="0.45" stop-color="#021a14" stop-opacity="0.55"/><stop offset="1" stop-color="#010d0a" stop-opacity="0.92"/>
-  </linearGradient>
-  <linearGradient id="goldLine" x1="0" y1="0" x2="1" y2="0">
-    <stop offset="0" stop-color="#e3c68b" stop-opacity="0"/><stop offset="0.5" stop-color="#e3c68b" stop-opacity="0.85"/><stop offset="1" stop-color="#e3c68b" stop-opacity="0"/>
-  </linearGradient>
+  <filter id="glow" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="9" flood-color="#ffffff" flood-opacity="0.6"/></filter>
 </defs>`;
 
 const header = (fmt) =>
-  `<!-- «Royal Green» v2, ${fmt}. СОБРАНО royal-green.build.mjs — правьте сборщик, а не этот файл.
+  `<!-- «Royal Green» v3 (макет Reels 21.11.2026), ${fmt}. СОБРАНО royal-green.build.mjs — правьте сборщик, а не этот файл.
      data-if — блок только при наличии поля; data-fit — кегль ужимается до ширины;
-     data-fit-min — меньше этого кегля строка не рисуется; data-bg — фон (страж зоны его не смотрит). -->`;
-
-const logo = fs.readFileSync(path.join(here, "..", "royal-green-logo.png")).toString("base64");
-const withLogo = (s) => s.replace("LOGO_FALLBACK", `data:image/png;base64,${logo}`);
+     data-bg — фон (страж зоны его не смотрит). -->`;
 
 for (const [k, label] of [["square", "квадрат 1080×1080"], ["story", "вертикаль 1080×1920"]]) {
-  const { w, h } = L[k];
+  const { w, h } = FORMATS[k];
   fs.writeFileSync(
     path.join(here, `royal-green-${k}.svg`),
-    withLogo(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n${header(label)}${L[k].bottom ? defs.replace(/<\/defs>$/, bottomDefs) : defs}${body(k)}\n</svg>\n`)
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n${header(label)}${defs}${body(k)}\n</svg>\n`
   );
 }
-console.log("royal-green v2: square + story собраны");
+console.log("royal-green v3: square + story собраны");

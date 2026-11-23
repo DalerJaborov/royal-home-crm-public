@@ -1,5 +1,5 @@
 import { canReadInvestigations } from "../auth/investigations.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, NO_CONTACT_TEXT } from "@royal-home/shared";
 import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
@@ -7,16 +7,18 @@ import { prisma } from "../db.js";
 import { findPostShowingCallFeedRow, listPostShowingCallFeed } from "../lib/postShowingCallFeed.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
-import { TASK_WHERE } from "../lib/tasks.js";
-import { NO_LEADS, OCCUPIES_SLOT_WHERE, activeLeadCounts, loadLeadLimits, slotsTaken } from "../lib/leadLimits.js";
+import { overdueTasksWhere } from "../lib/tasks.js";
+// Условие переехало в lib/tasks.ts (17.11.2026, одна дверь с помощницей Шабнам);
+// вывоз отсюда оставлен для прежних импортов.
+export { overdueTasksWhere } from "../lib/tasks.js";
+import { BUYERS_IN_WORK_WHERE } from "../lib/agentLoad.js";
+import { noContactWhere } from "../lib/noContact.js";
 import { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 export { findSilentAfterShowing } from "../lib/silentAfterShowing.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
 import { findSellerPropertyMissing } from "../lib/sellerPropertyMissingAntifraud.js";
 import { runLimited } from "../lib/concurrency.js";
-import type { InactiveLevel } from "../lib/inactiveTrafficLight.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
-import { RATED_ROLES } from "@royal-home/shared";
 import { loadAckedSubjects, markAcked, oversightAckBodySchema, type OversightFlagSlice } from "../lib/oversightAck.js";
 
 /**
@@ -44,11 +46,6 @@ function parsePage(req: { query: Record<string, unknown> }): { page: number; pag
   return { page, pageSize };
 }
 
-// «Без прогресса» у клиента с высоким скорингом — контакта не было дольше этого
-// срока. Короче, чем общий порог «забытых клиентов» (10 дней, computeForgottenClients
-// в routes/ai.ts): чем ближе клиент к сделке, тем дороже каждый день молчания.
-const STALE_CONTACT_DAYS = 3;
-const STALE_CONTACT_MS = STALE_CONTACT_DAYS * 24 * 60 * 60 * 1000;
 // Окно «недавних» событий для плиток сводки (переводы в Неактивные, передачи).
 // Экспортировано: карточка сотрудника (routes/team.ts) использует то же окно
 // для findRefusedHighScore по одному агенту — второго числа не заводим.
@@ -98,31 +95,15 @@ function maskInteractionRow<
 // раздел «Проблемы»): те же условия, что красят строки в «Контроле руководителя»,
 // только сузены на agentId этого сотрудника — второй копии логики не заводим (тот
 // же приём, что уже применён к findSilentAfterShowing/findEndlessNegotiations/
-// findAgentLossSeries ниже).
-export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
-  return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
-}
+// findAgentLossSeries ниже). Просроченные задачи — overdueTasksWhere из lib/tasks.ts.
 
-export function stalledClientsWhere(now: Date, hotScoreThreshold: number): Prisma.ClientWhereInput {
-  return {
-    ...OCCUPIES_SLOT_WHERE,
-    deletedAt: null,
-    aiScore: { gte: hotScoreThreshold },
-    lastContactAt: { lt: new Date(now.getTime() - STALE_CONTACT_MS) },
-  };
-}
+// «Горячий клиент без контакта» (скоринг + lastContactAt) удалён 16.11.2026: владелец
+// оставил ОДИН счётчик «Без контакта» с одним правилом — lib/noContact.ts
+// (правило и порог — packages/shared/src/clientNoContact.ts).
 
 // «Переведён в Неактивные» пишется одной строкой из lib/clientWorkStatus.ts
 // (deactivateClient) — структурной колонки с причиной нет (ТЗ п. 22 хранит её
 // только текстом в хронологии), поэтому событие ищем по этому тексту.
-function inactiveEventsWhere(): Prisma.InteractionWhereInput {
-  return {
-    type: "SYSTEM",
-    notes: { contains: "переведён в Неактивные" },
-    client: { deletedAt: null },
-  };
-}
-
 // Передача между агентами (lib/clientTransfer.ts, transferClientByAgent) и
 // передача дел уходящего сотрудника (lib/agentHandover.ts) — обе пишут
 // заметку с этим текстом. Автоматическое переназначение непринятого лида
@@ -310,49 +291,33 @@ interface EndlessNegotiationItem {
 
 /**
  * Сигнал «Серия у одного агента» (антифрод, владелец 01.09.2026): 3+
- * (Settings.agentLossSeriesThreshold) переводов в «Неактивные» ИЛИ прямых
- * потерь (Client.status=LOST) у ОДНОГО агента за последние
+ * (Settings.agentLossSeriesThreshold) потерь у ОДНОГО агента за последние
  * AGENT_LOSS_SERIES_WINDOW_DAYS дней — не общая цифра по компании (та уже
  * есть плитками recentInactive/recentTransfers), а разбивка по конкретному
  * исполнителю: три случая подряд у новичка — возможно, ему нужна помощь; у
  * опытного — стоит присмотреться.
  *
- * «Неактивные» считаем тем же событием, что и общая плитка (inactiveEventsWhere,
- * agentId — кто выполнил перевод). «Потеря» — по Client.status=LOST/lostAt
- * (schema.prisma: ставится во ВСЕХ трёх местах, где карточка уходит в LOST —
- * ручной отказ, эскалация передач, светофор неактивных), ответственный агент —
- * lastAgentId (переживает и уход в INACTIVE, и в LOST — см. схему), а если он
- * почему-то пуст (клиент был потерян, ни разу не побывав в Неактивных) —
- * запасной вариант assignedAgentId, каким он был на момент выборки.
+ * «ПОТЕРЯ» = ОФОРМЛЕННЫЙ ОТКАЗ (16.11.2026). Статуса LOST больше нет (владелец:
+ * «ничего лишнего»), поэтому серия считается по отказам: отметка
+ * Client.assignmentRefusedAt и тот, кто отказался, — assignmentRefusedByAgentId.
+ * Пишет их одна дверь — lib/clientRefuse.ts (кнопка агента, отказ продавца,
+ * детектор явного отказа в переписке). Карточки, уже убранные в Корзину по
+ * заявке, тоже считаются: потеря от этого не перестаёт быть потерей.
  */
 export async function findAgentLossSeries(since: Date) {
   const threshold = await loadAgentLossSeriesThreshold();
 
-  // groupBy, а не findMany: ниже от обеих выборок берутся ТОЛЬКО счётчики по
-  // агентам, а сами строки в память тащились целиком и без потолка — соседние
-  // помощники в этом файле потолок имеют (take: 500), здесь его просто забыли.
-  // Клиентов приходится группировать по паре полей: ответственный — lastAgentId,
-  // а если он пуст, запасной вариант assignedAgentId (см. doc-comment выше).
-  const [inactiveEvents, lostClients] = await Promise.all([
-    prisma.interaction.groupBy({
-      by: ["agentId"],
-      where: { ...inactiveEventsWhere(), createdAt: { gte: since } },
-      _count: { _all: true },
-    }),
-    prisma.client.groupBy({
-      by: ["lastAgentId", "assignedAgentId"],
-      where: { status: "LOST", lostAt: { gte: since }, deletedAt: null },
-      _count: { _all: true },
-    }),
-  ]);
+  // groupBy, а не findMany: нужны только счётчики по агентам.
+  const refused = await prisma.client.groupBy({
+    by: ["assignmentRefusedByAgentId"],
+    where: { assignmentRefusedAt: { gte: since }, assignmentRefusedByAgentId: { not: null } },
+    _count: { _all: true },
+  });
 
   const counts = new Map<string, number>();
-  // Строки теперь сгруппированы, поэтому прибавляется размер группы, а не единица.
-  for (const e of inactiveEvents) if (e.agentId) counts.set(e.agentId, (counts.get(e.agentId) ?? 0) + e._count._all);
-  for (const c of lostClients) {
-    const agentId = c.lastAgentId ?? c.assignedAgentId;
-    if (!agentId) continue;
-    counts.set(agentId, (counts.get(agentId) ?? 0) + c._count._all);
+  for (const c of refused) {
+    if (!c.assignmentRefusedByAgentId) continue;
+    counts.set(c.assignmentRefusedByAgentId, (counts.get(c.assignmentRefusedByAgentId) ?? 0) + c._count._all);
   }
 
   const flaggedIds = [...counts.entries()].filter(([, count]) => count >= threshold).map(([id]) => id);
@@ -403,112 +368,16 @@ let summaryInFlight: Promise<unknown> | null = null;
  */
 const SUMMARY_QUERY_CONCURRENCY = 4;
 
-interface TrafficLightAgentRow {
-  agentId: string;
-  agentName: string;
-  avatarUrl: string | null;
-  red: number;
-  yellow: number;
-  green: number;
-  total: number;
-}
-
-/**
- * «Светофор неактивных — сейчас» (аудит 03.09.2026 ночь, п. 7): у директора не
- * было ни одного экрана «весь светофор одним взглядом» — сколько клиентов
- * сейчас в каждом цвете, по каждому агенту. Один `groupBy` по уже готовым
- * колонкам (`Client.workStatus`+`inactiveLevel`, тот же составной индекс, что
- * у крона светофора — см. schema.prisma) — цвет НЕ пересчитывается заново
- * (это делает classifyInactiveLevelByDepth в lib/inactiveTrafficLight.ts в
- * момент перевода в Неактивные и держит в актуальном состоянии крон раз в
- * час), здесь только чтение уже посчитанного поля.
- *
- * Карточки, у которых предел попыток светофора исчерпан, уходят в LOST, но
- * остаются workStatus=INACTIVE и (с 11.09.2026) сохраняют агента — показывать
- * их директору в портфеле агента как неактивных нечестно, их отсекает
- * `status: { not: "LOST" }`. `assignedAgentId: { not: null }` — карточки без
- * агента в матрицу агент×цвет не ложатся вовсе.
- */
-export async function findTrafficLightSummary(): Promise<{
-  totals: { red: number; yellow: number; green: number };
-  agents: TrafficLightAgentRow[];
-}> {
-  const rows = await prisma.client.groupBy({
-    by: ["assignedAgentId", "inactiveLevel"],
-    /**
-     * status не LOST (23.09.2026): с 11.09.2026 предел попыток переводит в
-     * «Потерянные» с сохранением агента и workStatus=INACTIVE (markClientLost),
-     * так что фильтр по агенту ниже потерянных больше не отсекает — они
-     * копились в светофоре директора как «неактивные в работе у агента».
-     */
-    where: { workStatus: "INACTIVE", kind: { not: "OTHER" }, status: { notIn: ["LOST", "ARCHIVED", "DEAL_CLOSED"] }, deletedAt: null, assignedAgentId: { not: null } },
-    _count: { _all: true },
-  });
-
-  const totals = { RED: 0, YELLOW: 0, GREEN: 0 } as Record<InactiveLevel, number>;
-  const byAgent = new Map<string, Record<InactiveLevel, number>>();
-  for (const r of rows) {
-    // inactiveLevel пуст только у карточек, переведённых в Неактивные ДО
-    // 03.09.2026 (переделка светофора «по глубине») и ни разу не тронутых
-    // краном с тех пор — не считаем их ни одним цветом, а не роняем запрос.
-    if (!r.inactiveLevel || !r.assignedAgentId) continue;
-    const count = r._count._all;
-    totals[r.inactiveLevel] += count;
-    const entry = byAgent.get(r.assignedAgentId) ?? { RED: 0, YELLOW: 0, GREEN: 0 };
-    entry[r.inactiveLevel] += count;
-    byAgent.set(r.assignedAgentId, entry);
-  }
-
-  const agentIds = [...byAgent.keys()];
-  const agentRows =
-    agentIds.length > 0
-      ? await prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, fullName: true, avatarUrl: true } })
-      : [];
-  const agentById = new Map(agentRows.map((a) => [a.id, a]));
-
-  const agents: TrafficLightAgentRow[] = agentIds
-    .map((id) => {
-      const counts = byAgent.get(id)!;
-      const agent = agentById.get(id);
-      return {
-        agentId: id,
-        agentName: agent?.fullName ?? "Неизвестно",
-        avatarUrl: agent?.avatarUrl ?? null,
-        red: counts.RED,
-        yellow: counts.YELLOW,
-        green: counts.GREEN,
-        total: counts.RED + counts.YELLOW + counts.GREEN,
-      };
-    })
-    // Сначала у кого больше всего красных (меньше всего работы уже вложено —
-    // самый срочный взгляд руководителя), затем по общему числу.
-    .sort((a, b) => b.red - a.red || b.total - a.total);
-
-  return {
-    totals: { red: totals.RED, yellow: totals.YELLOW, green: totals.GREEN },
-    agents,
-  };
-}
-
-/**
- * GET /oversight/traffic-light-summary — см. findTrafficLightSummary выше.
- * Без пагинации: агентов в штате десятки, не тысячи, вся сводка — одна
- * компактная таблица.
- */
-oversightRouter.get("/traffic-light-summary", async (_req, res) => {
-  res.json(await findTrafficLightSummary());
-});
+// «Светофор неактивных — сейчас» (GET /traffic-light-summary) удалён 16.11.2026
+// вместе с самим светофором (владелец: «ничего лишнего»).
 
 async function buildOversightSummary() {
   const now = new Date();
   const recentSince = new Date(now.getTime() - RECENT_EVENTS_MS);
 
   const [
-    limits,
-    agents,
     overdueTasks,
-    staleHotClients,
-    recentInactive,
+    noContactClients,
     recentTransfers,
     silentAfterShowing,
     refusedHighScore,
@@ -517,11 +386,8 @@ async function buildOversightSummary() {
     agentLossSeries,
   ] = await runLimited(
     [
-      () => loadLeadLimits(),
-      () => prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true } }),
       () => prisma.interaction.count({ where: overdueTasksWhere(now) }),
-      () => loadHotScoreThreshold().then((t) => prisma.client.count({ where: stalledClientsWhere(now, t) })),
-      () => prisma.interaction.count({ where: { ...inactiveEventsWhere(), createdAt: { gte: recentSince } } }),
+      () => prisma.client.count({ where: noContactWhere() }),
       () => prisma.interaction.count({ where: { ...transferEventsWhere(), createdAt: { gte: recentSince } } }),
       () => findSilentAfterShowing(now),
       () => findRefusedHighScore(recentSince),
@@ -532,20 +398,9 @@ async function buildOversightSummary() {
     SUMMARY_QUERY_CONCURRENCY
   );
 
-  // Лимит выключен (0) — «агентов у лимита» бессмысленная цифра, не считаем.
-  let agentsAtLimit = 0;
-  if (limits.activeLimit > 0 && agents.length > 0) {
-    const counts = await activeLeadCounts(agents.map((a) => a.id));
-    for (const c of counts.values()) {
-      if (slotsTaken(c, limits) >= limits.activeLimit) agentsAtLimit++;
-    }
-  }
-
   return {
     overdueTasks,
-    agentsAtLimit,
-    staleHotClients,
-    recentInactive,
+    noContactClients,
     recentTransfers,
     silentAfterShowing: silentAfterShowing.items.length,
     silentAfterShowingDays: silentAfterShowing.days,
@@ -559,7 +414,6 @@ async function buildOversightSummary() {
     agentLossSeries: agentLossSeries.items.length,
     agentLossSeriesThreshold: agentLossSeries.threshold,
     agentLossSeriesWindowDays: agentLossSeries.windowDays,
-    leadLimit: limits.activeLimit,
     recentWindowDays: RECENT_EVENTS_DAYS,
   };
 }
@@ -595,54 +449,6 @@ oversightRouter.get("/summary", async (req, res) => {
   res.json(summary);
 });
 
-/**
- * GET /oversight/agents-at-limit — агенты, чей активный портфель достиг лимита
- * (Settings.leadActiveLimit, по умолчанию 6 — см. lib/leadLimits.ts). Список
- * ограничен ролью AGENT и активными учётками; take — потолок на случай очень
- * большого штата, отдельной пагинации не требует (это не журнал событий).
- */
-oversightRouter.get("/agents-at-limit", async (_req, res) => {
-  const limits = await loadLeadLimits();
-  if (limits.activeLimit <= 0) {
-    return res.json({ items: [], limit: limits.activeLimit });
-  }
-
-  const agents = await prisma.agent.findMany({
-    where: { role: { in: [...RATED_ROLES] }, isActive: true },
-    select: { id: true, fullName: true, avatarUrl: true, frozenAt: true },
-    orderBy: { fullName: "asc" },
-    take: 200,
-  });
-  const counts = await activeLeadCounts(agents.map((a) => a.id));
-
-  const items = agents
-    .map((a) => {
-      const c = counts.get(a.id) ?? NO_LEADS;
-      return {
-        id: a.id,
-        fullName: a.fullName,
-        avatarUrl: a.avatarUrl,
-        frozen: a.frozenAt !== null,
-        total: c.total,
-        own: c.own,
-        regular: c.regular,
-        /**
-         * Сколько СЛОТОВ занято — дробное, когда включены веса (Настройки →
-         * «Взвешенные слоты»). Отдаём рядом с total, а не вместо него: список
-         * называется «агенты у лимита», и отбор обязан идти по тому же числу,
-         * по какому лимит упирается при раздаче, иначе руководитель видит
-         * восемь карточек у человека, которому CRM продолжает давать лиды, и
-         * не понимает, почему. Пока веса выключены, slotsUsed === total.
-         */
-        slotsUsed: slotsTaken(c, limits),
-      };
-    })
-    .filter((a) => a.slotsUsed >= limits.activeLimit)
-    .sort((a, b) => b.slotsUsed - a.slotsUsed);
-
-  res.json({ items, limit: limits.activeLimit });
-});
-
 /** GET /oversight/overdue-tasks — задачи (Interaction.nextAction), срок которых
  *  прошёл, а выполненными не отмечены. Тот же TASK_WHERE, что и везде в CRM
  *  (lib/tasks.ts) — одно определение задачи на всю систему. */
@@ -673,75 +479,42 @@ oversightRouter.get("/overdue-tasks", async (req, res) => {
   res.json({ items: rows.map((r) => maskInteractionRow(r, canSeePhone)), total, page, pageSize });
 });
 
-/** GET /oversight/stalled-clients — клиенты с высоким ИИ-скорингом (см.
- *  ai/scoring.ts, автозапуск — lib/clientAutopilot.ts), которые всё ещё в
- *  активном портфеле агента, но без контакта дольше STALE_CONTACT_DAYS. */
-oversightRouter.get("/stalled-clients", async (req, res) => {
+/**
+ * GET /oversight/no-contact-clients — клиенты в работе, с которыми ни разу не
+ * связывались (правило — packages/shared/src/clientNoContact.ts, выборка —
+ * lib/noContact.ts). Самые давние карточки первыми.
+ */
+oversightRouter.get("/no-contact-clients", async (req, res) => {
   const { page, pageSize } = parsePage(req);
-  const now = new Date();
-  const where = stalledClientsWhere(now, await loadHotScoreThreshold());
-
+  const where = noContactWhere();
   const [rows, total] = await Promise.all([
     prisma.client.findMany({
       where,
-      orderBy: [{ aiScore: "desc" }, { id: "desc" }],
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: {
         id: true,
         shortId: true,
+        kind: true,
         fullName: true,
-        status: true,
-        aiScore: true,
-        aiScoreReason: true,
-        lastContactAt: true,
+        createdAt: true,
+        lastClientMessageAt: true,
         assignedAgent: agentRefSelect,
       },
     }),
     prisma.client.count({ where }),
   ]);
-
   const canSeePhone = req.agent!.can("clients.viewPhone");
   res.json({
-    // Тот же обход presentClient, что и в /refused-high-score выше: сводка причины
-    // от ИИ несёт номер, продиктованный клиентом, а право на номер отдельное.
-    items: await markAcked("stalled-clients", rows.map((c) => ({
+    items: await markAcked("no-contact-clients", rows.map((c) => ({
       ...c,
       fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
-      aiScoreReason: phoneSafeText(c.aiScoreReason, canSeePhone),
     })), (c) => c.id),
     total,
     page,
     pageSize,
   });
-});
-
-/** GET /oversight/inactive-clients — журнал переводов в «Неактивные» (ТЗ п. 22),
- *  новые сверху. Причина — тем же текстом, что видит агент в хронологии
- *  клиента (структурной колонки с причиной нет, см. inactiveEventsWhere). */
-oversightRouter.get("/inactive-clients", async (req, res) => {
-  const { page, pageSize } = parsePage(req);
-  const where = inactiveEventsWhere();
-
-  const [rows, total] = await Promise.all([
-    prisma.interaction.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: {
-        id: true,
-        notes: true,
-        createdAt: true,
-        client: clientRefSelect,
-        agent: agentRefSelect,
-      },
-    }),
-    prisma.interaction.count({ where }),
-  ]);
-
-  const canSeePhone = req.agent!.can("clients.viewPhone");
-  res.json({ items: rows.map((r) => maskInteractionRow(r, canSeePhone)), total, page, pageSize });
 });
 
 /** GET /oversight/lead-transfers — журнал передач клиента другому агенту
@@ -833,65 +606,61 @@ oversightRouter.get("/refused-high-score", requireInvestigations, async (req, re
  * подозрительна — просто список, часто повторяющаяся пара помечена `frequent`
  * для глаза руководителя, решение остаётся за человеком.
  *
- * Структурного поля «от какого агента» у передачи нет (см. lib/clientTransfer.ts —
- * Interaction хранит только НОВОГО agentId), поэтому «от кого» восстанавливается
- * по цепочке: агент последней записи ЭТОГО клиента, сделанной строго до передачи,
- * — тот, кто вёл клиента перед ней. Best-effort, как и восстановление «инициатора»
- * в routes/security.ts: если у клиента до передачи вовсе не было записей (первая
- * же запись — сама передача), пара пропускается — восстанавливать «от кого» не из чего.
+ * ОТКУДА ПАРА (ревью 19.11.2026). Раньше «от кого» восстанавливалось по
+ * хронологии: агент последней записи клиента до передачи, а «кому» — агент самой
+ * записи «Передан другому агенту». Это держалось на допущении, что запись
+ * подписана получателем. Подписывал её отдающий агент (пара «сам себе»
+ * отбрасывалась, и флаг молчал), а с 19.11.2026 — нажавший руководитель, и флаг
+ * начал бы показывать пары «агент → директор», которых не было. Теперь пара
+ * берётся из журнала единой двери смены владельца (`lib/changeClientAgent.ts`,
+ * запись `CLIENT_AGENT_CHANGE`): там «от кого» и «кому» записаны как есть.
+ * Считаются только передачи по решению человека: кнопка «Передать» и раздача
+ * дел уходящего сотрудника.
  */
 const TRANSFER_PAIRS_WINDOW_DAYS = 30;
 const TRANSFER_PAIRS_WINDOW_MS = TRANSFER_PAIRS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const TRANSFER_PAIRS_FREQUENT_THRESHOLD = 3;
+/** `source` единой двери у передач по решению человека (lib/clientTransfer.ts, lib/agentHandover.ts). */
+const TRANSFER_PAIR_SOURCES = ["transfer", "handover"] as const;
 
 oversightRouter.get("/transfer-pairs", requireInvestigations, async (_req, res) => {
   const since = new Date(Date.now() - TRANSFER_PAIRS_WINDOW_MS);
-  const transfers = await prisma.interaction.findMany({
-    where: { ...transferEventsWhere(), createdAt: { gte: since } },
+  const changes = await prisma.auditLog.findMany({
+    where: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      createdAt: { gte: since },
+      OR: TRANSFER_PAIR_SOURCES.map((source) => ({ meta: { path: ["source"], equals: source } })),
+    },
     orderBy: { createdAt: "asc" },
     take: 1000,
-    select: { id: true, clientId: true, agentId: true, createdAt: true },
+    select: { entityId: true, meta: true },
   });
 
-  if (transfers.length === 0) {
+  if (changes.length === 0) {
     return res.json({ pairs: [], windowDays: TRANSFER_PAIRS_WINDOW_DAYS, frequentThreshold: TRANSFER_PAIRS_FREQUENT_THRESHOLD });
   }
 
-  const clientIds = [...new Set(transfers.map((t) => t.clientId))];
-  // Вся хронология этих клиентов, не только передачи — «от кого» вычисляется по
-  // ЛЮБОЙ предыдущей записи (звонок, показ, служебная), а не только по передачам.
-  const history = await prisma.interaction.findMany({
-    where: { clientId: { in: clientIds } },
-    orderBy: { createdAt: "asc" },
-    take: 5000,
-    select: { id: true, clientId: true, agentId: true, createdAt: true },
+  // Клиенты в Корзине в подсчёт не идут — как и раньше (transferEventsWhere).
+  const clientIds = [...new Set(changes.map((c) => c.entityId).filter((id): id is string => typeof id === "string"))];
+  const liveClients = await prisma.client.findMany({
+    where: { id: { in: clientIds }, deletedAt: null },
+    select: { id: true },
   });
-  const byClient = new Map<string, typeof history>();
-  for (const row of history) {
-    const arr = byClient.get(row.clientId);
-    if (arr) arr.push(row);
-    else byClient.set(row.clientId, [row]);
-  }
+  const liveClientIds = new Set(liveClients.map((c) => c.id));
 
   const pairCounts = new Map<string, { fromId: string; toId: string; count: number }>();
-  for (const t of transfers) {
-    if (!t.agentId) continue; // передача без явного нового агента — восстановить пару не из чего
-    const list = byClient.get(t.clientId) ?? [];
-    // Последняя запись строго до этой передачи (по времени, не считая её саму) —
-    // список уже отсортирован по возрастанию createdAt, поэтому это последний
-    // элемент, прошедший фильтр. Записи без агента (SYSTEM/AI, П-10) пропускаем —
-    // «от кого» нужен живой человек.
-    let prevAgentId: string | null = null;
-    for (const row of list) {
-      if (row.id === t.id) break;
-      if (row.createdAt.getTime() >= t.createdAt.getTime()) break;
-      if (row.agentId) prevAgentId = row.agentId;
-    }
-    if (!prevAgentId || prevAgentId === t.agentId) continue;
-    const key = `${prevAgentId}->${t.agentId}`;
+  for (const change of changes) {
+    if (!change.entityId || !liveClientIds.has(change.entityId)) continue;
+    const meta = change.meta as { fromAgentId?: unknown; toAgentId?: unknown } | null;
+    const fromId = typeof meta?.fromAgentId === "string" ? meta.fromAgentId : null;
+    const toId = typeof meta?.toAgentId === "string" ? meta.toAgentId : null;
+    // Из очереди или в очередь — не «от агента к агенту»; пары тут нет.
+    if (!fromId || !toId || fromId === toId) continue;
+    const key = `${fromId}->${toId}`;
     const existing = pairCounts.get(key);
     if (existing) existing.count++;
-    else pairCounts.set(key, { fromId: prevAgentId, toId: t.agentId, count: 1 });
+    else pairCounts.set(key, { fromId, toId, count: 1 });
   }
 
   const involvedAgentIds = new Set<string>();
@@ -1127,20 +896,18 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
   const link = (key: OversightFlagSlice) => `/oversight#slice-${key}`;
   const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-  const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
-    loadHotScoreThreshold().then((threshold) =>
-      prisma.client.findMany({
-        where: stalledClientsWhere(now, threshold),
-        orderBy: [{ aiScore: "desc" }, { id: "desc" }],
-        take: 500,
-        select: { id: true, fullName: true, lastContactAt: true, assignedAgent: agentRefSelect },
-      }),
-    ),
+  const [noContact, silent, refused, seller, endless, ackedNoContact, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
+    prisma.client.findMany({
+      where: noContactWhere(),
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: 200,
+      select: { id: true, fullName: true, createdAt: true, lastClientMessageAt: true, assignedAgent: agentRefSelect },
+    }),
     findSilentAfterShowing(now),
     findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS)),
     findSellerPropertyMissing(now),
     findEndlessNegotiations(now),
-    loadAckedSubjects("stalled-clients"),
+    loadAckedSubjects("no-contact-clients"),
     loadAckedSubjects("silent-after-showing"),
     loadAckedSubjects("refused-high-score"),
     loadAckedSubjects("seller-property-missing"),
@@ -1148,8 +915,8 @@ oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
   ]);
 
   const flags: OversightFlag[] = [];
-  for (const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
-    flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без контакта`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("stalled-clients") });
+  for (const c of noContact.filter((x) => !ackedNoContact.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "no-contact-clients", subjectId: c.id, title: `${name(c.fullName)}: ${NO_CONTACT_TEXT.item}`, who: c.assignedAgent?.fullName ?? null, at: iso(c.createdAt), href: link("no-contact-clients") });
   }
   for (const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
     flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после показа`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("silent-after-showing") });

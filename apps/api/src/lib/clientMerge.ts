@@ -1,5 +1,6 @@
-import type { Client } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
+// Строка клиента без служебной копии заметок (скрыта по умолчанию, db.ts, PR #382).
+import type { ClientRecord as Client } from "../db.js";
 import { pickFreeExtraPhones } from "./clientPhones.js";
 import { clientPhoneHash } from "./clientPhoneOrigins.js";
 import { closeClientSatellites } from "./clientSatellites.js";
@@ -448,10 +449,14 @@ export const MERGE_LINKS_MOVED = [
   // Первое сообщение агента в WhatsApp (B9, 02.10.2026): без переноса ответ
   // клиента находил строку на удалённом дубле — ни ссылки на объект, ни пуша.
   "WhatsAppFirstContact.clientId",
+  // Вопрос Шабнам о показе (22.11.2026): идёт вслед за показом (Interaction) к основной карточке,
+  // иначе ответ агента записал бы показ удалённому дублю.
+  "ShowingQuestion.clientId",
 ] as const;
 
 /** Ссылки, которые при слиянии намеренно остаются у дубля. */
 export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
+  "OwnershipTransferRequest.clientId": "запись о передаче РОП, ждущая решения директора, остаётся при дубле: слияние — склейка карточек, а не передача, и отклонять её после слияния некуда возвращать",
   "OwnerReportSubscription.sellerClientId": "согласие старой карточки не переносится: подписка отозвана, требуется новое подтверждение",
   "SellerControlEpisode.clientId": "эпизод старого назначения закрывается при слиянии; исходные факты и события сохраняются",
   "BuyerShowingCandidate.clientId": "кандидат старого назначения закрывается при слиянии; исходная реплика и история сохраняются",
@@ -461,6 +466,8 @@ export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
   "ClientDeleteRequest.clientId": "заявка на удаление дубля закрывается отдельно (closePendingDeleteRequestsOnMerge)",
   "PushActionToken.clientId": "одноразовые токены кнопок в пуше: истекают сами, переносить нечего",
   "Client.duplicateReviewOfClientId": "проверка дублей ведёт свой цикл и сама гасит ссылку на удалённую карточку",
+  "MarketListingContact.clientId": "отметка «номер продавца взяли» принадлежит объявлению (кто и когда звонил хозяину); clientId — только подпись «по чьему запросу», на отметку «уже взят» для других агентов не влияет; у дубля остаётся историей",
+  "BuyerMarketAlert.clientId": "журнал пушей «новое объявление подошло покупателю»: у дубля это история отправленного, у основной карточки своя; пара (клиент, объявление) уникальна, переносить нельзя; при удалении клиента строки уходят каскадом",
   "PropertyClientOffer.clientId": "предложение объекта коллегой по карточке-дублю закрывается при слиянии (CLOSED); переносить нельзя — у основной карточки может быть своё по тому же объекту (одна строка на пару), новое предлагается заново",
 };
 
@@ -504,6 +511,7 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
   const primaryFacts = await tx.sellerObjectFacts.findUnique({ where: { clientId: to }, select: { clientId: true } });
   if (!primaryFacts) await tx.sellerObjectFacts.updateMany(move);
   await tx.whatsAppFirstContact.updateMany(move);
+  await tx.showingQuestion.updateMany(move);
 }
 
 /** Cancel before open-task reassignment so historical assignees stay intact. */

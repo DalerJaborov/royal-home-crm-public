@@ -3,11 +3,12 @@ import { openAsBlob } from "node:fs";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
+import { admitOutbound, noteOutboundUndelivered, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { requireModerationAccepted, telegramDeleteOutcome, type ModerationOutcome } from "../messengers/commentModerationOutcome.js";
+import { noteSentResult } from "./sentMessageLog.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -74,7 +75,9 @@ export interface TelegramApiResponse<T> {
   ok: boolean;
   description?: string;
   error_code?: number;
-  parameters?: { retry_after?: number };
+  /** `migrate_to_chat_id` — ResponseParameters Bot API: «The group has been migrated to a supergroup with
+   *  the specified identifier» (core.telegram.org/bots/api#responseparameters). */
+  parameters?: { retry_after?: number; migrate_to_chat_id?: number };
   result?: T;
 }
 
@@ -109,9 +112,25 @@ export function telegramRetryDelayMs(data: TelegramApiResponse<unknown>, attempt
 }
 
 export class TelegramApiError extends Error {
-  constructor(public readonly errorCode: number | undefined, method: string, description: string) {
+  /** Новый id, если обычную группу превратили в супергруппу (ResponseParameters.migrate_to_chat_id). */
+  public readonly migrateToChatId?: number;
+  /** Сколько секунд Telegram просит подождать при 429 (ResponseParameters.retry_after). */
+  public readonly retryAfterSec?: number;
+  constructor(public readonly errorCode: number | undefined, method: string, description: string, parameters?: TelegramApiResponse<unknown>["parameters"]) {
     super(`Telegram API ${method}: ${description}`);
+    if (typeof parameters?.migrate_to_chat_id === "number") this.migrateToChatId = parameters.migrate_to_chat_id;
+    if (typeof parameters?.retry_after === "number") this.retryAfterSec = parameters.retry_after;
   }
+}
+
+/**
+ * Куда переехала группа, если отказ Telegram это сообщает; иначе null. Число принимается только как
+ * id супергруппы (отрицательное, префикс -100): по документации оно укладывается в 52 бита, так что
+ * Number его не портит, а чужое значение здесь не нужно никому.
+ */
+export function telegramMigratedChatId(err: unknown): string | null {
+  const id = err instanceof TelegramApiError ? err.migrateToChatId : undefined;
+  return typeof id === "number" && Number.isSafeInteger(id) && String(id).startsWith("-100") ? String(id) : null;
 }
 
 async function call<T>(method: string, body: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS, validateResult?: (data: unknown, status: number) => T, beforePost?: () => Promise<void>, singleAttempt = false): Promise<T> {
@@ -128,7 +147,12 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
       signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json()) as TelegramApiResponse<T>;
-    if (data.ok) return validateResult ? validateResult(data, res.status) : data.result as T;
+    if (data.ok) {
+      const result = validateResult ? validateResult(data, res.status) : data.result as T;
+      // Номер своего сообщения в личке — чтобы потом удалить его по просьбе (sentMessageLog.ts).
+      noteSentResult(method, body.chat_id, data.result);
+      return result;
+    }
     const waitMs = telegramRetryDelayMs(data, attempt);
     if (!singleAttempt && waitMs !== null) {
       await sleep(waitMs);
@@ -144,7 +168,7 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
         fix: "Проверьте ключ бота TELEGRAM_BOT_TOKEN на сервере (BotFather → /token).",
       });
     }
-    throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
+    throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка", data.parameters);
   }
 }
 
@@ -190,7 +214,9 @@ export async function sendMessage(
    * квитанции монтажёру, отчёты. Диалог становится «известным» щиту ровно тогда,
    * когда в него пришло настоящее входящее клиента (telegram/bot.ts →
    * handleClientMessages), поэтому служебные чаты проходят не тронутыми, а
-   * клиентские — по всем правилам.
+   * клиентские — по всем правилам. Чат, привязанный к учётке сотрудника, щит
+   * пропускает, даже если «знает» его с тех времён, когда человек писал боту
+   * как клиент (lib/outboundShield.ts::isLinkedStaffChat, 17.11.2026).
    */
   const verdict = await admitOutbound({
     channel: "TELEGRAM",
@@ -228,7 +254,26 @@ export async function sendMessage(
   let last: unknown;
   let first = true;
   for (const part of splitTelegramText(text)) {
-    last = await call("sendMessage", {
+    // Только доставленные в счёт щита «подряд» (18.11.2026): явный отказ Telegram на первом куске — ничего не ушло.
+    if (first) {
+      try {
+        last = await sendTextPart(part);
+      } catch (err) {
+        // Только явный отказ Telegram (4xx): 5xx — исход неизвестен, счёт не возвращаем (ревью #283, Н1).
+        if (err instanceof TelegramApiError && typeof err.errorCode === "number" && err.errorCode >= 400 && err.errorCode < 500) {
+          void noteOutboundUndelivered(verdict);
+        }
+        throw err;
+      }
+      first = false;
+      continue;
+    }
+    last = await sendTextPart(part);
+  }
+  return last;
+
+  async function sendTextPart(part: string): Promise<unknown> {
+    return call("sendMessage", {
       chat_id: chatId,
       text: part,
       ...(outbound?.messageThreadId ? { message_thread_id: outbound.messageThreadId } : {}),
@@ -238,9 +283,7 @@ export async function sendMessage(
       if (status < 200 || status >= 300 || !data || typeof data !== "object" || !("ok" in data) || data.ok !== true || ("success" in data && data.success === false) || "error_code" in data || !("result" in data)) throw new Error("Telegram public reply unconfirmed");
       return (data as TelegramApiResponse<unknown>).result;
     } : undefined, outbound?.beforePost, outbound?.singleAttempt);
-    first = false;
   }
-  return last;
 }
 
 /** Кнопка инлайн-клавиатуры: либо действие внутри бота (callback_data,
@@ -365,7 +408,8 @@ export async function sendChatAction(
  */
 /** Предел Telegram на подпись к медиа. Длиннее — отправка отвергается целиком,
  *  поэтому хвост честно обрезаем: вложение с укороченной подписью лучше, чем ничего. */
-const CAPTION_MAX_CHARS = 1024;
+export const TELEGRAM_CAPTION_MAX_CHARS = 1024;
+const CAPTION_MAX_CHARS = TELEGRAM_CAPTION_MAX_CHARS;
 const fitCaption = (caption?: string) =>
   caption ? { caption: caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption } : {};
 
@@ -616,20 +660,26 @@ async function postMultipartWithRetry(
   label: string,
   singleAttempt = false,
 ): Promise<unknown> {
+  let sentChatId: unknown;
   for (let attempt = 0; ; attempt++) {
+    const form = buildForm();
+    sentChatId = form.get("chat_id");
     const res = await fetch(url, {
       method: "POST",
-      body: buildForm(),
+      body: form,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const data = (await res.json()) as TelegramApiResponse<unknown>;
-    if (data.ok) return data.result;
+    if (data.ok) {
+      noteSentResult(url.slice(url.lastIndexOf("/") + 1), sentChatId, data.result);
+      return data.result;
+    }
     const waitMs = singleAttempt ? null : telegramRetryDelayMs(data, attempt);
     if (waitMs !== null) {
       await sleep(waitMs);
       continue;
     }
-    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка");
+    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка", data.parameters);
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
@@ -841,6 +891,17 @@ export async function getChatMemberStatus(chatId: string): Promise<TelegramChatM
   const botId = await getBotId();
   if (!botId) throw new Error("не удалось определить id бота (getMe)");
   return call<TelegramChatMemberStatus>("getChatMember", { chat_id: chatId, user_id: botId });
+}
+
+/**
+ * Проба «чат ещё тот же» для сторожа переезда групп (lib/assistantGroupWatchdog.ts). Зовётся ТОЛЬКО когда
+ * getChatMember уже сказал «бота в чате нет» (left/kicked): боту некуда показать индикатор, так что людям
+ * ничего не видно, а Telegram на переехавшую в супергруппу группу отвечает отказом с
+ * parameters.migrate_to_chat_id. В отличие от sendChatAction выше НЕ глотает ошибку: решает вызывающий.
+ * Чьи методы вообще отдают этот параметр, документация не говорит; на проде 20.11.2026 это был sendChatAction.
+ */
+export async function probeChatAction(chatId: string): Promise<void> {
+  await call("sendChatAction", { chat_id: chatId, action: "typing" }, 5_000, undefined, undefined, true);
 }
 
 /** Может ли бот писать в чат — can_post_messages у канала (администратор без
@@ -1059,6 +1120,13 @@ export interface TelegramIncomingMessage extends TelegramMedia {
   contact?: { phone_number: string; first_name?: string; user_id?: number };
   new_chat_members?: { id: number; is_bot: boolean; username?: string }[];
   left_chat_member?: { id: number; is_bot: boolean; username?: string };
+  /** Служебное сообщение «группа стала супергруппой» (старая группа): новый id чата. Приходит один раз,
+   *  повторно Telegram его не доставит. Документация: «The group has been migrated to a supergroup with the
+   *  specified identifier». */
+  migrate_to_chat_id?: number;
+  /** Парное служебное сообщение в НОВОЙ супергруппе: id прежней группы («The supergroup has been migrated
+   *  from a group with the specified identifier»). */
+  migrate_from_chat_id?: number;
   /** true — Telegram сам переслал пост канала в группу-обсуждение (зеркало).
    *  Комментарий приходит ОТДЕЛЬНЫМ сообщением с reply_to_message на это зеркало,
    *  а не на сам пост в канале — у поста и у зеркала разные message_id. */
@@ -1366,4 +1434,17 @@ export async function downloadFile(fileId: string, maxBytes: number = MAX_FILE_B
     void logSystemError("telegram", `Чтение файла ${fileId} с диска (${material.path}): ${describeError(err)}`);
     return null;
   }
+}
+
+/** Состояние вебхука бота (core.telegram.org/bots/api#getwebhookinfo): адрес, очередь, последняя ошибка доставки. */
+export interface TelegramWebhookInfo {
+  url?: string;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+}
+
+/** Только чтение: как Telegram доставляет обновления бота в CRM (сторож lib/telegramDeliveryWatch.ts). */
+export function getWebhookInfo(): Promise<TelegramWebhookInfo> {
+  return call<TelegramWebhookInfo>("getWebhookInfo", {}, 15_000, undefined, undefined, true);
 }

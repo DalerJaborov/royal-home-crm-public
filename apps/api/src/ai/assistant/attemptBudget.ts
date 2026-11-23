@@ -1,11 +1,15 @@
 import { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { dushanbeDayKey } from "../../lib/aiDailyBudget.js";
+import { AssistantAttemptLimitError } from "./attemptLimit.js";
 
 /** Global call cap, NOT a monetary budget. Includes retries and grounded search. */
 export async function reserveAssistantGeminiAttempt(): Promise<boolean> {
   const limit = Number(process.env.ASSISTANT_GEMINI_DAILY_ATTEMPTS ?? "300");
-  if (!Number.isSafeInteger(limit) || limit <= 0) return false;
+  // Кривая настройка — не «дневной предел исчерпан, руководителю сообщено», а поломка настройки.
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new AssistantAttemptLimitError("policy_expired", "Некорректный ASSISTANT_GEMINI_DAILY_ATTEMPTS");
+  }
   const rows = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
     INSERT INTO "AgentAiActionCounter" ("id", "agentId", "action", "day", "count", "createdAt", "updatedAt")
     VALUES (gen_random_uuid()::text, 'assistant-gemini-global', 'assistant-gemini-attempt', ${dushanbeDayKey()}, 1, now(), now())

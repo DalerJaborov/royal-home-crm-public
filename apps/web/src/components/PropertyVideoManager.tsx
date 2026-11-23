@@ -74,7 +74,10 @@ export function PropertyVideoManager({
   onStartEdit,
   onDone,
   inPipeline = false,
+  withNarration = false,
 }: {
+  /** Озвучка внутри блока роликов — только у монтажёра (18.11.2026): агенту она показана наверху карточки. */
+  withNarration?: boolean;
   propertyId: string;
   /** Объект ещё в конвейере подготовки (`pipeline.inPipeline` с сервера): только
    *  тогда пустой блок обещает «объект остаётся в подготовке». */
@@ -241,10 +244,11 @@ export function PropertyVideoManager({
    * нужны, но с честной подписью вместо «ждём».
    */
   const handoffMoved = handoffStatus === "SENT_TO_EDITOR" || handoffStatus === "RECEIVED";
-  if (handoffMoved && !videos?.length) return <PropertyNarrationManager propertyId={propertyId} />;
+  const narration = withNarration ? <PropertyNarrationManager propertyId={propertyId} /> : null;
+  if (handoffMoved && !videos?.length) return narration;
 
   return (
-    <><PropertyNarrationManager propertyId={propertyId} />
+    <>{narration}
     {/* Карточка эталона: `.sec-h` с действиями справа, ролики строками `.list`/
        `.row`, служебные пояснения и ошибки — тихими строками `.quiet`.
        Перетаскивание сохранено: подсказка о нём тоже тихая строка. */}
@@ -266,7 +270,7 @@ export function PropertyVideoManager({
               disabled={archiving}
               title="Скачать все видео одним архивом"
             >
-              {archiving ? "Архивируем…" : "Скачать всё (.zip)"}
+              {archiving ? "Архивируем…" : "Скачать все видео"}
             </button>
           )}
           {readOnly && onStartEdit && (
@@ -379,7 +383,7 @@ export function PropertyVideoManager({
                         </span>
                       )}
                       {v.videoCodec && <span className="chip mute">{v.videoCodec}</span>}
-                      {v.hasAudio === false && <span className="chip crit">⚠ без звука</span>}
+                      {v.hasAudio === false && <span className="chip crit">Без звука</span>}
                     </div>
                   )}
                 </div>

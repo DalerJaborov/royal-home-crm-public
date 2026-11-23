@@ -73,7 +73,7 @@ beforeAll(async () => {
   districtId = (await prisma.district.create({ data: { name: `Тест-район-гейт-${runId}` } })).id;
   agentId = (
     await prisma.agent.create({
-      data: { fullName: "Агент гейта", phone: `+992942${runId}`, role: "AGENT", passwordHash },
+      data: { fullName: "Агент гейта", phone: `+992942${runId}`, role: "MANAGER", passwordHash },
     })
   ).id;
   secondAgentId = (
@@ -213,69 +213,18 @@ describe("«Завершить сделку → Без сделки» подчи
   });
 });
 
-describe("Возврат клиента из «Неактивных» (ТЗ п. 27)", () => {
-  it("POST /clients/:id/activate возвращает работу и пишет след в хронологии", async () => {
+/**
+ * «Неактивных» больше нет (владелец 16.11.2026): кнопки «вернуть в работу» и её
+ * пути POST /clients/:id/activate нет вместе с состоянием, из которого она
+ * возвращала. Прежние проверки возврата (ТЗ п. 27) сняты; здесь закреплено, что
+ * путь не вернулся тихо.
+ */
+describe("«Неактивных» нет — пути возврата тоже нет", () => {
+  it("POST /clients/:id/activate — 404, карточка не меняется", async () => {
     const c = await makeClient();
-    await prisma.client.update({ where: { id: c.id }, data: { workStatus: "INACTIVE" } });
-
     const res = await request(app).post(`/api/v1/clients/${c.id}/activate`).set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(200);
-
+    expect(res.status).toBe(404);
     const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
-    expect(after.workStatus).toBe("ACTIVE");
-    // Агент остаётся прежним: возврат — это не перераспределение.
     expect(after.assignedAgentId).toBe(agentId);
-
-    const note = await prisma.interaction.findFirst({
-      where: { clientId: c.id, type: "SYSTEM", notes: { contains: "возвращён в работу" } },
-    });
-    expect(note).not.toBeNull();
   });
-
-  it("повторный вызов на уже активном клиенте не плодит записи в хронологии", async () => {
-    const c = await makeClient();
-    await prisma.client.update({ where: { id: c.id }, data: { workStatus: "INACTIVE" } });
-    await request(app).post(`/api/v1/clients/${c.id}/activate`).set("Authorization", `Bearer ${token}`);
-    await request(app).post(`/api/v1/clients/${c.id}/activate`).set("Authorization", `Bearer ${token}`);
-
-    const notes = await prisma.interaction.count({
-      where: { clientId: c.id, type: "SYSTEM", notes: { contains: "возвращён в работу" } },
-    });
-    expect(notes).toBe(1);
-  });
-
-  /**
-   * 06.09.2026: до этого теста роут отклонял ЛЮБОГО клиента с kind!=="BUYER" —
-   * продавец, ушедший в workStatus=INACTIVE (например, автодеактивацией за
-   * молчание — та же reactivateClient() кинд не проверяет), не мог вернуться в
-   * работу вообще: единственная кнопка возврата получала 409 с сервера.
-   */
-  it("работает и для продавца — reactivateClient() кинд не проверяет", async () => {
-    const c = await prisma.client.create({
-      data: {
-        fullName: `Продавец возврата ${runId}`,
-        phone: `+992942${runId}`,
-        source: "PHONE_CALL",
-        kind: "SELLER",
-        assignedAgentId: agentId,
-        acceptedAt: new Date(),
-        workStatus: "INACTIVE",
-      },
-    });
-    clientIds.push(c.id);
-
-    const res = await request(app).post(`/api/v1/clients/${c.id}/activate`).set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(200);
-
-    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
-    expect(after.workStatus).toBe("ACTIVE");
-  });
-
-  /**
-   * POST /clients/:id/deactivate УБРАН ЦЕЛИКОМ (владелец 16.09.2026) вместе с
-   * последней ручной кнопкой перевода в Неактивные — здесь раньше проверялась
-   * его собственная проверка «до принятия лида нельзя». Гейт «след работы»
-   * (deactivateClient/canDeactivateWithReason) остался и проверяется в
-   * inactive-traffic-light.test.ts напрямую, без HTTP-слоя.
-   */
 });

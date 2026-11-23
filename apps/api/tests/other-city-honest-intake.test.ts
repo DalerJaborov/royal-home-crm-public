@@ -67,13 +67,14 @@ describe("isOtherCityReason — распознаёт оба источника �
 describe("otherCityAcceptedReply — честный ответ без обещания звонка", () => {
   it("русский вариант — точная формулировка владельца, без обещаний", () => {
     const text = otherCityAcceptedReply("ru");
-    expect(text).toBe("Записали, спасибо. Пока работаем только по Душанбе; если начнём работать в вашем городе — напишем.");
+    // Клиенту вслух — только Душанбе (владелец 19.11.2026; lib/serviceArea.ts).
+    expect(text).toBe("Записали, спасибо. Пока работаем только в Душанбе; если начнём работать в вашем городе — напишем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 
   it("таджикский вариант — точная формулировка владельца, без обещаний", () => {
     const text = otherCityAcceptedReply("tg");
-    expect(text).toBe("Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем; агар дар шаҳри шумо сар кунем, менависем.");
+    expect(text).toBe("Сабт кардем, раҳмат. Ҳоло мо танҳо дар Душанбе кор мекунем; агар дар шаҳри шумо сар кунем, менависем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 
@@ -92,7 +93,7 @@ describe("otherCityAcceptedReply — честный ответ без обеща
 describe("otherInquiryAcceptedReply — общий нейтральный ответ для ЛЮБОГО kind=OTHER", () => {
   it("русский вариант — нейтральная формулировка владельца, без обещаний", () => {
     const text = otherInquiryAcceptedReply("ru");
-    expect(text).toBe("Записали, спасибо. Если сможем помочь — напишем.");
+    expect(text).toBe("Записали, спасибо. Если сможем помочь, напишем.");
     expect(text).not.toMatch(PROMISE_WORDS);
   });
 
@@ -132,14 +133,14 @@ describe("вакансия (intent=job) — вне нового общего п�
 describe("промты: одна формулировка на обеих поверхностях (переписка и комментарии)", () => {
   it("SCENARIO_SELL прямо запрещает обещание звонка и содержит честную фразу", () => {
     expect(SCENARIO_SELL).toMatch(/ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ ЗВОНКА/);
-    expect(SCENARIO_SELL).toContain("Записали, спасибо. Пока работаем только по Душанбе");
-    expect(SCENARIO_SELL).toContain("Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем");
+    expect(SCENARIO_SELL).toContain("Записали, спасибо. Пока работаем только в Душанбе");
+    expect(SCENARIO_SELL).toContain("Сабт кардем, раҳмат. Ҳоло мо танҳо дар Душанбе кор мекунем");
   });
 
   it("COMMENT_SCENARIO_RULES запрещает то же самое и той же фразой", () => {
     expect(COMMENT_SCENARIO_RULES).toMatch(/ЗАПРЕЩЕНО ЛЮБОЕ ОБЕЩАНИЕ/);
-    expect(COMMENT_SCENARIO_RULES).toContain("Записали, спасибо. Пока работаем только по Душанбе");
-    expect(COMMENT_SCENARIO_RULES).toContain("Сабт кардем, раҳмат. Ҳоло танҳо дар Душанбе кор мекунем");
+    expect(COMMENT_SCENARIO_RULES).toContain("Записали, спасибо. Пока работаем только в Душанбе");
+    expect(COMMENT_SCENARIO_RULES).toContain("Сабт кардем, раҳмат. Ҳоло мо танҳо дар Душанбе кор мекунем");
   });
 
 });

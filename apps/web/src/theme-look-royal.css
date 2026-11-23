@@ -1,0 +1,1025 @@
+/* «НОВЫЙ ВИД» (облик royal) — 18.11.2026.
+ *
+ * Обычный, НЕ генерируемый файл. Подключён последним из тематических
+ * (index.css), и КАЖДОЕ правило стоит под :root[data-ui-look="royal"]: без этого
+ * атрибута не меняется ни один пиксель. Атрибут ставит AppLayout только по
+ * ответу сервера (/ui-shell → look: "royal") и только поверх чистой оболочки.
+ *
+ * Слой поверх Clean, а не третья обёртка: оболочка та же (CleanShell,
+ * Topbar, BottomNav), здесь меняется только её оформление. Новая разметка —
+ * только у главной (pages/TodayRoyal.tsx) и общих деталей (components/look/).
+ *
+ * Токены — с приставкой --rh-ui-*: у старой темы свои --rh-* и .rh2{--card},
+ * совпадение имён перебило бы значения внутри старых обёрток. Классы новых
+ * деталей — ry-* (имена rh-row/rh-tile/rh-btn заняты старой темой).
+ *
+ * Значения — итоговые из принятого макета (docs/design/oblik-2026-11-17):
+ * палитра «Королевский синий», плитка лайм, круг 48 / значок 24, меню 26.
+ * Тёмная тема — на существующей ночной теме CRM (royal-home-2026-night).
+ */
+
+:root[data-ui-look="royal"] {
+  --rh-ui-bg: #f4f5f8;
+  --rh-ui-card: #ffffff;
+  --rh-ui-raised: #e9eaee;
+  --rh-ui-text: #0e0f12;
+  --rh-ui-hint: #4f5565;
+  --rh-ui-hint-rgb: 79 85 101;
+  --rh-ui-sep: rgba(14, 15, 18, .08);
+  --rh-ui-ring: rgba(14, 15, 18, .06);
+  --rh-ui-press: rgba(90, 96, 112, .13);
+  --rh-ui-hover: rgba(90, 96, 112, .06);
+  --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
+  --rh-ui-primary: #2c66f2;
+  --rh-ui-primary-fg: #ffffff;
+  --rh-ui-primary-hover: #2459d6;
+  --rh-ui-primary-ink: #2459d6;
+  --rh-ui-primary-soft: #e5ecfd;
+  --rh-ui-primary-soft-fg: #1f4fc4;
+  /* Подложка мини-карточек на синем: темнее плиты, белый текст держит 4,5:1+. */
+  --rh-ui-hero-mini: #1d4fc9;
+  --rh-ui-tile: #d7f25c;
+  --rh-ui-tile-fg: #14180a;
+  --rh-ui-ink-tile: #0e0f12;
+  --rh-ui-ink-tile-fg: #ffffff;
+  --rh-ui-ink-tile-num: #d7f25c;
+  --rh-ui-ink-tile-ring: transparent;
+  /* Смысл: срочно — сплошной красный круг с белым пламенем (тёмный), внимание —
+     светлый янтарный с «!», норма — светлый зелёный. Разная яркость + значок. */
+  --rh-ui-crit: #b3261e;
+  --rh-ui-crit-fg: #ffffff;
+  --rh-ui-crit-text: #ad2116;
+  /* Плитка «срочно» (tileTone → crit): светло-красная, цифра --rh-ui-crit-text (≥ 4,5:1). */
+  --rh-ui-crit-soft: #fde7e4;
+  --rh-ui-warn-soft: #ffefc7;
+  --rh-ui-warn: #7a4300;
+  --rh-ui-ok-soft: #e2f0e8;
+  --rh-ui-ok: #0d6c35;
+  --rh-ui-info-soft: #e5ecfd;
+  --rh-ui-info: #1f4fc4;
+  --rh-ui-badge: #c8281e;
+  --rh-ui-on-color: #ffffff;
+  --rh-ui-cap-ring: rgba(14, 15, 18, .08);
+  --rh-ui-cap-pill-shadow: var(--rh-ui-shadow-sm);
+  /* Пастель за пунктами — без бежевого и розового (не путать со смыслом). */
+  --rh-ui-a0: #e3e9f6; --rh-ui-a0f: #1f3a8a;
+  --rh-ui-a1: #dcf0ee; --rh-ui-a1f: #0d5550;
+  --rh-ui-a2: #dcefe5; --rh-ui-a2f: #0f5a3a;
+  --rh-ui-a3: #e8eafb; --rh-ui-a3f: #2f3a9e;
+  --rh-ui-a4: #ece6f7; --rh-ui-a4f: #4a2f8f;
+  --rh-ui-a5: #dff0f4; --rh-ui-a5f: #0f5568;
+  /* Меню */
+  --rh-ui-side-w: 248px;
+  --rh-ui-side-pill: #0e0f12;
+  --rh-ui-side-pill-fg: #ffffff;
+  /* Капсула светлая стеклянная (макет): светло-серое стекло не прозрачнее 86%,
+     тёмные значки, активный пункт — на белой таблетке. */
+  --rh-ui-cap-bg: rgba(238, 240, 244, .86);
+  --rh-ui-cap-solid: #eef0f4;
+  --rh-ui-cap-fg: #3f4452;
+  --rh-ui-cap-pill: #ffffff;
+  --rh-ui-cap-pill-fg: #0e0f12;
+  --rh-ui-cap-shadow: var(--rh-ui-shadow-lg);
+  /* Прежние имена скруглений карточки и плитки — теперь одно --rh-r-lg (пачка C). */
+  --rh-ui-r-card: var(--rh-r-lg);
+  --rh-ui-r-tile: var(--rh-r-lg);
+  --rh-ui-row-h: 60px;
+  --rh-ui-font-num: "Onest", ui-sans-serif, system-ui, sans-serif;
+  /* Страницы Clean берут фон из --c-page: тот же фон, что у рамки. */
+  --c-page: var(--rh-ui-bg);
+  --clean-field: var(--rh-ui-bg);
+}
+
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] {
+  --rh-ui-solid: #2a5fd9;
+  --rh-ui-solid-hover: #2457d6;
+  --rh-ui-money-amber: #f2b45a;
+  --rh-ui-bg: #0e1014;
+  --rh-ui-card: #161a21;
+  --rh-ui-raised: #1d222b;
+  --rh-ui-text: #eceef3;
+  --rh-ui-hint: #b2b9c8;
+  --rh-ui-hint-rgb: 178 185 200;
+  --rh-ui-sep: rgba(255, 255, 255, .08);
+  --rh-ui-ring: rgba(255, 255, 255, .07);
+  --rh-ui-press: rgba(255, 255, 255, .08);
+  --rh-ui-hover: rgba(255, 255, 255, .04);
+  --rh-ui-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), 0 10px 24px -16px rgba(0, 0, 0, .7);
+  /* Белый текст на кнопке ночью: #3b74f5 давал 4,2:1 (сторож lowContrast) — #2f6bf0 держит 4,7:1, а к карточке 3,7:1. */
+  --rh-ui-primary: #2f6bf0;
+  --rh-ui-primary-hover: #2459d6;
+  --rh-ui-primary-ink: #9db8ff;
+  --rh-ui-primary-soft: rgba(59, 116, 245, .18);
+  --rh-ui-primary-soft-fg: #b9ccff;
+  --rh-ui-hero-mini: #1f4fc4;
+  /* Чёрная плитка остаётся тёмной (графит) с лаймовой цифрой, не белеет. */
+  --rh-ui-ink-tile: #1d222b;
+  --rh-ui-ink-tile-ring: rgba(255, 255, 255, .08);
+  --rh-ui-crit: #d13b30;
+  --rh-ui-crit-text: #ff8f86;
+  --rh-ui-crit-soft: rgba(209, 59, 48, .2);
+  --rh-ui-warn-soft: rgba(242, 180, 90, .16);
+  --rh-ui-warn: #f2b45a;
+  --rh-ui-ok-soft: rgba(95, 208, 138, .14);
+  --rh-ui-ok: #5fd08a;
+  --rh-ui-info-soft: rgba(110, 150, 255, .16);
+  --rh-ui-info: #9db8ff;
+  /* Приглушённые круги без бурых пятен: ~20% цвета значка на карточке. */
+  --rh-ui-a0: rgba(120, 150, 255, .18); --rh-ui-a0f: #b4c6ff;
+  --rh-ui-a1: rgba(80, 200, 190, .16); --rh-ui-a1f: #8fe0d6;
+  --rh-ui-a2: rgba(95, 208, 138, .16); --rh-ui-a2f: #8edbb5;
+  --rh-ui-a3: rgba(130, 140, 255, .18); --rh-ui-a3f: #c0c6ff;
+  --rh-ui-a4: rgba(170, 140, 255, .18); --rh-ui-a4f: #c7bcff;
+  --rh-ui-a5: rgba(90, 190, 220, .16); --rh-ui-a5f: #8ed6e8;
+  --rh-ui-side-pill: #eceef3;
+  --rh-ui-side-pill-fg: #0e1014;
+  /* Ночью — тёмное стекло, активный пункт на светлой графитовой таблетке. */
+  --rh-ui-cap-bg: rgba(27, 31, 39, .88);
+  --rh-ui-cap-solid: #1b1f27;
+  --rh-ui-cap-fg: #c3c9d5;
+  --rh-ui-cap-pill: #3a4150;
+  --rh-ui-cap-pill-fg: #ffffff;
+  --rh-ui-cap-ring: rgba(255, 255, 255, .10);
+  --rh-ui-cap-pill-shadow: none;
+  --rh-ui-cap-shadow: var(--rh-ui-shadow-lg);
+  --rh-ui-shadow-sm: 0 2px 6px rgba(0, 0, 0, .35);
+  --rh-ui-shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .8);
+  --rh-ui-switch-off: #6b7385;
+  --rh-ui-field-line: #6b7385;
+  --rh-ui-scrim: rgba(0, 0, 0, .6);
+}
+
+/* ===================== КОНСТИТУЦИЯ ОБОЛОЧКИ: ШКАЛЫ (пачка C, 20.11.2026) =====================
+ * Единственное место, где в слоях «Нового вида» стоят числа размеров шрифта, скруглений и
+ * теней и цвета. Остальные файлы theme-look-royal*.css берут их только через var(--…):
+ * сторож scripts/audit-look.mjs (шаг precheck и CI) не пропустит литерал вне этого файла и
+ * точку перелома вне списка. Разбор и было → стало — docs/design/look-constitution.md.
+ *
+ * ШРИФТ — 6 ступеней текста + 2 для цифр и заголовка страницы ПК:
+ *   xs 13  только метки и значки: счётчик, чип, код, время в пузыре (мельче 13 не бывает нигде)
+ *   sm 14  вторичный текст; на телефоне и под пальцем — 15
+ *   md 15  основной текст, кнопки, поля; на телефоне и под пальцем — 17 (решение владельца 20.11;
+ *          в поле ввода меньше 16 iOS увеличивает страницу при фокусе)
+ *   lg 17  название строки, карточки; на телефоне и под пальцем — 18
+ *   xl 20  заголовок раздела, окна
+ *   2xl 28 заголовок страницы на телефоне, цифра плитки
+ *   3xl 32 заголовок страницы на ПК, крупная цифра
+ *   4xl 40 цифра-герой (комиссия, цена, главная плитка)
+ * СКРУГЛЕНИЯ — 4: sm 8 (метки, фокус), md 16 (поля, кнопки, строки), lg 24 (карточки, плитки,
+ *   шторки), full (таблетки, круги). 0 и 50% — не скругления, а их отсутствие и круг.
+ * ТЕНИ — 3: sm (ручка переключателя, плавающая метка), обычная --rh-ui-shadow (карточка),
+ *   lg (шторка, всплывающее меню, окно). Тонкая линия-обводка `0 0 0 1px var(--…)` без
+ *   размытия тенью не считается — это граница.
+ * ТОЧКИ ПЕРЕЛОМА — 7, в согласии с раскладкой #329: 360, 390 (узкий телефон), 768 (планшет),
+ *   820 (граница телефонной разметки useMobileUx, пока она не переехала на 768), 1024 (ПК с
+ *   меню), 1100 (ПК с меню, содержимому меньше ~850 px), 1440 (широкий). Вид «max-width» — на 0,02
+ *   меньше: 389.98, 767.98, …
+ */
+:root[data-ui-look="royal"] {
+  /* Шрифт = ступень × личный масштаб «Размер текста» (Профиль → Оформление: обычный / крупный
+     +12% / очень крупный +25%, data-text-size на <html>, store/uiPrefs.ts). Ступени — -base,
+     слои экранов берут только итоговые --rh-fs-* (сторож audit:look). */
+  --rh-text-scale: 1;
+  --rh-fs-xs-base: 13px;
+  --rh-fs-sm-base: 14px;
+  --rh-fs-md-base: 15px;
+  --rh-fs-lg-base: 17px;
+  --rh-fs-xl-base: 20px;
+  --rh-fs-2xl-base: 28px;
+  --rh-fs-3xl-base: 32px;
+  --rh-fs-4xl-base: 40px;
+  --rh-fs-xs: calc(var(--rh-fs-xs-base) * var(--rh-text-scale));
+  --rh-fs-sm: calc(var(--rh-fs-sm-base) * var(--rh-text-scale));
+  --rh-fs-md: calc(var(--rh-fs-md-base) * var(--rh-text-scale));
+  --rh-fs-lg: calc(var(--rh-fs-lg-base) * var(--rh-text-scale));
+  --rh-fs-xl: calc(var(--rh-fs-xl-base) * var(--rh-text-scale));
+  --rh-fs-2xl: calc(var(--rh-fs-2xl-base) * var(--rh-text-scale));
+  --rh-fs-3xl: calc(var(--rh-fs-3xl-base) * var(--rh-text-scale));
+  --rh-fs-4xl: calc(var(--rh-fs-4xl-base) * var(--rh-text-scale));
+  --rh-r-sm: 8px;
+  --rh-r-md: 16px;
+  --rh-r-lg: 24px;
+  --rh-r-full: 999px;
+  --rh-ui-shadow-sm: 0 2px 8px rgba(14, 15, 18, .16);
+  --rh-ui-shadow-lg: 0 24px 60px -20px rgba(10, 14, 30, .38);
+  /* Цвета деталей, которые раньше жили литералами в слоях экранов. */
+  --rh-ui-switch-off: #7d8494;   /* выключенный переключатель: 3,8:1 к белому (было #c5c9d3 — 1,6:1) */
+  --rh-ui-scrim: rgba(10, 14, 30, .42);
+  --rh-ui-mix-dark: #000000;     /* только для color-mix «темнее на N%» */
+  --rh-ui-call: #0b7a41;         /* зелёный звонка: белый текст 5,4:1 */
+  --rh-ui-call-hover: #096936;
+  --rh-ui-online: #1f9d55;
+  --rh-ui-channel: #5a6070;      /* значок канала без своего цвета */
+  --rh-ui-tick-read: #b9ecff;    /* «прочитано» на своём синем пузыре */
+  --rh-ui-hero-down: #ffd3cf;    /* стрелка «меньше» на синей плите */
+  --rh-ui-brand-wa: #25d366;
+  --rh-ui-brand-tg: #2aabee;
+  --rh-ui-brand-fb: #0866ff;
+  --rh-ui-brand-ms: #0084ff;
+  --rh-ui-brand-yt: #ff0000;
+  --rh-ui-brand-tt: #000000;
+  /* Деньги: цвета категорий (одни значения на обе темы), синяя подложка под белым, янтарная заливка. */
+  --rh-ui-cat-office: #4a66e8;
+  --rh-ui-cat-ads: #c2571c;
+  --rh-ui-cat-salary: #26836d;
+  --rh-ui-cat-other: #7a68c9;
+  --rh-ui-solid: #2c66f2;
+  --rh-ui-solid-hover: #2459d6;
+  --rh-ui-money-amber: #e39a2d;
+  /* Цвета долей кольца (аналитика): текст долей, подписанных в легенде. */
+  --rh-ui-ink-aqua: #0d7f74;
+  --rh-ui-ink-lav: #6a4bc9;
+  --rh-ui-ink-sky: #0f6fa8;
+  --rh-ui-ink-lime: #5f7d0c;
+  --rh-ui-ink-faint: #8a8f9c;
+  --rh-ui-brand-ig: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%);
+  /* Граница поля ввода: >= 3:1 к карточке, фону и подложке поля (WCAG 1.4.11); сторож — theme-look-royal.test.ts. */
+  --rh-ui-field-line: #7d8494;
+  /* Высота нажимаемого: кнопка, вкладка, вариант переключателя. */
+  --rh-ctl-h: 44px;
+  /* ДВА переключателя на всё приложение (critic-uiux P1-1):
+     Segmented — 2–4 варианта одного списка: серый трек, выбранный на светлой таблетке;
+     Tabs — разделы страницы: без трека, выбранный — мягкий синий. Чёрная таблетка — только у меню. */
+  --rh-seg-track: var(--rh-ui-raised);
+  --rh-seg-fg: var(--rh-ui-hint);
+  --rh-seg-on: var(--rh-ui-cap-pill);
+  --rh-seg-on-fg: var(--rh-ui-cap-pill-fg);
+  --rh-seg-on-shadow: var(--rh-ui-cap-pill-shadow);
+  --rh-tab-fg: var(--rh-ui-hint);
+  --rh-tab-on: var(--rh-ui-primary-soft);
+  --rh-tab-on-fg: var(--rh-ui-primary-soft-fg);
+}
+/* Телефон и любой экран под пальцем — решение владельца 20.11 («слишком мелкий шрифт»): основной
+   текст 17, вторичный 15, 13 — только метки и значки, название строки 18. */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] { --rh-fs-sm-base: 15px; --rh-fs-md-base: 17px; --rh-fs-lg-base: 18px; }
+}
+:root[data-ui-look="royal"][data-mobile-ux] { --rh-fs-sm-base: 15px; --rh-fs-md-base: 17px; --rh-fs-lg-base: 18px; }
+:root[data-ui-look="royal"][data-text-size="large"] { --rh-text-scale: 1.12; }
+:root[data-ui-look="royal"][data-text-size="xlarge"] { --rh-text-scale: 1.25; }
+/* Растёт текст, а не оболочка: нижнее меню, аватары и значки-счётчики держат обычный размер —
+   иначе на 320 подписи меню слипаются, а инициалы вылезают из круга (сторож «очень крупный», e2e). */
+:root[data-ui-look="royal"] :is(nav[data-bottomnav], .ry-avatar, .ry-crow-agent-av, .ry-circle, .ry-tile-alert) {
+  --rh-fs-xs: var(--rh-fs-xs-base); --rh-fs-sm: var(--rh-fs-sm-base); --rh-fs-md: var(--rh-fs-md-base); --rh-fs-lg: var(--rh-fs-lg-base);
+}
+/* Серый вторичный текст прежней разметки (.rh2 --muted/--faint, tailwind text-g500/g600, подсказка
+   в поле) — тот же --rh-ui-hint: ≥ 4,5:1 к карточке, фону и подложке в обеих темах (тест). */
+:root[data-ui-look="royal"] :is(.rh2, .rh2 .mh, .rh2 .wiz) { --muted: var(--rh-ui-hint); --faint: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] { --rgb-g500: var(--rh-ui-hint-rgb); --rgb-g600: var(--rh-ui-hint-rgb); }
+:root[data-ui-look="royal"] ::placeholder { color: var(--rh-ui-hint); opacity: 1; }
+
+/* ============================== оболочка ============================== */
+
+:root[data-ui-look="royal"] body { background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .app-shell.clean-shell { padding: 0; background: var(--rh-ui-bg); color: var(--rh-ui-text); }
+/* ===================== РАСКЛАДКА ПО ШИРИНЕ (пачка B, 20.11.2026) =====================
+ * Конституция оболочки (docs/design/oblik-2026-11-17/audit-20-11/critic-uiux.md §7):
+ *   320–767   телефон: шапка сверху, капсула меню снизу (правила «Телефон» ниже);
+ *   768–1023  планшет: рейка 88 px слева, значок и подпись под ним (нижнее меню
+ *             встаёт вертикально — те же пункты и та же «+», что на телефоне, и «Ещё»);
+ *   1024+     боковое меню С ПОДПИСЯМИ (220 px, с 1440 — 248 px): до восьми главных
+ *             пунктов и свёрнутые группы (CleanShell, lib/cleanNavigationOrder.ts);
+ *   1440+     содержимое по центру, 1280 px (обзорные экраны — 1600 px, data-ry-wide).
+ * Раньше раскладку решал признак УСТРОЙСТВА (data-mobile-ux: телефон ИЛИ планшет с
+ * пальцем до 1180 px) — и планшет получал телефон, а ПК 1024–1199 — рейку из 30 голых
+ * значков. Жесты и шторки по-прежнему решает устройство; здесь только раскладка.
+ * На сенсорном планшете data-mobile-ux стоит, и правила телефонной оболочки
+ * (theme-2026-clean-mobile-shell.css) прячут меню и показывают нижнюю панель, — поэтому
+ * селекторы ниже держат [data-shell="clean"] и путь от .app-shell: они обязаны перебить
+ * те правила, а не зависеть от порядка файлов. Сторож — tests/e2e/one-shell.spec.ts. */
+:root[data-ui-look="royal"] { --ry-content-w: 1280px; --ry-rail-w: 88px; }
+:root[data-ui-look="royal"] .clean-shell .clean-frame[data-ry-wide] { --ry-content-w: 1600px; }
+:root[data-ui-look="royal"] .clean-shell .app-main-col { max-width: var(--ry-content-w); margin-inline: 0; }
+:root[data-ui-look="royal"] .clean-shell .ry-rail-only { display: none; }
+
+/* ---- 1024+: боковое меню с подписями, остальная шапка справа ---- */
+@media (min-width: 1024px) {
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame {
+    max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg);
+    padding: 0 32px 0 calc(var(--rh-ui-side-w) + 32px);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header {
+    flex-wrap: nowrap; justify-content: flex-end; gap: 12px; padding: 20px 0 4px; margin: 0 auto;
+    max-width: var(--ry-content-w); background: var(--rh-ui-bg); border: 0; box-shadow: none; border-radius: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    position: sticky; top: 0; z-index: 31;
+  }
+  /* Сенсорный планшет: шапка телефона (заголовок, колокол, аватар) справа от меню;
+     прятать её на экранах со своей шапкой нельзя — в ней живёт само меню. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-header-tools) { display: flex; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-header .clean-existing-topbar { grid-column: 1; grid-row: 1; }
+  /* Название CRM уже стоит над меню — второй раз в шапке главной его не пишем. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .clean-existing-topbar [data-topbar-title]:empty::before { content: ""; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .app-main-col {
+    margin-inline: auto; padding: 28px 0 40px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] { display: none; }
+  /* Сенсорный планшет: разделы уже в боковом меню, но «+» с быстрыми действиями и
+     голосом по удержанию живёт только в нижнем меню (ревью #329) — от него остаётся
+     одна круглая кнопка в правом нижнем углу; запас снизу, чтобы она не закрыла строку. */
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] {
+    display: block; top: auto; left: auto; right: calc(24px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: auto; max-width: none; margin: 0; padding: 0; border: 0; border-radius: var(--rh-r-full); box-shadow: none;
+    background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] > .grid { display: block; height: auto; padding: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
+    width: 56px; height: 56px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-shadow-lg);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: var(--rh-nav-clear); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand {
+    position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
+    height: 48px; padding: 0 12px; gap: 12px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.025em;
+    color: var(--rh-ui-text);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-desktop { display: block; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand > span {
+    display: grid; place-items: center;
+    width: 36px; height: 36px; border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); color: var(--rh-ui-on-color);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tabs {
+    position: fixed; z-index: 32; top: 84px; bottom: 0; left: 0; width: var(--rh-ui-side-w);
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; max-width: none;
+    padding: 0 16px 24px; border-radius: 0; background: transparent;
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab {
+    position: relative; justify-content: flex-start; gap: 12px; height: auto; min-height: 48px; padding: 0 14px;
+    border-radius: var(--rh-r-full); color: var(--rh-ui-hint); font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab[aria-current="page"] {
+    background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tab .clean-nav-count,
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title .clean-nav-count {
+    display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+    background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: var(--rh-fs-xs); font-weight: 700; opacity: 1;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header-tools { margin-left: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-existing-topbar { flex: 0 1 auto; }
+  /* Группы под чертой: заголовок-кнопка 44 px, пункты те же, что наверху. */
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group { display: flex; flex-direction: column; gap: 2px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title {
+    display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: var(--rh-r-full);
+    list-style: none; cursor: pointer; color: var(--rh-ui-hint); font-size: var(--rh-fs-sm); font-weight: 700;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title::-webkit-details-marker { display: none; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title:hover { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group-chev { flex: none; width: 18px; height: 18px; margin-left: auto; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-group[open] > .ry-nav-group-title .ry-nav-group-chev { transform: rotate(180deg); }
+}
+@media (min-width: 1024px) and (max-width: 1439.98px) {
+  :root[data-ui-look="royal"] { --rh-ui-side-w: 220px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame { padding-left: calc(var(--rh-ui-side-w) + 24px); padding-right: 24px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-tabs { padding: 0 12px 24px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand { left: 12px; width: calc(var(--rh-ui-side-w) - 24px); }
+}
+/* Подложка шапки (долг 18.11, кадр code-shots-team/fix3/save-disabled-pc.png): прежде
+   шапка была прозрачной, и при прокрутке текст и поля проходили под поиском, колокольчиком
+   и именем. Теперь сплошной фон страницы (выше) и тонкая линия с мягкой тенью снизу.
+   Линия проявляется при прокрутке (scroll-driven, только opacity); где браузер так не
+   умеет — видна всегда. Никакого backdrop-filter: шапка во всю ширину. */
+:root[data-ui-look="royal"] .clean-shell .clean-header::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 1px; pointer-events: none;
+  background: var(--rh-ui-sep); box-shadow: var(--rh-ui-shadow-sm);
+}
+@supports (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] .clean-shell .clean-header::after {
+    /* !important: чистая оболочка гасит анимации с !important, и без него линия оставалась
+       невидимой навсегда (opacity: 0) — содержимое уходило под шапку без края (20.11). */
+    opacity: 0; animation: ry-head-shade linear both !important; animation-timeline: scroll() !important; animation-range: 0 24px !important;
+  }
+}
+@keyframes ry-head-shade { to { opacity: 1; } }
+:root[data-ui-look="royal"] .clean-shell .ry-nav-glyph { display: grid; place-items: center; width: 26px; height: 26px; flex: none; }
+/* Заголовок раздела в шапке телефона переносится, а не режется: на 320 px справа
+   две кнопки и аватар, и «Контроль руковод…», «Публикации в соцс…» обрезались
+   многоточием (сторож @smoke, 20.11). Две строки помещаются в 60 px шапки. */
+:root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  font-size: var(--rh-fs-xl); font-weight: 700; line-height: 1.15;
+}
+/* Размер — целым числом пикселей, без vw: при 5.4vw выходило 21,06 px, и на iPhone
+   заголовок раздела читался мягким, «размытым» (кадры владельца 20.11; ОЦЕНКА — в
+   Chromium не воспроизводится). Сторож — theme-look-royal.test.ts, «размер текста без vw». */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] .clean-shell [data-topbar] [data-topbar-title] { font-size: var(--rh-fs-lg); }
+}
+/* Подпись пункта меню переносится, а не режется («Активность коман…», 18.11). */
+:root[data-ui-look="royal"] .clean-shell .ry-nav-label { flex: 1 1 auto; min-width: 0; white-space: normal; line-height: 1.2; padding-block: 4px; }
+:root[data-ui-look="royal"] .clean-shell .ry-side-sep { display: block; height: 1px; flex: none; margin: 10px 14px; background: var(--rh-ui-sep); }
+
+/* ---- Телефон: прежняя шапка на общем фоне, нижнее меню — капсула ---- */
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell,
+:root[data-ui-look="royal"][data-mobile-ux] .clean-frame,
+:root[data-ui-look="royal"][data-mobile-ux] .clean-header { background: var(--rh-ui-bg); }
+/* НИЖНЕЕ МЕНЮ: ОДНА ПЕРЕМЕННАЯ НА ВСЕ ЭКРАНЫ (аудит К06, 21.11.2026). Меню — капсула высотой 68 px (60 + 4 + 4)
+   на расстоянии 12 px от края экрана; на сенсорном планшете от неё остаётся круглая кнопка 56 px на 24 px от края.
+   И то и другое занимает снизу 80 px + safe-area — это `--rh-nav-h`: так высоко от края экрана верх меню.
+   `--rh-nav-clear` — запас под содержимое страницы (меню + 22 px воздуха), чтобы конец страницы не уезжал под меню.
+   Плавающие панели над меню (подбор «Отправить выбранные») встают на `calc(var(--rh-nav-h) + 10px)`.
+   Своих «104 px» и `--ry-nav-clear` на экранах быть не должно: сторож — lib/__tests__/navClearGuard.test.ts. */
+:root[data-ui-look="royal"][data-mobile-ux] {
+  --rh-nav-h: calc(80px + env(safe-area-inset-bottom, 0px));
+  --rh-nav-clear: calc(var(--rh-nav-h) + 22px);
+}
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell .app-main-col {
+  padding-bottom: var(--rh-nav-clear);
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
+  left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  max-width: 440px; margin: 0 auto; padding: 4px 6px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-cap-solid); color: var(--rh-ui-cap-fg);
+  box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-cap-ring);
+  /* Без анимации: нажал — сразу переключилось. */
+  transition: none;
+}
+/* Лёгкое стекло только на самой капсуле, подложка не прозрачнее 90% и без
+   «насыщенности», чтобы цветные блоки под ней не превращались в кляксы. */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
+    background: var(--rh-ui-cap-bg);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { background: var(--rh-ui-cap-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { height: 60px; padding: 0; gap: 2px; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab {
+  min-height: 52px; gap: 3px; border-radius: var(--rh-r-full); color: var(--rh-ui-cap-fg); transition: none;
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
+  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg); box-shadow: var(--rh-ui-cap-pill-shadow);
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { font-size: var(--rh-fs-xs); font-weight: 600; line-height: 1.1; color: inherit; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-badge] {
+  min-width: 18px; height: 18px; top: -4px; right: -8px; border-radius: var(--rh-r-full); background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: var(--rh-fs-xs); line-height: 18px;
+}
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
+  width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
+}
+
+/* ---- 768–1023: планшет — рейка слева с подписями (пачка B, 20.11.2026) ----
+   Нижнее меню телефона встаёт вертикальной рейкой: те же разделы роли, та же «+»
+   (быстрые действия и голос) и «Ещё» — все разделы. Шапка остаётся своей ширины
+   (на сенсорном планшете — телефонная, в окне ПК — обычная без бокового меню). */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > .clean-frame {
+    max-width: none; min-height: 100dvh; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); padding: 0 0 0 var(--ry-rail-w);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header {
+    margin: 0; padding: calc(8px + env(safe-area-inset-top, 0px)) 24px 8px; border: 0; border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs) { display: none; }
+  /* Окно ПК этой ширины: шапка ПК без бокового меню — инструменты и поиск прижаты вправо. */
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-header {
+    display: flex; flex-wrap: nowrap; justify-content: flex-end; align-items: center; gap: 12px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-existing-topbar { flex: 0 1 auto; min-width: 0; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .app-main-col {
+    max-width: none; margin: 0; padding: 16px 24px calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] {
+    display: block; top: 0; bottom: 0; left: 0; right: auto; width: var(--ry-rail-w); max-width: none; margin: 0;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 0 calc(16px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
+    border: 0; border-right: 1px solid var(--rh-ui-sep); border-radius: 0; box-shadow: none;
+    background: var(--rh-ui-bg); color: var(--rh-ui-hint);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] > .grid {
+    display: flex; flex-direction: column; align-items: stretch; height: auto; padding: 0 8px; gap: 6px;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    min-height: 64px; padding: 6px 2px; border-radius: var(--rh-r-md); color: var(--rh-ui-hint);
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab[aria-current="page"] {
+    background: var(--rh-ui-side-pill); color: var(--rh-ui-side-pill-fg); box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab [data-tab-icon] {
+    display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-tab-label] {
+    font-size: var(--rh-fs-xs); font-weight: 600; line-height: 1.15; text-align: center; white-space: normal; overflow-wrap: anywhere; color: inherit;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
+    width: 52px; height: 52px; margin: 4px auto; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .ry-rail-only { display: block; }
+}
+
+/* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):
+   чужие компоненты, меняем только оформление. Текст не трогаем и НЕ обрезаем
+   (18.11, пачка debt): это предупреждения — «Уведомления заблокированы браузером»
+   с тем, где их включить, — и прежнее многоточие (ПК — одна строка, телефон — две)
+   съедало именно инструкцию на 1024 и на телефоне. Длинная строка переносится. */
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight {
+  min-height: 0; padding: 6px 6px 6px 16px; border: 0;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; max-height: none; padding: 4px 0;
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt {
+  flex: 1 1 auto; min-width: 0; overflow: visible; white-space: normal; text-overflow: clip;
+  overflow-wrap: anywhere; text-wrap: pretty;
+  font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt b { color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > button { flex: none; min-height: 44px; }
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > .txt { font-size: var(--rh-fs-sm); }
+:root[data-ui-look="royal"][data-mobile-ux] .clean-shell #main > .rh2.screens > .scr > .card.tight > .quiet > svg { display: none; }
+
+/* ============================ общие детали ============================ */
+
+:root[data-ui-look="royal"] .ry-num { font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums; letter-spacing: -.035em; font-weight: 700; }
+
+:root[data-ui-look="royal"] .ry-circle {
+  display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] .ry-circle[data-size="44"] { width: 44px; height: 44px; }
+:root[data-ui-look="royal"] .ry-circle[data-size="60"] { width: 60px; height: 60px; }
+:root[data-ui-look="royal"] .ry-circle svg { width: 24px; height: 24px; }
+:root[data-ui-look="royal"] .ry-circle[data-size="60"] svg { width: 28px; height: 28px; }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a3"] { background: var(--rh-ui-a3); color: var(--rh-ui-a3f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a4"] { background: var(--rh-ui-a4); color: var(--rh-ui-a4f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="a5"] { background: var(--rh-ui-a5); color: var(--rh-ui-a5f); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--rh-ui-warn) 35%, transparent); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-circle[data-tone="info"] { background: var(--rh-ui-info-soft); color: var(--rh-ui-info); }
+/* Каналы — в родных цветах: один зелёный WhatsApp, звонки — белая трубка на тёмно-зелёном. */
+:root[data-ui-look="royal"] .ry-circle[data-brand="whatsapp"] { background: var(--rh-ui-brand-wa); color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-circle[data-brand="telegram"] { background: var(--rh-ui-brand-tg); color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-circle[data-brand="instagram"] { background: var(--rh-ui-brand-ig); color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-circle[data-brand="site"] { background: var(--rh-ui-primary); color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-circle[data-brand="calls"] { background: var(--rh-ui-call); color: var(--rh-ui-on-color); }
+
+:root[data-ui-look="royal"] .ry-avatar {
+  display: grid; place-items: center; flex: none; overflow: hidden; width: 48px; height: 48px; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.02em;
+}
+:root[data-ui-look="royal"] .ry-avatar[data-size="44"] { width: 44px; height: 44px; }
+:root[data-ui-look="royal"] .ry-avatar[data-size="64"] { width: 64px; height: 64px; font-size: var(--rh-fs-xl); }
+/* Крупное круглое фото сотрудника (карточка сотрудника, 22.11.2026): без рамки и тени. */
+:root[data-ui-look="royal"] .ry-avatar[data-size="96"] { width: 96px; height: 96px; border-radius: var(--rh-r-full); font-size: var(--rh-fs-2xl); }
+:root[data-ui-look="royal"] .ry-avatar img { width: 100%; height: 100%; object-fit: cover; }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a1"] { background: var(--rh-ui-a1); color: var(--rh-ui-a1f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a2"] { background: var(--rh-ui-a2); color: var(--rh-ui-a2f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a3"] { background: var(--rh-ui-a3); color: var(--rh-ui-a3f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a4"] { background: var(--rh-ui-a4); color: var(--rh-ui-a4f); }
+:root[data-ui-look="royal"] .ry-avatar[data-tone="a5"] { background: var(--rh-ui-a5); color: var(--rh-ui-a5f); }
+
+/* Группа строк: белая карточка, строки склеены тонкой линией. */
+:root[data-ui-look="royal"] .ry-group {
+  overflow: hidden; border-radius: var(--rh-r-lg); background: var(--rh-ui-card);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--rh-ui-row-h); padding: 8px 16px;
+  color: var(--rh-ui-text); text-decoration: none; text-align: left; background: transparent; border: 0;
+}
+:root[data-ui-look="royal"] .ry-group > .ry-row + .ry-row { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-row-link { cursor: pointer; transition: background-color 160ms cubic-bezier(.23, 1, .32, 1); }
+:root[data-ui-look="royal"] .ry-row-link:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-row-link:active { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .ry-row-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
+/* Заголовок и подпись строки — данные: переносятся целиком, не режутся (18.11, сторож
+   hiddenTextSelectors; до того так делал только слой team у себя). */
+:root[data-ui-look="royal"] .ry-row-title {
+  overflow-wrap: anywhere;
+  font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.25;
+}
+:root[data-ui-look="royal"] .ry-row-sub { white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-md); line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="crit"] { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="warn"] { color: var(--rh-ui-warn); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-row-sub[data-tone="ok"] { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-row-right { display: flex; align-items: center; gap: 8px; flex: none; }
+:root[data-ui-look="royal"] .ry-row-time { font-size: var(--rh-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-row-time[data-tone="crit"] { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-count { font-size: var(--rh-fs-xl); }
+
+:root[data-ui-look="royal"] .ry-section { display: grid; gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+:root[data-ui-look="royal"] .ry-section-head h2 { margin: 0; font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-section-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; font-size: var(--rh-fs-md); font-weight: 600;
+  color: var(--rh-ui-primary-ink); text-decoration: none;
+}
+
+/* Кнопки: таблетка, высота 48; одна синяя на экран (пачка C, critic-uiux P1-11). Смыслы:
+   primary — главное действие (одно на блок); soft — обычное, мягкий синий (вид по умолчанию,
+   как было); secondary — второстепенное, серый тон (прежнее имя gray); ghost — только текст;
+   danger — необратимое (красная); dark — тёмная (как было). */
+:root[data-ui-look="royal"] .ry-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px;
+  border: 0; border-radius: var(--rh-r-full); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none; cursor: pointer;
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1), background-color 160ms;
+}
+/* Выключенная кнопка не отзывается ни на нажатие, ни на наведение (18.11): иначе она
+   «живая» под пальцем и мышью. Сторож — disabledReactions в theme-look-royal.test.ts. */
+:root[data-ui-look="royal"] .ry-btn:active:not(:disabled) { transform: scale(.97); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"] { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="primary"]:hover:not(:disabled) { background: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="dark"] { background: var(--rh-ui-text); color: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-btn:is([data-variant="secondary"], [data-variant="gray"]) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="ghost"] { background: transparent; color: var(--rh-ui-primary-ink); padding: 0 12px; }
+:root[data-ui-look="royal"] .ry-btn[data-variant="ghost"]:hover:not(:disabled) { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="danger"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+:root[data-ui-look="royal"] .ry-btn[data-variant="danger"]:hover:not(:disabled) { background: color-mix(in srgb, var(--rh-ui-crit) 86%, var(--rh-ui-mix-dark)); }
+:root[data-ui-look="royal"] .ry-btn:is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] .ry-btn:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+/* Выключенная кнопка с причиной (RhButton disabledReason): причина подписью под кнопкой —
+   на телефоне наведения нет, одной всплывающей подсказки мало. */
+:root[data-ui-look="royal"] .ry-btn-hold { display: inline-grid; justify-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+:root[data-ui-look="royal"] .ry-btn-reason { font-size: var(--rh-fs-sm); line-height: 1.3; color: var(--rh-ui-hint); text-align: center; text-wrap: balance; }
+
+/* Переключатель 56×34, бегунок 28; «вкл» — синий. */
+:root[data-ui-look="royal"] .ry-switch {
+  position: relative; flex: none; width: 56px; height: 34px; padding: 3px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-switch-off); cursor: pointer; transition: background-color 160ms;
+}
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] .ry-switch { background: var(--rh-ui-switch-off); }
+:root[data-ui-look="royal"] .ry-switch[aria-checked="true"] { background: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .ry-switch-knob {
+  display: block; width: 28px; height: 28px; border-radius: var(--rh-r-full); background: var(--rh-ui-on-color); box-shadow: var(--rh-ui-shadow-sm);
+  transition: transform 240ms cubic-bezier(.32, .72, 0, 1);
+}
+:root[data-ui-look="royal"] .ry-switch[aria-checked="true"] .ry-switch-knob { transform: translateX(22px); }
+
+/* Плитки: лайм, чёрная (цифра лаймом), белая. */
+:root[data-ui-look="royal"] .ry-tile {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; min-height: 104px;
+  padding: 16px; border-radius: var(--rh-r-lg); text-decoration: none; color: var(--rh-ui-text);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  transition: transform 90ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] :is(a, button).ry-tile:active:not(:disabled) { transform: scale(.98); }
+/* Плитка-кнопка (открывает список за цифрой): та же плитка, без рамки и шрифта кнопки. */
+:root[data-ui-look="royal"] button.ry-tile { width: 100%; border: 0; font: inherit; text-align: left; cursor: pointer; }
+:root[data-ui-look="royal"] .ry-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ink"] .ry-tile-value { color: var(--rh-ui-ink-tile-num); }
+/* По смыслу (components/look/tileTone.ts): ноль — серая и тихая, срочно — красная, хорошо — зелёная.
+   Каждая держится не только оттенком: у срочной и хорошей своя обводка — в тёмной теме не сливаются с фоном. */
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] { background: var(--rh-ui-raised); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] .ry-tile-value,
+:root[data-ui-look="royal"] .ry-tile[data-variant="calm"] .ry-tile-label { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="crit"] { background: var(--rh-ui-crit-soft); box-shadow: inset 0 0 0 1.5px var(--rh-ui-crit); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="crit"] .ry-tile-value { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ok"] { background: var(--rh-ui-ok-soft); box-shadow: inset 0 0 0 1.5px var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-tile[data-variant="ok"] .ry-tile-value { color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-tile-note { font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.3; color: inherit; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-tile-label { position: relative; display: flex; align-items: center; gap: 8px; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; }
+:root[data-ui-look="royal"] .ry-tile-label svg { flex: none; }
+:root[data-ui-look="royal"] .ry-tile-value { font-size: var(--rh-fs-4xl); line-height: 1; }
+:root[data-ui-look="royal"] .ry-tile-value small { margin-left: 4px; font-size: var(--rh-fs-xl); letter-spacing: 0; }
+:root[data-ui-look="royal"] .ry-tile-alert { width: 12px; height: 12px; flex: none; margin-left: auto; border-radius: var(--rh-r-full); background: var(--rh-ui-crit); box-shadow: 0 0 0 2px var(--rh-ui-on-color); }
+
+/* Состояния блоков: коротко и безлично. */
+:root[data-ui-look="royal"] .ry-state {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 8px 8px 8px 20px;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-skeleton { display: grid; gap: 8px; }
+:root[data-ui-look="royal"] .ry-skeleton span { display: block; height: 60px; border-radius: var(--rh-r-lg); background: var(--rh-ui-raised); }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] .ry-skeleton span { animation: ry-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes ry-pulse { 50% { opacity: .55; } }
+
+/* =============================== главная =============================== */
+
+:root[data-ui-look="royal"] .ry-today { container: ry-today / inline-size; display: grid; gap: 20px; min-width: 0; color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif); }
+:root[data-ui-look="royal"] .ry-hello { display: grid; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-hello-line { margin: 0; font-size: var(--rh-fs-md); font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-hello-date { margin: 0; font-size: var(--rh-fs-2xl); font-weight: 700; letter-spacing: -.028em; line-height: 1.12; text-wrap: balance; }
+:root[data-ui-look="royal"] .ry-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
+
+/* Полоса сверху: деньги и плитки. Телефон — плита во всю ширину, плитки по две. */
+:root[data-ui-look="royal"] .ry-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-strip > .ry-hero { grid-column: 1 / -1; }
+:root[data-ui-look="royal"] .ry-hero {
+  display: grid; gap: 10px; min-width: 0; padding: 18px 20px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-primary); color: var(--rh-ui-on-color); text-decoration: none;
+}
+:root[data-ui-look="royal"] .ry-hero-skeleton { min-height: 168px; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-hero-label { display: flex; align-items: center; gap: 8px; font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-hero-value { font-size: var(--rh-fs-4xl); line-height: 1; color: var(--rh-ui-on-color); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-hero-bar { position: relative; display: block; height: 10px; border-radius: var(--rh-r-full); background: var(--rh-ui-hero-mini); }
+:root[data-ui-look="royal"] .ry-hero-fill { position: absolute; inset: 0 auto 0 0; border-radius: var(--rh-r-full); background: var(--rh-ui-tile); }
+:root[data-ui-look="royal"] .ry-hero-pace { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1px; border-radius: var(--rh-r-sm); background: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-hero-minis { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] .ry-hero-minis > span {
+  display: inline-flex; align-items: baseline; gap: 6px; min-height: 36px; padding: 6px 12px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-hero-mini); color: var(--rh-ui-on-color); font-size: var(--rh-fs-md); font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-hero-minis b { font-size: var(--rh-fs-lg); }
+
+:root[data-ui-look="royal"] .ry-decisions { display: grid; gap: 8px; min-width: 0; }
+/* Решения — прежние строки пульта (CleanDecisionRow, все их действия), в оформлении нового вида:
+   название и подпись сверху, кнопки отдельной строкой, чтобы в колонке не сжималось название. */
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision {
+  grid-template-columns: 48px minmax(0, 1fr); gap: 8px 12px; padding: 12px 16px; border: 0;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision > :first-child { width: 48px; height: 48px; border-radius: var(--rh-r-full); }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-title { font-size: var(--rh-fs-lg); line-height: 1.25; }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-description { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions { grid-column: 1 / -1; justify-content: flex-start; }
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions :is(button, a) { min-height: 44px; border-radius: var(--rh-r-full); }
+/* Кнопка-таблетка не уже своей подписи: на 320–390 px две кнопки делили строку пополам, и
+   «Проверить материалы», «Открыть карточку» ломались в две строки внутри таблетки (20.11).
+   Не помещаются рядом — вторая уходит строкой ниже во всю ширину. */
+:root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision-actions > :is(button, a) { flex: 1 1 auto; min-width: min(100%, max-content); }
+
+:root[data-ui-look="royal"] .ry-team {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-team-person {
+  display: grid; justify-items: center; gap: 4px; min-width: 0; padding: 8px 4px; border-radius: var(--rh-r-lg);
+  color: var(--rh-ui-text); text-decoration: none; text-align: center;
+}
+:root[data-ui-look="royal"] .ry-team-person:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-team-person b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--rh-fs-md); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-team-status { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-team-status[data-tone="warn"] { color: var(--rh-ui-warn); }
+
+:root[data-ui-look="royal"] .ry-bar-row .ry-row-text { gap: 8px; }
+:root[data-ui-look="royal"] .ry-bar { display: block; height: 8px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); overflow: hidden; }
+:root[data-ui-look="royal"] .ry-bar > span { display: block; height: 100%; border-radius: var(--rh-r-full); background: var(--rh-ui-primary); }
+
+:root[data-ui-look="royal"] .ry-full { display: grid; gap: 16px; justify-items: start; min-width: 0; }
+:root[data-ui-look="royal"] .ry-full-body { width: 100%; min-width: 0; }
+
+/* ПК (по ширине самой главной, а не окна): одна полоса из плит и две колонки. */
+@container ry-today (min-width: 720px) {
+  :root[data-ui-look="royal"] .ry-hello-date { font-size: var(--rh-fs-3xl); }
+  :root[data-ui-look="royal"] .ry-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  :root[data-ui-look="royal"] .ry-strip > .ry-hero { grid-column: span 2; }
+  :root[data-ui-look="royal"] .ry-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; row-gap: 28px; align-items: start; }
+  :root[data-ui-look="royal"] .ry-blocks > .ry-strip, :root[data-ui-look="royal"] .ry-blocks > .ry-full, :root[data-ui-look="royal"] .ry-blocks > .ry-section:not(.ry-col-a):not(.ry-col-b) { grid-column: 1 / -1; }
+  /* Заглушка упавшего блока (components/look/RoyalBlock.tsx) встаёт в клетку блока: широкий — на всю строку. */
+  :root[data-ui-look="royal"] .ry-blocks > .ry-block-failed[data-span="wide"] { grid-column: 1 / -1; }
+  :root[data-ui-look="royal"] .ry-team { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@container ry-today (min-width: 1040px) {
+  /* Одна полоса: плита денег шире, плитки делят остаток, сколько бы их ни пришло. */
+  :root[data-ui-look="royal"] .ry-strip { display: flex; }
+  :root[data-ui-look="royal"] .ry-strip > * { flex: 1 1 0; }
+  :root[data-ui-look="royal"] .ry-strip > .ry-hero { flex: 2.2 1 0; }
+  :root[data-ui-look="royal"] .ry-tile { min-height: 168px; }
+  :root[data-ui-look="royal"] .ry-hero { min-height: 168px; }
+  :root[data-ui-look="royal"] .ry-blocks .ry-col-b .ry-team { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ===================== геометрия на телефоне (20.11.2026) =====================
+   Кадры владельца с iPhone: у карточек пустой верх, ряды вкладок обрезаны без
+   признака прокрутки. Правила общие на все разделы — один механизм, одно место;
+   сторож — tests/e2e/new-look-geometry.spec.ts (helpers/lookGeometry.ts). */
+
+/* Тихая строка `.quiet` темы несёт margin-top 14 px — отступ от соседа сверху. Первой в
+   своей карточке или обёртке она отступает от пустоты: «Этап просрочен у 4 объектов»,
+   «Meta не ответила», строка «клиентов в CRM» под объявлением стояли с пустым верхом. */
+:root[data-ui-look="royal"] .rh2 .scr .quiet:first-child { margin-top: 0; }
+/* Тот же механизм у пустых состояний и подписей карточек: «За этот срок нет обращений»,
+   «Отчётов пока нет» (p.state, margin-top 12 px темы) стояли с пустым верхом (сторож, 20.11). */
+:root[data-ui-look="royal"] .rh2 .scr .card > :is(p, .state, .empty, .sub, h2, h3):first-child { margin-top: 0; }
+
+/* Ряд вкладок и фильтров, который листается вбок, гаснет у правого края — видно, что
+   дальше есть ещё («Изменения на сайте», «Резерв», «Подписки» уходили за край молча).
+   Затухание живёт только в кадрах анимации по прокрутке самого ряда: ряд без прокрутки
+   (вкладки поместились, ПК с переносом) его не получает вовсе, а докрученный до конца —
+   снимает. Браузер без animation-timeline остаётся как был. */
+@supports (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] :is(.seg-ai, .stg, .cef-pills, .cef-main-tabs, .seg, .rh-filters-scroll, .hscroll, .rh-tabs-scroll, .ry-ctabs, .ry-chat-quick, .ry-deals-stages, .ry-set-tasks, .ry-gal-thumbs, .ry-agc-tabs) {
+    /* !important — чистая оболочка гасит любую анимацию с !important (theme-2026-clean-surface-integrity.css). */
+    animation: ry-strip-more linear both !important; animation-timeline: scroll(self inline) !important;
+  }
+}
+@keyframes ry-strip-more {
+  0%, 98% {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  100% { -webkit-mask-image: none; mask-image: none; }
+}
+/* Там, где `animation-timeline` нет (Safari до 26: «Таблица» и «Звонки» на iPhone были просто обрезаны краем,
+   аудит К20), признак «дальше есть» ставит хук useScrollStripHints атрибутом `data-strip-more`. */
+@supports not (animation-timeline: scroll()) {
+  :root[data-ui-look="royal"] [data-strip-more="end"] {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  }
+  :root[data-ui-look="royal"] [data-strip-more="start"] {
+    -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(270deg, #000 calc(100% - 32px), transparent);
+  }
+  :root[data-ui-look="royal"] [data-strip-more="both"] {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
+}
+
+
+/* Подпись с числом одним куском («Не связывались: 4»): число не уезжает строкой ниже. */
+:root[data-ui-look="royal"] .ry-nowrap { white-space: nowrap; }
+
+/* Предложение поставить CRM на экран — одной строкой в самом экране «Главная», не плавающим слоем
+   (аудит К06.1, 21.11: плашка над меню закрывала низ каждого экрана). Разметка — InstallAppHint.tsx. */
+:root[data-ui-look="royal"] .ry-install-card {
+  display: grid; gap: 8px; max-width: 440px; margin: 0 auto; padding: 12px 12px 8px 16px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-ring);
+}
+/* Две строки, как бы ни была узка ширина: значок и название, ниже действия справа. В одну строку на 390 px название
+   сжималось до слога на строку («Поста / вьте / CRM»). */
+:root[data-ui-look="royal"] .ry-install-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-install-row > .i { width: 20px; height: 20px; flex: none; color: var(--rh-ui-primary-ink); }
+:root[data-ui-look="royal"] .ry-install-row > b { flex: 1 1 calc(100% - 32px); min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-install-go {
+  flex: none; min-height: 44px; margin-left: auto; padding: 0 16px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-x {
+  flex: none; min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full);
+  background: transparent; color: var(--rh-ui-hint); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-install-hint { margin-bottom: 12px; }
+:root[data-ui-look="royal"] .ry-install-steps { display: grid; gap: 6px; margin: 0; padding: 0 8px 0 22px; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-install-steps .i { width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; }
+
+/* Нижнее меню на самых узких телефонах: подписи «Главная» и «Клиенты» стояли вплотную
+   (зазор 4 px на 320, съёмка 20.11). Капсула ближе к краям, подписи чуть плотнее. */
+/* Подписи нижнего меню — как вторичный текст (15 на телефоне), а не 13: главная навигация
+   не должна быть мельче остального (аудит 20.11, К04.1). На 320–389 места на 15 не хватает (зазор между подписями 4 px при норме 6) — там 13. */
+@media (min-width: 390px) and (max-width: 767.98px) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label],
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-tab-label] { font-size: var(--rh-fs-sm); }
+}
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { left: max(6px, env(safe-area-inset-left, 0px)); right: max(6px, env(safe-area-inset-right, 0px)); padding-inline: 2px; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { gap: 0; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { letter-spacing: -.02em; }
+}
+
+/* ======================= ПЕРЕКЛЮЧАТЕЛИ, ПОЛЯ, СПИСКИ (пачка C) =======================
+ * Segmented (RhSegmented, .ry-seg и прежний .seg) и Tabs (RhTabs, .ry-tabs, прежние
+ * .seg.rh-tabs / .seg-ai) — каждый в одном виде на всё приложение. Слои экранов меняют
+ * только раскладку (ширина, перенос, прокрутка), цвета выбранного берут токены --rh-seg-* /
+ * --rh-tab-*. */
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) {
+  display: inline-flex; gap: 4px; min-width: 0; max-width: 100%; padding: 4px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-seg-track); box-shadow: none;
+}
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 1 1 auto; min-width: 0; min-height: var(--rh-ctl-h); padding: 0 16px;
+  border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-seg-fg); box-shadow: none;
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; white-space: normal; text-decoration: none; cursor: pointer;
+  transition: background-color 160ms, color 160ms;
+}
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"], .on) {
+  background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow);
+}
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is(:disabled, [disabled], [aria-disabled="true"]),
+:root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"], .on):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) {
+  display: flex; gap: 4px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none;
+  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+}
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs)::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; min-height: var(--rh-ctl-h); padding: 0 16px;
+  border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-tab-fg); box-shadow: none;
+  font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color 160ms, color 160ms;
+}
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"])::after { content: none; }
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):hover:not(:disabled) { background: var(--rh-ui-hover); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]) {
+  background: var(--rh-tab-on); color: var(--rh-tab-on-fg);
+}
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is(:disabled, [disabled], [aria-disabled="true"]),
+:root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+
+/* Поля: видимая граница >= 3:1 (было: серая заливка без рамки на белом — 1,2:1, critic-uiux P1-10).
+   Линия — внутренней тенью: слои экранов ставят border: 0, а фокус рисуют обводкой (outline).
+   Правило целиком в :where() — нулевой вес: любое правило слоя или детали с своей рамкой
+   его перебивает. Не рисуется (ревью #337): у поля со своей рамкой (класс border*, кроме border-0 и
+   border-none — у них рамки нет), у поля
+   внутри обёртки-капсулы (подпись со значком — поиск; выпадающий список; шторка вопроса; ответ;
+   форма помощника) — там рамку рисует обёртка. Сторож — вид геометрии fieldFrame. */
+:root[data-ui-look="royal"] :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"], [type="submit"], [type="button"], [type="image"]), select, textarea):where(:not([class*="border"]), .border-0, .border-none):where(:not(:is(.ry-search, .clean-settings-search, .rh-select, .qsheet, .lf-reply, .ai-q-form, .srch, [role="search"], label:has(> svg)) *)) {
+  box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
+}
+/* Выпадающий список не режет выбранное: ширина по содержимому, не шире строки. */
+/* Выпадающий список не шире строки и не режет многоточием. Ширину по содержимому (field-sizing)
+   общим правилом не ставим: список прыгал бы шириной при каждом выборе и выталкивал соседей за
+   край (карточка клиента на 320, ревью #337). Где выбранное длинное — своё правило ниже. */
+:root[data-ui-look="royal"] :where(select) { min-width: 0; max-width: 100%; text-overflow: clip; }
+/* «Нужно ваше решение»: выбор агента — во всю строку действий (по содержимому, не уже 12em —
+   запас там, где field-sizing нет), имя и число в работе целиком. */
+:root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { min-width: min(100%, 12em); max-width: 100%; font-size: var(--rh-fs-md); text-overflow: clip; field-sizing: content; }
+:root[data-ui-look="royal"] .clean-shell .clean .clean-decision-actions > .clean-decision-select { flex: 1 1 auto; }
+
+/* Ссылка «Все» у раздела — цель не уже 44 px. */
+:root[data-ui-look="royal"] .ry-section-link { min-width: var(--rh-ctl-h); justify-content: center; }
+/* 320–389: выбор агента в «Нужно ваше решение» — имя и число в работе целиком («Мадина Каримова ·
+   2 в р…» на 320, critic-uiux P1-12): карточка уже на 4 px с боков, список — тесный отступ и 15 px. */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] .clean-shell .ry-decisions .clean-decision { padding-inline: 12px; }
+  :root[data-ui-look="royal"] .clean-shell .clean .clean-decision-select { padding-inline: 8px; font-size: var(--rh-fs-sm); }
+}
+
+/* Крупный текст на узком телефоне: заголовок-дата главной на ступень меньше — иначе
+   «Пятница, 20 ноября» рвётся на две строки (сторож split). */
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) .ry-hello-date { font-size: var(--rh-fs-xl); }
+}
+/* Системный список не переносит строку: на телефоне он держит обычный размер (15), иначе «Мадина
+   Каримова · 2 в работе» обрезается (на 390–430 при «Очень крупном» тоже). Шторка — RhSelect, дальше. */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"]:is([data-text-size="large"], [data-text-size="xlarge"]) .clean-shell .clean .clean-decision-select { --rh-fs-sm: var(--rh-fs-sm-base); --rh-fs-md: var(--rh-fs-md-base); }
+}
+
+/* Поле прототипа (.rh2 .scr .inp) без своего правила в слое раздела: прототип снимает ему тень,
+   и граница пропадала (отчёт 48 экранов, повторное ревью #337). Правило раздела весит больше. */
+:root[data-ui-look="royal"] .rh2 .scr .inp { box-shadow: inset 0 0 0 1px var(--rh-ui-field-line); }
+/* ======================= СУММА И ЧИСЛО ПО ШИРИНЕ ЯЧЕЙКИ (К10, 21.11.2026) =======================
+ * `.rh-fit` — крупное число или сумма в плитке (`.rh-fit-host` — сама плитка, container-type).
+ * Число НИКОГДА не переносится и не рвётся посреди: «5 499 999,45 с.» (до 17 знаков) стоит одной
+ * строкой, а на узкой ячейке уходит на ступень шкалы ниже (2xl → xl → lg → sm) по ширине ячейки.
+ * Пороги — ≈ 10 кеглей на сумму из 16–17 знаков (см. ниже data-len), для масштаба «Размера текста» 1, 1,12 и 1,25.
+ * Размер — с !important: у плиток разделов своё правило `… .tile b` с большей специфичностью.
+ * Слова в таком месте («нет») — `.rh-empty`, обычным шрифтом, не цифровым. */
+:root[data-ui-look="royal"] .rh-fit-host { container-type: inline-size; min-width: 0; }
+:root[data-ui-look="royal"] .rh-fit { font-size: var(--rh-fs-2xl) !important; white-space: nowrap; overflow-wrap: normal; word-break: normal; font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .rh-note { display: block; font-size: var(--rh-fs-sm) !important; line-height: 1.35; color: var(--rh-ui-hint) !important; }
+:root[data-ui-look="royal"] .rh-empty { font-family: var(--font-sans, "Onest", system-ui, sans-serif); font-size: var(--rh-fs-lg); font-weight: 600; letter-spacing: 0; color: var(--rh-ui-hint); white-space: normal; }
+/* Ступень по длине строки (data-len на значении: s ≤ 9 знаков, m ≤ 13, l — длиннее): короткая сумма («5 000 с.») не
+ * мельчает раньше времени — порог ≈ 6 / 8 / 10 кеглей. Без data-len — как l. Масштабы «Размера текста» 1 / 1,12 / 1,25. */
+/* масштаб 1 */
+@container (max-width: 280px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 224px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 168px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 160px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 144px) { :root[data-ui-look="royal"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 120px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 108px) { :root[data-ui-look="royal"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+/* масштаб 1,12 */
+@container (max-width: 314px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 251px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 202px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 189px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 162px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 121px) { :root[data-ui-look="royal"][data-text-size="large"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+/* масштаб 1,25 */
+@container (max-width: 350px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 280px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 250px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 225px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit:not([data-len="s"], [data-len="m"]) { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 210px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-xl) !important; } }
+@container (max-width: 200px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 180px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="m"] { font-size: var(--rh-fs-sm) !important; } }
+@container (max-width: 150px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-lg) !important; } }
+@container (max-width: 135px) { :root[data-ui-look="royal"][data-text-size="xlarge"] .rh-fit[data-len="s"] { font-size: var(--rh-fs-sm) !important; } }
+
+/* ======================= ТЕЛЕФОН: ПОДПИСИ КНОПОК И СВАЙП (К04, 21.11.2026) =======================
+ * Предложения и пояснения, которые в теме были ≤ 14 px, поднимает на телефоне генератор
+ * `npm run gen:typeset` (адресно, по селекторам темы, `theme-2026-typeset.css`, ветка ≤ 767.98).
+ * Здесь — только два узких места старой разметки: малая кнопка Clean и подпись под свайпом строки.
+ * Размеры — токены; жёсткого «пола» по имени тега (p, small, dt…) в виде нет: он сжимал крупные
+ * числа (цена объекта 32 → 15, плитка главной 20 → 15) — ревью #351. */
+@media (max-width: 767.98px) {
+  :root[data-ui-look="royal"] [data-clean-size="sm"] { font-size: var(--rh-fs-sm); }
+  :root[data-ui-look="royal"] [data-clean-size="md"] { font-size: var(--rh-fs-md); }
+  :root[data-ui-look="royal"] .sw .under :is(.l, .r) { font-size: var(--rh-fs-sm); }
+}

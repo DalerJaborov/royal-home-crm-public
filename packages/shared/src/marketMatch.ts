@@ -8,15 +8,69 @@ import { z } from "zod";
  * экран его не дублирует.
  */
 
-/** Сколько объявлений с площадок показываем в подборе покупателя. */
+/** Сколько объявлений с площадок показываем в подборе покупателя за раз («лучшие»; дальше — «Показать ещё»). */
 export const MARKET_BUYER_LISTINGS_MAX = 10;
+/** Глубже этого «Показать ещё» не листает: подбор — не каталог площадки. */
+export const MARKET_BUYER_LISTINGS_MAX_OFFSET = 190;
+
+/**
+ * УЗКИЙ ПОДБОР С ПЛОЩАДОК (владелец 17.11.2026: «лучшие 5–10 вместо сотен»). Пороги — настройки компании
+ * (Настройки → Подбор → «Подбор с площадок»), здесь только значения по умолчанию: одно место и для сервера
+ * (lib/market/buyerMatch.ts, loadMarketBuyerRules), и для экрана настроек.
+ *  · freshDays — объявление, которое сбор не видел дольше, под клиентов не предлагается и в пуш не идёт;
+ *  · budgetTolerancePct — цена в пределах ±N% бюджета (вилка «от–до» — от «от» минус N% до «до» плюс N%);
+ *  · roomsTolerance — 0: комнат ровно столько, сколько просит клиент;
+ *  · alertsPerDay — не больше стольких пушей агенту в сутки по Душанбе.
+ */
+export const MARKET_BUYER_RULE_DEFAULTS = {
+  freshDays: 3,
+  budgetTolerancePct: 10,
+  roomsTolerance: 0,
+  alertsPerDay: 3,
+} as const;
+
+/**
+ * Объявление с площадки показываем покупателю, только если оно РАЗМЕЩЕНО не раньше стольких суток назад
+ * (21.11.2026): по дате размещения на площадке, а если её нет — по дате, когда мы его нашли.
+ * Не настройка компании: «свежесть» выше — про то, видел ли сбор объявление, а это про возраст самого объявления.
+ */
+export const MARKET_BUYER_PLACED_MAX_DAYS = 30;
+
+/** Границы порогов: одни и те же у PATCH /settings и у полей на экране. */
+export const MARKET_BUYER_RULE_LIMITS = {
+  freshDays: { min: 1, max: 30 },
+  budgetTolerancePct: { min: 0, max: 50 },
+  roomsTolerance: { min: 0, max: 3 },
+  alertsPerDay: { min: 1, max: 20 },
+} as const;
 
 export const marketBuyerListingsQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(MARKET_BUYER_LISTINGS_MAX).default(MARKET_BUYER_LISTINGS_MAX),
+    offset: z.coerce.number().int().min(0).max(MARKET_BUYER_LISTINGS_MAX_OFFSET).default(0),
   })
   .strict();
 export type MarketBuyerListingsQuery = z.infer<typeof marketBuyerListingsQuerySchema>;
+
+/**
+ * Кто уже связывался с продавцом объявления (17.11.2026): номер взяли кнопкой «Показать номер» (PHONE) или
+ * «Написать в WhatsApp» (WHATSAPP), либо продавца с Somon уже передали агенту поиском собственников (OWNER_LEAD).
+ * Последняя отметка; номера здесь нет.
+ */
+export interface MarketListingContactInfo {
+  action: "PHONE" | "WHATSAPP" | "OWNER_LEAD";
+  agentName: string;
+  /** Это сделал сам смотрящий агент. */
+  byMe: boolean;
+  at: string;
+}
+
+/** Отметка словами — одно место для экрана (ПК и телефон). */
+export function marketContactText(c: MarketListingContactInfo, dateText: string): string {
+  if (c.action === "OWNER_LEAD") return c.byMe ? `Этот продавец уже у вас (поиск собственников), ${dateText}` : `Продавца уже ведёт ${c.agentName} (поиск собственников), ${dateText}`;
+  if (c.byMe) return `Вы уже ${c.action === "PHONE" ? "брали номер" : "писали в WhatsApp"}, ${dateText}`;
+  return c.action === "PHONE" ? `Номер уже взят: ${c.agentName}, ${dateText}` : `Продавцу уже писали в WhatsApp: ${c.agentName}, ${dateText}`;
+}
 
 export interface MarketBuyerListing {
   /** Домен площадки: "somon.tj", "paydo.tj"… */
@@ -30,11 +84,74 @@ export interface MarketBuyerListing {
   floor: number | null;
   totalFloors: number | null;
   districtName: string | null;
+  /** Площадка район не назвала и мы его не вывели: строка идёт ниже и подписана «район не указан». */
+  districtUnknown: boolean;
   /** Когда объявление опубликовано (если площадка отдаёт) иначе — когда мы его впервые увидели. */
   publishedAt: string;
+  /** Когда сбор последний раз видел объявление на площадке. */
+  lastSeenAt: string;
+  /** Кто уже связывался с продавцом (null — никто): чтобы двое не звонили одному хозяину. */
+  contact: MarketListingContactInfo | null;
+}
+
+/**
+ * ТОЛЬКО СОБСТВЕННИКИ В ПОДБОРЕ (владелец 14.11.2026: «агентства и риелторов нам не надо»).
+ * Риелтор: площадка пометила объявление агентством (isAgency) ИЛИ у того же продавца (площадка + id продавца)
+ * `MARKET_REALTOR_MIN_LISTINGS` и больше активных объявлений продажи. Правило ОДНО и для карточки клиента, и для пуша
+ * агенту, и для сервера, и для экрана. Объявление без id продавца по числу объявлений не проверить: его отсекает
+ * только пометка агентства. Применяется только к подбору покупателю; медиана рынка и список «дороже рынка» агентства
+ * учитывают (это цены рынка).
+ */
+export const MARKET_REALTOR_MIN_LISTINGS = 3;
+
+/** Ключ продавца для подсчёта объявлений: площадка + id продавца на ней. */
+export function marketSellerKey(source: string, sellerId: string): string {
+  return `${source}|${sellerId}`;
+}
+
+/** Риелтор ли продавец объявления. `realtorSellerKeys` — ключи продавцов с MARKET_REALTOR_MIN_LISTINGS+ активных объявлений. */
+export function isMarketRealtorListing(
+  row: { isAgency?: boolean | null; source: string; sellerId?: string | null },
+  realtorSellerKeys: ReadonlySet<string>
+): boolean {
+  if (row.isAgency) return true;
+  return row.sellerId != null && row.sellerId !== "" && realtorSellerKeys.has(marketSellerKey(row.source, row.sellerId));
+}
+
+/** Сколько подходящих объявлений осталось после фильтра «только собственники» и сколько было до него. */
+export interface MarketOwnersOnlyInfo {
+  /** Фильтр включён в Настройках (Подбор). */
+  enabled: boolean;
+  kept: number;
+  total: number;
 }
 
 export type MarketBuyerListingsStatus = "ok" | "no_criteria" | "not_buyer" | "pending_acceptance";
+
+/**
+ * Рынок под запрос покупателя (14.11.2026): типичная цена объявлений в его районе и с его числом
+ * комнат и во сколько раз бюджет отличается от неё. Считает сервер (lib/market/buyerMarket.ts), порог
+ * `minSample` тот же, что у блока «Рынок» объекта: ниже него чисел нет вовсе.
+ *  · ok — чисел достаточно;
+ *  · insufficient — район и комнаты названы, но объявлений меньше порога (в `count` их число);
+ *  · no_segment — района или числа комнат нет (или тип не квартира): сравнивать не с чем.
+ */
+export type MarketBuyerSummaryStatus = "ok" | "insufficient" | "no_segment";
+
+export interface MarketBuyerSummary {
+  status: MarketBuyerSummaryStatus;
+  districtName: string | null;
+  rooms: number | null;
+  /** Число уникальных объявлений района и комнат (после склейки дублей). */
+  count: number;
+  minSample: number;
+  medianPerSqmTjs: number | null;
+  medianPriceTjs: number | null;
+  /** Бюджет покупателя в сомони, с которым сравниваем (середина вилки или единственная граница). */
+  budgetTjs: number | null;
+  /** Бюджет к медианной цене, %: плюс — выше рынка, минус — ниже. null — нечего сравнивать. */
+  budgetVsMedianPercent: number | null;
+}
 
 export interface MarketBuyerListingsResponse {
   status: MarketBuyerListingsStatus;
@@ -46,6 +163,16 @@ export interface MarketBuyerListingsResponse {
   totalIsLowerBound: boolean;
   /** Бюджет, приведённый к сомони общим курсом, — чтобы экран не пересчитывал сам. */
   budgetMaxTjs: number | null;
+  /** Медиана рынка по району и комнатам покупателя; null, когда сравнивать невозможно (нет желаний, не покупатель). */
+  market: MarketBuyerSummary | null;
+  /** Фильтр «только собственники» (null, когда подбор не считался). */
+  ownersOnly: MarketOwnersOnlyInfo | null;
+  /** С какой позиции отдан список (для «Показать ещё»). */
+  offset: number;
+  /** Порог свежести, суток: старше — не показываем (Настройки). */
+  freshDays: number;
+  /** В пожеланиях клиента нет района: подбор по всему городу, экран так и пишет. */
+  clientDistrictMissing: boolean;
   listings: MarketBuyerListing[];
 }
 
@@ -104,4 +231,78 @@ export interface MarketSegmentsResponse {
   /** true — выборка упёрлась в предел: цифры по самым свежим объявлениям, а не по всем. */
   truncated: boolean;
   segments: MarketSegmentStat[];
+}
+
+/** История медиан по сегменту (GET /market/history): ряд по дням, копится ночной записью с 14.11.2026. */
+export const MARKET_HISTORY_DISTRICT_ALL = "*";
+export const marketHistoryQuerySchema = z
+  .object({
+    city: z.string().trim().min(1).max(60).default("Душанбе"),
+    /** Район; «*» (по умолчанию) — весь город. */
+    districtName: z.string().trim().min(1).max(80).default(MARKET_HISTORY_DISTRICT_ALL),
+    /** Комнаты; без параметра — любое число. */
+    rooms: z.coerce.number().int().min(1).max(10).optional(),
+    /** new — новостройка, secondary — вторичка; без параметра — любой дом. */
+    building: z.enum(["new", "secondary"]).optional(),
+    /** all — весь рынок, owners — только собственники. */
+    audience: z.enum(["all", "owners"]).default("all"),
+    /** Окно в сутках от сегодня (по Душанбе). */
+    days: z.coerce.number().int().min(1).max(1095).default(90),
+    /** Предел точек ряда (самые свежие сутки). */
+    limit: z.coerce.number().int().min(1).max(1095).default(365),
+  })
+  .strict();
+export type MarketHistoryQuery = z.infer<typeof marketHistoryQuerySchema>;
+
+export interface MarketHistoryPoint {
+  /** Сутки по Душанбе, ГГГГ-ММ-ДД. */
+  day: string;
+  /** Уникальных объявлений в выборке этих суток (всегда не меньше minSample). */
+  count: number;
+  medianPerSqmTjs: number | null;
+  averagePerSqmTjs: number | null;
+  medianPriceTjs: number | null;
+  averagePriceTjs: number | null;
+}
+
+export interface MarketHistoryResponse {
+  minSample: number;
+  city: string;
+  districtName: string;
+  rooms: number | null;
+  building: "new" | "secondary" | null;
+  audience: "all" | "owners";
+  points: MarketHistoryPoint[];
+}
+
+/** Наш объект в продаже, который дороже рынка (14.11.2026, GET /market/overpriced). */
+export interface MarketOverpricedItem {
+  propertyId: string;
+  /** Номер карточки: ссылка /properties/{shortId}. */
+  shortId: number;
+  title: string;
+  districtName: string;
+  rooms: number;
+  areaSqm: number;
+  askingPriceTjs: number;
+  /** Ориентир рынка: медианная цена за м² сегмента × площадь объекта. */
+  estimatedPriceTjs: number;
+  /** На сколько % цена объекта выше ориентира (всегда больше порога вердикта). */
+  diffPercent: number;
+  /** Сколько объявлений в сегменте, по которым считали. */
+  sampleSize: number;
+  /** Сегмент: район и комнаты, плюс ремонт, если считали по нему. */
+  basis: string;
+}
+
+export interface MarketOverpricedResponse {
+  minSample: number;
+  /** Порог вердикта, %: объект попадает в список, если выше ориентира больше чем на столько. */
+  thresholdPercent: number;
+  /** Сколько наших объектов в продаже сравнили с рынком и сколько из них без данных. */
+  checked: number;
+  withoutData: number;
+  /** true — объектов больше предела выборки: список по самым свежим. */
+  truncated: boolean;
+  items: MarketOverpricedItem[];
 }

@@ -21,7 +21,8 @@ describe("хуки и панель передают выбранный диал�
   it("текст: conversationId уходит в тело запроса", () => {
     const hook = hooks.slice(hooks.indexOf("export function useSendClientMessage"), hooks.indexOf("export function useSendClientVoiceMessage"));
     expect(hook).toContain("conversationId");
-    expect(hook).toMatch(/body:\s*\{\s*text,\s*conversationId\s*\}/);
+    // С 17.11.2026 тело уходит третьим аргументом sendToClient (ключ повтора, lib/clientSend.ts).
+    expect(hook).toMatch(/(?:body:\s*)?\{\s*text,\s*conversationId\s*\}/);
   });
 
   it("голосовое: conversationId уходит полем формы", () => {

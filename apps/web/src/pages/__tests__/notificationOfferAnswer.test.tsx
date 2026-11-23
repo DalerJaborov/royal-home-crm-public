@@ -24,9 +24,9 @@ describe("ответ на предложение объекта в ленте", 
   it("ответ уже дан — статусом с сервера, «отправлю» выделен", () => {
     const yes = render({ id: "o1", status: "WILL_SEND", answerable: false });
     expect(yes).toContain("offer-status ok");
-    expect(yes).toContain("✅ Отправлю клиенту");
+    expect(yes).toContain("Отправлю клиенту");
     expect(yes).not.toContain("<button");
-    expect(render({ id: "o1", status: "NOT_SUITABLE", answerable: false })).toContain("🙅 Не подходит");
+    expect(render({ id: "o1", status: "NOT_SUITABLE", answerable: false })).toContain("Не подходит");
     expect(render({ id: "o1", status: "CLOSED", answerable: false })).toContain("у другого агента");
     expect(render({ id: "o1", status: "SENT", answerable: false })).toContain("Ответить уже нельзя");
   });

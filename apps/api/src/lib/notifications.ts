@@ -44,7 +44,7 @@ import { partitionByPermission } from "./recipients.js";
  *
  * УЗКИЙ РАЗБОР, А НЕ maskPhonesInFreeText: тело уведомления — собранная нами
  * строка, где рядом стоят дата и время («Показ 22.09.2026 14:30» — десять цифр
- * с разделителями), и добивка по цепочке превратила бы её в «2209•••••14:30».
+ * с разделителями), и добивка по цепочке превратила бы её в «2209••••14:30».
  * Свободный текст внутри уведомления (расшифровка голосового, тема заявки,
  * написанная моделью) закрывает вызывающий через phoneSafeText — см.
  * lib/callbackRequests.ts и lib/telephony/voicemailIngest.ts.
@@ -161,6 +161,13 @@ export async function createNotifications(
     console.error("[notifications] Не удалось записать уведомления:", message);
     void logSystemError("api", `Не удалось записать уведомления в ленту: ${message}`);
   }
+}
+
+/** То же, что createNotifications, но сбой записи БРОСАЕТ: вызывающий снимает свою метку и пишет журнал (ревью #333). */
+export async function createNotificationsStrict(agentIds: string[], payload: Parameters<typeof createNotifications>[1]): Promise<void> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
+  if (agentIds.length === 0) throw new Error("нет получателей уведомления");
+  for (const group of await splitByPhoneRight(agentIds, payload)) await writeNotifications(group.agentIds, group.payload);
 }
 
 /** Запись как есть, без разбора прав, — то, чем createNotifications была до
@@ -356,6 +363,8 @@ async function upsertByTag(input: {
             level,
             count: { increment: 1 },
             read: false,
+            // Новое событие по тому же поводу — снова не просмотрено: метка на колокольчике загорается.
+            seenAt: null,
             createdAt: new Date(),
           },
         });

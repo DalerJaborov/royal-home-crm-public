@@ -72,6 +72,7 @@ import { logAiCall } from "./shared.js";
 // резервной, пока до сервера не доходили руки. Теперь владелец меняет имя с экрана,
 // и следующее же голосовое идёт к новой модели. Дефолты — в ai/geminiTransport.ts.
 import { describeError } from "../lib/describeError.js";
+import { maskPhonesInFreeText } from "../lib/clientPhone.js";
 
 /**
  * СРОК ОЖИДАНИЯ СЧИТАЕТСЯ ОТ РАЗМЕРА ЗАПИСИ, А НЕ ОДИН НА ВСЁ (15.08.2026).
@@ -463,6 +464,8 @@ export interface TranscriptionResult {
   failed: boolean;
   /** Причина отказа для журнала. */
   detail?: string;
+  /** Машинная причина отказа: по ней маршруты выбирают честный ответ человеку (не по тексту detail). */
+  reason?: "no_key" | "provider_failed";
 }
 
 /**
@@ -480,7 +483,7 @@ export async function transcribeAudioResult(
   // Ключи и модели — одним запросом к Настройкам (см. ai/geminiSettings.ts).
   const runtime = await resolveGeminiRuntime();
   const apiKeys = runtime.keys;
-  if (apiKeys.length === 0) return { text: null, failed: true, detail: "ключ Gemini не задан" };
+  if (apiKeys.length === 0) return { text: null, failed: true, detail: "ключ Gemini не задан", reason: "no_key" };
   const expensiveModels = runtime.transcribeModels;
   const primaryModel = expensiveModels[0];
   // Дешёвые — то же, чем пользуется весь остальной ИИ: последний рубеж, чтобы
@@ -490,7 +493,7 @@ export async function transcribeAudioResult(
   const fail = (detail: string): TranscriptionResult => {
     console.error("[transcribe]", detail);
     void logSystemError("ai", `Голосовое (${filename}) не расшифровано: ${detail}`);
-    return { text: null, failed: true, detail };
+    return { text: null, failed: true, detail, reason: "provider_failed" };
   };
 
   /**
@@ -795,9 +798,9 @@ export async function transcribeAudioResult(
           // чтобы было по чему разбирать; в журнал — только у голосового клиента и
           // одной строкой за десять минут (noteVoiceNotUnderstood, 25.09.2026).
           if (looksLikeModelRefusal(text)) {
-            console.warn(`[transcribe] ${filename}: модель ответила про файл, а не расшифровкой — «${text.slice(0, 120)}»`);
+            console.warn(`[transcribe] ${filename}: модель ответила про файл, а не расшифровкой — «${maskPhonesInFreeText(text).slice(0, 60)}»`);
             rememberQuotaPauses();
-            noteVoiceNotUnderstood(context, VOICE_REFUSAL_LOG_PREFIX, `${filename}, модель ${model}: «${text.slice(0, 120)}»`);
+            noteVoiceNotUnderstood(context, VOICE_REFUSAL_LOG_PREFIX, `${filename}, модель ${model}: «${maskPhonesInFreeText(text).slice(0, 60)}»`);
             return { text: null, failed: false };
           }
           /**

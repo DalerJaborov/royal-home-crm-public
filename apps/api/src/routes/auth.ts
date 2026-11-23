@@ -55,7 +55,7 @@ type SessionAgent = {
 
 export async function issueSession(req: import("express").Request, res: import("express").Response, agent: SessionAgent) {
   // Журнал входов + уведомление о новом устройстве — в фоне, вход не тормозим.
-  void recordLogin(req, { id: agent.id, fullName: agent.fullName });
+  void recordLogin(req, { id: agent.id, fullName: agent.fullName, role: agent.role });
   // Сессия устройства — создаёт/продлевает строку Session и, если уже 3 живых
   // устройства, вытесняет самое залежавшееся (см. lib/sessions.ts). Синхронно —
   // sid должен попасть в refresh-токен ДО того, как он подписан и уйдёт в cookie.
@@ -401,9 +401,21 @@ authRouter.get("/step-up", requireAuth, async (req, res) => {
   });
 });
 
-const stepUpSendSchema = z.object({ channel: z.enum(["sms", "telegram"]).optional() });
+const stepUpSendSchema = z.object({
+  channel: z.enum(["sms", "telegram"]).optional(),
+  /** Подписка этого браузера: код подтверждения сюда пушем не идёт (см. issueLoginCode, purpose "step-up"). */
+  pushEndpoint: z.string().url().max(2000).optional(),
+});
 
-/** Подтверждение личности кодом (пароля больше нет, 19.10.2026): отправить код себе. */
+/**
+ * Подтверждение личности кодом (пароля больше нет, 19.10.2026): отправить код себе.
+ *
+ * БЕЗ ПУША (аудит безопасности 17.11.2026, S2). Подтверждение защищает от того,
+ * кто сел за чужую открытую вкладку; пуш приходил на тот же браузер или телефон
+ * с открытой CRM, и код всплывал прямо перед ним. Теперь — СМС, запасной —
+ * Telegram; пуш остаётся только у того, у кого нет ни таджикского номера, ни
+ * Telegram, и не на устройство, которое просит код (lib/loginSmsCode.ts).
+ */
 authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
   const parsed = stepUpSendSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
@@ -412,7 +424,10 @@ authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
     select: { id: true, phone: true, telegramChatId: true, isActive: true },
   });
   if (!agent || !agent.isActive) return res.status(401).json({ error: "Не авторизован" });
-  const issued = await issueLoginCode(agent, parsed.data.channel);
+  const issued = await issueLoginCode(agent, parsed.data.channel, {
+    purpose: "step-up",
+    excludePushEndpoint: parsed.data.pushEndpoint,
+  });
   if (!issued.ok) {
     if (issued.retryAfterSec !== undefined) {
       res.set("Retry-After", String(issued.retryAfterSec));

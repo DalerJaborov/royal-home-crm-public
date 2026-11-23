@@ -240,7 +240,6 @@ esac
 say "перезапуск: $UP_TARGETS"
 $COMPOSE up -d $UP_TARGETS || die "контейнеры не поднялись"
 guard_postgres_not_exposed
-
 # ── 4. Проверки ──────────────────────────────────────────────────────────────
 say "ждём health"
 ok=0

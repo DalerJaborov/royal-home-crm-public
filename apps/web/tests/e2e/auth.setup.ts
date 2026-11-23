@@ -2,6 +2,7 @@ import { test as setup, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { authFileFor } from "./pages/crm.page";
+import { sessionStillValid } from "./pages/sessionProbe";
 
 /**
  * Вход в CRM один раз на прогон — состояние сессии сохраняется и переиспользуется.
@@ -19,6 +20,10 @@ import { authFileFor } from "./pages/crm.page";
 const phone = process.env.E2E_PHONE ?? "+992900000000";
 
 setup("вход в CRM", async ({ page, browser }, testInfo) => {
+  // Проба сохранённой сессии (до 15 с) + вход + возможное ожидание отсчёта кода:
+  // на холодном dev-сервере, где Vite собирает модули по первому заходу, 30 с
+  // по умолчанию не хватало — setup падал, а с ним весь проект (20.11.2026).
+  setup.setTimeout(150_000);
   // Имя проекта у setup-задачи своё, поэтому берём его из зависимостей: файл
   // должен совпасть с тем, что ждёт целевой проект.
   const target = testInfo.project.name.replace(/^setup-/, "");
@@ -70,20 +75,13 @@ setup("вход в CRM", async ({ page, browser }, testInfo) => {
   // «Слишком много попыток входа»), и не гоняем тесты с мёртвым состоянием.
   if (fs.existsSync(authFile)) {
     const context = await browser.newContext({ storageState: authFile });
-    const probe = await context.newPage();
-    await probe.goto("/");
-    const stillValid = !/\/login/.test(probe.url());
-    // Сама проверка — уже поход на сервер: если access-токен в файле истёк,
-    // приложение обновляет его по refresh-cookie, а refresh-cookie одноразовый
-    // (ротация при каждом использовании). До этой правки при stillValid мы
-    // просто закрывали контекст и выходили — файл на диске оставался со СТАРЫМ,
-    // уже использованным cookie. Реальные тесты открывали свежий контекст из
-    // того же файла, их собственная попытка обновить токен била по мёртвому
-    // refresh-cookie и улетала на /login — 100% падений при «зелёном» setup.
-    // Раз мы всё равно тронули состояние пробой, сохраняем его обратно.
-    if (stillValid) {
-      await context.storageState({ path: authFile });
-    }
+    // Живость решает ответ /auth/refresh, а не адрес сразу после загрузки — см.
+    // pages/sessionProbe.ts (чужой chromium.json, Чат 3, 20.11.2026).
+    //
+    // Живую сессию сохраняем обратно: сервер на каждом refresh перевыпускает
+    // cookie с тем же номером сессии и новым сроком (routes/auth.ts, «скользящий
+    // срок»), старая годна до своего срока — так файл не стареет между прогонами.
+    const stillValid = await sessionStillValid(context, { onValid: () => context.storageState({ path: authFile }).then(() => undefined) });
     await context.close();
     if (stillValid) return;
   }
@@ -97,10 +95,24 @@ setup("вход в CRM", async ({ page, browser }, testInfo) => {
   // Ищем поля по видимым подписям, а не по вёрстке: подписи меняются реже, и
   // тест не развалится от смены плейсхолдера или класса.
   await page.getByLabel("Рабочий телефон").fill(phone);
-  await page.getByRole("button", { name: "Получить код", exact: true }).click();
+  const getCode = page.getByRole("button", { name: "Получить код", exact: true });
+  await getCode.click();
 
   // Поле кода появляется после ответа сервера; на стенде devCode уже подставлен.
   const codeField = page.getByRole("textbox", { name: /Код из/ });
+  // ДВА ПРОЕКТА — ОДИН НОМЕР (20.11.2026). Десктоп и телефон входят одной
+  // учёткой и параллельно, а сервер не выдаёт второй код на тот же номер раньше
+  // минуты (LOGIN_SMS_RESEND_MS, lib/loginSmsCode.ts) — это защита от
+  // СМС-бомбинга, ослаблять её ради стенда нельзя. Проигравший setup видел отсчёт
+  // вместо поля кода и падал по таймауту, а с ним весь его проект. Теперь он
+  // ждёт конца отсчёта и просит код ещё раз — как сделал бы человек.
+  const cooldown = page.getByRole("status").filter({ hasText: /Новый код можно запросить через/ });
+  // `.first()`: на шаге кода та же строка отсчёта стоит под полем — оба видны сразу.
+  await expect(codeField.or(cooldown).first()).toBeVisible({ timeout: 10_000 });
+  if (!(await codeField.isVisible())) {
+    await expect(getCode).toBeEnabled({ timeout: 75_000 });
+    await getCode.click();
+  }
   await expect(codeField).toBeVisible({ timeout: 10_000 });
   await expect(codeField).toHaveValue(/^\d{6}$/, { timeout: 10_000 });
   await page.getByRole("button", { name: "Подтвердить", exact: true }).click();

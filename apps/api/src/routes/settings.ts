@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, canViewInvestigations } from "@royal-home/shared";
+import { AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -19,7 +19,7 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { verifyAccessToken } from "../auth/jwt.js";
 import { audioUpload, upload, uploadsDir } from "../upload.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
-import { DEFAULT_BOT_PERSONA } from "../ai/leadQualifier.js";
+import { DEFAULT_BOT_PERSONA } from "../ai/legacyQualifyDoor.js";
 import { DEFAULT_LIVE_VOICE_PROMPT, buildLiveVoiceSystemPrompt } from "../ai/liveVoicePersona.js";
 import { withSelfGenderReminder, withSelfGenderRule } from "../ai/liveVoiceSelfGender.js";
 import { DEFAULT_COMMENT_PROMPT } from "../messengers/comments.js";
@@ -46,6 +46,7 @@ import { DEFAULT_KPI_WEIGHTS, type KpiMetricKey } from "../kpi.js";
 import {
   COVER_SELECTION_MODES,
   EDITABLE_SCORE_EVENT_KEYS,
+  minScoreEventPoints,
   daysOffSchema,
   dealStageWinProbabilitySchema,
   mergeTranscriptFragments,
@@ -436,6 +437,7 @@ function toStaffSettings(settings: {
   leadCallMinSeconds: number;
   royalScoreEnabled: boolean;
   liveVoiceEnabled: boolean;
+  clientRecordResultEnabled: boolean;
 }) {
   return {
     companyName: settings.companyName,
@@ -471,7 +473,7 @@ function toStaffSettings(settings: {
      * 17.09.2026, «клиент теряется, если вовремя не позвонить»): без этих двух
      * чисел агент не мог узнать дедлайн на своём же экране — окно приёма после
      * «Принять» уводит в карточку и на этом всё, а крон (services/leads/firstCall.ts,
-     * penalizeMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
+     * handleMissedFirstCalls) снимает лид молча. Коммерческой тайны в минутах и
      * секундах нет — то же обоснование, что у leadAcceptMinutes выше.
      */
     leadCallMinutes: settings.leadCallMinutes,
@@ -484,6 +486,9 @@ function toStaffSettings(settings: {
     // aiAssistantEnabled выше: звонит агент со своей карточки, тайны в булеве
     // нет, а сам звонок сервер всё равно проверяет отдельно (409 при выключенном).
     liveVoiceEnabled: settings.liveVoiceEnabled,
+    // Кнопка «Записать результат» в карточке клиента (22.11.2026): её нажимает агент, значит и булев нужен агенту.
+    // Тайны нет; сам путь записи (POST /clients/:id/interactions) проверяет права отдельно.
+    clientRecordResultEnabled: settings.clientRecordResultEnabled,
   };
 }
 
@@ -555,6 +560,7 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
   if (!canReadInvestigations(req)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;
@@ -723,16 +729,24 @@ const settingsUpdateSchema = z.object({
   botPauseEscalateHours: z.number().int().min(1).max(720).optional(),
   /** Сколько секунд разговора считаются состоявшимся звонком. 0 = порога нет. */
   leadCallMinSeconds: z.number().int().min(0).max(600).optional(),
-  /** Максимум активных лидов у агента одновременно («лимит 5»). 0 = без лимита. */
-  leadActiveLimit: z.number().int().min(0).max(100).optional(),
+  // leadActiveLimit, «свои объекты сверх лимита» и «взвешенные слоты» убраны
+  // 16.11.2026 (владелец: «лимитов заявок больше нет и не будет»). Колонки
+  // Settings остаются до отдельной миграции, PATCH их больше не принимает.
   /** Максимум объектов у агента одновременно в конвейере подготовки. 0 = без лимита. */
   propertyActiveLimit: z.number().int().min(0).max(100).optional(),
   /** Единая политика подбора (решение владельца 17.09.2026, docs/match-policy-plan-17-09.md)
    *  — вкладка «Подбор объектов». lib/matchPolicy.ts::loadMatchPolicy() читает те же поля. */
   autoMatchEnabled: z.boolean().optional(),
-  matchIncludeInactive: z.boolean().optional(),
-  matchIncludeDeferred: z.boolean().optional(),
   matchNotifyPropertyOwner: z.boolean().optional(),
+  /** Пуш агенту: новое объявление Somon/Paydo подошло его покупателю (14.11.2026, lib/market/buyerAlerts.ts). */
+  marketBuyerAlertsEnabled: z.boolean().optional(),
+  /** Подбор покупателю с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: z.boolean().optional(),
+  /** Узкий подбор с площадок (17.11.2026, lib/market/buyerMatch.ts loadMarketBuyerRules): границы — общие с экраном. */
+  marketBuyerFreshDays: z.number().int().min(MARKET_BUYER_RULE_LIMITS.freshDays.min).max(MARKET_BUYER_RULE_LIMITS.freshDays.max).optional(),
+  marketBuyerBudgetTolerancePct: z.number().int().min(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.min).max(MARKET_BUYER_RULE_LIMITS.budgetTolerancePct.max).optional(),
+  marketBuyerRoomsTolerance: z.number().int().min(MARKET_BUYER_RULE_LIMITS.roomsTolerance.min).max(MARKET_BUYER_RULE_LIMITS.roomsTolerance.max).optional(),
+  marketBuyerAlertsPerDay: z.number().int().min(MARKET_BUYER_RULE_LIMITS.alertsPerDay.min).max(MARKET_BUYER_RULE_LIMITS.alertsPerDay.max).optional(),
   /** 0 = без срока. */
   matchRequirementTtlDays: z.number().int().min(0).max(365).optional(),
   matchBudgetTolerancePct: z.number().int().min(0).max(50).optional(),
@@ -747,28 +761,6 @@ const settingsUpdateSchema = z.object({
   /** Жёсткое исключение без порога: бот уже показал клиенту этот объект. */
   ownPropertyShownExceptionEnabled: z.boolean().optional(),
   ownPropertyShownWindowDays: z.number().int().min(1).max(365).optional(),
-  /** Лимит активных лидов — предел смешанного портфеля; свои объекты за него
-   *  выходят через освобождение места, а без обычных лидов — просто сверх. */
-  ownPropertyOverLimitEnabled: z.boolean().optional(),
-  ownPropertyReleaseEnabled: z.boolean().optional(),
-  // ownPropertyReleaseMode: режим "random" убран по закону владения (П-4/П-6,
-  // 17.09.2026, `docs/audit/lead-ownership-17-09.md` §4) — система больше не
-  // выбирает жертву сама. Поле нарочно НЕ принимается: сохранено в схеме БД
-  // (без миграции), но из формы Настроек и из PATCH исключено намеренно.
-  /** Надбавка к leadActiveLimit для лидов по своим объектам (не абсолютное
-   *  число) — по умолчанию 1, то есть потолок activeLimit+1. 0 = буквально
-   *  без предела. См. leads.ts::canTakeOwnPropertyLead. */
-  ownPropertyLeadCap: z.number().int().min(0).max(100).optional(),
-  /** «Взвешенные слоты» лимита (план владельца 20-21.08.2026): свежий лид
-   *  занимает целое место, доведённый до показа — половину, «думающий» —
-   *  четверть, и сливать почти доработанного клиента ради нового становится
-   *  незачем. Веса — в процентах слота. Потолок 1000 % оставлен намеренно:
-   *  владелец вправе сделать какую-то ступень дороже целого места, если решит
-   *  наоборот придерживать портфель. См. lib/leadLimits.ts. */
-  weightedLeadSlotsEnabled: z.boolean().optional(),
-  leadSlotWeightFreshPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightAfterShowingPercent: z.number().int().min(0).max(1000).optional(),
-  leadSlotWeightThinkingPercent: z.number().int().min(0).max(1000).optional(),
   /** Раздача портфеля уволенного: клиенты — сильным по KPI, объекты — слабым. */
   handoverClientsToHighKpi: z.boolean().optional(),
   handoverPropertiesToLowKpi: z.boolean().optional(),
@@ -825,6 +817,10 @@ const settingsUpdateSchema = z.object({
   botCanConfirmShowings: z.boolean().optional(),
   botCanFollowUp: z.boolean().optional(),
   botCanAnswerComments: z.boolean().optional(),
+  /** Комментарий со сбоем бота (ИИ недоступен, отказ ядра, застрял) — сводкой человеку (15.11.2026). */
+  commentFailureWatchEnabled: z.boolean().optional(),
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: z.boolean().optional(),
   /** «Соедините с оператором»: бот записывает запрос звонка и зовёт агентов. */
   botCanRequestCallback: z.boolean().optional(),
   /** Дежурный оператор обратных звонков (сейчас Нурмухаммад, потом сменится —
@@ -841,6 +837,8 @@ const settingsUpdateSchema = z.object({
   botCanSendLinks: z.boolean().optional(),
   /** Режим запуска: бот отвечает ровно на спрошенное и ничего не предлагает сверх. */
   botCautiousMode: z.boolean().optional(),
+  /** Склеивать быстрые дубли клиента с карточкой: окно 6 с вместо 0 (15.11.2026, по умолчанию вкл). */
+  botMergeQuickRepeats: z.boolean().optional(),
   /** Экономия промта по намерению: подробности сценария — только тому разговору,
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
@@ -865,13 +863,23 @@ const settingsUpdateSchema = z.object({
   botInstagramEnabled: z.boolean().optional(),
   botFacebookEnabled: z.boolean().optional(),
   botTelegramEnabled: z.boolean().optional(),
+  /** Сторожа «никого не пропустить» (15.11.2026): Telegram без ответа 30 мин — пуш ответственному;
+   *  вебхук WhatsApp замолчал в рабочие часы — тревога руководству. */
+  telegramSilenceWatchEnabled: z.boolean().optional(),
+  telegramDeliveryWatchEnabled: z.boolean().optional(),
+  whatsappWebhookWatchEnabled: z.boolean().optional(),
   botWebsiteChatEnabled: z.boolean().optional(),
   /** Рубильник прямой интеграции с Meta (WhatsApp, Instagram, Messenger). */
   metaEnabled: z.boolean().optional(),
+  /** Сверка переписок с Meta: не дошедшее до CRM — «Ответьте вручную» (15.11.2026), по площадке. */
+  messengerInboxReconcileEnabled: z.boolean().optional(),
+  instagramInboxReconcileEnabled: z.boolean().optional(),
   /** Ключи Meta. Пустая строка — очистить и вернуться на переменную окружения. */
   metaAppSecret: secretField(500),
   /** Номер приложения Meta — нужен, чтобы обменять маркер рекламы на 60-дневный. */
   metaAppId: z.string().trim().max(100).optional(),
+  /** Номер конфигурации входа через Facebook (13.11.2026, lib/metaLogin.ts) — только цифры; пусто — без конфигурации. */
+  metaLoginConfigId: z.string().trim().regex(/^\d{0,30}$/, "Номер конфигурации — только цифры").optional(),
   metaVerifyToken: secretField(500),
   metaWaToken: secretField(1000),
   metaWaPhoneId: z.string().trim().max(100).optional(),
@@ -890,7 +898,9 @@ const settingsUpdateSchema = z.object({
   /** Рекламный кабинет (Marketing API): рубильник, маркер с ads_read и номер кабинета. */
   metaAdsEnabled: z.boolean().optional(),
   metaAdsToken: secretField(1000),
-  metaAdAccountId: z.string().trim().max(100).optional(),
+  // 1000, а не 100: вход через Facebook дописывает кабинеты списком (13.11.2026),
+  // и после пятого кабинета поле перестало бы сохраняться на экране.
+  metaAdAccountId: z.string().trim().max(1000).optional(),
   /** Секрет для приёма бюджетных оповещений Google Cloud (не ключ доступа — просто
    *  строка в адресе подписки Pub/Sub, поэтому не шифруется). Пустая строка —
    *  «секрет не задан», а не короткий секрет, и должна проходить как раньше.
@@ -965,11 +975,16 @@ const settingsUpdateSchema = z.object({
   videoHandoffEnabled: z.boolean().optional(),
   /** Ролик от СММщика или другого сотрудника через Шабнам (12.11.2026, telegram/staffClip.ts). */
   staffClipIntakeEnabled: z.boolean().optional(),
+  /** Монтажёр управляет очередью из бота: пропустить, взять другой, передвинуть (19.11.2026, lib/montajerQueueControl.ts). */
+  montajerQueueControlEnabled: z.boolean().optional(),
   /** Проверка фото и видео агента перед монтажом (25.09.2026). false — CRM
    *  одобряет сама (lib/propertyReview.ts::autoApproveIfRawReviewOff). */
   rawReviewRequired: z.boolean().optional(),
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: z.boolean().optional(),
+  /** Готовый ролик подтверждает хозяин объекта, без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: z.boolean().optional(),
+  clipOwnerAutoPublishHours: z.number().int().min(0).max(48).optional(),
   // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
   // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),
@@ -1064,6 +1079,21 @@ const settingsUpdateSchema = z.object({
   botUseWhatsappNumber: z.boolean().optional(),
   botMaxPhoneAsks: z.number().int().min(1).max(3).optional(),
   botHotIntentHandover: z.boolean().optional(),
+  /** Бот клиентов по-человечески (20.11.2026): тишина после ответа сотрудника, слова модели, номера проверяющих. */
+  botStaffQuietMinutes: z.number().int().min(5).max(240).optional(),
+  botOwnWords: z.boolean().optional(),
+  botReviewerPhones: z.array(z.string().trim().max(32)).max(20)
+    .transform((list) => [...new Set(list.map((phone) => phone.replace(/\D/g, "")).filter((digits) => digits.length >= 9 && digits.length <= 15))])
+    .optional(),
+  /** «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026, lib/botAnswersItself.ts): не зовёт руководство, отвечает сам. */
+  botAnswersItself: z.boolean().optional(),
+  /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). ВЫКЛ — карточка, ответ как раньше. */
+  botCommentPhoneConversation: z.boolean().optional(),
+  /** Номер из комментария становится заявкой агенту (рубильник ревью #283, 20.11.2026). ВЫКЛ — как до #283. */
+  botCommentPhoneLead: z.boolean().optional(),
+  /** Реестр разрешённых строек memor.pro (20.11.2026): еженедельный забор и показ сотрудникам; уведомление агенту при смене цвета. ВКЛ по умолчанию. */
+  constructionRegistryEnabled: z.boolean().optional(),
+  constructionRegistryNotify: z.boolean().optional(),
   /** Робозвонок покупателю после показа (13.09.2026, см. lib/postShowingCalls.ts и
    *  docs/buyer-antifraud-funnel-13-09-2026.md). Работает только поверх включённого
    *  живого голоса выше: свой канал звонка он не заводит, а пользуется тем же мостом. */
@@ -1132,6 +1162,22 @@ const settingsUpdateSchema = z.object({
    *  пишет голосовую почту (не возвращает в очередь, решение владельца 29.08.2026,
    *  см. lib/telephony/inboundRouting.ts). */
   incomingRouteToAssignedAgent: z.boolean().optional(),
+  /** Рубильник перезвона клиента из Корзины звонившему РОПу (17.11.2026), по умолчанию выключен. */
+  incomingArchiveCallbackEnabled: z.boolean().optional(),
+  /** ПРОПУЩЕННЫЙ ЗВОНОК НЕ ТЕРЯЕТСЯ (18.11.2026), оба рубильника выключены по умолчанию.
+   *  А: СМС со ссылкой на WhatsApp сразу после неотвеченного входящего (lib/telephony/missedCallFollowup.ts). */
+  missedCallSmsEnabled: z.boolean().optional(),
+  /** Текст СМС: один на два языка (сначала таджикский, потом русский). Длинного тире в нём
+   *  быть не может: владелец не принимает его в текстах клиентам. */
+  missedCallSmsText: z
+    .string()
+    .trim()
+    .min(1, "Текст не может быть пустым")
+    .max(600, "Слишком длинный текст для СМС")
+    .refine((v) => !/[‒-―−]/.test(v), { message: "В тексте не должно быть длинного тире" })
+    .optional(),
+  /** Б: незнакомый пропущенный получает карточку и общую задачу «Перезвонить». */
+  missedCallCallbackTaskEnabled: z.boolean().optional(),
   /** Сколько секунд станция звонит агенту, прежде чем перейти на голосовую почту.
    *  Нижняя граница пяти секунд — защита: меньше трубку не берут, и такой перевод
    *  стоил бы клиенту лишнего гудка без единого шанса на ответ. Верхняя — 300
@@ -1178,6 +1224,8 @@ const settingsUpdateSchema = z.object({
    *  сводок; отдельного списка не заводим, пока владелец не попросит. */
   problemReportWeeklyEnabled: z.boolean().optional(),
   problemReportMonthlyEnabled: z.boolean().optional(),
+  /** Финансовый PDF за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026, lib/reportPdf/monthlyFinance.ts). */
+  financePdfMonthlyEnabled: z.boolean().optional(),
   /** Пауза перед ответом бота, секунды: сколько тишины ждать, пока клиент дописывает.
    *  0 — отвечать сразу; верхний предел — минута, дальше клиент решит, что его не читают. */
   botReplyDelaySec: z.number().int().min(0).max(60).optional(),
@@ -1215,21 +1263,15 @@ const settingsUpdateSchema = z.object({
   /** Резерв объекта на сделке (Путь покупателя) — сколько рабочих дней держим,
    *  прежде чем автоматически вернуть в продажу. */
   dealReservationBusinessDays: z.number().int().min(1).max(30).optional(),
-  inactivityWarnAfterDays: z.number().int().min(1).max(60).optional(),
-  inactivityPenaltyAfterDays: z.number().int().min(1).max(90).optional(),
-  inactivityPenaltyPoints: z.number().int().min(0).max(50).optional(),
+  // inactivityWarnAfterDays/inactivityPenaltyAfterDays/inactivityPenaltyPoints убраны
+  // из схемы 16.11.2026 вместе со штрафом за бездействие (lib/inactivityPenalty.ts
+  // удалён). Колонки в БД остаются; схема не строгая — старый экран, приславший
+  // поле, получит 200, поле просто отбросится.
   /** «Застой сделки» (владелец 30.08.2026, lib/dealStalePipeline.ts): продавец без
    *  единого объекта в CRM дольше стольких дней, или покупатель без единой сделки —
    *  застой. Потолки — тот же порядок, что и дефолт в схеме (10/21 дней), с запасом. */
   dealStaleSellerDays: z.number().int().min(1).max(60).optional(),
   dealStaleBuyerDays: z.number().int().min(1).max(90).optional(),
-  /** Светофор неактивных (владелец 20-21.08.2026, lib/inactiveTrafficLight.ts): цвет
-   *  ставит система, эти числа настраивают только темп — как часто напоминать агенту
-   *  и после скольких попыток карточка уходит в Потерянные. Потолок часов 240 (10 суток) —
-   *  порог, за которым «напоминание» уже не отличить от «забыли». */
-  inactiveGreenPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveYellowPingHours: z.number().int().min(1).max(240).optional(),
-  inactiveRedPingHours: z.number().int().min(1).max(240).optional(),
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время,
    *  прежде чем уйти в общую очередь по KPI. */
   lostReturnAcceptMinutes: z.number().int().min(5).max(1440).optional(),
@@ -1293,6 +1335,9 @@ const settingsUpdateSchema = z.object({
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. */
   workHoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   workHoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  /** Начало рабочего дня сотрудников, "HH:MM" по Душанбе (20.11.2026) — для пометки
+   *  «сегодня не заходил» на главной руководителя; не окно раздачи заявок. */
+  workdayStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   /** Общие выходные компании (владелец 11.10.2026), 0 — воскресенье … 6 — суббота.
    *  Пусто — выходных нет. Правило — packages/shared/src/daysOff.ts. */
   companyDaysOff: daysOffSchema.optional(),
@@ -1318,7 +1363,19 @@ const settingsUpdateSchema = z.object({
    *  события не пишутся (recordScoreEvent), push о счёте не уходит, кабинет и
    *  карточка в профиле агента не показываются. Журнал не стирается. */
   royalScoreEnabled: z.boolean().optional(),
-  royalScoreEventPoints: z.partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100)).optional(),
+  // Минус — только у компенсаций уже начисленного плюса (minScoreEventPoints из
+  // общего каталога, то же правило, что у поля на экране): автоматических штрафов
+  // нет с 16.11.2026, и вернуть их «через цену» в Настройках нельзя.
+  royalScoreEventPoints: z
+    .partialRecord(z.enum(SCORE_EVENT_KEYS), z.number().min(-100).max(100))
+    .superRefine((points, ctx) => {
+      for (const [key, value] of Object.entries(points)) {
+        if (typeof value === "number" && value < minScoreEventPoints(key)) {
+          ctx.addIssue({ code: "custom", path: [key], message: "Цена события не может быть меньше нуля — баллы только начисляются" });
+        }
+      }
+    })
+    .optional(),
   /** Скользящее окно, за которое считается счёт, дней. Меньше суток бессмысленно —
    *  событие выпадало бы из расчёта в день начисления. */
   royalScoreWindowDays: z.number().int().min(1).max(365).optional(),
@@ -1328,10 +1385,20 @@ const settingsUpdateSchema = z.object({
    *  Ключ сюда не входит — он не правится вручную, только ротируется отдельной
    *  кнопкой (POST /settings/meta-catalog-feed/rotate). */
   metaCatalogFeedEnabled: z.boolean().optional(),
+  /** Выключатели автоматики «работа с продавцами» (владелец 14.11.2026). Схема и
+   *  список — в packages/shared/src/sellerAutomationSwitches.ts, здесь не повторяются. */
+  ...sellerAutomationSwitchesUpdateSchema.shape,
+  /** Рубильник «Служба безопасности: автоматика» (18.11.2026) — packages/shared/src/securityAutomationSwitch.ts. */
+  ...securityAutomationSwitchUpdateSchema.shape,
+  /** Выключатели «Автоматика ИИ и напоминания» (19.11.2026) — packages/shared/src/automationSwitches.ts. */
+  ...automationSwitchesUpdateSchema.shape,
 });
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
+  // Рубильник автоматики СБ (18.11.2026) — тот же круг, что у дел СБ: сотрудник с правом
+  // на настройки не должен уметь выключить контроль над собой.
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -1469,22 +1536,6 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     const endMin = pair.publishScheduleWindowEndMin ?? currentPublish?.publishScheduleWindowEndMin ?? 1260;
     if (endMin <= startMin) {
       return res.status(400).json({ error: "Конец окна публикаций должен быть позже начала" });
-    }
-  }
-
-  // Сроки бездействия — тоже пара, и сломанной оказывается именно она: штраф раньше
-  // предупреждения означает, что предупреждать уже некогда, а вся суть правила была
-  // в том, чтобы не наказывать за то, о чём человека не предупредили. Сверяем с тем,
-  // что уже в базе: поля могут прийти по одному.
-  if (pair.inactivityWarnAfterDays !== undefined || pair.inactivityPenaltyAfterDays !== undefined) {
-    const currentDays = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { inactivityWarnAfterDays: true, inactivityPenaltyAfterDays: true },
-    });
-    const warnDays = pair.inactivityWarnAfterDays ?? currentDays?.inactivityWarnAfterDays ?? 3;
-    const penaltyDays = pair.inactivityPenaltyAfterDays ?? currentDays?.inactivityPenaltyAfterDays ?? 5;
-    if (penaltyDays <= warnDays) {
-      return res.status(400).json({ error: "Штраф должен наступать позже предупреждения — иначе предупреждать некогда" });
     }
   }
 
@@ -1916,6 +1967,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     fields: Object.keys(parsed.data),
     ...(rest.leadDistributionStrategy !== undefined ? { leadDistributionStrategy: rest.leadDistributionStrategy } : {}),
     ...(rest.botEnabled !== undefined ? { botEnabled: rest.botEnabled } : {}),
+    // Рубильник меняет скорость ответа клиентам с карточкой: кто и когда включил — должно быть видно.
+    ...(rest.botMergeQuickRepeats !== undefined ? { botMergeQuickRepeats: rest.botMergeQuickRepeats } : {}),
     ...(rest.passkeyLoginEnabled !== undefined ? { passkeyLoginEnabled: rest.passkeyLoginEnabled } : {}),
     // Замолчавший канал выглядит как поломка («бот не отвечает в Instagram»), и
     // первым делом надо видеть, что его просто выключили — и кто именно.
@@ -1923,6 +1976,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest.botInstagramEnabled !== undefined ? { botInstagramEnabled: rest.botInstagramEnabled } : {}),
     ...(rest.botFacebookEnabled !== undefined ? { botFacebookEnabled: rest.botFacebookEnabled } : {}),
     ...(rest.botTelegramEnabled !== undefined ? { botTelegramEnabled: rest.botTelegramEnabled } : {}),
+    // Выключенный сторож — это «клиента без ответа никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.telegramSilenceWatchEnabled !== undefined ? { telegramSilenceWatchEnabled: rest.telegramSilenceWatchEnabled } : {}),
+    ...(rest.telegramDeliveryWatchEnabled !== undefined ? { telegramDeliveryWatchEnabled: rest.telegramDeliveryWatchEnabled } : {}),
+    ...(rest.whatsappWebhookWatchEnabled !== undefined ? { whatsappWebhookWatchEnabled: rest.whatsappWebhookWatchEnabled } : {}),
     ...(rest.botWebsiteChatEnabled !== undefined ? { botWebsiteChatEnabled: rest.botWebsiteChatEnabled } : {}),
     // Момент включения и выключения сравнения — граница, за которой поведение бота
     // с клиентами меняется. Без отметки в журнале потом не понять, почему часть
@@ -1933,6 +1990,13 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Отключение транспорта обрывает связь с клиентами в Instagram и WhatsApp —
     // в журнале действий должно быть видно, кто и когда это сделал.
     ...(rest.metaEnabled !== undefined ? { metaEnabled: rest.metaEnabled } : {}),
+    // Выключенная сверка — «не дошедшее до CRM никто не увидит»: кто и когда, должно быть видно.
+    ...(rest.messengerInboxReconcileEnabled !== undefined ? { messengerInboxReconcileEnabled: rest.messengerInboxReconcileEnabled } : {}),
+    ...(rest.instagramInboxReconcileEnabled !== undefined ? { instagramInboxReconcileEnabled: rest.instagramInboxReconcileEnabled } : {}),
+    // Выключенный сторож — «комментарий со сбоем бота никто не заметит»: кто и когда, должно быть видно.
+    ...(rest.commentFailureWatchEnabled !== undefined ? { commentFailureWatchEnabled: rest.commentFailureWatchEnabled } : {}),
+    // Выключенное уведомление директору о передачах РОП — кто и когда выключил, должно быть видно.
+    ...(rest.ropTransferAlertEnabled !== undefined ? { ropTransferAlertEnabled: rest.ropTransferAlertEnabled } : {}),
     // Смена весов KPI меняет и рейтинг, и распределение лидов — в журнале
     // должно быть видно, кто и когда её сделал.
     ...(rest.kpiWeights !== undefined ? { kpiWeights: rest.kpiWeights } : {}),
@@ -1953,6 +2017,13 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     // Общие выходные меняют тревоги, штрафы и обещания ботов всей компании — в журнале
     // должно быть видно, кто и какие дни поставил (11.10.2026).
     ...(rest.companyDaysOff !== undefined ? { companyDaysOff: rest.companyDaysOff } : {}),
+    // Выключатели автоматики по продавцам (14.11.2026): выключенная тревога или звонок
+    // робота выглядит как поломка — в журнале видно, кто и когда выключил.
+    ...Object.fromEntries(SELLER_AUTOMATION_FIELDS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
+    // Автоматика СБ (18.11.2026): кто и когда включил/выключил — в журнале.
+    ...(rest[SECURITY_AUTOMATION_KEY] !== undefined ? { [SECURITY_AUTOMATION_KEY]: rest[SECURITY_AUTOMATION_KEY] } : {}),
+    // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
+    ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
   });
 
   // Маркер рекламного кабинета из Graph API Explorer живёт час-два — меняем его на
@@ -2796,7 +2867,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
-    let instagramIdentity: { username: string; messagingId?: string } | undefined;
+    let instagramIdentity: { username: string; messagingId?: string; pageId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2826,7 +2897,9 @@ settingsRouter.post(
       if (!identity.username?.trim()) {
         return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
       }
-      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
+      // Маркер Страницы (EAA…) вместо маркера Instagram: такой аккаунт говорит
+      // только через эту Страницу — запоминаем её вместе с маркером (13.11.2026).
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId, pageId: identity.pageId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.
@@ -2968,6 +3041,7 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
 function privateSettingsResponse<T extends object>(response: T, role: string | undefined): T {
   if (!canViewInvestigations(role)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>)[SECURITY_AUTOMATION_KEY];
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
     delete (response as Record<string, unknown>).postShowingCohortConfig;

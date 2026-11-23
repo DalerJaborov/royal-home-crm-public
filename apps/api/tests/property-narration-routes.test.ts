@@ -5,7 +5,10 @@ import request from "supertest";
 const s = vi.hoisted(() => ({ role: "MARKETING", access: true, property: vi.fn(), settings: vi.fn(), latest: vi.fn(), findVersion: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), audio: vi.fn(), file: vi.fn(), upload: vi.fn(), delivery: vi.fn(), deliveryFind: vi.fn(), deliveryUpdate: vi.fn(), preview: vi.fn(), metadataList: vi.fn(), report: vi.fn(), assigned: vi.fn(), configSave: vi.fn(), versions: vi.fn() }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/auth/middleware.js")>(), requireAuth: (req: any, _res: any, next: () => void) => { req.agent = { id: "staff", role: s.role }; next(); } }));
 vi.mock("../src/routes/properties/shared.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/properties/shared.js")>(), canManageProperty: () => s.access }));
-vi.mock("../src/routes/marketing.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/marketing.js")>(), hasMarketingRole: (role: string) => ["MARKETING", "ADMIN", "DIRECTOR"].includes(role) }));
+// Права на утверждение — одна дверь с Шабнам (lib/staffNarration.ts, 18.11.2026): здесь по роли и s.access.
+vi.mock("../src/lib/staffNarration.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/staffNarration.js")>(),
+  narrationAccessForAgent: async () => (!s.access || ["EDITOR", "VIEWER", "OBSERVER"].includes(s.role) ? null : { agentId: "staff", isManager: ["MARKETING", "ADMIN", "DIRECTOR"].includes(s.role), role: s.role }) }));
+vi.mock("../src/routes/marketing.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/marketing.js")>(), hasMarketingRole: (agent?: { role?: string } | null) => ["MARKETING", "ADMIN", "DIRECTOR"].includes(agent?.role ?? "") }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/localVideoStorage.js")>(), localVideoUpload: s.upload, localVideoFilePath: s.file, localVideoDelete: vi.fn().mockResolvedValue(true) }));
 vi.mock("../src/lib/ownerReport/link.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/ownerReport/link.js")>(), findActiveOwnerReportLink: vi.fn(), presentOwnerReportLink: vi.fn() }));
@@ -15,8 +18,10 @@ vi.mock("../src/lib/publicationMetadataSync.js", async (importOriginal) => ({ ..
 vi.mock("../src/db.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/db.js")>();
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
-    property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+    property: { findUnique: s.property, findUniqueOrThrow: s.property, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    videoRemakeRequest: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     narrationVoiceSample: { findMany: vi.fn().mockResolvedValue([]) },
+    freeNarration: { findMany: vi.fn().mockResolvedValue([]) },
     // Последний выбор голоса сотрудника (12.11.2026): у этой подделки его нет.
     agent: { findUnique: vi.fn().mockResolvedValue(null) },
     propertyNarrationVersion: { findFirst: s.latest, findUnique: s.findVersion, findMany: s.versions, create: s.create, update: s.update, updateMany: s.updateMany, count: s.count },
@@ -24,6 +29,9 @@ vi.mock("../src/db.js", async (importOriginal) => {
   };
   return { ...actual, prisma: { ...prisma, $transaction: (fn: (tx: typeof prisma) => unknown) => fn(prisma) } };
 });
+// Повтор наложения (20.11.2026): проверяются права пути, сама дверь подменена.
+const retry = vi.hoisted(() => vi.fn(async () => "QUEUED" as const));
+vi.mock("../src/lib/narrationAutoFlow.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/lib/narrationAutoFlow.js")>(), retryNarrationRemix: retry }));
 import { narrationRouter } from "../src/routes/properties/narration.js";
 import { narrationFacts, narrationHash } from "../src/lib/propertyNarration.js";
 const app = express(); app.use(express.json()); app.use("/properties", narrationRouter);
@@ -209,8 +217,9 @@ describe("property narration route boundaries", () => {
     const response = await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true });
     expect(response.status).toBe(200);
     expect(s.updateMany).toHaveBeenCalledWith({ where: { id: versionId, status: "READY", approvedAt: null }, data: { approvedAt: expect.any(Date), approvedById: "staff" } });
+    // Аудио по тексту маркетинга на ВЫШЕДШЕМ ролике (здесь он вышел в Instagram) ждёт агента после прослушивания (ревью 18.11).
     s.latest.mockResolvedValue({ ...row(), status: "READY", approvedAt: null, source: "MANUAL", storageKey: "k" });
-    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
+    expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(200);
     s.role = "EDITOR"; s.assigned.mockResolvedValue({ id: "assigned" });
     expect((await request(app).post(`${base}/${versionId}/approve`).send({ expectedRevision: 1, confirmed: true })).status).toBe(403);
   });
@@ -232,17 +241,93 @@ describe("property narration route boundaries", () => {
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{вид} барои фурӯш. Нархаш {цена}." }] })).status).toBe(200);
     expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...templates[0], text: "{стоимость} барои фурӯш." }] })).status).toBe(400);
   });
+  it("settings PUT (21.11.2026): новый шаблон с {этажей} не принимается, этаж — можно; старый шаблон с {этажей} не мешает сохранить остальное", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "{вид} барои фурӯш. [Хона дар ошёнаи {этаж_пор}и бинои {этажей} ошёна ҷойгир аст.]" };
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old] }, elevenLabsApiKey: "test" });
+    const bad = await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}и бинои {этажей} ошёна.]" }] });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/Этажность дома в озвучке не называем/u);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [{ ...old, id: "tg-new", text: "{вид} барои фурӯш. [Ошёнаи {этаж_пор}.]" }] })).status).toBe(200);
+    expect((await request(app).put("/properties/narration-settings").send({ templates: [old], dailyCharLimit: 4000 })).status).toBe(200);
+  });
+  it("settings PUT (ревью #363): «Живые слова» выключены — {объект} вне скобок не принимается (прозвучал бы пустым); в скобках и при ВКЛ — можно", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [] }, elevenLabsApiKey: "test" });
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    const live = { id: "tg-live", name: "Живой", lang: "tg", text: "[Дар ноҳияи {район} ]{объект} фурӯхта мешавад. Нархаш {цена}." };
+    const off = await put({ templates: [live] });
+    expect(off.status).toBe(400);
+    expect(off.body.error).toMatch(/\{объект\}.*Живых словах/u);
+    const ending = await put({ endings: [{ id: "end-live", lang: "ru", text: "Продаётся {объект}, пишите нам." }] });
+    expect(ending.status).toBe(400);
+    expect(s.configSave).not.toHaveBeenCalled();
+    expect((await put({ templates: [{ ...live, text: "{вид} фурӯхта мешавад.[ Ин {объект} аст.] Нархаш {цена}." }] })).status).toBe(200);
+    expect((await put({ templates: [live], liveWords: true })).status).toBe(200);
+  });
+  it("settings PUT guards templates and endings (16.11.2026): digits in Tajik text, Direct in Latin, the word брон; types and endings are saved", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [], autoGenerate: true }, elevenLabsApiKey: "test" });
+    const template = { id: "tg-apt-1", name: "Квартира 1", lang: "tg", text: "{вид} барои фурӯш. Нархаш {цена}.", propertyTypes: ["APARTMENT"] };
+    const ending = { id: "end-a", lang: "tg", text: "Ба мо дар Директ нависед ё занг занед.", propertyTypes: ["APARTMENT", "HOUSE"] };
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    const ok = await put({ templates: [template], endings: [ending] });
+    expect(ok.status).toBe(200);
+    expect(s.configSave.mock.calls.at(-1)![0].update.propertyNarrationConfig).toMatchObject({ templates: [template], endings: [ending] });
+    for (const [field, bad] of [["Хона аз 3 ҳуҷра", /цифры/u], ["Ба мо дар Direct нависед", /Директ/u], ["Хонаро брон кунед, нархаш {цена}", /брон/u]] as const) {
+      const asTemplate = await put({ templates: [{ ...template, text: field }] });
+      expect(asTemplate.status, field).toBe(400);
+      expect(asTemplate.body.error).toMatch(bad);
+      expect(asTemplate.body.error).toContain("Квартира 1");
+      const asEnding = await put({ endings: [{ ...ending, text: `${field}.` }] });
+      expect(asEnding.status, field).toBe(400);
+      expect(asEnding.body.error).toMatch(bad);
+    }
+    expect((await put({ endings: [ending, ending] })).status).toBe(400);
+    expect((await put({ templates: [{ ...template, propertyTypes: ["GARAGE"] }] })).status).toBe(400);
+  });
+  it("review 17.11: new text rules apply only to new or changed texts; unreadable saved config blocks saving", async () => {
+    s.role = "ADMIN"; s.configSave.mockResolvedValue({});
+    const old = { id: "tg-old", name: "Старый", lang: "tg", text: "Хона аз 3 ҳуҷра. Нархаш {цена}." };
+    const put = (body: object) => request(app).put("/properties/narration-settings").send(body);
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [old], autoGenerate: true }, elevenLabsApiKey: "test" });
+    // Выключили автоозвучку: старый живой шаблон с цифрой не мешает.
+    expect((await put({ autoGenerate: false })).status).toBe(200);
+    // Тот же шаблон, другой текст с цифрой: новое правило.
+    expect((await put({ templates: [{ ...old, text: "Хона аз 4 ҳуҷра. Нархаш {цена}." }] })).status).toBe(400);
+    // Структурные ошибки (неизвестное слово) ловятся и у неизменённого.
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [], templates: [{ ...old, text: "{стоимость} 3" }] }, elevenLabsApiKey: "test" });
+    expect((await put({ autoGenerate: false })).status).toBe(400);
+    // Сохранённая основа не читается схемой (больше 100 шаблонов): сохранение отклонено, ничего не записано.
+    s.configSave.mockClear();
+    const many = Array.from({ length: 101 }, (_, i) => ({ id: `t-${i}`, name: `Ш ${i}`, lang: "tg", text: "{вид} барои фурӯш." }));
+    s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "eleven_v4", voices: [{ id: "v", name: "В" }], templates: many }, elevenLabsApiKey: "test" });
+    const blocked = await put({ autoGenerate: true });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toMatch(/не читаются/u);
+    expect(s.configSave).not.toHaveBeenCalled();
+  });
   it("wizard options show templates and voices to any staff, without key or model", async () => {
     s.role = "AGENT";
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "secret-model", voices: [{ id: "voice", name: "Мадина", gender: "female" }], autoGenerate: true, templates: [] }, elevenLabsApiKey: "test" });
     const response = await request(app).get("/properties/narration-options");
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ templates: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [] });
+    expect(response.body).toEqual({ templates: [], endings: [], voices: [{ id: "voice", name: "Мадина", gender: "female" }], defaultTemplateId: null, defaultVoiceId: null, autoGenerate: true, lastChoice: {}, samples: [], usdToTjs: null, liveWords: false });
   });
   it("an agent edit with generate is refused while auto narration is off", async () => {
     s.role = "AGENT";
     const response = await request(app).post(base).send({ expectedRevision: 1, requestKey: "33333333-3333-4333-8333-333333333333", script: "Квартира барои фурӯш, се ҳуҷра.", generate: true });
     expect(response.status).toBe(409);
     expect(s.create).not.toHaveBeenCalled();
+  });
+  it("remix-retry: чужой агент (нет доступа к объекту) и монтажёр получают 403 и повтор не зовётся; ведущий объект — повтор", async () => {
+    s.role = "AGENT"; s.access = false;
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    s.role = "EDITOR"; s.access = true; s.assigned.mockResolvedValue({ id: "assigned" });
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(403);
+    expect(retry).not.toHaveBeenCalled();
+    s.role = "AGENT"; s.assigned.mockResolvedValue(null);
+    expect((await request(app).post(`${base}/remix-retry`).send({})).status).toBe(200);
+    expect(retry).toHaveBeenCalledWith(propertyId, "staff");
   });
 });

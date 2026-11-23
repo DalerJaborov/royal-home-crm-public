@@ -123,8 +123,12 @@ export interface Property {
    *  случая на клиенте нечем: оба дают `ownerContact: null` — честный флаг решает
    *  это на сервере, том же месте, где решается и сама маскировка. */
   ownerContactHidden?: boolean;
+  /** Номер собственника маской (`+9929300••456`) — тому, кто ведёт объект, но полного номера
+   *  не видит (с 18.11.2026 полный видит только директор). Звонок — кнопкой через станцию. */
+  ownerContactMasked?: string | null;
   /** Карточка продавца, к которой привязан объект (sellerClientId) — только в
-   *  ответе GET /properties/:id и только тем, кому виден номер собственника.
+   *  ответе GET /properties/:id и только тем, кому виден номер собственника или
+   *  кто ведёт объект сам (с 18.11.2026 — без номера, маской).
    *  `canOpen` — откроется ли у этого сотрудника карточка клиента. */
   sellerClient?: { id: string; shortId: number; fullName: string; canOpen: boolean } | null;
   assignedAgentId: string | null;
@@ -300,6 +304,8 @@ export interface Client {
    *  объекта продавца, которых в этом типе может не быть. Нет поля — значит эндпоинт
    *  его не отдаёт (Корзина, «Потерянные» и т.п.), там fullName/formatClientName как раньше. */
   displayName?: string;
+  /** То же имя порознь: `{ name, anchor }` (clientNameParts в @royal-home/shared) — строка «Нового вида». */
+  displayNameParts?: { name: string; anchor: string | null } | null;
   /** Фамилия отдельным полем — необязательна, у старых карточек не заполнена. */
   lastName?: string | null;
   phone: string;
@@ -317,33 +323,9 @@ export interface Client {
   extraPhoneOrigins?: Array<{ index: number; addedAt: string | null; source?: string }>;
   email: string | null;
   status: ClientStatus;
-  /**
-   * РАБОЧИЙ статус — единственный, которым управляет сам агент (ТЗ п. 3):
-   * ACTIVE — клиент в работе, занимает слот в лимите активных лидов;
-   * INACTIVE — «Неактивный», работа приостановлена, слот освобождён.
-   *
-   * Не путать со `status` (Новый/Горячий/Холодный/Потерянный) — его ставит CRM
-   * сама, агент его не трогает. До 14.08.2026 поле приходило с сервера, но нигде
-   * не отображалось: агент нажимал «Неактивный» и не видел на карточке никакой
-   * разницы, а вернуть клиента в работу не мог вовсе.
-   */
-  workStatus?: "ACTIVE" | "INACTIVE" | "DEFERRED";
-  /** «Отложенные» (задача G, план 03-04.09.2026) — присутствуют только при
-   *  workStatus="DEFERRED", см. Client.deferredAt/deferredReason/deferredUntil
-   *  на сервере (apps/api/prisma/schema.prisma). */
-  deferredAt?: string | null;
-  deferredReason?: string | null;
-  deferredUntil?: string | null;
-  /**
-   * Светофор неактивных (lib/inactiveTrafficLight.ts): цвет ставит СИСТЕМА по
-   * причине перевода и факту реального контакта, не агент. GREEN — пауза по делу
-   * (клиент сам сказал «думаю»/«отложил»), YELLOW — нарушенное обещание
-   * («перезвоню позже» и пропал), RED — живого контакта не было вовсе. null —
-   * клиент ни разу не был в Неактивных (или карточка старше 21.08.2026 и не
-   * переходила в Неактивные после этой даты — значение не восстанавливается
-   * задним числом).
-   */
-  inactiveLevel?: "GREEN" | "YELLOW" | "RED" | null;
+  // workStatus, deferred* и inactiveLevel убраны из типа 16.11.2026: состояний
+  // «Неактивный»/«Отложенный» и светофора больше нет (владелец: «ничего лишнего»).
+  // Сервер ещё отдаёт эти колонки до миграции, экран их не читает.
   /**
    * Сколько раз клиент уже переходил между агентами — общий счётчик передач и
    * отказов, по нему же сервер решает, исчерпан ли предел (ТЗ п. 21,
@@ -360,14 +342,6 @@ export interface Client {
   dualIntentNeedsConfirmation?: boolean;
   dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
   dualIntentNeedsReview?: boolean;
-  /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
-   *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
-   *  зон п.3). null — ИИ ещё ничего не услышал. */
-  sellerDeclaredPropertyCount?: number | null;
-  /** Симметрично выше, но для покупателя: сколько объектов хочет купить —
-   *  услышал ИИ, не агент (владелец 07.09.2026, «пусть у покупателя будет то
-   *  же самое»). null — обычный случай, купить одну квартиру, ИИ не отмечал. */
-  buyerDesiredPropertyCount?: number | null;
   /** Фото профиля из мессенджера, уже скачанное к нам (`/uploads/avatars/...`).
    *  Нет — components/ClientAvatar.tsx рисует кружок с инициалами. */
   avatarUrl?: string | null;
@@ -492,6 +466,14 @@ export interface Client {
   createdAt: string;
   lastContactAt: string;
   /**
+   * ПОСЛЕДНИЙ КОНТАКТ СОТРУДНИКА по правилу всей CRM (lib/noContact.ts на сервере:
+   * звонок с исходом дозвона, разговор, сообщение сотрудника, встреча или показ).
+   * Только в списке клиентов (GET /clients). null — ни разу не связывались;
+   * поля нет — сервер дату не отдаёт (заявка ещё не ваша). Не путать с
+   * lastContactAt: тот двигает любая заметка, а у новой карточки он равен созданию.
+   */
+  lastStaffContactAt?: string | null;
+  /**
    * Когда клиент САМ последний раз написал в переписке (не lastContactAt — тот
    * растёт и от исходящих сообщений агента). Тот же признак «был реальный
    * контакт», что у светофора неактивных и у досрочной «Передачи» — см.
@@ -553,7 +535,7 @@ export interface Client {
    * тихом переходе — одна функция форматирования на сервере, не дублируем здесь.
    */
   hiddenReason?: {
-    kind: "trashed" | "other" | "inactive" | "deferred" | "lost" | "dealClosed" | "archived" | "escalated" | "securityReview";
+    kind: "trashed" | "other" | "dealClosed" | "escalated" | "securityReview";
     label: string;
     detail?: string;
   } | null;
@@ -594,6 +576,8 @@ export interface Interaction {
   /** Кто действовал — см. lib/timeline.ts::TimelineActor на сервере. Не
    *  приходит у совсем старых незатронутых записей — читать как `"AGENT"`. */
   actorKind?: "AGENT" | "SYSTEM" | "AI" | "BOT" | "CLIENT";
+  /** Звонок-разбор удалённого клиента из Корзины: не работа агента (lib/archiveReviewCall.ts). */
+  archiveReview?: boolean;
   /** Кому адресована задача, когда актор не человек (subjectAgentId ?? agentId
    *  — тот же приём, что на сервере в lib/tasks.ts consumers). */
   subjectAgent?: { id?: string; fullName: string } | null;
@@ -735,6 +719,8 @@ export interface AppNotification {
   /** Сколько раз подряд повторилось это же событие (владелец 20.08.2026) — 1 — обычное. */
   count: number;
   read: boolean;
+  /** Показана человеку в открытом списке (метка на колокольчике её уже не считает), но может ждать действия. */
+  seenAt?: string | null;
   /** Погашено системой (смена владельца/статуса клиента), а не прочитано
    *  агентом — Пачка 19, 12.09.2026. null/undefined — обычное уведомление. */
   retiredAt?: string | null;

@@ -8,6 +8,7 @@ import { encryptSecret } from "../src/crypto.js";
 import { resetCalls } from "../src/lib/telephony/callTracker.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { recordAgentCallAttempt } from "../src/lib/telephony/agentNoPickupGuard.js";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 
 /**
  * Звонок из карточки клиента (ARI Originate) — этап 4 телефонии. Реального Asterisk
@@ -151,6 +152,20 @@ describe("POST /clients/:id/call", () => {
     expect(res.status).toBe(403);
   });
 
+  // Ревью 19.11.2026: маска закрывает две цифры, и ответ «принадлежит карточке / нет»
+  // на открытые цифры подсказывал номер за сто тихих запросов.
+  it("агент без права видеть номер шлёт открытые цифры — ответ один, угадал он или нет", async () => {
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    const hiddenPair = client.phone.slice(-5, -3);
+    const wrongPair = hiddenPair === "00" ? "11" : "00";
+    const wrongGuess = client.phone.slice(0, -5) + wrongPair + client.phone.slice(-3);
+    const right = await call(tokenWithExt, clientId, client.phone);
+    const wrong = await call(tokenWithExt, clientId, wrongGuess);
+    expect(right.status).toBe(409);
+    expect(wrong.status).toBe(right.status);
+    expect(wrong.body).toEqual(right.body);
+  });
+
   // Аудит 24.09.2026, №121: право «видеть всех» (служба безопасности) проходило
   // canAccessAssignedAgent и звонило чужому клиенту от его имени — тот же приём,
   // что #801 закрыл для /message (foreignWriteDenied).
@@ -159,13 +174,18 @@ describe("POST /clients/:id/call", () => {
     expect(res.status).toBe(403);
   });
 
-  // Клиент в Корзине — раньше маршрут не проверял deletedAt вовсе и звонил бы
-  // дальше (директору доступ к карточке даёт clients.assign, foreignWriteDenied
-  // его бы пропустил).
-  it("клиент в Корзине — 409 даже директору", async () => {
+  // Клиент в Корзине: обычному звонку по-прежнему «сначала восстановите», но руководство с правом
+  // «Звонить клиентам из Корзины» звонит для РАЗБОРА (16.11.2026, tests/archive-review-call.test.ts).
+  // У директора в этом тесте нет SIP-номера — значит, он прошёл проверку Корзины и упёрся уже в неё.
+  it("клиент в Корзине: директору можно (разбор) — дальше упирается в SIP, а не в Корзину", async () => {
     const res = await call(directorToken, trashedClientId);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/Корзин/);
+    expect(res.body.error).not.toMatch(/Корзин/);
+  });
+
+  it("клиент в Корзине: СБ (видеть всех, без права звонка) — отказ, не звонок", async () => {
+    const res = await call(securityToken, trashedClientId);
+    expect(res.status).toBe(403);
   });
 
   it("без ARI-ключей в Настройках — понятная ошибка «телефония не настроена»", async () => {
@@ -235,7 +255,8 @@ describe("POST /clients/:id/call", () => {
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: "channel-wa" }) } as Response);
       vi.stubGlobal("fetch", fetchMock);
       const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-      const res = await call(tokenWithExt, clientId, client.whatsappPhone!);
+      // Агент номера не видит: сайт шлёт то, что ему показали, — маску (или ключ выбора).
+      const res = await call(tokenWithExt, clientId, maskClientPhone(client.whatsappPhone!));
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ ok: true, channelId: "channel-wa" });
     });
@@ -244,23 +265,27 @@ describe("POST /clients/:id/call", () => {
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: "channel-extra" }) } as Response);
       vi.stubGlobal("fetch", fetchMock);
       const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-      const res = await call(tokenWithExt, clientId, client.extraPhones[0]);
+      const res = await call(tokenWithExt, clientId, maskClientPhone(client.extraPhones[0]));
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ ok: true, channelId: "channel-extra" });
     });
 
     it("номер, не принадлежащий этой карточке — отказ ДО обращения к станции", async () => {
       vi.stubGlobal("fetch", fetchMock);
-      const res = await call(tokenWithExt, clientId, "+992900111222");
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/не принадлежит/i);
+      // Открытые цифры от агента без права видеть номер не разбираются вовсе (ревью 19.11.2026):
+      // ответ тот же, что на верную догадку, — см. тест про подбор выше.
+      const raw = await call(tokenWithExt, clientId, "+992900111222");
+      expect(raw.status).toBe(409);
+      // Маска, которой нет в этой карточке, — тоже отказ.
+      const foreignMask = await call(tokenWithExt, clientId, maskClientPhone("+992900111222"));
+      expect(foreignMask.status).toBe(409);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it("международный номер клиента (не таджикский) — отказ, транк его не наберёт", async () => {
       await prisma.client.update({ where: { id: clientId }, data: { extraPhones: { push: "+79161234567" } } });
       vi.stubGlobal("fetch", fetchMock);
-      const res = await call(tokenWithExt, clientId, "+79161234567");
+      const res = await call(tokenWithExt, clientId, maskClientPhone("+79161234567"));
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/не таджикский/i);
       expect(fetchMock).not.toHaveBeenCalled();

@@ -1,10 +1,19 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
+import { glueNumbers } from "../lib/glueNumbers";
+import { Rh2ErrorState, Rh2OfflineState, Rh2RetryingNote, loadView } from "../components/rh2/Rh2ErrorState";
 import { useClientRowActions } from "../hooks/useClientRowActions";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
 import { CButton, cn } from "../components/clean/ui";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalClientListHead, RoyalClientRow } from "../components/look/clients/RoyalClients";
+import { pillTone } from "../components/look/tileTone";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RhButton } from "../components/look/ui";
+import { RoyalIcon } from "../components/look/RoyalIcon";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { clientListScope } from "../lib/clientListScope";
+import { EMPTY_REQUEST_TEXT, royalClientRowText } from "../lib/royalClientRowText";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
 const MobileInquiries = lazyWithReload(() => import("../components/mobile/MobileInquiries").then((m) => ({ default: m.MobileInquiries })));
 import { useCallback, useEffect, useState } from "react";
@@ -29,18 +38,16 @@ import {
   Row,
   Segment,
   Skeleton,
-  Tabs,
-  type TabOption,
 } from "../components/rh2";
-import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { useAgents } from "../hooks/useAgents";
-import { useTransferClient } from "../hooks/useMissionControl";
-import type { ClientSort } from "@royal-home/shared";
+import { NO_CONTACT_TEXT, positiveBudget, type ClientSort } from "@royal-home/shared";
 import { CallClientButton } from "../components/CallClientButton";
 import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { useEmptyListGuard } from "../hooks/useEmptyListGuard";
+import { EmptyListGuardBanner } from "../components/EmptyListGuardBanner";
 import { Pagination } from "../components/Pagination";
 import { useDistricts } from "../hooks/useDistricts";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -50,25 +57,25 @@ import { useAuthStore } from "../store/auth";
 import { DuplicatesModal } from "../components/DuplicatesModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { isRecentlyReturned } from "../components/ReturnedBadge";
-import { INACTIVE_LEVEL_LABELS, showsInactiveLabel } from "../components/InactiveLevelBadge";
 import { ClientStateBadge } from "../components/ClientStateBadge";
 import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MutationError } from "../components/MutationError";
-import { formatWait, relativeTime } from "../lib/format";
+import { formatWait } from "../lib/format";
 import { readKindParam } from "../lib/clientsKindParam";
-import { clientAction } from "../lib/clientAction";
+import { clientRowFact, lastContactLabel } from "../lib/clientRowFacts";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   DEFAULT_CLIENT_SORT,
   clientSortOptionsFor,
   formatClientCode,
   formatClientName,
+  clientDisplayName,
 } from "../lib/clientFormat";
 import type { Client } from "../types";
+import { budgetShort } from "../lib/budgetShort";
 
 /*
  * ЭКРАН «КЛИЕНТЫ» — ОДИН АДАПТИВНЫЙ ЭКРАН НА КОМПЬЮТЕР И ТЕЛЕФОН (контракт
@@ -95,29 +102,6 @@ import type { Client } from "../types";
  * компонент (App.tsx).
  */
 
-type TabId = "work" | "inactive" | "lost";
-
-/** Одна цифра после запятой, без хвоста «,0»: 1,7 млн, но 2 млн. */
-const oneDecimal = (x: number) => (Math.round(x * 10) / 10).toLocaleString("ru-RU");
-
-/**
- * Бюджет для второй строки: «$55–70 тыс.», «до $45 тыс.», «от 1,2 млн с.».
- * Единица берётся по большему краю, чтобы «55–70» не превращалось в «55–70 000».
- */
-function budgetShort(c: Pick<Client, "budgetMin" | "budgetMax" | "currency">): string | null {
-  const min = c.budgetMin ? Number(c.budgetMin) : null;
-  const max = c.budgetMax ? Number(c.budgetMax) : null;
-  if (!min && !max) return null;
-  const ref = (max || min) as number;
-  const div = ref >= 1_000_000 ? 1_000_000 : ref >= 1_000 ? 1_000 : 1;
-  const unit = div === 1_000_000 ? " млн" : div === 1_000 ? " тыс." : "";
-  const sym = c.currency === "USD" ? "$" : "";
-  const tail = c.currency === "USD" ? "" : " с.";
-  if (min && max) return `${sym}${oneDecimal(min / div)}–${oneDecimal(max / div)}${unit}${tail}`;
-  if (max) return `до ${sym}${oneDecimal(max / div)}${unit}${tail}`;
-  return `от ${sym}${oneDecimal((min as number) / div)}${unit}${tail}`;
-}
-
 const num = (n: number) => n.toLocaleString("ru-RU");
 
 const sectionPath = (k: "SELLER" | "BUYER") => (k === "SELLER" ? "/sellers" : "/clients");
@@ -136,15 +120,19 @@ export function Clients({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER
     kind !== "OTHER" && formParams.get("new") === "1"
       ? readKindParam(formParams.get("kind")).sectionKind ?? kind : null);
   const [newClientPhone] = useState(() => formParams.get("phone") ?? undefined);
+  // «Новый вид»: метка раздела на экране и на всех его окнах (RoyalSection) — слой
+  // theme-look-royal-clients.css действует только на неё.
+  const shellClean = useCleanShell();
+  const royalSection = useRoyalLook() && shellClean ? "clients" : undefined;
   if (kind !== "OTHER" && (gateRole === "MARKETING" || gateRole === "EDITOR")) {
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
-  return <>
+  return <RoyalSection name={royalSection}>
     {legacyAgentMobile
       ? kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} onAddClient={() => setFormKind(kind)} />
       : <ClientsList kind={kind} onAddClient={setFormKind} />}
     {formKind && !readOnly && <ClientFormModal kind={formKind} initialPhone={newClientPhone} onClose={() => setFormKind(null)} />}
-  </>;
+  </RoyalSection>;
 }
 
 /** Экран роли без доступа — тихой строкой прототипа (договор §6.12), а не пустотой. */
@@ -161,6 +149,8 @@ function RoleGate({ title, text }: { title: string; text: string }) {
 
 function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER" | "OTHER"; onAddClient: (kind: "BUYER" | "SELLER") => void }) {
   const clean = useCleanShell();
+  // «Новый вид» (пачка clients): только разметка и оформление, данные и действия те же.
+  const royal = useRoyalLook() && clean;
   const isSeller = kind === "SELLER";
   const isOther = kind === "OTHER";
   const role = useAuthStore((s) => s.agent?.role);
@@ -171,25 +161,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   // Открытие раздела гасит красный счётчик в сайдбаре (у текущего агента).
   useMarkSectionSeen(kind === "BUYER" ? "clients" : isSeller ? "sellers" : "otherInquiries");
   const [searchParams, setSearchParams] = useSearchParams();
-  /**
-   * `/inactive-clients` — настоящий маршрут (владелец 17.09.2026), не срез
-   * query-параметром поверх `/clients`: так подсветка вкладки указывает на верную
-   * вкладку, а адрес годится для закладки. kind у этого маршрута не важен:
-   * покупатели и продавцы идут вместе, пока не задан `?kind=`.
-   */
   const location = useLocation();
-  const isInactiveRoute = location.pathname === "/inactive-clients";
   /**
-   * «НЕ НА ВИДУ» — тоже настоящий маршрут (18.09.2026, задание В §f п.1,
+   * «НЕ НА ВИДУ» — настоящий маршрут (18.09.2026, задание В §f п.1,
    * `/clients/all-mine`): всё, что назначено держателю, включая карточки в корзине
    * и переданные. Сервер сам снимает kind-срез при `scope=allMine`.
    */
   const isAllMineRoute = location.pathname === "/clients/all-mine";
-  /**
-   * ИЗ КАКОГО РАЗДЕЛА ПРИШЛИ (21.09.2026). «Неактивные» — общий маршрут для
-   * продавцов и покупателей; значение из адреса сильнее пропа маршрута, у
-   * `/inactive-clients` проп стоит заглушкой (BUYER), см. App.tsx.
-   */
+  // Раздел из адреса (`?kind=`) сильнее пропа маршрута.
   const kindParam = searchParams.get("kind");
   const { sectionKind, allKinds } = readKindParam(kindParam);
   const section: "SELLER" | "BUYER" = sectionKind ?? (isSeller ? "SELLER" : "BUYER");
@@ -199,8 +178,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    */
   const [filters, setFilters] = useState<ClientFilters>(() => {
     const initial: ClientFilters = {};
-    const status = searchParams.get("status");
-    if (status) initial.status = status;
     const districtId = searchParams.get("districtId");
     if (districtId) initial.districtId = districtId;
     const source = searchParams.get("source");
@@ -215,37 +192,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
      * НОМЕР СТРАНИЦЫ ИЗ АДРЕСА НЕ БЕРЁМ (02.10.2026). Список растёт лентой
      * («Показать ещё»), и ссылка с ?page=4 открывала четвёртую страницу плюс
      * первую — со второй по третью строки пропадали молча.
-     *
-     * Пришли из «Контроль руководителя» → «Светофор неактивных» — три фильтра
-     * одним заходом: agentId, workStatus, inactiveLevel.
      */
-    const workStatus = isInactiveRoute ? "INACTIVE" : searchParams.get("workStatus");
-    if (workStatus === "ACTIVE" || workStatus === "INACTIVE") initial.workStatus = workStatus;
-    const inactiveLevel = searchParams.get("inactiveLevel");
-    if (inactiveLevel === "GREEN" || inactiveLevel === "YELLOW" || inactiveLevel === "RED") {
-      initial.inactiveLevel = inactiveLevel;
-    }
     return initial;
   });
-  /**
-   * ПЕРЕХОД МЕЖДУ «В РАБОТЕ» И «НЕАКТИВНЫМИ» БЕЗ ПЕРЕЗАГРУЗКИ (17.09.2026).
-   * `filters` читает адрес один раз, при монтировании; при переходе внутри
-   * приложения React переиспользует смонтированный компонент, и инициализатор
-   * второй раз не срабатывает. Эффект держит `workStatus`/`inactiveLevel` в
-   * синхроне с адресом при каждом его изменении.
-   */
-  useEffect(() => {
-    const workStatus = isInactiveRoute ? "INACTIVE" : searchParams.get("workStatus");
-    const inactiveLevel = searchParams.get("inactiveLevel");
-    setFilters((f) => {
-      const nextWorkStatus = workStatus === "ACTIVE" || workStatus === "INACTIVE" ? workStatus : undefined;
-      const nextInactiveLevel =
-        inactiveLevel === "GREEN" || inactiveLevel === "YELLOW" || inactiveLevel === "RED" ? inactiveLevel : undefined;
-      if (f.workStatus === nextWorkStatus && f.inactiveLevel === nextInactiveLevel) return f;
-      return { ...f, workStatus: nextWorkStatus, inactiveLevel: nextInactiveLevel, page: 1 };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInactiveRoute, searchParams.get("workStatus"), searchParams.get("inactiveLevel")]);
   /**
    * `?new=1` открывает форму сразу — этим адресом пользуются ярлык «Клиент» в меню
    * установленного приложения и «+» → «Новый клиент» (FabMenu). Читаем один раз и
@@ -255,8 +204,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры»: срез, статус, источник, район, агент, порядок. */
   const [showFilters, setShowFilters] = useState(false);
-  /** Шторка «Не на виду»: карточки в корзине и переданные другому. */
-  const [showHidden, setShowHidden] = useState(false);
   /** Поле поиска на телефоне открывается значком в шапке; на компьютере стоит всегда. */
   const [searchOpen, setSearchOpen] = useState(false);
   /**
@@ -271,30 +218,30 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    * список и число сходятся. Неизвестному значению `slice` экран не верит.
    */
   const [noResponseYesterday, setNoResponseYesterday] = useState(() => searchParams.get("slice") === "noResponseYesterday");
+  /**
+   * «Не связывались» — то же число, что на плитке телефона и в «Контроле
+   * руководителя»: правило одно (packages/shared/src/clientNoContact.ts), список
+   * даёт сервер (`noContact`, lib/noContact.ts). Приходит и по ссылке (`?slice=noContact`).
+   */
+  const [noContactSlice, setNoContactSlice] = useState(() => searchParams.get("slice") === "noContact");
   // Дебаунс строки поиска — см. тот же комментарий в Properties.tsx.
   const debouncedQuery = useDebouncedValue(filters.q, 350);
   useSyncFiltersToUrl(
     searchParams,
     setSearchParams,
     {
-      status: filters.status,
       districtId: filters.districtId,
       source: filters.source,
       agentId: filters.agentId,
-      workStatus: filters.workStatus,
-      inactiveLevel: filters.inactiveLevel,
       q: debouncedQuery?.trim() || undefined,
       sort: filters.sort,
-      slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : undefined,
+      slice: pendingSlice ? "pending" : noResponseYesterday ? "noResponseYesterday" : noContactSlice ? "noContact" : undefined,
     },
-    // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше).
-    ["new", "phone", "page"]
+    // `page` — вычищаем из старых ссылок и закладок (см. начальное состояние выше);
+    // `status` — фильтр удалённых статусов (16.11.2026).
+    ["new", "phone", "page", "status"]
   );
-  /**
-   * Смена раздела внутри «Неактивных» (`?kind=` в том же адресе) — компонент тот
-   * же, а лента обязана начаться заново: иначе накопленная страница N приезжала
-   * бы без страниц 2..N-1 нового раздела.
-   */
+  /** Смена раздела (`?kind=` в том же адресе) — лента начинается заново. */
   useEffect(() => {
     setFilters((f) => (f.page && f.page > 1 ? { ...f, page: 1 } : f));
   }, [sectionKind]);
@@ -309,30 +256,27 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
    */
   const searching = !!debouncedQuery?.trim();
   const searchAcrossKinds = searching && (role === "AGENT" || can("otherInquiries.view"));
-  /**
-   * «Светофор неактивных» из «Контроль руководителя» приходит БЕЗ раздела и
-   * показывает оба вида сразу. Когда в «Неактивные» вошли из раздела (`?kind=`),
-   * срез по виду обязан остаться: иначе у продавцов лежали бы покупатели.
-   */
-  const trafficLightDrilldown = !isOther && filters.workStatus === "INACTIVE" && !sectionKind;
   const kindForQuery =
-    searchAcrossKinds || trafficLightDrilldown || isAllMineRoute || allKinds || pendingSlice ? undefined : sectionKind ?? kind;
+    searchAcrossKinds || isAllMineRoute || allKinds || pendingSlice || noContactSlice ? undefined : sectionKind ?? kind;
   const clientQuery: ClientFilters = {
     ...filters,
     q: debouncedQuery,
-    // «Ждут принятия» — и покупатели, и продавцы разом: так считает число в шторке
-    // (useClientsSummary.awaitingAgent), и срез по разделу давал список короче числа.
+    // «Ждут принятия» и «Не связывались» — и покупатели, и продавцы разом: так считают
+    // числа сводки (useClientsSummary), и срез по разделу давал список короче числа.
     kind: kindForQuery,
     scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
-      status: filters.status, workStatus: filters.workStatus, pending: pendingSlice, noResponseYesterday }),
+      pending: pendingSlice, noResponseYesterday }),
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
+    ...(noContactSlice ? { noContact: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     // «Прочие обращения»: свежие сверху (серверный порядок по умолчанию и есть рабочий).
     ...(isOther && !filters.sort && !noResponseYesterday ? { sort: DEFAULT_CLIENT_SORT } : {}),
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, error, refetch } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, fetchStatus, refetch, dataUpdatedAt, failureCount } = useClients(clientQuery, !otherBlocked);
+  // Что вместо списка, пока данных нет: «нет связи» (запрос на паузе) или ошибка; есть данные — их не прячем (ревью #346).
+  const loadState = loadView({ data, isError: !!error, fetchStatus });
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -344,8 +288,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       ...filters,
       page: undefined,
       q: debouncedQuery,
-      kind: searchAcrossKinds || trafficLightDrilldown || isAllMineRoute || allKinds ? undefined : sectionKind ?? kind,
+      kind: searchAcrossKinds || isAllMineRoute || allKinds ? undefined : sectionKind ?? kind,
       pendingSlice,
+      noContactSlice,
       noResponseYesterday,
       isAllMineRoute,
     }),
@@ -356,15 +301,33 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   // Дубликаты видит только руководство — объединение затрагивает клиентов разных агентов.
   const { data: duplicates } = useDuplicates(can("clients.merge"));
   /** Сводка экрана: счётчики срезов, «ждёт агента», «не на виду». Один запрос. */
-  const { data: summary } = useClientsSummary(!isOther);
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary(!isOther);
   // Список агентов — только для шторки фильтров руководителя (агент видит своих и так).
   const { data: agents } = useAgents({ enabled: can("clients.viewAll") });
-  const assign = useTransferClient();
   const oldest = summary?.awaitingAgent.oldest ?? null;
-  const freeAgent = summary?.freeAgents?.[0] ?? null;
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
   // «Не на виду»: список грузится только когда шторка открыта.
-  const hiddenQuery = useClients({ scope: "allMine" }, showHidden);
+  // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с телефоном):
+  // сводку можно сравнивать только с обычной вкладкой «в работе» без условий.
+  const guardComparable =
+    clientQuery.scope === "inWork" && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
+    !clientQuery.q && (filters.page ?? 1) === 1 && !!kindForQuery;
+  const listGuard = useEmptyListGuard({
+    enabled: !otherBlocked,
+    sliceKey: `desktop:${kindForQuery ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
+    sliceName: `desktop-${(kindForQuery ?? "all").toLowerCase()}`,
+    isLoading,
+    isFetching,
+    hasData: !!data,
+    error,
+    itemCount: visibleItems.length,
+    expected: !guardComparable ? null : summary ? (kindForQuery === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
+    dataUpdatedAt,
+    refetchAll: () =>
+      Promise.all([refetch({ cancelRefetch: false }), isOther ? undefined : refetchSummary({ cancelRefetch: false })]),
+  });
+
 
   // «Прочие обращения» — управленческий раздел, агентам сюда доступа нет (API и так
   // не вернёт им ни одной записи, но сообщение понятнее пустого списка).
@@ -378,19 +341,13 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
 
-  const inactiveView = isInactiveRoute || trafficLightDrilldown;
-  const title = trafficLightDrilldown
-    ? filters.inactiveLevel
-      ? `Неактивные · ${INACTIVE_LEVEL_LABELS[filters.inactiveLevel]}`
-      : "Неактивные"
-    : isOther
+  const title = isOther
       ? "Прочие обращения"
       : isAllMineRoute
-        ? "Не на виду"
+        ? "Мои клиенты"
         : "Клиенты";
   const kindWord = section === "SELLER" ? "Продавцы" : "Покупатели";
   const inWorkCount = summary ? (section === "SELLER" ? summary.sellers : summary.buyers) : null;
-  const plainView = !filters.status && !filters.source && !filters.districtId && !filters.agentId && !searching;
   // Подзаголовок описывает то, что НА ЭКРАНЕ: при поиске по всем разделам одного
   // «Покупатели · в работе N» было бы враньём, поэтому там говорится о поиске.
   const sub = searchAcrossKinds
@@ -399,38 +356,25 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
       ? `Не покупатель и не продавец${data ? ` · ${num(data.total)}` : ""}`
       : isAllMineRoute
         ? "Всё, что назначено вам, включая карточки в корзине и переданные"
-        : trafficLightDrilldown
-          ? "Покупатели и продавцы вместе"
-          : isInactiveRoute
-            ? `${kindWord}${data && plainView ? ` · неактивных ${num(data.total)}` : ""}`
-            : `${kindWord}${inWorkCount != null ? ` · в работе ${num(inWorkCount)}` : ""}`;
+        : `${kindWord}${inWorkCount != null ? ` · ${num(inWorkCount)}` : ""}`;
 
   const currentSort = filters.sort ?? DEFAULT_CLIENT_SORT;
-  const slice: "all" | "pending" | "yesterday" = pendingSlice ? "pending" : noResponseYesterday ? "yesterday" : "all";
+  const slice: "all" | "pending" | "yesterday" | "noContact" =
+    pendingSlice ? "pending" : noResponseYesterday ? "yesterday" : noContactSlice ? "noContact" : "all";
   const activeFilterCount =
-    [filters.status, filters.source, filters.districtId, filters.agentId].filter(Boolean).length + (slice !== "all" ? 1 : 0);
-  const showSwitches = !isOther && !isAllMineRoute && !trafficLightDrilldown;
+    [filters.source, filters.districtId, filters.agentId].filter(Boolean).length + (slice !== "all" ? 1 : 0);
+  const showSwitches = !isOther && !isAllMineRoute;
   const showSearch = !mobile || searchOpen || !!filters.q;
 
   const resetFilters = () => {
-    setFilters((f) => ({ q: f.q, sort: f.sort, workStatus: f.workStatus, inactiveLevel: f.inactiveLevel, page: 1 }));
+    setFilters((f) => ({ q: f.q, sort: f.sort, page: 1 }));
     setPendingSlice(false);
+    setNoContactSlice(false);
     setNoResponseYesterday(false);
   };
   const patchFilters = (patch: Partial<ClientFilters>) => setFilters((f) => ({ ...f, ...patch, page: 1 }));
 
-  const tabOptions: TabOption<TabId>[] = [
-    { id: "work", label: "В работе", count: !trafficLightDrilldown && inWorkCount != null ? inWorkCount : undefined },
-    { id: "inactive", label: "Неактивные" },
-    // «Потерянные» — управленческий раздел: вкладка по тому же праву, что и сам маршрут.
-    ...(can("clients.assign") ? [{ id: "lost" as const, label: "Потерянные" }] : []),
-  ];
-  const goTab = (id: TabId) => {
-    if (id === "work") navigate(sectionPath(section));
-    else if (id === "inactive") navigate(`/inactive-clients?kind=${section}`);
-    else navigate(`/lost-clients?kind=${section}`);
-  };
-  const goSection = (k: "SELLER" | "BUYER") => navigate(isInactiveRoute ? `/inactive-clients?kind=${k}` : sectionPath(k));
+  const goSection = (k: "SELLER" | "BUYER") => navigate(sectionPath(k));
 
   const segment = showSwitches ? (
     <Segment
@@ -477,7 +421,21 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
 
   return (
     <Rh2Screen title={title} back={isAllMineRoute ? sectionPath(section) : undefined} actions={shellActions} className={clean ? "clean-clients-page" : undefined}>
-      {mobile ? (
+      {royal ? (
+        <div className="ry-clients-head">
+          {mobile
+            ? <h1 className="sr-only">{title}</h1>
+            : <div className="ry-clients-title"><h1>{title}</h1><p>{sub}</p></div>}
+          <div className="ry-clients-tools">
+            {segment}
+            {!isOther && !readOnly && (
+              <RhButton variant="primary" aria-label="Добавить клиента" onClick={() => onAddClient(section)}>
+                <RoyalIcon name="user-plus" />{mobile ? "Клиент" : "Добавить клиента"}
+              </RhButton>
+            )}
+          </div>
+        </div>
+      ) : mobile ? (
         // Заголовок на телефоне стоит в шапке оболочки; для скринридера он остаётся.
         clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
       ) : clean ? (
@@ -512,42 +470,50 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         />
       )}
 
-      {mobile && segment}
-
-      {showSwitches && (
-        <Tabs
-          aria-label="Состояние клиентов раздела"
-          options={tabOptions}
-          value={inactiveView ? "inactive" : "work"}
-          onChange={goTab}
-        />
-      )}
+      {mobile && !royal && segment}
 
       {/* Тихие строки вместо карточек-уведомлений (договор §6.1): ждёт агента, похожие карточки */}
-      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0)) && (
+      {!isOther && ((oldest && summary) || (duplicates && duplicates.length > 0) || !!summary?.neverContacted) && (
         <Card tight className={clean ? "clean-client-notices" : undefined}>
+          {/* «Не связывались» — то же число, что плитка на телефоне (NoContactTile)
+              и «Контроль руководителя»: одно правило, один счётчик (17.11.2026).
+              Ноль здесь не показывается: тихая строка — только когда есть кого показать. */}
+          {!!summary?.neverContacted && (
+            <div className="quiet crit">
+              <span className="dot crit" />
+              {royal ? (
+                // Новый вид: одна строка «Не связывались: 4», полное пояснение — подсказкой и для чтеца.
+                <span className="txt" title={`${NO_CONTACT_TEXT.title}: ${num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.`}>
+                  {/* Подпись и число — одним куском: на 320 px «4» уезжало строкой ниже (20.11). */}
+                  <span className="ry-nowrap">{NO_CONTACT_TEXT.title}: <b>{num(summary.neverContacted)}</b></span>
+                  <span className="sr-only"> — ни звонка, ни сообщения сотрудника, ни показа.</span>
+                </span>
+              ) : (
+                <span className="txt">
+                  {NO_CONTACT_TEXT.title}: {num(summary.neverContacted)} — ни звонка, ни сообщения сотрудника, ни показа.
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={noContactSlice}
+                onClick={() => {
+                  setNoContactSlice(!noContactSlice);
+                  setPendingSlice(false);
+                  setNoResponseYesterday(false);
+                  setFilters((f) => ({ ...f, page: 1 }));
+                }}
+              >
+                {noContactSlice ? "Все клиенты" : "Показать"}
+              </Button>
+            </div>
+          )}
           {oldest && summary && (
             <div className="quiet crit">
               <span className="dot crit" />
               <span className="txt">
-                {oldest.fullName} ждёт агента {waitLabel}.
-                {summary.freeAgents && summary.freeAgents.length > 0
-                  ? ` Свободны: ${summary.freeAgents.map((a) => a.fullName.split(" ")[0]).join(", ")}.`
-                  : summary.freeAgents
-                    ? " Свободных агентов нет."
-                    : ""}
+                {clientDisplayName(oldest)} ждёт агента {waitLabel}.
               </span>
-              {freeAgent && can("clients.assign") && (
-                <Button
-                  variant="soft"
-                  size="sm"
-                  loading={assign.isPending}
-                  data-endpoint={`POST /api/v1/clients/${oldest.id}/assign`}
-                  onClick={() => assign.mutate({ clientId: oldest.id, toAgentId: freeAgent.id })}
-                >
-                  {assign.isPending ? "Передаём" : `Передать: ${freeAgent.fullName.split(" ")[0]}`}
-                </Button>
-              )}
               <Button variant="ghost" size="sm" onClick={() => navigate(`/clients/${oldest.shortId}`)}>
                 Открыть
               </Button>
@@ -556,7 +522,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           {section === "BUYER" && duplicates && duplicates.length > 0 && (
             <div className="quiet warn">
               <span className="dot warn" />
-              <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              {royal ? (
+                <span className="txt" title={`Похожих карточек: ${duplicates.length}. Возможно, это один и тот же человек.`}>
+                  Похожих карточек: <b>{duplicates.length}</b>
+                  <span className="sr-only">. Возможно, это один и тот же человек.</span>
+                </span>
+              ) : (
+                <span className="txt">Похожих карточек: {duplicates.length}. Возможно, это один и тот же человек.</span>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setShowDuplicates(true)}>
                 Сравнить
               </Button>
@@ -567,7 +540,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
 
       <Card tight id="clients-list">
         {showSearch && (
-          <div className={clean ? "mb-4 flex items-center gap-3" : "filters"}>
+          <div className={royal ? "ry-clients-search" : clean ? "mb-4 flex items-center gap-3" : "filters"}>
             <input
               className="inp"
               type="search"
@@ -577,7 +550,9 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               value={filters.q ?? ""}
               onChange={(e) => patchFilters({ q: e.target.value || undefined })}
             />
-            {clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
+            {royal
+              ? <RhButton variant="secondary" aria-haspopup="dialog" onClick={() => setShowFilters(true)}>Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</RhButton>
+              : clean && <CButton variant="outline" aria-haspopup="dialog" onClick={() => setShowFilters(true)}><SlidersHorizontal size={18} aria-hidden />Фильтры{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}</CButton>}
           </div>
         )}
 
@@ -607,27 +582,39 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} kind="row" />
             ))}
+            {/* Первый запрос не прошёл, идут повторы (окно `RETRY_WINDOW_MS`, lib/queryClient.ts): сразу сказать словами, а не молча
+                крутить серые полосы (съёмка экранов 20.11). */}
+            {failureCount > 0 && <Rh2RetryingNote onRetry={() => void refetch()} />}
           </div>
         )}
-        {error && <Rh2ErrorState message="Список не загрузился." onRetry={() => refetch()} />}
+        {/* Ошибка — словами и с кнопкой, а не вечные серые полосы (съёмка экранов 20.11:
+            обрыв запроса клиентов — скелетоны без конца). `error` появляется только после
+            всех повторов запроса (lib/queryClient.ts), а повторные попытки сторожа пустого
+            списка показываются на самой кнопке («Пробуем снова…»), а не скелетоном. */}
+        {loadState === "offline" && <Rh2OfflineState onRetry={() => void refetch()} />}
+        {loadState === "error" && !listGuard.broken && (
+          <Rh2ErrorState message="Не удалось загрузить клиентов. Проверьте связь и попробуйте ещё раз." onRetry={() => void refetch()} retrying={isFetching} />
+        )}
+        {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}
 
         {data && visibleItems.length > 0 && (
-          <List aria-label="Клиенты">
-            {clean && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Следующее действие</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
+          <List aria-label="Клиенты" className={royal ? "ry-clist" : undefined}>
+            {royal && <RoyalClientListHead showAgent={can("clients.viewAll")} />}
+            {clean && !royal && <div aria-hidden className={cn("hidden items-center gap-4 px-4 pb-2 pt-3 text-[14px] text-gray-500 lg:grid", cleanClientColumns(can("clients.viewAll")))}><span>Клиент</span><span>Запрос</span><span>Последний контакт</span>{can("clients.viewAll") && <span>Ответственный</span>}<span>Действия</span></div>}
             {visibleItems.map((c) => (
               <ClientRow
                 key={c.id}
                 client={c}
-                mobile={mobile}
                 clean={clean}
-                showKind={searchAcrossKinds || trafficLightDrilldown || allKinds}
+                royal={royal}
+                showKind={searchAcrossKinds || allKinds}
                 showAgent={can("clients.viewAll")}
               />
             ))}
           </List>
         )}
 
-        {data && visibleItems.length === 0 && (
+        {data && visibleItems.length === 0 && !listGuard.broken && (
           <Rh2EmptyState
             icon={UserRound}
             title={
@@ -637,29 +624,25 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                   ? "По этому запросу ничего не нашлось."
                   : isOther
                     ? "Прочих обращений пока нет."
-                    : inactiveView
-                      ? "Неактивных клиентов нет."
-                      : section === "SELLER"
+                    : section === "SELLER"
                         ? "Продавцов пока нет."
                         : "Под этот фильтр клиентов нет."
             }
             hint={
               pendingSlice
-                ? "Новые появятся здесь, как только кому-то назначат лид."
+                ? "Новые появятся здесь, как только кому-то назначат заявку."
                 : searching
                   ? searchAcrossKinds
                     ? "Искали по всем разделам сразу: попробуйте другое написание или снимите часть условий."
                     : "Попробуйте другое написание или снимите часть условий."
                   : isOther
                     ? "Сюда попадают входящие, которые бот не отнёс ни к покупке, ни к продаже."
-                    : inactiveView
-                      ? "Сюда попадают клиенты, которых вы перевели в «Неактивные»."
-                      : section === "SELLER"
+                    : section === "SELLER"
                         ? "Продавец появится здесь, как только вы заведёте его карточку или бот примет заявку на продажу."
                         : "Попробуйте снять часть условий или очистить поиск."
             }
             action={
-              !isOther && !readOnly && !pendingSlice && !inactiveView ? (
+              !isOther && !readOnly && !pendingSlice ? (
                 <Button variant="ghost" onClick={() => onAddClient(section)}>
                   Завести карточку
                 </Button>
@@ -681,20 +664,8 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           />
         )}
 
-        {/* Карточки, ушедшие из поля зрения держателя, — одной тихой строкой внизу.
-            Число даёт сводка (`trashedMine`: свои карточки в корзине; руководству null).
-            Переданных другому сводка не считает, поэтому в строке они не названы. */}
-        {!isOther && !isAllMineRoute && !!summary?.trashedMine && (
-          <div className="quiet">
-            <span className="dot" />
-            <span className="txt">
-              Не на виду: {num(summary.trashedMine)} {summary.trashedMine === 1 ? "карточка" : "карточек"} в корзине
-            </span>
-            <Button variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => setShowHidden(true)}>
-              Показать
-            </Button>
-          </div>
-        )}
+        {/* «Не на виду» снято 17.11.2026 (владелец): карточку, по которой ждёт
+            заявка на удаление, агент просто не видит — решает руководитель. */}
       </Card>
 
       {showFilters && (
@@ -723,29 +694,19 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
                 value={slice}
                 onChange={(id) => {
                   setPendingSlice(id === "pending");
+                  setNoContactSlice(id === "noContact");
                   setNoResponseYesterday(id === "yesterday");
                   setFilters((f) => ({ ...f, page: 1 }));
                 }}
                 options={[
                   { id: "all", label: "Все" },
                   { id: "pending", label: "Ждут принятия", count: summary?.awaitingAgent.count },
+                  { id: "noContact", label: NO_CONTACT_TEXT.title, count: summary?.neverContacted },
                   ...(slice === "yesterday" ? [{ id: "yesterday" as const, label: "Вчера без ответа" }] : []),
                 ]}
               />
             </>
           )}
-          <div className="sec-t" style={isOther ? { marginTop: 0 } : undefined}>
-            Статус
-          </div>
-          <Filters
-            aria-label="Статус"
-            value={filters.status ?? ""}
-            onChange={(id) => patchFilters({ status: id || undefined })}
-            options={[
-              { id: "", label: "Любой" },
-              ...Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => ({ id: value, label })),
-            ]}
-          />
           {!isOther && (
             <>
               <div className="sec-t">Источник</div>
@@ -821,45 +782,6 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           )}
         </Rh2Sheet>
       )}
-      {showHidden && (
-        <Rh2Sheet
-          title="Не на виду"
-          onClose={() => setShowHidden(false)}
-          ariaLabel="Карточки не на виду"
-          footer={
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowHidden(false);
-                navigate("/clients/all-mine");
-              }}
-            >
-              Весь список
-            </Button>
-          }
-        >
-          {hiddenQuery.isLoading && (
-            <div role="status" aria-label="Загружаем карточки">
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} kind="row" />
-              ))}
-            </div>
-          )}
-          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => hiddenQuery.refetch()} />}
-          {hiddenQuery.data && (
-            <List aria-label="Карточки не на виду">
-              {hiddenQuery.data.items
-                .filter((c) => c.deletedAt || c.hiddenReason)
-                .map((c) => (
-                  <ClientRow key={c.id} client={c} mobile={mobile} showKind showAgent={false} inSheet />
-                ))}
-            </List>
-          )}
-          {hiddenQuery.data && !hiddenQuery.data.items.some((c) => c.deletedAt || c.hiddenReason) && (
-            <Rh2EmptyState icon={UserRound} title="На первой странице таких карточек нет." hint="Остальные смотрите в полном списке." />
-          )}
-        </Rh2Sheet>
-      )}
       {showDuplicates && <DuplicatesModal onClose={() => setShowDuplicates(false)} />}
     </Rh2Screen>
   );
@@ -871,35 +793,34 @@ export { ReturnedBadge } from "../components/ReturnedBadge";
 
 /**
  * Строка списка клиентов на `Row` набора: аватар 44, имя (ссылка на всю строку),
- * вторая строка «3 комн · Сино · $55–70 тыс. · Instagram», один чип-действие и
+ * вторая строка «3 комн · Сино · $55–70 тыс. · Instagram», одна факт-метка и
  * справа трубка. Строка целиком ведёт в карточку; кнопки справа лежат поверх
  * растянутой ссылки и не открывают её.
  *
  * ВТОРАЯ СТРОКА, а не россыпь плашек. Раздел (при поиске по всем разделам),
  * «неактивный» и «вернулся» стали словами в строке описания: это факты о клиенте,
  * а не дела, и чипом они не бывают (review-statuses.md, один чип на строку).
- * Нет дела — на месте чипа стоит давность контакта; красная, если прошло больше
- * 14 дней. Следующий шаг из хронологии в строку не выведен: просроченный уже
- * говорит чипом «позвонить сейчас», остальное видно в карточке.
+ * Нет метки — на её месте «последний контакт ДД.ММ» по общему правилу контакта,
+ * всегда спокойным цветом. Советов («позвонить», «давно не связывались», следующий
+ * шаг) строка не рисует (владелец 21.11.2026, lib/clientRowFacts.ts).
  */
 function ClientRow({
   client: c,
-  mobile,
   showKind = false,
   showAgent = false,
   inSheet = false,
   clean = false,
+  royal = false,
 }: {
   client: Client;
-  mobile: boolean;
   showKind?: boolean;
   showAgent?: boolean;
   /** Строка внутри шторки «Не на виду»: смахивание там конфликтует со смахиванием шторки. */
   inSheet?: boolean;
   clean?: boolean;
+  /** «Новый вид»: та же строка Clean, другая разметка (RoyalClientRow). */
+  royal?: boolean;
 }) {
-  const daysSinceContact = Math.floor((Date.now() - new Date(c.lastContactAt).getTime()) / 86400000);
-  const stale = daysSinceContact > 14;
   // OTHER не назначается агенту вообще — acceptedAt для него всегда null, но это не
   // «ждёт принятия», а норма: руководство видит и работает с контактом сразу.
   const { isOther, isTrashed, pending, canRestore, canAcceptRow, canCall, restoreClient, requestRestore, acceptLead, declineLead, restoreRequested, confirmDecline, setConfirmDecline, acceptClient, restore, requestRestoration, confirmRejection } = useClientRowActions(c);
@@ -930,13 +851,17 @@ function ClientRow({
    * карточке, номер берёт сервер (аудит 23.09.2026, №54).
    */
 
-  const action = clientAction(c, Date.now(), canAcceptRow);
+  // Только факты (lib/clientRowFacts.ts, владелец 21.11.2026): отметка состояния карточки
+  // (Корзина, «Прочее», скрыта) либо «ждёт принятия». Советов «позвонить/ответить/первый
+  // звонок» и красной давности в строке больше нет.
+  const fact = clientRowFact(c);
   const primaryState = clientPrimaryState(c);
-  const chip = primaryState.id !== "status" && primaryState.id !== "pending" ? (
+  const chip = primaryState && primaryState.id !== "pending" ? (
     <ClientStateBadge client={c} />
-  ) : action && action.id !== "accept" ? (
-    <Chip tone={action.tone}>{mobile ? action.short : action.label}</Chip>
+  ) : fact ? (
+    <Chip tone={royal ? pillTone("today") : "warn"}>{fact.label}</Chip>
   ) : null;
+  const contactLine = lastContactLabel(c.lastStaffContactAt);
 
   const name = c.displayName ?? formatClientName(c);
   const daysInWork = Math.max(0, Math.floor((Date.now() - new Date(c.createdAt).getTime()) / 86400000));
@@ -957,7 +882,6 @@ function ClientRow({
           CLIENT_SOURCE_LABELS[c.source],
           showAgent && c.assignedAgent?.fullName ? `Агент ${c.assignedAgent.fullName}` : null,
           isRecentlyReturned(c.returnedAt) ? "вернулся" : null,
-          showsInactiveLabel(c) ? "неактивен" : null,
         ]
   ).filter(Boolean);
 
@@ -1007,7 +931,7 @@ function ClientRow({
         <div className="basis-full">
           <MutationError
             mutation={acceptLead.isError ? acceptLead : declineLead}
-            fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+            fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
           />
         </div>
       )}
@@ -1024,26 +948,28 @@ function ClientRow({
     />
   );
 
-  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") ? c.nextStep : null;
-  const row = clean && !inSheet ? (
-    <CleanClientRow
-      id={c.id}
-      name={name}
-      href={isTrashed ? undefined : `/clients/${c.shortId}`}
-      avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null, showsInactiveLabel(c) ? "неактивен" : null].filter(Boolean).join(" · ")}
-      request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
-      source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
-      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}
-      nextActionDate={!canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null}
-      lastContact={relativeTime(c.lastContactAt)}
-      staleContact={stale && !chip && !canAcceptRow}
-      showAgent={showAgent}
-      agentName={c.assignedAgent?.fullName}
-      agentAssigned={!!c.assignedAgentId}
-      actions={actions}
-      deleted={isTrashed}
-    />
+  const rowRequest = isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || EMPTY_REQUEST_TEXT;
+  // «Новый вид»: имя и якорь порознь по общему правилу (lib/royalClientRowText.ts, ревью PR 331):
+  // склейка «Имя · ищет …» обрезала имя, а сырой fullName терял заглушки и адрес продавца.
+  const royalText = royal ? royalClientRowText(c, rowRequest) : null;
+  const cleanRowProps = clean && !inSheet ? {
+    id: c.id,
+    name: royalText ? royalText.name : name,
+    href: isTrashed ? undefined : `/clients/${c.shortId}`,
+    avatar: <ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />,
+    identity: [formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · "),
+    request: royalText ? royalText.request : rowRequest,
+    source: CLIENT_SOURCE_LABELS[c.source] ?? c.source,
+    fact: chip,
+    lastContact: contactLine,
+    showAgent,
+    agentName: c.assignedAgent?.fullName,
+    agentAssigned: !!c.assignedAgentId,
+    actions,
+    deleted: isTrashed,
+  } : null;
+  const row = cleanRowProps ? (
+    royal ? <RoyalClientRow {...cleanRowProps} /> : <CleanClientRow {...cleanRowProps} />
   ) : (
     <Row
       className={canAcceptRow ? "rh-row-wrap" : undefined}
@@ -1056,15 +982,11 @@ function ClientRow({
       title={name}
       line={parts.length > 0 ? parts.join(" · ") : "—"}
       chip={chip}
-      meta={
-        chip || canAcceptRow ? undefined : (
-          <span className={stale ? "is-stale" : undefined}>{relativeTime(c.lastContactAt)}</span>
-        )
-      }
+      meta={chip || canAcceptRow || !contactLine ? undefined : <span>{contactLine}</span>}
       actions={actions}
       // Корзина: GET /clients/:id 404-ит удалённой карточке, открывать нечего.
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
-      linkLabel={`Открыть карточку: ${c.fullName}`}
+      linkLabel={`Открыть карточку: ${clientDisplayName(c)}`}
       done={isTrashed}
       data-client-row={c.id}
     />
@@ -1089,8 +1011,8 @@ function ClientRow({
       )}
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={confirmRejection}
           onCancel={() => setConfirmDecline(false)}

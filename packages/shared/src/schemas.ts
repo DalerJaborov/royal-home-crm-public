@@ -22,6 +22,7 @@ import {
   DEAL_STAGES,
   DEAL_DOCUMENT_KINDS,
   LOOK_IDS,
+  TEXT_SIZE_IDS,
   ABSENCE_KINDS,
   type AbsenceKind,
 } from "./enums.js";
@@ -137,6 +138,18 @@ export const meUpdateSchema = z
 /** Тумблер «модерация в Telegram» в профиле (22.09.2026) — PATCH /me/telegram-moderation. */
 export const meTelegramModerationSchema = z.object({ enabled: z.boolean() }).strict();
 
+const homeBlockIdSchema = z.string().trim().min(1).max(48);
+/** Раскладка главной одной роли: свой порядок id и выключенные id. */
+export const homeBlocksLayoutSchema = z.object({
+  order: z.array(homeBlockIdSchema).max(40).optional(),
+  hidden: z.array(homeBlockIdSchema).max(40).optional(),
+}).strict();
+export type HomeBlocksLayout = z.infer<typeof homeBlocksLayoutSchema>;
+export const homePreferencesSchema = z.object({
+  blocks: z.partialRecord(z.enum(ROLES), homeBlocksLayoutSchema).optional(),
+}).strict();
+export type HomePreferences = z.infer<typeof homePreferencesSchema>;
+
 /** Настройки оформления, хранятся в Agent.preferences (JSON). Сохраняются целиком (PUT-семантика). */
 export const uiPreferencesSchema = z
   .object({
@@ -150,6 +163,8 @@ export const uiPreferencesSchema = z
       .transform((v) => (v === undefined ? undefined : migrateLegacyTheme(v))),
     /** Облик интерфейса (компоновка), независим от темы (цвета). См. LOOK_IDS. */
     look: z.enum(LOOK_IDS).optional(),
+    /** Личный размер текста нового вида (TEXT_SIZE_IDS): только оформление, на права не влияет. */
+    textSize: z.enum(TEXT_SIZE_IDS).optional(),
     effects: z
       .object({
         /** Декоративный анимированный фон-«аврора». */
@@ -178,6 +193,13 @@ export const uiPreferencesSchema = z
     onboardingCompletedAt: z.string().datetime().nullable().optional(),
     /** Идентификаторы разово скрытых подсказок/баннеров (например, промо живой темы). */
     dismissedHints: z.array(z.string().max(48)).max(50).optional(),
+    /**
+     * Главная «Нового вида» (20.11.2026): личный порядок и выключенные блоки — по роли,
+     * чтобы смена роли не тащила чужую раскладку. Только оформление: какие блоки роли
+     * вообще разрешены, решает реестр на клиенте (components/look/home/registry.tsx),
+     * сохранённый список прав не расширяет. Нет записи — все блоки роли включены.
+     */
+    home: homePreferencesSchema.optional(),
     security: z
       .object({
         /**
@@ -299,7 +321,10 @@ const expenseBaseSchema = z.object({
 /** Что обязательно заполнить, чтобы позже можно было понять, куда ушли деньги:
  * реклама — канал (сумма без разбивки по каналам бесполезна для стоимости лида),
  * зарплата — сотрудник, офис/прочее — комментарий (иначе строка ничего не объясняет). */
-export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => {
+export const expenseCreateSchema = expenseBaseSchema.extend({
+  /** Человек видел «уже учтено автоматически» (expenseAutoOverlap.ts) и подтвердил, что это другой расход. */
+  confirmAutoOverlap: z.boolean().optional(),
+}).superRefine((data, ctx) => {
   if (data.category === "ADVERTISING" && !data.source) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "Укажите канал рекламы" });
   }
@@ -312,6 +337,8 @@ export const expenseCreateSchema = expenseBaseSchema.superRefine((data, ctx) => 
 });
 
 export const expenseUpdateSchema = expenseBaseSchema.partial().extend({
+  /** Правка сделала строку похожей на автоматическую (expenseAutoOverlap.ts) — человек подтвердил «другой». */
+  confirmAutoOverlap: z.boolean().optional(),
   /** Version read when opening the editor, not a fresh version fetched at save time. */
   version: z.number().int().nonnegative().optional(),
 });
@@ -591,7 +618,7 @@ export const propertyCreateSchema = propertyBaseSchema.superRefine((data, ctx) =
     !hasValidPhoneDigitCount(data.ownerContact)
   ) {
     // Та же проверка формата, что и у телефона клиента (clientPhoneSchema) — девять
-    // значащих цифр после кода страны. Маску («+992•••••18», сервер сам подставит
+    // значащих цифр после кода страны. Маску («+9929300••456», сервер сам подставит
     // настоящий номер из выбранной карточки продавца) не отвергаем — это не мусор.
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ownerContact"], message: "Введите корректный номер телефона" });
   }
@@ -702,7 +729,7 @@ export const propertyUpdateSchema = propertyBaseSchema
 })
   // Тот же формат-чек, что и при создании (propertyCreateSchema.superRefine) — не
   // дублируем правило «что такое телефон» второй раз буквально, дублируем только
-  // вызов. Маска («+992•••••18») и null (очистка поля) проходят без проверки формата.
+  // вызов. Маска («+9929300••456») и null (очистка поля) проходят без проверки формата.
   .superRefine((data, ctx) => {
     coordsPairIssue(data, ctx);
     if (
@@ -728,7 +755,7 @@ export const clientPhoneSchema = z
   .string()
   .min(5)
   // Скрытый маской номер отвергаем ОТДЕЛЬНО и раньше проверки длины: цифр в нём
-  // тоже мало, но «введите корректный номер» на `+992•••••18` читается как поломка
+  // тоже мало, но «введите корректный номер» на `+9929300••456` читается как поломка
   // CRM — сотрудник видит в поле ровно то, что ему показала сама CRM.
   .refine((v) => !isMaskedClientPhone(v), "Номер скрыт — менять его может только тот, кому он виден")
   .refine(hasValidPhoneDigitCount, "Введите корректный номер телефона");
@@ -759,7 +786,7 @@ const clientBaseSchema = z.object({
    * Проверка та же, что у главного (clientPhoneSchema): второй номер должен быть
    * настоящим номером, иначе он бесполезен — по нему всё равно никого не узнать.
    * Заодно оттуда же приезжает запрет на замаскированный номер: сотрудник без
-   * права видеть телефон не должен «сохранить» карточку с «+992•••••18» внутри.
+   * права видеть телефон не должен «сохранить» карточку с «+9929300••456» внутри.
    *
    * Потолок в десять штук — не бизнес-правило, а предохранитель: поле уходит в
    * массив Postgres и в поиск по входящему звонку, и вставленная целиком
@@ -1096,8 +1123,8 @@ export type SecurityReviewState = (typeof SECURITY_REVIEW_STATES)[number];
 
 export const SECURITY_REVIEW_LABELS: Record<SecurityReviewState, string> = {
   PENDING: "Ждёт проверки СБ",
-  CLEARED: "Закрыт после проверки СБ",
-  CONFIRMED: "Закрыт: нарушение подтверждено",
+  CLEARED: "Проверено СБ: вопросов нет",
+  CONFIRMED: "Нарушение подтверждено",
 };
 
 /**
@@ -1411,32 +1438,6 @@ export const propertyDeleteRequestApproveSchema = z.object({
 });
 
 /**
- * ЗАЯВКА НА ПЕРЕСМОТР ЧИСЛА ОБЪЕКТОВ (владелец 06.09.2026, разбор слепых зон
- * п.3; роль добавлена 07.09.2026 для симметрии с покупателем) — зеркало
- * clientDeleteRequestSchema выше: число пишет ИИ, агент может только
- * предложить своё и объяснить почему, решает руководитель. role различает
- * сторону: SELLER — sellerDeclaredPropertyCount, BUYER — buyerDesiredPropertyCount
- * (у клиента с dualIntent это разные, независимые заявки).
- */
-export const propertyCountDisputeRoleSchema = z.enum(["SELLER", "BUYER"]);
-
-export const propertyCountDisputeSchema = z.object({
-  role: propertyCountDisputeRoleSchema,
-  proposedCount: z.number().int().min(0).max(999),
-  reason: z.string().trim().min(1, "Объясните, почему число ИИ неверное").max(1000),
-});
-
-/** Отказ — причина обязательна, см. clientDeleteRequestRejectSchema. */
-export const propertyCountDisputeRejectSchema = z.object({
-  decisionNote: z.string().trim().min(1, "Напишите, почему заявка отклонена").max(1000),
-});
-
-/** Одобрение — комментарий необязателен. */
-export const propertyCountDisputeApproveSchema = z.object({
-  decisionNote: z.string().trim().max(1000).optional(),
-});
-
-/**
  * Причины передачи клиента другому агенту (ТЗ п. 19) — доступна только после
  * первого проведённого показа (решение владельца, голосовое 12.08.2026). Отдельная
  * таксономия от REFUSAL_REASONS: там «почему сделка не состоялась», здесь —
@@ -1509,19 +1510,6 @@ export const clientTransferSchema = z.object({
  * lib/silentClientAutoDeactivate.ts), которая вызывает deactivateClient()
  * напрямую, минуя HTTP и эту схему.
  */
-
-/**
- * Приём лида (POST /clients/:id/accept).
- *
- * Тело почти всегда пустое. `releaseClientId` появляется в одном случае: агент
- * берёт лид по СВОЕМУ объекту, портфель уже полон, и он выбрал, кого из обычных
- * клиентов отдать другому агенту, чтобы освободить место (решение владельца
- * 11.08.2026). Сервер проверяет, что выбранный клиент действительно из его
- * обычных активных, — выбор приходит от интерфейса и доверять ему нельзя.
- */
-export const leadAcceptSchema = z.object({
-  releaseClientId: z.guid().optional(),
-});
 
 /// Отправка подобранных объектов клиенту в его канал (POST /clients/:id/send-properties).
 /// До пяти за раз: длинное сообщение со ссылками читают по диагонали, а канал
@@ -1842,10 +1830,10 @@ export const summaryCompletePropertySchema = z
  *  - THINKING («Клиент думает») — пауза с напоминанием; заводит уже
  *    существующий PendingSummary kind="waiting_check" (как «Ждёт варианты»/
  *    «Ждёт показ»), а не новый механизм.
- *  - SELECTION («Подбор») — агент продолжает подбирать другие объекты;
- *    Client.buyerStage="SELECTION", карточка остаётся активной у агента.
- *  - NEGOTIATION («Переговоры») — обсуждение условий сделки;
- *    Client.buyerStage="NEGOTIATION".
+ *  - «Подбор» (SELECTION) и «Переговоры» (NEGOTIATION) сняты 17.11.2026
+ *    (владелец): этапов покупателя Client.buyerStage больше нет — колонку
+ *    снимет отдельная миграция. Подбор объектов идёт панелью «Подбор», а
+ *    переговоры — сделкой.
  *  - DEAL («Договор») — переиспользует уже существующий резерв объекта на
  *    сделке (3 рабочих дня, коммит 1aa4683): агент переходит к созданию
  *    сделки существующей формой, эта ветка лишь закрывает «Итог показа».
@@ -1859,7 +1847,7 @@ export const summaryCompletePropertySchema = z
  * бы врать, обычно нажатием «Клиент думает». Ложь в данных хуже пустоты: по
  * ней клиент навсегда остаётся активным и попадает во все отчёты как живой.
  */
-export const SHOWING_OUTCOME_BRANCHES = ["RESCHEDULE", "THINKING", "SELECTION", "NEGOTIATION", "DEAL", "REFUSE"] as const;
+export const SHOWING_OUTCOME_BRANCHES = ["RESCHEDULE", "THINKING", "DEAL", "REFUSE"] as const;
 export type ShowingOutcomeBranch = (typeof SHOWING_OUTCOME_BRANCHES)[number];
 
 /// Подписи — дословно из ТЗ п. 15, чтобы агент видел на кнопке ровно то слово,
@@ -1868,8 +1856,6 @@ export type ShowingOutcomeBranch = (typeof SHOWING_OUTCOME_BRANCHES)[number];
 export const SHOWING_OUTCOME_LABELS: Record<ShowingOutcomeBranch, string> = {
   RESCHEDULE: "Повторный показ",
   THINKING: "Клиент думает",
-  SELECTION: "Подбираю другие объекты",
-  NEGOTIATION: "Ведутся переговоры",
   DEAL: "Подготовка договора",
   REFUSE: "Клиент отказался",
 };
@@ -1918,9 +1904,9 @@ export const summaryCompleteMeetingSchema = z
     /** Обязательна только при thinkingDelay="CUSTOM". */
     nextContactAt: requiredDate.optional(),
     /**
-     * Следующий показ — обязателен для веток RESCHEDULE («Повторный показ», ТЗ
-     * п. 15.1) и SELECTION («Подбираю другие объекты», ТЗ п. 15.3): обе по ТЗ
-     * заканчиваются назначенной встречей, а не намерением её назначить.
+     * Следующий показ — обязателен для ветки RESCHEDULE («Повторный показ», ТЗ
+     * п. 15.1): она по ТЗ заканчивается назначенной встречей, а не намерением
+     * её назначить.
      *
      * До 14.08.2026 показ создавался ОТДЕЛЬНЫМ запросом из вложенного окна, и это
      * не работало дважды: вложенное окно рисовалось под затемнением обязательного,
@@ -1952,8 +1938,8 @@ export const summaryCompleteMeetingSchema = z
     if (data.branch === "THINKING" && data.thinkingDelay === "CUSTOM" && !data.nextContactAt) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["nextContactAt"], message: "Укажите дату" });
     }
-    // Обе ветки по ТЗ обязаны закончиться назначенным показом: объект, дата и час.
-    if (data.branch === "RESCHEDULE" || data.branch === "SELECTION") {
+    // «Повторный показ» по ТЗ обязан закончиться назначенным показом: объект, дата и час.
+    if (data.branch === "RESCHEDULE") {
       if (!data.propertyId) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["propertyId"], message: "Выберите объект показа" });
       }

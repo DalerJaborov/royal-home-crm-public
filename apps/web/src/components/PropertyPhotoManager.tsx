@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { useTouchSafeDragSensors } from "../hooks/useTouchSafeDragSensors";
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Archive, Check, Loader2, Sparkles, Star, Upload, X } from "lucide-react";
@@ -68,7 +69,9 @@ function SortablePhoto({
         backgroundSize: "cover",
         backgroundPosition: "center",
         cursor: "grab",
-        touchAction: "none",
+        // manipulation, а не none: none запрещал прокрутку страницы с первого касания
+        // плитки (аудит F2-3, 17.11.2026); перетаскивание пальцем — долгим нажатием.
+        touchAction: "manipulation",
         userSelect: "none",
         opacity: isDragging ? 0.8 : undefined,
         zIndex: isDragging ? 10 : undefined,
@@ -254,10 +257,7 @@ export function PropertyPhotoManager({
   const fileInput = useRef<HTMLInputElement>(null);
   // Дистанция активации 8px отделяет перетаскивание от обычного клика по фото
   // (клик по-прежнему открывает лайтбокс, без неё drag съедал каждый тап).
-  const photoSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
-  );
+  const photoSensors = useTouchSafeDragSensors({ mouseDistance: 8 });
 
   /**
    * Файлы уходят не отсюда, а через очередь (lib/uploadQueue.ts).
@@ -345,7 +345,7 @@ export function PropertyPhotoManager({
               disabled={archiving}
               title="Скачать все фото одним архивом"
             >
-              {archiving ? "Архивируем…" : "Скачать всё (.zip)"}
+              {archiving ? "Архивируем…" : "Скачать все фото"}
             </button>
           )}
           {!readOnly && (

@@ -13,7 +13,7 @@
  *  — «после обновления»: автоподбор покупателей на снижение цены, досылка на сайт,
  *    точечная перепись подписи в базе, цена в посты соцсетей.
  */
-import type { Property } from "../generated/prisma/client.js";
+import type { PropertyRecord } from "../db.js";
 import { generateSeoFields, type SeoFields } from "../ai/seoGenerator.js";
 import { notifyWaitingBuyersOfNewProperty } from "./propertyMatchFilter.js";
 import { loadMoneyContext, toTjs } from "./money.js";
@@ -21,7 +21,6 @@ import { resyncPhotosIfPublished } from "./siteSync.js";
 import { reportPublishedPriceChange, type PriceCaptionStage, type PriceSyncResult } from "./publishedListingSync.js";
 import { CAPTION_FACT_FIELDS, rewriteStoredCaptionAfterEdit } from "./publishedVideoFix.js";
 import { logSystemError } from "./systemError.js";
-import { refreshSellerAfterPropertyChange } from "./clientAutoStatus.js";
 
 /** Поля объекта, от которых зависит автосгенерированный SEO-текст — при их изменении
  * текст пересобирается заново, чтобы не разъезжаться с фактическими параметрами. */
@@ -67,7 +66,7 @@ export interface SeoPatch {
  * seoDesc идут на сайт и в поиск, «$» там неуместен.
  */
 export async function seoFieldsForUpdate(
-  existing: Property,
+  existing: PropertyRecord,
   data: SeoPatch,
   districtName: string | undefined,
   changedFields: readonly string[]
@@ -97,9 +96,9 @@ export async function seoFieldsForUpdate(
 
 export interface PostUpdateEffectsInput {
   /** Карточка ДО правки. */
-  existing: Property;
+  existing: PropertyRecord;
   /** Карточка ПОСЛЕ правки (свежая из базы). */
-  updated: Property;
+  updated: PropertyRecord;
   /** Что реально изменилось (changedPropertyFields). */
   changedFields: readonly string[];
   /** Цена или валюта реально изменились — даже если число то же, а валюта другая. */
@@ -116,6 +115,8 @@ export interface PostUpdateEffectsInput {
   awaitPriceSync: boolean;
   /** Подпись, описание и цели уже записаны в транзакции цены. */
   priceCaptionStage?: PriceCaptionStage;
+  /** Кто правил (21.11.2026): новая озвучка после правки фактов одобряется им сразу. Нет — ждёт человека, как раньше. */
+  actorId?: string;
 }
 
 export interface PostUpdateEffectsResult {
@@ -136,10 +137,6 @@ export interface PostUpdateEffectsResult {
  */
 export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promise<PostUpdateEffectsResult> {
   const { existing, updated, changedFields, priceActuallyChanged } = input;
-  if (existing.sellerClientId !== updated.sellerClientId || existing.status !== updated.status) {
-    await refreshSellerAfterPropertyChange(updated.sellerClientId);
-  }
-
   // ДЕДУП И ПОВТОРНОЕ УВЕДОМЛЕНИЕ (решение владельца 12.09.2026, «все да» п.5):
   // notifyWaitingBuyersOfNewProperty пропускает клиента, которому этот объект уже предлагался,
   // ТОЛЬКО пока цена с тех пор не упала на 5% и больше от цены последнего уведомления
@@ -162,6 +159,14 @@ export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promi
   if (input.resyncSite) {
     void resyncPhotosIfPublished(updated.id, input.resyncReason);
   }
+
+  // НОВАЯ ОЗВУЧКА СРАЗУ ПОСЛЕ ПРАВКИ (18.11.2026, владелец: «поменял данные — послушал — утвердил»). Поменялось то,
+  // что звучит в озвучке (вид, комнаты, площадь, этаж, этажность, район, цена), — черновик ставится сейчас, а не
+  // через минуту обхода; карточка тут же показывает «Готовим озвучку». Ремонт, ориентир, документы ролик не трогают:
+  // хэш фактов озвучки от них не зависит. Импорт динамический — без цикла через ролики и публикацию.
+  // Ждём (это одна запись в базу): ответ на правку возвращается, когда черновик уже есть, и карточка его видит.
+  await import("./narrationAutoFlow.js").then((m) => m.requestNarrationAfterEdit(updated.id, new Date(), input.actorId)).catch((err) =>
+    console.error("[озвучка] черновик после правки:", err instanceof Error ? err.message : err));
 
   let captionRewritten = input.priceCaptionStage?.captionRewritten ?? null;
   if (!input.priceCaptionStage && changedFields.some((f) => (CAPTION_FACT_FIELDS as readonly string[]).includes(f))) {

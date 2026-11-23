@@ -4,11 +4,25 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 851 (размер поднят у 841, гарнитура сведена у 50).
+ * Правил: 858 (размер поднят у 848, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
+@media print {
+  .dd-print-meta { font-size: 13px; }
+  .dd-table { font-size: 13px; }
+  .vacancy-print-root { font-size: 15px; }
+  .vacancy-print-brand { font-size: 15px; }
+  .vacancy-print-position { font-size: 17px; }
+  .vacancy-print-page h2 { font-size: 17px; }
+  .vacancy-print-facts dt { font-size: 15px; }
+  .vacancy-print-facts dd { font-size: 15px; }
+  .vacancy-print-text { font-size: 15px; }
+  .vacancy-print-page footer { font-size: 15px; }
+}
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
 .rh2 .offer-status { font-size: 15px; }
+.rh2 .fs-code { font-size: 13px; }
+.sq-card button.sq-btn { font-size: 16px; }
 .rh2 .scr .cw2-btn .lbl { font-size: 13px; }
 html[data-shell="clean"] .clean-calendar-summary { font-size: 15px; }
 html[data-shell="clean"] .clean-calendar-page .mh .lane [role="tab"] { font-size: 16px; }
@@ -625,6 +639,7 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .rh2 .tr-toast { font-size: 15px; }
 .rh2 .tr-compact .tr-act { font-size: 16px; }
 .rh2 .tr-compact .tr-ask { font-size: 15px; }
+.rh2 .scr .tc-btn { font-size: 18px; }
 .rh2 .vacancy-resume-text { font-size: 17px; }
 .rh2 .vacancy-fact-source { font-size: 15px; }
 .rh2 .vacancy-disclosure>summary { font-size: 16px; }
@@ -684,10 +699,11 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .rh2 .client-match-property > .who { font-size: 15px; }
 .rh2 .client-match-evidence p { font-size: 15px; }
 .rh2 .client-match-grid .client-match-property > .ph { font-size: 15px; }
-.rh2 .client-match-count { font-size: 15px; }
-.rh2 .client-request-chips li { font-size: 15px; }
 .rh2 .client-match-selected p { font-size: 15px; }
 .rh2 .client-match-selected li { font-size: 15px; }
+.rh2 .mk-price small { font-size: 15px; }
+.rh2 .mk-phone { font-size: 15px; }
+.rh2 .mk-row .mk-tag { font-size: 15px; }
 .sh-rail-name { font-size: 16px; }
 .sh-rail-slogan { font-size: 15px; }
 .sh-nav-it { font-size: 16px; }
@@ -734,6 +750,9 @@ html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary u { font-size: 15px
 .rh2 .scr .rh-gallery-count { font-size: 15px; }
 .rh2 .scr .rh-price-sub { font-size: 15px; }
 .rh2 .scr .rh-price-title { font-size: 20px; }
+@media (max-width:819px) {
+  .rh2 .scr .sheet.assistant-sheet .sheet-f .inp { font-size: 17px; }
+}
 @media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
   html[data-shell="clean"] .clean-profile-page .scr :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size: 17px; }
   html[data-shell="clean"] .clean-inbox-filters select { font-size: 17px; }
@@ -860,16 +879,6 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
 @media (max-width:520px) {
   .rh2 .tr-act { font-size: 17px; }
 }
-@media print {
-  .vacancy-print-root { font-size: 15px; }
-  .vacancy-print-brand { font-size: 15px; }
-  .vacancy-print-position { font-size: 17px; }
-  .vacancy-print-page h2 { font-size: 17px; }
-  .vacancy-print-facts dt { font-size: 15px; }
-  .vacancy-print-facts dd { font-size: 15px; }
-  .vacancy-print-text { font-size: 15px; }
-  .vacancy-print-page footer { font-size: 15px; }
-}
 @media (min-width: 1024px) {
   .rh2 .wiz.wizard-workspace .wizard-desktop-help { font-size: 16px; }
   .rh2 .wiz.wizard-workspace :is(.wizard-secondary-action,.wizard-text-action) { font-size: 15px; }
@@ -903,4 +912,56 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .wiz.wizard-workspace .rev .k { font-size: 17px; }
   .rh2 .wiz.wizard-workspace .rev .v { font-size: 18px; }
   .rh2 .wiz.wizard-workspace .wfoot :is(.back,.next) { font-size: 18px; }
+}
+@media (max-width: 767.98px) {
+  .clean-reports .dsm-d small { font-size: 15px; }
+  html[data-shell="clean"] .clean-record-form .lab { font-size: 15px; }
+  html[data-shell="clean"] .pstats small { font-size: 15px; }
+  .clean-shell .clean .clean-queue-empty p { font-size: 15px; }
+  .rh2 .scr .prow .t .pstats .pstat small,
+.rh2 .prow .t .pstats .pstat small { font-size: 15px; }
+  .rh2 .pst-funnel .hint { font-size: 15px; }
+  .rh2 .pvc-stats dt { font-size: 15px; }
+  .rh2 .mh .urg .note { font-size: 15px; }
+  .rh2 .mh .money .sub { font-size: 15px; }
+  .rh2 .gauge .c small { font-size: 15px; }
+  .rh2 .sec02 .num small { font-size: 15px; }
+  .rh2 .sec02 .frozen-note .a small { font-size: 15px; }
+  .rh2 .sec03 .tc small { font-size: 15px; }
+  .rh2 .sec03 .row .n small { font-size: 15px; }
+  .rh2 .sec03 .stg .n small { font-size: 15px; }
+  .rh2 .sec04 .tc small { font-size: 15px; }
+  .rh2 .sec04 .pc small { font-size: 15px; }
+  .rh2 .sec05 .tc small { font-size: 15px; }
+  .rh2 .sec06 .tc small { font-size: 15px; }
+  .rh2 .sec08 .tc small { font-size: 15px; }
+  .rh2 .sec09 .tc small { font-size: 15px; }
+  .rh2 .sec09 .sy small { font-size: 15px; }
+  .rh2 .v8 .v8b .tl .who small { font-size: 15px; }
+  .rh2 .v8 .v8b .obj .ob small { font-size: 15px; }
+  .rh2 .dsr .top .sub { font-size: 15px; }
+  .rh2 .dsr .score small { font-size: 15px; }
+  .rh2 .dsr .cmp .dl small { font-size: 15px; }
+  .rh2 .dsr .cmp .v small { font-size: 15px; }
+  .rh2 .lf .lf-sh p { font-size: 15px; }
+  .rh2 .cfg p { font-size: 15px; }
+  .rh2 .rail .logo small { font-size: 15px; }
+  .rh2 .toprow .un small { font-size: 15px; }
+  .rh2 .stk .sub { font-size: 15px; }
+  .rh2 .stk .trio small { font-size: 15px; }
+  .rh2 .cmdk li button small { font-size: 15px; }
+  .rh2 .ai-list li .lk { font-size: 15px; }
+  .rh2 .arow .lk { font-size: 15px; }
+  .rh2 .scr .head p { font-size: 15px; }
+  .rh2 .rail .it.me .lbl small { font-size: 15px; }
+  .rh2 .dealbar .db small { font-size: 15px; }
+  .rh2 .qsheet .qs-h p { font-size: 15px; }
+  .rh2 .od2-f small { font-size: 15px; }
+  .rh2 .cfg .cfg-cols small { font-size: 15px; }
+  .rh2 .wiz .sub { font-size: 15px; }
+  .rh2 .client-match-evidence p { font-size: 15px; }
+  .rh2 .client-match-selected p { font-size: 15px; }
+  .rh2 .mk-price small { font-size: 15px; }
+  .rh2 .hero-face-cap small { font-size: 15px; }
+  .rh2 .scr .pg-h.rh-pg-h .sub { font-size: 15px; }
 }

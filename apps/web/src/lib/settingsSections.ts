@@ -16,16 +16,15 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   ],
   money: [
     { title: "Структура комиссии сделки" }, { title: "Курс доллара к сомони" },
-    { title: "Сроки и лимиты по лидам" }, { title: "Сроки подготовки объекта, дни" },
-    { title: "Резерв объекта на сделке" }, { title: "Пауза «не принимаю лиды»", aliases: ["Дисциплина"] },
-    { title: "Бездействие по клиенту" }, { title: "Застой сделки" }, { title: "Светофор неактивных клиентов" },
+    { title: "Сроки и лимиты по заявкам" }, { title: "Сроки подготовки объекта, дни" },
+    { title: "Резерв объекта на сделке" }, { title: "Пауза «не принимаю заявки»", aliases: ["Дисциплина"] },
+    { title: "Застой сделки" }, { title: "Светофор неактивных клиентов" },
     { title: "Возврат потерянного или неактивного клиента" }, { title: "Продавец без объекта" },
     { title: "Покупатель думает (медленный трек)" },
   ],
   leads: [
     { title: "Свой объект: свой клиент", aliases: ["Распределение клиентов"] },
     { title: "Занятость агента в раздаче" }, { title: "Передача как признак конфликта" },
-    { title: "Лимит активных лидов", aliases: ["Лимиты агентов"] },
     { title: "Уведомления", aliases: ["Напоминания о показах"] },
     { title: "Когда агент уходит из компании" }, { title: "Реактивация старых клиентов" },
   ],
@@ -34,7 +33,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Радиус по карте" }, { title: "Отложенные клиенты" },
   ],
   team: [
-    { title: "Люди", aliases: ["Сотрудники и права"] }, { title: "Распределение лидов" },
+    { title: "Люди", aliases: ["Сотрудники и права"] }, { title: "Распределение заявок" },
     { title: "Royal Score — рубильник модуля", aliases: ["RoyalScore"] },
     { title: "Из чего складывается KPI", aliases: ["Веса KPI"] }, { title: "Royal Score", aliases: ["События рейтинга"] },
   ],
@@ -79,6 +78,12 @@ export function settingsSectionsFor(tab: SettingsTabId, role?: string) {
   return SETTINGS_SECTIONS[tab].filter((section) => !section.directorOnly || role === "DIRECTOR");
 }
 
+/**
+ * Поиск по настройкам понимает старое слово: «лиды», «лидов» находят то же, что «заявки», «заявок» (владелец 20.11.2026: слово
+ * «лид» из экранов убрано, но привычка осталась). И запрос, и текст приводятся к одной основе «заявк».
+ */
+// Без «взгляда назад» (Safari до 16.4 его не понимает): начало слова ловим группой и возвращаем её обратно.
+const OLD_WORD = new RegExp("(^|[^а-яё])ли" + "д(?:а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яё])", "g");
 export function normalizeSettingsSearch(text: string) {
-  return text.toLocaleLowerCase("ru").replace(/ё/g, "е");
+  return text.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(OLD_WORD, "$1заявк").replace(/заявок/g, "заявк");
 }

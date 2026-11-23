@@ -1,7 +1,7 @@
 import type { Client, Interaction } from "../types";
 import type { DashboardSummary } from "../hooks/useDashboard";
 import type { DuplicateReviewItem, ReactivationOffer } from "../hooks/useClients";
-import { buildNoContact, daysSince, stepDay, urgencyOf, type Urgency } from "./agentDay";
+import { stepDay, urgencyOf, type Urgency } from "./agentDay";
 import { CLIENT_SOURCE_LABELS } from "./clientFormat";
 
 /**
@@ -21,7 +21,7 @@ import { CLIENT_SOURCE_LABELS } from "./clientFormat";
  *   4. клиента назначил руководитель: принят сразу, ждёт звонка;
  *   5. срок первого звонка;
  *   6. задача дня (показ, перезвон);
- *   7. самый остывший клиент (молчит дольше `NO_CONTACT_DAYS`).
+ *   7. клиент, с кем ни разу не связывались, по общему правилу (сервер, `/clients?noContact=1`).
  * Всё, что не заняло «Сначала это», встаёт в очередь тем же порядком, а за
  * ним идут остальные клиенты портфеля по срочности (`buildPortfolio`).
  */
@@ -36,8 +36,8 @@ export type AgentTodoItem =
   | { kind: "supervisor"; key: string; item: SupervisorAssignedItem }
   | { kind: "firstCall"; key: string; item: FirstCallDueItem }
   | { kind: "task"; key: string; task: Interaction }
-  | { kind: "cold"; key: string; client: Client; days: number }
-  | { kind: "client"; key: string; client: Client; urgency: Urgency; days: number };
+  | { kind: "cold"; key: string; client: Client }
+  | { kind: "client"; key: string; client: Client; urgency: Urgency; noContact: boolean };
 
 export interface AgentTodoInput {
   /** Ждут принятия (серверный срез `pendingAcceptance`), старые первыми. */
@@ -50,6 +50,8 @@ export interface AgentTodoInput {
   tasks: Interaction[];
   /** Результат `buildPortfolio`: просроченные, потом без шага, потом остальные. */
   portfolio: Client[];
+  /** «Не связывались» по общему правилу — с сервера (`/clients?noContact=1`), в порядке списка. */
+  noContact: Client[];
   now: number;
 }
 
@@ -101,12 +103,13 @@ export function buildAgentTodo(input: AgentTodoInput): AgentTodo {
   }
 
   const portfolio = input.portfolio.filter((c) => !taken.has(c.id));
+  const noContactIds = new Set(input.noContact.map((c) => c.id));
   const portfolioItems: AgentTodoItem[] = portfolio.map((client) => ({
     kind: "client",
     key: `client-${client.id}`,
     client,
     urgency: urgencyOf(client, now),
-    days: daysSince(client.lastContactAt, now),
+    noContact: noContactIds.has(client.id),
   }));
 
   const focusIdx = items.findIndex((i) => i.kind !== "client");
@@ -118,9 +121,9 @@ export function buildAgentTodo(input: AgentTodoInput): AgentTodo {
     rest = items.filter((_, i) => i !== focusIdx);
   } else {
     // Срочного нет: «Сначала это» занимает самый остывший клиент.
-    const coldest = buildNoContact(portfolio, now)[0];
+    const coldest = input.noContact.find((c) => !taken.has(c.id));
     if (coldest) {
-      focus = { kind: "cold", key: `cold-${coldest.id}`, client: coldest, days: daysSince(coldest.lastContactAt, now) };
+      focus = { kind: "cold", key: `cold-${coldest.id}`, client: coldest };
       tail = portfolioItems.filter((i) => i.kind === "client" && i.client.id !== coldest.id);
     }
   }

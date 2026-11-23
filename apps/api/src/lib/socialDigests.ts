@@ -3,12 +3,12 @@ import { logSystemError } from "./systemError.js";
 import { dushanbeWallClock, dushanbeStartOfToday, dushanbeDateTimeString } from "./dushanbeTime.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { nextPublishSlot } from "./publishSchedule.js";
-import { loadOccupiedPublishSlots } from "./publishSlots.js";
-import { PUBLISH_SLOT_LOCK_ID } from "./videoHandoff.js";
+import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
 import { preparePhotoPostImages, publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
 import { CONTACT_NUMBERS, buildReelsHashtags, buildPriceDisplay, withPostFooter } from "./reelsCaptionTemplate.js";
 import { loadMoneyContext, toTjs } from "./money.js";
-import { loadCredentials, instagramTokenIdentity } from "../messengers/meta.js";
+import { loadCredentials } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 
 /**
  * ПОДБОРКИ ОБЪЕКТОВ (28.09.2026, agent-brief.md reposts-digests, решение
@@ -284,8 +284,9 @@ async function publishDigest(pick: DigestPick, recordIds: Record<DigestChannel, 
   } else if (urls.length === 0) {
     r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
   } else {
-    const identity = await instagramTokenIdentity(creds.igToken);
-    r = identity.ok ? await publishInstagramCarousel(pick.properties[0]?.id ?? "digest", identity.id, creds.igToken, urls, caption) : { ok: false, error: identity.error };
+    // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+    const publisher = await resolveInstagramPublisher(creds.igToken);
+    r = publisher.ok ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(pick.properties[0]?.id ?? "digest", igUserId, token, urls, caption))).result : { ok: false, error: publisher.error };
   }
   await upsertDigestRecord(
     recordIds.INSTAGRAM,

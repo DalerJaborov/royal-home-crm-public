@@ -41,7 +41,6 @@ import { revokeElevation } from "./stepUp.js";
 import { handoverAgentWork } from "./agentHandover.js";
 import { revertAgentHandover } from "./agentHandoverRevert.js";
 import { releaseReactivationOffersOfAgent } from "./reactivationOffers.js";
-import { shiftInactiveClockAfterAbsence } from "./inactiveTrafficLight.js";
 import { findUnacceptedLeadsOfAgent, releaseLeadsToQueue, type ReleasableLead } from "./agentLeadRelease.js";
 import { clearAgentFromSettingsReferences } from "./agentSettingsCleanup.js";
 import { alertNoMontajerIfWorkWaits } from "./montajerHandover.js";
@@ -593,7 +592,7 @@ async function releaseWorkOfDeactivatedAgent(
         agentId: agent.id,
         actorId: actor.id,
         actorName,
-        reason: `Учётка агента отключена руководителем ${actorName} — лид возвращён в очередь`,
+        reason: `Учётка агента отключена руководителем ${actorName} — заявка возвращена в очередь`,
         source: "deactivate",
       });
     });
@@ -617,7 +616,7 @@ async function releaseWorkOfDeactivatedAgent(
       select: { id: true },
     });
     const parts = [
-      leads.length > 0 ? `непринятых лидов возвращено в очередь: ${leads.length}` : null,
+      leads.length > 0 ? `непринятых заявок возвращено в очередь: ${leads.length}` : null,
       clientsLeft > 0 ? `клиентов в работе осталось за ним: ${clientsLeft}, передайте дела` : null,
     ].filter(Boolean);
     await sendPushToAgents(
@@ -957,7 +956,7 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
       agentId: agent.id,
       actorId: actor.id,
       actorName: actorRow?.fullName ?? "Неизвестно",
-      reason: `Агент заморожен руководителем ${actorRow?.fullName ?? actor.id}: «${parsed.data.reason.trim()}» — лид возвращён в очередь`,
+      reason: `Агент заморожен руководителем ${actorRow?.fullName ?? actor.id}: «${parsed.data.reason.trim()}» — заявка возвращена в очередь`,
       source: "freeze",
     });
   });
@@ -975,8 +974,8 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
     await sendPushToAgents(
       directors.map((d) => d.id),
       {
-        title: "Заморозка агента: лиды в очереди",
-        body: `${agent.fullName}: ${releasedLeads.length} лид(ов) снято и возвращено в очередь — ${names}${more}`,
+        title: "Заморозка агента: заявки в очереди",
+        body: `${agent.fullName}. Возвращено в очередь заявок: ${releasedLeads.length} — ${names}${more}`,
         url: "/team",
         tag: `agent-freeze-${agent.id}`,
       }
@@ -1001,7 +1000,6 @@ export async function unfreezeStaffMember(actor: StaffActor, targetId: string, o
   if (await forbiddenPrivilegedTarget(actor, agent.id)) return fail(403, PRIVILEGED_TARGET_ERROR);
   if (!agent.frozenAt) return fail(409, "Сотрудник не заморожен");
 
-  // Разморозка и сдвиг часов светофора — одной транзакцией (shiftInactiveClockAfterAbsence).
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({
       where: { id: agent.id },
@@ -1016,7 +1014,6 @@ export async function unfreezeStaffMember(actor: StaffActor, targetId: string, o
         absenceUntil: null,
       },
     });
-    await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
   });
   audit(actor, opts, "AGENT_UNFREEZE", agent.id, {});
   void syncAgentQueuePresence(agent.id).catch(() => {});
@@ -1039,9 +1036,9 @@ export async function pauseStaffLeads(actor: StaffActor, targetId: string, raw: 
   if (!agent) return fail(404, "Сотрудник не найден");
   if (agent.id === actor.id) return fail(400, "Свою паузу включают в профиле");
   // Лиды раздаются только агентам — пауза остальным ничего бы не изменила.
-  if (!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)) return fail(400, "Лиды получают только агенты и руководитель продаж");
+  if (!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)) return fail(400, "Заявки получают только агенты и руководитель продаж");
   if (!agent.isActive) return fail(409, "Сотрудник отключён");
-  if (agent.frozenAt) return fail(409, "Сотрудник уже заморожен — лиды ему и так не идут");
+  if (agent.frozenAt) return fail(409, "Сотрудник уже заморожен — заявки ему и так не идут");
 
   const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
   const actorName = actorRow?.fullName ?? "Руководитель";

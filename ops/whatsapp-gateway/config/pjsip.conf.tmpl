@@ -1,0 +1,133 @@
+; =====================================================================
+; Шлюз WhatsApp -> АТС. Шаблон: переменные ${WA_*} подставляет entrypoint
+; (envsubst по явному списку, остальной текст не трогается).
+;
+; Источники требований Meta (прочитано 17.11.2026):
+;  [SIP]  https://developers.facebook.com/docs/whatsapp/cloud-api/calling/sip
+;  [EX]   https://developers.facebook.com/docs/whatsapp/cloud-api/calling/integration-examples
+;         (пример Meta для Asterisk 22.5.2 — от него и отталкиваемся)
+;  [FAQ]  https://developers.facebook.com/docs/whatsapp/cloud-api/calling/faq
+; =====================================================================
+
+[global]
+type = global
+user_agent = RoyalHome-WA-Gateway
+; Опознание по адресу и по заголовку (match_header живёт в том же модуле ip).
+endpoint_identifier_order = ip
+default_realm = ${WA_SIP_HOST}
+; Meta re-INVITE не принимает (отвечает 500) [FAQ] — таймеры сессии выключены и
+; на уровне конечных точек ниже.
+
+; --- Сторона Meta: TLS обязателен, порт по умолчанию 5061 [SIP → Security,
+; «Configure or update SIP settings»]. Сертификат — публичный, на имя
+; ${WA_SIP_HOST}: Meta проверяет, что имя совпадает с настроенным на номере [SIP].
+[transport-tls]
+type = transport
+protocol = tls
+bind = ${WA_PUBLIC_IP}:${WA_TLS_PORT}
+cert_file = /var/lib/asterisk/keys/wa-fullchain.pem
+priv_key_file = /var/lib/asterisk/keys/wa-privkey.pem
+; method = sslv23 — как в примере Meta [EX] (согласовать наивысшую версию TLS).
+method = sslv23
+; mTLS не включён: Meta умеет показать клиентский сертификат
+; client.sip.fbclientcerts.com [SIP → Security], но защищаемся файрволом по
+; сетям Meta + digest-паролем. Включать — verify_client=yes + ca_list_file
+; с CA Meta (ссылка в [SIP → Security]).
+verify_client = no
+allow_reload = no
+
+; --- Плечо к станции: обычный SIP/UDP внутри VPN (сервер 10.9.0.1 ↔ станция 10.9.0.2).
+[transport-station]
+type = transport
+protocol = udp
+bind = ${WA_STATION_LOCAL_IP}:${WA_LOCAL_SIP_PORT}
+allow_reload = no
+
+; =====================================================================
+; Конечная точка Meta. Значения — из примера Meta [EX] (sdes_endpointtemplate),
+; каждое отклонение подписано.
+; =====================================================================
+[whatsapp]
+type = endpoint
+transport = transport-tls
+context = from-whatsapp
+disallow = all
+; a-law первым: Meta добавляет PCMA к Opus, если её попросить
+; (calling.audio.additional_codecs = ["PCMA"], wa-calling.sh enable);
+; тогда звук идёт до станции без перекодирования. Не добавила — берём Opus и
+; перекодируем здесь (codec_opus_open_source).
+allow = alaw,opus
+codec_prefs_incoming_offer = prefer:configured,operation:intersect,keep:first,transcode:allow
+; SRTP с ключами SDES [SIP → «Configure SDES»; FAQ: 488 без ICE лечится SDES].
+media_encryption = sdes
+media_encryption_optimistic = no
+ice_support = no
+direct_media = no
+rtp_symmetric = yes
+force_rport = yes
+; rewrite_contact = no ОБЯЗАТЕЛЬНО: иначе 200 OK портит Record-Route, ACK от Meta
+; не доходит и звук рвётся через ~32–33 с [EX → Troubleshooting; FAQ].
+rewrite_contact = no
+media_use_received_transport = yes
+media_address = ${WA_PUBLIC_IP}
+; Meta не принимает re-INVITE [FAQ] — никаких таймеров сессии.
+timers = no
+trust_id_inbound = no
+send_pai = no
+send_rpid = no
+dtmf_mode = rfc4733
+allow_subscribe = no
+; Digest-проверка входящих «настоятельно рекомендуется» [SIP → Security];
+; имя — номер бизнеса без «+», пароль выдаёт Meta [SIP → digest auth].
+; Строку подставляет entrypoint: есть файл пароля — проверка включена.
+${WA_AUTH_LINE}
+
+; Опознание звонка Meta — по заголовку, как в примере Meta [EX]. Подделать
+; заголовок может кто угодно, поэтому снаружи порт 5061 открыт только сетям
+; Meta (wa-firewall.sh), а пароль Meta — второй замок.
+[whatsapp-identify]
+type = identify
+endpoint = whatsapp
+match_header = X-FB-External-Domain: wa.meta.vc
+
+; =====================================================================
+; Конечная точка станции (FreePBX). Только a-law, без шифрования (VPN),
+; без пароля: станция пускает шлюз по адресу ${WA_STATION_LOCAL_IP}.
+; =====================================================================
+[station]
+type = endpoint
+transport = transport-station
+context = from-station
+disallow = all
+allow = alaw
+direct_media = no
+rtp_symmetric = yes
+force_rport = yes
+; rewrite_contact = yes (18.11.2026, живой звонок): станция пишет в Contact своего 200 OK
+; внешний адрес транспорта (external_signaling_address 104.145.12.182), ACK уходил
+; туда, а не в VPN, станция не получала ACK и через 32 с клала трубку. Для этой
+; стороны берём адрес, откуда реально пришёл ответ (10.9.0.2:5062).
+rewrite_contact = yes
+ice_support = no
+media_encryption = no
+media_address = ${WA_STATION_LOCAL_IP}
+timers = no
+trust_id_outbound = yes
+send_pai = no
+dtmf_mode = rfc4733
+allow_subscribe = no
+aors = station
+
+[station]
+type = aor
+contact = sip:${WA_STATION_IP}:${WA_STATION_PORT}
+; Раз в 30 с OPTIONS: недоступна станция — шлюз не снимает трубку зря (диалплан).
+qualify_frequency = 30
+qualify_timeout = 3.0
+
+[station-identify]
+type = identify
+endpoint = station
+match = ${WA_STATION_IP}/32
+
+#tryinclude pjsip_auth.conf

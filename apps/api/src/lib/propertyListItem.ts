@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { PropertyVideoHandoffBrief } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type PropertyDefaultOmit } from "../db.js";
 import { can } from "../auth/middleware.js";
 import { computeDemandCounts } from "../routes/matching.js";
 import { loadPipelineDeadlines, stageState } from "./propertyPipeline.js";
@@ -33,7 +33,7 @@ export const PROPERTY_LIST_INCLUDE = {
   handoverFromAgent: { select: { id: true, fullName: true, avatarUrl: true } },
 } satisfies Prisma.PropertyInclude;
 
-export type PropertyListRecord = Prisma.PropertyGetPayload<{ include: typeof PROPERTY_LIST_INCLUDE }>;
+export type PropertyListRecord = Prisma.PropertyGetPayload<{ include: typeof PROPERTY_LIST_INCLUDE; omit: PropertyDefaultOmit }>;
 
 /**
  * «В КАКОМ СОСТОЯНИИ МОНТАЖ» СРАЗУ В СПИСКЕ (25.09.2026, владелец: «в списке
@@ -155,7 +155,7 @@ export async function presentPropertyListItems(items: PropertyListRecord[], req:
   const briefs = await computeVideoHandoffBriefs(items, positions);
   const viewOwners = can(req, "properties.viewOwners");
   return items.map((p) => ({
-    ...stripEmbedding(stripOwnerContact(p, req.agent!.id, viewOwners)),
+    ...stripEmbedding(stripOwnerContact(p, viewOwners)),
     demandCount: demandCounts.get(p.id) ?? 0,
     // Этап конвейера считается на сервере: у интерфейса не должно быть своей копии
     // правила «просрочен», иначе список и карточка однажды покрасятся по-разному.

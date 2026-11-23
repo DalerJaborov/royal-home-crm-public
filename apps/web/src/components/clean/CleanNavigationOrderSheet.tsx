@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { useTouchSafeDragSensors } from "../../hooks/useTouchSafeDragSensors";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
@@ -28,7 +29,7 @@ export function CleanNavigationOrderSheet({ items, savedOrder, onSave, onClose }
   const mounted = useRef(true);
   const dragging = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const sensors = useTouchSafeDragSensors({ mouseDistance: 8, keyboard: sortableKeyboardCoordinates });
   const allowed = new Map(items.map((item) => [item.to, item]));
   const visible = [...new Set([...draft, ...items.map((item) => item.to)])].filter((id) => allowed.has(id));
   const move = (id: string, target: string) => { const next = moveCleanNavigation(visible, id, target); setDraft(next); setAnnouncement(`${allowed.get(id)?.label ?? "Раздел"}: позиция ${next.indexOf(id) + 1} из ${next.length}`); setReset(false); setError(null); };

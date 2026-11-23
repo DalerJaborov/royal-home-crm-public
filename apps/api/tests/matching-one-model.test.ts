@@ -93,7 +93,8 @@ describe("одна пара — один ответ с обеих сторон",
 });
 
 describe("купившие не ждут объект", () => {
-  it("LOST «купил сам» / «через другое агентство» — вне подбора; «передумал/отложил», «дорого» и без причины — в подборе", async () => {
+  // 16-17.11.2026: «Потерянных» нет — решает причина последнего отказа, статус не важен.
+  it("отказ «купил сам» / «через другое агентство» — вне подбора; «передумал/отложил», «дорого» и без причины — в подборе", async () => {
     const boughtSelf = await makeClient("Купил-сам", { status: "LOST", refusalReason: "BOUGHT_SELF" });
     const boughtOther = await makeClient("Купил-у-других", { status: "LOST", refusalReason: "BOUGHT_VIA_OTHER_AGENCY" });
     const changedMind = await makeClient("Передумал", { status: "LOST", refusalReason: "CHANGED_MIND" });
@@ -112,7 +113,7 @@ describe("купившие не ждут объект", () => {
     expect(clientDoneBuying({ status: "LOST", refusalReason: "BOUGHT_SELF" })).toBe(true);
     expect(clientDoneBuying({ status: "LOST", refusalReason: "EXPENSIVE" })).toBe(false);
     expect(clientDoneBuying({ status: "DEAL_CLOSED" })).toBe(true);
-    expect(clientDoneBuying({ status: "HOT", refusalReason: "BOUGHT_SELF" })).toBe(false);
+    expect(clientDoneBuying({ status: "NEW", refusalReason: "BOUGHT_SELF" })).toBe(true);
   });
 });
 
@@ -269,7 +270,8 @@ describe("сторож: правило совпадения живёт в одн
         // Своя проверка бюджета пары = своя копия правила (так жил автопуш до 10.11).
         // Поиск ботом по просьбе в чате (lib/propertyMatch.ts) — другая задача, не пара клиент↔объект.
         // Объявления с площадок под покупателя (lib/market/buyerMatch.ts, #138) — тоже не наш объект;
-        // бюджет, комнаты и площадь там — те же общие формулы (budgetWindowTjs, roomsWithinTolerance, areaMeetsMinimum).
+        // комнаты и площадь там — те же общие формулы (roomsWithinTolerance, areaMeetsMinimum), а окно бюджета с 17.11.2026
+        // своё (marketBudgetWindowTjs, ±N% из Настроек «Подбор с площадок» — решение владельца про узкий подбор).
         if (/budgetWindowTjs\(/.test(text) && !["lib/matchPolicy.ts", "lib/propertyMatch.ts", "lib/market/buyerMatch.ts"].includes(rel)) offenders.push(`${rel} (своя проверка бюджета пары)`);
         if (/desiredDistrictId\s*==\s*null\s*\|\|/.test(text)) offenders.push(`${rel} (своя проверка района пары)`);
       }

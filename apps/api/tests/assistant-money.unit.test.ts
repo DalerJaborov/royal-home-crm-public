@@ -1,7 +1,7 @@
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: vi.fn(() => { throw new Error("Unexpected database access"); }) } }));
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantEmbeddingMoneyGuard, createAssistantMoneyGuard, createAssistantMoneyWallet } from "../src/ai/assistant/moneyBudget.js";
-import { dollarLimit, generationReservation } from "../src/ai/assistant/moneyPolicy.js";
+import { dollarLimit, generationReservation, MAX_ASSISTANT_INPUT_TOKENS } from "../src/ai/assistant/moneyPolicy.js";
 
 const now = () => Date.UTC(2026, 10, 3, 12);
 const attempt = () => ({ model: "gemini-3.1-pro-preview", apiKey: "test-key", kind: "generate" as const,
@@ -28,6 +28,23 @@ describe("conservative monetary policy", () => {
     const results = await Promise.allSettled(Array.from({length:10}, () => wallet.reserve(100000)));
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(3);
     expect(daily).toHaveBeenCalledTimes(3);
+  });
+  it("defaults: $1 per turn, $30 per day when env is unset (14.11.2026)", async () => {
+    vi.stubEnv("ASSISTANT_GEMINI_DAILY_USD", ""); vi.unstubAllEnvs();
+    delete process.env.ASSISTANT_GEMINI_DAILY_USD; delete process.env.ASSISTANT_GEMINI_TURN_USD;
+    const daily = vi.fn(async () => true);
+    const wallet = createAssistantMoneyWallet({ now, reserveDaily: daily });
+    await wallet.reserve(1_000_000); // $1 fits the turn envelope
+    await expect(wallet.reserve(1)).rejects.toThrow(/лимит/);
+    expect(daily).toHaveBeenCalledWith(1_000_000, expect.any(String), 30_000_000);
+  });
+  it("empty env strings (docker-compose `${VAR:-}`) fall back to the defaults", async () => {
+    vi.stubEnv("ASSISTANT_GEMINI_DAILY_USD", ""); vi.stubEnv("ASSISTANT_GEMINI_TURN_USD", "  ");
+    const daily = vi.fn(async () => true);
+    const wallet = createAssistantMoneyWallet({ now, reserveDaily: daily });
+    await wallet.reserve(1_000_000);
+    expect(daily).toHaveBeenCalledWith(1_000_000, expect.any(String), 30_000_000);
+    vi.unstubAllEnvs();
   });
   it("does not refund an uncertain database outcome", async () => {
     const daily = vi.fn(async () => { throw new Error("uncertain"); });
@@ -64,11 +81,36 @@ describe("count and reserve before every generation", () => {
     expect(init.redirect).toBe("error"); expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(reserve).toHaveBeenCalledWith(163840,expect.any(AbortSignal));
   });
-  it.each([0, -1, 32769, 1.5, "20", null])("rejects invalid count %s before reserving", async tokens => {
+  it.each([0, -1, 65537, 1.5, "20", null])("rejects invalid count %s before reserving", async tokens => {
     const reserve = vi.fn(async () => {});
     const fetch = vi.fn(async()=>new Response(JSON.stringify({totalTokens:tokens}))) as unknown as typeof globalThis.fetch;
     await expect(createAssistantMoneyGuard({now,fetch,wallet:{reserve}})(attempt())).rejects.toMatchObject({status:402});
     expect(reserve).not.toHaveBeenCalled();
+  });
+  // 19.11.2026: «велик вход», «конверт хода», «дневной предел» и «учёт недоступен» —
+  // разные причины одного кода assistant_attempt_limit (человеку — разные тексты).
+  it("input above the limit is input_too_large with the exact count, before any reservation", async () => {
+    expect(MAX_ASSISTANT_INPUT_TOKENS).toBe(65_536);
+    const reserve = vi.fn(async () => {});
+    const request = attempt();
+    const error = await createAssistantMoneyGuard({ now, fetch: fakeFetch(70_000), wallet: { reserve } })(request).catch(e => e);
+    expect(error).toMatchObject({ code: "assistant_attempt_limit", status: 402, reason: "input_too_large",
+      measure: { inputTokens: 70_000, requestChars: JSON.stringify(request.body).length, limitTokens: 65_536 } });
+    expect(reserve).not.toHaveBeenCalled();
+    await expect(createAssistantMoneyGuard({ now, fetch: fakeFetch(65_536), wallet: { reserve } })(attempt())).resolves.toBeUndefined();
+  });
+  it("names the wallet refusal: turn envelope, daily limit, accounting outage", async () => {
+    const turn = createAssistantMoneyWallet({ now, turnUsd: "0.10", dailyUsd: "3", reserveDaily: async () => true });
+    await turn.reserve(100_000);
+    await expect(turn.reserve(1)).rejects.toMatchObject({ reason: "money_turn" });
+    const daily = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "3", reserveDaily: async () => false });
+    await expect(daily.reserve(10)).rejects.toMatchObject({ reason: "money_daily" });
+    // Один вызов дороже всего дня — это настройка, а не «день исчерпан» (ревью 19.11.2026).
+    const tiny = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "0.01", reserveDaily: async () => true });
+    await expect(tiny.reserve(20_000)).rejects.toMatchObject({ reason: "policy_expired" });
+    const down = createAssistantMoneyWallet({ now, turnUsd: "1", dailyUsd: "3", reserveDaily: async () => { throw new Error("db"); } });
+    await expect(down.reserve(10)).rejects.toMatchObject({ reason: "accounting_unavailable" });
+    expect(() => generationReservation("gemini-3.6-flash", 1, 1, Date.UTC(2027, 0, 1))).toThrow(expect.objectContaining({ reason: "policy_expired" }));
   });
   it("rejects oversized and failed count responses", async () => {
     for (const response of [new Response("x".repeat(20000)),new Response("{}",{status:500})]) {

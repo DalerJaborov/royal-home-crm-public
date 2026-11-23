@@ -1,5 +1,6 @@
 import type { CallState } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { ARCHIVE_REVIEW_NOTE_PREFIX } from "../archiveReviewCall.js";
 // Импорт напрямую из services/leads/firstCall.js, а не из бочки-реэкспорта
 // leads.js (01.09.2026, найдено проверкой циклов импортов в CI): leads.js
 // реэкспортирует и services/leads/selection.js, тот тянет agentOccupancyShield.js,
@@ -7,10 +8,8 @@ import { prisma } from "../../db.js";
 // leads.js → selection.js → agentOccupancyShield.js → callTracker.js → leads.js;
 // прямой импорт того же самого экспорта разрывает цикл, не меняя поведения.
 import { rewardFirstCallIfOnTime } from "./rewardFirstCallHook.js";
-import { refreshClientStatus } from "../clientAutoStatus.js";
 import { markAgentAttempt } from "../clientWorkStalled.js";
 import { notifyNoAnswerEscalation, planNoAnswerStep } from "../noAnswerStreak.js";
-import { checkNoAnswerStreakForTrafficLight } from "../noAnswerTrafficLight.js";
 import { closeStaleNextActions } from "../nextActionAutoClose.js";
 import { claimAutoTaskSlot, closeAutoTasks, CALLBACK_AUTO_TASK_KINDS } from "../autoTasks.js";
 import { logSystemError } from "../systemError.js";
@@ -66,6 +65,12 @@ export interface ActiveCall {
    *  каталоге станции: имя файла станция не сообщает (см. callRecordings.ts). */
   agentExtension?: string;
   clientPhone?: string;
+  /**
+   * Звонок-разбор удалённого клиента из Корзины (16.11.2026, lib/archiveReviewCall.ts).
+   * Это НЕ работа агента с карточкой: finishCall пишет исход и тянет запись, но не двигает
+   * ни статус, ни светофор неактивных, ни задачи, ни счётчик тишины, ни Royal Score.
+   */
+  archiveReview?: boolean;
   state: CallState;
   startedAt: Date;
   /**
@@ -367,7 +372,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
      * После обновления запись сама вошла бы в серию и попытки сдвинулись бы на одну
      * (см. тот же порядок в routes/me.ts и комментарий в planNoAnswerStep).
      */
-    const noAnswerStep = clientDidNotAnswer ? await planNoAnswerStep(call.clientId, call.endedAt) : null;
+    const noAnswerStep = clientDidNotAnswer && !call.archiveReview ? await planNoAnswerStep(call.clientId, call.endedAt) : null;
     // Дедуп «Перезвонить — клиент не ответил (попытка N из M)» (21.09.2026,
     // lib/autoTasks.ts): если у клиента уже открыта такая задача с предыдущей
     // попытки, эта запись её не получает — claimAutoTaskSlot обновит текст/срок
@@ -444,6 +449,8 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
         data: {
           notes: wasMarkedLost
             ? `Станция подтвердила завершение позже: ${outcomeText}`
+            : call.archiveReview
+            ? `${ARCHIVE_REVIEW_NOTE_PREFIX}: ${outcomeText}`
             : call.answeredAt
             ? `Звонок через CRM, разговор ${formatDuration(seconds)}`
             : cancelled
@@ -528,26 +535,10 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
        * CANCELLED и AGENT_NO_PICKUP не в счёт: до телефона клиента вызов не
        * дошёл, попытки связаться не было.
        */
-      if (call.answeredAt || clientDidNotAnswer) {
+      if (!call.archiveReview && (call.answeredAt || clientDidNotAnswer)) {
         // Звонок делал сам агент карточки — но проверку оставляем общей: если
         // набирал не он, счётчик его тишины двигать не за что.
         void markAgentAttempt(call.clientId, call.endedAt, call.agentId);
-      }
-      // Три недозвона подряд — «Не отвечает» (см. lib/clientAutoStatus.ts). Пересчёт
-      // ровно там же, где его делает ручная отметка, иначе статус двигался бы только
-      // от записей, сделанных руками. Не ждём: обработчик событий АТС не должен стоять.
-      if (clientDidNotAnswer) {
-        void refreshClientStatus(call.clientId).catch((err) =>
-          console.error("[звонок] автостатус:", err instanceof Error ? err.message : err)
-        );
-      }
-      // Раздел C (план 19-plan-03-09-evening.md): 3 недозвона подряд без единого
-      // разговора между ними — автоматический вход в светофор неактивных. Не ждём:
-      // та же причина, что и у автостатуса выше.
-      if (clientDidNotAnswer) {
-        void checkNoAnswerStreakForTrafficLight(call.clientId).catch((err) =>
-          console.error("[звонок] авто-неактивность по недозвонам:", err instanceof Error ? err.message : err)
-        );
       }
       // ЗАКРЫТЬ СТАРЫЕ ПОДСКАЗКИ КЛИЕНТА (18.08.2026, см. lib/nextActionAutoClose.ts):
       // звонок через CRM — новое реальное взаимодействие, только если телефон
@@ -556,7 +547,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
       // касается вовсе, закрывать по нему нечего. Своя же подсказка (если только
       // что заведена, escalated=false) исключена по excludeInteractionId — иначе
       // она гасила бы сама себя в этой же операции.
-      if (call.answeredAt || (call.clientRang && !cancelled)) {
+      if (!call.archiveReview && (call.answeredAt || (call.clientRang && !cancelled))) {
         void closeStaleNextActions(call.clientId, call.interactionId).catch((err) =>
           console.error("[звонок] закрытие старых подсказок:", err instanceof Error ? err.message : err)
         );
@@ -565,7 +556,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
       // (21.09.2026, lib/autoTasks.ts) — недозвон САМ ПО СЕБЕ (clientDidNotAnswer)
       // сюда не попадает: это как раз событие, которое заводит/продлевает
       // no_answer_retry несколькими строками выше.
-      if (call.answeredAt) {
+      if (call.answeredAt && !call.archiveReview) {
         void closeAutoTasks(call.clientId, CALLBACK_AUTO_TASK_KINDS).catch((err) =>
           console.error("[звонок] автозакрытие «перезвонить»:", err instanceof Error ? err.message : err)
         );
@@ -631,7 +622,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
    * обработчика событий АТС, и он не должен стоять на записи в базу. Отказ уходит
    * в журнал через logSystemError, а не теряется молча.
    */
-  if (call.answeredAt) {
+  if (call.answeredAt && !call.archiveReview) {
     const contactedAt = call.endedAt;
     void prisma
       .$transaction([
@@ -668,7 +659,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
   // разговора (решение владельца 09.08.2026), а не по записанному итогу. Здесь
   // единственное место, где длительность известна сразу и точно. Не ждём
   // результата: балл не должен задерживать обработку следующего события с АТС.
-  if (seconds > 0) {
+  if (seconds > 0 && !call.archiveReview) {
     void rewardFirstCallIfOnTime(call.clientId, call.agentId, seconds).catch((err) =>
       console.error("[звонок] балл за первый звонок:", err instanceof Error ? err.message : err)
     );

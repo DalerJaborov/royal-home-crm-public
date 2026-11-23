@@ -2,6 +2,10 @@ import { maskPhones, type MessageSender } from "@royal-home/shared";
 import { withManualCustomerDeliveryIntent } from "./customerManualDeliveryIntent.js";
 import { isOutboundBlockedError, type OutboundOrigin } from "./outboundShield.js";
 import { prisma, type TxClient } from "../db.js";
+// Пауза бота — общий модуль без отправки (ревью #344): его зовёт и сама отправка (meta.ts →
+// lib/threadOwnerPause.ts), а здесь он переизлучается для прежних вызывающих.
+import { applyDeliveryPause, deliveryPauseFor, staffRelayPauseMs, OPERATOR_ECHO_PAUSE_MS } from "./deliveryPause.js";
+export { applyDeliveryPause, deliveryPauseFor, staffRelayPauseMs, OPERATOR_ECHO_PAUSE_MS };
 import { ownPropertyInterestConversationWhere } from "./ownBotConversationScope.js";
 import { claimPropertyChatReply, rollbackPropertyChatReply, lockDeliveryOwnershipFence, sameDeliveryOwnershipFence,
   type DeliveryOwnershipFence, type PropertyChatClaimUndo } from "./propertyChatReply.js";
@@ -25,7 +29,9 @@ import {
 } from "../messengers/meta.js";
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
-import { isMessagingWindowClosedError } from "./messagingWindow.js";
+import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
+import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -130,19 +136,6 @@ export const OPERATOR_REPLY_PAUSE_MS = 60 * 24 * 365 * 10 * 60 * 1000;
 export const OPERATOR_REPLY_PAUSE_MS_SHORT = 10 * 60 * 1000;
 
 /**
- * ОТВЕТ ИЗ ПРИЛОЖЕНИЯ META (эхо, мимо CRM) — 12 ЧАСОВ, А НЕ 10 МИНУТ (28.09.2026).
- *
- * Жалоба владельца со скриншотом: директор ответил клиенту из приложения Facebook,
- * а бот продолжал писать тому же человеку. Эхо ставило ту же короткую паузу, что и
- * разовая помощь из CRM, — через 10 минут бот возвращался в разговор, который живой
- * человек ещё вёл. Кто держал телефон, Meta не сообщает, поэтому «бессрочно»
- * (только своему агенту, решение 18.08) здесь не годится; 12 часов покрывают
- * рабочий разговор целиком, а наутро бот снова отвечает сам. Раньше вернуть
- * бота — кнопка «Вернуть боту» в переписке.
- */
-export const OPERATOR_ECHO_PAUSE_MS = 12 * 60 * 60 * 1000;
-
-/**
  * Дефолтная длительность паузы для ручного ответа без явного pausedUntilOverride:
  * бессрочно — только если отвечает сотрудник, закреплённый за клиентом этого
  * диалога (Client.assignedAgentId), иначе короткая пауза (см. OPERATOR_REPLY_PAUSE_MS_SHORT).
@@ -152,6 +145,11 @@ export const OPERATOR_ECHO_PAUSE_MS = 12 * 60 * 60 * 1000;
  * сверять с assignedAgentId, значит это не «передача диалога агенту».
  */
 export async function defaultPauseForSender(target: DeliveryTarget, sender?: MessageSender): Promise<number> {
+  const base = await basePauseForSender(target, sender);
+  return (await staffRelayPauseMs(target)) ?? base;
+}
+
+async function basePauseForSender(target: DeliveryTarget, sender?: MessageSender): Promise<number> {
   if (!sender || sender.kind !== "agent") return OPERATOR_REPLY_PAUSE_MS_SHORT;
   try {
     const clientId =
@@ -178,48 +176,6 @@ export async function defaultPauseForSender(target: DeliveryTarget, sender?: Mes
     // Не удалось проверить — безопаснее короткая пауза, чем случайное «навсегда».
     return OPERATOR_REPLY_PAUSE_MS_SHORT;
   }
-}
-
-/**
- * Поставить паузу бота после отправки и вернуть срок, который реально стоит.
- *
- * Срок по умолчанию (оператор не выбирал его сам) и любая отправка от имени бота
- * НИКОГДА не укорачивают уже действующую паузу (23.09.2026). Раньше запись была
- * безусловной: свой агент ответил клиенту — пауза на 10 лет; следом CRM сама
- * слала напоминание о показе, вопрос об отзыве или «уточняю у собственника»
- * (без отправителя-агента — короткая пауза), и срок сжимался до 10 минут. Через
- * 10 минут бот снова вёл разговор параллельно с агентом, клиент получал два
- * противоречащих ответа, агент об этом не знал.
- *
- * Явный срок, который выбрал живой человек (инбокс: «пауза на час»), ставится как
- * есть — укоротить паузу сознательно агент по-прежнему может.
- */
-export async function applyDeliveryPause(
-  target: Pick<DeliveryTarget, "kind" | "id">,
-  pausedUntil: Date,
-  keepLonger: boolean,
-  database: Pick<TxClient, "botConversation" | "telegramConversation"> = prisma
-): Promise<Date> {
-  const now = new Date();
-  const isTelegram = target.kind === "telegram";
-  if (!keepLonger) {
-    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
-    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now } });
-    return pausedUntil;
-  }
-  // botPausedAt двигается только вместе со сроком: действующую паузу начал не этот
-  // вызов, и «пауза протухла» (conversationState.isStalePause) считается от её начала.
-  const where = { id: target.id, OR: [{ pausedUntil: null }, { pausedUntil: { lt: pausedUntil } }] };
-  const data = { pausedUntil, botPausedAt: now };
-  const { count } = isTelegram
-    ? await database.telegramConversation.updateMany({ where, data })
-    : await database.botConversation.updateMany({ where, data });
-  if (count > 0) return pausedUntil;
-  const current = isTelegram
-    ? await database.telegramConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true } })
-    : await database.botConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true } });
-  if (!current) throw new Error(`Диалог ${target.id} не найден`);
-  return current.pausedUntil ?? pausedUntil;
 }
 
 /**
@@ -344,6 +300,38 @@ export type DeliveryResult =
   | { ok: false; status: number; error: string; code?: "window_closed" };
 
 /**
+ * ОКНО 24 ЧАСА ПРОВЕРЯЕТСЯ ДО ОТПРАВКИ (21.11.2026).
+ *
+ * WhatsApp Cloud API принимает свободный текст вне окна синхронно (200) и «не
+ * доставил» сообщает потом, статусом из вебхука (код 131047) — поэтому catch у
+ * отправки его не видел, а в Журнал ошибок падала запись «WhatsApp не доставил
+ * наш ответ». Теперь смотрим время последней реплики клиента заранее и не шлём.
+ * Сотруднику — понятный текст (windowClosedStaffText), автоматике — тот же
+ * `window_closed`, который её вызывающие уже умеют обрабатывать, и тихая строка
+ * в консоль вместо ошибки. Неизвестно, когда клиент писал последний раз (нет
+ * отметки времени) — не блокируем: решит Meta, а её отказ журнал не засоряет.
+ * Один дверной проём для текста, голосового и медиа.
+ */
+async function windowClosedBeforeSend(
+  target: DeliveryTarget,
+  sender: MessageSender | undefined,
+  /** Реплика клиента, пришедшая только что и ещё не записанная в переписку. */
+  justReceivedAt?: Date | null
+): Promise<{ ok: false; status: number; error: string; code: "window_closed" } | null> {
+  if (target.kind !== "bot") return null;
+  const channel = target.channel;
+  // Блокируем только ДОСТОВЕРНО старую реплику клиента (>24 ч). «Клиент вообще не
+  // писал» подсказка в карточке называет закрытым (messagingWindowStateOfTarget), а
+  // сама отправка не блокируется: диалог мог быть начат шаблоном, решит Meta, и её
+  // отказ журнал не засоряет.
+  if (!isMessagingWindowClosedFor(channel, await lastClientMessageAt(target, justReceivedAt))) return null;
+  if (!sender || sender.kind === "system" || sender.kind === "bot") {
+    console.log(`[окно] ${channel}: клиент ${target.subscriberId} не писал больше суток — сообщение не отправлено`);
+  }
+  return { ok: false, status: 409, code: "window_closed", error: windowClosedStaffText(channel) };
+}
+
+/**
  * Отправка сообщения клиенту в тот канал, откуда он писал.
  *
  * Вынесено из POST /conversations/:id/reply, чтобы тем же путём могла ходить отправка
@@ -372,6 +360,9 @@ export async function deliverToConversation(
      *  показ, напоминание) без человека за штурвалом, и «system» честнее, чем
      *  молча приписывать их боту или безымянному «кому-то». */
     sender?: MessageSender;
+    /** Время реплики клиента, пришедшей прямо сейчас и ещё не легшей в переписку:
+     *  ответ на неё всегда внутри окна (вебхук → ссылка на объект и т. п.). */
+    inboundAt?: Date;
   }
 ): Promise<DeliveryResult> {
   const isTelegram = target.kind === "telegram";
@@ -403,6 +394,9 @@ export async function deliverToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options?.sender, options?.inboundAt);
+  if (windowClosed) return windowClosed;
+
   /**
    * СЛУЖЕБНАЯ ОТПРАВКА («system») ПАУЗУ НЕ СТАВИТ (24.09.2026, ночная проверка).
    *
@@ -427,12 +421,8 @@ export async function deliverToConversation(
   } else {
     // Откат при ТОЧНО неудавшейся отправке (закрытое окно, щит) — ниже в catch;
     // при неизвестном исходе пауза остаётся (CHANNEL-NEW-08, решение 04.10.2026).
-    const placed = await applyDeliveryPauseUndoable(
-      target,
-      pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options?.sender))),
-      !pausedUntilOverride || options?.sender?.kind === "bot",
-      options?.sender
-    );
+    const pause = await deliveryPauseFor(target, pausedUntilOverride, options?.sender, () => defaultPauseForSender(target, options?.sender));
+    const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options?.sender);
     if (!placed.ok) return placed;
     pausedUntil = placed.pausedUntil;
     pauseUndo = placed.undo;
@@ -490,14 +480,19 @@ export async function deliverToConversation(
       await rollbackDeliveryPause(pauseUndo);
       return { ok: false, status: 409, error: `Сообщение не отправлено: ${err.message}` };
     }
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободный текст, пока он не напишет первым. Дождитесь его сообщения или позвоните.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
@@ -678,6 +673,9 @@ export async function deliverVoiceToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   // Фоновое голосовое бота идёт ВДОГОНКУ уже отправленному тексту, и пока оно
   // готовится (перекодирование, расшифровка, проверка), оператор может взять диалог
   // (CHANNEL-NEW-09). Проверяем до дорогих шагов и ещё раз перед паузой и отправкой.
@@ -744,12 +742,8 @@ export async function deliverVoiceToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const placed = await applyDeliveryPauseUndoable(
-    target,
-    options.pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options.sender))),
-    !options.pausedUntilOverride || options.sender.kind === "bot",
-    options.sender
-  );
+  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
   if (!placed.ok) return placed;
   const { pausedUntil, undo: pauseUndo } = placed;
   // Пауза оператора успела встать между проверкой и записью: applyDeliveryPause её
@@ -812,14 +806,19 @@ export async function deliverVoiceToConversation(
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше
     // за подробным объяснением: fbtrace_id в тексте ошибки ломает дедупликацию
     // журнала, и без этой проверки каждое закрытое окно будило бы директора).
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `Голосовое сотрудника не отправлено: ${describeError(err)}`);
@@ -1020,6 +1019,9 @@ export async function deliverMediaToConversation(
     };
   }
 
+  const windowClosed = await windowClosedBeforeSend(target, options.sender);
+  if (windowClosed) return windowClosed;
+
   const isImage = media.mimetype.startsWith("image/");
   const isVideo = media.mimetype.startsWith("video/");
   if (!isImage && !isVideo) {
@@ -1065,12 +1067,8 @@ export async function deliverMediaToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const placed = await applyDeliveryPauseUndoable(
-    target,
-    options.pausedUntilOverride ?? new Date(Date.now() + (await defaultPauseForSender(target, options.sender))),
-    !options.pausedUntilOverride || options.sender.kind === "bot",
-    options.sender
-  );
+  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
   if (!placed.ok) return placed;
   const { pausedUntil, undo: pauseUndo } = placed;
 
@@ -1134,14 +1132,19 @@ export async function deliverMediaToConversation(
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше
     // за подробным объяснением: fbtrace_id в тексте ошибки ломает дедупликацию
     // журнала, и без этой проверки каждое закрытое окно будило бы директора).
+    // Meta не пропускает отправку аккаунта по правилам (lib/metaSendBlock.ts): сотрудник
+    // видит настоящую причину и что делать; журнал и руководство уже знают — один раз на эпизод.
+    if (isMetaSendBlockError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: metaSendBlockStaffText(err) };
+    }
     if (!isTelegram && err instanceof Error && isMessagingWindowClosedError(err.message)) {
       await rollbackDeliveryPause(pauseUndo);
       return {
         ok: false,
         status: 502,
         code: "window_closed",
-        error:
-          "Клиент не писал последние 24 часа — WhatsApp и Instagram запрещают отправлять свободные сообщения, пока он не напишет первым.",
+        error: windowClosedStaffText(target.channel),
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
@@ -1178,22 +1181,34 @@ export async function lastClientMessage(target: DeliveryTarget): Promise<string 
  * Нужна правилу окна Meta (lib/messagingWindow.ts::isMessagingWindowOpen):
  * агент видит «уйдёт / не уйдёт» до нажатия. Отказ базы — null, как у соседей.
  */
-export async function lastClientMessageAt(target: DeliveryTarget): Promise<Date | null> {
+export async function lastClientMessageAt(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<Date | null> {
+  const messages = await conversationMessagesOf(target);
+  // Максимум по времени (не последняя запись списка) — общее правило окна Meta.
+  return messages ? lastInboundAt(messages, justReceivedAt) : (justReceivedAt ?? null);
+}
+
+async function conversationMessagesOf(target: DeliveryTarget): Promise<{ role?: string; at?: string }[] | null> {
   try {
     const row =
       target.kind === "telegram"
         ? await prisma.telegramConversation.findUnique({ where: { id: target.id }, select: { messages: true } })
         : await prisma.botConversation.findUnique({ where: { id: target.id }, select: { messages: true } });
-    const messages = (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role !== "user") continue;
-      const at = messages[i]?.at ? new Date(messages[i].at!) : null;
-      return at && !Number.isNaN(at.getTime()) ? at : null;
-    }
-    return null;
+    return (Array.isArray(row?.messages) ? row.messages : []) as { role?: string; at?: string }[];
   } catch {
     return null;
   }
+}
+
+/**
+ * Состояние окна Meta у диалога (общее правило packages/shared): «закрыто» —
+ * клиент не писал вовсе или его последняя реплика старше суток; «неизвестно» —
+ * отказ базы или реплики без времени (не блокирует).
+ */
+export async function messagingWindowStateOfTarget(target: DeliveryTarget, justReceivedAt?: Date | null): Promise<MessagingWindowState> {
+  if (target.kind !== "bot") return "open";
+  const messages = await conversationMessagesOf(target);
+  if (!messages) return justReceivedAt ? "open" : "unknown";
+  return messagingWindowStateOfMessages(target.channel, messages, justReceivedAt);
 }
 
 /** Общий обход истории с конца. Отказ базы — это `null`: и подсказка про язык, и
@@ -1367,12 +1382,22 @@ export async function findClientDeliveryTargets(clientIds: string[]): Promise<Ma
 export async function pauseConversationsAfterRealContact(clientId: string): Promise<void> {
   const pausedUntil = new Date(Date.now() + OPERATOR_REPLY_PAUSE_MS);
   const botPausedAt = new Date();
+  // Режим «только заявки» (21.11.2026, вечная пауза на проде после выката #333 — диалог после звонка): бот после заявки
+  // отвечает коротко и не продаёт «вторым голосом», поэтому после разговора он уступает человеку на срок эстафеты, а не на
+  // 10 лет. Действующую более длинную паузу не укорачиваем. Остальные каналы — прежняя пауза «навсегда» (18.09.2026).
+  const relayIds: string[] = [];
+  for (const row of await prisma.botConversation.findMany({ where: { clientId }, select: { id: true } })) {
+    const relay = await staffRelayPauseMs({ kind: "bot", id: row.id });
+    if (relay === null) continue;
+    relayIds.push(row.id);
+    await applyDeliveryPause({ kind: "bot", id: row.id }, new Date(Date.now() + relay), true);
+  }
   // $transaction, а не Promise.all (22.09.2026): три записи задают ОДНО состояние
   // «агент уже поговорил с человеком». Порознь перезапуск процесса посередине
   // оставлял бота писать клиенту в том канале, до которого запись не дошла,
   // поверх живого разговора — это видно клиенту напрямую.
   await prisma.$transaction([
-    prisma.botConversation.updateMany({ where: { clientId }, data: { pausedUntil, botPausedAt } }),
+    prisma.botConversation.updateMany({ where: { clientId, id: { notIn: relayIds } }, data: { pausedUntil, botPausedAt } }),
     prisma.telegramConversation.updateMany({ where: { clientId }, data: { pausedUntil, botPausedAt } }),
     // Реальный контакт — тот самый ответ на просьбу «дайте живого агента»
     // (см. Client.agentAttentionRequestedAt, messengers/conversation.ts):

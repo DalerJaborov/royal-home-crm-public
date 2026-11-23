@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ExpenseCategoryItem, ExpenseUpcomingItem, ExpensePivot, ExpenseReceiptItem, ExpenseSortKey, ClientSource, ExpenseCategory, Currency } from "@royal-home/shared";
+import type { ExpenseVendor, ExpenseCategoryItem, ExpenseUpcomingItem, ExpensePivot, ExpenseReceiptItem, ExpenseSortKey, ClientSource, ExpenseCategory, Currency } from "@royal-home/shared";
 import type { Expense, RecurringExpense } from "../hooks/useFinance";
 import { invalidateExpenseQueries } from "../hooks/useFinance";
 import { api } from "./api";
@@ -12,11 +12,11 @@ export type ClaudeUpcoming = ExpenseUpcomingItem;
 export interface ClaudeExpense extends Expense {
   status?: "PLANNED" | "PAID"; paymentDate?: string | null; counterparty?: string | null;
   paymentMethod?: ClaudePaymentMethod | null; categoryId?: string | null;
-  exchangeRate?: string | null; receipts?: ExpenseReceiptItem[]; createdById?: string | null; createdBy?: { id: string; fullName: string } | null; recurringId?: string | null; occurrenceDate?: string | null; createdAt?: string; amountTjs?: number;
+  exchangeRate?: string | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean; receipts?: ExpenseReceiptItem[]; createdById?: string | null; createdBy?: { id: string; fullName: string } | null; recurringId?: string | null; occurrenceDate?: string | null; createdAt?: string; amountTjs?: number;
 }
 export interface ClaudeRecurring extends RecurringExpense {
   period?: "WEEK" | "MONTH" | "QUARTER" | "YEAR"; startsOn?: string | null; endsOn?: string | null;
-  autoPay?: boolean; categoryId?: string | null; counterparty?: string | null;
+  autoPay?: boolean; categoryId?: string | null; counterparty?: string | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean;
   paymentMethod?: ClaudePaymentMethod | null; nextDate?: string | null; skippedDates?: string[];
 }
 export interface ClaudeExpenseInput {
@@ -24,7 +24,7 @@ export interface ClaudeExpenseInput {
   amount: number; exchangeRate?: number | null; category: ExpenseCategory; month: string; currency: Currency;
   note: string | null; source: ClientSource | null; agentId: string | null;
   status: "PLANNED" | "PAID"; paymentDate: string | null; categoryId: string | null;
-  counterparty: string | null; paymentMethod: ClaudePaymentMethod | null;
+  counterparty: string | null; paymentMethod: ClaudePaymentMethod | null; vendor?: ExpenseVendor | null; coversAiUsage?: boolean;
 }
 export type ClaudeRecurringInput = Partial<Omit<ClaudeRecurring, "id" | "amount">> & { amount?: number };
 export interface ClaudeExpenseFilters {
@@ -106,7 +106,13 @@ export async function exportClaudeExpenses(filters: ClaudeExpenseFilters) {
 }
 export const CLAUDE_METHOD_LABELS = EXPENSE_METHOD_LABELS;
 export const CLAUDE_CATEGORY_TONES = { OFFICE: "office", ADVERTISING: "ads", SALARY: "salary", OTHER: "other" };
-export function claudeMoney(amount: number, currency: Currency = "TJS") { return `${amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${currency === "USD" ? "$" : "с."}`; }
+/** Целые — без дробной части («0 с.», «500 с.»); с дирамами — всегда два знака: «1 615,20 с.»,
+ *  а не «1 615,2 с.» рядом с «146,19 с.» (кадр владельца 20.11). */
+export function claudeMoney(amount: number, currency: Currency = "TJS") {
+  const whole = Number.isInteger(Math.round(amount * 100) / 100);
+  const digits = whole ? 0 : 2;
+  return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${currency === "USD" ? "$" : "с."}`;
+}
 export function expenseTjs(expense: Pick<ClaudeExpense, "amount" | "currency" | "exchangeRate">, fallbackRate?: number): number | null {
   const amount = Number(expense.amount); if (!Number.isFinite(amount)) return null;
   if (expense.currency === "TJS") return amount;

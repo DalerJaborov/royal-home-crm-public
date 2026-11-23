@@ -4,13 +4,12 @@ import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 import { KeywordTags } from "../../components/ui/KeywordTags";
 import { NumberRow, SaveRow } from "../../components/settings/SettingsRows";
+import { OwnerConfirmTransferSection } from "./OwnerConfirmTransferSection";
 import { Link } from "react-router-dom";
 import { MATCH_SCORE_WEIGHTS } from "@royal-home/shared";
 import {
   SHOWING_CONFIRM_ON_TEXT,
   ownPropertyThresholdNote,
-  releaseEffectiveOn,
-  releaseToggleBody,
   showingConfirmBlockedBy,
 } from "../../lib/settingsDependencies";
 
@@ -32,7 +31,7 @@ import {
  * `.mod` с полем `.nf`, каждый рубильник — строка `.mod` с тумблером `.tgl`.
  */
 
-export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) {
+export function LeadsTab() {
   const { data: settings, isError, error, refetch } = useSettings();
   const updateSettings = useUpdateSettings();
   const [threshold, setThreshold] = useState("");
@@ -47,12 +46,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
   // сохраняется отдельно от остальных форм, своей кнопкой.
   const [conflictKeywords, setConflictKeywords] = useState<string[]>([]);
   const [savedConflictKeywords, setSavedConflictKeywords] = useState(false);
-  // «Взвешенные слоты» лимита (план владельца 20-21.08.2026) — свои поля и своя
-  // кнопка: тумблер включается отдельно от правки самих весов.
-  const [weightFresh, setWeightFresh] = useState("");
-  const [weightAfterShowing, setWeightAfterShowing] = useState("");
-  const [weightThinking, setWeightThinking] = useState("");
-  const [savedSlotWeights, setSavedSlotWeights] = useState(false);
   // Реактивация старых клиентов пачкой (Пачка 12, 11.09.2026) — тумблер
   // сохраняется сразу (правило тумблеров), дни/размер пачки/шаблон — своей формой.
   const [reactivationAfterDays, setReactivationAfterDays] = useState("");
@@ -69,9 +62,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
       shownDays: String(settings.ownPropertyShownWindowDays ?? 30),
       shieldAfterMinutes: String(settings.agentOccupancyShieldAfterMinutes ?? 30),
       conflictKeywords: settings.transferConflictKeywords ?? [],
-      weightFresh: String(settings.leadSlotWeightFreshPercent ?? 100),
-      weightAfterShowing: String(settings.leadSlotWeightAfterShowingPercent ?? 50),
-      weightThinking: String(settings.leadSlotWeightThinkingPercent ?? 25),
       reactivationAfterDays: String(settings.reactivationAfterDays ?? 60),
       reactivationBatchSize: String(settings.reactivationBatchSize ?? 20),
       reactivationTemplate: settings.reactivationMessageTemplate ?? "",
@@ -81,9 +71,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
       shownDays: [shownDays, setShownDays],
       shieldAfterMinutes: [shieldAfterMinutes, setShieldAfterMinutes],
       conflictKeywords: [conflictKeywords, setConflictKeywords],
-      weightFresh: [weightFresh, setWeightFresh],
-      weightAfterShowing: [weightAfterShowing, setWeightAfterShowing],
-      weightThinking: [weightThinking, setWeightThinking],
       reactivationAfterDays: [reactivationAfterDays, setReactivationAfterDays],
       reactivationBatchSize: [reactivationBatchSize, setReactivationBatchSize],
       reactivationTemplate: [reactivationTemplate, setReactivationTemplate],
@@ -101,7 +88,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
         {isError ? (
           <div className="state err">
             <span className="dot crit" />
-            {error instanceof Error ? error.message : "Не удалось загрузить настройки лидов"}{" "}
+            {error instanceof Error ? error.message : "Не удалось загрузить настройки заявок"}{" "}
             <button
               className="lk"
               type="button"
@@ -123,19 +110,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
 
   const priorityOn = settings.ownPropertyPriorityEnabled;
   const shownOn = settings.ownPropertyShownExceptionEnabled;
-  /**
-   * «Предлагать освободить место» сервер проверяет ДВУМЯ полями
-   * (lib/leadAccept.ts: overLimitEnabled && releaseEnabled), а тумблер на экране
-   * есть только у второго — ownPropertyOverLimitEnabled своего тумблера лишился
-   * 11.09.2026 вместе с «Потолком лидов по своим объектам». До 28.09.2026 скрытое
-   * поле молча ВЫКЛЮЧАЛО видимый тумблер (disabled) — владелец видел серый
-   * переключатель без объяснения. Теперь тумблер показывает итог обоих полей, а
-   * включение поднимает оба (releaseToggleBody). Серверное условие не тронуто.
-   */
-  const releaseOn = releaseEffectiveOn(settings);
   const pushActionsOn = settings.pushLeadActionsEnabled;
-  const limit = settings.leadActiveLimit;
-  const weightedSlotsOn = settings.weightedLeadSlotsEnabled;
   const shieldOn = settings.agentOccupancyShieldEnabled;
   const reactivationOn = settings.reactivationEnabled;
 
@@ -149,16 +124,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
     setSaved(true);
   }
 
-  async function handleSaveSlotWeights(e: React.FormEvent) {
-    e.preventDefault();
-    setSavedSlotWeights(false);
-    await updateSettings.mutateAsync({
-      leadSlotWeightFreshPercent: Number(weightFresh),
-      leadSlotWeightAfterShowingPercent: Number(weightAfterShowing),
-      leadSlotWeightThinkingPercent: Number(weightThinking),
-    });
-    setSavedSlotWeights(true);
-  }
+
 
   async function handleSaveOccupancy(e: React.FormEvent) {
     e.preventDefault();
@@ -191,7 +157,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
       <section className="card">
         <div className="sec-h stack">
           <h2>Свой объект: свой клиент</h2>
-          <span className="note">Когда лид уходит хозяину подходящего объекта мимо очереди</span>
+          <span className="note">Когда заявка уходит хозяину подходящего объекта мимо очереди</span>
         </div>
         <p className="sub" style={{ marginBottom: "var(--s3)" }}>
           Агент, который сам съездил к собственнику, отснял фото и видео и завёл объект, получает клиента по
@@ -228,7 +194,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
             max={100}
             value={threshold}
             onChange={setThreshold}
-            hint="С какого балла совпадения запроса клиента и объекта лид уходит хозяину мимо очереди. Балл — шкала вкладки «Подбор объектов»: база за пройденный фильтр плюс район, попадание в желаемое место на карте, комнаты и бюджет; бонус горячему здесь не начисляется. Площадь и этаж в балл не входят — они только отсеивают на фильтре. 90 — решение владельца 09.09.2026. Ниже 60 очередь по KPI фактически перестанет работать."
+            hint="С какого балла совпадения запроса клиента и объекта заявка уходит хозяину мимо очереди. Балл — шкала вкладки «Подбор объектов»: база за пройденный фильтр плюс район, попадание в желаемое место на карте, комнаты и бюджет; бонус горячему здесь не начисляется. Площадь и этаж в балл не входят — они только отсеивают на фильтре. 90 — решение владельца 09.09.2026. Ниже 60 очередь по KPI фактически перестанет работать."
           />
           <div className="quiet">
             <span className="dot" />
@@ -246,7 +212,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
             hint="Как далеко назад смотреть, что бот показывал клиенту этот объект. Не путать с недельной защитой от повторной отправки тех же фотографий — это разное."
           />
           <p className="sub" style={{ margin: "var(--s3) 0" }}>
-            Лид по своему объекту всегда уходит агенту объекта, без лимита (решение
+            Заявка по своему объекту всегда уходит агенту объекта, без лимита (решение
             владельца 11.09.2026) — потолка сверх лимита больше нет ни в каком виде.
           </p>
           <SaveRow pending={updateSettings.isPending} saved={saved} />
@@ -259,19 +225,18 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           <span className="note">Кому не давать новых, пока он занят</span>
         </div>
         <p className="sub" style={{ marginBottom: "var(--s3)" }}>
-          Мозговой штурм 21.08.2026 — вероятный корень случая с Нурмухаммадом 18.08.2026: агенту пришёл лид с
-          тикающим таймером посреди показа, он физически не мог ни принять его, ни позвонить вовремя. Из-за
-          этого автопередачу при непозвонившем агенте выключили насовсем.
+          Когда агент на показе или в разговоре, новая заявка с таймером приходит в самое неудобное время: принять её и
+          позвонить вовремя он не успевает. Поэтому занятого агента лучше пропустить: заявка уйдёт следующему по очереди.
         </p>
 
         <SwitchRow
-          title="Занятый агент не получает новые лиды"
+          title="Занятый агент не получает новые заявки"
           on={shieldOn}
           onToggle={() => updateSettings.mutate({ agentOccupancyShieldEnabled: !shieldOn })}
           hint={
             shieldOn
-              ? "Агент на показе по календарю или в живом звонке через CRM временно выпадает из раздачи — лид уйдёт следующему по очереди, а не будет ждать, пока он освободится."
-              : "Раздача не смотрит на занятость: лид может прийти агенту прямо посреди показа или разговора."
+              ? "Агент на показе по календарю или в живом звонке через CRM временно выпадает из раздачи — заявка уйдёт следующему по очереди, а не будет ждать, пока он освободится."
+              : "Раздача не смотрит на занятость: заявка может прийти агенту прямо посреди показа или разговора."
           }
         />
 
@@ -326,116 +291,23 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
 
       <section className="card">
         <div className="sec-h stack">
-          <h2>Лимит активных лидов</h2>
-          <span className="note">Заполненный агент новых не получает</span>
-        </div>
-        <p className="sub" style={{ marginBottom: "var(--s3)" }}>
-          Сейчас предел — <b>{limit === 0 ? "без лимита" : `${limit} активных лидов`}</b>. Само число правится
-          {limitsTask ? <>в блоке <Link className="lnk" to="/settings?tab=leads&task=deadlines">«Сроки, лимиты и возврат»</Link>.</> : <>в «Деньгах».</>}
-        </p>
-        <p className="sub" style={{ marginBottom: "var(--s3)" }}>
-          <b>Лид по своему объекту всегда уходит агенту объекта, без лимита</b> — решение владельца
-          11.09.2026. Правило безусловное: ни лимит, ни занятый портфель его больше не останавливают.
-          Ниже — что делать, когда у агента УЖЕ полный портфель обычных клиентов и он хочет освободить
-          место под своего (это про момент принятия лида агентом, не про то, кому лид достаётся).
-        </p>
-
-        <SwitchRow
-          title="Предлагать освободить место"
-          on={releaseOn}
-          onToggle={() => updateSettings.mutate(releaseToggleBody(releaseOn))}
-          hint={
-            releaseOn
-              ? "Портфель полон, пришёл клиент по своему объекту — при нажатии «Принять» агенту предлагается отдать одного обычного клиента и взять этого. Отданный уходит другому агенту по очереди KPI. Отдать некого — клиент принимается сверх лимита."
-              : "Предложения нет: агент принимает клиента по своему объекту сверх лимита, портфель не трогается. Клиент в общую очередь не уходит."
-          }
-        />
-
-        {releaseOn && (
-          <div className="mod">
-            <div className="t">
-              <b>Кого отдавать</b>
-              <span>
-                Освобождать можно только клиентов без единой попытки контакта — с кем уже был разговор,
-                система сама не выбирает (закон владения П-4/П-6, 17.09.2026). Агент видит список и
-                выбирает сам; режим «CRM выбирает случайно» убран.
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* «Взвешенные слоты» — план владельца 20-21.08.2026, рубеж «слив»:
-            «свежий 1.0, после показа 0.5, думает 0.25, гейминг становится
-            бессмысленным, а не запрещённым». Живёт в этом же разделе: это то же
-            самое место в лимите, только считается не штуками. */}
-        <SwitchRow
-          title="Взвешенные слоты"
-          on={weightedSlotsOn}
-          onToggle={() => updateSettings.mutate({ weightedLeadSlotsEnabled: !weightedSlotsOn })}
-          hint={
-            weightedSlotsOn
-              ? "Место в лимите занимают по-разному: свежий клиент целиком, доведённый до показа — меньше, «думающий» — ещё меньше. Сливать почти доработанного клиента ради нового становится незачем."
-              : "Все клиенты занимают по одному месту. Тогда, чтобы освободить место под новый лид, выгоднее всего слить того, с кем работа почти сделана."
-          }
-        />
-
-        {weightedSlotsOn && (
-          <form onSubmit={handleSaveSlotWeights}>
-            <NumberRow
-              label="Свежий клиент"
-              unit="% места"
-              min={0}
-              max={1000}
-              value={weightFresh}
-              onChange={setWeightFresh}
-              hint="Показа ещё не было. Сто процентов — одно полное место в лимите, как раньше у всех."
-            />
-            <NumberRow
-              label="После показа"
-              unit="% места"
-              min={0}
-              max={1000}
-              value={weightAfterShowing}
-              onChange={setWeightAfterShowing}
-              hint="Хотя бы один показ уже состоялся: не отменён и либо отмечен выполненным, либо его время прошло."
-            />
-            <NumberRow
-              label="Клиент думает"
-              unit="% места"
-              min={0}
-              max={1000}
-              value={weightThinking}
-              onChange={setWeightThinking}
-              hint="В «Итоге показа» выбрана ветка «клиент думает» и задача по ней ещё не закрыта. Эта ветка бывает только после показа и считается вместо него, а не вдобавок."
-            />
-            <p className="msg" style={{ color: "var(--faint)" }}>
-              Считается только для покупателей: продавцы в лимит не входят вовсе. Число «столько-то из
-              шести» на экранах остаётся штучным — веса меняют не показания, а решение о раздаче.
-            </p>
-            <SaveRow pending={updateSettings.isPending} saved={savedSlotWeights} />
-          </form>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="sec-h stack">
           <h2>Уведомления</h2>
           <span className="note">Что и как часто уходит агентам и руководству</span>
         </div>
 
-        <div className="grp-lab">Уведомления о лидах</div>
+        <div className="grp-lab">Уведомления о заявках</div>
         <SwitchRow
           title="Кнопки «Принять» и «Отклонить» прямо в уведомлении"
           on={pushActionsOn}
           onToggle={() => updateSettings.mutate({ pushLeadActionsEnabled: !pushActionsOn })}
           hint={
             pushActionsOn
-              ? "Агент принимает лид, не открывая CRM. Работает на Android и в браузере на компьютере."
+              ? "Агент принимает заявку, не открывая CRM. Работает на Android и в браузере на компьютере."
               : "Уведомление обычное: нажатие открывает карточку клиента, там и кнопки."
           }
           warning={
             pushActionsOn
-              ? "На iPhone кнопок не будет: Safari их в уведомлениях не поддерживает. Там нажатие открывает карточку клиента с теми же кнопками — уведомление о лиде приходит в любом случае."
+              ? "На iPhone кнопок не будет: Safari их в уведомлениях не поддерживает. Там нажатие открывает карточку клиента с теми же кнопками — уведомление о заявке приходит в любом случае."
               : null
           }
         />
@@ -511,7 +383,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           hint={
             settings.handoverClientsToHighKpi
               ? "Клиенты уходят агентам с высоким KPI, горячие — первыми. Клиента нельзя ставить на паузу, пока новичок разбирается."
-              : "Клиенты раздаются обычной очередью, наравне с новыми лидами."
+              : "Клиенты раздаются обычной очередью, наравне с новыми заявками."
           }
         />
 
@@ -538,7 +410,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
         </div>
         <p className="sub" style={{ marginBottom: "var(--s3)" }}>
           Пачка 12, 11.09.2026. Каждый понедельник в 10:00 по Душанбе бот сам пишет небольшой пачке клиентов
-          в статусе «Остыл»/«Потерян» или Неактивных, с которыми давно не было касания, — короткое сообщение
+          с которыми давно не было касания, — короткое сообщение
           в их последний канал. Ответившие идут обычным путём обращения; агенту (или руководителю, если
           прежнего агента уже нет) ставится задача «перезвонить» на завтра.
         </p>
@@ -589,6 +461,8 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           <SaveRow pending={updateSettings.isPending} saved={savedReactivation} />
         </form>
       </section>
+
+      <OwnerConfirmTransferSection />
     </>
   );
 }

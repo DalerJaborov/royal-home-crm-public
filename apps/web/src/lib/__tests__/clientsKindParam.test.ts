@@ -16,11 +16,7 @@ describe("?kind= на странице клиентов", () => {
   });
 });
 
-describe("воронка лидов и список клиентов", () => {
-  it("ссылка «Новые» ведёт на оба вида", () => {
-    expect(read("../../pages/LeadFunnel.tsx")).toContain("/clients?status=${stage.status}&kind=all");
-  });
-
+describe("список клиентов и ?kind=all", () => {
   it("список клиентов не передаёт kind серверу при ?kind=all (запрос, ключ накопления, подпись вида)", () => {
     const src = read("../../pages/Clients.tsx");
     expect(src).toContain("readKindParam(");

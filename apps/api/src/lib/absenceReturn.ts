@@ -4,7 +4,6 @@ import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { invalidateAgentAccess } from "../auth/middleware.js";
 import { syncAgentQueuePresence } from "./telephony/operatorQueue.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { shiftInactiveClockAfterAbsence } from "./inactiveTrafficLight.js";
 
 /**
  * СОТРУДНИК ВЫШЕЛ ИЗ ОТПУСКА САМ (владелец 09.09.2026).
@@ -43,13 +42,6 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
        * отпуск или снять его сам. `updateMany` с тем же условием по дате вернёт
        * 0 — и это не ошибка, а нормальная гонка.
        */
-      /**
-       * Разморозка и сдвиг часов светофора — одной транзакцией (владелец
-       * 23.09.2026): время отпуска в срок неактивных клиентов не идёт, иначе
-       * вернувшийся агент на первом же тике терял их пачкой. См.
-       * lib/inactiveTrafficLight.ts::shiftInactiveClockAfterAbsence. Сдвиг —
-       * только если разморозка действительно состоялась (count > 0).
-       */
       const count = await prisma.$transaction(async (tx) => {
         const res = await tx.agent.updateMany({
           where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: null, lte: now } },
@@ -66,7 +58,6 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
             absenceUntil: null,
           },
         });
-        if (res.count > 0) await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, now, tx);
         return res.count;
       });
       if (count === 0) continue;
@@ -80,7 +71,7 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
 
       void sendPushToAgent(agent.id, {
         title: "👋 С возвращением",
-        body: "Отпуск закончился — новые лиды и входящие звонки снова идут к вам.",
+        body: "Отпуск закончился — новые заявки и входящие звонки снова идут к вам.",
         url: "/",
         tag: `absence-return-${agent.id}`,
       }).catch(() => {});
@@ -96,7 +87,7 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
     const recipients = await findAgentsWithPermission("agents.manage");
     void sendPushToAgents(recipients, {
       title: "👋 Сотрудник вышел",
-      body: `${names} — отсутствие закончилось, лиды снова распределяются на него.`,
+      body: `${names} — отсутствие закончилось, заявки снова распределяются на него.`,
       url: "/team",
       tag: `absence-return-batch-${dushanbeDayKey(now)}`,
     }).catch(() => {});

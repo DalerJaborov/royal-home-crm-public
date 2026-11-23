@@ -88,6 +88,13 @@ describe("startCronJobs — расписание встаёт целиком", (
     expect(tasks.length).toBeGreaterThan(50);
   });
 
+  it("ночная сверка «заметок без ярлыков» стоит в расписании (PR #382)", () => {
+    // Копию Client.requirementsNotesPlain, поменянную мимо перехвата записи, чинит только она.
+    const task = tasks.find((t) => t.name === "client-notes-plain-sweep");
+    expect(task?.expr).toBe("50 3 * * *");
+    expect(task?.timezone).toBe("Asia/Dushanbe");
+  });
+
   it("имена задач уникальны", () => {
     // Дубль имени бросает ещё внутри startCronJobs (и роняет worker при старте),
     // поэтому сюда мы доходим только с уникальными. Проверка называет правило
@@ -160,5 +167,17 @@ describe("startCronJobs — зовётся ровно из одного проц
     expect(/import \{[^}]*\bstartCronJobs\b[^}]*\} from "\.\/cron\.js"/.test(worker)).toBe(true);
     expect(worker.split("startCronJobs(").length - 1).toBe(1);
     expect(index.includes("startCronJobs")).toBe(false);
+  });
+});
+
+describe("сторож групп помощницы (20.11.2026)", () => {
+  it("стоит в расписании раз в час и при старте worker-процесса", () => {
+    const task = tasks.find((t) => t.name === "assistant-group-sweep");
+    expect(task?.expr).toBe("12 * * * *");
+    expect(cronIntervalMs(task!.expr)).toBe(3_600_000);
+    // Тот же сторож один раз сразу после выката: пропущенный переезд в супергруппу не ждёт целый час.
+    const worker = stripComments(read("src/worker.ts"));
+    expect(worker.includes('import("./lib/assistantGroupWatchdog.js")')).toBe(true);
+    expect(worker.includes("sweepAssistantGroups()")).toBe(true);
   });
 });

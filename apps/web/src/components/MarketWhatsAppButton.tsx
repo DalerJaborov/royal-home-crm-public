@@ -26,8 +26,22 @@ export interface PendingWindow {
 export interface MarketWhatsAppDeps {
   openWindow: () => PendingWindow | null;
   assign: (url: string) => void;
-  requestPhone: (sourceUrl: string) => Promise<string | null>;
+  requestPhone: (sourceUrl: string, context?: ListingContactContext) => Promise<string | null>;
   fail: (message: string) => void;
+}
+
+/** С чем брать номер (17.11.2026): по чьему запросу и какой кнопкой — сервер ставит отметку «уже связывались». */
+export interface ListingContactContext {
+  clientId?: string;
+  action?: "PHONE" | "WHATSAPP";
+}
+
+/** Номер продавца через одну дверь сервера (POST /market/listing-contact): учёт и права там. */
+export async function requestListingContact(
+  sourceUrl: string,
+  context: ListingContactContext = {}
+): Promise<{ phone: string | null; reason?: string }> {
+  return api<{ phone: string | null; reason?: string }>("/market/listing-contact", { method: "POST", body: { sourceUrl, ...context } });
 }
 
 export interface MarketWhatsAppTarget {
@@ -36,6 +50,8 @@ export interface MarketWhatsAppTarget {
   title: string;
   /** Номер, если он уже известен из каталога. */
   phone?: string | null;
+  /** Карточка клиента, из которой пишут (для отметки «уже связывались»). */
+  clientId?: string;
 }
 
 /**
@@ -53,7 +69,7 @@ export async function openMarketWhatsApp(target: MarketWhatsAppTarget, deps: Mar
     else deps.assign(url);
   };
   try {
-    const number = target.phone ?? (await deps.requestPhone(target.sourceUrl));
+    const number = target.phone ?? (await deps.requestPhone(target.sourceUrl, { clientId: target.clientId, action: "WHATSAPP" }));
     const url = number ? marketWhatsAppUrl(number, text) : null;
     if (url) {
       go(url);
@@ -70,8 +86,7 @@ export async function openMarketWhatsApp(target: MarketWhatsAppTarget, deps: Mar
 const realDeps: MarketWhatsAppDeps = {
   openWindow: () => window.open("", "_blank"),
   assign: (url) => window.location.assign(url),
-  requestPhone: async (sourceUrl) =>
-    (await api<{ phone: string | null; reason?: string }>("/market/listing-contact", { method: "POST", body: { sourceUrl } })).phone,
+  requestPhone: async (sourceUrl, context) => (await requestListingContact(sourceUrl, context)).phone,
   fail: (message) => toast.error(message),
 };
 
@@ -80,17 +95,21 @@ export function MarketWhatsAppButton({
   source,
   title,
   phone,
+  clientId,
   className = "",
-}: MarketWhatsAppTarget & { className?: string }) {
+  onDone,
+  compact = false,
+}: MarketWhatsAppTarget & { className?: string; onDone?: () => void; compact?: boolean }) {
   const [busy, setBusy] = useState(false);
 
   async function open() {
     if (busy) return;
     setBusy(true);
     try {
-      await openMarketWhatsApp({ sourceUrl, source, title, phone }, realDeps);
+      await openMarketWhatsApp({ sourceUrl, source, title, phone, clientId }, realDeps);
     } finally {
       setBusy(false);
+      onDone?.();
     }
   }
 
@@ -100,10 +119,11 @@ export function MarketWhatsAppButton({
       onClick={open}
       disabled={busy}
       aria-label="Написать продавцу в WhatsApp"
-      className={`pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]! disabled:opacity-50 ${className}`}
+      title={compact ? "Написать в WhatsApp" : undefined}
+      className={compact ? `mk-ico ${className}` : `pill ghost tap-target shrink-0 gap-1.5! px-3! text-[14px]! disabled:opacity-50 ${className}`}
     >
       <MessageCircle className="w-3.5 h-3.5" aria-hidden />
-      <span className="hidden sm:inline">WhatsApp</span>
+      {!compact && <span className="hidden sm:inline">WhatsApp</span>}
     </button>
   );
 }

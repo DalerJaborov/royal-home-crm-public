@@ -192,8 +192,11 @@ describe("роль консультанта на входящих", () => {
     for (const forceRussianOnly of [true, false]) {
       const prompt = buildConsultantSystemPrompt({ knowledge, caller: stranger, withinWorkingHours: true, forceRussianOnly });
       expect(prompt).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
-      expect(prompt).toContain("плохо слышно");
-      expect(prompt).toContain("Никогда не говори, на каких языках ты говоришь");
+      // 16.11.2026: готовой фразы «плохо слышно» нет, на «говорите по-таджикски?» — никогда «нет».
+      expect(prompt).not.toMatch(/плохо слышно/iu);
+      // «Ҳа» на «говорите по-таджикски?» — только без замка «только русский» (ревью #204, Н1).
+      if (forceRussianOnly) expect(prompt).not.toContain("«Ҳа»");
+      else expect(prompt).toContain("всегда «Ҳа»");
     }
     expect(LIVE_VOICE_SPEECH_RULES).toContain("ЯЗЫК — ТОЛЬКО РУССКИЙ ИЛИ ТАДЖИКСКИЙ");
   });
@@ -352,9 +355,9 @@ describe("манера речи консультанта — как живой �
   });
 
   it("таджикские подтверждения — только без замка; с замком таджикского в блоке манеры нет", () => {
-    expect(both).toContain("«Ҳа, фаҳмидам»");
+    expect(both).toContain("«Хуб шуд»");
     expect(both).toContain("«Майлаш»");
-    expect(ru).not.toContain("«Ҳа, фаҳмидам»");
+    expect(ru).not.toContain("«Хуб шуд»");
     const manner = ru.slice(ru.indexOf("МАНЕРА РЕЧИ"), ru.indexOf("КАК БРАТЬ ТРУБКУ"));
     expect(manner).not.toMatch(/[ҲҳҚқҒғҶҷӢӣӮӯ]/);
   });

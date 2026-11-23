@@ -1,7 +1,7 @@
 /**
  * Серверная логика отбора кейсов для «Инсайтов от ИИ» (аудит 02.09 §4.2).
  *
- * ЧТО ДЕЛАЕТ ЭТОТ ФАЙЛ. Собирает кандидатов из четырёх источников БЕЗ вызова
+ * ЧТО ДЕЛАЕТ ЭТОТ ФАЙЛ. Собирает кандидатов из трёх источников БЕЗ вызова
  * ИИ, ранжирует их по серьёзности и квотам, и строит JSON-снапшот таймлайна
  * для каждого кейса. ИИ подключается позже (в кроне/роуте) только для
  * формулировки вердикта; здесь — чистая выборка и подготовка данных.
@@ -17,11 +17,11 @@
  *   a) call_low_score — CallAnalysis.score <= 40 ИЛИ (нет следующего шага И
  *      не выявлена потребность), запись >= 60 сек. Голосовые кейсы обязательны
  *      для собрания (минимум 3 на выпуск).
- *   b) score_penalty — RoyalScoreEvent с отрицательной дельтой. Ранжирование
- *      по |delta| * вес вида (потерянные клиенты и пропуск окна важнее
- *      остальных штрафов).
+ *   b) score_penalty — СНЯТ 16.11.2026 вместе с автоматическими штрафами Royal
+ *      Score (решение владельца). Вид остался в схеме и на карточке кейса —
+ *      старые выпуски должны читаться, — но новых кандидатов не собирает.
  *   c) agent_bypass — источником были находки ночного судьи диалогов; судья
- *      удалён 13.11.2026 вместе с «Обучением бота», новых таких кейсов нет.
+ *      удалён вместе с «Обучением бота», новых таких кейсов нет.
  *      Вид оставлен: его несут уже собранные выпуски.
  *   d) positive — CallAnalysis.score >= 85. Минимум 1 на выпуск, чтобы
  *      собрание не было только негативом.
@@ -60,34 +60,23 @@ export interface TimelineSnapshot {
 }
 
 // ---------------------------------------------------------------------------
-// Веса видов RoyalScoreEvent для ранжирования (аудит §4.2b)
-// ---------------------------------------------------------------------------
-
-const SCORE_EVENT_WEIGHT: Record<string, number> = {
-  client_lost_agent_fault: 3,
-  mandatory_window_overdue: 2,
-};
-const DEFAULT_SCORE_EVENT_WEIGHT = 1;
-
-// ---------------------------------------------------------------------------
 // collectCandidates
 // ---------------------------------------------------------------------------
 
 /**
- * Собирает кандидатов из четырёх источников за указанный период.
+ * Собирает кандидатов из трёх источников за указанный период.
  * НЕ вызывает ИИ, НЕ пишет в БД — только читает и возвращает массив.
  */
 export async function collectCandidates(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<CaseCandidate[]> {
-  const [callLow, scorePenalties, positives] = await Promise.all([
+  const [callLow, positives] = await Promise.all([
     collectCallLowScore(periodStart, periodEnd),
-    collectScorePenalties(periodStart, periodEnd),
     collectPositives(periodStart, periodEnd),
   ]);
 
-  return [...callLow, ...scorePenalties, ...positives];
+  return [...callLow, ...positives];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,112 +135,6 @@ async function collectCallLowScore(
       recordingDurationSec: a.interaction.recordingDurationSec,
     },
   }));
-}
-
-// ---------------------------------------------------------------------------
-// Источник B: RoyalScoreEvent с отрицательной дельтой
-// ---------------------------------------------------------------------------
-
-/**
- * `RoyalScoreEvent.sourceId` НЕ равен id клиента (08.09.2026, разведка по
- * мёртвому коду). Поле — общий составной ключ идемпотентности «что породило
- * событие» (см. комментарий у sourceId в schema.prisma: «id сделки, показа,
- * лида», единого формата нет никогда). Код ниже раньше делал
- * `client.findUnique({ where: { id: e.sourceId } })` — сравнение sourceId
- * напрямую с id клиента. Для events, которые вообще попадают в эту функцию
- * (delta < 0, kind содержит client/lead — то есть client_lost_agent_fault и
- * lead_declined_* / lead_ignored), ни одна реальная схема sourceId так не
- * выглядит (см. lifecycle.ts/clientTransfer.ts/me.ts/inactiveTrafficLight.ts:
- * `client-lost-${id}` или `client-lost-traffic-light-${id}`) — сравнение НЕ
- * совпадало никогда. Самые тяжёлые кандидаты «Инсайтов от ИИ» (вес ×3 в
- * SCORE_EVENT_WEIGHT — потери клиентов) не появлялись ни разу с момента
- * внедрения функции (аудит 02.09.2026): таблица InsightCase на проде пуста.
- *
- * Порядок проверки важен: `client-lost-traffic-light-` длиннее и начинается
- * с той же строки, что `client-lost-`; более короткий префикс проверяется
- * ПОСЛЕ, иначе он забрал бы совпадение первым и обрезал clientId неверно
- * (получилось бы "traffic-light-<настоящий id>" вместо самого id).
- */
-const CLIENT_LOST_SOURCE_PREFIXES = ["client-lost-traffic-light-", "client-lost-"] as const;
-
-function extractLostClientId(sourceId: string): string | null {
-  for (const prefix of CLIENT_LOST_SOURCE_PREFIXES) {
-    if (sourceId.startsWith(prefix)) return sourceId.slice(prefix.length);
-  }
-  // decline-${agentId}-${clientId}-${n} (lead_declined_*) и lead-ignored-${leadId}-${agentId}-${ts}
-  // (lead_ignored) тоже проходят фильтр isClientRelated, но клиента в sourceId
-  // не кодируют однозначно (decline — вообще никак, lead-ignored — составной
-  // ключ с UUID лида, который сам содержит дефисы, парсить по разделителю
-  // небезопасно). Эти events сознательно остаются без кандидата, как и раньше —
-  // это НЕ регрессия этой правки, чинить их нужно отдельно, добавив clientId
-  // прямым полем в RoyalScoreEvent, а не гаданием по sourceId.
-  return null;
-}
-
-async function collectScorePenalties(
-  periodStart: Date,
-  periodEnd: Date,
-): Promise<CaseCandidate[]> {
-  const events = await prisma.royalScoreEvent.findMany({
-    where: {
-      at: { gte: periodStart, lte: periodEnd },
-      delta: { lt: 0 },
-    },
-    orderBy: { delta: "asc" },
-    take: 50,
-  });
-
-  // Фильтруем события, где sourceId указывает на клиента/лида.
-  // Для событий без привязки к клиенту (kind не содержит 'client'/'lead')
-  // пропускаем — InsightCase требует clientId.
-  const withClientId = events
-    .map((e) => {
-      const kindLower = e.kind.toLowerCase();
-      const isClientRelated = kindLower.includes("client") || kindLower.includes("lead");
-      if (!isClientRelated || !e.sourceId) return null;
-      const clientId = extractLostClientId(e.sourceId);
-      return clientId ? { event: e, clientId } : null;
-    })
-    .filter((x): x is { event: (typeof events)[number]; clientId: string } => x !== null);
-
-  if (withClientId.length === 0) return [];
-
-  // Одним запросом на всю пачку, а не по клиенту на событие (было — до 50
-  // запросов на один вызов collectCandidates, тот же класс, что и await
-  // внутри map по списку из БД в соседних местах CRM).
-  const clients = await prisma.client.findMany({
-    // deletedAt: null — удалённого (Корзина) клиента разбирать не нужно: тратить
-    // на него внимание/ИИ незачем, карточки уже нет в обычных разделах CRM.
-    where: { id: { in: withClientId.map((x) => x.clientId) }, deletedAt: null },
-    select: { id: true },
-  });
-  const existingIds = new Set(clients.map((c) => c.id));
-
-  const candidates: CaseCandidate[] = [];
-  for (const { event: e, clientId } of withClientId) {
-    if (!existingIds.has(clientId)) continue; // клиента с таким id больше нет (слияние дублей, окончательное удаление)
-
-    const weight = SCORE_EVENT_WEIGHT[e.kind] ?? DEFAULT_SCORE_EVENT_WEIGHT;
-    const absDelta = Math.abs(e.delta);
-
-    candidates.push({
-      kind: "score_penalty",
-      sourceKey: `score:${e.id}`,
-      agentId: e.agentId,
-      clientId,
-      severity: absDelta >= 10 ? 5 : absDelta >= 5 ? 4 : absDelta >= 3 ? 3 : 2,
-      rankScore: absDelta * weight,
-      raw: {
-        eventId: e.id,
-        eventKind: e.kind,
-        delta: e.delta,
-        reason: e.reason,
-        sourceId: e.sourceId,
-      },
-    });
-  }
-
-  return candidates;
 }
 
 // ---------------------------------------------------------------------------

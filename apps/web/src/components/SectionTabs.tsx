@@ -47,27 +47,35 @@ import { useSiteNotifications } from "../hooks/useSiteNotifications";
 export function InboxTabs() {
   const can = useCan();
   const { data: counters } = useCounters();
+  return <ScreenTabs tabs={inboxTabs(can, counters)} />;
+}
+
+/**
+ * Состав полосы «Обращения» — одна дверь и для прежней полосы вкладок, и для
+ * переключателя значками в шапке «Чатов» нового вида
+ * (components/look/chats/RoyalInboxSwitch.tsx, 18.11.2026).
+ */
+export function inboxTabs(
+  can: ReturnType<typeof useCan>,
+  counters: { messages?: number | null; comments?: number | null } | undefined,
+): ScreenTab[] {
   const canAllCalls = can("calls.transcripts");
-  return (
-    <ScreenTabs
-      tabs={[
-        {
-          to: "/messages",
-          label: "Сообщения",
-          end: true,
-          permission: can("messages.view") ? "messages.view" : "messages.viewOwn",
-          count: counters?.messages,
-        },
-        { to: "/comments", label: "Комментарии", permission: "messages.view", count: counters?.comments },
-        {
-          to: "/calls",
-          label: canAllCalls ? "Звонки" : "Мои звонки",
-          permission: canAllCalls ? "calls.transcripts" : "calls.ownTranscripts",
-        },
-        { to: "/telephony", label: "Телефония", permission: "calls.transcripts" },
-      ]}
-    />
-  );
+  return [
+    {
+      to: "/messages",
+      label: "Сообщения",
+      end: true,
+      permission: can("messages.view") ? "messages.view" : "messages.viewOwn",
+      count: counters?.messages,
+    },
+    { to: "/comments", label: "Комментарии", permission: "messages.view", count: counters?.comments },
+    {
+      to: "/calls",
+      label: canAllCalls ? "Звонки" : "Мои звонки",
+      permission: canAllCalls ? "calls.transcripts" : "calls.ownTranscripts",
+    },
+    { to: "/telephony", label: "Телефония", permission: "calls.transcripts" },
+  ];
 }
 
 /**
@@ -121,7 +129,7 @@ export function ObjectsTabs() {
 const MONEY_TABS: ScreenTab[] = [
   { to: "/finance", label: "Финансы", permission: "finance.view", end: true },
   { to: "/reports", label: "Отчёты", permission: "reports.view" },
-  { to: "/sources", label: "Источники лидов", permission: "reports.view" },
+  { to: "/sources", label: "Источники заявок", permission: "reports.view" },
   { to: "/insights", label: "Инсайты от ИИ", permission: "insights.view" },
 ];
 
@@ -144,7 +152,7 @@ export function MarketingTabs() {
   return (
     <ScreenTabs
       tabs={[
-        { to: "/ads", label: "Реклама", when: can("finance.view") || role === "MARKETING", end: true },
+        { to: "/ads", label: "Реклама", when: can("finance.view") || can("marketing.access"), end: true },
         // «Обзор», не «Маркетинг» (25.09.2026, владелец про весь ряд вкладок:
         // «вкладка "Маркетинг" внутри раздела "Маркетинг" сама по себе
         // кривая») — вкладка ведёт на MarketingCenter.tsx, общий обзор канала,
@@ -153,8 +161,8 @@ export function MarketingTabs() {
         // Тот же круг ролей, что у реестра меню и сервера: монтажёру вкладка не нужна.
         {
           to: "/social-videos",
-          label: "Ролики в соцсети",
-          when: role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN",
+          label: "Публикации в соцсети",
+          when: can("marketing.access"),
         },
         { to: "/pipeline", label: "Подготовка объектов", when: marketingVisible },
         { to: "/funnel", label: "Воронка", permission: "settings.view" },

@@ -39,11 +39,9 @@
  */
 import { prisma } from "../db.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
-import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { notifyAgentOfClientMessage } from "./clientMessageAlert.js";
 import { notifyPropertyChatMessage } from "./propertyChatMessageAlert.js";
 import { checkExplicitRefusal } from "./explicitRefusalDetector.js";
-import { checkClientInactiveSignal } from "./clientInactiveTextDetector.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
 import { detectNewInquiryFromKnownClient } from "./newInquiryDetector.js";
 import { reactivateClientFromLost } from "./clientLifecycle.js";
@@ -172,7 +170,6 @@ export async function applyInboundSideEffects(input: InboundSideEffectsInput): P
       conversation.propertyChatAgentId ? input.conversationId : undefined);
   }
   void notifyPropertyChatMessage(input.conversationId);
-  void analyzeMessageForPropertyCounts(clientId, text);
   if (clientId) {
     void checkExplicitRefusal({ clientId, text }).catch((err) =>
       console.error("[отказ] проверка явного отказа в переписке:", err instanceof Error ? err.message : err)
@@ -180,10 +177,9 @@ export async function applyInboundSideEffects(input: InboundSideEffectsInput): P
   }
 
   // Старый ход делает следующие шаги сам, позже: после склейки сообщений и
-  // расшифровки голосового (см. applyKnownClientMessageEffects и
-  // checkClientInactiveSignal в conversation.ts). Ядру ждать нечего.
+  // расшифровки голосового (см. applyKnownClientMessageEffects в
+  // conversation.ts). Ядру ждать нечего.
   if (input.source === "core" && clientId) {
-    if (text) void checkClientInactiveSignal(clientId, text);
     await applyKnownClientMessageEffects(clientId, text);
   }
   return { status: "applied", clientId, dealReview: null };

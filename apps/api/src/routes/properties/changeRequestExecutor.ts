@@ -18,6 +18,7 @@
  */
 import {
   buildPropertyTitle,
+  isPropertyPublished,
   priceChangePayloadSchema,
   cardDataPayloadSchema,
   remakeVideoPayloadSchema,
@@ -25,8 +26,8 @@ import {
   PROPERTY_CHANGE_KIND_LABELS,
   type PropertyChangeResult,
 } from "@royal-home/shared";
-import type { Prisma, Property } from "../../generated/prisma/client.js";
-import { prisma } from "../../db.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { prisma, type PropertyRecord } from "../../db.js";
 import { withPropertyLock } from "../../lib/videoHandoff.js";
 import { logAgentAudit } from "../../lib/audit.js";
 import { logSystemError } from "../../lib/systemError.js";
@@ -38,7 +39,7 @@ import { embedAndSaveProperty, EMBEDDING_RELEVANT_FIELDS } from "../../ai/embedd
 import { describePropertyChanges } from "../../lib/propertyChanges.js";
 import { toCents } from "../../lib/money.js";
 import { canResumeAssistantPriceUndo, recordAssistantPriceUndo } from "../../lib/assistantPriceUndoJournal.js";
-import { closeForOtherReviewers } from "../../lib/propertyChangeRequestService.js";
+import { cancelPropertyChangeRequest, closeForOtherReviewers } from "../../lib/propertyChangeRequestService.js";
 import { refreshPublishedCaptions, removeFromSocial, sendBackToMontajer } from "../../lib/publishedVideoFix.js";
 import { runPostUpdateEffects, seoFieldsForUpdate } from "../../lib/propertyUpdateEffects.js";
 import { stagePropertyPriceDelivery, type PropertyPriceDelivery } from "../../lib/propertyPriceDelivery.js";
@@ -51,7 +52,18 @@ import {
   toChangeRequestDto,
   type PropertyUpdateInput,
 } from "../../lib/propertyChangeRequests.js";
+import { loadAgentAccess } from "../../auth/middleware.js";
+import { notifyPropertyEditedBeforePublish } from "../../lib/propertyEditNotify.js";
+import { PROPERTY_STATUS_LABEL_RU } from "../../lib/propertyAutoStatus.js";
+import { changePropertyStatus, readStatusChangeRequest, type StatusChangeRequest } from "../../lib/propertyStatusChange.js";
 import { geocodeInBackground, normalizePropertyAddress } from "./shared.js";
+
+/**
+ * «Другое» без машинной части: CRM сама ничего не меняет (17.11.2026). Раньше итог был
+ * «Принято к сведению — директор сделает сам», а автор видел «Заявка принята» и считал
+ * дело сделанным. Теперь и строка итога, и пуш автору прямо говорят: делается руками.
+ */
+export const OTHER_MANUAL_RESULT = "Принято к сведению: CRM сама это не меняет — руководитель делает это руками";
 
 export type ApproveOutcome =
   | { ok: false; status: number; error: string; code?: "UNDO_STALE" }
@@ -59,8 +71,8 @@ export type ApproveOutcome =
 
 /** Что захват записал в карточку (только для PRICE_CHANGE и CARD_DATA). */
 interface AppliedWrite {
-  before: Property;
-  after: Property;
+  before: PropertyRecord;
+  after: PropertyRecord;
   changedFields: string[];
   priceChanged: boolean;
   priceDelivery?: PropertyPriceDelivery;
@@ -155,7 +167,7 @@ export async function approvePropertyChangeRequest(input: {
   }
 
   // ЗАХВАТ + ЗАПИСЬ под замком объекта.
-  type Claim = { conflict: string; expiredUndo?: true; forbidden?: true } | { write: AppliedWrite | null; property: Property };
+  type Claim = { conflict: string; expiredUndo?: true; forbidden?: true } | { write: AppliedWrite | null; property: PropertyRecord };
   let claim: Claim;
   try {
     claim = await withPropertyLock(pre.propertyId, async (tx): Promise<Claim> => {
@@ -289,6 +301,8 @@ export async function approvePropertyChangeRequest(input: {
   // ВЫПОЛНЕНИЕ. Любое исключение → FAILED с текстом, а не 500.
   const result = newResult();
   let error: string | null = prepareError;
+  /** «Другое» без машинной части — принято, но сделать нужно руками. */
+  let manualOnly = false;
   const property = claim.property;
   const authorName = pre.author.fullName;
   const url = `/properties/${property.shortId}?changeRequest=${requestId}`;
@@ -324,9 +338,18 @@ export async function approvePropertyChangeRequest(input: {
           error = await executeUnpublish(property.id, body.data.channels, result);
           break;
         }
-        case "OTHER":
-          result.applied.push("Принято к сведению — директор сделает сам");
+        case "OTHER": {
+          // Смена статуса, поданная помощником, исполняется той же дверью, что PATCH карточки,
+          // правами принявшего (lib/propertyStatusChange.ts). Прочее «Другое» — руками.
+          const statusChange = readStatusChangeRequest(pre.payload);
+          if (statusChange) {
+            error = await executeStatusChange({ requestId, propertyId: property.id, actorId, statusChange, result });
+          } else {
+            result.applied.push(OTHER_MANUAL_RESULT);
+            manualOnly = true;
+          }
           break;
+        }
       }
     }
   } catch (err) {
@@ -372,7 +395,33 @@ export async function approvePropertyChangeRequest(input: {
     }
   }
 
-  await notifyAfterDecision({ requestId, kind: pre.kind, status, error, result, authorId: pre.authorId, actorId, property, summary, url });
+  // Правка своей карточки до публикации (помощник, 17.11.2026): модератору/монтажёру — «было → стало»,
+  // как после PATCH (lib/propertyEditNotify.ts сам молчит вне проверки и монтажа).
+  if (claim.write && !isPropertyPublished(claim.write.before.status)) {
+    const w = claim.write;
+    void notifyPropertyEditedBeforePublish({
+      before: {
+        id: w.before.id,
+        shortId: w.before.shortId,
+        title: w.before.title,
+        status: w.before.status,
+        currency: w.before.currency,
+        videoHandoffStatus: w.before.videoHandoffStatus,
+        clipReviewStatus: w.before.clipReviewStatus,
+      },
+      after: { status: w.after.status, currency: w.after.currency },
+      changes: describePropertyChanges(
+        w.changedFields,
+        w.after as unknown as Record<string, unknown>,
+        w.before as unknown as Record<string, unknown>
+      ),
+      actorId,
+    });
+  }
+
+  await notifyAfterDecision({
+    requestId, kind: pre.kind, status, error, result, authorId: pre.authorId, actorId, property, summary, url, manualOnly,
+  });
 
   publishRequestUpdated({
     requestId,
@@ -387,7 +436,9 @@ export async function approvePropertyChangeRequest(input: {
   const priceQueued = priceDelivery?.siteQueued || Boolean(priceDelivery?.caption.queued.length);
   const message = error
     ? `Не выполнилось: ${error}`
-    : priceQueued
+    : manualOnly
+      ? "Принято. CRM сама это не меняет — сделайте это руками; автору ушло «делается руками»"
+      : priceQueued
       ? `Цена сохранена в CRM. Обновление площадок в очереди.${result.manual.length ? " Есть площадки, где нужна ручная правка." : ""}`
       : result.manual.length > 0
       ? `Принято. Автоматически сделано: ${result.applied.length}. Руками осталось: ${result.manual.length} — напоминание отправлено`
@@ -402,7 +453,7 @@ export async function approvePropertyChangeRequest(input: {
 
 /** PRICE_CHANGE / CARD_DATA: эффекты записи и (по желанию агента) перемонтаж. Возвращает текст сбоя или null. */
 async function executeFieldsChange(a: {
-  pre: { id: string; kind: string; propertyId: string; comment: string | null; property: Property };
+  pre: { id: string; kind: string; propertyId: string; comment: string | null; property: PropertyRecord };
   claim: AppliedWrite | null;
   pricePlan: { remake: boolean } | null;
   cardPlan: { remake: boolean } | null;
@@ -431,6 +482,7 @@ async function executeFieldsChange(a: {
       resyncReason: "заявка на изменение: цена",
       awaitPriceSync: true,
       priceCaptionStage: claim.priceDelivery?.caption,
+      actorId: a.actorId,
     });
     if (claim.priceDelivery?.siteQueued) result.applied.push("Сайт: обновление цены в очереди");
     for (const channel of claim.priceDelivery?.caption.queued ?? []) {
@@ -461,6 +513,7 @@ async function executeFieldsChange(a: {
       resyncSite: claim.before.publishedOnSite,
       resyncReason: "заявка на изменение: данные карточки",
       awaitPriceSync: false,
+      actorId: a.actorId,
     });
     result.applied.push(`Карточка обновлена (полей: ${claim.changedFields.length})`);
     if (claim.before.publishedOnSite) result.applied.push("Сайт: данные отправлены на витрину");
@@ -509,7 +562,7 @@ async function executeFieldsChange(a: {
       : "Данные карточки изменились.";
   // Старый ролик со старой ценой/данными снимается, КОГДА ВЫЙДЕТ НОВЫЙ (владелец 30.10.2026):
   // пока монтажёр работает, объект остаётся виден. Снимает задание публикации нового ролика
-  // (replaceOldPostsBeforeRemakePublish) — иначе публикация пропустила бы занятые каналы.
+  // (lib/remakeOldPosts.ts: сначала новый пост, потом снятие старого в той же сети).
   const failure = await executeRemake({
     propertyId: pre.propertyId,
     actorId: a.actorId,
@@ -519,6 +572,41 @@ async function executeFieldsChange(a: {
     result,
   });
   return failure ? `Данные обновлены, но ролик не ушёл на перемонтаж: ${failure}` : null;
+}
+
+const STATUS_REQUEST_STALE = "Объект изменился, заявка устарела — подайте новую";
+
+/**
+ * Смена статуса по заявке «Другое» от помощника — дверь lib/propertyStatusChange.ts правами
+ * ТОГО, КТО ПРИНЯЛ (свежими, мимо кэша): не может он сам сменить такой статус в карточке —
+ * заявка FAILED с причиной, а не «одобрено» без дела. Возвращает текст отказа или null.
+ */
+async function executeStatusChange(a: {
+  requestId: string;
+  propertyId: string;
+  actorId: string;
+  statusChange: StatusChangeRequest;
+  result: PropertyChangeResult;
+}): Promise<string | null> {
+  const access = await loadAgentAccess(a.actorId, prisma);
+  if (!access?.isActive) return "Сотрудник, принявший заявку, не активен";
+  const { to, from, removalReason, removalComment } = a.statusChange;
+  // Заявка живёт дольше превью: пока она ждала, объект могли перевести в другой статус (на модерацию,
+  // в «Продано»). Без исходного статуса (старая заявка) вслепую не исполняем — тоже «устарела».
+  if (!from) return STATUS_REQUEST_STALE;
+  const outcome = await changePropertyStatus({
+    propertyId: a.propertyId,
+    actor: { agentId: a.actorId, can: (permission) => access.permissions.has(permission) },
+    to,
+    removal: removalReason ? { removalReason, removalComment } : null,
+    expect: { status: from },
+    auditMeta: { viaChangeRequest: a.requestId },
+  });
+  if (!outcome.ok) return outcome.code === "STALE" ? STATUS_REQUEST_STALE : outcome.error;
+  a.result.applied.push(
+    `Статус: «${PROPERTY_STATUS_LABEL_RU[outcome.before.status]}» → «${PROPERTY_STATUS_LABEL_RU[outcome.property.status]}»`
+  );
+  return null;
 }
 
 /** Возврат ролика монтажёру. Возвращает текст отказа или null. */
@@ -583,16 +671,23 @@ async function notifyAfterDecision(a: {
   result: PropertyChangeResult;
   authorId: string;
   actorId: string;
-  property: Property;
+  property: PropertyRecord;
   summary: string;
   url: string;
+  /** «Другое» без машинной части: принято, делается руками. */
+  manualOnly?: boolean;
 }): Promise<void> {
   const { result, property } = a;
   const manualText = result.manual.map((m) => m.text).join("\n");
   try {
-    const title = a.error ? "Заявка принята, но не выполнилась" : "Заявка принята";
+    const title = a.error
+      ? "Заявка принята, но не выполнилась"
+      : a.manualOnly
+        ? "Заявка принята — делается руками"
+        : "Заявка принята";
     const parts = [`${property.title}: ${a.summary}`];
     if (a.error) parts.push(a.error);
+    else if (a.manualOnly) parts.push("CRM сама это не меняет: руководитель сделает это руками.");
     else if (result.manual.length > 0) parts.push(`Осталось руками:\n${manualText}`);
     void sendPushToAgent(a.authorId, {
       title,
@@ -627,4 +722,23 @@ async function notifyAfterDecision(a: {
       `Заявка на изменение ${a.requestId}: извещения после решения не ушли — ${err instanceof Error ? err.message : String(err)}`
     );
   }
+}
+
+/**
+ * СВОЯ ЗАЯВКА ПРИНИМАЕТСЯ АВТОРОМ СРАЗУ — одна дверь для REST и Шабнам (владелец 15.11.2026:
+ * «менять свои данные можно без ожидания»). Вызывающий уже проверил право
+ * (lib/propertyAccess.ts::canApplyChangeDirectly) и создал заявку; здесь она принимается тем же
+ * исполнителем, что кнопка «Принять» директора, а не принятая — отзывается, чтобы не висеть в очереди
+ * руководства. Возвращает тот же итог, что approvePropertyChangeRequest.
+ */
+export async function applyOwnChangeRequestNow(requestId: string, authorId: string): Promise<ApproveOutcome> {
+  const applied: ApproveOutcome = await approvePropertyChangeRequest({
+    requestId,
+    actorId: authorId,
+    note: "Свой объект: применено автором без заявки руководителю",
+  }).catch((err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой применения" }));
+  if (!applied.ok) {
+    await cancelPropertyChangeRequest({ requestId, actorId: authorId, note: "Не применено: " + applied.error });
+  }
+  return applied;
 }

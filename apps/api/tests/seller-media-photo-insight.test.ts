@@ -27,6 +27,17 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
   },
 }));
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 import { prisma } from "../src/db.js";
 import { savePrivateFile, privateFilePath } from "../src/lib/privateFiles.js";
 import { sellerPhotoInsightJob, PHOTO_INSIGHT_SCHEMA } from "../src/jobs/sellerPhotoInsight.js";
@@ -190,6 +201,40 @@ describe("задание seller-photo-insight", () => {
     expect(row).toBeNull();
 
     await prisma.client.delete({ where: { id: freshClient.id } });
+  });
+
+  it("выключатель «ИИ разбирает фото продавца» выключен — модель не зовём; включили — оценивает", async () => {
+    const offClient = await prisma.client.create({
+      data: {
+        fullName: `Продавец выключенного ИИ ${runId}`,
+        phone: `+992930${String(runId).slice(-6)}`,
+        source: "WHATSAPP",
+        kind: "SELLER",
+        assignedAgentId: agentId,
+        acceptedAt: new Date(),
+      },
+    });
+    const photo = await sharp({ create: { width: 5, height: 11, channels: 3, background: { r: 77, g: 5, b: 9 } } })
+      .jpeg()
+      .toBuffer();
+    const sha = createHash("sha256").update(photo).digest("hex");
+    createdSha256.push(sha);
+    await makeConversation(offClient.id, [photo]);
+    aiReply = { photos: [{ index: 0, isPlan: false, condition: "GOOD", score: 60 }] };
+
+    switchesOff.add("sellerAiAnalysisEnabled");
+    try {
+      await expect(sellerPhotoInsightJob.run({ clientId: offClient.id })).resolves.toBeUndefined();
+      expect(aiCalls).toHaveLength(0);
+      expect(await prisma.chatPhotoInsight.findUnique({ where: { sha256: sha } })).toBeNull();
+    } finally {
+      switchesOff.delete("sellerAiAnalysisEnabled");
+    }
+
+    await sellerPhotoInsightJob.run({ clientId: offClient.id });
+    expect(aiCalls).toHaveLength(1);
+    expect(await prisma.chatPhotoInsight.findUnique({ where: { sha256: sha } })).not.toBeNull();
+    await prisma.client.delete({ where: { id: offClient.id } });
   });
 
   /**

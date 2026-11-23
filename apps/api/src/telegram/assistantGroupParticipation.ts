@@ -98,7 +98,7 @@ export function groupInstagramLinkRequest(text: string, quoted: string): { ref: 
   if (text.length > 180 || !/(?:инстаграм|instagram)/iu.test(text)
       || !/(?:ссылк|пайванд|линк)/iu.test(text)
       || !/\?|(?<!\p{L})(?:дай(?:те)?|скинь(?:те)?|отправь(?:те)?|покажи(?:те)?|пришли(?:те)?|где|можно|нужна|парто|фирист\p{L}*|равон|диҳ\p{L}*)(?!\p{L})/iu.test(text)
-      || /https?:\/\/|\b(?:не надо|не нужно)\b|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
+      || /https?:\/\/|(?<!\p{L})(?:не надо|не нужно)(?!\p{L})|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
   const current = groupPropertyRefs(text);
   const refs = current.length ? current : groupPropertyRefs(quoted);
   return refs.length === 1 ? { ref: refs[0], tajik: /пайванд|парто|фирист|равон|диҳ|(?:инстаграм|линк)и(?!\p{L})/iu.test(text) } : null;
@@ -166,14 +166,41 @@ export function groupMembershipEvent(added: unknown, left: unknown, username: st
   if (arrivals.data.some(ourBot)) return "bot-added";
   return arrivals.data.some(member => !member.is_bot) ? "people-joined" : null;
 }
+/**
+ * СЛУЖЕБНОЕ СООБЩЕНИЕ «ГРУППА СТАЛА СУПЕРГРУППОЙ» (20.11.2026). Telegram присылает его дважды: в старую
+ * группу (`migrate_to_chat_id`, chat.id — старый) и в новую супергруппу (`migrate_from_chat_id`, chat.id —
+ * новый). Результат — пара «старый id → новый» либо null, если сообщение не про переезд или значения
+ * непохожи на настоящие (новый обязан быть id супергруппы с префиксом -100, старый — отрицательным).
+ */
+export function groupMigrationEvent(chatId: unknown, migrateTo: unknown, migrateFrom: unknown): { oldChatId: string; newChatId: string } | null {
+  const id = z.number().int().refine(Number.isSafeInteger).refine(value => value < 0);
+  const here = id.safeParse(chatId), to = id.safeParse(migrateTo), from = id.safeParse(migrateFrom);
+  const [oldId, newId] = to.success && here.success ? [here.data, to.data]
+    : from.success && here.success ? [from.data, here.data] : [null, null];
+  if (oldId === null || newId === null || oldId === newId || !String(newId).startsWith("-100")) return null;
+  return { oldChatId: String(oldId), newChatId: String(newId) };
+}
 export const GROUP_WELCOME_INTERVAL_MS = 60_000;
 export const GROUP_QUIET_MS = 30 * 60_000;
 export const PROACTIVE_GROUP_INTERVAL_MS = 12_000;
 
+/**
+ * Быстрый путь «помолчи» без модели. Сообщение должно быть ВЕСЬ командой (вежливая приставка или
+ * суффикс допустимы): «помолчи, а потом посмотри цену» — обычный запрос. Остальные формулировки
+ * («хватит писать сюда на сегодня», «до вечера не отвечай») решает модель инструментом
+ * set_group_quiet (ai/assistant/tools/groupQuietTool.ts); эта регулярка лишь ускоряет частые случаи.
+ * Таджикский пишут и с «ӯ», и с «у»/«ў» (на телефоне без раскладки).
+ */
+const POLITE = String.raw`(?:пожалуйста|пжлст|плиз|илтимос|лутфан)`;
+const QUIET_COMMAND = String.raw`(?:помолчи(?:те)?|замолчи|молчи|тише|стоп|хватит(?:\s+(?:писать|отвечать|болтать))?|(?:пока\s+)?не\s+(?:отвечай|пиши)(?:\s+сюда)?|хом[ӯуў]ш\s+(?:бош|шав|кун)|[ҷч]авоб\s+над[еи][ҳх])`;
+const RESUME_COMMAND = String.raw`(?:продолжай|можешь\s+(?:отвечать|писать)|аз\s+нав\s+[ҷч]авоб\s+де[ҳх])`;
+const QUIET_RE = new RegExp(String.raw`^(?:${POLITE},?\s+)?${QUIET_COMMAND}(?:,?\s+${POLITE})?$`, "iu");
+const RESUME_RE = new RegExp(String.raw`^(?:${POLITE},?\s+)?${RESUME_COMMAND}(?:,?\s+${POLITE})?$`, "iu");
+
 export function requestedGroupParticipation(text: string): "quiet" | "resume" | null {
-  const command = text.trim().replace(/[.!?]+$/u, "");
-  if (/^(?:пожалуйста,?\s+)?(?:помолчи|молчи|тише|стоп|(?:пока )?не отвечай|хомӯш бош)$/iu.test(command)) return "quiet";
-  if (/^(?:пожалуйста,?\s+)?(?:продолжай|можешь отвечать|аз нав ҷавоб деҳ)$/iu.test(command)) return "resume";
+  const command = text.trim().replace(/[.!?]+$/u, "").replace(/\s+/gu, " ");
+  if (QUIET_RE.test(command)) return "quiet";
+  if (RESUME_RE.test(command)) return "resume";
   return null;
 }
 

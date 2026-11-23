@@ -1,12 +1,13 @@
 import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { expenseCentsToTjs } from "./money.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, NO_CONTACT_TEXT } from "@royal-home/shared";
+import { noContactWhere } from "./noContact.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { isOpenAiEnabled } from "../ai/openaiClient.js";
 import { dushanbeDayRange, dushanbeStartOfMonth, dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, loadMoneyContext, roundMoney, toCents } from "./money.js";
-import { activeLeadCounts, loadLeadLimits, slotsTaken } from "./leadLimits.js";
 import { isBotEnabledForChannel } from "../messengers/botChannels.js";
 import { loadCredentials } from "../messengers/meta.js";
 import { HAS_INSTAGRAM_LINK_WHERE, NO_INSTAGRAM_LINK_WHERE } from "./instagramLink.js";
@@ -286,7 +287,8 @@ export async function loadChannelsHealth(now: Date = new Date()): Promise<McChan
     items,
     problems,
     healthCheckedAt,
-    openaiOutOfMoney: openaiMoneyErrors > 0,
+    // OpenAI выключен рубильником (14.11.2026) — «кончились деньги» не показываем.
+    openaiOutOfMoney: openaiMoneyErrors > 0 && (await isOpenAiEnabled()),
     connectedCount,
     openErrors,
     autoPublishEnabled: settings?.autoPublishEnabled ?? false,
@@ -614,13 +616,14 @@ export interface McAttentionClient extends McEmptyable {
  * это вопрос владельца «а кому верить».
  */
 export async function loadAttentionClient(now: Date): Promise<McAttentionClient | (McEmptyable & { id: null })> {
+  /**
+   * Из «Не связывались» по общему правилу (lib/noContact.ts,
+   * packages/shared/src/clientNoContact.ts) — то же число, что плитка «Клиенты».
+   * Порядок: непринятые первыми, затем самые давние карточки.
+   */
   const row = await prisma.client.findFirst({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
-      workStatus: "ACTIVE",
-    },
-    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { lastContactAt: "asc" }, { id: "asc" }],
+    where: noContactWhere(),
+    orderBy: [{ acceptedAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
       shortId: true,
@@ -629,20 +632,15 @@ export async function loadAttentionClient(now: Date): Promise<McAttentionClient 
       kind: true,
       source: true,
       acceptedAt: true,
-      firstContactAt: true,
-      lastContactAt: true,
+      createdAt: true,
       assignedAgent: { select: { fullName: true } },
     },
   });
 
-  if (!row) return { id: null, reason: "Активных карточек в работе нет." };
+  if (!row) return { id: null, reason: NO_CONTACT_TEXT.empty };
 
-  const hours = Math.max(0, Math.floor((now.getTime() - row.lastContactAt.getTime()) / 3_600_000));
-  const why = !row.acceptedAt
-    ? "карточку ещё не принял агент"
-    : !row.firstContactAt
-      ? "принята, но первого разговора не было"
-      : `последнее касание ${hours} ч назад`;
+  const hours = Math.max(0, Math.floor((now.getTime() - row.createdAt.getTime()) / 3_600_000));
+  const why = !row.acceptedAt ? "карточку ещё не принял агент" : "принята, но с клиентом ещё ни разу не связывались";
 
   return {
     id: row.id,
@@ -778,6 +776,22 @@ export interface McTeamDay extends McEmptyable {
  * схеме нет, реплики лежат JSONB внутри диалога, и считать их по агенту нечем.
  */
 export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTeamDay> {
+  return (await loadTeamDayWithCounts(now, viewerRole)).day;
+}
+
+/** Дела агента за сегодня — для его строки в «Команде» руководителя, без обрезки до 12. */
+export interface TeamDayAgentCounts {
+  calls: number;
+  total: number;
+}
+
+/**
+ * Тот же расчёт, что loadTeamDay, плюс счётчики по КАЖДОМУ агенту (20.11.2026). Список
+ * `rows` в ответе режется до 12 по числу дел, а при равенстве — по имени: агент с нулём
+ * дел и фамилией в конце алфавита в него не попадал, и главная не могла отличить «ноль»
+ * от «не попал в список». Счётчики строятся из тех же четырёх groupBy, без новых запросов.
+ */
+export async function loadTeamDayWithCounts(now: Date, viewerRole?: string): Promise<{ day: McTeamDay; counts: Map<string, TeamDayAgentCounts> }> {
   const { start, end } = dushanbeDayRange(now);
   const window = { gte: start, lt: end };
 
@@ -793,7 +807,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
     // routes/team.ts/lib/kpi.ts.
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT", archiveReview: false },
       _count: { _all: true },
     }),
     prisma.interaction.groupBy({
@@ -836,7 +850,13 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
   const sum = (f: (r: McTeamDayRow) => number) => rows.reduce((acc, r) => acc + f(r), 0);
   const total = sum((r) => r.total);
 
-  return {
+  const counts = new Map<string, TeamDayAgentCounts>();
+  for (const id of new Set([...byCalls.keys(), ...byShowings.keys(), ...byTasks.keys(), ...byMessages.keys()])) {
+    const calls = byCalls.get(id) ?? 0;
+    counts.set(id, { calls, total: calls + (byShowings.get(id) ?? 0) + (byTasks.get(id) ?? 0) + (byMessages.get(id) ?? 0) });
+  }
+
+  const day: McTeamDay = {
     rows: rows.slice(0, 12),
     calls: sum((r) => r.calls),
     showings: sum((r) => r.showings),
@@ -849,6 +869,7 @@ export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTea
           ? null
           : "С начала суток по Душанбе ни звонков, ни показов, ни закрытых задач.",
   };
+  return { day, counts };
 }
 
 // ─── Показы сегодня ──────────────────────────────────────────────────────────
@@ -1108,17 +1129,12 @@ export interface McControlGaps {
   /** «Телефоны агентов» в разделе «Звонки» — до 12.09.2026 блок стоял пустым. */
   phones: McAgentPhones;
   overdueTasks: McEmptyable & { count: number; items: { id: string; title: string; agentName: string; overdueDays: number; href: string }[] };
-  atLimit: McEmptyable & { count: number; items: { agentId: string; name: string; taken: number; limit: number }[] };
   silentAfterShowing: McEmptyable & { count: number };
 }
 
 /**
- * Три плитки «Контроля», которые в артефакте стояли пустыми.
- *
- * «На пределе нагрузки» считается ТЕМ ЖЕ механизмом, что решает выдачу лидов
- * (lib/leadLimits.ts: activeLeadCounts + slotsTaken + взвешенные слоты) — своя
- * копия правила разошлась бы с распределением ровно в тот день, когда владелец
- * поменяет лимит.
+ * Плитки «Контроля», которые в артефакте стояли пустыми. «На пределе
+ * нагрузки» убрана 16.11.2026 вместе с самим лимитом активных лидов.
  */
 /**
  * «Телефоны агентов» — кто из сотрудников с внутренним номером сейчас на связи.
@@ -1173,7 +1189,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
     nextActionDate: { lt: now },
   } satisfies Prisma.InteractionWhereInput;
 
-  const [overdueCount, overdueRows, agents, limits] = await Promise.all([
+  const [overdueCount, overdueRows] = await Promise.all([
     prisma.interaction.count({ where: overdueWhere }),
     prisma.interaction.findMany({
       where: overdueWhere,
@@ -1187,15 +1203,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
         agent: { select: { fullName: true } },
       },
     }),
-    prisma.agent.findMany({ where: { isActive: true, role: { in: [...RATED_ROLES] } }, select: { id: true, fullName: true }, take: 100 }),
-    loadLeadLimits(),
   ]);
-
-  const counts = await activeLeadCounts(agents.map((a) => a.id));
-  const atLimitRows = agents
-    .map((a) => ({ agentId: a.id, name: a.fullName, taken: slotsTaken(counts.get(a.id), limits), limit: limits.activeLimit }))
-    .filter((r) => r.limit > 0 && r.taken >= r.limit)
-    .sort((a, b) => b.taken - a.taken);
 
   const phones = await loadAgentPhones();
 
@@ -1213,18 +1221,6 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
         href: r.client ? `/clients/${r.client.shortId}` : "/clients",
       })),
       reason: overdueCount > 0 ? null : "Просроченных задач нет.",
-    },
-    atLimit: {
-      count: atLimitRows.length,
-      items: atLimitRows.slice(0, LIST_CAP),
-      reason:
-        atLimitRows.length > 0
-          ? null
-          : agents.length === 0
-            ? "Активных агентов нет."
-            : limits.activeLimit <= 0
-              ? "Лимит активных клиентов отключён."
-              : `Ни один агент не достиг лимита в ${limits.activeLimit} активных клиентов.`,
     },
     silentAfterShowing: {
       count: silentAfterShowing,

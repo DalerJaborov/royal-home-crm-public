@@ -44,8 +44,10 @@ describe("actual canonical public company source, draft", () => {
   });
   it("answers service commission before asking one useful role question", () => {
     const text = render({ kind: "company_policy", topic: "commission", sourceHash, knowledge }, "role");
-    expect(text).toContain(`для продавца — ${AGENCY_FACTS.commission.sellerPercent}%`);
-    expect(text).toContain(`для покупателя — ${AGENCY_FACTS.commission.buyerPercent}%`);
+    // No long dash in a customer text (owner's rule; the commission line was rewritten 17.11.2026).
+    expect(text).toContain(`для продавца ${AGENCY_FACTS.commission.sellerPercent}%`);
+    expect(text).toContain(`для покупателя ${AGENCY_FACTS.commission.buyerPercent}%`);
+    expect(text).not.toMatch(/[—–]/u);
     expect(text).toContain("купить или продать"); expect(text?.match(/[?？]/gu)).toHaveLength(1);
     expect(text).not.toMatch(/номер телефона|позвонят|создан|сохран/iu);
   });
@@ -103,7 +105,9 @@ describe("bounded public search DTO and useful truthful output, draft", () => {
   });
   it("zero candidates means only this bounded search, not a global inventory assertion", () => {
     const text = render({ ...search(), cards: [] });
-    expect(text).toBe("В текущей подборке подходящих вариантов не найдено.");
+    // 15.11.2026: nothing fits → a person searches by hand; no phone yet, so the phone is asked.
+    expect(text).toBe("В текущей подборке подходящих вариантов не найдено." + "\n" +
+      "Агент подберёт варианты вручную. Напишите, пожалуйста, ваш номер телефона, чтобы агент вам позвонил.");
   });
   it.each([
     { type: "APARTMENT", budget: { max: "100000" } },

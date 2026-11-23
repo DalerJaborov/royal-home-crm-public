@@ -1,0 +1,596 @@
+/* «НОВЫЙ ВИД» — раздел «Объекты» (пачка objects, 18.11.2026).
+ *
+ * Обычный, НЕ генерируемый файл. Подключён сразу после theme-look-royal.css, и
+ * КАЖДОЕ правило стоит под :root[data-ui-look="royal"] — без признака не
+ * меняется ни один пиксель (сторож theme-look-royal.test.ts проверяет оба файла).
+ * Токены и общие детали (--rh-ui-*, .ry-btn, .ry-circle, .ry-avatar) — из
+ * theme-look-royal.css, здесь только раскладка раздела:
+ *   .ry-objects-page — каталог и карта (pages/Properties.tsx, PropertiesMap.tsx);
+ *   .ry-object-page  — карточка объекта (pages/PropertyDetail.tsx);
+ *   .ry-obj-*        — детали components/look/objects/.
+ * Каждое правило привязано к метке раздела [data-ry-section="objects"]: её ставят
+ * только раздел объектов через RoyalSection (components/look/clients/RoyalSection.tsx)
+ * и только при useRoyalLook(): корень экрана (Rh2Screen, обёртка каталога) и корень
+ * портала (Rh2Portal) окон, открытых из раздела. Чужие окна поверх раздела
+ * (уведомления, входящий лид, шторки оболочки) метки не несут и слой их не трогает.
+ * Кнопки со смысловым вариантом старой темы (danger и т.п.) цвет не теряют.
+ * Запас под полоску iPhone у .sheet-f/.sheet-b (theme-royal-home-2026.css) не трогаем.
+ * Образец — макет docs/design/oblik-2026-11-17 (screenObjects, screenObject).
+ */
+/* Вес селекторов: страница раздела — тот же узел, что .rh2.screens (Rh2Screen и
+ * обёртка каталога), поэтому правила пишутся как .ry-object(s)-page.rh2.screens —
+ * иначе чистая тема (html[data-shell="clean"] .rh2 .scr .card) перевешивает. */
+
+
+/* =============================== каталог =============================== */
+
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] {
+  container: ry-objects / inline-size;
+  color: var(--rh-ui-text);
+  font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] > .scr { display: grid; gap: 16px; min-width: 0; }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; min-width: 0;
+}
+/* Колонка текста не уже 260 px: прежде `flex: 1 1 0` отдавал ей остаток после «Продолжить
+   черновик» + «Объект», и на 414–430 px (iPhone) это были считанные пиксели — «Найдено: 117»
+   рвалось по цифрам, а «Ждут вашей проверки: 2» сжималась в круг 28×44 поверх текста
+   (кадр владельца 20.11, сторож lookGeometry «squeeze»/«split»). Теперь кнопки при нехватке
+   места уходят строкой ниже, а не съедают колонку. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head-text { display: grid; flex: 1 1 260px; gap: 6px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-found { white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head h1 {
+  margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.08; letter-spacing: -.028em; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head p {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head p b { color: var(--rh-ui-text); font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending {
+  /* Спокойный фильтр-чип в одну строку (владелец 21.11: плашки были крупные и тревожные): тон — из pillTone, цвет только по смыслу. */
+  flex: none; max-width: 100%;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending b { font-size: var(--rh-fs-sm); color: inherit; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="crit"] { background: var(--rh-ui-crit-soft, var(--rh-ui-raised)); color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-head-acts > a {
+  min-height: 48px; padding: 0 16px; border-radius: var(--rh-r-full); color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600;
+}
+
+/* Вкладки раздела «Список | Карта | Изменения на сайте» — таблетки, ряд листается сам, страница — нет. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai {
+  display: flex; flex-wrap: nowrap; gap: 6px; margin: 0; padding: 2px; min-width: 0; max-width: 100%;
+  overflow-x: auto; scrollbar-width: none; background: transparent; border: 0; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai::-webkit-scrollbar { display: none; }
+/* От 820 px (ниже ScreenTabs сам ставит выбор вместо длинной полосы) ряд вкладок переносится,
+   а не листается без полосы: на 820–1250 px последние вкладки («Обучение бота», «Архив»)
+   иначе уезжали за край и мышью были недоступны (ревью PR #305). */
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai { flex-wrap: wrap; overflow-x: visible; }
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai > a {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 16px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-hint); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
+  box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai > a[aria-current="page"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg-ai > a .n {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-section-switcher select {
+  min-height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
+}
+
+/* Плашки «вам передано» и «этап просрочен»: строка карточкой, срочное — значком и яркостью. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-overdue,
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] > .scr > .card.tight {
+  margin: 0; padding: 6px 16px; border: 0; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+/* margin: 0 — у `.quiet` темы свой отступ сверху 14 px, и строка прижималась к низу
+   карточки: «большой пустой верх» у «Этап просрочен у 4 объектов» (кадр владельца 20.11). */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] :is(.clean-catalog-overdue, .card.tight) .quiet {
+  margin: 0; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] :is(.clean-catalog-overdue, .card.tight) .lk { color: var(--rh-ui-primary-ink); font-weight: 700; text-decoration: none; }
+
+/* Точка смысла в тихих строках раздела: срочно — сплошной красный круг, внимание — янтарный с кольцом. */
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet > .dot {
+  flex: none; width: 12px; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-hint); box-shadow: none;
+}
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet > .dot.crit { width: 14px; height: 14px; background: var(--rh-ui-crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rh-ui-crit) 22%, transparent); }
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet > .dot.warn { background: var(--rh-ui-warn-soft); box-shadow: inset 0 0 0 2px var(--rh-ui-warn); }
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet > .dot.ok { background: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet.crit .txt { color: var(--rh-ui-crit-text); font-weight: 700; }
+:root[data-ui-look="royal"] :is(.ry-objects-page, .ry-object-page).rh2.screens[data-ry-section="objects"] .quiet.warn .txt { color: var(--rh-ui-text); }
+
+/* Панель каталога: без рамки, на фоне страницы. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog {
+  display: grid; gap: 12px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; min-width: 0;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .hscroll { margin: 0; padding: 0; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .hscroll::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg {
+  display: inline-flex; flex-wrap: nowrap; gap: 4px; padding: 4px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-seg-track); box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 40px; min-width: 44px; padding: 0 14px;
+  border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .seg > button[aria-selected="true"] { background: var(--rh-seg-on); color: var(--rh-seg-on-fg); box-shadow: var(--rh-seg-on-shadow); }
+
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; min-width: 0;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar > .inp {
+  flex: 1 1 280px; min-width: 0; height: 48px; padding: 0 20px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar > .inp::placeholder { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar .pill {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar .pill[aria-pressed="true"]:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-filter-count {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: var(--rh-fs-xs); font-weight: 700;
+}
+/* Телефон: инструменты под раскрывашкой «Фильтры и вид» (та же <details>). */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tools { flex: 1 1 100%; min-width: 0; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tools > summary {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; border-radius: var(--rh-r-full); list-style: none; cursor: pointer;
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tools > summary::-webkit-details-marker { display: none; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tools .clean-catalog-view-label { margin-left: auto; font-size: var(--rh-fs-sm); font-weight: 500; color: var(--rh-ui-hint); white-space: nowrap; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-tool-content { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; min-width: 0; }
+
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-meta {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: var(--rh-fs-md); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-selectall { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; color: var(--rh-ui-text); font-weight: 600; cursor: pointer; }
+/* Только свои галочки (выбор объекта и «Выбрать все»); флажки блоков («Документы» и т.п.) — как в их рамке. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] :is(.ry-obj-pick, .clean-catalog-selectall) input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--rh-ui-primary); }
+
+/* Выбранные: одна строка-капсула с действиями. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 !important; padding: 8px 8px 8px 20px; border: 0;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk .cnt { font-size: var(--rh-fs-md); font-weight: 700; margin-right: auto; color: var(--rh-ui-ink-tile-fg); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk .spacer { display: none; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk :is(.pill, .lnk) { min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk :is(.pill, .lnk):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: color-mix(in srgb, var(--rh-ui-on-color) 14%, transparent); color: var(--rh-ui-on-color); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .bulk .pill:not(.ghost):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); }
+
+/* Ошибка и «пусто» каталога. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty {
+  display: grid; justify-items: center; gap: 8px; padding: 32px 20px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); text-align: center;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty .ic {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty p { margin: 0; font-size: var(--rh-fs-lg); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty p.sub { font-size: var(--rh-fs-md); font-weight: 400; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty .pill { min-height: 48px; padding: 0 20px; border: 0; border-radius: var(--rh-r-full); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .empty .pill:not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog > .quiet.crit { padding: 8px 16px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); }
+
+/* «Показать ещё» */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-property-catalog button:is(.pill, .btn, [data-load-more]) { border-radius: var(--rh-r-full); min-height: 48px; }
+
+/* ============================ сетка объектов ============================ */
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; margin: 0; padding: 0; background: transparent; border: 0;
+}
+@container ry-objects (min-width: 600px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+}
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-card {
+  position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+  transition: transform 120ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-card:active { transform: scale(.99); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-card[data-selected="true"] { box-shadow: 0 0 0 3px var(--rh-ui-primary); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-link { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-link:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: -3px; }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo { position: relative; flex: none; aspect-ratio: 4 / 3; overflow: hidden; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo img { display: block; width: 100%; height: 100%; object-fit: cover; outline: 1px solid var(--rh-ui-ring); outline-offset: -1px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-photo > .ry-obj-pill { position: absolute; left: 10px; top: 10px; z-index: 2; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-count {
+  position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 700; box-shadow: var(--rh-ui-shadow-sm);
+}
+
+/* Пилюля состояния: срочно — сплошная красная с пламенем, внимание — янтарная с «!», норма — зелёная с галочкой. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill {
+  display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 20px); min-height: 32px; padding: 5px 12px; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.2;
+  /* Состояние — данные: переносится, а не режется (сторож hiddenTextSelectors, 18.11). */
+  white-space: normal; overflow-wrap: anywhere; box-shadow: var(--rh-ui-shadow-sm);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill svg { flex: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); font-weight: 700; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); box-shadow: var(--rh-ui-shadow-sm), inset 0 0 0 1.5px color-mix(in srgb, var(--rh-ui-warn) 40%, transparent); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pill[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] [data-ry-section="objects"] .ry-obj-pill[data-tone="warn"],
+:root[data-ui-look="royal"][data-theme="royal-home-2026-night"] [data-ry-section="objects"] .ry-obj-pill[data-tone="ok"] { background: var(--rh-ui-raised); }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-body { display: flex; flex-direction: column; flex: 1 1 auto; gap: 4px; min-width: 0; padding: 12px 16px 14px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0; font-size: var(--rh-fs-xl); line-height: 1.15; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price small { font-family: var(--font-sans, "Onest", sans-serif); font-size: var(--rh-fs-sm); font-weight: 500; letter-spacing: 0; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-name {
+  margin: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.3; color: var(--rh-ui-text); overflow-wrap: anywhere;
+}
+/* Название и адрес не зажимаются в две строки: длинный адрес — это данные (18.11). */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-addr {
+  margin: 0; font-size: var(--rh-fs-md); line-height: 1.35; color: var(--rh-ui-hint); overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 2px 0 0; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-meta .hdot { position: static; width: 12px; height: 12px; margin: 0; }
+/* Состояние текстом — в строковой раскладке; в плитке его несёт пилюля на фото. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-state { display: none; font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-state[data-tone="crit"] { color: var(--rh-ui-crit-text); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-state[data-tone="warn"] { color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-state[data-tone="ok"] { color: var(--rh-ui-ok); }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 10px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 600; white-space: nowrap;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="ok"] { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-tag[data-tone="crit"] { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: 2px 0 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat { display: inline-flex; align-items: baseline; gap: 4px; padding: 0; background: transparent; border: 0; font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat b { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-md); font-weight: 700; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-stats .pstat small { font-size: var(--rh-fs-sm); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-subline { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-overdue {
+  display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.35; color: var(--rh-ui-text);
+}
+/* Огня нет: просрочка названа словами, красный только при тройном превышении срока (тон тот же, что у плашки этапа — propertyStagePill). */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-overdue[data-tone="crit"] { font-weight: 700; color: var(--rh-ui-crit-text); }
+
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot {
+  position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: auto; padding-top: 10px; pointer-events: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot > * { pointer-events: auto; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-agent { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); pointer-events: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-agent .ry-avatar { width: 32px; height: 32px; font-size: var(--rh-fs-xs); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-agent > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { min-height: 44px; padding: 0 16px; font-size: var(--rh-fs-sm); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-band { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 16px 14px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-pick {
+  position: absolute; z-index: 3; right: 8px; top: 8px; display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: var(--rh-r-full); background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow-sm); cursor: pointer;
+}
+
+/* Строкой: фото слева 104, текст справа (макет, телефон). Так же — список «Строками» и любой узкий список. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo { width: 104px; border-radius: var(--rh-r-md); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo > .ry-obj-pill { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-state { display: inline; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .rh-photo-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-body { flex: 1 1 0; padding: 2px 4px 2px 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-price { font-size: var(--rh-fs-xl); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-pick { right: auto; left: 12px; top: 12px; width: 44px; height: 44px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-band { flex: 1 1 100%; padding: 0 4px 6px; }
+@container ry-objects (max-width: 599.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-card { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 8px; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo { width: 104px; border-radius: var(--rh-r-md); }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-photo > .ry-obj-pill { display: none; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-count { right: 4px; bottom: 4px; gap: 2px; padding: 2px 6px; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-state { display: inline; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .rh-photo-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-body { flex: 1 1 0; padding: 2px 4px 2px 0; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-price { font-size: var(--rh-fs-xl); }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-pick { right: auto; left: 12px; top: 12px; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="cards"] .ry-obj-band { flex: 1 1 100%; padding: 0 4px 6px; }
+}
+/* Строкой на широком экране — фото крупнее, текст в одну колонку рядом. */
+@container ry-objects (min-width: 600px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid[data-view="rows"] .ry-obj-photo { width: 168px; }
+}
+
+/* Заглушки загрузки — серые плитки той же формы. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid .clean-property-tile-skeleton {
+  display: grid; gap: 8px; padding: 0 0 16px; overflow: hidden; border-radius: var(--rh-r-lg); background: var(--rh-ui-card);
+  box-shadow: 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid .clean-property-tile-skeleton .ph { display: block; aspect-ratio: 4 / 3; background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid .clean-property-tile-skeleton .sk { display: block; height: 14px; margin: 0 16px; border-radius: var(--rh-r-full); background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid .prow.row { display: flex; gap: 12px; min-height: 96px; padding: 8px; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid .prow.row .ph { width: 104px; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-grid :is(.clean-property-tile-skeleton, .prow.row) { animation: ry-obj-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes ry-obj-pulse { 50% { opacity: .6; } }
+
+/* =============================== карта =============================== */
+
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] .pg-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] .pg-h h1 { margin: 0; font-size: var(--rh-fs-3xl); font-weight: 700; line-height: 1.08; letter-spacing: -.028em; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] .pg-h .sub { margin: 6px 0 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] .seg-ai { margin-bottom: 12px; }
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] :is(.map-layout, .map-sidebar) { border-radius: var(--rh-r-lg); }
+:root[data-ui-look="royal"] .ry-objects-map.rh2.screens[data-ry-section="objects"] .map-layout { overflow: hidden; background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring); }
+
+/* =========================== карточка объекта =========================== */
+
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] {
+  color: var(--rh-ui-text); font-family: var(--font-sans, "Onest", system-ui, sans-serif);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 4px 0 8px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-back {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 18px 0 12px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-back:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-head-code { font-size: var(--rh-fs-xs); font-weight: 500; color: var(--rh-ui-hint); font-variant-numeric: tabular-nums; user-select: all; }
+
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-detail { gap: 20px 28px; align-items: start; }
+@media (min-width: 1440px) {
+  :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-detail { grid-template-columns: minmax(0, 1.2fr) minmax(340px, 1fr); }
+  :root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-obj-summary { grid-column: 2; grid-row: 1; }
+}
+
+/* Фото — главный элемент: лента 4:3 со скруглением 24, счётчик, миниатюры. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="gallery"] { min-width: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery {
+  position: relative; overflow: hidden; border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-raised); box-shadow: none; padding: 0;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-track { aspect-ratio: 4 / 3; max-height: 560px !important; border-radius: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide { border-radius: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide img { width: 100%; height: 100%; object-fit: contain; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-slide img[data-photo-backdrop] { object-fit: cover; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-count {
+  top: auto; right: 12px; bottom: 12px; left: auto; padding: 4px 12px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-sm); font-weight: 700; box-shadow: var(--rh-ui-shadow-sm);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery-nav :is(button, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) {
+  width: 44px; height: 44px; min-height: 44px; border-radius: var(--rh-r-full); background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-sm);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-gal .rh-gallery-dots { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal { display: grid; gap: 10px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal-thumbs { display: flex; gap: 8px; padding: 3px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal-thumbs::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal-thumbs > button {
+  display: grid; place-items: center; flex: none; width: 80px; height: 60px; padding: 0; overflow: hidden; border: 0; border-radius: var(--rh-r-md);
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint); opacity: .72; cursor: pointer; transition: opacity 160ms;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal-thumbs > button[aria-current="true"] { opacity: 1; box-shadow: 0 0 0 2px var(--rh-ui-bg), 0 0 0 4px var(--rh-ui-text); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-gal-thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Главный блок: цена крупно, название, адрес, факты строками со значками, кнопки. */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-summary {
+  display: grid; gap: 6px; min-width: 0; padding: 20px; border-radius: var(--rh-r-lg);
+  background: var(--rh-ui-card); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-summary > .ry-obj-pill { justify-self: start; margin-bottom: 4px; box-shadow: none; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-summary > .ry-obj-pill[data-tone="neutral"] { background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-bigprice { margin: 0; font-size: var(--rh-fs-4xl); line-height: 1.05; color: var(--rh-ui-text); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-sum-sub { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-title { margin: 10px 0 0; font-size: var(--rh-fs-xl); font-weight: 700; line-height: 1.25; letter-spacing: -.02em; overflow-wrap: anywhere; text-wrap: balance; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-place { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-facts {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin: 12px 0 0; padding: 0; list-style: none;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-facts > li { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 60px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text { display: grid; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text b {
+  display: block; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-fact-text span { font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+/* Продавец в главном блоке (пачка D1): имя, номер как отдал сервер (маской или полный) и «Позвонить». */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller { margin-top: 14px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller-label { margin: 0 0 4px; font-size: var(--rh-fs-xs); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row > .t { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller .row > .act { display: flex; flex-wrap: wrap; gap: 8px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-seller-add {
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--rh-ui-primary-ink); font: inherit; font-weight: 600; cursor: pointer;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions > .ry-btn[data-variant="primary"] { flex: 1 1 100%; min-height: 52px; font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-actions > .ry-btn:not([data-variant="primary"]) { flex: 1 1 0; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-sum-extra { margin-top: 8px; padding-top: 10px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-sum-extra .quiet { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 44px; font-size: var(--rh-fs-md); }
+
+/* Остальные блоки карточки — карточки 24 без рамки, заголовки 20, строки 60. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.card, .rh-card):not(.rh-gallery) {
+  border: 0; border-radius: var(--rh-r-lg); background: var(--rh-ui-card); color: var(--rh-ui-text);
+  box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="people"],
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="description"] .rh-pcard-desc { padding: 0; background: transparent; border-radius: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .card { padding: 20px; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .card.tight { padding: 10px 16px; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.sec-t, .sec-h h2, .card > h2, .card > h3) {
+  margin: 0 0 8px; font-size: var(--rh-fs-xl); font-weight: 700; line-height: 1.2; letter-spacing: -.025em; text-transform: none; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .card :is(.sec-h, .sec-t):not(:first-child) { margin-top: 20px; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .sec-h { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .sec-h .note { font-size: var(--rh-fs-sm); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .list { display: grid; gap: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row {
+  min-height: var(--rh-ui-row-h); padding: 8px 0; border: 0; border-radius: 0; background: transparent; gap: 12px;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .t b { font-size: var(--rh-fs-lg); font-weight: 600; line-height: 1.25; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .t > span { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .meta { font-size: var(--rh-fs-md); font-weight: 600; color: var(--rh-ui-text); font-variant-numeric: tabular-nums; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-row .av {
+  width: 44px; height: 44px; border-radius: var(--rh-r-full); background: var(--rh-ui-a0); color: var(--rh-ui-a0f); font-size: var(--rh-fs-md); font-weight: 700;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .quiet { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: var(--rh-fs-md); line-height: 1.4; }
+
+/* Кнопки и ссылки внутри блоков: таблетки 44+, акцент — тёмно-синий текст без подчёркивания. */
+/* Форма — у всех кнопок блока; цвет — только у кнопок без смыслового варианта старой темы
+   (danger, crit, warn, ok, gold, hot, звонок, плавающая): «Удалить» и подобные остаются своими. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):not(.rh-gallery-nav *) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px;
+  border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):not(.rh-gallery-nav *):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+/* Одна сплошная синяя на экран — «Назначить показ»; кнопки блоков — мягкие синие. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):not(.ghost):not(.soft):not(.rh-gallery-nav *):not([data-variant="icon"]):not(.icon):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) {
+  background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):disabled { opacity: .5; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.lnk, .lk) {
+  display: inline-flex; align-items: center; min-height: 44px; color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .chip {
+  display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-xs); font-weight: 600;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .chip.ok { background: var(--rh-ui-ok-soft); color: var(--rh-ui-ok); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .chip:is(.warn, .hot) { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .chip.crit { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+
+/* Поля правки на месте. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  min-height: 48px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-md);
+  box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] textarea { padding: 12px 14px; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(input, select, textarea):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 1px; }
+
+/* «Начать сделку» — раскрывашка той же карточкой. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-deal-disclosure > summary {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: var(--rh-fs-lg); font-weight: 700; cursor: pointer; list-style: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-deal-disclosure > summary::-webkit-details-marker { display: none; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-deal-disclosure > summary::after {
+  content: ""; width: 10px; height: 10px; margin-left: auto; border-right: 2.4px solid currentColor; border-bottom: 2.4px solid currentColor;
+  transform: rotate(45deg); transition: transform 160ms cubic-bezier(.23, 1, .32, 1);
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-deal-disclosure[open] > summary::after { transform: rotate(-135deg); }
+
+/* Вкладки карточки: таблетки, выбранная — тёмная. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-pcard-tabs { display: grid; gap: 16px; margin-top: 28px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs-scroll { background: transparent; box-shadow: none; border: 0; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs-scroll::-webkit-scrollbar { display: none; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs {
+  display: inline-flex; flex-wrap: nowrap; gap: 4px; padding: 4px; border: 0; border-radius: var(--rh-r-full); background: transparent; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs [role="tab"] {
+  flex: none; min-height: 44px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full); background: transparent; color: var(--rh-ui-hint);
+  font-size: var(--rh-fs-md); font-weight: 600; white-space: nowrap; box-shadow: none;
+}
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-tabs [role="tab"][aria-selected="true"] { background: var(--rh-tab-on); color: var(--rh-tab-on-fg); box-shadow: none; }
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-pcard-tabbody { display: grid; gap: 16px; min-width: 0; }
+
+/* ============================== телефон ============================== */
+
+/* На телефоне заголовок «Объекты» уже несёт шапка оболочки — второй не нужен. */
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-objects-head-acts { flex: 1 1 100%; justify-content: space-between; flex-wrap: nowrap; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-objects-page.rh2.screens[data-ry-section="objects"] .clean-catalog-toolbar > .inp { flex-basis: 100%; }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .clean-property-slot[data-record-area="gallery"] { margin-inline: 0; }
+/* Фото на телефоне — такая же карточка с отступами и скруглением, как соседние блоки (владелец 20.11.2026: фото шло во всю ширину без
+   скругления, остальное карточками). */
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .rh-gallery { border-radius: var(--rh-r-lg); }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .ry-gal-thumbs { padding-inline: 3px; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-obj-summary { padding: 16px; }
+:root[data-ui-look="royal"][data-mobile-ux] [data-ry-section="objects"] .ry-obj-bigprice { font-size: var(--rh-fs-3xl); }
+:root[data-ui-look="royal"][data-mobile-ux] .ry-object-page.rh2.screens[data-ry-section="objects"] .card { padding: 16px; }
+
+/* =================== шторки и окна, пока открыт раздел =================== */
+
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet {
+  border: 0; background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-lg);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet.right { border-radius: var(--rh-r-lg) 0 0 var(--rh-r-lg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet.bottom { border-radius: var(--rh-r-lg) var(--rh-r-lg) 0 0; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h { min-height: 64px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h :is(h2, h3, b) { font-size: var(--rh-fs-xl); font-weight: 700; letter-spacing: -.025em; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn) { min-height: 48px; padding: 0 20px; border: 0; border-radius: var(--rh-r-full); font-size: var(--rh-fs-md); font-weight: 600; box-shadow: none; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.ghost, .soft):not(:is(.danger, .crit, .warn, .ok, .gold, .hot, .btn-call, .btn-fab, [class*="bg-"], [data-variant="danger"])) { background: var(--rh-ui-press); color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .sheet-h .pill { min-width: 44px; padding: 0 14px; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row { min-height: var(--rh-ui-row-h); padding: 8px 4px; border: 0; background: transparent; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row:not(:first-child) { box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t b { font-size: var(--rh-fs-lg); font-weight: 600; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .rh-row .t > span { font-size: var(--rh-fs-md); color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: 48px; border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-raised); color: var(--rh-ui-text); font-size: var(--rh-fs-md);
+}
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .lab { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet .chk { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: var(--rh-fs-md); }
+/* Отключённая кнопка (до выбора причины в «Удалить объект?» и т.п.) — приглушена, в том числе красная.
+   :not(#ry-dim) — вес id (такого id нет): правило тяжелее любой классовой перекраски
+   кнопок выше (самая тяжёлая — 13 классов на странице объекта), долг DISABLED_DIM_DEBT
+   закрыт 18.11 и новая перекраска его не откроет. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] :is(.pill, .rh-btn, .ry-btn, button):is(:disabled, [disabled], [aria-disabled="true"]):not(#ry-dim) { opacity: .5; cursor: not-allowed; }
+/* Опасная кнопка в новом виде — сплошная красная таблетка; смысл старой темы не теряется. */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]),
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is(.pill, .rh-btn):is(.danger, [data-variant="danger"]) { background: var(--rh-ui-crit); color: var(--rh-ui-crit-fg); }
+/* «Удалить объект» в шторке «Ещё» — разрушительное действие красным словом, не только местом в списке. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="objects"] .sheet :is([data-testid="sheet-item-delete"], [data-testid="sheet-item-request-delete"]) .t b { color: var(--rh-ui-crit-text); }
+
+/* Строки списков карточки объекта («Ответственный за объект. Приёмка объекта» в истории
+   и задачах) переносятся, а не режутся зажимом строк на 320 px (сторож @smoke, 20.11). */
+:root[data-ui-look="royal"] .ry-object-page.rh2.screens[data-ry-section="objects"] .list > .row > .t :is(b, span, small) {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  -webkit-line-clamp: none; line-clamp: none; max-height: none;
+}
+
+/* ============ Каталог: не больше двух рядов управления до первого объекта (пачка D1, 20.11.2026) ============
+   Ряд 1 — заголовок с числом и «+ Объект»; ряд 2 — поиск и «Фильтры (n)». Остальное — в шторке фильтров. */
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 0 12px; min-width: 0;
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar > .inp {
+  flex: 1 1 auto; min-width: 0; height: 48px; padding: 0 18px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); font-size: var(--rh-fs-md); box-shadow: inset 0 0 0 1px var(--rh-ui-field-line);
+}
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar > .inp::placeholder { color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-filters { flex: none; min-height: 48px; gap: 8px; padding: 0 16px; }
+:root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-count {
+  display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); font-size: var(--rh-fs-xs); font-weight: 700;
+}
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="crit"] {
+  background: color-mix(in srgb, var(--rh-ui-crit) 10%, var(--rh-ui-card)); color: var(--rh-ui-crit-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rh-ui-crit) 30%, transparent);
+}
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-bar > .inp { padding: 0 14px; }
+  :root[data-ui-look="royal"] .ry-objects-page.rh2.screens[data-ry-section="objects"] .ry-catalog-filters { padding: 0 12px; }
+}
+
+/* Карточка объекта на узком телефоне при крупном тексте (К10/К11, сторож split/squeeze «очень крупный» 320):
+   колонка рядом с фото — ~150 px. «Снять с сайта» — одной строкой, уходит на свою строку под агента, а не
+   сжимается в две (на 320 поля 8 px, чтобы 18-пиксельная подпись влезла в 152); цена за метр («1 250 000 с. / м²» — 17 знаков) на 320 — ступенью ниже, чтобы не рваться по « / ». */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-foot { flex-wrap: wrap; row-gap: 4px; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { white-space: nowrap; }
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-price small { font-size: var(--rh-fs-xs); white-space: nowrap; }
+  :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-obj-publish { padding-inline: 8px; }
+}

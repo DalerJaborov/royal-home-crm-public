@@ -1,20 +1,18 @@
 import { prisma } from "../../db.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { sendPushToAgent } from "../../push.js";
 import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { incomingInteractionIds } from "../../lib/telephony/incomingInteractions.js";
 import { pickAgentForLead, acceptingLeadsWhere } from "./selection.js";
-import { candidateWindow, leadHoursOf, widenAfterNight, dushanbePrevOccurrence, openMsBetween } from "./shared.js";
+import { candidateWindow, leadHoursOf, widenAfterNight, openMsBetween } from "./shared.js";
 import { assignAgentForLead, recordAssignReason } from "./assignment.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { notifyFeedOnly } from "../../lib/notifications.js";
 import { hasContactAttempt } from "./ownershipPolicy.js";
 import { loadOwnershipSnapshot, escalateInsteadOfTransfer } from "./ownershipLoad.js";
 import { logTimeline } from "../../lib/timeline.js";
-import { isWithinDushanbeWindow } from "../../lib/dushanbeTime.js";
-import { isDayOff, type DaysOffCalendar } from "@royal-home/shared";
-import { loadDaysOffCalendar } from "../../lib/daysOffCalendar.js";
+import { isWithinWorkingHours } from "../../lib/workingHours.js";
 import { reportCronRowError } from "../../lib/cronHeartbeat.js";
 
 /**
@@ -25,7 +23,7 @@ import { reportCronRowError } from "../../lib/cronHeartbeat.js";
  * Вызывается кроном; каждое действие логируется системным взаимодействием.
  *
  * НИЖНЯЯ ГРАНИЦА ОКНА (17.09.2026, тот же класс, что и в `firstCall.ts` —
- * `penalizeMissedFirstCalls`): если руками выставить `assignedAt` на старой
+ * `handleMissedFirstCalls`): если руками выставить `assignedAt` на старой
  * карточке с `acceptedAt: null`, она без нижней границы снова выглядела бы как
  * свежий непринятый лид и ушла бы по кругу. `candidateWindow` — общая функция
  * с правилом первого звонка; здесь цикл ровно один — само окно принятия
@@ -106,7 +104,6 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
   // Кому уходит уведомление об эскалации — тем, кто может назначить риелтора,
   // то есть по праву, а не по роли. Находим один раз на цикл.
   const supervisors = await findAgentsWithPermission("clients.assign");
-  const points = await loadEventPoints();
   // Потолок карусели (аудит владения 11.09.2026, дыра №4) — см. комментарий
   // у carouselExhausted внутри цикла.
   const availableAgentsCount = await prisma.agent.count({ where: acceptingLeadsWhere() });
@@ -193,51 +190,9 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
     return "escalated";
   };
 
-  /** Royal Score: агент промолчал — не принял и не отклонил (голосовое владельца
-   *  12.08.2026: «пуш пришёл, он ничего не сделал»). Начисляется ТОЛЬКО после
-   *  успешного захвата (аудит №4): раньше штраф писался до действия, и агенту,
-   *  который на самом деле успел принять лид, оставался незаслуженный минус.
-   *  sourceId привязан к конкретному циклу назначения — новый круг того же лида
-   *  получит свой штраф, а не задвоит этот.
-   *
-   *  Вызывающий обязан ждать этот промис (27.08.2026): без await запись в базу
-   *  оставалась висеть после того, как reassignStaleLeads() уже вернул управление
-   *  — редкий, но настоящий race. Крон это не замечал (следующий тик просто
-   *  видел событие с опозданием), а тест на идемпотентность sourceId иногда ловил
-   *  гонку напрямую: второй тик успевал начаться раньше, чем первая запись
-   *  долетала до базы. */
-  // Календарь выходных держателя — по разу на агента за тик (без N+1 по лидам).
-  const calendars = new Map<string, Promise<DaysOffCalendar>>();
-  const calendarOf = (agentId: string) => {
-    let cal = calendars.get(agentId);
-    if (!cal) calendars.set(agentId, (cal = loadDaysOffCalendar(agentId)));
-    return cal;
-  };
-  const penalizeIgnored = async (lead: (typeof stale)[number]) => {
-    /**
-     * СРОК ИСТЁК НОЧЬЮ — ШТРАФА НЕТ (владелец 23.09.2026, ПР-000453). Лид,
-     * выданный в 20:55, «истекает» в 21:10, когда круг уже стоит до утра
-     * (staleLeadCircleOpen). Утром он уходит следующему агенту, но
-     * вечерний держатель не «промолчал»: его четверть часа съела ночь.
-     */
-    // «Во время остановки» = вне часов раздачи И раньше начала текущего
-    // рабочего отрезка. Вторая половина условия держит правило честным и при
-    // прямом вызове вне часов (тесты): там срок «сегодня вечером» — не ночь.
-    const deadline = new Date(lead.assignedAt.getTime() + minutes * 60_000);
-    const expiredWhileStopped =
-      !isWithinDushanbeWindow(hours.start, hours.end, deadline) && deadline < dushanbePrevOccurrence(hours.start, now);
-    if (expiredWhileStopped) return;
-    // СРОК ИСТЁК В ВЫХОДНОЙ ДЕРЖАТЕЛЯ — ШТРАФА НЕТ (владелец 11.10.2026): общий выходной
-    // или личный агента. Наказание за нерабочий день ломает доверие к системе.
-    if (isDayOff(deadline, await calendarOf(lead.assignedAgentId!))) return;
-    return recordScoreEvent({
-      agentId: lead.assignedAgentId!,
-      kind: "lead_ignored",
-      delta: points.lead_ignored,
-      reason: `Не принял и не отклонил за ${minutes} мин: ${lead.fullName}`,
-      sourceId: `lead-ignored-${lead.id}-${lead.assignedAgentId}-${lead.assignedAt.getTime()}`,
-    });
-  };
+  // Штраф lead_ignored («пуш пришёл — не принял и не отклонил», 12.08.2026) снят
+  // 16.11.2026 вместе с остальными автоматическими штрафами — решение владельца.
+  // Сама карусель (передача следующему, эскалация) не изменилась.
 
   for (const lead of stale) {
     try {
@@ -288,7 +243,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
             lead,
             lead.assignedAgentId, // агент объекта остаётся — эскалации ещё нет
             { ownPropertyReminderSentAt: new Date() },
-            `Клиент по вашему объекту не принят за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
+            `Клиент по вашему объекту не принята за ${minutes} мин — напоминание хозяину, эскалация только при продолжающемся молчании`,
             "reassignment.ownPropertyRemind",
             lead.assignedAgentId!
           );
@@ -317,13 +272,12 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
           lead.assignedAgentId!
         );
         if (!claimed) continue;
-        await penalizeIgnored(lead);
         escalated++;
         // Руководству — в колокольчик и на дашборд, без звонка телефона
         // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
         await notifyFeedOnly(supervisors, {
           kind: "lead",
-          title: "Лид по объекту не принят вовремя",
+          title: "Заявка по объекту не принята вовремя",
           body: `${lead.fullName}: хозяин объекта не принял заявку за ${minutes * 2} мин — переназначить может только руководитель`,
           url: `/clients/${lead.shortId}`,
           tag: `lead-escalated-${lead.id}`,
@@ -346,8 +300,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
       const contacted = await escalateIfAlreadyContacted(lead, "reassignment.stale");
       if (contacted) {
         if (contacted === "escalated") {
-          await penalizeIgnored(lead);
-          escalated++;
+            escalated++;
         }
         continue;
       }
@@ -383,7 +336,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         if (!alreadyNotifiedFullCircle) {
           await notifyFeedOnly(supervisors, {
             kind: "lead",
-            title: "Лид прошёл всех агентов",
+            title: "Заявка прошла всех агентов",
             body: `${lead.fullName}: никто не принял за полный круг — назначьте вручную, карусель продолжает крутиться`,
             url: `/clients/${lead.shortId}`,
             tag: fullCircleTag,
@@ -452,11 +405,11 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         const allDeclined =
           declined.length > 0 && !(await pickAgentForLead(withDeclined([lead.assignedAgentId!]), leadKind));
         const escalationReason = allDeclined
-          ? "Все доступные агенты отказались от лида — эскалация руководителю, требует внимания"
-          : "Свободных агентов, принимающих лиды, не осталось вовсе — эскалация руководителю, требует внимания";
+          ? "Все доступные агенты отказались от заявки — эскалация руководителю, требует внимания"
+          : "Свободных агентов, принимающих заявки, не осталось вовсе — эскалация руководителю, требует внимания";
         const escalationNotifyBody = allDeclined
-          ? `${lead.fullName}: все доступные агенты отказались от лида — назначьте вручную`
-          : `${lead.fullName}: свободных агентов, принимающих лиды, не осталось — назначьте вручную`;
+          ? `${lead.fullName}: все доступные агенты отказались от заявки — назначьте вручную`
+          : `${lead.fullName}: свободных агентов, принимающих заявки, не осталось — назначьте вручную`;
         const claimed = await claimLead(
           lead,
           lead.assignedAgentId, // агент не меняется — только эскалируем
@@ -468,7 +421,6 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         );
         // Лид приняли, пока шёл подбор — эскалировать уже нечего.
         if (!claimed) continue;
-        await penalizeIgnored(lead);
         escalated++;
         // Руководству — в колокольчик и на дашборд, без звонка телефона
         // (владелец 20.09.2026, см. lib/notifications.ts::notifyFeedOnly).
@@ -486,13 +438,12 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
         lead,
         nextAgentId,
         { assignedAt: new Date(), reassignCount: { increment: 1 }, triedAgentIds: triedNow },
-        `Лид переназначен автоматически: не принят за ${minutes} мин`,
+        `Заявка переназначена автоматически: не принята за ${minutes} мин`,
         "reassignment.stale",
         nextAgentId
       );
       // Приняли, пока подбирался следующий агент, — лид остаётся у принявшего.
       if (!claimed) continue;
-      await penalizeIgnored(lead);
       moved++;
 
       /**
@@ -507,7 +458,7 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
        * нём и получит минус. Убрано только «📤 Карточка передана» прежнему агенту.
        */
       sendLeadPush(nextAgentId, lead.id, {
-        title: "🤝 Лид переназначен вам",
+        title: "🤝 Заявка переназначена вам",
         body: `${lead.fullName} — предыдущий агент не принял заявку вовремя`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,
@@ -535,12 +486,10 @@ export async function reassignStaleLeads(now: Date = new Date()): Promise<{ move
  * уровень, и за обёрткой развилки круга пропали бы с карты.
  */
 export async function staleLeadCircleOpen(now: Date = new Date()): Promise<boolean> {
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { workHoursStart: true, workHoursEnd: true },
-  });
-  const hours = leadHoursOf(settings);
-  return isWithinDushanbeWindow(hours.start, hours.end, now);
+  // ОДНО ОКНО НА КРУГ И НА ТИШИНУ ПУШЕЙ (14.11.2026): тот же isWithinWorkingHours
+  // решает в push.ts, что ночь ещё не наступила. Пока круг крутится, пуш о лиде
+  // не подавляется; подавлен — круг стоит (tests/push-quiet-hours-workday.test.ts).
+  return isWithinWorkingHours(now);
 }
 
 /**
@@ -742,6 +691,31 @@ export async function reassignStaleReturns(): Promise<{ reminded: number; escala
  * В режиме "manual" ничего не делает — там отсутствие агента осознанное,
  * руководитель назначает сам.
  */
+/** Сколько заявка считается «свежей» для утренней волны. */
+export const MORNING_WAVE_FRESH_HOURS = 48;
+
+/**
+ * «Это настоящая новая заявка», а не старая карточка без агента (16.11.2026).
+ * Бывшие «Потерянные» (миграция 20261116160000) лежат без агента со старыми
+ * `createdAt`/`assignedAt` и с `lostAt` — ни одна ветка их не берёт:
+ *   • заявка создана за последние {@link MORNING_WAVE_FRESH_HOURS} ч;
+ *   • карточку поставили в очередь раздачи за эти же часы (`assignedAt` — так
+ *     делает восстановление из Корзины без агента, lib/restoreClient.ts);
+ *   • с карточкой не работал никто и никогда и она не была потерянной.
+ */
+export function newLeadOnlyWhere(now = new Date()): Prisma.ClientWhereInput {
+  const since = new Date(now.getTime() - MORNING_WAVE_FRESH_HOURS * 3600_000);
+  return {
+    OR: [
+      { createdAt: { gte: since }, lostAt: null },
+      { assignedAt: { gte: since } },
+      // assignedAt в схеме всегда заполнен (default now()), поэтому «никому не
+      // доставалась» = нет ни принятия, ни прежнего агента, ни первого контакта.
+      { acceptedAt: null, firstContactAt: null, lastAgentId: null, lostAt: null, refusalCount: 0 },
+    ],
+  };
+}
+
 export async function assignPendingLeads(): Promise<number> {
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
   if ((settings?.leadDistributionStrategy ?? "fair") === "manual") return 0;
@@ -757,7 +731,17 @@ export async function assignPendingLeads(): Promise<number> {
       escalatedAt: null,
       kind: { not: "OTHER" },
       deletedAt: null,
-      status: { in: ["NEW", "CONTACTED", "HOT", "COLD"] },
+      status: { in: ["NEW", "CONTACTED"] },
+      /**
+       * ТОЛЬКО НАСТОЯЩИЕ НОВЫЕ ЗАЯВКИ (16.11.2026). Бывшие «Потерянные» миграцией
+       * вернулись в NEW/CONTACTED и частью лежат без агента — без этого условия
+       * утренняя волна разослала бы их агентам как «новые лиды с ночи». Новая
+       * заявка — без следа отказа/потери и либо свежая (48 ч), либо ни разу никому
+       * не назначавшаяся.
+       */
+      AND: [newLeadOnlyWhere(),
+        // Номер из комментария (18.11.2026, lib/commentPhoneHold.ts): карточка ждёт ответа клиента боту в личных.
+        { OR: [{ commentPhoneHoldUntil: null }, { commentPhoneHoldUntil: { lte: new Date() } }] }],
       // Раздел L (03.09.2026): карточка с открытой проверкой на дубль (см.
       // lib/duplicateReview.ts) намеренно без агента — не «забытая», а придержанная.
       // Без этого фильтра утренняя волна назначала бы её мимо агента, которого
@@ -854,7 +838,7 @@ export async function assignPendingLeads(): Promise<number> {
       const moved = await changeClientAgent({
         clientId: lead.id,
         toAgentId: agentId,
-        reason: "Лид назначен утренней волной распределения (поступил вне рабочих часов)",
+        reason: "Заявка назначена утренней волной распределения (поступила вне рабочих часов)",
         actorId: null,
         interactionAgentId: agentId,
         source: "reassignment.wave",
@@ -868,7 +852,7 @@ export async function assignPendingLeads(): Promise<number> {
        * `ok`, а дальше безусловно шли причина назначения, счётчик и пуш. Запись
        * отказывает штатно: карточка ушла в Корзину, кто-то успел первым (гонка
        * guardWhere), закон П-3 заменил передачу эскалацией — и во всех трёх
-       * случаях агент получал пуш «🔔 Новый лид с ночи» о лиде, которого у него
+       * случаях агент получал пуш «🔔 Новая заявка с ночи» о лиде, которого у него
        * нет, а `assignReason`/`ownPropertyLead` ложились на карточку без
        * назначения. Рядом, в reassignStaleLeads, тот же вызов давно обёрнут в
        * claimLead с `if (!claimed) continue` — здесь этой половины не хватало.
@@ -878,7 +862,7 @@ export async function assignPendingLeads(): Promise<number> {
       assigned++;
 
       sendLeadPush(agentId, lead.id, {
-        title: "🔔 Новый лид с ночи",
+        title: "🔔 Новая заявка с ночи",
         body: `${lead.fullName} — примите заявку`,
         url: `/clients/${lead.shortId}`,
         tag: `lead-${lead.id}`,

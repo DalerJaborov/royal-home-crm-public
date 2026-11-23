@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Camera, CalendarClock, CheckCheck, Clapperboard, LayoutDashboard, List, Radio, Rocket, Search } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/auth";
+import { useCan } from "../lib/permissions";
 import {
   useMarketingQueue,
   useMarketingSummary,
@@ -34,6 +35,7 @@ import { MarketingOverview } from "../components/marketing/MarketingOverview";
 import { SearchPanel } from "../components/marketing/SearchPanel";
 import { MarketingTabs } from "../components/SectionTabs";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 
 export type MarketingTab = "overview" | "queue" | "editors" | "schedule" | "channels" | "search";
 
@@ -297,8 +299,8 @@ function RecentlyPublishedList({ data, items }: { data: RecentlyPublished | unde
     {freeVideos.length > 0 && (
       <>
         <div className="sec-h stack">
-          <h3 className="sec-t">Промо-ролики</h3>
-          <span className="note">без объекта, из раздела «Ролики в соцсети»</span>
+          <h3 className="sec-t">Публикации без объекта</h3>
+          <span className="note">ролики и фото из раздела «Публикации в соцсети»</span>
         </div>
         <div className="list">
           {freeVideos.map((v) => (
@@ -385,15 +387,19 @@ function EditorsList({ editors }: { editors: EditorRef[] }) {
 }
 
 export function MarketingCenter() {
+  return <MarketingSection><MarketingCenterScreen /></MarketingSection>;
+}
+
+function MarketingCenterScreen() {
+  const section = useMarketingSectionMark();
   const role = useAuthStore((s) => s.agent?.role);
   const isEditor = role === "EDITOR";
   // Две разные группы прав — совпадают с requireMarketingRole/requireEditorsLoadRole
   // на сервере (routes/marketing.ts). Монтажёр НЕ входит в canViewQueue: у него
   // нет доступа к /queue и /summary, только к /editors-load. ADMIN — в обеих,
   // как DIRECTOR (решение владельца 22.08.2026, полная видимость).
-  const canViewQueue = role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
-  const canViewEditorsLoad =
-    role === "MARKETING" || role === "EDITOR" || role === "DIRECTOR" || role === "ADMIN";
+  const canViewQueue = useCan()("marketing.access");
+  const canViewEditorsLoad = canViewQueue || role === "EDITOR";
   const canView = canViewQueue || canViewEditorsLoad;
   // Монтажёр открывается сразу на своей единственной вкладке — переключателя
   // на «Очередь подготовки» у него нет вовсе (см. рендер вкладок ниже).
@@ -451,7 +457,7 @@ export function MarketingCenter() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -469,20 +475,48 @@ export function MarketingCenter() {
   }
 
   const s = canViewQueue ? summaryQuery.data : undefined;
+  const pipelineNote =
+    "Подготовка объекта: проверка, фото, видео, монтаж, публикация. Объект приходит сюда сам и уходит сам, когда этап закрыт. Просрочка считается по срокам из Настроек — теми же правилами, что красят статус объекта на карточке.";
+  // Ряд вкладок страницы. В новом виде он стоит сразу под вкладками раздела (ревью #307:
+  // экран начинается с выбора, а не с плашек), в прежнем — на своём прежнем месте.
+  // Переключатель — только если у роли есть обе вкладки. Монтажёру «Очередь
+  // подготовки» недоступна (403 на сервере), поэтому кнопки нет вовсе.
+  const pageTabs = canViewQueue && canViewEditorsLoad ? (
+          <div className="hscroll">
+            <div className="seg" role="tablist" aria-label="Что показывать">
+              <button type="button" role="tab" aria-selected={tab === "overview"} onClick={() => setTab("overview")}>
+                <LayoutDashboard className="i" aria-hidden /> {section ? "Сводка" : "Обзор"}
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "queue"} onClick={() => setTab("queue")}>
+                Очередь подготовки
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "editors"} onClick={() => setTab("editors")}>
+                Нагрузка по монтажёрам
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "schedule"} onClick={() => setTab("schedule")}>
+                <CalendarClock className="i" aria-hidden /> Расписание
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "channels"} onClick={() => setTab("channels")}>
+                <Radio className="i" aria-hidden /> Каналы
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "search"} onClick={() => setTab("search")}>
+                <Search className="i" aria-hidden /> Сайт и поиск
+              </button>
+            </div>
+          </div>
+  ) : null;
+
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>
             <h1>{isEditor ? "Монтаж" : "Маркетинг"}</h1>
-            <p className="sub">
-              Подготовка объекта: проверка, фото, видео, монтаж, публикация. Объект приходит сюда сам и уходит
-              сам, когда этап закрыт. Просрочка считается по срокам из Настроек — теми же правилами, что красят
-              статус объекта на карточке и штрафуют Royal Score агента.
-            </p>
+            {!section && <p className="sub">{pipelineNote}</p>}
           </div>
-          {canViewQueue && (
+          {/* В новом виде кнопка — дубль вкладки «Каналы» ряда ниже, поэтому её нет. */}
+          {canViewQueue && !section && (
             <div className="acts">
               <button className="pill ghost" type="button" onClick={() => setTab("channels")}>
                 <Radio className="i" aria-hidden />
@@ -494,13 +528,34 @@ export function MarketingCenter() {
 
         <MarketingTabs />
 
+        {section && pageTabs}
+        {/* Новый вид: пояснение конвейера — под рядом вкладок, у своих вкладок «Сводка» и
+            «Очередь подготовки» (монтажёру без ряда вкладок — всегда), а не над выбором экрана. */}
+        {section && (!pageTabs || tab === "overview" || tab === "queue") && <p className="ry-mkt-lead">{pipelineNote}</p>}
+
         {/* Вход в «Ролики в соцсети» (12.10.2026, владелец: «функцию не прятать
             глубоко — на видном месте»): маркетинг заходит сюда каждый день.
             Ссылка целиком, а не кнопка в углу, — попасть можно с любого места карточки. */}
-        {canViewQueue && (
+        {canViewQueue && section && (
+          // Новый вид: ракета в круге, текст выровнен по верху, «Открыть →» — последней строкой.
+          <Link to="/social-videos" className="ry-mkt-publish" aria-label="Опубликовать ролик или фото во все соцсети">
+            <span className="ry-mkt-publish-ic" aria-hidden="true">
+              <Rocket className="i" aria-hidden />
+            </span>
+            <span className="ry-mkt-publish-tx">
+              <b>Опубликовать ролик или фото во все соцсети</b>
+              <span>Загрузите ролик или фото с текстом, выберите сети и время, остальное сделает CRM.</span>
+              <span className="ry-mkt-publish-go">
+                Открыть
+                <ArrowRight className="i" aria-hidden />
+              </span>
+            </span>
+          </Link>
+        )}
+        {canViewQueue && !section && (
           <Link
             to="/social-videos"
-            aria-label="Опубликовать промо-ролик во все соцсети"
+            aria-label="Опубликовать ролик или фото во все соцсети"
             style={{
               display: "flex",
               alignItems: "center",
@@ -515,9 +570,9 @@ export function MarketingCenter() {
           >
             <Rocket className="i" aria-hidden />
             <span style={{ flex: "1 1 260px", minWidth: 0 }}>
-              <b style={{ display: "block", fontSize: 17 }}>Опубликовать промо-ролик во все соцсети</b>
+              <b style={{ display: "block", fontSize: 17 }}>Опубликовать ролик или фото во все соцсети</b>
               <span style={{ display: "block", fontSize: 14, opacity: 0.9 }}>
-                Загрузите ролик, ИИ напишет подписи — выберите сети и время, остальное сделает CRM.
+                Загрузите ролик или фото с текстом, выберите сети и время, остальное сделает CRM.
               </span>
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
@@ -618,33 +673,7 @@ export function MarketingCenter() {
           </>
         )}
 
-        {/* Переключатель — только если у роли есть обе вкладки. Монтажёру «Очередь
-            подготовки» недоступна (403 на сервере), поэтому кнопки нет вовсе —
-            не прятать наполовину рабочую кнопку, а не показывать её вообще. */}
-        {canViewQueue && canViewEditorsLoad && (
-          <div className="hscroll">
-            <div className="seg" role="tablist" aria-label="Что показывать">
-              <button type="button" role="tab" aria-selected={tab === "overview"} onClick={() => setTab("overview")}>
-                <LayoutDashboard className="i" aria-hidden /> Обзор
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "queue"} onClick={() => setTab("queue")}>
-                Очередь подготовки
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "editors"} onClick={() => setTab("editors")}>
-                Нагрузка по монтажёрам
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "schedule"} onClick={() => setTab("schedule")}>
-                <CalendarClock className="i" aria-hidden /> Расписание
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "channels"} onClick={() => setTab("channels")}>
-                <Radio className="i" aria-hidden /> Каналы
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "search"} onClick={() => setTab("search")}>
-                <Search className="i" aria-hidden /> Сайт и поиск
-              </button>
-            </div>
-          </div>
-        )}
+        {!section && pageTabs}
 
         {tab === "overview" && canViewQueue && <MarketingOverview onOpenTab={setTab} />}
 

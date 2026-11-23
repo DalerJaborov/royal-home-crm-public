@@ -12,6 +12,7 @@ import { customerNonInputCode } from "./customerIngressNonInput.js";
 import { customerRoutingHoldDisposition } from "./customerRoutingHold.js";
 import { recordHeldCustomerMessage, type CustomerHeldMessage } from "./customerHeldMessage.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
+import { CUSTOMER_CHANNEL_OFF_REASON, isCustomerIngressTicketChannelOff } from "./customerAgentChannelOff.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
@@ -185,6 +186,16 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
   // their processing state would violate the payload/state SQL constraint.
   if (selected && selected.payloadVersion !== 1) return { status: "held", reason: "historical_payload_unavailable" };
   if (selected?.intakeAgentRevisionId) {
+    // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF): no core turn, no model. The ticket is HELD and the one
+    // «unanswered turn» door tells a person (episode-deduplicated). Empty switch = no extra query, the old path below.
+    if (await isCustomerIngressTicketChannelOff(eventKey)) {
+      await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
+        SET "processingState"='HELD',"errorCode"=${CUSTOMER_CHANNEL_OFF_REASON} WHERE "eventKey"=${eventKey}
+        AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
+      const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
+      void reportUnansweredCustomerTurn(eventKey, CUSTOMER_CHANNEL_OFF_REASON);
+      return { status: "held", reason: CUSTOMER_CHANNEL_OFF_REASON };
+    }
     const { runCustomerDmAgentTurn } = await import("./customerDmAgentTurn.js");
     const result = await runCustomerDmAgentTurn(eventKey);
     if (result.status === "held") {
@@ -193,9 +204,17 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
         AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
       // This input ended WITHOUT an answer. An older one it had put aside
       // (`newer_input_pending`) must not be left unanswered with it (F12).
+      let rearmed: string | null = null;
       if (result.reason !== NEWER_INPUT_PENDING) {
         const { resumeDeferredCustomerInbox } = await import("./customerDeferredInput.js");
-        await resumeDeferredCustomerInbox(eventKey);
+        rearmed = await resumeDeferredCustomerInbox(eventKey);
+      }
+      // Silence without a stated reason is an incident: unless it is an intended silence, a person gets the text and a push.
+      // A re-armed run answers (or ends HELD and is reported itself) in a moment: no alarm now. Not awaited: a push must
+      // never hold the single slot of the inbox queue.
+      if (!rearmed) {
+        const { reportUnansweredCustomerTurn } = await import("./customerTurnSilence.js");
+        void reportUnansweredCustomerTurn(eventKey, result.reason);
       }
     }
     return result;

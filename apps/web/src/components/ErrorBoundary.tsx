@@ -1,4 +1,5 @@
 import React from "react";
+import { isChunkLoadError } from "../lib/chunkLoadError";
 
 /**
  * Последний рубеж на клиенте. Без него любая ошибка рендера обваливала всё
@@ -15,7 +16,19 @@ interface State {
   resetKey?: string;
 }
 
-interface Props { children: React.ReactNode; resetKey?: string }
+interface Props {
+  children: React.ReactNode;
+  resetKey?: string;
+  /**
+   * Своя заглушка вместо полноэкранной «Что-то пошло не так» — для границы
+   * БЛОКА (components/BlockBoundary.tsx): упал один блок, остальные живут.
+   * `retry` снимает ошибку и рисует блок заново; `error` — пойманная ошибка
+   * (по ней граница блока отличает «кусок сборки не загрузился»).
+   */
+  fallback?: (retry: () => void, error: Error) => React.ReactNode;
+  /** Имя блока — уходит в журнал ошибок префиксом, чтобы было видно, что упало. */
+  name?: string;
+}
 
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null, resetKey: this.props.resetKey };
@@ -30,18 +43,29 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("[ErrorBoundary]", error, info.componentStack);
+    console.error("[ErrorBoundary]", this.props.name ?? "", error, info.componentStack);
     // Пробрасываем в глобальный обработчик, который уже умеет писать в журнал CRM.
-    window.dispatchEvent(new ErrorEvent("error", { error, message: error.message }));
+    const message = this.props.name ? `[блок ${this.props.name}] ${error.message}` : error.message;
+    window.dispatchEvent(new ErrorEvent("error", { error, message }));
   }
+
+  private retry = () => this.setState({ error: null });
 
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback(this.retry, this.state.error);
+    // Кусок сборки не загрузился — почти всегда это выкат при открытой вкладке, а
+    // не поломка: lazyWithReload уже дважды пробовал перезагрузить страницу сам.
+    // Человеку честно говорим, что делать, а не «что-то пошло не так» (аудит
+    // F2-6, 17.11.2026).
+    const stale = isChunkLoadError(this.state.error);
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
-        <h1 className="text-[18px] font-bold tracking-tight mb-1">Что-то пошло не так</h1>
+        <h1 className="text-[18px] font-bold tracking-tight mb-1">{stale ? "Вышла новая версия приложения" : "Что-то пошло не так"}</h1>
         <p className="text-[15px] text-gray-500 mb-5 max-w-[420px]">
-          Страница не смогла отрисоваться. Ошибка записана в журнал, попробуйте обновить страницу.
+          {stale
+            ? "Часть приложения не загрузилась: страница открыта со старой версией. Обновите страницу, если не поможет — проверьте интернет."
+            : "Страница не смогла отрисоваться. Ошибка записана в журнал, попробуйте обновить страницу."}
         </p>
         <button type="button"
           onClick={() => window.location.reload()}

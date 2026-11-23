@@ -16,8 +16,8 @@ import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
 import { buildDashboardInsights } from "../lib/dashboardInsights.js";
 import { withMaskedClient, clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import { presentInteractions, transcriptAccess } from "../lib/callTranscripts.js";
-import { firstCallCandidateWindow, firstCallStatus } from "../leads.js";
-import { DEFAULT_LEAD_ACTIVE_LIMIT, OCCUPIES_SLOT_WHERE } from "../lib/leadLimits.js";
+import { firstCallAfterDue, firstCallCandidateWindow, firstCallStatus } from "../leads.js";
+import { activeBuyersLoadWhere } from "../lib/agentLoad.js";
 import { AWAITING_REVIEW_WHERE } from "../lib/telephony/awaitingReview.js";
 import { ownIncomingCallsOr } from "../lib/telephony/ownIncomingCalls.js";
 import {
@@ -373,7 +373,7 @@ dashboardRouter.get("/charts", requireAuth, requirePermission("dashboard.analyti
       _count: { _all: true },
     }),
     prisma.interaction.findMany({
-      where: { createdAt: { gte: pulseFrom }, type: { not: "SYSTEM" } },
+      where: { createdAt: { gte: pulseFrom }, type: { not: "SYSTEM" }, archiveReview: false },
       // type нужен тултипу «Пульса»: разбивка дня по звонкам/показам/встречам.
       select: { createdAt: true, type: true },
       take: DASHBOARD_ROW_LIMIT,
@@ -486,12 +486,13 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
   const unacceptedWhere = { acceptedAt: null, assignedAgentId: { not: null }, kind: { not: "OTHER" as const }, deletedAt: null };
   const [activeLoad, pendingAccept, acceptedToday, escalated, unaccepted, unacceptedTotal, escalatedTotal, queuedTotal] =
     await Promise.all([
-    // «Активная нагрузка» — то же самое, что занятый слот в лимите лидов
-    // (OCCUPIES_SLOT_WHERE, см. lib/leadLimits.ts). Здесь считалось по статусам
+    // «Активная нагрузка» — покупатели в работе
+    // с живым контактом (activeBuyersLoadWhere, см. lib/agentLoad.ts — то же, что у
+    // честной раздачи). Здесь считалось по статусам
     // NEW/CONTACTED/HOT/COLD, в плитке «Кто перегружен» — без COLD, а в
     // «Контроле руководителя» — по слотам: три числа про одного агента на
     // соседних экранах. Определение теперь одно на всю CRM.
-    prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, deletedAt: null, ...OCCUPIES_SLOT_WHERE }, _count: { _all: true } }),
+    prisma.client.groupBy({ by: ["assignedAgentId"], where: { AND: [{ assignedAgentId: { in: ids } }, activeBuyersLoadWhere()] }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: { gte: startOfDay }, deletedAt: null }, _count: { _all: true } }),
     prisma.client.groupBy({ by: ["assignedAgentId"], where: { assignedAgentId: { in: ids }, acceptedAt: null, escalatedAt: { not: null }, deletedAt: null }, _count: { _all: true } }),
@@ -733,7 +734,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    *
    * ТА ЖЕ ФУНКЦИЯ, ЧТО У КРОНА, ОДНИМ ПАКЕТНЫМ ЗАПРОСОМ (firstCallStatus →
    * collectFirstCallFacts, один Interaction.findMany на всех кандидатов сразу,
-   * не по одному на карточку) — иначе экран агента и penalizeMissedFirstCalls
+   * не по одному на карточку) — иначе экран агента и handleMissedFirstCalls
    * рано или поздно разошлись бы в том, что считать «дозвонился».
    *
    * Тот же круг условий, что и у candidates в firstCall.ts: принят, не «Прочее
@@ -741,7 +742,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    * эскалирован (эскалированный уже «требует внимания» в другом месте, а не
    * ждёт звонка от этого агента).
    */
-  let firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string }[] = [];
+  let firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string; afterDue: string }[] = [];
   if (ownAgentId) {
     /**
      * ТО ЖЕ ОКНО КАНДИДАТОВ, ЧТО У КРОНА (19.09.2026, жалоба владельца: «клиент
@@ -766,7 +767,13 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
         deletedAt: null,
         escalatedAt: null,
       },
-      select: { id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true },
+      select: {
+        id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true,
+        // Что будет после срока (firstCallAfterDue): по своему объекту и с
+        // ненабираемым номером клиент не уходит — Главная говорит то же, что крон.
+        ownPropertyLead: true, assignReason: true,
+        matchedProperty: { select: { deletedAt: true, intakeAgentId: true, assignedAgentId: true, createdById: true } },
+      },
       orderBy: { acceptedAt: "asc" },
       // Тот же потолок за проход, что у самого крона (firstCall.ts) — очередь у
       // одного агента реалистично не разрастётся до сотен непрозвоненных карточек.
@@ -798,6 +805,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
             fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
             phone: clientPhoneFor(c.phone, canSeePhone),
             dueAt: s.dueAt.toISOString(),
+            afterDue: firstCallAfterDue(c, !!settings?.leadReassignOnMissedCallEnabled).text,
           };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -980,7 +988,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
       commissionScope: ownAgentId ? ("own" as const) : ("company" as const),
     },
     funnel: [
-      { key: "leads", label: "Новые лиды", count: newLeads },
+      { key: "leads", label: "Новые заявки", count: newLeads },
       { key: "contacted", label: "На контакте", count: contactedClientIds.length },
       { key: "showings", label: "Показы", count: showingsThisMonth.length },
       { key: "negotiations", label: "Переговоры", count: negotiations },
@@ -1020,22 +1028,6 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
     // проверялось только в разделе «Объекты»). См. lib/ownerContact.ts.
     topProperties: topProperties.map((p) => ({ ...presentProperty(p, req), demandCount: demandCounts.get(p.id) ?? 0 })),
     districtBreakdown,
-    // «Лимит 5» (решение владельца 30.07): агенту — его текущая загрузка и лимит,
-    // чтобы дашборд мог предупредить «новые лиды не придут, пока не закроете эти».
-    // Руководству поле не отдаём: у него нет личного портфеля лидов.
-    ...(ownAgentId
-      ? {
-          activeLeadLoad: {
-            // Тем же правилом, что и сама раздача (lib/leadLimits.ts,
-            // OCCUPIES_SLOT_WHERE) — здесь была вторая копия условия, и она
-            // расходилась с реальностью: см. подробный разбор в lib/royalScore.ts.
-            count: await prisma.client.count({
-              where: { assignedAgentId: ownAgentId, deletedAt: null, ...OCCUPIES_SLOT_WHERE },
-            }),
-            limit: settings?.leadActiveLimit ?? DEFAULT_LEAD_ACTIVE_LIMIT,
-          },
-        }
-      : {}),
   });
 });
 

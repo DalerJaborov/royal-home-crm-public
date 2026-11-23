@@ -1,6 +1,7 @@
 import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
 import { recoverInterruptedTelegramDraftUploads } from "./telegram/assistantPropertyDraft.js";
 import "./loadEnv.js";
+import { telegramUpdatesMode } from "./telegram/updatesMode.js";
 import { assertProductionEnv } from "./env-check.js";
 import { app } from "./app.js";
 import { prisma } from "./db.js";
@@ -33,6 +34,8 @@ import { pickAgentForLead } from "./services/leads/selection.js";
 import { setPickAgentForLeadHook } from "./lib/telephony/pickAgentForLeadHook.js";
 import { assignAgentForLead, recordAssignReason } from "./services/leads/assignment.js";
 import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/telephony/assignAgentForLeadHook.js";
+import { setVideoIssuedToMontajerHook } from "./lib/videoHandoff.js";
+import { narrationAfterVideoIssued } from "./lib/narrationAutoFlow.js";
 import { beginShutdown, drainBackgroundTasks } from "./lib/shutdownState.js";
 import { closeAllStreams } from "./lib/eventBus.js";
 import { resetIncompleteProcessedMessages } from "./lib/webhookDedupe.js";
@@ -63,6 +66,8 @@ setConsultantCallEndedHook(onConsultantCallEnded);
 // звонки теперь тоже проходят через правило «свой объект», см. assignAgentForLeadHook.ts).
 setAssignAgentForLeadHook(assignAgentForLead);
 setRecordAssignReasonHook(recordAssignReason);
+// Видео выдано монтажёру — одобренный голос следом (21.11.2026, объект №211; videoHandoff.ts ↔ narrationAutoFlow.ts).
+setVideoIssuedToMontajerHook(narrationAfterVideoIssued);
 
 // Последний рубеж: без этого необработанный reject из fire-and-forget промиса
 // (void someAsyncCall() без .catch(), например в siteSync/loginLog) по умолчанию
@@ -240,10 +245,10 @@ const server = app.listen(port, () => {
     "SITE_LISTING_DELETED",
     "SITE_COVER_IMAGE",
   ];
-  if (process.env.TELEGRAM_WEBHOOK_SECRET) webhookOwnedChannels.push("TELEGRAM");
+  if (telegramUpdatesMode() === "webhook") webhookOwnedChannels.push("TELEGRAM");
   // Telegram на вебхуке обслуживает этот процесс — ему и снимать ролики мастера
   // объекта, которые прошлый процесс не докачал (в режиме поллера — telegram/poller.ts).
-  if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+  if (telegramUpdatesMode() === "webhook") {
     void recoverInterruptedTelegramDraftUploads().catch((err) =>
       console.error("[telegram] снятие прерванных загрузок видео:", err instanceof Error ? err.message : err)
     );

@@ -8,8 +8,11 @@ import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { investigationRecipients, filterInvestigationRecipients } from "../src/lib/investigationNotifications.js";
 
 const run = randomUUID();
-const secret = `private-sentinel-${run}`;
-const ordinary = `ordinary-sentinel-${run}`;
+// Без цифр: у ролей без clients.viewPhone (после #209 — у всех, кроме директора) текст проходит маску телефонов, и кусок UUID
+// вроде «4824-9479» маскировался как номер — тест падал через раз (16.11.2026).
+const sentinelWord = run.replace(/[^a-f]/g, "");
+const secret = `private-sentinel-${sentinelWord}`;
+const ordinary = `ordinary-sentinel-${sentinelWord}`;
 const ids: string[] = [];
 const tokens: string[] = [];
 const privateNotices: string[] = [];

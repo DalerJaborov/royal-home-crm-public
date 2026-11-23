@@ -11,13 +11,14 @@ import {
 import { useCan } from "../../lib/permissions";
 import { clientListScope } from "../../lib/clientListScope";
 import { useAccumulatedPages } from "../../hooks/useAccumulatedPages";
+import { useEmptyListGuard } from "../../hooks/useEmptyListGuard";
+import { EmptyListGuardBanner } from "../EmptyListGuardBanner";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useMarkSectionSeen } from "../../hooks/useCounters";
 import { useAuthStore } from "../../store/auth";
 import { useAgents } from "../../hooks/useAgents";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useDuplicates } from "../../hooks/useDuplicates";
-import { useTransferClient } from "../../hooks/useMissionControl";
 import { avatarInitial, avatarToneClass } from "../../lib/avatarTone";
 import { ChannelIcon, hasChannelGlyph, sourceChannel } from "../ChannelIcon";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -27,18 +28,19 @@ import { CallClientButton } from "../CallClientButton";
 import { Pagination } from "../Pagination";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MhLane, MhListScreen, sinceLabel, type MhLaneChip } from "./mh/MhList";
-import { useClientSectionChips } from "./mh/MhClientSections";
+import { lastContactLabel } from "../../lib/clientRowFacts";
 import {
   CLIENT_KIND_LABELS,
   CLIENT_SORT_OPTIONS,
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_LABELS,
   formatClientCode,
   formatClientName,
+  clientDisplayName,
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
+import { NoContactTile } from "./NoContactTile";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 import type { Client } from "../../types";
-import { showsInactiveLabel } from "../InactiveLevelBadge";
 
 const num = (n: number) => n.toLocaleString("ru-RU");
 
@@ -91,7 +93,7 @@ const num = (n: number) => n.toLocaleString("ru-RU");
  *    только тем, у кого `clients.assign`;
  *  — тихая строка «Похожих карточек: N» + «Сравнить» (useDuplicates,
  *    только `clients.merge`, только вкладка «Покупатели» — как на ПК);
- *  — четыре плитки сводки (Новые/Без агента/Без контакта/Показы), те же данные
+ *  — четыре плитки сводки (Новые/Без агента/Не связывались/Показы), те же данные
  *    `useClientsSummary`, что и плитки ПК, но в мобильной раскладке `.v`/`.l`
  *    (`.mh .tile` — другая CSS, чем эталонный `StatTile`, см. докблок в
  *    MobileCalls.tsx);
@@ -110,14 +112,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const canViewAll = can("clients.viewAll");
   useMarkSectionSeen(kind === "BUYER" ? "clients" : "sellers");
 
-  /**
-   * «НЕАКТИВНЫЕ» — НАСТОЯЩИЙ МАРШРУТ, ОБА ВИДА СРАЗУ (владелец 17.09.2026).
-   * `/inactive-clients` рендерит этот же компонент (App.tsx), kind у него не
-   * важен: срез мимо него, workStatus=INACTIVE берёт и покупателей, и
-   * продавцов. Тот же приём, что и в десктопном ClientsList.tsx.
-   */
   const location = useLocation();
-  const isInactiveRoute = location.pathname === "/inactive-clients";
   /**
    * «ВСЕ МОИ КЛИЕНТЫ» — тот же настоящий маршрут, что и на компьютере
    * (18.09.2026, задание В §f п.1, pages/Clients.tsx, isAllMineRoute).
@@ -125,14 +120,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
    * см. серверный комментарий routes/clients/list.ts.
    */
   const isAllMineRoute = location.pathname === "/clients/all-mine";
-  /**
-   * ИЗ КАКОГО РАЗДЕЛА ВОШЛИ (21.09.2026). Верхний уровень теперь только
-   * «Продавцы» и «Покупатели», а «Неактивные» — состояние ВНУТРИ раздела
-   * (components/ClientsSectionLane.tsx). Маршрут `/inactive-clients` один на
-   * оба вида, поэтому вид едет параметром адреса; без него, уйдя от продавцов,
-   * человек возвращался бы к покупателям. Старая ссылка без параметра
-   * работает как раньше — оба вида сразу.
-   */
+  // Раздел из адреса (`?kind=`) сильнее пропа маршрута.
   const sectionParam = new URLSearchParams(location.search).get("kind");
   const sectionKind: "SELLER" | "BUYER" | null =
     sectionParam === "SELLER" ? "SELLER" : sectionParam === "BUYER" ? "BUYER" : null;
@@ -149,16 +137,13 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
    *   · наборщик (components/DialPad.tsx) передаёт туда же `&phone=` только
    *     что набранного номера — номер терялся;
    *   · плитка «вчера без ответа» мобильной главной директора ведёт на
-   *     `?slice=noResponseYesterday`, светофор — на `?workStatus=INACTIVE`,
+   *     `?slice=noResponseYesterday`,
    *     карточка сотрудника — на `?agentId=…`: тап по числу открывал обычный
    *     список, то есть число и список расходились.
    * Значения читаются ОДИН раз, теми же полями фильтра, что и на компьютере
    * (pages/Clients.tsx) — второго правила «что значит slice» не заводим.
    */
   const [urlParams] = useState(() => new URLSearchParams(location.search));
-  const [urlWorkStatus] = useState(() =>
-    !isInactiveRoute && urlParams.get("workStatus") === "INACTIVE" ? ("INACTIVE" as const) : undefined
-  );
   const [noResponseYesterday, setNoResponseYesterday] = useState(
     () => urlParams.get("slice") === "noResponseYesterday"
   );
@@ -168,11 +153,10 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const [q, setQ] = useState(() => urlParams.get("q") ?? "");
   const [searchOpen, setSearchOpen] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
-  /** Шторка «Фильтры» — статус, источник, район, агент, порядок (та же шторка,
+  /** Шторка «Фильтры» — источник, район, агент, порядок (та же шторка,
    *  что на ПК, тот же корпус Rh2Sheet). */
   const [showFilters, setShowFilters] = useState(false);
   const [extraFilters, setExtraFilters] = useState<{
-    status?: string;
     source?: string;
     districtId?: string;
     agentId?: string;
@@ -180,7 +164,6 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   }>(() => {
     const pick = (k: string) => urlParams.get(k) ?? undefined;
     const f = {
-      status: pick("status"),
       source: pick("source"),
       districtId: pick("districtId"),
       agentId: isAllMineRoute ? undefined : pick("agentId"),
@@ -191,6 +174,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   /** Срез «Ждут принятия» — плитка «Без агента» ниже; тот же честный серверный
    *  фильтр (`pendingAcceptance`), что у ПК (pages/Clients.tsx). */
   const [pendingSlice, setPendingSlice] = useState(() => urlParams.get("slice") === "pending");
+  /** Срез «Не связывались» — плитка с тем же числом; правило одно на всю CRM
+   *  (packages/shared/src/clientNoContact.ts), список даёт сервер. */
+  const [noContactSlice, setNoContactSlice] = useState(() => urlParams.get("slice") === "noContact");
   /**
    * `new` и `phone` — одноразовые: без уборки возврат «назад» к этому экрану
    * снова открывал бы форму с уже набранным номером. Остальные параметры
@@ -206,7 +192,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   /**
-   * Смена раздела внутри «Неактивных» (`?kind=` в том же адресе) не
+   * Смена раздела (`?kind=` в том же адресе) не
    * пересоздаёт компонент — лента обязана начаться заново, иначе страница N
    * нового раздела приезжала бы без страниц 2..N-1. Переход между маршрутами
    * пересоздаёт его сам (`key` у маршрутов в App.tsx).
@@ -221,10 +207,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const filters: ClientFilters = {
     ...(isAllMineRoute
       ? { scope: "allMine" as const }
-      : isInactiveRoute
-        ? // Раздел задан — сужаем и по виду: иначе у продавцов лежат покупатели.
-          { workStatus: "INACTIVE" as const, ...(sectionKind ? { kind: sectionKind } : {}) }
-        : { kind: pendingSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
+      // Срезы «Ждут принятия» и «Не связывались» — покупатели и продавцы разом: так
+      // считает число на плитке, и срез по вкладке давал список короче числа.
+      : { kind: pendingSlice || noContactSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
     page,
     q: debouncedQ?.trim() || undefined,
     ...(slice === "mine" && me && !isAllMineRoute ? { agentId: me.id } : {}),
@@ -232,26 +217,23 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     // Страницы у среза обычные (02.10.2026): прежний потолок `pageSize: 100`
     // без «Показать ещё» молча обрезал список на сотом клиенте.
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
+    ...(noContactSlice ? { noContact: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
-    ...(urlWorkStatus ? { workStatus: urlWorkStatus } : {}),
     scope: clientListScope({ allMine: isAllMineRoute, other: false, searching,
-      status: extraFilters.status, workStatus: isInactiveRoute ? "INACTIVE" : urlWorkStatus,
       pending: pendingSlice, noResponseYesterday }),
   };
-  const { data, isLoading, error, refetch } = useClients(filters);
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(filters);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...filters, page: 1 }, page > 1);
-  const { data: summary } = useClientsSummary();
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary();
   // Дубликаты — только руководству (объединение задевает чужих клиентов) и
   // только у покупателей, тот же разбор, что в pages/Clients.tsx (ClientsList).
   const { data: duplicates } = useDuplicates(can("clients.merge") && kind === "BUYER");
   const { data: districts } = useDistricts();
   const { data: agents } = useAgents({ enabled: canViewAll });
-  const assign = useTransferClient();
   const oldest = summary?.awaitingAgent.oldest ?? null;
-  const freeAgent = summary?.freeAgents?.[0] ?? null;
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
-  const activeExtraFilters = [extraFilters.status, extraFilters.source, extraFilters.districtId, extraFilters.agentId].filter(
+  const activeExtraFilters = [extraFilters.source, extraFilters.districtId, extraFilters.agentId].filter(
     Boolean
   ).length;
 
@@ -265,6 +247,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   function updateExtraFilters(patch: Partial<typeof extraFilters>) {
     setExtraFilters((f) => ({ ...f, ...patch }));
     setPendingSlice(false);
+    setNoContactSlice(false);
     setNoResponseYesterday(false);
     setPage(1);
   }
@@ -277,16 +260,31 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const items = useAccumulatedPages(
     data?.items,
     page,
-    `${kind}:${section}:${isInactiveRoute}:${isAllMineRoute}:${slice}:${debouncedQ}:${JSON.stringify(extraFilters)}:${pendingSlice}:${noResponseYesterday}`,
+    `${kind}:${section}:${isAllMineRoute}:${slice}:${debouncedQ}:${JSON.stringify(extraFilters)}:${pendingSlice}:${noContactSlice}:${noResponseYesterday}`,
     headPage?.items
   );
+  // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с ПК).
+  const guardComparable =
+    filters.scope === "inWork" && !filters.source && !filters.districtId && !filters.agentId &&
+    !filters.q && page === 1 && !!filters.kind;
+  const listGuard = useEmptyListGuard({
+    enabled: true,
+    sliceKey: `mobile:${filters.kind ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
+    sliceName: `mobile-${(filters.kind ?? "all").toLowerCase()}`,
+    isLoading,
+    isFetching,
+    hasData: !!data,
+    error,
+    itemCount: items.length,
+    expected: !guardComparable ? null : summary ? (filters.kind === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
+    dataUpdatedAt,
+    refetchAll: () => Promise.all([refetch({ cancelRefetch: false }), refetchSummary({ cancelRefetch: false })]),
+  });
+
   const title = isAllMineRoute
-    ? "Не на виду"
-    : isInactiveRoute
-      ? section === "SELLER"
-        ? "Неактивные продавцы"
-        : "Неактивные покупатели"
-      : kind === "SELLER"
+    ? "Мои клиенты"
+    : kind === "SELLER"
         ? "Продавцы"
         : "Покупатели";
 
@@ -321,16 +319,8 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
         ]
       : [];
 
-  /**
-   * СОСЕДНИЕ РАЗДЕЛЫ — общая лента mh/MhClientSections.tsx (17.09.2026): тот
-   * же состав и те же числа теперь и на «Потерянных», и на «Отложенных», где
-   * раньше стояли десктопные вкладки. Здесь ничего не изменилось по виду:
-   * набор ровно тот же, что жил в этом файле (Продавцы, Покупатели,
-   * Неактивные, Потерянные, без текущего раздела).
-   */
-  const crossChips = useClientSectionChips(
-    isAllMineRoute ? "allMine" : isInactiveRoute ? "inactive" : kind === "SELLER" ? "sellers" : "buyers"
-  );
+  // Лента «В работе · Не на виду» снята 17.11.2026 (владелец): карточку, по
+  // которой ждёт заявка на удаление, агент просто не видит — решает руководитель.
 
   /**
    * ЛЕНТА ВИДА — «Продавцы · Покупатели» (21.09.2026). На телефоне верхних
@@ -376,7 +366,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
           >
             {searchOpen ? <X className="i" aria-hidden /> : <Search className="i" aria-hidden />}
           </button>
-          {!isAllMineRoute && !isInactiveRoute && (
+          {!isAllMineRoute && (
             <button
               type="button"
               className="ico card"
@@ -433,22 +423,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
                 <div className="ln">
                   <i className="c" aria-hidden />
                   <span>
-                    {oldest.fullName} ждёт агента {waitLabel}.
-                    {summary.freeAgents && summary.freeAgents.length > 0
-                      ? ` Свободны: ${summary.freeAgents.map((a) => a.fullName.split(" ")[0]).join(", ")}.`
-                      : summary.freeAgents
-                        ? " Свободных агентов нет."
-                        : ""}{" "}
-                    {freeAgent && can("clients.assign") && (
-                      <button
-                        type="button"
-                        className="lnk"
-                        disabled={assign.isPending}
-                        onClick={() => assign.mutate({ clientId: oldest.id, toAgentId: freeAgent.id })}
-                      >
-                        {assign.isPending ? "Передаём" : `Передать: ${freeAgent.fullName.split(" ")[0]}`}
-                      </button>
-                    )}{" "}
+                    {clientDisplayName(oldest)} ждёт агента {waitLabel}.{" "}
                     <Link className="lnk" to={`/clients/${oldest.shortId}`} style={{ marginLeft: 12, textDecoration: "underline" }}>
                       Открыть
                     </Link>
@@ -474,7 +449,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       {/* Четыре плитки сводки — те же данные, что StatTile на ПК, но в
           мобильной раскладке `.v`/`.l` (не эталонный `.tile` из StatTile,
           см. докблок MobileCalls.tsx). «Горячие» удалены из CRM владельцем,
-          поэтому четвёртая плитка ПК — «Без контакта», как здесь. */}
+          поэтому третья плитка — «не связывались» (NoContactTile). */}
       {summary && (
         <div className="sec" style={{ marginTop: 14 }}>
           <div className="tiles">
@@ -502,6 +477,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
               className="tile"
               onClick={() => {
                 setPendingSlice(true);
+                setNoContactSlice(false);
                 setNoResponseYesterday(false);
                 setPage(1);
                 focusList();
@@ -510,21 +486,21 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
             >
               <div className={summary.awaitingAgent.count > 0 ? "v crit" : "v"}>{num(summary.awaitingAgent.count)}</div>
               <div className={summary.awaitingAgent.count > 0 ? "l crit" : "l"}>
-                ждут принятия · {oldest ? `дольше всех ${oldest.fullName}` : "все приняты"}
+                ждут принятия · {oldest ? `дольше всех ${clientDisplayName(oldest)}` : "все приняты"}
               </div>
             </button>
-            <button
-              type="button"
-              className="tile"
+            <NoContactTile
+              count={summary.neverContacted}
               onClick={() => {
-                updateExtraFilters({ sort: "contact_asc" });
+                // Срез по тому же правилу, что и число на плитке (сервер,
+                // `/clients?noContact=1`, lib/noContact.ts), а не сортировка.
+                setNoContactSlice(true);
+                setPendingSlice(false);
+                setNoResponseYesterday(false);
+                setPage(1);
                 focusList();
               }}
-              title="Список: давно не общались"
-            >
-              <div className={summary.noContactOverDay > 0 ? "v crit" : "v"}>{num(summary.noContactOverDay)}</div>
-              <div className={summary.noContactOverDay > 0 ? "l crit" : "l"}>без контакта · больше суток без разговора</div>
-            </button>
+            />
             <Link className="tile" to="/calendar?type=SHOWING&date=today" title="Календарь показов">
               <div className="v">{num(summary.showings.today)}</div>
               <div className="l">показов сегодня · {num(summary.showings.tomorrow)} на завтра</div>
@@ -534,30 +510,26 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       )}
 
       <MhLane label="Продавцы или покупатели" chips={kindChips} sticky />
-      {crossChips.length > 0 && <MhLane label="Состояние клиентов раздела" chips={crossChips} />}
       {sliceChips.length > 0 && <MhLane label="Срезы клиентов" chips={sliceChips} />}
 
       <div className="sec" id="mobile-clients-list" style={{ marginTop: 14 }}>
         <div className="list">
-          {error ? (
-            <div className="state err">
-              Список не загрузился.
-              <button type="button" className="lnk" onClick={() => refetch()}>
-                Повторить
-              </button>
-            </div>
-          ) : isLoading ? (
+          {listGuard.broken ? (
+            <EmptyListGuardBanner guard={listGuard} variant="mobile" />
+          ) : isLoading || error ? (
             <div className="state">Загружаем {title.toLowerCase()}</div>
           ) : items.length === 0 ? (
             <div className="state">
               {pendingSlice
                 ? "Никто не ждёт принятия."
-                : q
+                : noContactSlice
+                  ? NO_CONTACT_TEXT.empty
+                  : q
                   ? "Никого не нашли, проверьте написание."
                   : "В этом срезе пока пусто."}
             </div>
           ) : (
-            items.map((c) => <ClientListRow key={c.id} client={c} showKind={isInactiveRoute} />)
+            items.map((c) => <ClientListRow key={c.id} client={c} />)
           )}
         </div>
       </div>
@@ -605,25 +577,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
           </>
         }
       >
-        <div className="sec-t" style={{ marginTop: 0 }}>
-          Статус
-        </div>
-        <div className="seg" role="group" aria-label="Статус">
-          <button type="button" aria-selected={!extraFilters.status} onClick={() => updateExtraFilters({ status: undefined })}>
-            Любой
-          </button>
-          {Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-selected={extraFilters.status === value}
-              onClick={() => updateExtraFilters({ status: value })}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="sec-t">Источник</div>
+        <div className="sec-t" style={{ marginTop: 0 }}>Источник</div>
         <div className="seg" role="group" aria-label="Источник">
           <button type="button" aria-selected={!extraFilters.source} onClick={() => updateExtraFilters({ source: undefined })}>
             Любой
@@ -783,29 +737,20 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
   const name = c.displayName ?? (c.fullName.trim() || formatClientName(c));
   const tone = avatarToneClass(name);
   const channel = sourceChannel(c.source);
-  const hot = c.status === "HOT";
 
   const wants = [c.desiredRooms ? `${c.desiredRooms}-комн` : null, c.desiredDistrict?.name ?? null]
     .filter(Boolean)
     .join(", ");
-  const step = c.nextStep?.nextAction?.trim();
+  // Следующий шаг в строку не выводится (владелец 21.11.2026: «зачем следующий шаг?»),
+  // он виден в карточке клиента.
   const parts = [
     showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null,
     wants || null,
     CLIENT_SOURCE_LABELS[c.source],
-    step || null,
-    // Неактивные с 10.11.2026 стоят во вкладке «В работе» — метка, чтобы агент видел, кому звонить.
-    !c.hiddenReason && showsInactiveLabel(c) ? "неактивен" : null,
   ].filter(Boolean) as string[];
 
-  const chip =
-    c.status === "HOT"
-      ? { cls: "crit", text: CLIENT_STATUS_LABELS.HOT.toLowerCase() }
-      : c.status === "NEW"
-        ? { cls: "sky", text: CLIENT_STATUS_LABELS.NEW.toLowerCase() }
-        : c.status === "CONTACTED"
-          ? { cls: "ok", text: CLIENT_STATUS_LABELS.CONTACTED.toLowerCase() }
-          : null;
+  // Отметки статуса («горячий», «новый», «на контакте») убраны 16.11.2026:
+  // владелец — «удалить все статусы, ничего лишнего».
 
   /**
    * «ПРИНЯТЬ»/«ОТКЛОНИТЬ» ПРЯМО В СТРОКЕ (владелец 17.08.2026) — тот же разбор,
@@ -849,7 +794,6 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
         <span className="b relative z-10" style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>
           <span className="n">
             <span className="nm">{name}</span>
-            {chip && <span className={`chip ${chip.cls} xs`}>{chip.text}</span>}
             {!isOther && pending && (
               <span className={escalated ? "chip crit xs" : "chip warn xs"}>
                 {escalated ? "Никто не принял" : "Ждёт принятия"}
@@ -899,13 +843,15 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
             <span className="block mt-2" style={{ pointerEvents: "auto" }}>
               <MutationError
                 mutation={acceptLead.isError ? acceptLead : declineLead}
-                fallback={acceptLead.isError ? "Не удалось принять лид" : "Не удалось отклонить лид"}
+                fallback={acceptLead.isError ? "Не удалось принять заявку" : "Не удалось отклонить заявку"}
               />
             </span>
           )}
         </span>
         <span className="r relative z-10" style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>
-          <span className={`tm${hot ? " hot" : ""}`}>{sinceLabel(c.lastContactAt ?? c.assignedAt)}</span>
+          {/* Давность ПОСЛЕДНЕГО КОНТАКТА по общему правилу (lib/clientRowFacts.ts, 21.11.2026):
+              lastContactAt двигает любая заметка, а у новой карточки он равен моменту создания. */}
+          <span className="tm" title={lastContactLabel(c.lastStaffContactAt) ?? undefined}>{sinceLabel(c.lastStaffContactAt)}</span>
           {c.unread && <span className="unread dot" aria-label="Клиент написал, переписка не открыта" />}
           {/* Звонок прямо из строки — непринятому лиду кнопки нет: номер у
               него замаскирован (тот же разбор, что в ClientRow на ПК). */}
@@ -918,8 +864,8 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
       </div>
       {confirmDecline && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onConfirm={confirmRejection}
           onCancel={() => setConfirmDecline(false)}

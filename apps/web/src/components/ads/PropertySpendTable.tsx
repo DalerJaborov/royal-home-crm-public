@@ -1,9 +1,10 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { ExternalLink, Image as ImageIcon } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AdSpendPropertyRow, AdSpendReport } from "../../hooks/useAds";
 import { formatMoneyExact } from "../../lib/format";
 import { scrollableRegion } from "../../lib/a11y";
+import { PropertyPhoto } from "../property/PropertyPhoto";
 
 /**
  * СКОЛЬКО ВЛОЖЕНО В КАЖДЫЙ ОБЪЕКТ.
@@ -209,7 +210,7 @@ function SpendCardRow({ row }: { row: AdSpendPropertyRow }) {
   return (
     <div className="prow wrapt">
       <span className="ph" aria-hidden>
-        {cover ? <img src={cover} alt="" loading="lazy" /> : <ImageIcon className="i" />}
+        <PropertyPhoto fill compact sources={[cover]} />
       </span>
       <div className="t">
         <b>

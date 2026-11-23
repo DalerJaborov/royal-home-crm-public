@@ -13,11 +13,12 @@ import {
   socialVideoRetrySchema,
   socialVideoUpdateSchema,
   SOCIAL_VIDEO_COVER_MIME_TYPES,
+  SOCIAL_PHOTO_POST_MAX_IMAGES,
   type SocialVideoAiCaptionResponse,
 } from "@royal-home/shared";
 import { requireAuth } from "../auth/middleware.js";
 import { requireMarketingRole } from "./marketing.js";
-import { socialVideoUpload, socialVideoCoverUpload } from "../upload.js";
+import { socialVideoUpload, socialVideoCoverUpload, socialPhotoPostUpload } from "../upload.js";
 import { logAudit } from "../lib/audit.js";
 import { loadChannelInfos, loadChannelLive } from "../lib/socialVideoChannels.js";
 import { generateSocialVideoCaptions, listCoverProviders, SocialVideoAiError } from "../lib/socialVideoAi.js";
@@ -28,6 +29,7 @@ import {
   clearCover,
   copySocialVideo,
   createSocialVideoFromUpload,
+  createSocialPhotoPostFromUpload,
   deleteSocialVideo,
   getSocialVideo,
   listSocialVideos,
@@ -40,6 +42,14 @@ import {
 } from "../lib/socialVideoPosts.js";
 import { markSocialVideoRemovedByHand, removeSocialVideoFromSocials } from "../lib/socialVideoRemoval.js";
 import fs from "node:fs";
+import express from "express";
+import { z } from "zod";
+import {
+  assembleSocialVideoUpload,
+  startSocialVideoUpload,
+  writeSocialVideoPart,
+} from "../lib/socialVideoUploadSessions.js";
+import { ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — API (12.10.2026). Промо-ролик без объекта: загрузить,
@@ -64,7 +74,11 @@ function guarded(fn: AsyncHandler) {
       await fn(req, res);
     } catch (err) {
       if (err instanceof SocialVideoError) {
-        res.status(err.status).json({ error: err.message });
+        res.status(err.status).json({ error: err.message, ...(err.extra ?? {}) });
+        return;
+      }
+      if (err instanceof ChunkedUploadError) {
+        res.status(err.status).json(chunkedUploadErrorBody(err));
         return;
       }
       if (err instanceof SocialVideoAiError) {
@@ -209,6 +223,117 @@ socialVideosRouter.post("/", socialVideoUpload.single("video"), async (req, res,
   } finally {
     // Сервис убирает временный файл сам; это страховка на ранние выходы выше (нет полей, нет файла).
     if (tmpPath) await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+  }
+});
+
+/**
+ * ЗАГРУЗКА ЧАСТЯМИ (17.11.2026) — основной путь экрана: старт → части по 8 МБ → сборка.
+ * Одним запросом файл крупнее ~80 МБ отбивал прокси перед сервером (413), см.
+ * lib/socialVideoUploadSessions.ts. Одиночный POST "/" выше оставлен для старых вкладок.
+ */
+const uploadStartSchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  sizeBytes: z.number().int().positive(),
+});
+
+socialVideosRouter.post(
+  "/upload-sessions",
+  guarded(async (req, res) => {
+    const parsed = uploadStartSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Неверные данные файла" });
+      return;
+    }
+    res.status(201).json(await startSocialVideoUpload({ agentId: req.agent!.id, ...parsed.data }));
+  })
+);
+
+socialVideosRouter.put(
+  "/upload-sessions/:sessionId/parts/:partNumber",
+  express.raw({ type: () => true, limit: "16mb" }),
+  guarded(async (req, res) => {
+    const body: unknown = req.body;
+    if (!Buffer.isBuffer(body)) {
+      res.status(400).json({ error: "Пустая часть" });
+      return;
+    }
+    await writeSocialVideoPart({
+      sessionId: String(req.params.sessionId),
+      agentId: req.agent!.id,
+      partNumber: Number(req.params.partNumber),
+      body,
+    });
+    res.json({ ok: true });
+  })
+);
+
+socialVideosRouter.post("/upload-sessions/:sessionId/complete", async (req, res, next) => {
+  let tmpPath: string | undefined;
+  try {
+    const fields = socialVideoCreateFieldsSchema.safeParse(req.body ?? {});
+    if (!fields.success) {
+      res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      return;
+    }
+    const assembled = await assembleSocialVideoUpload(String(req.params.sessionId), req.agent!.id);
+    tmpPath = assembled.tmpPath;
+    const item = await createSocialVideoFromUpload({
+      tmpPath: assembled.tmpPath,
+      originalName: assembled.originalName,
+      title: fields.data.title,
+      caption: fields.data.caption,
+      brief: fields.data.brief ?? null,
+      channels: fields.data.channels,
+      destinations: fields.data.destinations,
+      createdById: req.agent!.id,
+    });
+    logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: item.durationSec });
+    res.status(201).json(item);
+  } catch (err) {
+    if (err instanceof SocialVideoError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ChunkedUploadError) {
+      res.status(err.status).json(chunkedUploadErrorBody(err));
+      return;
+    }
+    next(err);
+  } finally {
+    if (tmpPath) await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+  }
+});
+
+/** Фото-пост: те же поля формы, что у ролика, файлы — в поле photos (1–10). */
+socialVideosRouter.post("/photos", socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES), async (req, res, next) => {
+  try {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (files.length === 0) {
+      res.status(400).json({ error: "Приложите хотя бы одно фото (поле photos)" });
+      return;
+    }
+    const fields = socialVideoCreateFieldsSchema.safeParse(req.body);
+    if (!fields.success) {
+      res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
+      return;
+    }
+    const item = await createSocialPhotoPostFromUpload({
+      files: files.map((f) => ({ buffer: f.buffer, originalName: f.originalname })),
+      title: fields.data.title,
+      caption: fields.data.caption,
+      brief: fields.data.brief ?? null,
+      channels: fields.data.channels,
+      destinations: fields.data.destinations,
+      createdById: req.agent!.id,
+    });
+    logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { kind: "PHOTO", photos: files.length, sizeBytes: item.sizeBytes });
+    res.status(201).json(item);
+  } catch (err) {
+    if (err instanceof SocialVideoError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    next(err);
   }
 });
 

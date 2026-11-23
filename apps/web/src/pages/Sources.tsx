@@ -1,7 +1,11 @@
+import { RuDateField } from "../components/look/fields/RuFields";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
-import { reportDateRangeError } from "@royal-home/shared";
+import { pluralizeRu, reportDateRangeError } from "@royal-home/shared";
+
+/** «3 заявки», «5 заявок»: число с правильным окончанием (аудит 20.11.2026, К03). */
+const requests = (n: number) => `${n} ${pluralizeRu(n, ["заявка", "заявки", "заявок"])}`;
 import { useCan } from "../lib/permissions";
 import {
   useSourcesReport,
@@ -23,6 +27,8 @@ import { Rh2Chart } from "../components/rh2/Rh2Chart";
 import { Rh2Heatmap } from "../components/rh2/Rh2Heatmap";
 import { Rh2ChannelActivity } from "../components/rh2/Rh2ChannelActivity";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { useRoyalLook } from "../hooks/useRoyalLook";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { MoneyTabs } from "../components/SectionTabs";
 import { scrollableRegion } from "../lib/a11y";
 import { StatTile } from "../components/ui/StatTile";
@@ -99,7 +105,7 @@ const HEATMAP_SIGNAL_NOTES: Record<HeatmapSignal, string> = {
     "Считается каждое сообщение клиента. До 23.09.2026 такого счёта не было — за то время посчитаны начало разговора и последнее сообщение в нём.",
   calls: "Считаются входящие звонки, кроме помеченных как не по делу.",
   comments: "Считаются комментарии под нашими постами в Instagram и на странице Facebook.",
-  contacts: "Считается момент, когда клиент обратился ВПЕРВЫЕ, — по одному событию на клиента.",
+  contacts: "Считается момент, когда клиент обратился впервые, — по одному событию на клиента.",
   followers:
     "Сколько наших подписчиков Instagram в среднем в сети в этот час — это считает сам Instagram, сервер забирает данные раз в сутки.",
   site: "Сколько разных людей заходило на сайт royalhome.tj в этот час — считает сам сайт, CRM забирает данные раз в час.",
@@ -143,21 +149,26 @@ function leadHoursText(n: number): string {
 
 export function Sources() {
   const can = useCan();
+  // «Новый вид» (пачка analytics): метка раздела; без признака — прежнее дерево и разметка.
+  const royal = useRoyalLook();
+  const section = royal ? "analytics" : undefined;
 
   if (!can("reports.view")) {
     return (
+      <RoyalSection name={section}>
       <Rh2Screen>
           <div className="pg-h">
             <div>
-              <h1>Источники лидов</h1>
+              <h1>Источники заявок</h1>
               <p className="sub">Раздел доступен администратору и менеджеру.</p>
             </div>
           </div>
       </Rh2Screen>
+      </RoyalSection>
     );
   }
 
-  return <SourcesScreen />;
+  return <RoyalSection name={section}><SourcesScreen /></RoyalSection>;
 }
 
 function SourcesScreen() {
@@ -214,7 +225,7 @@ function SourcesScreen() {
     <Rh2Screen>
         <div className="pg-h">
           <div>
-            <h1>Источники лидов</h1>
+            <h1>Источники заявок</h1>
             <p className="sub">
               Откуда приходят клиенты, во что превращаются и сколько стоит сделка по каждому каналу.
             </p>
@@ -282,9 +293,8 @@ function SourcesScreen() {
             </div>
             <label className="field">
               <span className="lab">С какого дня</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={from}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -295,9 +305,8 @@ function SourcesScreen() {
             </label>
             <label className="field">
               <span className="lab">По какой день</span>
-              <input
+              <RuDateField
                 className="inp"
-                type="date"
                 value={to}
                 style={{ maxWidth: 180 }}
                 onChange={(e) => {
@@ -368,7 +377,7 @@ function SourcesScreen() {
                 onClick={() => scrollToSection("channels-table-section")}
               />
               <StatTile
-                label="Стали лидами"
+                label="Стали заявками"
                 value={nums(leadsTotal)}
                 line="дошли до карточки"
                 title="Откуда приходят — кольцо каналов ниже"
@@ -384,7 +393,7 @@ function SourcesScreen() {
               <StatTile
                 label="Срок до сделки"
                 value={invalidLeadDuration ? "—" : data.avgDaysNewToClosed != null ? nums(data.avgDaysNewToClosed) : "нет"}
-                line={invalidLeadDuration ? "Проверьте даты клиента и сделки" : "дня в среднем от нового лида"}
+                line={invalidLeadDuration ? "Проверьте даты клиента и сделки" : "дня в среднем от новой заявки"}
                 critical={invalidLeadDuration}
                 title="Обращения и сделки по каналам — таблица ниже"
                 onClick={() => scrollToSection("channels-table-section")}
@@ -395,7 +404,7 @@ function SourcesScreen() {
             <div className="sec" id="donut-section">
               <div className="sec-h">
                 <h2>Откуда приходят</h2>
-                <span className="note">{nums(leadsTotal)} лидов за период</span>
+                <span className="note">{requests(leadsTotal)} за период</span>
               </div>
               <div className="card tight">
                 {donutRows.length === 0 ? (
@@ -403,7 +412,7 @@ function SourcesScreen() {
                 ) : (
                   <Rh2Donut
                     total={leadsTotal}
-                    middleLabel="лидов"
+                    middleLabel="заявок"
                     ariaLabel={`Доли каналов: ${donutRows
                       .map((s) => `${label(s.source)} ${Math.round((s.total / leadsTotal) * 100)} процентов`)
                       .join(", ")}`}
@@ -411,7 +420,7 @@ function SourcesScreen() {
                       key: s.source,
                       label: label(s.source),
                       value: s.total,
-                      quantity: `${s.total} лидов, ${Math.round((s.total / leadsTotal) * 100)} %`,
+                      quantity: `${requests(s.total)}, ${Math.round((s.total / leadsTotal) * 100)} %`,
                     }))}
                   />
                 )}
@@ -433,7 +442,7 @@ function SourcesScreen() {
                       <tr>
                         <th scope="col">Канал</th>
                         <th scope="col" className="num">Обращений</th>
-                        <th scope="col" className="num">Лидов</th>
+                        <th scope="col" className="num">Заявок</th>
                         <th scope="col" className="num">Сделок</th>
                         <th scope="col" className="num">Доходимость</th>
                       </tr>
@@ -460,7 +469,7 @@ function SourcesScreen() {
                         <div className="t">
                           <b>{label(s.source)}</b>
                           <span>
-                            {s.wrote ? `${s.wrote} обращений` : "обращений не считаем"}, {s.total} лидов, {s.closed}{" "}
+                            {s.wrote ? `${s.wrote} обращений` : "обращений не считаем"}, {requests(s.total)}, {s.closed}{" "}
                             сделок
                           </span>
                         </div>
@@ -470,7 +479,7 @@ function SourcesScreen() {
                       </div>
                     ))}
                   </div>
-                  <p className="state">Правая цифра это доля лидов канала, дошедших до сделки.</p>
+                  <p className="state">Правая цифра это доля заявок канала, дошедших до сделки.</p>
                 </div>
               </div>
             </div>
@@ -656,11 +665,11 @@ function ChannelCostSection({
             <thead>
               <tr>
                 <th scope="col">Канал</th>
-                <th scope="col" className="num">Лидов</th>
+                <th scope="col" className="num">Заявок</th>
                 <th scope="col" className="num">Показы</th>
                 <th scope="col" className="num">Сделок</th>
                 {seesMoney && <th scope="col" className="num">Расход</th>}
-                {seesMoney && <th scope="col" className="num">Цена лида</th>}
+                {seesMoney && <th scope="col" className="num">Цена заявки</th>}
                 {seesMoney && <th scope="col" className="num">Комиссия</th>}
                 <th scope="col" className="num">Сегодня к 7 дням</th>
               </tr>
@@ -685,7 +694,7 @@ function ChannelCostSection({
                     {c.anomalyLeadsDown ? (
                       <span
                         className="chip warn"
-                        title={`Сегодня ${c.leadsToday} лид. при среднем ${c.leadsTrailing7Avg} в день за 7 дней, заметное падение`}
+                        title={`Сегодня ${requests(c.leadsToday)} при среднем ${c.leadsTrailing7Avg} в день за 7 дней, заметное падение`}
                       >
                         {c.leadsToday} к {c.leadsTrailing7Avg}
                       </span>
@@ -706,7 +715,7 @@ function ChannelCostSection({
                 <div className="t">
                   <b>{c.label}</b>
                   <span>
-                    {c.leadsMonth} лидов, {c.showingsMonth} показов, {c.dealsClosedMonth} сделок
+                    {requests(c.leadsMonth)}, {c.showingsMonth} показов, {c.dealsClosedMonth} сделок
                     {seesMoney && c.spendMonthTjs != null ? `, расход ${nums(c.spendMonthTjs)}` : ""}
                   </span>
                 </div>
@@ -717,7 +726,7 @@ function ChannelCostSection({
               </div>
             ))}
           </div>
-          <p className="state">Правая цифра это цена одного лида канала. Чем меньше, тем канал выгоднее.</p>
+          <p className="state">Правая цифра это цена одной заявки канала. Чем меньше, тем канал выгоднее.</p>
         </div>
 
         <p className="state">
@@ -748,11 +757,11 @@ function LostSection({
     <div className="sec">
       <div className="sec-h">
         <h2>Где теряем клиентов</h2>
-        <span className="note">за {report.days} дней, доля потерянных лидов канала</span>
+        <span className="note">за {report.days} дней, доля потерянных заявок канала</span>
       </div>
       <div className="card tight">
         {rows.length === 0 ? (
-          <p className="state">За этот срок потерянных лидов не было.</p>
+          <p className="state">За этот срок потерянных заявок не было.</p>
         ) : (
           <Rh2Bars
             items={rows.map((c) => ({
@@ -767,8 +776,8 @@ function LostSection({
         {worst?.topReason && (
           <div className="quiet warn" style={{ marginTop: 12 }}>
             <span className="txt">
-              В канале «{worst.label}» чаще всего теряем по причине «{worst.topReason}»: {worst.lost} лидов из{" "}
-              {worst.totalLeads}.
+              В канале «{worst.label}» чаще всего теряем по причине «{worst.topReason}»: потеряно {worst.lost} из{" "}
+              {requests(worst.totalLeads)}.
             </span>
           </div>
         )}

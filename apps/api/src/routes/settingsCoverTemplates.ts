@@ -76,7 +76,7 @@ coverTemplatesRouter.get("/:id/preview.jpg", requireAuth, requirePermission("set
   if (!template) return res.status(404).json({ error: "Шаблон не найден" });
 
   const values = buildCoverPosterValues(
-    { rooms: 2, areaSqm: 90, floor: 15, price: 890000, currency: "TJS", districtName: "Сино", address: "Парк Победы" },
+    { rooms: 2, areaSqm: 90, floor: 15, price: 890000, currency: "TJS", districtName: "Сино", address: "Парк Победы", type: "HOUSE", totalFloors: 2 },
     { usdToTjs: 10.9 }
   );
   try {

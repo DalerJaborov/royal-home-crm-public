@@ -3,8 +3,7 @@ import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { nextPublishSlot } from "./publishSchedule.js";
-import { loadOccupiedPublishSlots } from "./publishSlots.js";
-import { PUBLISH_SLOT_LOCK_ID } from "./videoHandoff.js";
+import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import {
   PHOTO_POST_CHANNELS,
@@ -18,7 +17,8 @@ import {
 } from "./photoPosts.js";
 import { buildPriceDisplay, type CaptionAgent } from "./reelsCaptionTemplate.js";
 import { loadMoneyContext, toTjs } from "./money.js";
-import { loadCredentials, instagramTokenIdentity, GRAPH_VERSION } from "../messengers/meta.js";
+import { loadCredentials, GRAPH_VERSION } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 import { readJson, graphErrorMessage, deleteInstagramMedia, PUBLISH_TIMEOUT_MS } from "./socialPublish.js";
 import { sendMediaGroupFiles, deleteChannelMessage, isTelegramEnabled } from "../telegram/api.js";
 import { decryptSecretSafe } from "../crypto.js";
@@ -261,10 +261,11 @@ export async function publishPropertyRepost(propertyId: string, round: number, o
     } else if (prepared.urls.length === 0) {
       r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
     } else {
-      const identity = await instagramTokenIdentity(creds.igToken);
-      r = identity.ok
-        ? await publishInstagramCarousel(propertyId, identity.id, creds.igToken, prepared.urls, caption)
-        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${identity.error}` };
+      // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+      const publisher = await resolveInstagramPublisher(creds.igToken);
+      r = publisher.ok
+        ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(propertyId, igUserId, token, prepared.urls, caption))).result
+        : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
     }
     results.INSTAGRAM = r;
     await upsertRepostRecord(

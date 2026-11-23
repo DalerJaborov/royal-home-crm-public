@@ -4,6 +4,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { grantElevation } from "../src/lib/stepUp.js";
+import { maskClientPhone } from "../src/lib/clientPhone.js";
 
 /**
  * Акционер видит бизнес, но не номера (10.10.2026): в его пресете нарочно нет
@@ -90,7 +91,7 @@ describe("Акционер: номера скрыты", () => {
     const res = await request(app).get(`/api/v1/conversations/${conversationId}`).set("Authorization", `Bearer ${shareholderToken}`);
     expect(res.status).toBe(200);
     // Origin visibility retains the canonical mask, never the delivery phone.
-    expect(res.body.subscriberId).toBe(`+992•••••${PHONE.slice(-2)}`);
+    expect(res.body.subscriberId).toBe(maskClientPhone(PHONE));
     expect(JSON.stringify(res.body)).not.toContain(PHONE);
     const permitted = await request(app).get(`/api/v1/conversations/${conversationId}`).set("Authorization", `Bearer ${directorToken}`);
     expect(permitted.status).toBe(200);

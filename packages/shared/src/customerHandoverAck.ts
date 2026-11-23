@@ -28,7 +28,13 @@ export const customerHandoverAckFenceSchema = z.object({
 });
 export type CustomerHandoverAckFence = z.infer<typeof customerHandoverAckFenceSchema>;
 
-/** No model text, agent-notified/dialled promise, booking, links or new action. */
+/** No model text, agent-notified/dialled promise, booking, links or new action.
+ *  16.11.2026 (аудит): «Заявка на связь с сотрудником сохранена.» звучала как запись журнала злому клиенту;
+ *  теперь человеческие слова (tajik-phrasebook: «Ташаккур, дархости шумо қабул шуд.»), без обещания срока. */
 export function customerHandoverAckText(language: "ru" | "tg"): string {
-  return language === "ru" ? "Заявка на связь с сотрудником сохранена." : "Дархости суҳбат бо корманд сабт шуд.";
+  return language === "ru" ? "Спасибо, передал ваше сообщение сотруднику." : "Ташаккур, дархости шумо қабул шуд.";
+}
+/** The ack texts a delivery planned before 16.11.2026 may still carry (the dispatcher accepts both wordings). */
+export function customerHandoverAckTexts(language: "ru" | "tg"): string[] {
+  return [customerHandoverAckText(language), language === "ru" ? "Заявка на связь с сотрудником сохранена." : "Дархости суҳбат бо корманд сабт шуд."];
 }

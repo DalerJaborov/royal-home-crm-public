@@ -1,8 +1,8 @@
 import { prisma } from "../db.js";
 
-export const PRIVATE_SETTINGS_FIELDS = ["postShowingCallEnabled", "investigationCaseConfig", "sellerControlConfig", "postShowingCohortConfig", "buyerSellerAutomationMode"] as const;
+export const PRIVATE_SETTINGS_FIELDS = ["postShowingCallEnabled", "investigationCaseConfig", "sellerControlConfig", "postShowingCohortConfig", "buyerSellerAutomationMode", "securityAutomationEnabled"] as const;
 const privateFields = new Set<string>(PRIVATE_SETTINGS_FIELDS);
-const controlLabels: Record<string, string> = { postShowingCallEnabled: "Опрос после показа", liveVoiceEnabled: "Голосовые проверки", buyerSellerAutomationMode: "Рабочее исполнение проверок", sellerControlConfig: "Контроль работы с продавцом" };
+const controlLabels: Record<string, string> = { postShowingCallEnabled: "Опрос после показа", liveVoiceEnabled: "Голосовые проверки", buyerSellerAutomationMode: "Рабочее исполнение проверок", sellerControlConfig: "Контроль работы с продавцом", securityAutomationEnabled: "Служба безопасности: автоматика" };
 export function isPrivateSettingsField(field: string): boolean { return privateFields.has(field); }
 export function disabledInvestigationControls(before: Record<string, unknown> | null, after: Record<string, unknown>): string[] {
   if (!before) return [];
@@ -11,6 +11,7 @@ export function disabledInvestigationControls(before: Record<string, unknown> | 
     ...(before.liveVoiceEnabled === true && after.liveVoiceEnabled === false && (before.postShowingCallEnabled === true || before.buyerSellerAutomationMode === "LIVE") ? ["liveVoiceEnabled"] : []),
     ...(before.buyerSellerAutomationMode === "LIVE" && after.buyerSellerAutomationMode !== undefined && after.buyerSellerAutomationMode !== "LIVE" ? ["buyerSellerAutomationMode"] : []),
     ...(before.sellerControlConfig != null && after.sellerControlConfig === null ? ["sellerControlConfig"] : []),
+    ...(before.securityAutomationEnabled === true && after.securityAutomationEnabled === false ? ["securityAutomationEnabled"] : []),
   ];
 }
 /** One atomic receipt per explicit transition; no startup/backfill scan, push or provider call. */

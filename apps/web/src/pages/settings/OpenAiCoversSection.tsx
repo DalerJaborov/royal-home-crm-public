@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { CoverTemplatesSection } from "./CoverTemplatesSection";
 import { api } from "../../lib/api";
+import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import {
   useCoverReference,
   useOpenAiCovers,
@@ -25,7 +26,7 @@ import {
  * медиазапросы темы (правило CLAUDE.md).
  */
 export function OpenAiCoversSection({ templateHeading }: { templateHeading?: string } = {}) {
-  const { data, isLoading } = useOpenAiCovers();
+  const { data, isLoading, isError, refetch, isFetching } = useOpenAiCovers();
   const update = useUpdateOpenAiCovers();
   const test = useTestOpenAiCover();
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +83,9 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
           </p>
         )}
 
-        {isLoading || !data ? (
+        {isError && !data ? (
+          <Rh2ErrorState message="Не удалось загрузить настройки обложек. Проверьте связь и нажмите «Повторить»." onRetry={() => void refetch()} retrying={isFetching} />
+        ) : isLoading || !data ? (
           <p className="quiet">Загружаем…</p>
         ) : (
           <>
@@ -111,6 +114,33 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
             </div>
 
             <div className="fld" style={{ marginTop: 12 }}>
+              <span className="lab">OpenAI (ChatGPT)</span>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className={`chip${data.openaiEnabled ? " on" : ""}`}
+                  aria-pressed={data.openaiEnabled}
+                  onClick={() => save({ openaiEnabled: true })}
+                >
+                  Включён
+                </button>
+                <button
+                  type="button"
+                  className={`chip${!data.openaiEnabled ? " on" : ""}`}
+                  aria-pressed={!data.openaiEnabled}
+                  onClick={() => save({ openaiEnabled: false })}
+                >
+                  Выключен
+                </button>
+                <span className="quiet">
+                  {data.openaiEnabled
+                    ? "CRM может обращаться к ChatGPT по ключу ниже."
+                    : "CRM не обращается к ChatGPT совсем: обложки рисует наш шаблон, напоминаний об оплате OpenAI нет."}
+                </span>
+              </div>
+            </div>
+
+            <div className="fld" style={{ marginTop: 12 }}>
               <span className="lab">Кто рисует</span>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {(["TEMPLATE", "OPENAI"] as const).map((p) => (
@@ -119,6 +149,8 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
                     type="button"
                     className={`chip${data.provider === p ? " on" : ""}`}
                     aria-pressed={data.provider === p}
+                    // OpenAI выключен рубильником — выбрать ChatGPT нельзя (сервер всё равно рисует шаблоном).
+                    disabled={p === "OPENAI" && !data.openaiEnabled}
                     onClick={() => save({ provider: p })}
                   >
                     {p === "TEMPLATE" ? "Наш шаблон — цифры точные" : "ChatGPT — рисует всё, по ключу OpenAI"}

@@ -68,6 +68,8 @@
           T === "royal-home-2026-light" || T === "royal-home-2026-night" ? T :
             window.matchMedia("(prefers-color-scheme: dark)").matches ? "royal-home-2026-night" : "royal-home-2026-light";
         if (s.look) document.documentElement.dataset.look = s.look;
+        // Размер текста нового вида — до первой отрисовки, без прыжка строк (store/uiPrefs.ts).
+        if (s.textSize === "large" || s.textSize === "xlarge") document.documentElement.dataset.textSize = s.textSize;
         if (s.aurora === false) document.documentElement.classList.add("fx-no-aurora");
         if (s.glass === false) document.documentElement.classList.add("fx-no-glass");
       } catch (e) {}

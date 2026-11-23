@@ -1,3 +1,4 @@
+import { RhAudioPlayer } from "./look/RhAudioPlayer";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
@@ -68,9 +69,9 @@ export function VoiceNotePlayer({
     // Класс даёт ту же строку с отступом и высотой 44px, что в messages.html.
     return (
       <span className="voice">
-        <audio controls preload="none" src={state.url} style={{ height: 34, maxWidth: 260, flex: 1 }} />
+        <RhAudioPlayer src={state.url} speeds preload="none" label="Голосовая заметка" className="w-[300px] max-w-full" />
       </span>
     );
   }
-  return <audio controls preload="none" src={state.url} className={className ?? "h-8 max-w-[260px]"} />;
+  return <RhAudioPlayer src={state.url} speeds preload="none" label="Голосовая заметка" className={className ?? "w-[300px] max-w-full"} />;
 }

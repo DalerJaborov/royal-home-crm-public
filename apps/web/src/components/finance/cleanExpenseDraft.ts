@@ -28,7 +28,7 @@ export function prepareCleanExpense(draft: CleanExpenseDraft): CleanExpenseReque
     return { ok: false, field: "amount", message: "Без разделителей тысяч: 1000 или 1000,50. После запятой или точки — не больше двух цифр." };
   }
   if (Number(draft.amount.trim().replace(",", ".")) > 99_999_999.99) {
-    return { ok: false, field: "amount", message: "Сумма не должна превышать 99 999 999,99 с." };
+    return { ok: false, field: "amount", message: "Сумма не должна превышать 99\u00a0999 999,99\u00a0с." };
   }
   const parsed = expenseCreateSchema.safeParse({
     amount: Number(draft.amount.trim().replace(",", ".")),

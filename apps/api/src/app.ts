@@ -13,6 +13,7 @@ import path from "node:path";
 import { UploadRejectedError, uploadsDir } from "./upload.js";
 import { verifyMediaToken } from "./auth/jwt.js";
 import { signMediaUrlsInResponses } from "./lib/mediaJsonSign.js";
+import { uploadsCacheControl } from "./lib/uploadsCacheControl.js";
 import { prisma } from "./db.js";
 import { logSystemError } from "./lib/systemError.js";
 import { StaffPhoneLeadError } from "./lib/staffPhoneGuard.js";
@@ -23,6 +24,7 @@ import { pultWriteRefresh } from "./lib/pultWriteRefresh.js";
 import { authRouter } from "./routes/auth.js";
 import { testPasswordLoginRouter } from "./auth/testPasswordLogin.js";
 import { meRouter } from "./routes/me.js";
+import { showingQuestionsRouter } from "./routes/showingQuestions.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { propertyOffersRouter } from "./routes/propertyOffers.js";
 import { agentsRouter } from "./routes/agents.js";
@@ -30,6 +32,8 @@ import { districtsRouter } from "./routes/districts.js";
 import { geoRouter } from "./routes/geo.js";
 import { landmarksRouter } from "./routes/landmarks.js";
 import { propertiesRouter } from "./routes/properties.js";
+import { constructionRegistryRouter } from "./routes/constructionRegistry.js";
+import { transferRequestsRouter } from "./routes/transferRequests.js";
 import { clientsRouter } from "./routes/clients.js";
 import { dealsRouter } from "./routes/deals.js";
 import { dealDocumentsRouter } from "./routes/dealDocuments.js";
@@ -45,6 +49,7 @@ import { callsRouter } from "./routes/calls.js";
 import { aiRouter } from "./routes/ai.js";
 import { transcribeRouter } from "./routes/transcribe.js";
 import { reportsRouter } from "./routes/reports.js";
+import { reportPdfRouter } from "./routes/reportPdf.js";
 import { settingsRouter } from "./routes/settings.js";
 import { uiShellRouter } from "./routes/uiShell.js";
 import { liveVoiceListenRouter } from "./routes/liveVoiceListen.js";
@@ -56,6 +61,7 @@ import { pushRouter } from "./routes/push.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { publicFeedRouter } from "./routes/publicFeed.js";
 import { expensesRouter } from "./routes/expenses.js";
+import { foundersRouter } from "./routes/founders.js";
 import { financeRouter } from "./routes/finance.js";
 import { teamRouter, agentOverviewRouter } from "./routes/team.js";
 import { hallOfFameRouter } from "./routes/hallOfFame.js";
@@ -68,7 +74,6 @@ import { siteNotificationsRouter } from "./routes/siteNotifications.js";
 import { contactsRouter } from "./routes/contacts.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { auditLogRouter } from "./routes/auditLog.js";
-import { royalScoreEventsRouter } from "./routes/royalScoreEvents.js";
 import { morningReportRouter } from "./routes/morningReport.js";
 import { botScenariosRouter } from "./routes/botScenarios.js";
 import { attachmentsRouter } from "./routes/attachments.js";
@@ -80,12 +85,14 @@ import { securityRouter } from "./routes/security.js";
 import { manualDataCorrectionsRouter } from "./routes/manualDataCorrections.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { socialVideosRouter } from "./routes/socialVideos.js";
+import { uploadSessionsRouter } from "./routes/uploadSessions.js";
 import { adsRouter, adsCallbackRouter } from "./routes/ads.js";
 import { tiktokRouter, tiktokCallbackRouter } from "./routes/tiktok.js";
 import { threadsRouter, threadsCallbackRouter } from "./routes/threads.js";
 import { searchConsoleRouter, searchConsoleCallbackRouter, yandexCallbackRouter } from "./routes/searchConsole.js";
 import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
+import { functionStatusRouter } from "./routes/functionStatus.js";
 import { insightsRouter } from "./routes/insights.js";
 import { marketRouter } from "./routes/market.js";
 import { marketMatchesRouter } from "./routes/marketMatches.js";
@@ -97,6 +104,7 @@ import { verifyAccessToken } from "./auth/jwt.js";
 import { isTransientDbError } from "./lib/concurrency.js";
 import { verifyPending2faToken } from "./lib/pending-2fa.js";
 import { deepHealth } from "./lib/deepHealth.js";
+import { clientBuildWatchMiddleware } from "./lib/clientBuildWatch.js";
 // Побочный эффект: подписка модерации в Telegram на «объект ждёт проверки».
 import "./lib/telegramModeration.js";
 
@@ -138,17 +146,22 @@ app.use(cors({ origin: CORS_ORIGIN, credentials: true, exposedHeaders: ["X-App-B
  * и не переходя между разделами — оба триггера автообновления в
  * UpdatePrompt.tsx тогда молчат, а API тем временем уже сменил контракт).
  *
- * Момент запуска процесса, а не версия из package.json/git — каждый деплой
- * перезапускает процесс, значения хватает ровно на то, чтобы отличить «до
- * этого деплоя» от «после», без git/CI-плюмбинга. Фронт запоминает первое
- * увиденное значение за сессию и требует полной перезагрузки, если оно
- * поменялось — см. lib/appVersion.ts на фронте.
+ * Момент запуска процесса, а не версия фронта — и поэтому С 21.11.2026 ЭТО
+ * ТОЛЬКО ПОДСКАЗКА. Процесс перезапускается и без смены фронта (выкат одного
+ * сервера, рестарт контейнера); раньше фронт считал каждую смену отметки
+ * новой версией, перезагружал вкладку в ту же сборку, и после трёх таких раз
+ * обновление глохло для вкладки навсегда (iPhone владельца, сутки на старой
+ * сборке). Теперь смена отметки лишь будит проверку /version.json, а решает
+ * только она — см. apps/web/src/lib/appVersion.ts.
  */
 const APP_BUILD_MARK = String(Date.now());
 app.use((_req, res, next) => {
   res.setHeader("X-App-Build", APP_BUILD_MARK);
   next();
 });
+// Сторож вкладок, застрявших на старой сборке (заголовки X-Client-Build*):
+// раз в час тихая сводка в журнал ошибок — см. lib/clientBuildWatch.ts.
+app.use(clientBuildWatchMiddleware());
 // JSON-боди ограничен явно: самые большие легитимные тела (описания объектов) — единицы КБ.
 app.use(
   express.json({
@@ -237,7 +250,20 @@ app.use("/uploads", (req, res, next) => {
   if (PRIVATE_UPLOAD_DIRS.test(normalized)) return requireMediaAccess(req, res, next);
   next();
 });
-app.use("/uploads", express.static(uploadsDir));
+// Срок хранения в кэше — по списку проверенных папок (lib/uploadsCacheControl.ts):
+// фото и миниатюры с уникальным именем — 30 дней immutable, звуки телефонии и
+// закрытые папки — без общего кэша, всё прочее — как было (max-age=0 + ETag).
+// setHeaders вызывается ДО того, как send ставит свой Cache-Control, и тот
+// уважает уже выставленный заголовок.
+app.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    setHeaders: (res, filePath) => {
+      const policy = uploadsCacheControl(path.relative(uploadsDir, filePath));
+      if (policy) res.setHeader("Cache-Control", policy);
+    },
+  })
+);
 
 /**
  * ЗВУКИ ТЕЛЕФОНИИ БЕЗ СЛЕДА В ЖУРНАЛЕ (найдено 11.09.2026, docs/TASKS.md:
@@ -689,6 +715,7 @@ app.use("/api/v1/events", eventsRouter);
 app.use("/api/v1/me/2fa", totpLimiter);
 app.use("/api/v1/me", meRouter);
 app.use("/api/v1/me/notifications", notificationsRouter);
+app.use("/api/v1/showing-questions", showingQuestionsRouter);
 app.use("/api/v1/agents", agentsRouter);
 // Карточка сотрудника для руководства (GET /agents/:id/overview) живёт в team.ts —
 // agents.ts занят админским CRUD, а карточка доступна и менеджеру.
@@ -698,6 +725,9 @@ app.use("/api/v1/geo", geoRouter);
 app.use("/api/v1/landmarks", landmarksRouter);
 app.use("/api/v1/property-offers", propertyOffersRouter);
 app.use("/api/v1/properties", propertiesRouter);
+// Реестр разрешённых строек (memor.pro, 20.11.2026): только сотрудникам, под requireAuth внутри.
+app.use("/api/v1/construction-registry", constructionRegistryRouter);
+app.use("/api/v1/transfer-requests", transferRequestsRouter);
 app.use("/api/v1/clients", clientsRouter);
 app.use("/api/v1/deals", dealsRouter);
 app.use("/api/v1/deals", dealDocumentsRouter);
@@ -718,6 +748,7 @@ app.use("/api/v1/live-voice", liveVoiceListenRouter);
 app.use("/api/v1/ai", aiRouter);
 app.use("/api/v1/transcribe", transcribeRouter);
 app.use("/api/v1/reports", reportsRouter);
+app.use("/api/v1/report-pdf", reportPdfRouter);
 // Раньше общего роутера настроек: у того нет своих путей под /restore-points,
 // но порядок здесь и читается как «частное перед общим».
 app.use("/api/v1/telephony/whisper", telephonyWhisperRouter);
@@ -732,6 +763,7 @@ app.use("/api/v1/webhooks", webhooksRouter);
 // Открытые данные для сайта (лента Instagram) — без ключа, см. routes/publicFeed.ts.
 app.use("/api/v1/public", publicFeedRouter);
 app.use("/api/v1/expenses", expensesRouter);
+app.use("/api/v1/founders", foundersRouter);
 // Расчёты поверх денег (прогноз комиссии) — рядом с расходами, но своим путём.
 app.use("/api/v1/finance", financeRouter);
 app.use("/api/v1/security", securityRouter);
@@ -739,6 +771,8 @@ app.use("/api/v1/maintenance/data-corrections", manualDataCorrectionsRouter);
 app.use("/api/v1/marketing", marketingRouter);
 // Свободные ролики в соцсети (12.10.2026): промо-ролик без объекта, кросспостинг по выбору.
 app.use("/api/v1/social-videos", socialVideosRouter);
+// Общие сессии загрузки частями (17.11.2026): старт и части; сборку делает маршрут назначения.
+app.use("/api/v1/upload-sessions", uploadSessionsRouter);
 // Возврат из Facebook — до общего роутера рекламы: у него requireAuth, а сюда
 // человека приводит сам Facebook, без маркера доступа CRM (см. adsCallbackRouter).
 // Бюджетные оповещения Google Cloud приходят от Pub/Sub — без входа в CRM,
@@ -762,7 +796,6 @@ app.use("/api/v1/site-notifications", siteNotificationsRouter);
 app.use("/api/v1/contacts", contactsRouter);
 app.use("/api/v1/conversations", conversationsRouter);
 app.use("/api/v1/audit-log", auditLogRouter);
-app.use("/api/v1/royal-score-events", royalScoreEventsRouter);
 app.use("/api/v1/morning-report", morningReportRouter);
 app.use("/api/v1/errors", errorLogRouter);
 app.use("/api/v1/integrations", integrationsRouter);
@@ -784,6 +817,8 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // накопленным данным: просроченные задачи, лимиты лидов, зависшие горячие клиенты,
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
+// «Состояние функций»: скрытые рубильники и режимы «только проверка», только директор/админ.
+app.use("/api/v1/function-status", functionStatusRouter);
 app.use("/api/v1/insights", insightsRouter);
 app.use("/api/v1/market/matches", marketMatchesRouter);
 app.use("/api/v1/market", marketContactRouter);
@@ -941,14 +976,22 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   // как отправил заявленный объём (реальный обрыв связи), или тело пришло
   // целиком, а порвал его кто-то посередине (прокси/таймаут) — это и есть ответ
   // на вопрос «где именно рвётся».
-  if (err instanceof Error && /unexpected end of form/i.test(err.message)) {
+  //
+  // «Request aborted» (17.11.2026, журнал прода после #254) — тот же обрыв, но
+  // замеченный раньше: multer сам слушает `req.on("aborted")` и бросает обычный
+  // Error с этим текстом. Ловился общим «[unhandled]» и будил директора пушем
+  // «новая проблема». Это эксплуатационный шум (человек закрыл вкладку или
+  // пропала связь), поэтому та же ветка и без пуша (`silent`). Обрыв ЧАСТИ при
+  // загрузке частями сюда не попадает: там express.raw, его `request.aborted`
+  // отвечает 400 выше без записи.
+  if (err instanceof Error && /unexpected end of form|^request aborted$/i.test(err.message)) {
     const propertyId = typeof _req.params?.id === "string" ? _req.params.id : null;
     void logSystemError(
       "api",
-      `Обрыв загрузки фото (Unexpected end of form): объект ${propertyId ?? "?"}, ` +
+      `Обрыв загрузки файла (${err.message}): объект ${propertyId ?? "?"}, ` +
         `Content-Length ${_req.headers["content-length"] ?? "?"}, получено байт ${_req.socket.bytesRead}, ` +
         `UA ${String(_req.headers["user-agent"] ?? "?").slice(0, 200)}`,
-      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}` }
+      { url: _req.originalUrl.split("?")[0], dedupKey: `upload-abort:${propertyId ?? "unknown"}`, silent: true }
     );
     // retryable — очередь на клиенте (uploadQueue.ts) и так считает 5xx
     // повторяемым сама по коду ответа, но явное поле в теле дешёвое и снимает

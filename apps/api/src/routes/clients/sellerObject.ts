@@ -55,7 +55,7 @@ sellerObjectRouter.get("/:id/seller-object", requireAuth, async (req, res) => {
   // До принятия лида карточка агенту закрыта — тот же гейт, что у подсказки
   // черновика объекта (routes/ai.ts, /property-draft).
   if (scopeToOwnAgent(req) && !client.acceptedAt) {
-    return res.status(403).json({ error: "Сначала примите лид — до принятия карточка закрыта" });
+    return res.status(403).json({ error: "Сначала примите заявку — до принятия карточка закрыта" });
   }
 
   const isSeller = isSellerClient(client);

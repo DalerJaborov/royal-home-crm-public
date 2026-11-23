@@ -13,15 +13,19 @@ import { expenseRowsFromTable } from "../lib/expenseTableRows.js";
 import { loadAssistantSettings } from "../ai/assistant/runtime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
+import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
-import { prisma } from "../db.js";
+import { mergeAssistantDialog, withAssistantDialog } from "./assistantDialogState.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
 import { NO_USD_RATE_TEXT } from "../lib/money.js";
 import {
   intakeText, knownBatch, normalizeReceiptPhoto, PDF_MAX_BYTES, PDF_MAX_PAGES, pdfPageNotesText, rowsFromPdf, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
 } from "./assistantExpenseBatchIntake.js";
 import { collectExpenseAlbumPhoto, hasExpenseAlbum } from "./assistantExpenseAlbum.js";
+import { mentionsExpenses } from "../ai/assistant/expenseIntent.js";
+import { expenseIntentPending } from "./assistantExpenseFollowup.js";
+import { withListMonth } from "./assistantExpenseTextList.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
 // Подпись-намерение на четырёх языках (10.11.2026): «расходы за октябрь», «харҷҳо», «xarajatlar», «expenses».
@@ -60,6 +64,8 @@ const copy = {
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
     noRate: NO_USD_RATE_TEXT,
+    autoOverlapShort: "Уже учтено автоматически — не записала.",
+    autoOverlapHint: "Если это другой платёж, внесите его в CRM: Финансы → Расходы.",
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
@@ -83,6 +89,8 @@ const copy = {
     forbidden: "Расидро фақат директор аз чати шахсии пайвастшуда сабт карда метавонад.",
     uncertain: "Натиҷаро нишон дода натавонистам. Тугмаро боз занед.",
     noRate: "Қурби доллар дар Танзимоти CRM нест — расиди долларӣ сабт намекунам. Қурбро дар Танзимот гузоред.",
+    autoOverlapShort: "Ин харҷ аллакай худкор ҳисоб шудааст — сабт накардам.",
+    autoOverlapHint: "Агар ин пардохти дигар бошад, онро дар CRM ворид кунед: Молия → Харҷҳо.",
   },
 } as const;
 type Language = keyof typeof copy;
@@ -162,7 +170,11 @@ export async function handleTelegramExpenseReceipt(
   if (!parsed.success || parsed.data.chat.id !== parsed.data.from.id) return false;
   const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
-  const explicit = expenseIntent.test(caption);
+  // Подпись-намерение: прежний шаблон («расходы…», «харҷ…» В НАЧАЛЕ подписи) ИЛИ слово «расход» где угодно
+  // («ҳамин хароҷотҳоро дар CRM ворид кун», 10–11.11.2026), ИЛИ без подписи, но минуту назад сказали
+  // «внеси расходы» (assistantExpenseFollowup.ts). Шаблон — подсказка пути; запись всё равно только кнопкой.
+  const explicit = expenseIntent.test(caption) || mentionsExpenses(caption)
+    || (!caption && await expenseIntentPending(String(chat.id), agentId));
   const sheet = document ? spreadsheetKind(document) : null;
   const albumPhoto = Boolean(msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id);
   if ((sheet && !msg.media_group_id) || albumPhoto) {
@@ -237,7 +249,7 @@ export async function handleTelegramExpenseReceipt(
             await send(intakeText(language).unreadablePhoto);
             return true;
           }
-          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
+          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: withListMonth(table.rows, caption), lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
             notes: { skipped: table.skipped, ...(table.readUpTo ? { readUpTo: table.readUpTo } : {}) } });
           return true;
         }
@@ -303,7 +315,9 @@ export async function handleTelegramExpenseReceipt(
     console.warn("[telegram:assistant] receipt preview unavailable", { kind: pdf ? "pdf" : "photo" });
     const invalidPdf = pdf && error instanceof Error
       && ["media_invalid_pdf", "media_pdf_limit", "media_size_rejected"].includes(error.message);
-    if (explicit && !hasDraft) await send(invalidPdf ? copy[language].invalidPdf : copy[language].unavailable).catch(() => {});
+    if (explicit && !hasDraft) {
+      await send(invalidPdf ? copy[language].invalidPdf : assistantLimitText(error, language) ?? copy[language].unavailable).catch(() => {});
+    }
     return explicit || hasDraft;
   }
 }
@@ -324,8 +338,8 @@ export async function handleTelegramExpenseReceiptCallback(query: TelegramCallba
     const actor = await getExpenseDirector(String(query.from.id));
     if (!actor) { await ack(phrases.forbidden); return true; }
     const result = await decideExpensePhotoDraft(actor, validId.data, match[1] === "yes");
-    const text = phrases[result.kind];
-    await ack(text);
+    const text = result.kind === "autoOverlap" ? `${result.text} ${phrases.autoOverlapHint}` : phrases[result.kind];
+    await ack(result.kind === "autoOverlap" ? phrases.autoOverlapShort : text);
     if (result.kind !== "forbidden" && query.message.message_id) {
       await editMessageText(actor.chatId, query.message.message_id, text, null).catch(() => {});
     }
@@ -424,19 +438,18 @@ async function askIfSpreadsheetIsExpenses(params: {
   chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind; agentId: string;
 }): Promise<boolean> {
   if (!(await getExpenseDirector(params.chatId, params.agentId))) return false;
-  const state = await prisma.telegramDialogState.findUnique({ where: { chatId: params.chatId } });
-  if (state && state.kind !== "assistant" && state.expiresAt > new Date()) return false;
-  const live = state && state.kind === "assistant" && state.agentId === params.agentId && state.expiresAt > new Date();
-  const payload = live ? state.payload as Record<string, unknown> : { messages: [] };
-  const data = {
-    agentId: params.agentId, kind: "assistant",
-    payload: { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS, lang: questionLang(payload) } } as object,
-    expiresAt: new Date(Math.max(Date.now() + FILE_QUESTION_TTL_MS, live ? state.expiresAt.getTime() : 0)),
-  };
-  await prisma.telegramDialogState.upsert({ where: { chatId: params.chatId }, create: { chatId: params.chatId, ...data }, update: data });
+  // Слиянием через одну дверь (assistantDialogState.ts): история, фото и правка строки не стираются.
   // Язык вопроса — язык разговора (подписи у файла нет): по последним словам человека в этом чате.
-  const history = Array.isArray(payload.messages) ? payload.messages as { role: string; content: string }[] : [];
-  const lang: Language = ["tg", "mixed"].includes(assistantLanguage(history.filter((m) => m && typeof m.content === "string"))) ? "tg" : "ru";
+  let lang: Language = "ru";
+  const ok = await mergeAssistantDialog({
+    chatId: params.chatId, agentId: params.agentId,
+    change: (payload) => {
+      lang = questionLang(payload);
+      return { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS, lang } };
+    },
+    expiresAt: (live) => new Date(Math.max(Date.now() + FILE_QUESTION_TTL_MS, live ? live.getTime() : 0)),
+  });
+  if (!ok) return false;
   const q = FILE_QUESTION[lang];
   await sendMessageWithButtons(params.chatId, q.ask, [[
     { text: q.yes, callback_data: `ay:y:${params.messageId}` },
@@ -453,19 +466,29 @@ export async function handleExpenseFileQuestionCallback(query: TelegramCallbackQ
   const ack = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
   if (!match || !chat || chat.type !== "private" || !agentId || chat.id !== query.from?.id) { await ack(); return true; }
   const chatId = String(chat.id);
-  const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
-  const payload = state?.kind === "assistant" && state.agentId === agentId ? state.payload as Record<string, unknown> : null;
-  const file = payload?.expenseFile as { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown; lang?: unknown } | undefined;
-  const lang: Language = file?.lang === "tg" ? "tg" : "ru";
+  type PendingFile = { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown; lang?: unknown };
+  // Забрать вопрос про файл под замком (assistantDialogState.ts): два нажатия подряд («Да», «Нет»)
+  // не разберут файл дважды, и запись не затрёт историю, пришедшую после чтения.
+  let seen: PendingFile | undefined;
+  const claimed = await withAssistantDialog<PendingFile | null>({
+    chatId, agentId,
+    run: (live) => {
+      const file = live?.payload.expenseFile as PendingFile | undefined;
+      seen = file;
+      if (!live || !file || file.messageId !== Number(match[2]) || typeof file.fileId !== "string" || Number(file.until) < Date.now()
+        || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) return { result: null };
+      const { expenseFile: _f, ...rest } = live.payload;
+      void _f;
+      return { result: file, write: { payload: rest, expiresAt: live.expiresAt } };
+    },
+  });
+  const file = claimed.ok ? claimed.result : null;
+  const lang: Language = (file ?? seen)?.lang === "tg" ? "tg" : "ru";
   const q = FILE_QUESTION[lang];
-  if (!payload || !file || file.messageId !== Number(match[2]) || typeof file.fileId !== "string" || Number(file.until) < Date.now()
-    || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) {
+  if (!file || typeof file.fileId !== "string" || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) {
     await ack(q.stale);
     return true;
   }
-  const { expenseFile: _f, ...rest } = payload;
-  void _f;
-  await prisma.telegramDialogState.update({ where: { chatId }, data: { payload: rest as object } });
   if (query.message?.message_id) await editMessageText(chatId, query.message.message_id, match[1] === "y" ? q.yes : q.cancelled, null).catch(() => {});
   await ack();
   if (match[1] !== "y") return true;

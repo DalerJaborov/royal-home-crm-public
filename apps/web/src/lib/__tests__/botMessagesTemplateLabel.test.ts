@@ -10,14 +10,14 @@ import { humanizeAttachmentTags } from "../botMessages";
  */
 describe("humanizeAttachmentTags: карточка", () => {
   it("у реплики клиента — нейтральная подпись", () => {
-    expect(humanizeAttachmentTags("[вложение: template]")).toBe("📋 карточка");
+    expect(humanizeAttachmentTags("[вложение: template]")).toBe("карточка");
   });
 
   it("у нашей исходящей реплики — «наша карточка с кнопкой»", () => {
-    expect(humanizeAttachmentTags("[вложение: template]", { outgoing: true })).toBe("📋 наша карточка с кнопкой");
+    expect(humanizeAttachmentTags("[вложение: template]", { outgoing: true })).toBe("наша карточка с кнопкой");
   });
 
   it("остальные типы от направления не зависят", () => {
-    expect(humanizeAttachmentTags("[вложение: image]", { outgoing: true })).toBe("🖼 фото");
+    expect(humanizeAttachmentTags("[вложение: image]", { outgoing: true })).toBe("фото");
   });
 });

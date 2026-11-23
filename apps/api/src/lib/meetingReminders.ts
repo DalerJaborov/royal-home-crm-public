@@ -29,16 +29,15 @@ import {
   dushanbeWallClock,
   isWithinDushanbeWindow,
 } from "./dushanbeTime.js";
-import { formatClientName, type ClientKind } from "@royal-home/shared";
+import { formatClientName, isMessagingWindowClosedFor, type ClientKind } from "@royal-home/shared";
 import { TASK_WHERE } from "./tasks.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { deliverToConversation, findClientDeliveryTargets } from "./conversationDelivery.js";
+import { deliverToConversation, findClientDeliveryTargets, lastClientMessageAt } from "./conversationDelivery.js";
 import { CONFIRM_ASK_STAGE, CONFIRM_NUDGE_STAGE } from "./showingConfirmation.js";
 // Имя из карточки годится для обращения далеко не всегда: у клиента из Instagram
 // там лежит ник. Правило одно на весь проект — см. ai/replyGuards.ts.
 import { looksLikeRealName } from "../ai/replyGuards.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "./scoreJournal.js";
-import { isWithinWorkingHours, isWithinAlarmHours } from "./workingHours.js";
+import { isWithinAlarmHours } from "./workingHours.js";
 
 /** Задача заведена с конкретным временем, а не просто «на этот день». */
 export function hasExactTime(date: Date): boolean {
@@ -137,22 +136,18 @@ const WINDOW_MS = 10 * 60 * 1000;
 /**
  * Ступени напоминаний.
  *
- * У ПОКАЗА покупателя (тип SHOWING) — три: за день (спланировать), за 2 часа
- * (успеть собраться и выехать) и за 40 минут — решение владельца 03.08.2026:
- * письменная спецификация требовала «день + час», но 30.07 владелец отдельно
- * попросил ступени под пробки («у нас пробки хуёвые»); 03.08 решил объединить
- * оба требования, а не выбирать одно.
- *
- * У ВСТРЕЧИ с собственником (тип MEETING) — по письменной спецификации: если
- * встреча «завтра» — 2 часа и 40 минут (тот же трафик), если дальше — день и час.
+ * У ПОКАЗА покупателя (SHOWING) и у ВСТРЕЧИ с собственником (MEETING) — ОДНА
+ * ступень, за 2 часа (владелец 20.09.2026: «повторы вообще убери всем, пусть
+ * одного раза достаточно»; подтвердил 22.11.2026: «за 2 час хватит одно
+ * напоминание»). Ступени «за день» и «за 40 минут» удалены из списка 22.11.2026:
+ * stagesFor их давно не выдавал, а самая дальняя ступень расширяла выборку тика
+ * на сутки вперёд впустую. Сторож — tests/showing-reminders.test.ts.
  *
  * У прочих задач («перезвонить в четверг в 15:00») ступень одна — за час, как было.
  */
 const REMINDER_STAGES: { key: string; leadMs: number; label: string }[] = [
-  { key: "1d", leadMs: 24 * 60 * 60 * 1000, label: "Завтра" },
   { key: "2h", leadMs: 2 * 60 * 60 * 1000, label: "Через 2 часа" },
   { key: "1h", leadMs: 60 * 60 * 1000, label: "Через час" },
-  { key: "40m", leadMs: 40 * 60 * 1000, label: "Через 40 минут" },
   /**
    * ПЕРЕЗВОН ПОСЛЕ НЕДОЗВОНА — ступень «в срок», а не «заранее». leadMs = 0.
    *
@@ -340,8 +335,8 @@ export async function sendHourBeforeReminders(now: Date = new Date()): Promise<n
         title: `⏰ ${stage.label}: ${task.nextAction}`,
         body: `${formatClientName(task.client)} · ${task.client.phone ?? "телефон не указан"} — в ${timeLabel(nextActionDate)}${confirmation}`,
         url: `/clients/${task.client.shortId}`,
-        // Тег со ступенью: иначе напоминание «за 40 минут» заменило бы собой
-        // «за 2 часа» в шторке — агент увидел бы одно уведомление вместо двух.
+        // Тег со ступенью: у разных ступеней (за 2 часа, за час, «пора перезвонить»)
+        // свои уведомления в шторке, одно не заменяет другое.
         tag: `meeting-${task.id}-${stage.key}`,
       });
 
@@ -642,6 +637,11 @@ export async function sendShowingConfirmationRequests(now: Date = new Date()): P
       const target = targets.get(showing.clientId);
       if (!target) continue;
 
+      // Окно Meta закрыто — не пытаемся и отметку не ставим (21.11.2026): иначе каждый
+      // тик (раз в 5 минут) занимал бы показ, получал отказ и снимал отметку. Как только
+      // клиент напишет сам, окно откроется и просьба уйдёт на ближайшем тике.
+      if (isMessagingWindowClosedFor(target.kind === "bot" ? target.channel : "", await lastClientMessageAt(target))) continue;
+
       const text = confirmationText(showing.client.fullName, showing.nextActionDate, showing.property?.title ?? null, now);
       const claimed = await prisma.interaction.updateMany({
         where: { id: showing.id, confirmAskedAt: null },
@@ -653,7 +653,8 @@ export async function sendShowingConfirmationRequests(now: Date = new Date()): P
         error: err instanceof Error ? err.message : String(err),
       }));
       if (!result.ok) {
-        console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
+        // Окно закрылось между проверкой и отправкой — штатно, не ошибка.
+        if (!("code" in result && result.code === "window_closed")) console.error(`[showing] просьба подтвердить не ушла (${showing.id}): ${result.error}`);
         // Снять отметку: следующий тик попробует снова (см. докстринг).
         const current = await prisma.interaction.findUnique({ where: { id: showing.id }, select: { remindersSent: true } });
         await prisma.interaction.update({
@@ -750,166 +751,14 @@ export async function notifyUnconfirmedShowings(now: Date = new Date()): Promise
 const NO_SHOW_AFTER_MS = 2 * 60 * 60 * 1000;
 
 /**
- * «Показ не проведён» — руководству (решение владельца 30.07: «а если не провёл
- * показ, то мне приходит уведомление, чтобы я с него спросил»).
- *
- * Непроведённым считается показ с указанным временем, который не отмечен
- * выполненным через NO_SHOW_AFTER_MS после назначенного часа. Отметка
- * noShowNotifiedAt — чтобы спросить один раз, а не на каждом тике.
- *
- * Отсекаем совсем старое (сутки): при первом запуске джоба на живой базе иначе
- * прилетел бы залп по всем неотмеченным показам за всю историю.
+ * notifyMissedShowings / notifyOverdueTasks УДАЛЕНЫ 16.11.2026. После 02.10.2026
+ * (пуш агенту убран) они делали только одно — писали штраф Royal Score
+ * (showing_missed, meeting_overdue, task_overdue) и ставили отметку
+ * Interaction.noShowNotifiedAt, которую больше никто не читал. Автоматические
+ * штрафы владелец снял, и у функций не осталось работы. Пуш руководству о
+ * непроведённом показе и просроченной встрече — notifySupervisorsOfOverdue ниже,
+ * он от них никогда не зависел (своя отметка supervisorNotifiedAt).
  */
-export async function notifyMissedShowings(now: Date = new Date()): Promise<number> {
-  // Штраф + пуш САМОМУ АГЕНТУ — не будим ночью; встречи СЕГОДНЯ
-  // (sendHourBeforeReminders) под этот гейт намеренно не попадают. Пуш
-  // РУКОВОДСТВУ по этой же пачке — отдельно, notifySupervisorsOfOverdue ниже,
-  // на своём гейте (часы алармов, не рабочие часы агента).
-  if (!(await isWithinWorkingHours(now))) return 0;
-  const to = new Date(now.getTime() - NO_SHOW_AFTER_MS);
-  const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-  const missed = await prisma.interaction.findMany({
-    where: {
-      ...TASK_WHERE,
-      type: "SHOWING",
-      completedAt: null,
-      noShowNotifiedAt: null,
-      nextActionDate: { gte: from, lte: to },
-    },
-    select: {
-      id: true,
-      agentId: true,
-      subjectAgentId: true,
-      nextAction: true,
-      nextActionDate: true,
-      agent: { select: { fullName: true } },
-      client: { select: { fullName: true, kind: true, shortId: true } },
-      property: { select: { title: true } },
-    },
-  });
-  if (missed.length === 0) return 0;
-
-  const points = await loadEventPoints();
-  let notified = 0;
-  for (const task of missed) {
-    try {
-      if (!task.nextActionDate || !hasExactTime(task.nextActionDate)) continue;
-      const ownerId = task.subjectAgentId ?? task.agentId;
-      if (!ownerId) continue;
-
-      // Royal Score: «Показ пропущен» (таблица владельца, п. 13) — БЕЗ ОГЛЯДКИ на
-      // успех push ниже. Штраф зависит от факта («показ не проведён»), а не от того,
-      // получилось ли кого-то уведомить: если бы событие писалось только вместе с
-      // push, отсутствие подписки у всех руководителей (или сбой push-сервиса) тихо
-      // отменяло бы штраф — ФАКТ пропущенного показа тут ни при чём. Дубль при
-      // повторном тике исключён уникальностью по sourceId, а не этим условием.
-      // await обязателен: ниже ставится noShowNotifiedAt, после которого второго тика
-      // по этой записи не будет — незавершённая фоновая запись теряла бы штраф молча.
-      await recordScoreEvent({
-        agentId: ownerId,
-        kind: "showing_missed",
-        delta: points.showing_missed,
-        reason: "Показ не проведён и не отмечен",
-        sourceId: task.id,
-      });
-
-      await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: new Date() } });
-      notified++;
-    } catch (err) {
-      // Сбой одной записи не обрывает тик для остальных (№173 ночной проверки 24.09).
-      reportCronRowError("Неотмеченный показ — руководителю", task.id, err);
-    }
-  }
-
-  // Пуш РУКОВОДСТВУ по этой же пачке — отдельным, независимым сборщиком
-  // (notifySupervisorsOfOverdue ниже), не отсюда: тот шлётся только в часы
-  // алармов (Settings.alarmHours*), а этот тик — просто по рабочим часам
-  // агента. Раньше оба уходили одним пушем под одним гейтом (владелец
-  // 07.09.2026, разбор часов алармов).
-
-  // Пуш и запись в ленту САМОМУ агенту «Показ не отмечен» УБРАНЫ (решение
-  // владельца 02.10.2026: уведомления-«пилилки» агенту не нужны). Штраф
-  // showing_missed и отметка noShowNotifiedAt — выше, не тронуты.
-  return notified;
-}
-
-/**
- * «Встреча/задача просрочена» (таблица владельца, п. 15) — для НИКОГДА не закрытых
- * записей. Показ сюда не входит — у него своя ветка выше (notifyMissedShowings) со
- * своим текстом push, а штраф showing_missed уже общий на оба пути.
- *
- * ПОЧЕМУ НЕ НУЖНО РАЗЛИЧАТЬ «просрочено и потом закрыли поздно» И «так и не
- * закрыли»: оба пути пишут одно и то же событие с sourceId = id записи, а
- * уникальность (kind, sourceId) в журнале сама не даст начислить штраф дважды —
- * какой бы путь ни сработал первым (эта функция раньше, чем агент закрыл её сам
- * через PATCH /interactions/:id/complete, или наоборот).
- */
-export async function notifyOverdueTasks(now: Date = new Date()): Promise<number> {
-  // Штраф + пуш САМОМУ АГЕНТУ — не будим ночью; встречи СЕГОДНЯ
-  // (sendHourBeforeReminders) под этот гейт намеренно не попадают. Пуш
-  // РУКОВОДСТВУ по этой же пачке — отдельно, notifySupervisorsOfOverdue ниже,
-  // на своём гейте (часы алармов, не рабочие часы агента).
-  if (!(await isWithinWorkingHours(now))) return 0;
-  const to = new Date(now.getTime() - NO_SHOW_AFTER_MS);
-  const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-  const overdue = await prisma.interaction.findMany({
-    where: {
-      ...TASK_WHERE,
-      type: { not: "SHOWING" },
-      completedAt: null,
-      noShowNotifiedAt: null,
-      nextActionDate: { gte: from, lte: to },
-    },
-    select: {
-      id: true,
-      type: true,
-      agentId: true,
-      subjectAgentId: true,
-      nextAction: true,
-      nextActionDate: true,
-      agent: { select: { fullName: true } },
-      client: { select: { fullName: true, kind: true, shortId: true } },
-    },
-  });
-  if (overdue.length === 0) return 0;
-
-  const points = await loadEventPoints();
-  let notified = 0;
-  for (const task of overdue) {
-    try {
-      if (!task.nextActionDate || !hasExactTime(task.nextActionDate)) continue;
-      const ownerId = task.subjectAgentId ?? task.agentId;
-      if (!ownerId) continue;
-
-      const isMeeting = task.type === "MEETING";
-      const kind: ScoreEventKind = isMeeting ? "meeting_overdue" : "task_overdue";
-      // await — по той же причине, что и в notifyMissedShowings выше.
-      await recordScoreEvent({
-        agentId: ownerId,
-        kind,
-        delta: points[kind],
-        reason: isMeeting ? "Встреча просрочена — итог не заполнен" : "Задача просрочена",
-        sourceId: task.id,
-      });
-
-      await prisma.interaction.update({ where: { id: task.id }, data: { noShowNotifiedAt: now } });
-      notified++;
-    } catch (err) {
-      // Сбой одной записи не обрывает тик для остальных (№173 ночной проверки 24.09).
-      reportCronRowError("Просроченная задача — руководителю", task.id, err);
-    }
-  }
-
-  // Пуш руководству — см. комментарий у notifyMissedShowings выше:
-  // notifySupervisorsOfOverdue ниже собирает эту же пачку отдельно, только в
-  // часы алармов (владелец 07.09.2026).
-
-  // Пуш и запись в ленту САМОМУ агенту «Встреча/Задача просрочена» УБРАНЫ
-  // (решение владельца 02.10.2026). Штраф и отметка noShowNotifiedAt — выше.
-  return notified;
-}
 
 /**
  * ПУШ РУКОВОДСТВУ ПО НЕПРОВЕДЁННЫМ ПОКАЗАМ/ПРОСРОЧЕННЫМ ВСТРЕЧАМ И ЗАДАЧАМ —
@@ -918,16 +767,10 @@ export async function notifyOverdueTasks(now: Date = new Date()): Promise<number
  * Раньше этот пуш уходил ИЗНУТРИ notifyMissedShowings/notifyOverdueTasks, тем
  * же пушем и тем же гейтом (isWithinWorkingHours), что и пуш агенту, чья
  * запись просрочена, — то есть в рабочие часы АГЕНТА, а не в часы алармов
- * директора. Штраф Royal Score и пуш агенту остаются там же и на том же
- * гейте — трогать их нельзя, это KPI-начисление. Здесь — независимая копия
- * того же события для руководства, с собственным гейтом и собственной
- * отметкой (Interaction.supervisorNotifiedAt), не связанной с noShowNotifiedAt
- * агентской стороны: одно не блокирует другое ни в какую сторону.
+ * директора. Здесь — сборщик для руководства с собственным гейтом и
+ * собственной отметкой (Interaction.supervisorNotifiedAt).
  *
- * Окно выборки то же [now-24ч; now-NO_SHOW_AFTER_MS], что и у агентской
- * стороны — специально НЕ завязано на noShowNotifiedAt (тот может быть уже
- * проставлен рабочими часами агента задолго до часов алармов, а может и не
- * быть — оба случая обязаны попасть в это окно).
+ * Окно выборки [now-24ч; now-NO_SHOW_AFTER_MS].
  */
 export async function notifySupervisorsOfOverdue(now: Date = new Date()): Promise<number> {
   if (!(await isWithinAlarmHours(now))) return 0;

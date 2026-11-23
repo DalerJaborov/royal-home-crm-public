@@ -5,7 +5,8 @@ import { readPublicSourceRow, publicCommentOrigin } from "./customerPublicCommen
 import { publicCommentSourceDigest } from "./publicCommentSourceIdentity.js";
 import type { PublicSourceRef } from "@royal-home/shared";
 
-const technicalReasons = new Set([
+/** The ONE list of technical (non-semantic) reasons a public plan failed. lib/commentWaitingAlert.ts reads it too. */
+export const PUBLIC_AGENT_TECHNICAL_FAILURES: ReadonlySet<string> = new Set([
   "invalid_model_turn", "mixed_model_protocol", "missing_model_parts", "duplicate_call_id", "invalid_model_call",
   "invalid_call_id", "call_id_reused", "invalid_model_decision", "duplicate_tool_definition", "round_limit",
   "tool_limit", "output_limit", "unsupported_decision_evidence", "turn_unavailable", "turn_deadline", "public_core_unavailable", "expired",
@@ -19,7 +20,7 @@ export function publicAgentFailureNote(reason: string, previousNote: string | nu
 }
 
 export async function finishUnsentPublicAgentFailure(ref: PublicSourceRef, reason: string): Promise<boolean> {
-  if (ref.table !== "meta" || !technicalReasons.has(reason)) return false;
+  if (ref.table !== "meta" || !PUBLIC_AGENT_TECHNICAL_FAILURES.has(reason)) return false;
   return prisma.$transaction(async tx => {
     const source = await readPublicSourceRow(ref, tx, true);
     if (!source || !["PENDING", "WORKING", "ERROR"].includes(source.status)) return false;

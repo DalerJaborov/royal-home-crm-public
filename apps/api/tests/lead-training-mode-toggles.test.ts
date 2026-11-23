@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
-import { reassignStaleLeads, penalizeMissedFirstCalls } from "../src/leads.js";
+import { reassignStaleLeads, handleMissedFirstCalls } from "../src/leads.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
 /**
@@ -42,7 +42,8 @@ async function makeUnacceptedLead(assignedAgentId: string, minutesAgo: number) {
   const c = await prisma.client.create({
     data: {
       fullName: `Обучение-непринят ${runId}-${clientIds.length}`,
-      phone: `+9929${Math.floor(Math.random() * 10_000_000)}`,
+      // Настоящий таджикский номер (12 цифр): короткий считается «не набирается» и не уходит (19.11.2026).
+      phone: `+99293${String(Math.floor(Math.random() * 10_000_000)).padStart(7, "0")}`,
       source: "PHONE_CALL",
       assignedAgentId,
       assignedAt: new Date(Date.now() - minutesAgo * 60_000),
@@ -57,7 +58,8 @@ async function makeAcceptedLead(assignedAgentId: string, minutesAgo: number) {
   const c = await prisma.client.create({
     data: {
       fullName: `Обучение-непрозвон ${runId}-${clientIds.length}`,
-      phone: `+9929${Math.floor(Math.random() * 10_000_000)}`,
+      // Настоящий таджикский номер (12 цифр): короткий считается «не набирается» и не уходит (19.11.2026).
+      phone: `+99293${String(Math.floor(Math.random() * 10_000_000)).padStart(7, "0")}`,
       source: "PHONE_CALL",
       assignedAgentId,
       assignedAt: new Date(Date.now() - (minutesAgo + 5) * 60_000),
@@ -103,7 +105,7 @@ beforeAll(async () => {
       leadCallMinutes: 15,
       leadEscalateAfter: 1,
       // Этот файл проверяет тумблеры «режима обучения», а не пул «ничьих»
-      // (см. agent-occupancy-shield.test.ts и leads.ts::penalizeMissedFirstCalls) —
+      // (см. agent-occupancy-shield.test.ts и leads.ts::handleMissedFirstCalls) —
       // 0 держит поведение прежним: передача при сорванном звонке остаётся
       // мгновенной, без промежуточной фазы «в пуле».
       leadPoolAfterMinutes: 0,
@@ -208,7 +210,7 @@ describe("leadReassignOnMissedCallEnabled", () => {
   it("выключено (по умолчанию) — принятый лид остаётся у того же агента", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { leadReassignOnMissedCallEnabled: false } });
     const lead = await makeAcceptedLead(agentIds[0], 20);
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentIds[0]);
     expect(after?.acceptedAt).not.toBeNull();
@@ -217,7 +219,7 @@ describe("leadReassignOnMissedCallEnabled", () => {
   it("включено — лид снимается и уходит следующему агенту", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { leadReassignOnMissedCallEnabled: true } });
     const lead = await makeAcceptedLead(agentIds[0], 20);
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     const after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).not.toBe(agentIds[0]);
     expect(after?.acceptedAt).toBeNull();
@@ -230,14 +232,14 @@ describe("leadReassignOnMissedCallEnabled", () => {
     });
     const lead = await makeAcceptedLead(agentIds[0], 20);
     // Сначала штрафуется и замирает по старому правилу (тумблер ещё выключен).
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     let after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).toBe(agentIds[0]);
 
     // Владелец включает тумблер задним числом — на следующем тике лид обязан
     // уйти дальше, а не остаться висеть до нового срыва звонка.
     await prisma.settings.update({ where: { id: "singleton" }, data: { leadReassignOnMissedCallEnabled: true } });
-    await penalizeMissedFirstCalls();
+    await handleMissedFirstCalls();
     after = await prisma.client.findUnique({ where: { id: lead.id } });
     expect(after?.assignedAgentId).not.toBe(agentIds[0]);
     expect(after?.acceptedAt).toBeNull();

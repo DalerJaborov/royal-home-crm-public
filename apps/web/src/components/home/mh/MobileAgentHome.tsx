@@ -14,7 +14,6 @@ import {
   useDenyDuplicateReview,
   useDuplicateReviews,
   useReactivationOffers,
-  isRequiresRelease,
   type DuplicateReviewItem,
   type ReactivationOffer,
 } from "../../../hooks/useClients";
@@ -27,19 +26,17 @@ import { MutationError } from "../../MutationError";
 import { focusReason } from "../../../lib/focusReason";
 import { formatMoney, pluralizeRu, relativeTime } from "../../../lib/format";
 import { dushanbeTime } from "../../../lib/date";
+import { screenState } from "../../../lib/screenState";
 import { CLIENT_SOURCE_LABELS, clientDisplayName } from "../../../lib/clientFormat";
 import { AVATAR_TONES } from "../../../lib/theme2026Person";
 import {
-  buildNoContact,
-  buildPortfolio,
   buildShowings,
-  daysSince,
   findGap,
-  NO_CONTACT_DAYS,
 } from "../../../lib/agentDay";
 import { MhMoney, MhNoData, MhQuiet, MhScreen, MhSection, mmss, useSecondTick } from "./MhScreen";
 import type { Client, Interaction } from "../../../types";
 import type { DashboardSummary } from "../../../hooks/useDashboard";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
 
 type FirstCallDueItem = DashboardSummary["firstCallDue"][number];
 
@@ -84,22 +81,7 @@ export function MobileAgentHome() {
   const { data, isLoading, isError, error, refetch } = useDashboardSummary();
   // Тот же серверный фильтр и тот же ключ кэша, что у PendingLeadsRows на ПК
   // и у IncomingLeadWindow: общий кэш, а не второй список.
-  const { data: pendingPage } = useClients({ pageSize: 20, pendingAcceptance: true });
-  /**
-   * СТО ПОЛНЫХ КАРТОЧЕК РАДИ ОДНОЙ СТРОКИ (исправлено 19.09.2026).
-   *
-   * Здесь стояло `useClients({ pageSize: 100 })`, а весь результат нужен ровно
-   * для одной подсказки в секции «Между встречами» — `noContact[0]`, клиент,
-   * который дольше всех без контакта. Сотня карточек клиента — самый тяжёлый
-   * ответ этого API, и он приезжал на КАЖДОЕ открытие главной, на мобильном
-   * интернете, вместе с шестью другими запросами этого же экрана.
-   *
-   * Сервер умеет сортировать по давности последнего контакта сам
-   * (`contact_asc`, CLIENT_SORTS), поэтому нужные карточки — в первых строках.
-   * Берём короткую страницу: 30 вместо 100 с запасом на те, что отсеет
-   * buildPortfolio (непринятые, закрытые, неактивные).
-   */
-  const { data: clientsPage } = useClients({ pageSize: 30, sort: "contact_asc" });
+  const { data: pendingPage, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
   const { data: settings } = useSettings();
   // Тот же счётчик сделок, что уже показывает значок раздела в меню — запрос
   // общий и закэширован, лишнего похода в сеть плитка не добавляет.
@@ -129,9 +111,9 @@ export function MobileAgentHome() {
   // это: позвонить, осталось 6:02» стояло под крупным «0, на сегодня всё сделано».
   const todayCount = tasks.length + firstCallDue.length;
   const callTick = useSecondTick(firstCallDue.length > 0);
-  const clients = useMemo(() => clientsPage?.items ?? [], [clientsPage]);
-  const portfolio = useMemo(() => buildPortfolio(clients, Date.now()), [clients]);
-  const noContact = useMemo(() => buildNoContact(portfolio, Date.now()), [portfolio]);
+  // «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  const { data: noContactPage, isError: noContactError, refetch: refetchNoContact } = useClients({ pageSize: 1, noContact: true });
+  const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
   const gap = useMemo(() => findGap(showings, Date.now()), [showings]);
 
@@ -156,6 +138,18 @@ export function MobileAgentHome() {
   const pct = plan > 0 ? Math.min(100, Math.round((commission / plan) * 100)) : 0;
 
   const pendingTotal = pendingPage?.total ?? pending.length;
+
+  /**
+   * ЗАГРУЗКА, ОТКАЗ И НАСТОЯЩИЙ НОЛЬ — РАЗНЫЕ ВЕЩИ (17.11.2026, аудит F2-1).
+   * Пустой массив `data?.x ?? []` при отказе сводки читался как «на сегодня всё
+   * сделано», «Показов на сегодня нет», «Все клиенты на связи». Тексты «всё
+   * сделано / нет» — только когда данные действительно пришли (lib/screenState.ts).
+   */
+  const summary = screenState({ data, isError });
+  const pendingState = screenState({ data: pendingPage, isError: pendingError });
+  // Строка «не связывались» — серверный срез noContact (#220), а не сотня карточек.
+  const clientsState = screenState({ data: noContactPage, isError: noContactError });
+  const pendingErrorShown = pendingState === "error";
 
   // Лид, который прямо сейчас занимает полноэкранное «Входящий лид»
   // (IncomingLeadWindow, смонтировано в AppLayout поверх всех разделов) — его
@@ -240,17 +234,32 @@ export function MobileAgentHome() {
           пилюля ждущих принятия (другое число, не то же самое, что дел на
           сегодня) переехал в подпись, а не пропал.
 
-          Тревога («время принять лид вышло») считает `usePendingAcceptAlert`
+          Тревога («время принять заявку вышло») считает `usePendingAcceptAlert`
           выше — с 15.09.2026 это чистый локальный расчёт с таймером, без
           шины настроения и без звука: оба были частью удалённого знака ИИ и
           удалены вместе с ним. */}
       <section className="sec" style={{ marginTop: 6 }}>
         <div className="card-s big">
-          <div className="ai-hero" data-tone={pendingAlert ? "crit" : todayCount === 0 && pendingTotal === 0 ? "ok" : undefined}>
+          <div
+            className="ai-hero"
+            data-tone={
+              pendingAlert
+                ? "crit"
+                : summary === "ready" && pendingState === "ready" && todayCount === 0 && pendingTotal === 0
+                  ? "ok"
+                  : undefined
+            }
+          >
             <div className="ai-hero-txt">
-              <div className="ai-hero-num">{todayCount}</div>
+              <div className="ai-hero-num">{summary === "ready" ? todayCount : "…"}</div>
               <div className="ai-hero-lbl">
-                {todayCount === 0 ? "на сегодня всё сделано" : "дел на сегодня"}
+                {summary === "loading"
+                  ? "загружаем дела на сегодня"
+                  : summary === "error"
+                    ? "сводка не загрузилась"
+                    : todayCount === 0
+                      ? "на сегодня всё сделано"
+                      : "дел на сегодня"}
                 {pendingTotal > 0
                   ? ` · ${pendingTotal} ${pluralizeRu(pendingTotal, ["заявка ждёт", "заявки ждут", "заявок ждут"])} принятия`
                   : ""}
@@ -276,8 +285,22 @@ export function MobileAgentHome() {
         />
       )}
 
+      {/* Список ждущих не загрузился — секция не пропадает молча: заявки могут ждать. */}
+      {pendingErrorShown && (
+        <MhSection title="Ждут вашего принятия" first>
+          <div className="card-s">
+            <MhQuiet tone="crit">
+              Не загрузились новые заявки.{" "}
+              <button type="button" className="btn ghost sm" onClick={() => refetchPending()}>
+                Повторить
+              </button>
+            </MhQuiet>
+          </div>
+        </MhSection>
+      )}
+
       {supervisorAssigned.length > 0 && (
-        <MhSection title="Вам назначил руководитель" first={!showPendingSection}>
+        <MhSection title="Вам назначил руководитель" first={!showPendingSection && !pendingErrorShown}>
           <div className="card-s">
             {supervisorAssigned.slice(0, 3).map((c) => (
               <SupervisorAssignedRow key={c.id} item={c} />
@@ -292,7 +315,7 @@ export function MobileAgentHome() {
         // окно уже забрало единственного лида) — тогда «Мой фокус» становится
         // первой секцией под шапкой и обязан взять её отступ (макет: 6px, а
         // не стандартные 22px, см. MhSection.first).
-        first={!showPendingSection && supervisorAssigned.length === 0}
+        first={!showPendingSection && !pendingErrorShown && supervisorAssigned.length === 0}
         note={`обновлено ${dushanbeTime(openedAt)}`}
       >
         {urgentCall ? (
@@ -320,7 +343,9 @@ export function MobileAgentHome() {
       </MhSection>
 
       <MhSection title="Далее по приоритету" note="свайп строки">
-        {restCalls.length + shownTasks.length === 0 ? (
+        {summary !== "ready" ? (
+          <MhNoData>{summary === "loading" ? "Загружаем…" : "Не загрузилось: повторите в блоке «Мой фокус»."}</MhNoData>
+        ) : restCalls.length + shownTasks.length === 0 ? (
           <MhNoData tone="ok">Больше дел на сегодня нет.</MhNoData>
         ) : (
           <div className="card-s">
@@ -347,12 +372,22 @@ export function MobileAgentHome() {
         title="Между встречами"
         note={gap ? `с ${dushanbeTime(new Date(gap.from))} до ${dushanbeTime(new Date(gap.to))}` : "когда появится окно"}
       >
-        {noContact[0] ? (
+        {clientsState === "loading" ? (
+          <MhNoData>Загружаем клиентов…</MhNoData>
+        ) : clientsState === "error" ? (
+          <div className="card-s">
+            <MhQuiet tone="crit">
+              Список клиентов не загрузился.{" "}
+              <button type="button" className="btn ghost sm" onClick={() => refetchNoContact()}>
+                Повторить
+              </button>
+            </MhQuiet>
+          </div>
+        ) : noContact[0] ? (
           <div className="card-s">
             <p className="hint">
-              {clientDisplayName(noContact[0].fullName)} {daysSince(noContact[0].lastContactAt, Date.now())}{" "}
-              {pluralizeRu(daysSince(noContact[0].lastContactAt, Date.now()), ["день", "дня", "дней"])} без контакта.
-              Короткий звонок сегодня дешевле, чем новый лид завтра.
+              {clientDisplayName(noContact[0])} — {NO_CONTACT_TEXT.item}.
+              Короткий звонок сегодня дешевле, чем новая заявка завтра.
             </p>
             <div className="chips">
               <CallClientButton
@@ -360,7 +395,7 @@ export function MobileAgentHome() {
                 phone={noContact[0].phone}
                 variant="full"
                 className="btn soft sm"
-                label={`Позвонить: ${clientDisplayName(noContact[0].fullName).split(" ")[0]}`}
+                label={`Позвонить: ${clientDisplayName(noContact[0]).split(" ")[0]}`}
                 stopPropagation={false}
               />
               <button
@@ -374,13 +409,15 @@ export function MobileAgentHome() {
           </div>
         ) : (
           <MhNoData tone="ok">
-            Все ваши клиенты на связи: никто не молчит дольше {NO_CONTACT_DAYS} дней.
+            Все ваши клиенты на связи: никто не молчит больше суток.
           </MhNoData>
         )}
       </MhSection>
 
-      <MhSection title="Показы сегодня" note={showings.length}>
-        {showings.length === 0 ? (
+      <MhSection title="Показы сегодня" note={summary === "ready" ? showings.length : undefined}>
+        {summary !== "ready" ? (
+          <MhNoData>{summary === "loading" ? "Загружаем показы…" : "Показы не загрузились: повторите в блоке «Мой фокус»."}</MhNoData>
+        ) : showings.length === 0 ? (
           <MhNoData>Показов на сегодня нет.</MhNoData>
         ) : (
           <div className="card-s">
@@ -405,7 +442,7 @@ export function MobileAgentHome() {
                     {dushanbeTime(s.nextActionDate!)}
                     {s.property?.title ? ` · ${s.property.title}` : ""}
                   </span>
-                  <span className="s">{s.client?.fullName ?? s.nextAction ?? ""}</span>
+                  <span className="s">{s.client ? clientDisplayName(s.client) : (s.nextAction ?? "")}</span>
                 </span>
                 <ChevronRight className="i" aria-hidden="true" />
               </button>
@@ -541,7 +578,7 @@ function PendingRow({
         style={{ textAlign: "left" }}
         onClick={() => navigate(`/clients/${c.shortId}`)}
       >
-        <span className="n">{c.fullName}</span>
+        <span className="n">{clientDisplayName(c)}</span>
         <span className={expired || escalated ? "s crit" : "s warn"}>
           {left === null ? (
             `ждёт ${relativeTime(c.assignedAt)}`
@@ -552,7 +589,7 @@ function PendingRow({
           )}
           {escalated ? " · никто не принял" : ` · ${leadHint(c)}`}
         </span>
-        {/* «Почему лид ваш» — та же строка сервера, что в окне приёма и на ПК. */}
+        {/* «Почему заявка ваша» — та же строка сервера, что в окне приёма и на ПК. */}
         {c.leadReason && <span className="s">{c.leadReason.text}</span>}
       </button>
       <button
@@ -562,11 +599,7 @@ function PendingRow({
         disabled={acceptLead.isPending}
         onClick={(e) => {
           e.stopPropagation();
-          acceptLead.mutate(undefined, {
-            onError: (err) => {
-              if (isRequiresRelease(err)) navigate(`/clients/${c.shortId}`);
-            },
-          });
+          acceptLead.mutate();
         }}
       >
         {acceptLead.isPending ? "Принятие…" : "Принять"}
@@ -574,7 +607,7 @@ function PendingRow({
     </div>
     {acceptLead.isError && (
       <div style={{ padding: "0 14px 12px" }}>
-        <MutationError mutation={acceptLead} fallback="Не удалось принять лид" variant="rh2" />
+        <MutationError mutation={acceptLead} fallback="Не удалось принять заявку" variant="rh2" />
       </div>
     )}
     </>
@@ -598,7 +631,7 @@ function ReactivationRow({ offer: o }: { offer: ReactivationOffer }) {
         style={{ textAlign: "left" }}
         onClick={() => navigate(`/clients/${o.shortId}`)}
       >
-        <span className="n">{o.fullName}</span>
+        <span className="n">{clientDisplayName(o)}</span>
         <span className="s">написал снова, вернуть карточку себе?</span>
       </button>
       <button
@@ -640,7 +673,7 @@ function DuplicateRow({ review: r }: { review: DuplicateReviewItem }) {
         style={{ textAlign: "left" }}
         onClick={() => r.duplicateReviewOfClient && navigate(`/clients/${r.duplicateReviewOfClient.shortId}`)}
       >
-        <span className="n">{r.fullName}</span>
+        <span className="n">{clientDisplayName(r)}</span>
         <span className="s warn">похоже на «{r.duplicateReviewOfClient?.fullName ?? "?"}» — тот же человек?</span>
       </button>
       <button
@@ -692,7 +725,7 @@ function FirstCallFocusCard({ item, now }: { item: FirstCallDueItem; now: number
               "срок вышел, звоните сейчас"
             ) : (
               <>
-                осталось <span className="timer">{mmss(left)}</span> · иначе минус к Royal Score
+                осталось <span className="timer">{mmss(left)}</span> · {item.afterDue ?? "иначе руководитель увидит, что звонка не было"}
               </>
             )}
           </div>
@@ -734,14 +767,9 @@ function FocusCard({ task }: { task: Interaction }) {
           {client?.fullName?.[0]?.toUpperCase() ?? "?"}
         </span>
         <div>
-          <div className="n">{client?.fullName ?? "Клиент"}</div>
+          <div className="n">{client ? clientDisplayName(client) : "Клиент"}</div>
           <div className="s">{task.property?.title ?? task.nextAction ?? "Ждёт ответа"}</div>
         </div>
-        {client?.status === "HOT" && (
-          <span className="chip crit" style={{ marginLeft: "auto" }}>
-            горячий
-          </span>
-        )}
       </div>
       <p className="why">{focusReason(task)}</p>
       <div className="acts">
@@ -840,7 +868,7 @@ function TaskSwipeRow({ task, tone }: { task: Interaction; tone: number }) {
         <button type="button" className="t" style={{ textAlign: "left" }} onClick={open}>
           <span className="n">{task.property?.title ?? task.nextAction ?? "Задача"}</span>
           <span className="s">
-            {client?.fullName ?? "Клиент"}
+            {client ? clientDisplayName(client) : "Клиент"}
             {task.nextActionDate ? ` · к ${dushanbeTime(task.nextActionDate)}` : ""}
           </span>
         </button>

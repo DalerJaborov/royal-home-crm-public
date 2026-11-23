@@ -1,4 +1,5 @@
 import type { Prisma } from "../generated/prisma/client.js";
+import { prisma } from "../db.js";
 
 /**
  * Что считается задачей команды.
@@ -24,6 +25,59 @@ export const TASK_WHERE = {
   // Preserve completed history; an unfinished task cannot burden a closed assignment.
   NOT: { completedAt: null, client: { assignmentCompletedAt: { not: null } } },
 } satisfies Prisma.InteractionWhereInput;
+
+/**
+ * Просроченная задача: срок прошёл, выполненной не отмечена. Одно условие на
+ * «Контроль руководителя» (routes/oversight.ts), карточку сотрудника
+ * (routes/team.ts) и помощницу Шабнам (get_unworked, get_day_snapshot) —
+ * до 17.11.2026 жило в маршруте oversight.ts и импортировалось оттуда.
+ */
+export function overdueTasksWhere(now: Date): Prisma.InteractionWhereInput {
+  return { ...TASK_WHERE, completedAt: null, nextActionDate: { lt: now } };
+}
+
+/**
+ * ПРОСРОЧЕННЫЕ ЗАДАЧИ СОТРУДНИКОВ — ОДНО ПРАВИЛО НА КАРТОЧКУ СОТРУДНИКА И ГЛАВНУЮ
+ * РУКОВОДИТЕЛЯ (20.11.2026). Задача «его», если он её исполнитель (`agentId`) ИЛИ её
+ * записал бот/система от лица держателя карточки (`subjectAgentId`, П-10 17.09.2026).
+ * `scope` — дополнительное условие видимости (visibleInteractionWhere), складывается
+ * через AND, а не разворотом: у обоих условий может быть свой OR.
+ */
+export function overdueTasksOfAgentsWhere(now: Date, agentIds: readonly string[], scope?: Prisma.InteractionWhereInput): Prisma.InteractionWhereInput {
+  const ids = [...agentIds];
+  return {
+    AND: [
+      overdueTasksWhere(now),
+      { OR: [{ agentId: { in: ids } }, { subjectAgentId: { in: ids } }] },
+      ...(scope ? [scope] : []),
+    ],
+  };
+}
+
+/** Потолок строк для счёта по агентам: просроченных задач у агентства сотни; это защита от аварии. */
+export const OVERDUE_BY_AGENT_CAP = 20_000;
+
+/**
+ * Сколько просроченных задач у каждого из агентов — тем же правилом, что
+ * `overdueTasksOfAgentsWhere`: задача, где агент и исполнитель, и «от лица», считается
+ * ему один раз; задача исполнителя A от лица B — и A, и B (как в карточке каждого).
+ */
+export async function countOverdueTasksByAgent(now: Date, agentIds: readonly string[], scope?: Prisma.InteractionWhereInput): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (agentIds.length === 0) return out;
+  const wanted = new Set(agentIds);
+  const rows = await prisma.interaction.findMany({
+    where: overdueTasksOfAgentsWhere(now, agentIds, scope),
+    select: { agentId: true, subjectAgentId: true },
+    orderBy: { id: "asc" },
+    take: OVERDUE_BY_AGENT_CAP,
+  });
+  for (const row of rows) {
+    const owners = new Set([row.agentId, row.subjectAgentId].filter((id): id is string => !!id && wanted.has(id)));
+    for (const id of owners) out.set(id, (out.get(id) ?? 0) + 1);
+  }
+  return out;
+}
 
 /**
  * Показ, который засчитывается в цифры: любой, кроме отменённого.

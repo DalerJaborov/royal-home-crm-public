@@ -2,8 +2,10 @@ import type { AdPlatform, ClientSource } from "../../generated/prisma/client.js"
 import { prisma } from "../../db.js";
 import { describeError } from "../describeError.js";
 import { centsToTjs, fromCents, loadMoneyContext, toCents } from "../money.js";
-import { dushanbeWallClock } from "../dushanbeTime.js";
+import { dushanbeMonthRange, dushanbeWallClock } from "../dushanbeTime.js";
 import { logSystemError } from "../systemError.js";
+import { warnManualOverlapsForAuto } from "../expenseAutoOverlap.js";
+import { AI_ESTIMATE_VENDORS, aiEstimateNote, splitAiEstimate } from "@royal-home/shared";
 
 /**
  * РЕКЛАМА И ИИ САМИ ПОПАДАЮТ В «ФИНАНСЫ → РАСХОДЫ».
@@ -54,6 +56,8 @@ const PLATFORM_LABEL: Record<AdPlatform, string> = {
  * лидов, своя стоимость лида) заработает само.
  */
 const SYNCED_PLATFORMS: AdPlatform[] = ["META"];
+/** Тот же список для «Пульса» (дневной расход по площадкам). */
+export const SYNCED_AD_PLATFORMS: readonly AdPlatform[] = SYNCED_PLATFORMS;
 
 /** «2026-08» → первый день месяца (UTC) — так месяц хранит Expense (см. routes/expenses.ts). */
 function monthToDate(month: string): Date {
@@ -129,22 +133,44 @@ export async function upsertAdExpenses(months: string[]): Promise<number> {
 }
 
 /**
- * Строка «расходы на ИИ за месяц» — из журнала обращений (AiLog.costUsd ведётся
- * по каждому вызову). Вызывается суточным кроном.
+ * Строка «расходы на ИИ за месяц» — ОЦЕНКА из журнала обращений (AiLog.costUsd ведётся по
+ * каждому вызову по прайсу). Вызывается суточным кроном и сразу после записи счёта поставщика ИИ.
+ *
+ * Счёт поставщика сильнее оценки (17.11.2026, splitAiEstimate в packages/shared): если за месяц
+ * есть настоящий счёт или подписка Gemini (Expense.vendor), обращения к Gemini в оценку не идут —
+ * иначе Gemini учтён дважды (октябрь 2026: оценка ≈ 33 $ и «ОПЛАТА ИИ» 2 000 с.).
  */
 export async function upsertAiExpenses(months: string[]): Promise<number> {
   let touched = 0;
   for (const month of months) {
     const from = monthToDate(month);
-    const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+    // Обращения месяца — по Душанбе (аудит денег 17.11): по UTC последние 5 часов месяца уходили в
+    // следующий, а после 1-го числа прошлый месяц не пересчитывается — хвост терялся навсегда.
+    const range = dushanbeMonthRange(month);
 
-    const sum = await prisma.aiLog.aggregate({
-      where: { createdAt: { gte: from, lt: to }, costUsd: { not: null } },
-      _sum: { costUsd: true },
-    });
+    const [groups, bills] = await Promise.all([
+      prisma.aiLog.groupBy({
+        by: ["provider", "model"],
+        where: { createdAt: { gte: range.from, lt: range.to }, costUsd: { not: null } },
+        _sum: { costUsd: true },
+      }),
+      // Настоящие счета и подписки поставщиков ИИ за месяц: ручные и из шаблонов, не в корзине.
+      // У самой строки оценки ai:<месяц> поставщика нет — она сюда не попадает. Фильтр по autoKey
+      // здесь нельзя: NOT по пустому autoKey в SQL даёт «неизвестно» и прячет ручные счета.
+      prisma.expense.findMany({
+        // Только оплаченный счёт за ИИ самой CRM (ревью 17.11): план и подписка на чат оценку не снимают.
+        where: { month: from, deletedAt: null, status: "PAID", coversAiUsage: true, vendor: { in: [...AI_ESTIMATE_VENDORS] } },
+        select: { vendor: true },
+        distinct: ["vendor"],
+      }),
+    ]);
+    const split = splitAiEstimate(
+      groups.map((g) => ({ provider: g.provider, model: g.model, costUsd: g._sum.costUsd })),
+      bills.flatMap((b) => (b.vendor ? [b.vendor] : [])),
+    );
     // Расход на ИИ приходит долями цента (costUsd за один вызов), поэтому
     // округляем один раз на месяц, а не на каждом слагаемом.
-    const spend = fromCents(toCents(sum._sum.costUsd ?? 0));
+    const spend = fromCents(split.countedCents);
     const changed = await upsertAutoExpense({
       autoKey: `ai:${month}`,
       month: from,
@@ -152,12 +178,15 @@ export async function upsertAiExpenses(months: string[]): Promise<number> {
       currency: "USD",
       category: "OTHER",
       source: null,
-      note: `Искусственный интеллект (Claude, Gemini) — автоматически из журнала обращений. Сумма обновляется раз в сутки.`,
+      note: aiEstimateNote(split),
     });
     if (changed) touched++;
   }
   return touched;
 }
+
+/** Сумма для записи в базу — ровно два знака строкой (аудит денег 17.11: в базе 76.65000000000001). */
+const moneyString = (amount: number) => (toCents(amount) / 100).toFixed(2);
 
 async function upsertAutoExpense(row: {
   autoKey: string;
@@ -171,11 +200,21 @@ async function upsertAutoExpense(row: {
   try {
     const existing = await prisma.expense.findUnique({
       where: { autoKey: row.autoKey },
-      select: { id: true, deletedAt: true, amount: true, currency: true },
+      select: { id: true, deletedAt: true, amount: true, currency: true, note: true, manualEditedAt: true },
     });
 
-    // Человек удалил строку — не воскрешаем и не трогаем.
+    // Человек удалил строку — не воскрешаем и не трогаем. Человек поправил сумму — тоже (аудит №4:
+    // ночной пересчёт откатывал правку директора; найдено ревью 17.11 рядом). Расхождение ручной
+    // суммы с источником — в журнал ошибок раз в неделю: директор видит, что кабинет насчитал другое.
     if (existing?.deletedAt) return false;
+    if (existing?.manualEditedAt) {
+      if (toCents(existing.amount) !== toCents(row.amount)) {
+        void logSystemError("ads", `Строка ${row.autoKey} правлена вручную: по источнику ${fromCents(toCents(row.amount))} ${row.currency}, в строке оставлена ручная сумма ${Number(existing.amount)} ${existing.currency}`, {
+          dedupKey: `auto-vs-manual:${row.autoKey}`, dedupWindowMs: 7 * 86_400_000,
+        });
+      }
+      return false;
+    }
 
     // Нулевой расход не заводим: пустая строка «0 с.» в Финансах — шум. Но если
     // строка уже есть (расход был, потом Meta пересчитала в ноль) — обновляем.
@@ -188,21 +227,26 @@ async function upsertAutoExpense(row: {
       // появления сомонёвого кабинета пересчитывается в 120 TJS, и сумма без новой
       // валюты превращала сомони в доллары (в Финансах в десять раз больше).
       const currency = row.currency === "TJS" ? "TJS" : "USD";
-      if (toCents(existing.amount) === toCents(row.amount) && existing.currency === currency) return false;
-      await prisma.expense.update({ where: { id: existing.id }, data: { amount: row.amount, currency } });
+      // Текст строки ИИ говорит, какой поставщик не посчитан (счёт есть) — обновляется вместе с суммой.
+      const noteChanged = row.autoKey.startsWith("ai:") && existing.note !== row.note;
+      if (toCents(existing.amount) === toCents(row.amount) && existing.currency === currency && !noteChanged) return false;
+      await prisma.expense.update({ where: { id: existing.id }, data: { amount: moneyString(row.amount), currency, ...(noteChanged ? { note: row.note } : {}) } });
       return true;
     }
     await prisma.expense.create({
       data: {
         autoKey: row.autoKey,
         month: row.month,
-        amount: row.amount,
+        amount: moneyString(row.amount),
         currency: row.currency === "TJS" ? "TJS" : "USD",
         category: row.category,
         source: row.source,
         note: row.note,
       },
     });
+    // Обратная сторона правила «расход дважды» (14.11.2026): ручная строка того же вида за этот
+    // месяц уже была — тревога директору, какую из двух убрать, решает человек.
+    await warnManualOverlapsForAuto(row.autoKey, row.month.toISOString().slice(0, 7));
     return true;
   } catch (err) {
     void logSystemError("ads", `Автоматическая строка расхода ${row.autoKey} не записана: ${describeError(err)}`);

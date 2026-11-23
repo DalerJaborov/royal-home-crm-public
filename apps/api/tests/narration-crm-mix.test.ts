@@ -45,7 +45,7 @@ const { videoHandoffDir } = await import("../src/upload.js");
 const runId = Date.now();
 const phone = `+99293${runId.toString().slice(-7)}`;
 const tmp = path.join(os.tmpdir(), `narration-mix-${runId}`);
-const media = { silent: path.join(tmp, "silent.mp4"), music: path.join(tmp, "music.mp4"), voice: path.join(tmp, "voice.mp3"), longVoice: path.join(tmp, "long.mp3") };
+const media = { silent: path.join(tmp, "silent.mp4"), music: path.join(tmp, "music.mp4"), voice: path.join(tmp, "voice.mp3"), longVoice: path.join(tmp, "long.mp3"), hugeVoice: path.join(tmp, "huge.mp3") };
 let districtId: string;
 let agentId: string;
 let configBefore: unknown = null;
@@ -100,14 +100,16 @@ beforeAll(async () => {
   ff(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6", "-f", "lavfi", "-i", "sine=frequency=300:duration=6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", media.music]);
   ff(["-f", "lavfi", "-i", "sine=frequency=800:duration=3", "-c:a", "libmp3lame", media.voice]);
   ff(["-f", "lavfi", "-i", "sine=frequency=500:duration=9", "-c:a", "libmp3lame", media.longVoice]);
+  // 15 с на ролик 6 с: не спасают ни ускорение на 15 %, ни стоп-кадр 3 с (подгонка длины 16.11.2026).
+  ff(["-f", "lavfi", "-i", "sine=frequency=500:duration=15", "-c:a", "libmp3lame", media.hugeVoice]);
   districtId = (await prisma.district.create({ data: { name: `Озвучка CRM-${runId}` } })).id;
   agentId = (await prisma.agent.create({ data: { fullName: "Агент озвучки", phone, role: "AGENT", passwordHash: await bcrypt.hash("testpass123", 4) } })).id;
   // С 12.11.2026 по умолчанию голос вклеивает монтажёр: этот файл проверяет порядок «голос кладёт
   // CRM», поэтому рубильник включается явно и возвращается после прогона.
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { propertyNarrationConfig: true } });
   configBefore = settings?.propertyNarrationConfig ?? null;
-  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: { mixByCrm: true } },
-    update: { propertyNarrationConfig: { ...((configBefore as Record<string, unknown> | null) ?? {}), mixByCrm: true } } });
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", propertyNarrationConfig: { mixByCrm: true, previewBeforeRepublish: false } },
+    update: { propertyNarrationConfig: { ...((configBefore as Record<string, unknown> | null) ?? {}), mixByCrm: true, previewBeforeRepublish: false } } });
 });
 
 afterAll(async () => {
@@ -139,6 +141,23 @@ describe.skipIf(!ffmpegReady)("CRM сама накладывает озвучк�
     const long = await mixNarrationOntoMaster({ masterPath: media.silent, voicePath: media.longVoice, outPath: path.join(tmp, "mixed3.mp4") });
     expect(long).toMatchObject({ ok: false, code: "VOICE_LONGER" });
     expect(await exists(path.join(tmp, "mixed3.mp4"))).toBe(false);
+  });
+
+  it("музыка не мешает голосу (замер 14.11.2026): под голосом музыка глубоко тише, после голоса возвращается; тихий mp3 не ломает приглушение", async () => {
+    // Музыка — низкий тон 120 Гц (громко), «голос» — 2 кГц, нарочно тихий (≈ −30 dBFS), 4 с с паузами.
+    // Частоты разные: после сведения музыку меряем фильтром ниже 300 Гц по секундам.
+    const master = path.join(tmp, "loud-music.mp4"), voice = path.join(tmp, "quiet-voice.mp3"), out = path.join(tmp, "ducked.mp4");
+    ff(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=8", "-f", "lavfi", "-i", "sine=frequency=120:duration=8", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", master]);
+    ff(["-f", "lavfi", "-i", "sine=frequency=2000:duration=4", "-af", "volume='if(lt(mod(t,1),0.8),0.045,0)':eval=frame", "-c:a", "libmp3lame", voice]);
+    expect((await mixNarrationOntoMaster({ masterPath: master, voicePath: voice, outPath: out })).ok).toBe(true);
+    const r = spawnSync(process.env.FFMPEG_BIN || "ffmpeg", ["-hide_banner", "-nostats", "-i", out, "-af",
+      "lowpass=f=300,lowpass=f=300,aformat=channel_layouts=mono,asetnsamples=48000,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
+      "-f", "null", "-"], { encoding: "utf8" });
+    const perSecond = [...r.stdout.matchAll(/RMS_level=(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    expect(perSecond.length).toBeGreaterThanOrEqual(7);
+    const underVoice = Math.max(perSecond[1], perSecond[2], perSecond[3]); // голос звучит с 0,3 до 4,3 с
+    const afterVoice = Math.min(perSecond[6], perSecond[7]);               // release 800 мс давно прошёл
+    expect(afterVoice - underVoice).toBeGreaterThan(12);
   });
 
   it("монтажёру не говорили «без голоса» — прежний путь: ролик без звука не принимается, с музыкой принимается без мастера", async () => {
@@ -199,7 +218,7 @@ describe.skipIf(!ffmpegReady)("CRM сама накладывает озвучк�
     await toldMontajer(p.id, v1.id);
     expect((await receiveEditedVideoFromFile(p.id, await copyToTmp(media.silent), "bez-golosa.mp4")).ok).toBe(true);
     const before = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
-    const v2 = await seedVersion(p.id, 2, media.longVoice);
+    const v2 = await seedVersion(p.id, 2, media.hugeVoice);
 
     expect(await remixFromMaster(p.id)).toBe("FAILED");
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });

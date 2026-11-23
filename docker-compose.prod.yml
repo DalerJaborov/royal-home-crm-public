@@ -154,16 +154,54 @@ services:
       BOT_TURN_TRACE_TEXT_ENABLED: "${BOT_TURN_TRACE_TEXT_ENABLED:-0}"
       # P03 fact-only replies. Mixed CRM actions stay on the legacy path.
       BOT_PROPERTY_CONTEXT_ENABLED: "${BOT_PROPERTY_CONTEXT_ENABLED:-0}"
+      # One brain, step 1 (16.11.2026, review #211): the model's own words around the
+      # template facts. Its own switch, never CUSTOMER_AGENT_SAY_MODE. Empty = shadow
+      # (verified and counted, never sent); live only by the exact word «live»; off.
+      CUSTOMER_AGENT_ANSWER_MODE: "${CUSTOMER_AGENT_ANSWER_MODE:-}"
+      # With the mode «live»: a comma list of core channels (WHATSAPP, INSTAGRAM,
+      # FACEBOOK, WEBSITE) that go live, or the explicit word ALL; the others stay
+      # shadow. Empty or only unknown names = live NOWHERE (an error is logged).
+      # Rollback = the mode back to empty (or off).
+      CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS: "${CUSTOMER_AGENT_ANSWER_LIVE_CHANNELS:-}"
+      # The model's words beside the template, 72 h, for the owner to read before live
+      # (lib/customerAgentAnswerSamples.ts, #240). Empty = writes (shadow and live); off = no writes.
+      CUSTOMER_AGENT_ANSWER_SAMPLES: "${CUSTOMER_AGENT_ANSWER_SAMPLES:-}"
+      # Bot lead-only mode channels (17.11.2026, apps/api/src/ai/leadOnlyMode.ts): a comma list of
+      # WHATSAPP, INSTAGRAM, FACEBOOK, WEBSITE, TELEGRAM. Empty = WHATSAPP,INSTAGRAM,FACEBOOK (owner 13.11);
+      # unknown names are ignored and logged. The mode itself is the switch in Settings → Bot.
+      BOT_LEAD_ONLY_CHANNELS: "${BOT_LEAD_ONLY_CHANNELS:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
       # free phrase mode (shadow|live, PR #44; live only after the shadow week).
       CUSTOMER_AGENT_LEGACY_CUTOVER: "${CUSTOMER_AGENT_LEGACY_CUTOVER:-off}"
       CUSTOMER_AGENT_SAY_MODE: "${CUSTOMER_AGENT_SAY_MODE:-}"
+      # One brain, step 2 (16.11.2026): shadow comparison of the old bot with the core,
+      # per channel (meta_dm, arvan, website, youtube, telegram | all). Empty = off.
+      CUSTOMER_AGENT_CHANNEL_SHADOW: "${CUSTOMER_AGENT_CHANNEL_SHADOW:-}"
+      CUSTOMER_AGENT_SHADOW_DAILY_CAP: "${CUSTOMER_AGENT_SHADOW_DAILY_CAP:-}"
+      # One brain, step 3 (16–17.11.2026). All empty = today's behaviour. CHANNEL_CORE: the core answers instead of the old
+      # bot on telegram,website,youtube (never Meta keys). BRAND_NAME/BRAND_VOICE=on: the account's company name / owner's
+      # voice text in the core's turn. INTAKE_LOCATION=on: the core's lead card learns the property's city.
+      # TELEGRAM_DIRECT_BOT_REPLY=off: no model reply in Telegram channel direct messages, a person is told.
+      # Guard: tests/env-reaches-container.test.ts (a switch read by the code must be on this list).
+      CUSTOMER_AGENT_CHANNEL_CORE: "${CUSTOMER_AGENT_CHANNEL_CORE:-}"
+      CUSTOMER_AGENT_BRAND_NAME: "${CUSTOMER_AGENT_BRAND_NAME:-}"
+      CUSTOMER_AGENT_BRAND_VOICE: "${CUSTOMER_AGENT_BRAND_VOICE:-}"
+      CUSTOMER_AGENT_INTAKE_LOCATION: "${CUSTOMER_AGENT_INTAKE_LOCATION:-}"
+      TELEGRAM_DIRECT_BOT_REPLY: "${TELEGRAM_DIRECT_BOT_REPLY:-}"
+      # Emergency kill switch (18.11.2026, lib/customerAgentChannelOff.ts): comma list of
+      # whatsapp,instagram,facebook,website,telegram,telegram_direct,youtube,arvan | all (arvan = brand accounts only,
+      # MessengerAccount.brandName). Listed channels make no model call:
+      # the customer gets one handover line, a person gets «client is waiting». Empty = off (the bot answers as usual).
+      CUSTOMER_AGENT_CHANNEL_OFF: "${CUSTOMER_AGENT_CHANNEL_OFF:-}"
       # Сбор объявлений Somon/Paydo по расписанию (lib/market/nightly.ts, cron.ts). Без этой
       # строки значение из .env.production в контейнер не попадало: на 11.11.2026 каталог был
       # пуст, хотя переключатель описан в журнале 02.11. По умолчанию выключен.
       MARKET_CRAWL_ENABLED: "${MARKET_CRAWL_ENABLED:-0}"
+      # Частота полного обхода Somon (17.11.2026, lib/market/somonCrawlSchedule.ts): пусто/weekly — раз в
+      # неделю (воскресенье 02:45), nightly — каждую ночь. Читается при старте: менять — пересоздать api/worker.
+      MARKET_SOMON_CRAWL_SCHEDULE: "${MARKET_SOMON_CRAWL_SCHEDULE:-}"
       # Озвучка роликов и отчёт собственнику (lib/mediaExecution.ts): LIVE — по-настоящему
       # звать ElevenLabs и слать mp3 монтажёру, иначе PREVIEW. Без этих строк значение из
       # .env.production в контейнер не попадало (12.11.2026, тот же класс, что MARKET_CRAWL).
@@ -235,6 +273,11 @@ services:
       ASSISTANT_TTS_DICTIONARY_VERSION_RU: ${ASSISTANT_TTS_DICTIONARY_VERSION_RU:-}
       ASSISTANT_TTS_DICTIONARY_ID_TG: ${ASSISTANT_TTS_DICTIONARY_ID_TG:-}
       ASSISTANT_TTS_DICTIONARY_VERSION_TG: ${ASSISTANT_TTS_DICTIONARY_VERSION_TG:-}
+      # Денежные потолки Gemini помощника (предохранитель, не расход): $/сутки и $/ответ.
+      # Без проброса значение из .env.production до контейнера не доходит;
+      # пусто = действует умолчание из кода (30 и 1).
+      ASSISTANT_GEMINI_DAILY_USD: ${ASSISTANT_GEMINI_DAILY_USD:-}
+      ASSISTANT_GEMINI_TURN_USD: ${ASSISTANT_GEMINI_TURN_USD:-}
       # Independent gates for the approved policy index and paid private lookup.
       ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED:-false}"
       ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED:-false}"
@@ -268,6 +311,12 @@ services:
       # gemini-2.5-flash-lite, закрытая Google (404 на каждый вызов).
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      # Модели озвучки (цепочка через запятую; пусто = умолчание из кода). Проброшены,
+      # чтобы сменить модель правкой .env.production без выката кода.
+      GEMINI_TTS_MODELS: ${GEMINI_TTS_MODELS:-}
+      GEMINI_WHISPER_TTS_MODELS: ${GEMINI_WHISPER_TTS_MODELS:-}
+      # Порог тревоги «мало денег на СМС» (TJS; пусто = 50 из кода, lib/balanceWatch.ts).
+      SMS_LOW_BALANCE_TJS: ${SMS_LOW_BALANCE_TJS:-}
       # Прямая интеграция с Meta (WhatsApp, Instagram). Окружение сюда передаётся
       # поимённым списком — дописать переменную только в .env.production мало,
       # контейнер её не увидит (на этом мы уже обожглись с Telegram).

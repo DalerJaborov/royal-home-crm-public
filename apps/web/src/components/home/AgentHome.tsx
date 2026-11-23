@@ -9,12 +9,14 @@ import { Button, Card, PageHeader, Rh2Screen, Skeleton, Tile, Tiles } from "../r
 import { Rh2ErrorState } from "../rh2/Rh2ErrorState";
 import { dushanbeTime } from "../../lib/date";
 import { pluralizeRu, todayLabel } from "../../lib/format";
-import { buildNoContact, buildPortfolio, buildShowings } from "../../lib/agentDay";
+import { buildPortfolio, buildShowings } from "../../lib/agentDay";
 import { buildAgentTodo, type SupervisorAssignedItem } from "../../lib/agentFocus";
 import { AgentFocusCard } from "./agent/AgentFocusCard";
 import { AgentQueue } from "./agent/AgentQueue";
 import { AgentAskSheet, AiButton } from "./agent/AgentAsk";
 import "./agent/agentHome.css";
+import { NO_CONTACT_TEXT } from "@royal-home/shared";
+import { clientDisplayName } from "../../lib/clientFormat";
 
 /**
  * ГЛАВНАЯ АГЕНТА: один экран на ПК и телефон (контракт оболочки 06.10.2026,
@@ -56,9 +58,11 @@ export function AgentHome() {
     sort: "contact_asc",
   });
   // Тот же серверный фильтр и ключ кэша, что у IncomingLeadWindow: общий список, не второй.
-  const { data: pendingPage, isLoading: pendingLoading } = useClients({ pageSize: 20, pendingAcceptance: true });
-  const { data: offers, isLoading: offersLoading } = useReactivationOffers();
-  const { data: duplicates, isLoading: duplicatesLoading } = useDuplicateReviews();
+  const { data: pendingPage, isLoading: pendingLoading, isError: pendingError, refetch: refetchPending } = useClients({ pageSize: 20, pendingAcceptance: true });
+  // «Не связывались» — серверный срез по общему правилу (packages/shared/src/clientNoContact.ts).
+  const { data: noContactPage } = useClients({ pageSize: 20, noContact: true });
+  const { data: offers, isLoading: offersLoading, isError: offersError, refetch: refetchOffers } = useReactivationOffers();
+  const { data: duplicates, isLoading: duplicatesLoading, isError: duplicatesError, refetch: refetchDuplicates } = useDuplicateReviews();
 
   const [askOpen, setAskOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -77,7 +81,7 @@ export function AgentHome() {
   const pending = useMemo(() => pendingPage?.items ?? [], [pendingPage]);
   const pendingTotal = pendingPage?.total ?? pending.length;
   const portfolio = useMemo(() => buildPortfolio(clientsPage?.items ?? [], Date.now()), [clientsPage]);
-  const noContact = useMemo(() => buildNoContact(portfolio, Date.now()), [portfolio]);
+  const noContact = useMemo(() => noContactPage?.items ?? [], [noContactPage]);
   const showings = useMemo(() => buildShowings(tasks), [tasks]);
 
   const todo = useMemo(
@@ -90,15 +94,16 @@ export function AgentHome() {
         firstCall,
         tasks,
         portfolio,
+        noContact,
         now: Date.now(),
       }),
-    [pending, duplicates, offers, supervisor, firstCall, tasks, portfolio],
+    [pending, duplicates, offers, supervisor, firstCall, tasks, portfolio, noContact],
   );
 
   const sub = [
     todayLabel(),
     [
-      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новый лид", "новых лида", "новых лидов"])}`,
+      pendingTotal > 0 && `${pendingTotal} ${pluralizeRu(pendingTotal, ["новая заявка", "новых заявки", "новых заявок"])}`,
       data && showings.length > 0 && `${showings.length} ${pluralizeRu(showings.length, ["показ", "показа", "показов"])}`,
     ]
       .filter(Boolean)
@@ -126,9 +131,20 @@ export function AgentHome() {
   );
 
   const focusLoading = isLoading || pendingLoading || offersLoading || duplicatesLoading;
+  /**
+   * «Все дела сделаны» — только когда ВСЕ источники очереди ответили (17.11.2026,
+   * аудит F2-2). Отказ списка ждущих заявок при живой сводке давал пустую очередь,
+   * и экран честно-зелёным говорил «всё сделано», хотя заявки ждали принятия.
+   */
+  const focusError = isError || pendingError || offersError || duplicatesError;
+  const retryFocus = () => {
+    if (isError) void refetch();
+    if (pendingError) void refetchPending();
+    if (offersError) void refetchOffers();
+    if (duplicatesError) void refetchDuplicates();
+  };
+  const summaryError = !data && isError;
   const nextShowing = showings.find((s) => Date.parse(s.nextActionDate!) > Date.now());
-  const limit = data?.activeLeadLoad;
-  const atLimit = !!limit && limit.limit > 0 && limit.count >= limit.limit;
 
   return (
     <Rh2Screen title={title} actions={shellActions}>
@@ -158,11 +174,17 @@ export function AgentHome() {
                 <Skeleton kind="row" />
                 <Skeleton kind="line" width="70%" />
               </Card>
-            ) : isError ? (
+            ) : focusError ? (
               <Card tight aria-label="Сначала это">
                 <Rh2ErrorState
-                  message={error instanceof Error ? error.message : "Сводка не загрузилась, проверьте соединение."}
-                  onRetry={() => void refetch()}
+                  message={
+                    isError
+                      ? error instanceof Error
+                        ? error.message
+                        : "Сводка не загрузилась, проверьте соединение."
+                      : "Не загрузились новые заявки, проверьте соединение."
+                  }
+                  onRetry={retryFocus}
                 />
               </Card>
             ) : (
@@ -176,22 +198,6 @@ export function AgentHome() {
             )}
           </div>
 
-          {atLimit && limit && (
-            <Card tight className="rh-home-o1">
-              <p className="quiet warn">
-                <span className="dot warn" />
-                <span className="txt">
-                  Новые лиды не назначаются: у вас {limit.count} из {limit.limit}{" "}
-                  {pluralizeRu(limit.count, ["активный лид", "активных лида", "активных лидов"])}, это лимит. Доведите
-                  текущих до показа или отказа, и очередь откроется сама.{" "}
-                  <Link className="lk" to="/clients">
-                    К списку клиентов
-                  </Link>
-                </span>
-              </p>
-            </Card>
-          )}
-
           <div className="rh-home-o4">
             <AgentQueue queue={todo.queue} loading={clientsLoading && todo.queue.length === 0} />
           </div>
@@ -199,12 +205,17 @@ export function AgentHome() {
 
         <div className="rh-home-side">
           <div className="rh-home-o2">
+            {summaryError ? (
+              <Card tight aria-label="Показатели дня">
+                <Rh2ErrorState message="Сводка не загрузилась, проверьте соединение." onRetry={() => void refetch()} />
+              </Card>
+            ) : (
             <Tiles>
               {data ? (
                 <>
                   <Tile tone="lime" value={showings.length} label="показов сегодня" href="/calendar" />
-                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="лидов за месяц" href="/clients" />
-                  <Tile tone="lav" value={noContact.length} label="ждут звонка" href="/clients" />
+                  <Tile tone="aqua" value={data.funnel[0]?.count ?? 0} label="заявок за месяц" href="/clients" />
+                  <Tile tone="lav" value={noContactPage?.total ?? noContact.length} label={NO_CONTACT_TEXT.tile} href="/clients?slice=noContact" />
                 </>
               ) : (
                 <>
@@ -214,11 +225,14 @@ export function AgentHome() {
                 </>
               )}
             </Tiles>
+            )}
           </div>
 
           <div className="rh-home-o3">
             <Card tight title="Сегодня" aria-label="Сегодня" data-testid="agent-today">
-              {!data ? (
+              {summaryError ? (
+                <Rh2ErrorState message="Показы не загрузились, проверьте соединение." onRetry={() => void refetch()} />
+              ) : !data ? (
                 <Skeleton kind="line" width="60%" />
               ) : showings.length === 0 ? (
                 <p className="quiet">
@@ -242,7 +256,7 @@ export function AgentHome() {
                       <time>{dushanbeTime(s.nextActionDate!)}</time>
                       <span>
                         Показ{s.property?.title ? ` · ${s.property.title}` : ""}
-                        {s.client?.fullName ? ` · ${s.client.fullName}` : ""}
+                        {s.client?.fullName ? ` · ${clientDisplayName(s.client)}` : ""}
                       </span>
                     </Link>
                   ))}

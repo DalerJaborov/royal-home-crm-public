@@ -122,8 +122,9 @@ export function segmentsWhere(q: MarketSegmentsQuery, now = Date.now()): Prisma.
   };
 }
 
-export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmentsResponse> {
-  const rows = await prisma.marketListing.findMany({
+/** Загрузка строк сегментов ОДНИМ запросом с пределом (общая для таблицы, строки покупателя и списка «дороже рынка»). */
+export async function loadSegmentRows(q: MarketSegmentsQuery): Promise<{ rows: SegmentRow[]; sources: { source: string; count: number }[]; truncated: boolean }> {
+  const found = await prisma.marketListing.findMany({
     where: segmentsWhere(q),
     select: {
       source: true, districtName: true, rooms: true, repair: true, areaSqm: true, priceTjs: true, pricePerSqmTjs: true,
@@ -133,27 +134,135 @@ export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmen
     take: SEGMENTS_FETCH_LIMIT,
   });
   const sources = new Map<string, number>();
-  for (const r of rows) sources.set(r.source, (sources.get(r.source) ?? 0) + 1);
+  for (const r of found) sources.set(r.source, (sources.get(r.source) ?? 0) + 1);
   return {
-    minSample: MIN_SAMPLE,
-    windowDays: WINDOW_DAYS,
-    city: q.city,
     sources: [...sources].map(([source, count]) => ({ source, count })).sort((a, b) => b.count - a.count),
-    truncated: rows.length >= SEGMENTS_FETCH_LIMIT,
-    segments: buildSegments(
-      rows.map((r) => ({
-        source: r.source,
-        districtName: r.districtName as string,
-        rooms: r.rooms as number,
-        repair: r.repair,
-        areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
-        priceTjs: Number(r.priceTjs),
-        pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
-        floor: r.floor,
-        firstSeenAt: r.firstSeenAt,
-        lastSeenAt: r.lastSeenAt,
-        sellerId: r.sellerId,
-      }))
-    ),
+    truncated: found.length >= SEGMENTS_FETCH_LIMIT,
+    rows: found.map((r) => ({
+      source: r.source,
+      districtName: r.districtName as string,
+      rooms: r.rooms as number,
+      repair: r.repair,
+      areaSqm: r.areaSqm != null ? Number(r.areaSqm) : null,
+      priceTjs: Number(r.priceTjs),
+      pricePerSqmTjs: r.pricePerSqmTjs != null ? Number(r.pricePerSqmTjs) : null,
+      floor: r.floor,
+      firstSeenAt: r.firstSeenAt,
+      lastSeenAt: r.lastSeenAt,
+      sellerId: r.sellerId,
+    })),
   };
+}
+
+export async function findSegments(q: MarketSegmentsQuery): Promise<MarketSegmentsResponse> {
+  const { rows, sources, truncated } = await loadSegmentRows(q);
+  return { minSample: MIN_SAMPLE, windowDays: WINDOW_DAYS, city: q.city, sources, truncated, segments: buildSegments(rows) };
+}
+
+/**
+ * КЭШ ЭКРАНА «РЫНОК: ЦЕНЫ» (17.11.2026, аудит скорости P1) — тем же приёмом, что у
+ * findOverpricedPropertiesCached (overpriced.ts). Каждое открытие и каждая смена фильтра тянули
+ * в процесс API до 20 000 объявлений (Душанбе — ~16,6 тыс. строк с тремя Decimal) и считали
+ * медианы в JS; на это время цикл событий занят для всех. Сборщик обновляет каталог раз в 15 мин,
+ * поэтому ответ на 10 минут честен: в нём нет данных, зависящих от человека.
+ *
+ * Сброс — только по сроку (и resetSegmentsCache для тестов): сборщик живёт в контейнере worker,
+ * а кэш — в памяти процесса API, сигнала «каталог обновлён» между ними нет; ровно так же
+ * устроен кэш «дороже рынка».
+ *
+ * Ключ — ВСЕ поля запроса (а не перечисленные руками): новое поле фильтра в схеме само попадёт
+ * в ключ и не получит чужой ответ. Город и район — свободный текст, поэтому число ключей
+ * ограничено: при переполнении уходят протухшие, затем самые старые.
+ */
+export const SEGMENTS_CACHE_MS = 10 * 60_000;
+export const SEGMENTS_CACHE_MAX_KEYS = 100;
+const segmentsCache = new Map<string, { at: number; body: MarketSegmentsResponse }>();
+const segmentsInflight = new Map<string, Promise<MarketSegmentsResponse>>();
+
+export function resetSegmentsCache(): void {
+  segmentsCache.clear();
+  segmentsInflight.clear();
+}
+
+export function segmentsCacheKey(q: MarketSegmentsQuery): string {
+  return JSON.stringify(
+    Object.entries(q)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+  );
+}
+
+function rememberSegments(key: string, at: number, body: MarketSegmentsResponse): void {
+  segmentsCache.delete(key);
+  segmentsCache.set(key, { at, body });
+  if (segmentsCache.size <= SEGMENTS_CACHE_MAX_KEYS) return;
+  for (const [k, v] of segmentsCache) if (at - v.at >= SEGMENTS_CACHE_MS) segmentsCache.delete(k);
+  // Map хранит порядок вставки: первые — самые старые.
+  for (const k of segmentsCache.keys()) {
+    if (segmentsCache.size <= SEGMENTS_CACHE_MAX_KEYS) break;
+    segmentsCache.delete(k);
+  }
+}
+
+export async function findSegmentsCached(q: MarketSegmentsQuery, now: number = Date.now()): Promise<MarketSegmentsResponse> {
+  const key = segmentsCacheKey(q);
+  const hit = segmentsCache.get(key);
+  if (hit && now - hit.at < SEGMENTS_CACHE_MS) return hit.body;
+  // Параллельные запросы с одним фильтром в момент протухания делят один расчёт.
+  const running = segmentsInflight.get(key);
+  if (running) return running;
+  const job = findSegments(q)
+    .then((body) => {
+      rememberSegments(key, now, body);
+      return body;
+    })
+    .finally(() => {
+      segmentsInflight.delete(key);
+    });
+  segmentsInflight.set(key, job);
+  return job;
+}
+
+/**
+ * ИНДЕКС РЫНКА ДЛЯ СРАВНЕНИЯ В ПАМЯТИ (14.11.2026): статистика района × комнаты «по всем ремонтам» и
+ * района × комнаты × ремонт. Строится ОДНИМ проходом по строкам, поэтому список «дороже рынка» не
+ * считает рынок заново на каждый объект (N+1 нет). Правила те же, что у buildSegments: порог, выбросы,
+ * склейка дублей, медианы.
+ */
+export interface MarketIndex {
+  all: Map<string, MarketSegmentStat>;
+  byRepair: Map<string, MarketSegmentStat>;
+}
+
+export function buildMarketIndex(rows: SegmentRow[], now = Date.now()): MarketIndex {
+  const all = new Map<string, MarketSegmentStat>();
+  // Ремонт обнуляем: сегмент «все ремонты» — это тот же расчёт, но без разделения по ремонту.
+  for (const s of buildSegments(rows.map((r) => ({ ...r, repair: null })), now)) all.set(`${s.districtName}|${s.rooms}`, s);
+  const byRepair = new Map<string, MarketSegmentStat>();
+  for (const s of buildSegments(rows, now)) if (s.repair) byRepair.set(`${s.districtName}|${s.rooms}|${s.repair}`, s);
+  return { all, byRepair };
+}
+
+/**
+ * Сегмент для объекта: сначала с его ремонтом (если там достаточно объявлений), иначе «все ремонты».
+ * null — сегмента нет или в нём меньше порога: числа показывать нельзя.
+ */
+export function lookupMarketSegment(
+  index: MarketIndex,
+  districtName: string,
+  rooms: number,
+  repair: string | null
+): { stat: MarketSegmentStat; byRepair: boolean } | null {
+  if (repair) {
+    const exact = index.byRepair.get(`${districtName}|${rooms}|${repair}`);
+    if (exact?.enough && exact.medianPerSqmTjs != null) return { stat: exact, byRepair: true };
+  }
+  const any = index.all.get(`${districtName}|${rooms}`);
+  return any?.enough && any.medianPerSqmTjs != null ? { stat: any, byRepair: false } : null;
+}
+
+/** Статистика ОДНОГО района и числа комнат (все ремонты) — строка рынка под запросом покупателя. */
+export async function findDistrictRoomsStat(city: string, districtName: string, rooms: number): Promise<MarketSegmentStat | null> {
+  const { rows } = await loadSegmentRows({ city, districtName, rooms });
+  return buildMarketIndex(rows).all.get(`${districtName}|${rooms}`) ?? null;
 }

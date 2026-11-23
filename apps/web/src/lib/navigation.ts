@@ -7,7 +7,6 @@ import {
   BarChart3,
   Calendar,
   Clapperboard,
-  Clock,
   Compass,
   Filter,
   Gauge,
@@ -23,7 +22,6 @@ import {
   MessageCircle,
   MessageSquare,
   PhoneCall,
-  Radar,
   Settings,
   Share2,
   TrendingUp,
@@ -31,7 +29,6 @@ import {
   DatabaseBackup,
   Plug,
   TimerReset,
-  UserX,
   Users,
   UsersRound,
   Wallet,
@@ -140,7 +137,7 @@ export function useNavigation(): Navigation {
   const { data: siteNotifications } = useSiteNotifications({ enabled: can("siteChanges.view") });
   const { data: oversightSummary } = useOversightSummary(can("dashboard.analytics"));
   const { data: marketingSummary } = useMarketingSummary(
-    role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN"
+    can("marketing.access")
   );
   const { data: editorsLoad } = useEditorsLoad(role === "EDITOR");
   // Заявки агентов на удаление клиентов — только тому, кто их и рассматривает.
@@ -165,8 +162,8 @@ export function useNavigation(): Navigation {
 }
 
 /** Queue access follows server role gates, not permission to moderate an individual property. */
-function canSeeMarketing(inputs: Pick<NavInputs, "role">): boolean {
-  return canReadPreparation(inputs.role);
+function canSeeMarketing(inputs: Pick<NavInputs, "role" | "can">): boolean {
+  return canReadPreparation(inputs.role, inputs.can("marketing.access"));
 }
 
 /**
@@ -230,21 +227,8 @@ function buildNavigation(inputs: NavInputs): Navigation {
   /** Группа 2 — Клиенты и сделки (переименована из «Люди», §1 spec-pult-v8). */
   const peopleItems = compact<NavItem>([
     isSalesRole && { to: "/clients", icon: Users, label: "Клиенты", badge: counters?.clients ?? 0, group: "people" },
-    // «Воронка лидов» (макет c99db05f, renderFunnel, 14.09.2026) — НЕ путать с
-    // «/funnel» ниже (лид-магниты маркетинга, группа «ads», другая сущность).
-    isSalesRole && { to: "/lead-funnel", icon: Radar, label: "Воронка лидов", group: "people" },
-    // «Отложенные» (задача G, план 03-04.09.2026) — отдельный пункт меню, НЕ
-    // только вкладка внутри ClientsTabs: та скрыта для role="AGENT" целиком (см.
-    // components/ClientsTabs.tsx), а этот раздел агенту нужен не меньше, чем
-    // руководству («агенту — свои отложенные, руководителю — все», решение
-    // владельца) — сервер (GET /clients/deferred) сам скоупит по своему агенту.
-    isSalesRole && { to: "/deferred-clients", icon: Clock, label: "Отложенные", group: "people" },
-    // «Потерянные» (раздел 3, п.4 плана переноса 14.09.2026) — страница уже
-    // существовала (GET /clients?status=lost, решение владельца 11.08.2026),
-    // но ни один пункт меню на неё не ссылался.
-    // Право то же, что у сервера (GET /clients/lost — `clients.assign`) и у
-    // вкладки в ClientsSectionLane: агенту пункт обещал экран, которого у него нет.
-    isSalesRole && can("clients.assign") && { to: "/lost-clients", icon: UserX, label: "Потерянные", group: "people" },
+    // «Воронка лидов», «Отложенные», «Потерянные» убраны 16.11.2026 (владелец:
+    // «удалить все папки и статусы, ничего лишнего») — список клиентов один.
     isSalesRole && { to: "/deals", icon: ArrowLeftRight, label: "Сделки", badge: counters?.deals ?? 0, group: "people" },
   ]);
 
@@ -294,7 +278,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
   const moneyItems = compact<NavItem>([
     can("finance.view") && { to: "/finance", icon: Wallet, label: "Финансы", group: "money" },
     can("reports.view") && { to: "/reports", icon: BarChart3, label: "Отчёты", group: "money" },
-    can("reports.view") && { to: "/sources", icon: Compass, label: "Источники лидов", group: "money" },
+    can("reports.view") && { to: "/sources", icon: Compass, label: "Источники заявок", group: "money" },
     // Экран «Инсайты» рисует вкладки «Денег» (MoneyTabs в SectionTabs.tsx), а в
     // меню стоял в «Настройках»: открыл из одного раздела, оказался в другом.
     can("insights.view") && { to: "/insights", icon: BrainCircuit, label: "Инсайты от ИИ", group: "money" },
@@ -302,7 +286,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
 
   /** Группа 6 — Реклама и публикации (сюда же переехала «Воронка»). */
   const adsItems = compact<NavItem>([
-    (can("finance.view") || role === "MARKETING") && { to: "/ads", icon: Megaphone, label: "Реклама", group: "ads" },
+    (can("finance.view") || can("marketing.access")) && { to: "/ads", icon: Megaphone, label: "Реклама", group: "ads" },
     marketingVisible && {
       to: "/marketing",
       icon: isEditorLabel ? Clapperboard : Megaphone,
@@ -313,10 +297,10 @@ function buildNavigation(inputs: NavInputs): Navigation {
     // «Ролики в соцсети» (12.10.2026) — свободный промо-ролик без объекта во все
     // сети. Видимость по РОЛИ, а не по canSeeMarketing: то право есть и у
     // монтажёра, которому сервер (/social-videos) ответит 403.
-    (role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN") && {
+    can("marketing.access") && {
       to: "/social-videos",
       icon: Share2,
-      label: "Ролики в соцсети",
+      label: "Публикации в соцсети",
       group: "ads",
     },
     // «Подготовка объектов» (до 25.09.2026 — «Конвейер», переименовано
@@ -507,7 +491,7 @@ function compact<T>(items: (T | false | undefined | null)[]): T[] {
  * меню не меняет: это только признак облика, поэтому он живёт отдельным списком
  * рядом, а не флагом у пункта (часть путей реестру не принадлежит).
  */
-const RH2_ROUTE_ROOTS = ["/clients", "/sellers", "/lost-clients", "/other-inquiries"] as const;
+const RH2_ROUTE_ROOTS = ["/clients", "/sellers", "/other-inquiries"] as const;
 
 export function isRh2Route(pathname: string): boolean {
   return RH2_ROUTE_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));

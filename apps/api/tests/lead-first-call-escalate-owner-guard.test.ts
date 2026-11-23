@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
-import { penalizeMissedFirstCalls } from "../src/services/leads/firstCall.js";
+import { handleMissedFirstCalls } from "../src/services/leads/firstCall.js";
 import { dushanbeInputToDate } from "../src/lib/dushanbeTime.js";
 
 /**
@@ -68,7 +68,7 @@ async function penalizeWithPinnedSettings() {
     return row ? { ...row, ...PINNED } : row;
   }) as never);
   try {
-    await penalizeMissedFirstCalls(NOW);
+    await handleMissedFirstCalls(NOW);
   } finally {
     spy.mockRestore();
   }
@@ -78,7 +78,8 @@ async function makeLead(label: string) {
   const lead = await prisma.client.create({
     data: {
       fullName: `Лид эскалации ${label} ${runId}`,
-      phone: `+99298${label === "гонка" ? 3 : 4}${runId}`,
+      // Настоящий таджикский номер (12 цифр): иначе срыв считается «номер не набирается» и клиент остаётся (19.11.2026).
+      phone: `+992983${label === "гонка" ? 3 : 4}${String(runId).slice(-5)}`,
       source: "PHONE_CALL",
       kind: "BUYER",
       assignedAgentId: agentAId,

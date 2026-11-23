@@ -7,7 +7,16 @@ export interface CleanSettingsTask {
   title: string;
   hint: string;
   topics: readonly string[];
+  /** Подраздел видит только директор. */
   directorOnly?: boolean;
+  /** Подраздел видят только эти роли (кроме них — никто). */
+  roles?: readonly string[];
+  /**
+   * Слово подраздела для короткой подписи группы — только у подраздела, видного не всем
+   * (`directorOnly` или `roles`). В подпись оно попадает лишь тем, кто подраздел видит:
+   * правило видимости одно (`cleanSettingsTaskVisible`), подпись его не повторяет.
+   */
+  groupWord?: string;
 }
 
 const topics = (tab: SettingsTabId, start = 0, end?: number) => SETTINGS_SECTIONS[tab].slice(start, end)
@@ -35,22 +44,54 @@ export const CLEAN_SETTINGS_TASKS: readonly CleanSettingsTask[] = [
   { tab: "bot", id: "voice", title: "Голосовой помощник", hint: "Голос, язык и работа по телефону", topics: [...topics("bot", 9, 10), ...topics("bot", 11, 12)] },
   { tab: "bot", id: "learning", title: "Проверка манеры продажи", hint: "Какая манера бота приносит больше заявок", topics: topics("bot", 12) },
   { tab: "bot", id: "models", title: "Модели и ключи подключения", hint: "Техническая настройка поставщиков ИИ", topics: topics("bot", 0, 2) },
-  { tab: "bot", id: "rollout", title: "Внедрение нового помощника", hint: "Управление этапами запуска клиентского помощника", topics: ["Текстовый агент клиентов", "Клиентский ИИ-агент", "Развёртывание помощника"] },
+  { tab: "bot", id: "rollout", title: "Внедрение нового помощника", hint: "Управление этапами запуска клиентского помощника", topics: ["Текстовый агент клиентов", "Клиентский ИИ-агент", "Развёртывание помощника"], roles: ["DIRECTOR", "ADMIN"], groupWord: "внедрение" },
   { tab: "system", id: "monitoring", title: "Состояние и диагностика", hint: "Здоровье системы, журналы и проблемы в работе", topics: [...topics("system", 0, 2), ...topics("system", 3, 5)] },
   { tab: "system", id: "workspace", title: "Интерфейс и главный экран", hint: "Включение новой темы и состав пульта директора", topics: [...topics("agency", 3), ...topics("system", 2, 3), "Новый интерфейс CRM"] },
   { tab: "system", id: "security", title: "Безопасность входа", hint: "Подтверждение личности и вход по отпечатку или лицу", topics: topics("system", 5, 6) },
   { tab: "system", id: "data", title: "Импорт и восстановление", hint: "Загрузка данных и точки возврата настроек", topics: topics("system", 6, 8) },
-  { tab: "system", id: "website", title: "Управление сайтом", hint: "Доступ к администрированию royalhome.tj", topics: topics("system", 8), directorOnly: true },
+  { tab: "system", id: "website", title: "Управление сайтом", hint: "Доступ к администрированию royalhome.tj", topics: topics("system", 8), directorOnly: true, groupWord: "сайт" },
 ];
 
-export const CLEAN_SETTINGS_LABELS: Record<SettingsTabId, string> = {
-  agency: "Компания", money: "Деньги", leads: "Клиенты и правила работы", matching: "Подбор объектов",
-  team: "Сотрудники и права", channels: "Связь и публикации", bot: "ИИ-помощник", system: "Система и безопасность",
+/**
+ * Группы настроек: название и короткая подпись для списка групп «Нового вида»
+ * (`shortLabel`, по смыслу подразделов, видных всем). Без неё список показывал все
+ * подразделы через точку — у «ИИ-помощника» до шести строк (18.11.2026). Полный список
+ * подразделов остаётся внутри группы. Нет `shortLabel` — подпись собирается из названий
+ * подразделов, как раньше (`cleanSettingsGroupSub`). Слова подразделов, видных не всем
+ * («сайт», «внедрение»), в `shortLabel` не пишутся: их дописывает `cleanSettingsGroupSub`
+ * из `groupWord` подраздела — тем, кому он виден (хвост ревью #286, 19.11.2026: прежний
+ * `directorExtra` повторял правило ролей текстом, а «внедрение» стояло в подписи у всех).
+ */
+export const CLEAN_SETTINGS_GROUPS: Record<SettingsTabId, { label: string; shortLabel?: string }> = {
+  agency: { label: "Компания", shortLabel: "Название, логотип, районы" },
+  money: { label: "Деньги", shortLabel: "Комиссия и курс доллара" },
+  leads: { label: "Клиенты и правила работы", shortLabel: "Приём, распределение, сроки, лимиты" },
+  matching: { label: "Подбор объектов", shortLabel: "Бюджет, комнаты, расстояние" },
+  team: { label: "Сотрудники и права", shortLabel: "Доступ, права, рейтинг" },
+  channels: { label: "Связь и публикации", shortLabel: "Чаты, публикации, реклама, звонки, СМС" },
+  bot: { label: "ИИ-помощник", shortLabel: "Ответы, голос, обучение" },
+  system: { label: "Система и безопасность", shortLabel: "Диагностика, вид, вход, импорт" },
 };
 
+export const CLEAN_SETTINGS_LABELS = Object.fromEntries(
+  Object.entries(CLEAN_SETTINGS_GROUPS).map(([id, group]) => [id, group.label]),
+) as Record<SettingsTabId, string>;
+
+/** Подпись группы в списке: короткая фраза (+ слова видных этой роли закрытых подразделов), а без неё — подразделы через точку. */
+export function cleanSettingsGroupSub(tab: SettingsTabId, role?: string) {
+  const group = CLEAN_SETTINGS_GROUPS[tab];
+  const tasks = cleanSettingsTasks(tab, role);
+  if (group.shortLabel) return [group.shortLabel, ...tasks.flatMap((task) => task.groupWord ? [task.groupWord] : [])].join(", ");
+  return tasks.map((entry) => entry.title).join(" · ");
+}
+
+/** Единственное правило видимости подраздела настроек для роли. */
+export function cleanSettingsTaskVisible(task: CleanSettingsTask, role?: string) {
+  return (!task.directorOnly || role === "DIRECTOR") && (!task.roles || (!!role && task.roles.includes(role)));
+}
+
 export function cleanSettingsTasks(tab: SettingsTabId, role?: string) {
-  return CLEAN_SETTINGS_TASKS.filter((task) => task.tab === tab && (!task.directorOnly || role === "DIRECTOR")
-    && (task.id !== "rollout" || role === "DIRECTOR" || role === "ADMIN"));
+  return CLEAN_SETTINGS_TASKS.filter((task) => task.tab === tab && cleanSettingsTaskVisible(task, role));
 }
 
 export function findCleanSettingsTasks(query: string, role?: string) {

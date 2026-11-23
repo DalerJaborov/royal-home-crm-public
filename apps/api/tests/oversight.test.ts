@@ -37,7 +37,6 @@ let savedLossSeriesThreshold: number | null = null;
 let negotiatingClientFullName: string;
 let calmNegotiationClientFullName: string;
 let lossSeriesAgentId: string;
-let trafficLightAgentId: string;
 
 async function login(phone: string) {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
@@ -148,7 +147,7 @@ beforeAll(async () => {
   });
   interactionIds.push(completedInteraction.id);
 
-  // Высокий скоринг, давно без контакта — должен попасть в /stalled-clients.
+  // Высокий скоринг, давно без контакта (фикстура прежнего среза «горячий без прогресса»).
   const staleHot = await prisma.client.create({
     data: {
       fullName: `Горячий без прогресса ${runId}`,
@@ -423,13 +422,40 @@ beforeAll(async () => {
   const pairTransfer = await prisma.interaction.create({
     data: {
       clientId: transferPairClient.id,
-      agentId: agentToId,
+      // Запись в хронологии подписана НАЖАВШИМ (с 19.11.2026), а не получателем:
+      // по ней пару восстановить нельзя, она берётся из журнала двери ниже.
+      agentId: limitAgentId,
       type: "SYSTEM",
       notes: "Передан другому агенту: Не может дозвониться",
       createdAt: new Date(now - 2 * DAY),
     },
   });
   interactionIds.push(pairTransfer.id);
+  // Пара берётся из журнала единой двери смены владельца (ревью 19.11.2026):
+  // «Передать» нажал третий человек (limitAgentId), и он НЕ получатель.
+  await prisma.auditLog.create({
+    data: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      entityId: transferPairClient.id,
+      agentId: limitAgentId,
+      agentName: "Нажавший «Передать»",
+      meta: { source: "transfer", reason: "Не может дозвониться", fromAgentId: agentFromId, toAgentId: agentToId },
+      createdAt: new Date(now - 2 * DAY),
+    },
+  });
+  // Автоматическая смена (не решение человека) в пары не идёт.
+  await prisma.auditLog.create({
+    data: {
+      action: "CLIENT_AGENT_CHANGE",
+      entityType: "Client",
+      entityId: transferPairClient.id,
+      agentId: null,
+      agentName: "Система",
+      meta: { source: "intake.basket-return", reason: "тест", fromAgentId: agentToId, toAgentId: limitAgentId },
+      createdAt: new Date(now - 1 * DAY),
+    },
+  });
 
   // ─── «Вечные переговоры» (владелец 01.09.2026, порог теста — 2 круга) ───
 
@@ -532,45 +558,39 @@ beforeAll(async () => {
   ).id;
   agentIds.push(lossSeriesAgentId);
 
-  // Два перевода в «Неактивные» + одна прямая потеря (LOST, lastAgentId) за
-  // 7 дней — суммарно три случая, должен попасть в /agent-loss-series.
+  // Три отказа этого агента за 7 дней — должен попасть в /agent-loss-series.
+  // «Потеря» = оформленный отказ (16.11.2026, статуса LOST больше нет): отметка
+  // assignmentRefusedAt + кто отказался. Один из трёх уже в Корзине — считается.
   for (let i = 0; i < 2; i++) {
     const c = await prisma.client.create({
       data: {
-        fullName: `Серия потерь — неактивный ${i} ${runId}`,
+        fullName: `Серия потерь — потеря ${i} ${runId}`,
         phone: `+99297${i}${runId}`,
         source: "PHONE_CALL",
-        assignedAgentId: lossSeriesAgentId,
-        workStatus: "INACTIVE",
+        assignedAgentId: null,
+        lastAgentId: lossSeriesAgentId,
+        assignmentRefusedAt: new Date(now - DAY),
+        assignmentRefusedByAgentId: lossSeriesAgentId,
       },
     });
     clientIds.push(c.id);
-    const interaction = await prisma.interaction.create({
-      data: {
-        clientId: c.id,
-        agentId: lossSeriesAgentId,
-        type: "SYSTEM",
-        notes: "Клиент переведён в Неактивные: Думает (инициатор: Клиент).",
-        createdAt: new Date(now - DAY),
-      },
-    });
-    interactionIds.push(interaction.id);
   }
   const lostBySeriesAgent = await prisma.client.create({
     data: {
-      fullName: `Серия потерь — LOST ${runId}`,
+      fullName: `Серия потерь — в Корзине ${runId}`,
       phone: `+992972${runId}`,
       source: "PHONE_CALL",
       assignedAgentId: null,
       lastAgentId: lossSeriesAgentId,
-      status: "LOST",
-      lostAt: new Date(now - DAY),
+      assignmentRefusedAt: new Date(now - DAY),
+      assignmentRefusedByAgentId: lossSeriesAgentId,
+      deletedAt: new Date(now - DAY / 2),
     },
   });
   clientIds.push(lostBySeriesAgent.id);
 
-  // Тот же агент, но потеря случилась ДО окна в 7 дней — не должна попасть
-  // (проверяет, что окно действительно фильтрует по lostAt).
+  // Тот же агент, но отказ случился ДО окна в 7 дней — не должен попасть
+  // (проверяет, что окно действительно фильтрует по дате отказа).
   const oldLoss = await prisma.client.create({
     data: {
       fullName: `Старая потеря — не считается ${runId}`,
@@ -578,90 +598,11 @@ beforeAll(async () => {
       source: "PHONE_CALL",
       assignedAgentId: null,
       lastAgentId: lossSeriesAgentId,
-      status: "LOST",
-      lostAt: new Date(now - 30 * DAY),
+      assignmentRefusedAt: new Date(now - 30 * DAY),
+      assignmentRefusedByAgentId: lossSeriesAgentId,
     },
   });
   clientIds.push(oldLoss.id);
-
-  // ─── «Светофор неактивных — сейчас» (GET /oversight/traffic-light-summary) ───
-
-  const passwordHash4 = await bcrypt.hash(password, 10);
-  trafficLightAgentId = (
-    await prisma.agent.create({
-      data: { fullName: "Агент светофора", phone: `+992974${runId}`, role: "AGENT", passwordHash: passwordHash4 },
-    })
-  ).id;
-  agentIds.push(trafficLightAgentId);
-
-  // Два RED, один YELLOW, один GREEN у этого агента — должны сложиться в
-  // { red: 2, yellow: 1, green: 1 } и попасть в totals той же суммой.
-  for (let i = 0; i < 2; i++) {
-    const c = await prisma.client.create({
-      data: {
-        fullName: `Светофор RED ${i} ${runId}`,
-        phone: `+99297${5 + i}${runId}`,
-        source: "PHONE_CALL",
-        assignedAgentId: trafficLightAgentId,
-        workStatus: "INACTIVE",
-        inactiveLevel: "RED",
-      },
-    });
-    clientIds.push(c.id);
-  }
-  const yellowClient = await prisma.client.create({
-    data: {
-      fullName: `Светофор YELLOW ${runId}`,
-      phone: `+992977${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "INACTIVE",
-      inactiveLevel: "YELLOW",
-    },
-  });
-  clientIds.push(yellowClient.id);
-  const greenClient = await prisma.client.create({
-    data: {
-      fullName: `Светофор GREEN ${runId}`,
-      phone: `+992978${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "INACTIVE",
-      inactiveLevel: "GREEN",
-    },
-  });
-  clientIds.push(greenClient.id);
-
-  // Активный клиент того же агента с ПРОШЛЫМ inactiveLevel (уже возвращён в
-  // работу) — не должен попасть в сводку: workStatus=ACTIVE, светофор смотрит
-  // только на ТЕКУЩЕЕ состояние (см. комментарий у Client.inactiveLevel).
-  const returnedToActive = await prisma.client.create({
-    data: {
-      fullName: `Светофор — вернулся в работу ${runId}`,
-      phone: `+992979${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: trafficLightAgentId,
-      workStatus: "ACTIVE",
-      inactiveLevel: "RED",
-    },
-  });
-  clientIds.push(returnedToActive.id);
-
-  // Неактивный без агента (карточка, у которой предел попыток светофора уже
-  // исчерпан и её увели в LOST, assignedAgentId=null, см. promoteToLost) — не
-  // должна попасть ни в чей портфель.
-  const orphanedInactive = await prisma.client.create({
-    data: {
-      fullName: `Светофор — без агента ${runId}`,
-      phone: `+992980${runId}`,
-      source: "PHONE_CALL",
-      assignedAgentId: null,
-      status: "LOST",
-      workStatus: "INACTIVE",
-      inactiveLevel: "RED",
-    },
-  });
-  clientIds.push(orphanedInactive.id);
 });
 
 afterAll(async () => {
@@ -679,6 +620,7 @@ afterAll(async () => {
   }
   await prisma.pendingSummary.deleteMany({ where: { id: { in: pendingSummaryIds } } });
   await prisma.interaction.deleteMany({ where: { id: { in: interactionIds } } });
+  await prisma.auditLog.deleteMany({ where: { action: "CLIENT_AGENT_CHANGE", entityId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
   await prisma.$disconnect();
@@ -694,8 +636,8 @@ describe("GET /oversight/*", () => {
     const res = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);
     expect(typeof res.body.overdueTasks).toBe("number");
-    expect(typeof res.body.agentsAtLimit).toBe("number");
-    expect(res.body.leadLimit).toBe(2);
+    // Лимита и «Неактивных» нет с 16.11.2026 — и плиток про них тоже.
+    for (const gone of ["agentsAtLimit", "leadLimit", "recentInactive"]) expect(res.body).not.toHaveProperty(gone);
     for (const field of ["refusedHighScore", "sellerPropertyMissingWarn", "sellerPropertyMissingCritical", "sellerPropertyMissingWarnDays",
       "sellerPropertyMissingCriticalDays", "agentLossSeries", "agentLossSeriesThreshold", "agentLossSeriesWindowDays"]) {
       expect(res.body).not.toHaveProperty(field);
@@ -707,13 +649,9 @@ describe("GET /oversight/*", () => {
     expect(res.status).toBe(403);
   });
 
-  it("/agents-at-limit находит агента, упёршегося в лимит", async () => {
-    const res = await request(app).get("/api/v1/oversight/agents-at-limit").set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body.limit).toBe(2);
-    const row = res.body.items.find((a: { id: string }) => a.id === limitAgentId);
-    expect(row).toBeTruthy();
-    expect(row.total).toBeGreaterThanOrEqual(2);
+  it.each(["agents-at-limit", "inactive-clients", "traffic-light-summary"])("/%s удалён вместе с лимитом и светофором — 404", async (route) => {
+    const res = await request(app).get(`/api/v1/oversight/${route}`).set("Authorization", `Bearer ${managerToken}`);
+    expect(res.status).toBe(404);
   });
 
   it("/overdue-tasks возвращает просроченную задачу и не возвращает будущую/выполненную", async () => {
@@ -727,24 +665,15 @@ describe("GET /oversight/*", () => {
     expect(ids).not.toContain(interactionIds[2]); // выполненная
   });
 
-  it("/stalled-clients находит высокий скоринг без прогресса, отсеивает свежий контакт и низкий балл", async () => {
-    const res = await request(app)
-      .get("/api/v1/oversight/stalled-clients?pageSize=50")
-      .set("Authorization", `Bearer ${managerToken}`);
+  it("«горячий без прогресса» заменён одним счётчиком «Без контакта» (16.11.2026)", async () => {
+    const gone = await request(app).get("/api/v1/oversight/stalled-clients").set("Authorization", `Bearer ${managerToken}`);
+    expect(gone.status).toBe(404);
+    const res = await request(app).get("/api/v1/oversight/no-contact-clients?pageSize=50").set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);
-    const ids = res.body.items.map((i: { id: string }) => i.id);
-    expect(ids).toContain(clientIds[3]); // staleHot (индекс: 0,1 — лимит, 2 — overdueClient, 3 — staleHot)
-    expect(ids).not.toContain(clientIds[4]); // freshHot
-    expect(ids).not.toContain(clientIds[5]); // staleCold
-  });
-
-  it("/inactive-clients находит событие перевода в Неактивные", async () => {
-    const res = await request(app)
-      .get("/api/v1/oversight/inactive-clients?pageSize=50")
-      .set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-    const ids = res.body.items.map((i: { id: string }) => i.id);
-    expect(ids).toContain(interactionIds[3]);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const summary = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${managerToken}`);
+    expect(typeof summary.body.noContactClients).toBe("number");
+    expect(summary.body).not.toHaveProperty("staleHotClients");
   });
 
   it("/lead-transfers находит событие передачи агенту", async () => {
@@ -783,13 +712,18 @@ describe("GET /oversight/*", () => {
     expect(names).not.toContain(`Отказ уже в СБ ${runId}`);
   });
 
-  it("/transfer-pairs восстанавливает пару «от кого → кому» по записи перед передачей", async () => {
+  it("/transfer-pairs берёт пару «от кого → кому» из журнала смены владельца; нажавший и автоматика в пары не попадают", async () => {
     const res = await request(app).get("/api/v1/oversight/transfer-pairs").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.windowDays).toBe(30);
     const pair = res.body.pairs.find((p: { from: { id: string }; to: { id: string } }) => p.from.id === agentFromId && p.to.id === agentToId);
     expect(pair).toBeTruthy();
     expect(pair.count).toBeGreaterThanOrEqual(1);
+    // Нажавший «Передать» (limitAgentId) — не получатель; автоматическая смена — не передача.
+    const ghost = res.body.pairs.find(
+      (p: { from: { id: string }; to: { id: string } }) => (p.from.id === agentFromId || p.from.id === agentToId) && p.to.id === limitAgentId
+    );
+    expect(ghost).toBeUndefined();
   });
 
   it("/endless-negotiations находит клиента с 2+ кругами «Переговоры» подряд, отсеивает одиночный круг", async () => {
@@ -805,7 +739,7 @@ describe("GET /oversight/*", () => {
     expect(row.rounds).toBeGreaterThanOrEqual(2);
   });
 
-  it("/agent-loss-series находит агента с 3+ переводами/потерями за 7 дней, не считает старую потерю", async () => {
+  it("/agent-loss-series находит агента с 3+ потерями за 7 дней, не считает старую потерю", async () => {
     const res = await request(app).get("/api/v1/oversight/agent-loss-series").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.threshold).toBe(3);
@@ -813,35 +747,6 @@ describe("GET /oversight/*", () => {
     const row = res.body.items.find((a: { agentId: string }) => a.agentId === lossSeriesAgentId);
     expect(row).toBeTruthy();
     expect(row.count).toBe(3);
-  });
-
-  it("/traffic-light-summary группирует неактивных клиентов по агенту и цвету, не считает вернувшихся в работу и осиротевших", async () => {
-    const res = await request(app).get("/api/v1/oversight/traffic-light-summary").set("Authorization", `Bearer ${managerToken}`);
-    expect(res.status).toBe(200);
-
-    const row = res.body.agents.find((a: { agentId: string }) => a.agentId === trafficLightAgentId);
-    expect(row).toBeTruthy();
-    // Ровно 2/1/1 — не 3 RED (если бы вернувшийся в ACTIVE клиент посчитался
-    // по старому inactiveLevel) и не пусто (если бы agentId=null не отфильтровался).
-    expect(row.red).toBe(2);
-    expect(row.yellow).toBe(1);
-    expect(row.green).toBe(1);
-    expect(row.total).toBe(4);
-
-    // Осиротевшая карточка (assignedAgentId=null, LOST) не привязана ни к
-    // одному агенту в выдаче — ищем строку без агента, её быть не должно.
-    expect(res.body.agents.every((a: { agentId: string | null }) => a.agentId)).toBe(true);
-
-    // Итоги — не строгое равенство (другие тестовые файлы могут добавлять свои
-    // цветные карточки параллельно), но обязаны включать хотя бы наш агент.
-    expect(res.body.totals.red).toBeGreaterThanOrEqual(2);
-    expect(res.body.totals.yellow).toBeGreaterThanOrEqual(1);
-    expect(res.body.totals.green).toBeGreaterThanOrEqual(1);
-  });
-
-  it("/traffic-light-summary без права dashboard.analytics — 403", async () => {
-    const res = await request(app).get("/api/v1/oversight/traffic-light-summary").set("Authorization", `Bearer ${plainAgentToken}`);
-    expect(res.status).toBe(403);
   });
 
   it("/summary включает endlessNegotiations и agentLossSeries", async () => {

@@ -1,0 +1,47 @@
+import { PropertyDraftShortcut } from "../../PropertyDraftShortcut";
+import { ObjIcon } from "./ObjIcon";
+import { pillTone } from "../tileTone";
+
+/**
+ * Шапка каталога объектов — «Новый вид» (18.11.2026): заголовок 32, одна строка
+ * под ним и одна синяя кнопка. Те же сведения и действия, что у прежней шапки
+ * чистой оболочки: сколько найдено, «Ждут вашей проверки» (только модератору,
+ * нажатие ставит тот же фильтр), черновик нового объекта и создание объекта.
+ */
+export function RoyalObjectsHead({ total, pendingReview, onShowPending, overdue, onShowOverdue, canCreate, onCreate }: {
+  total?: number; pendingReview?: number; onShowPending: () => void;
+  /** Объекты с задержкой подготовки — строкой в подзаголовке, а не отдельной карточкой над списком (пачка D1). */
+  overdue?: number; onShowOverdue?: () => void;
+  canCreate: boolean; onCreate: () => void;
+}) {
+  return (
+    <header className="ry-objects-head">
+      <div className="ry-objects-head-text">
+        <h1>Объекты</h1>
+        <p>
+          {/* «Найдено: 117» — одна неразрывная пара: на iPhone 414–430 px она рвалась на две
+              строки и слипалась с «Продолжить черновик» (кадр владельца 20.11). */}
+          <span className="ry-objects-found">{total !== undefined ? <>Найдено: <b className="ry-num">{total}</b></> : "Каталог агентства"}</span>
+          {!!pendingReview && (
+            <button type="button" className="ry-objects-pending" data-tone={pillTone("today", pendingReview)} aria-label={`Ждут вашей проверки: ${pendingReview}`} onClick={onShowPending}>
+              Проверка<b className="ry-num">{pendingReview}</b>
+            </button>
+          )}
+          {!!overdue && onShowOverdue && (
+            <button type="button" className="ry-objects-pending" data-tone={pillTone("overdue", overdue)} aria-label={`Задержка подготовки: ${overdue}`} onClick={onShowOverdue}>
+              Задержка<b className="ry-num">{overdue}</b>
+            </button>
+          )}
+        </p>
+      </div>
+      {canCreate && (
+        <div className="ry-objects-head-acts">
+          <PropertyDraftShortcut />
+          <button type="button" className="ry-btn" data-variant="primary" aria-label="Добавить объект" onClick={onCreate}>
+            <ObjIcon name="plus" />Объект
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}

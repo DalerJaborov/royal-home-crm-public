@@ -195,19 +195,14 @@ export function DirectorHome() {
             <ActionRowList rows={rows} onCount={setWaiting} />
           )}
 
-          {control ? (
+          {/* Без полного набора плиток блок не рисуется: старая сборка против нового сервера (18.11.2026). */}
+          {control?.overdueTasks && control.silentAfterShowing ? (
             <Tiles>
               <Tile
                 href="/oversight"
                 tone={control.overdueTasks.count > 0 ? "pink" : "lime"}
                 value={control.overdueTasks.count}
                 label="просроченных задач"
-              />
-              <Tile
-                href="/oversight"
-                tone={control.atLimit.count > 0 ? "pink" : "aqua"}
-                value={control.atLimit.count}
-                label="на лимите нагрузки"
               />
               <Tile
                 href="/oversight"

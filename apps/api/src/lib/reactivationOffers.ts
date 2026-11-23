@@ -37,7 +37,6 @@ import { logSystemError } from "./systemError.js";
 import { pickAgentForLead } from "../services/leads/selection.js";
 import { sendPushToAgent, sendPushToAgents } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { loadLeadLimits, activeLeadCounts, slotsTaken } from "./leadLimits.js";
 import { changeClientAgent } from "./changeClientAgent.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { loadOwnershipSnapshot, escalateInsteadOfTransfer } from "../services/leads/ownershipLoad.js";
@@ -53,12 +52,33 @@ const REASON_NOTES: Record<ReactivationReleaseReason, string> = {
 };
 
 /**
+ * АРБИТР ГОНКИ «ПРИНЯТЬ» ↔ «СНЯТЬ» (аудит 18.11.2026, находка №2). Принятие
+ * (кнопка или крон по звонку) и снятие (TTL-крон, «Отклонить», заморозка)
+ * читают предложение, а пишут позже — без условия в самой записи оба шага
+ * проходили: агент получал «клиент ваш», а следом крон отдавал карточку
+ * третьему агенту по очереди (или наоборот). Обе записи гасят
+ * `reactivationOfferedToAgentId`, поэтому условие «предложение всё ещё
+ * открыто и адресовано этому агенту» прямо в `updateMany` пропускает ровно
+ * одну из них; вторая получает `count = 0` и ничего не делает.
+ */
+const OFFER_STILL_OPEN = (agentId: string, offeredAt?: Date) => ({
+  reactivationOfferedToAgentId: agentId,
+  reactivationOfferedAt: offeredAt ?? { not: null },
+});
+
+/**
  * Снимает предложение с одного клиента и раздаёт его по обычной очереди — та же
  * логика, что раньше жила только в decline-хендлере. `excludeAgentId` не даёт
  * тут же вернуть карточку тому же агенту, у которого её сняли.
  */
 export async function releaseReactivationOffer(
-  client: { id: string; shortId: number; fullName: string; kind: string },
+  /**
+   * `reactivationOfferedAt` — снимок, по которому решено снимать (19.11.2026):
+   * снимается ровно это предложение. Если за это время его приняли и сделали
+   * новое (клиент снова ушёл и вернулся), запись не пройдёт — крон не снимет
+   * свежее предложение по сроку старого. Не передан — любое открытое этому агенту.
+   */
+  client: { id: string; shortId: number; fullName: string; kind: string; reactivationOfferedAt?: Date | null },
   excludeAgentId: string,
   reason: ReactivationReleaseReason,
   /**
@@ -70,7 +90,7 @@ export async function releaseReactivationOffer(
    * "declined"/"expired" actorId не передают — это решает cron/сам агент.
    */
   actorId: string | null = null
-): Promise<{ nextAgentId: string | null }> {
+): Promise<{ nextAgentId: string | null; raced?: boolean }> {
   const now = new Date();
 
   // «Прочее обращение» (кандидат на вакансию и т.п.) агенту не раздаётся вовсе —
@@ -106,7 +126,7 @@ export async function releaseReactivationOffer(
       const stayReason = isSeller
         ? `${REASON_NOTES[reason]} — продавец не уходит от агента автоматически ни при каких условиях (решение владельца 16.09.2026), клиент остаётся у прежнего агента`
         : `${REASON_NOTES[reason]} — контакт уже был, клиент остаётся у прежнего агента (П-3)`;
-      await changeClientAgent({
+      const stayed = await changeClientAgent({
         clientId: client.id,
         toAgentId: excludeAgentId,
         reason: stayReason,
@@ -120,7 +140,10 @@ export async function releaseReactivationOffer(
           assignedAt: now,
           acceptedAt: now,
         },
+        guardWhere: OFFER_STILL_OPEN(excludeAgentId, client.reactivationOfferedAt ?? undefined),
       });
+      // Предложение уже решено другим путём (принято, снято) — ни пушей, ни аудита.
+      if (!stayed.ok) return { nextAgentId: null, raced: true };
       if (isSeller) {
         // Не переиспользуем escalateInsteadOfTransfer — её текст (маркер
         // хронологии и пуш руководству) жёстко называет «закон П-3» и
@@ -167,7 +190,7 @@ export async function releaseReactivationOffer(
 
   const nextAgentId = await pickAgentForLead(excludeAgentId, client.kind === "SELLER" ? "SELLER" : "BUYER");
 
-  await changeClientAgent({
+  const released = await changeClientAgent({
     clientId: client.id,
     toAgentId: nextAgentId,
     reason: nextAgentId
@@ -185,7 +208,9 @@ export async function releaseReactivationOffer(
       assignedAt: now,
       acceptedAt: null,
     },
+    guardWhere: OFFER_STILL_OPEN(excludeAgentId, client.reactivationOfferedAt ?? undefined),
   });
+  if (!released.ok) return { nextAgentId: null, raced: true };
 
   logSystemAudit("REACTIVATION_RELEASE", "Client", client.id, {
     shortId: client.shortId,
@@ -201,8 +226,8 @@ export async function releaseReactivationOffer(
 
   if (nextAgentId) {
     sendPushToAgent(nextAgentId, {
-      title: "🔔 Новый лид",
-      body: `${client.fullName} — предложение реактивации снято с прежнего агента, лид передан вам`,
+      title: "🔔 Новая заявка",
+      body: `${client.fullName} — предложение реактивации снято с прежнего агента, заявка передана вам`,
       url: `/clients/${client.shortId}`,
       tag: `lead-${client.id}`,
     }).catch((err) => console.error("[push] снятие предложения реактивации — новый агент:", err));
@@ -210,7 +235,7 @@ export async function releaseReactivationOffer(
     findAgentsWithPermission("clients.assign")
       .then((supervisors) =>
         sendPushToAgents(supervisors, {
-          title: "⏳ Лид ждёт назначения",
+          title: "⏳ Заявка ждёт назначения",
           body: `${client.fullName} — предложение реактивации снято, назначьте агента вручную`,
           url: `/clients/${client.shortId}`,
           tag: `lead-unassigned-${client.id}`,
@@ -282,7 +307,7 @@ export async function acceptReactivationOffer(
   }
 
   const now = new Date();
-  await changeClientAgent({
+  const claimed = await changeClientAgent({
     clientId: client.id,
     toAgentId: agentId,
     reason: interactionNote,
@@ -297,32 +322,20 @@ export async function acceptReactivationOffer(
       reactivationOfferedToAgentId: null,
       reactivationOfferedAt: null,
     },
+    // То же предложение, что прочитал loadOwnOffer, — не снятое кроном/отказом за это время.
+    guardWhere: OFFER_STILL_OPEN(agentId, client.reactivationOfferedAt!),
   });
+  if (!claimed.ok) {
+    return {
+      ok: false as const,
+      status: 409 as const,
+      error: claimed.reason === "deleted" ? "Клиент перемещён в Корзину" : "Предложение уже снято — обновите страницу",
+    };
+  }
 
   // ПОСЛЕ коммита (аудит 11.09.2026, второй заход по осиротевшим спутникам,
   // п.4 задания): клиент принят — экран агента и надзора обновляются сразу.
   publishClientUpdated({ clientId: client.id, agentIds: [agentId] });
-
-  // Тот же контроль портфеля, что у автоматической реактивации (intake.ts) — агент
-  // мог согласиться на клиента, который вывел его портфель за лимит; решение о
-  // разгрузке принимает руководитель, а не тишина (код-ревью 13.08.2026, тот же приём).
-  void (async () => {
-    try {
-      const limits = await loadLeadLimits();
-      if (limits.activeLimit <= 0) return;
-      const counts = (await activeLeadCounts([agentId])).get(agentId);
-      if (slotsTaken(counts, limits) <= limits.activeLimit) return;
-      const supervisors = await findAgentsWithPermission("clients.assign");
-      await sendPushToAgents(supervisors, {
-        title: "⚠️ Портфель агента сверх лимита",
-        body: `Реактивированный клиент №${client.shortId} довёл портфель агента выше настроенного лимита ${limits.activeLimit} — стоит разгрузить.`,
-        url: `/clients/${client.shortId}`,
-        tag: `over-limit-reactivation-accept-${client.id}`,
-      });
-    } catch (err) {
-      console.error("[leads] уведомление о превышении лимита при реактивации:", err instanceof Error ? err.message : err);
-    }
-  })();
 
   return { ok: true as const, client };
 }
@@ -373,7 +386,7 @@ export async function runReactivationOfferReminders(): Promise<{ accepted: numbe
 
     try {
       const calledByAgent = await prisma.interaction.findFirst({
-        where: { clientId: client.id, agentId, type: "CALL", createdAt: { gt: offeredAt } },
+        where: { clientId: client.id, agentId, type: "CALL", archiveReview: false, createdAt: { gt: offeredAt } },
         select: { id: true },
       });
       if (calledByAgent) {
@@ -432,15 +445,15 @@ export async function expireStaleReactivationOffers(
 
   const stale = await prisma.client.findMany({
     where: { reactivationOfferedToAgentId: { not: null }, reactivationOfferedAt: { lte: cutoff }, deletedAt: null },
-    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedToAgentId: true },
+    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedToAgentId: true, reactivationOfferedAt: true },
     take: 50,
   });
 
   let released = 0;
   for (const client of stale) {
     try {
-      await releaseReactivationOffer(client, client.reactivationOfferedToAgentId!, "expired");
-      released++;
+      const outcome = await releaseReactivationOffer(client, client.reactivationOfferedToAgentId!, "expired");
+      if (!outcome.raced) released++;
     } catch (err) {
       void logSystemError(
         "api",
@@ -464,13 +477,13 @@ export async function releaseReactivationOffersOfAgent(
 ): Promise<number> {
   const offered = await prisma.client.findMany({
     where: { reactivationOfferedToAgentId: agentId, deletedAt: null },
-    select: { id: true, shortId: true, fullName: true, kind: true },
+    select: { id: true, shortId: true, fullName: true, kind: true, reactivationOfferedAt: true },
   });
   let released = 0;
   for (const client of offered) {
     try {
-      await releaseReactivationOffer(client, agentId, "agent_unavailable", actorId);
-      released++;
+      const outcome = await releaseReactivationOffer(client, agentId, "agent_unavailable", actorId);
+      if (!outcome.raced) released++;
     } catch (err) {
       void logSystemError(
         "api",

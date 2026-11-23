@@ -22,7 +22,7 @@ import {
   type PropertyChangeRequestDto,
 } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
-import { prisma, type TxClient } from "../db.js";
+import { prisma, type PropertyRecord, type TxClient } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -69,7 +69,7 @@ export interface ChangeRequestExpectation {
   propertyVersion?: number;
 }
 
-type PropertyRow = Prisma.PropertyGetPayload<Record<string, never>>;
+type PropertyRow = PropertyRecord;
 
 /**
  * ПРОВЕРКИ ЗАЯВКИ БЕЗ ЗАПИСИ: чьё это дело, опубликован ли объект, допустим ли вид.
@@ -81,12 +81,18 @@ type PropertyRow = Prisma.PropertyGetPayload<Record<string, never>>;
 export function checkPropertyChangeRequest(
   property: PropertyRow,
   actor: ChangeRequestActor,
-  body: CreatePropertyChangeRequestInput
+  body: CreatePropertyChangeRequestInput,
+  /**
+   * «Своё — сразу» до публикации (17.11.2026, ИИ-помощник): карточку на подготовке хозяин
+   * правит сам, и помощник применяет правку тем же исполнителем, что «Принять». Ставит только
+   * тот, кто тут же принимает заявку автором (canApplyChangeDirectly); REST его не передаёт.
+   */
+  options?: { allowUnpublished?: boolean }
 ): { ok: true; payloadObject: object } | ChangeRequestFailure {
   if (!canManagePropertyAs(actor, property)) {
     return { ok: false, status: 403, error: "Заявку подаёт агент, который ведёт этот объект" };
   }
-  if (!isPublishedForChangeRequest(property.status)) {
+  if (!options?.allowUnpublished && !isPublishedForChangeRequest(property.status)) {
     return { ok: false, status: 409, error: "До публикации карточку можно править самому" };
   }
 
@@ -129,12 +135,19 @@ export async function createPropertyChangeRequest(input: {
   assistantUndo?: AssistantPriceUndoLink & { now: Date; undoUntil: Date };
   /** Куда записать в журнал источник: REST ничего не добавляет. */
   auditSource?: Record<string, unknown>;
+  /** «Своё — сразу»: вызывающий тут же принимает заявку (applyOwnChangeRequestNow) — директору о ней
+   *  сообщать нечего, пуш «Заявка» в очередь не ставится. */
+  applyDirectly?: boolean;
+  /** См. checkPropertyChangeRequest: только вместе с applyDirectly (или откатом помощника). */
+  allowUnpublished?: boolean;
 }): Promise<CreateChangeRequestResult> {
   const { actor, body, assistantUndo } = input;
 
   const property = await prisma.property.findUnique({ where: { id: input.propertyId } });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден" };
-  const checked = checkPropertyChangeRequest(property, actor, body);
+  const checked = checkPropertyChangeRequest(property, actor, body, {
+    allowUnpublished: input.allowUnpublished === true && (input.applyDirectly === true || assistantUndo !== undefined),
+  });
   if (!checked.ok && !assistantUndo) return checked;
   const payloadObject = checked.ok ? checked.payloadObject : body.payload;
 
@@ -279,7 +292,7 @@ export async function createPropertyChangeRequest(input: {
 
   // Кому решать — тем и сообщаем, по праву, а не по роли. Часы алармов (07.09.2026): заявка уже
   // в очереди, откладывается только пуш о ней.
-  void enqueueDirectorAlert({
+  if (!input.applyDirectly) void enqueueDirectorAlert({
     title: `📝 ${PROPERTY_CHANGE_KIND_LABELS[body.kind]}: объект №${property.shortId}`,
     body: `${created.author.fullName}: ${summary}`,
     url: `/properties/${property.shortId}?changeRequest=${created.id}`,

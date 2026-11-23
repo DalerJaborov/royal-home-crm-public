@@ -10,6 +10,7 @@ import {
 import { SHOWING_HOURS_LAST, SHOWING_HOURS_START } from "../lib/showingBooking.js";
 import { vacancyOfficeAddress } from "./vacancyFacts.js";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
+import { SERVICE_AREA_COMPANY_LINE } from "../lib/serviceArea.js";
 
 /**
  * ОДНО ОКНО ИНФОРМАЦИИ ДЛЯ ЧАТ-БОТА И ГОЛОСОВОГО РОБОТА (аудит 10.10.2026,
@@ -41,7 +42,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 export const AGENCY_FACTS = {
   name: "Royal Home",
   city: "Душанбе",
-  /** Только Душанбе: другие города не обслуживаем. */
+  /** Другие города не обслуживаем; зона — Душанбе и район Рудаки (lib/serviceArea.ts, 15.11.2026). */
   otherCities: false,
   phone: PUBLIC_AGENCY_CONTACT.phone,
   site: "royalhome.tj",
@@ -67,7 +68,7 @@ export function companyInfoBlock(): string {
   const f = AGENCY_FACTS;
   return `
 <company_info>
-Агентство: ${f.name}. Город: ${f.city} (всегда, другие города не обслуживаем).
+Агентство: ${f.name}. Город: ${SERVICE_AREA_COMPANY_LINE}.
 Офис: ${vacancyOfficeAddress()}. Спросят «где вы находитесь», «как к вам добраться» — назови город, улицу с домом, здание, этаж и ориентиры; приезжать в офис нужно, когда договорились с агентом, показы проходят на самих объектах.
 Услуги: ${f.services}.
 Аренда: ${f.rent ? "есть" : "АРЕНДЫ СЕЙЧАС НЕТ (ни сдаём, ни снимаем)"}.

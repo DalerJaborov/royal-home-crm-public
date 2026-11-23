@@ -1,3 +1,4 @@
+import { meaningfulPropertyAddress } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { ShowcaseResult } from "../ai/showcaseResult.js";
 export type { ShowcaseResult };
@@ -376,7 +377,8 @@ function toPropertyCard(property: NonNullable<Awaited<ReturnType<typeof findCard
     rooms: property.rooms ?? undefined,
     areaSqm: property.areaSqm ? Number(property.areaSqm) : undefined,
     district: property.district?.name ?? "",
-    address: property.address?.trim() || undefined,
+    // Адрес-заготовка («улица») клиенту не показывается (21.11.2026, одно правило с подписью и сайтом).
+    address: meaningfulPropertyAddress(property.address) ?? undefined,
     photoUrl: photoUrls[0] ?? null,
     photoUrls,
     // Ссылка — общим botOfferLink: у объекта не с сайта страницы там нет, и прежний

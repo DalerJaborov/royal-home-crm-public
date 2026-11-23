@@ -103,7 +103,7 @@ describe("карусель с единственным агентом не пе�
     expect(moved).toBe(0);
     // Держатель не должен получить пуш "переназначен вам" — это пуш от него же ему же.
     const selfPush = push.mock.calls.some(
-      (call) => (call as unknown as [string, { title?: string }])[1]?.title === "🤝 Лид переназначен вам"
+      (call) => (call as unknown as [string, { title?: string }])[1]?.title === "🤝 Заявка переназначена вам"
     );
     expect(selfPush).toBe(false);
   });

@@ -121,7 +121,7 @@ function phoneRunDigits(text: string, index: number, length: number): number {
 export type PriceCurrency = "USD" | "TJS";
 
 /** Найденная в тексте цена: значение и валюта, если она названа рядом. */
-interface PriceHit {
+export interface PriceHit {
   value: number;
   currency: PriceCurrency | null;
 }
@@ -177,6 +177,11 @@ function scanPrices(text: string): PriceHit[] {
     if (value >= 1000) out.push({ value, currency: currencyAround(text, start, start + m[0].length) });
   }
   return out;
+}
+
+/** Суммы из слов клиента со своей валютой (тот же разбор, что у сверки цен: телефоны и годы мимо). */
+export function priceMentions(text: string): PriceHit[] {
+  return scanPrices(text);
 }
 
 export function extractPrices(text: string): number[] {
@@ -325,6 +330,34 @@ function currencyMismatches(candidate: PriceHit, sources: PriceHit[]): boolean {
   return same.every((s) => s.currency !== null && s.currency !== candidate.currency);
 }
 
+/**
+ * ПЕРЕСЧИТАННАЯ СУММА С ВАЛЮТОЙ ИСТОЧНИКА — ВЫДУМКА, А НЕ НАБЛЮДЕНИЕ (16.11.2026).
+ *
+ * Живой случай YouTube 15.11 (аудит comments.md п.8): в карточке 1 250 000 сомони, бот
+ * ответил «Ин хона 135 520 сомонӣ аст». 135 520 = 1 250 000 / курс — это долларовый
+ * эквивалент, и isAllowed пропускал его как законный пересчёт; currencyMismatches его не
+ * видел, потому что сравнивает только РАВНЫЕ суммы. Итог — цена в 9 раз ниже публично.
+ *
+ * Сумма, которая получается из источника ТОЛЬКО пересчётом, обязана нести ДРУГУЮ валюту,
+ * чем источник: доллары от сомони — «$», сомони от долларов — «с.». Названа валюта самого
+ * источника — это неверная цена, и режется она всегда, без режима наблюдения: здесь нет
+ * двусмысленности, ради которой наблюдение заводилось (AI-GUARD02).
+ */
+function convertedButMislabeled(
+  candidate: PriceHit,
+  sources: PriceHit[],
+  allowedValues: number[],
+  usdToTjs?: number
+): boolean {
+  if (!candidate.currency || !usdToTjs || usdToTjs <= 0) return false;
+  if (allowedValues.some((a) => matches(candidate.value, a))) return false;
+  const viaConversion = sources.filter(
+    (s) => matches(candidate.value, s.value * usdToTjs) || matches(candidate.value, s.value / usdToTjs)
+  );
+  if (viaConversion.length === 0) return false;
+  return viaConversion.every((s) => s.currency !== null && s.currency === candidate.currency);
+}
+
 export function guardPrices(input: PriceGuardInput): PriceGuardResult {
   // Цены берём только из ДОВЕРЕННОЙ части источников: содержимое присланных
   // клиентом файлов вырезается до разбора (см. большой комментарий выше).
@@ -337,6 +370,9 @@ export function guardPrices(input: PriceGuardInput): PriceGuardResult {
   const cleaned = input.bubbles.map((bubble) => {
     const candidates = extractPrices(bubble);
     const bad = candidates.filter((c) => !isAllowed(c, allowed, input.usdToTjs));
+    for (const hit of scanPrices(bubble)) {
+      if (!bad.includes(hit.value) && convertedButMislabeled(hit, allowedHits, allowed, input.usdToTjs)) bad.push(hit.value);
+    }
     // Валютное расхождение: только у «разрешённых» по числу, это не выдумка суммы.
     const wrongCurrency = scanPrices(bubble)
       .filter((hit) => !bad.includes(hit.value) && currencyMismatches(hit, allowedHits))

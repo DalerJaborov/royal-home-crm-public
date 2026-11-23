@@ -2,8 +2,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   LOOK_IDS,
+  TEXT_SIZE_IDS,
+  homePreferencesSchema,
   migrateLegacyTheme,
+  type HomeBlocksLayout,
   type LookId,
+  type Role,
+  type TextSizeId,
   type ThemeId,
   type UiPreferences,
 } from "@royal-home/shared";
@@ -17,7 +22,7 @@ import { readCleanNavigationOrder } from "../lib/cleanNavigationPreference";
 /** Идентификаторы виджетов дашборда, доступных к скрытию (Dashboard.tsx). */
 export const DASHBOARD_WIDGETS = [
   { id: "kpis", label: "Показатели (KPI)" },
-  { id: "myLeads", label: "Мои лиды" },
+  { id: "myLeads", label: "Мои заявки" },
   { id: "commission", label: "График комиссии" },
   { id: "properties", label: "Объекты" },
   { id: "funnel", label: "Воронка" },
@@ -25,7 +30,7 @@ export const DASHBOARD_WIDGETS = [
   { id: "districts", label: "Объекты по районам" },
   { id: "propertiesTrend", label: "Динамика объектов" },
   { id: "today", label: "Задачи на сегодня" },
-  { id: "sources", label: "Источники лидов" },
+  { id: "sources", label: "Источники заявок" },
   { id: "heatmap", label: "Тепловая карта обращений" },
   { id: "pulse", label: "Пульс команды" },
   { id: "team", label: "Команда · сейчас" },
@@ -40,6 +45,9 @@ interface UiPrefsValues {
   theme: ThemeId;
   /** Облик — компоновка экрана. Независим от темы: тема меняет цвета, облик — саму раскладку. */
   look: LookId;
+  /** Размер текста нового вида: обычный / крупный / очень крупный (Профиль → Оформление).
+   *  Не выбран (undefined) — обычный; на сервер уходит только выбранный. */
+  textSize?: TextSizeId;
   aurora: boolean;
   glass: boolean;
   dashboardHidden: string[];
@@ -49,6 +57,10 @@ interface UiPrefsValues {
   autoLogoutMinutes: number | null;
   /** Идентификаторы разово скрытых подсказок/баннеров (например, промо живой темы). */
   dismissedHints: string[];
+  /** Главная «Нового вида»: свой порядок и выключенные блоки по роли (Профиль → Оформление). */
+  homeBlocks: HomeBlocksByRole;
+  /** Чья раскладка главной лежит в `homeBlocks`: устройство общее, чужая раскладка не применяется. */
+  homeBlocksOwnerId: string | null;
   /** Звуки уведомлений (новый лид/сообщение/звонок/сохранение/ошибка) — только локальное
    *  устройство, не синкается в БД (как sidebarCollapsed): личная привычка конкретного
    *  компьютера/наушников. */
@@ -69,11 +81,14 @@ interface UiPrefsState extends UiPrefsValues {
   saveDesktopNavigationOrder: (order: string[]) => Promise<void>;
   setTheme: (theme: ThemeId) => void;
   setLook: (look: LookId) => void;
+  setTextSize: (size: TextSizeId) => void;
   setAurora: (on: boolean) => void;
   setGlass: (on: boolean) => void;
   setAutoLogoutMinutes: (minutes: number | null) => void;
   setAiSoundsEnabled: (on: boolean) => void;
   toggleDashboardWidget: (id: string) => void;
+  /** Раскладка главной роли: null — вернуть как было (все блоки, порядок по умолчанию). */
+  setHomeBlocks: (role: Role, layout: HomeBlocksLayout | null) => void;
   dismissHint: (id: string) => void;
   /** Применить настройки из БД. force — при логине (мог войти другой пользователь). */
   hydrateFromServer: (prefs: UiPreferences | null | undefined, force?: boolean) => void;
@@ -106,6 +121,7 @@ const DEFAULT_PREFS: UiPrefsValues = {
   // Классический по умолчанию: смена облика — осознанный выбор сотрудника,
   // а не сюрприз после обновления.
   look: "classic",
+  textSize: undefined,
   aurora: true,
   glass: computeDefaultGlass(),
   dashboardHidden: [],
@@ -113,6 +129,8 @@ const DEFAULT_PREFS: UiPrefsValues = {
   navigationOwnerId: null,
   autoLogoutMinutes: null,
   dismissedHints: [],
+  homeBlocks: {},
+  homeBlocksOwnerId: null,
   aiSoundsEnabled: true,
   updatedAt: 0,
   syncedAt: 0,
@@ -125,6 +143,9 @@ function applyToDom(state: UiPrefsValues) {
   const el = document.documentElement;
   el.dataset.theme = state.theme;
   el.dataset.look = state.look;
+  // Размер текста: «обычный» — без атрибута (множитель 1 в theme-look-royal.css).
+  if (state.textSize && state.textSize !== "normal") el.dataset.textSize = state.textSize;
+  else delete el.dataset.textSize;
   el.classList.toggle("fx-no-aurora", !state.aurora);
   el.classList.toggle("fx-no-glass", !state.glass);
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
@@ -150,6 +171,8 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
   return {
     theme: state.theme,
     look: state.look,
+    // Только выбранный: устройство, где размер не трогали, не перетирает выбор с другого устройства.
+    ...(state.textSize ? { textSize: state.textSize } : {}),
     effects: { aurora: state.aurora, glass: state.glass },
     dashboard: { hidden: [...state.dashboardHidden] },
     ...(state.navigationOwnerId === useAuthStore.getState().agent?.id
@@ -157,7 +180,35 @@ function buildPrefsBody(state: UiPrefsValues): UiPreferences {
       : {}),
     security: { autoLogoutMinutes: state.autoLogoutMinutes },
     dismissedHints: [...state.dismissedHints],
+    // Раскладки главной (`home`) здесь НЕТ намеренно (ревью #326): обычное сохранение
+    // (тема, подсказка) берёт её с сервера, а шлёт её только setHomeBlocks. Иначе
+    // старая вкладка на другом устройстве откатывала бы раскладку, выбранную на
+    // телефоне, а API до этой правки отвечал бы 400 на любое сохранение настроек.
   };
+}
+
+/** Сколько сохранений раскладки главной сейчас в пути: пока они идут, ответ /me её не перетирает. */
+let homeSavesInFlight = 0;
+
+/** Раскладки главной по роли (в preferences — `home.blocks`). */
+export type HomeBlocksByRole = Partial<Record<Role, HomeBlocksLayout>>;
+
+/** Раскладка главной с сервера (сырой JSON из /me): битое отбрасывается, а не роняет главную. */
+function readHomeBlocks(value: unknown): HomeBlocksByRole {
+  const parsed = homePreferencesSchema.shape.blocks.safeParse(value);
+  return parsed.success && parsed.data ? structuredCloneHome(parsed.data) : {};
+}
+
+function structuredCloneHome(blocks: HomeBlocksByRole): HomeBlocksByRole {
+  const out: HomeBlocksByRole = {};
+  for (const [role, layout] of Object.entries(blocks) as [Role, HomeBlocksLayout | undefined][]) {
+    if (!layout) continue;
+    out[role] = {
+      ...(layout.order ? { order: [...layout.order] } : {}),
+      ...(layout.hidden ? { hidden: [...layout.hidden] } : {}),
+    };
+  }
+  return out;
 }
 
 function ownsSession(agentId: string, sessionEpoch: number): boolean {
@@ -176,6 +227,9 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
       if (!ownsSession(agentId, sessionEpoch)) throw new Error("Сессия сменилась. Войдите снова.");
       ({ preferences, changedAt } = snapshot());
       preferences = { ...preferences, navigation: profile.preferences?.navigation ?? { desktopOrder: [] } };
+      // Главная: обычное сохранение шлёт раскладку, сохранённую на сервере, а не местную;
+      // своя раскладка уходит только из setHomeBlocks (у неё `home` уже в теле).
+      if (!preferences.home && profile.preferences?.home) preferences = { ...preferences, home: profile.preferences.home };
     }
     const requestSequence = ++syncRequestSequence;
     await api("/me/preferences", { method: "PUT", body: preferences, expectAgentId: agentId });
@@ -184,7 +238,9 @@ function persistPreferences(agentId: string, sessionEpoch: number, snapshot: () 
     lastAcknowledgedRequest = requestSequence;
     afterAck?.();
     queryClient.setQueryData<MyProfile>(["me"], (profile) =>
-      profile?.id === agentId ? { ...profile, preferences } : profile
+      profile?.id === agentId
+        ? { ...profile, preferences: preferences.home || !profile.preferences?.home ? preferences : { ...preferences, home: profile.preferences.home } }
+        : profile
     );
     if (useUiPrefs.getState().syncedAt < changedAt) {
       useUiPrefs.setState((state) => state.updatedAt <= changedAt ? { syncedAt: changedAt } : state);
@@ -264,6 +320,7 @@ export const useUiPrefs = create<UiPrefsState>()(
         },
         setTheme: (theme) => commit({ theme }),
         setLook: (look) => commit({ look }),
+        setTextSize: (textSize) => commit({ textSize }),
         setAurora: (aurora) => commit({ aurora }),
         setGlass: (glass) => commit({ glass }),
         setAutoLogoutMinutes: (autoLogoutMinutes) => commit({ autoLogoutMinutes }),
@@ -273,6 +330,29 @@ export const useUiPrefs = create<UiPrefsState>()(
         toggleDashboardWidget: (id) => {
           const hidden = get().dashboardHidden;
           commit({ dashboardHidden: hidden.includes(id) ? hidden.filter((w) => w !== id) : [...hidden, id] });
+        },
+        setHomeBlocks: (role, layout) => {
+          const { agent, sessionEpoch } = useAuthStore.getState();
+          if (!agent) return;
+          // Раскладка чужого входа на этом устройстве не наследуется: начинаем со своей.
+          const before = get().homeBlocksOwnerId === agent.id ? get().homeBlocks : {};
+          const next: HomeBlocksByRole = { ...before };
+          if (layout && ((layout.order?.length ?? 0) > 0 || (layout.hidden?.length ?? 0) > 0)) next[role] = layout;
+          else delete next[role];
+          // Переключается сразу (optimistic); на сервер — ОТДЕЛЬНЫМ сохранением с `home`
+          // (обычная очередь темы её не шлёт). Отказ сервера — откат и сообщение.
+          set({ homeBlocks: next, homeBlocksOwnerId: agent.id });
+          homeSavesInFlight++;
+          void persistPreferences(agent.id, sessionEpoch, () => {
+            const state = get();
+            const own = state.homeBlocksOwnerId === agent.id ? state.homeBlocks : next;
+            return { preferences: { ...buildPrefsBody(state), home: { blocks: structuredCloneHome(own) } }, changedAt: state.updatedAt };
+          }).catch(async () => {
+            if (!ownsSession(agent.id, sessionEpoch)) return;
+            if (get().homeBlocks === next) set({ homeBlocks: before });
+            const { useToastStore } = await import("./toast");
+            useToastStore.getState().show("Раскладка главной не сохранилась. Повторите, когда будет связь.", "error");
+          }).finally(() => { homeSavesInFlight--; });
         },
         dismissHint: (id) => {
           const hints = get().dismissedHints;
@@ -285,11 +365,21 @@ export const useUiPrefs = create<UiPrefsState>()(
           if (force || !get().serverHydrated || get().navigationOwnerId !== actorId) {
             set({ desktopNavigationOrder: readCleanNavigationOrder(prefs?.navigation?.desktopOrder), navigationOwnerId: actorId });
           }
-          if (get().serverHydrated && !force) return;
+          // Раскладка главной — только с сервера и только своя (как автовыход ниже):
+          // устройство общее, чужая раскладка не должна прятать блоки следующему.
+          // Применяется ПОСЛЕ решения «местное новее» (ревью #326): своя несохранённая
+          // раскладка (сохранение ещё в пути) серверной не перетирается.
+          const applyServerHome = () => set({ homeBlocks: readHomeBlocks(prefs?.home?.blocks), homeBlocksOwnerId: actorId });
+          const ownHome = get().homeBlocksOwnerId === actorId;
+          if (get().serverHydrated && !force) {
+            if (!ownHome) applyServerHome();
+            return;
+          }
           // A late initial /me may arrive inside the theme-change debounce.
           // Keep the unsynced choice and schedule its PUT for this account/epoch.
           // Rescheduling also restores the queue lost during a full page reload.
           const localWins = !force && get().updatedAt > get().syncedAt;
+          if (force || !ownHome || (!localWins && homeSavesInFlight === 0)) applyServerHome();
           if (localWins) {
             set({ serverHydrated: true });
             applyToDom(get());
@@ -303,7 +393,7 @@ export const useUiPrefs = create<UiPrefsState>()(
             // В БД пусто. При логине (force) сбрасываем к дефолтам: локальный выбор мог
             // принадлежать предыдущему пользователю этого устройства. На сервер ничего
             // не пишем — настройки сохранятся при первом осознанном изменении.
-            if (force) set({ ...DEFAULT_PREFS, navigationOwnerId: actorId, serverHydrated: true, syncedAt: Date.now() });
+            if (force) set({ ...DEFAULT_PREFS, navigationOwnerId: actorId, homeBlocksOwnerId: actorId, serverHydrated: true, syncedAt: Date.now() });
             else set({ serverHydrated: true });
             applyToDom(get());
             return;
@@ -317,6 +407,7 @@ export const useUiPrefs = create<UiPrefsState>()(
             // клиента с undefined-темой.
             theme: prefs.theme ? migrateLegacyTheme(prefs.theme) : get().theme,
             look: prefs.look && LOOK_IDS.includes(prefs.look) ? prefs.look : get().look,
+            textSize: prefs.textSize && TEXT_SIZE_IDS.includes(prefs.textSize) ? prefs.textSize : get().textSize,
             aurora: prefs.effects?.aurora ?? get().aurora,
             glass: prefs.effects?.glass ?? get().glass,
             dashboardHidden: prefs.dashboard?.hidden ?? get().dashboardHidden,
@@ -353,6 +444,7 @@ export const useUiPrefs = create<UiPrefsState>()(
       partialize: (s) => ({
         theme: s.theme,
         look: s.look,
+        textSize: s.textSize,
         aurora: s.aurora,
         glass: s.glass,
         dashboardHidden: s.dashboardHidden,
@@ -360,6 +452,8 @@ export const useUiPrefs = create<UiPrefsState>()(
         navigationOwnerId: s.navigationOwnerId,
         autoLogoutMinutes: s.autoLogoutMinutes,
         dismissedHints: s.dismissedHints,
+        homeBlocks: s.homeBlocks,
+        homeBlocksOwnerId: s.homeBlocksOwnerId,
         sidebarCollapsed: s.sidebarCollapsed,
         aiSoundsEnabled: s.aiSoundsEnabled,
         updatedAt: s.updatedAt,

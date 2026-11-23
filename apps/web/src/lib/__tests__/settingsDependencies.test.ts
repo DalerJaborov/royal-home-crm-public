@@ -4,8 +4,6 @@ import {
   followUpBlockedBy,
   maxOwnPropertyScore,
   ownPropertyThresholdNote,
-  releaseEffectiveOn,
-  releaseToggleBody,
   showingConfirmBlockedBy,
 } from "../settingsDependencies";
 
@@ -46,10 +44,10 @@ describe("Напоминания молчащим: два тумблера и ч
   });
 });
 
-describe("Просьба подтвердить показ: «Лиды» и «Бот»", () => {
+describe("Просьба подтвердить показ: «Заявки» и «Бот»", () => {
   it("каждая вкладка называет выключенный тумблер другой", () => {
     expect(showingConfirmBlockedBy({ askClientsToConfirmShowings: false, botCanConfirmShowings: true }, "bot")).toContain(
-      "«Лиды»"
+      "«Заявки»"
     );
     expect(showingConfirmBlockedBy({ askClientsToConfirmShowings: true, botCanConfirmShowings: false }, "leads")).toContain(
       "«Бот»"
@@ -62,19 +60,6 @@ describe("Просьба подтвердить показ: «Лиды» и «Б
     expect(SHOWING_CONFIRM_ON_TEXT).toContain("За 4 часа");
     expect(SHOWING_CONFIRM_ON_TEXT).toContain("накануне в 19:00");
     expect(SHOWING_CONFIRM_ON_TEXT).toContain("Собственнику ничего не пишется");
-  });
-});
-
-describe("«Предлагать освободить место» и скрытое поле", () => {
-  it("тумблер показывает итог обоих полей, как проверяет acceptLead", () => {
-    expect(releaseEffectiveOn({ ownPropertyReleaseEnabled: true, ownPropertyOverLimitEnabled: true })).toBe(true);
-    expect(releaseEffectiveOn({ ownPropertyReleaseEnabled: true, ownPropertyOverLimitEnabled: false })).toBe(false);
-    expect(releaseEffectiveOn({ ownPropertyReleaseEnabled: false, ownPropertyOverLimitEnabled: true })).toBe(false);
-  });
-
-  it("включение поднимает оба поля, выключение трогает только своё", () => {
-    expect(releaseToggleBody(false)).toEqual({ ownPropertyReleaseEnabled: true, ownPropertyOverLimitEnabled: true });
-    expect(releaseToggleBody(true)).toEqual({ ownPropertyReleaseEnabled: false });
   });
 });
 

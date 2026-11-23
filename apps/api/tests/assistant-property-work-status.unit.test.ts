@@ -55,6 +55,20 @@ describe("property work status evidence", () => {
       .toBe("PUBLICATION_FAILED");
   });
 
+  it("принятый ролик на проверке — «ждёт решения», а не «публикация не завершена» (17.11.2026)", () => {
+    const pending = {
+      ...row,
+      videoHandoffStatus: "RECEIVED",
+      videoHandoffReceivedAt: delivered,
+      videoHandoffFinalPath: "/private/video",
+      clipReviewStatus: "PENDING",
+      clipReviewRequestedAt: delivered,
+    } as const;
+    expect(summarizePropertyWork(pending, now)).toMatchObject({ phase: "FINAL_VIDEO_UNDER_REVIEW", elapsed: { elapsedDays: 2 } });
+    // Одобренный — прежний путь: принят, публикация по заданию.
+    expect(summarizePropertyWork({ ...pending, clipReviewStatus: "APPROVED" }, now, "PENDING").phase).toBe("PUBLICATION_PENDING");
+  });
+
   it("limits queue listing to the agent’s own properties when the company queue is restricted", async () => {
     const agent = { id: "agent-1", role: "AGENT", permissions: new Set() } as AssistantActor;
     db.count.mockResolvedValueOnce(12).mockResolvedValueOnce(1).mockResolvedValueOnce(6);
@@ -72,7 +86,7 @@ describe("property work status evidence", () => {
       ...ownScope, videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffDeliveredAt: { not: null }, videoHandoffManualSince: null,
     }) });
     expect(db.count).toHaveBeenNthCalledWith(3, { where: expect.objectContaining({ ...ownScope, videoHandoffStatus: "QUEUED" }) });
-    const director = { ...agent, role: "DIRECTOR" };
+    const director = { ...agent, role: "DIRECTOR", permissions: new Set(["marketing.access"]) } as AssistantActor;
     expect(await getPropertyWorkStatusTool.run({ scope: "queue" }, { actor: director })).toMatchObject({ scope: "COMPANY_QUEUE" });
     const where = (db.count.mock.lastCall as unknown as [{ where: object }])[0].where;
     expect(where).not.toHaveProperty("OR");

@@ -16,7 +16,7 @@ export const customerAgentToolCallSchema = z.union([customerToolCallSchema, cust
   customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerAgentCompanyInformationCallSchema, customerAgentVacanciesCallSchema, customerMutationCommandSchema]);
 export type CustomerAgentToolCall = z.infer<typeof customerAgentToolCallSchema>;
 export const customerAgentFactKindSchema = customerPropertyFactKindSchema;
-export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start", "job_required"]);
+export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "budget_currency", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start", "job_required"]);
 export type CustomerAgentQuestion = z.infer<typeof customerAgentQuestionSchema>;
 export const customerAgentSocialActSchema = z.enum(["none", "greet", "thank", "acknowledge", "apologize"]);
 /** Server presentation state, never model-selected file authority. */
@@ -28,24 +28,34 @@ const refs = z.array(evidenceRef).max(8).refine(values => new Set(values).size =
  * parse (a bad `say` must never void the decision) and re-attaches it only after the server validator accepted it in live mode. */
 export const customerAgentSayTextSchema = z.string().min(2).max(200);
 const say = customerAgentSayTextSchema.optional();
-/** Why a model `say` did not reach the customer: the 14 validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
+/** Why a model `say` did not reach the customer: the validator verdicts plus `language_disabled` (tg is off in v1) and `shadow`
  * (valid, but the mode only counts it). One enum for the validator, the trace and the guard counters. */
 export const customerAgentSayDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "length", "question", "number_or_date", "contact", "promise",
-  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow"]);
+  "fact_claim", "place", "meta", "cliche", "language", "echo", "repeat", "double_greet", "shadow", "rude", "agree"]);
 export type CustomerAgentSayDropReason = z.infer<typeof customerAgentSayDropReasonSchema>;
 export const customerAgentSayStatusSchema = z.enum(["absent", "used", "dropped"]);
+/** The model's human words around the server's facts (one-brain step 1, redesigned after review #211): a lead-in, the one question in
+ * its own words, a closing line. Never a fact: every fact line comes verbatim from the template. Lifted before the strict parse like
+ * `say`, re-attached only after the server verifier (apps/api/src/ai/customerAgentAnswer.ts) accepted it in live mode. */
+const answerPart = z.string().min(1).max(300).optional();
+export const customerAgentAnswerPartsSchema = z.object({ lead: answerPart, ask: answerPart, close: answerPart }).strict();
+const answer = customerAgentAnswerPartsSchema.optional();
+/** Why the model's words did not reach the customer. `shadow`: verified, but the mode only counts it. `error`: the verifier threw (a bug; the template went out). */
+export const customerAgentAnswerDropReasonSchema = z.enum(["surface_disabled", "language_disabled", "not_eligible", "template_payload", "length", "wooden", "rude",
+  "meta", "cliche", "question", "phone_ask", "promise", "claim", "number", "currency", "missing_fact", "place", "language", "repeat", "echo", "double_greet", "shadow", "error", "vocabulary", "agree"]);
+export type CustomerAgentAnswerDropReason = z.infer<typeof customerAgentAnswerDropReasonSchema>;
 export const customerAgentSayModeSchema = z.enum(["shadow", "live"]);
 export type CustomerAgentSayMode = z.infer<typeof customerAgentSayModeSchema>;
 const reply = z.object({
   kind: z.literal("reply"), refs, social: customerAgentSocialActSchema,
-  question: customerAgentQuestionSchema, say,
+  question: customerAgentQuestionSchema, say, answer,
   /** A suggestion to the server planner; never a URL, asset ID or send receipt. */
   attachment: z.literal("buyer_guide").optional(),
 }).strict();
 export const customerAgentDecisionSchema = z.discriminatedUnion("kind", [
   reply,
-  z.object({ kind: z.literal("clarify"), refs, question: customerAgentQuestionSchema.exclude(["none"]), social: customerAgentSocialActSchema, say }).strict(),
-  z.object({ kind: z.literal("propose"), ref: evidenceRef, social: customerAgentSocialActSchema, say }).strict(),
+  z.object({ kind: z.literal("clarify"), refs, question: customerAgentQuestionSchema.exclude(["none"]), social: customerAgentSocialActSchema, say, answer }).strict(),
+  z.object({ kind: z.literal("propose"), ref: evidenceRef, social: customerAgentSocialActSchema, say, answer }).strict(),
   z.object({ kind: z.literal("skip"), reason: z.enum(["no_reply_needed", "duplicate", "unsupported"]) }).strict(),
   z.object({ kind: z.literal("escalate"), reason: z.enum(["needs_staff", "complaint", "unsupported"]) }).strict(),
   z.object({ kind: z.literal("moderation_proposal"), action: z.enum(["hide", "delete"]), reason: z.enum(["spam", "abuse"]) }).strict(),
@@ -66,6 +76,21 @@ export const customerAgentRevisionSchema = z.object({
 }).strict();
 export type CustomerAgentRevision = z.infer<typeof customerAgentRevisionSchema>;
 
+const needsAmount = z.string().regex(/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/);
+/** Buyer wishes as the customer's own words gave them. `currency` stays absent when the customer named an amount without one
+ * ("до 60 тысяч"): the bot then asks USD or TJS instead of guessing. `placeText` is an unresolved place phrase ("82 мкр"). */
+export const customerBuyerNeedsSchema = z.object({
+  type: z.enum(["APARTMENT", "HOUSE", "LAND", "COMMERCIAL"]).optional(),
+  rooms: z.number().int().min(1).max(20).optional(),
+  budget: z.object({ min: needsAmount.optional(), max: needsAmount.optional(), currency: z.enum(["TJS", "USD"]).optional() }).strict()
+    .refine(value => value.min !== undefined || value.max !== undefined).optional(),
+  districtName: z.string().trim().min(1).max(80).optional(),
+  placeText: z.string().trim().min(1).max(80).optional(),
+  /** "Любой район", "неважно где": the district question is answered. */
+  anywhere: z.literal(true).optional(),
+}).strict();
+export type CustomerBuyerNeeds = z.infer<typeof customerBuyerNeedsSchema>;
+
 /** Shape of an already minimized server projection, NOT proof of its source.
  * Only the real namespace/binding/revision loader may supply this field. */
 export const customerAgentVerifiedContextSchema = z.object({
@@ -81,11 +106,17 @@ export const customerAgentVerifiedContextSchema = z.object({
     buyerKnown: z.array(z.enum(["rooms", "budget", "location"])).max(3),
     /** Bounded customer words, never verified catalog facts or authority. */
     statements: z.array(z.string().min(1).max(360)).max(6).optional(),
+    /** What the customer ALREADY named as a buyer (own words only, later correction wins): the one place the bot looks before it asks
+     * rooms / budget / district again and before it fills a property search. Not a verified fact, a consent or a stored wish. */
+    buyerNeeds: customerBuyerNeedsSchema.optional(),
   }).strict().optional(),
   /** Digests of the lines the bot actually sent in this conversation recently (last bot turns,
    * 24 hours), wider than `turns`. Used only by the server renderer to never resend a block it
    * already sent (A, B, A included); never shown to the model, never text or authority. */
   sentLineDigests: z.array(z.string().regex(/^[a-f0-9]{32}$/)).max(400).optional(),
+  /** Language of the customer's last decisive words in the wider history (up to 50 inputs, audit 16.11.2026): the
+   *  six-turn memory forgot a Tajik dialogue after a dot, a phone or a pack of photos. A fallback, never a request. */
+  dialogueLanguage: z.enum(["ru", "tg"]).optional(),
 }).strict();
 export type CustomerAgentVerifiedContext = z.infer<typeof customerAgentVerifiedContextSchema>;
 

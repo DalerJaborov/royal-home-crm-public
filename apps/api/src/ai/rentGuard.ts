@@ -36,8 +36,9 @@ const rx = (parts: string[]): RegExp => new RegExp(parts.join("|"), "iu");
  * встречаются и кириллицей без диакритики (ҷ→ж, ӣ→и): люди печатают как придётся.
  */
 const RENT_WANTED = rx([
-  // Таджикский: иҷора/ижора/кироя + глаголы «взять/дать/нужна»
-  "и[ҷж]ора|кироя|кирова|кира\\s+(хона|кварт)",
+  // Таджикский: иҷора/ижора/кироя + глаголы «взять/дать/нужна»; «ичора» — ҷ без диакритики через «ч» (слепое ревью #345:
+  // «хона ичора даркор» шёл заявкой покупателя).
+  "и[ҷжч]ора|кироя|кирова|кира\\s+(хона|кварт)",
   // Русский: аренда во всех падежах, «снять/сдать» именно жильё
   "аренд(а|ы|у|е|ой|овать|уем|ую)",
   "сн(ять|иму|имаю|имаем)\\s+(кварт|дом|жиль|хон|комнат|квадрат)",
@@ -104,6 +105,60 @@ export function looksLikeRentBudget(budget: number | undefined, clientText: stri
   if (typeof budget !== "number" || !Number.isFinite(budget)) return false;
   if (budget < MIN_MONTHLY_RENT_TJS || budget >= MIN_REAL_PURCHASE_TJS) return false;
   return !looksLikeBuyOrSellRequest(clientText);
+}
+
+/**
+ * МАЛЕНЬКАЯ СУММА БЕЗ «В МЕСЯЦ» — СПРОСИТЬ, А НЕ ОТКАЗАТЬ (16.11.2026, аудит facts.md Ф8;
+ * ревью #207 В1).
+ *
+ * Живой случай Instagram Arvan 14.11: «Хона даркор… Маладёжный, Профсоюз ё Караболо… То 900и
+ * 950» → бот спросил «Ин ба доллар аст ё ҳазор сомонӣ?» → «Сомони» → «аренды у нас нет».
+ * Сумма 950 попала в вилку месячной платы (looksLikeRentBudget), разговор стал арендой, и
+ * покупатель с бюджетом ~950 000 ушёл.
+ *
+ * Два узких правила, решение владельца от 03.09.2026 («3000–4500» — аренда) не трогаем:
+ *  - `looksLikeThousandsShorthand`: сумма 100–1999 И клиент сам сказал «сомони» (в этом ходе —
+ *    обычно ответ на «доллар ё ҳазор сомонӣ?») → тысячи сомони, покупка. Без слова «сомони»
+ *    НЕ умножаем: «то 150» часто значит 150 тысяч долларов, и тихая подмена спрятала бы вопрос
+ *    о валюте;
+ *  - `smallBudgetNeedsClarifying`: сумма 100–1999 без «в месяц/моҳона/иҷора» и без валюты —
+ *    неизвестно, покупка это или аренда. Отказ «аренды нет» по такой сумме не ставится; бот
+ *    уточняет «барои харид ё иҷора, ба доллар ё ҳазор сомонӣ?» (промт квалификатора).
+ */
+export const THOUSANDS_SHORTHAND_MIN = 100;
+export const THOUSANDS_SHORTHAND_MAX = 2_000;
+const MONTH_WORDS = /(?<![\p{L}])(?:моҳ|мох)(?:она|и|е|й)?(?![\p{L}])|месяц|в\s+мес(?![\p{L}])|помесячн|ежемесячн|за\s+сутки|посуточн/iu;
+const SOMONI_WORD = /сомон|сомӣ|somoni|(?<![\p{L}])(?:tjs|смн)(?![\p{L}])/iu;
+const DOLLAR_WORD = /\$|долл|доллар|usd|dollar/iu;
+
+function smallSum(budget: number | undefined): budget is number {
+  return typeof budget === "number" && Number.isFinite(budget) && budget >= THOUSANDS_SHORTHAND_MIN && budget < THOUSANDS_SHORTHAND_MAX;
+}
+
+/**
+ * Бот только что спросил валюту: «Ин ба доллар аст ё ҳазор сомонӣ?» / «в долларах или тысячах сомони?».
+ * Только ответ «сомони» НА ЭТОТ вопрос значит тысячи (повторное ревью #207, С7: «да» владельца на
+ * сужение решения 03.09 нет — «1500 сомони» первым сообщением остаётся прежним путём).
+ */
+const CURRENCY_QUESTION = /доллар[^.?!\n]{0,25}(?:ё|ё\s+ки|или)[^.?!\n]{0,25}сомон/iu;
+
+export function botAskedCurrency(previousBotText: string | null | undefined): boolean {
+  return CURRENCY_QUESTION.test(previousBotText ?? "");
+}
+
+export function looksLikeThousandsShorthand(
+  budget: number | undefined,
+  clientText: string,
+  previousBotText?: string | null
+): boolean {
+  if (!smallSum(budget)) return false;
+  if (!botAskedCurrency(previousBotText)) return false;
+  return SOMONI_WORD.test(clientText) && !MONTH_WORDS.test(clientText) && !looksLikeRentRequest(clientText);
+}
+
+export function smallBudgetNeedsClarifying(budget: number | undefined, clientText: string): boolean {
+  if (!smallSum(budget)) return false;
+  return !MONTH_WORDS.test(clientText) && !SOMONI_WORD.test(clientText) && !DOLLAR_WORD.test(clientText) && !looksLikeRentRequest(clientText);
 }
 
 /**

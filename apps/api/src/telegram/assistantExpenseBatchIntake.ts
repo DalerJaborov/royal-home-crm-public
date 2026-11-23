@@ -91,10 +91,15 @@ export function decodeCsvBytes(bytes: Buffer): string {
   }
 }
 
+/** Первый лист файла как таблица ячеек: одна дверь для расходов и для мастера объекта. Бросает XlsxReadError/XlsReadError. */
+export function readSpreadsheetTable(kind: SpreadsheetKind, bytes: Buffer): string[][] {
+  return kind === "xlsx" ? readXlsxFirstSheet(bytes) : kind === "xls" ? readXlsFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
+}
+
 /** Таблица файла → строки с ключом источника. null — файл не прочитался. */
 export function rowsFromSpreadsheet(kind: SpreadsheetKind, bytes: Buffer) {
   try {
-    const table = kind === "xlsx" ? readXlsxFirstSheet(bytes) : kind === "xls" ? readXlsFirstSheet(bytes) : parseCsv(decodeCsvBytes(bytes));
+    const table = readSpreadsheetTable(kind, bytes);
     const parsed = expenseRowsFromTable(table);
     const sourceHash = sourceHashOf(bytes);
     return { ...parsed, rows: parsed.rows.map((row, i): IntakeRow => ({ ...row, sourceHash, sourceIndex: i })) };
@@ -260,6 +265,8 @@ export async function knownBatch(agentId: string, sourceHash: string) {
 export async function stageExpenseBatch(params: {
   chatId: string; agentId: string; rows: IntakeRow[]; lang: IntakeLang; replyTo?: number;
   kind: (typeof BATCH_SOURCE_KINDS)[number]; notes?: CardNotes;
+  /** Список текстом (assistantExpenseTextList.ts): ключ сообщения `tg:<чат>:<сообщение>` — тот же, что у хода модели. */
+  chatRef?: string; sourceText?: string;
 }): Promise<void> {
   const { chatId, agentId, lang, replyTo } = params;
   const t = TEXT[lang];
@@ -278,6 +285,8 @@ export async function stageExpenseBatch(params: {
     try {
       const action = await createPendingAssistantAction(actor, ADD_EXPENSES_TOOL, {
         items, lang, source: { kind: params.kind, ...(replyTo ? { messageId: replyTo } : {}) },
+        ...(params.chatRef ? { chatRef: part ? `${params.chatRef}:${part}` : params.chatRef } : {}),
+        ...(params.sourceText ? { sourceText: params.sourceText.slice(0, 1000) } : {}),
       });
       const sent = await sendExpenseBatchCard(chatId, action, agentId, replyTo, part === 0 ? params.notes ?? {} : {});
       if (!sent) await sendMessage(chatId, t.failed, replyTo);

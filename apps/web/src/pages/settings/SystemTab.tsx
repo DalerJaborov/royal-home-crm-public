@@ -1,7 +1,8 @@
+import { RuDateField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, ClipboardList, Compass, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
+import { Activity, Bot, CheckCircle2, ClipboardList, Compass, FileText, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
 import { api } from "../../lib/api";
 import { downloadFromApi } from "../../lib/downloadFile";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -574,9 +575,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">Период с</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={from}
             onChange={(e) => {
               setFrom(e.target.value);
@@ -586,9 +586,8 @@ export function AssistantAuditSection() {
         </label>
         <label className="field">
           <span className="lab">по</span>
-          <input
+          <RuDateField
             className="inp"
-            type="date"
             value={to}
             onChange={(e) => {
               setTo(e.target.value);
@@ -679,6 +678,17 @@ const TURN_REASON_LABELS: Record<string, string> = {
   loop: "ходила по кругу",
   shutdown: "сервер перезапускался",
   attempt_limit: "лимит запросов",
+  // С 19.11.2026 отказ денежной защиты пишется точной причиной (ai/assistant/attemptLimit.ts).
+  input_too_large: "вопрос слишком большой",
+  input_shrunk: "данные сокращены, чтобы уложиться",
+  attempt_cap: "слишком много шагов",
+  money_turn: "дорогой вопрос",
+  money_daily: "дневной предел расходов",
+  attempts_daily: "дневной предел запросов",
+  accounting_unavailable: "учёт расходов недоступен",
+  policy_expired: "тарифы ИИ на проверке",
+  unsupported_request: "неподдержанный запрос",
+  day_rollover: "полночь посреди ответа",
   no_key: "нет ключа ИИ",
   provider_unavailable: "ИИ недоступен",
   provider_rejected: "ИИ отказал",
@@ -1131,7 +1141,7 @@ export function ProblemReportsSection() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Отдельный отчёт о том, где агентство теряет: оборванные диалоги, непринятые лиды, просроченные
+          Отдельный отчёт о том, где агентство теряет: оборванные диалоги, непринятые заявки, просроченные
           обязательные окна, пропущенные звонки и застрявшие объекты. Сам отчёт живёт в разделе «Отчёты», с
           историей и заметками; директорам приходит пуш «разбор готов» с главным выводом.
         </span>
@@ -1148,6 +1158,30 @@ export function ProblemReportsSection() {
           />
         );
       })}
+    </SettingsSection>
+  );
+}
+
+/**
+ * ФИНАНСОВЫЙ PDF РАЗ В МЕСЯЦ (14.11.2026). Выключен по умолчанию: включает директор,
+ * когда хочет получать готовый отчёт сам. Подпись — про текущее положение тумблера.
+ */
+export function FinancePdfMonthlySection() {
+  const { data: settings } = useSettings();
+  const save = useUpdateSettings();
+  const on = settings?.financePdfMonthlyEnabled ?? false;
+  return (
+    <SettingsSection icon={FileText} title="Финансовый отчёт в PDF раз в месяц">
+      <SwitchRow
+        title="Присылать директору в Telegram"
+        on={on}
+        hint={
+          on
+            ? "1-го числа утром директор получает в свой Telegram PDF с деньгами за прошлый месяц: прибыль, расходы, выплаты агентам."
+            : "Не присылается. PDF за любой месяц можно скачать в разделе «Финансы» кнопкой «Скачать PDF»."
+        }
+        onToggle={() => save.mutate({ financePdfMonthlyEnabled: !on })}
+      />
     </SettingsSection>
   );
 }

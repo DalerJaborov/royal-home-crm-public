@@ -313,7 +313,7 @@ describe("запись в карточку — то же правило, что 
     if (isReadOnlyRole(role)) return READ_ONLY_ROLE_RESPONSE.error; // requireAuth
     const own = scopeToOwnAgent(req);
     if (own && client.assignedAgentId !== own) return "Недостаточно прав";
-    if (own && !client.acceptedAt) return "Сначала примите лид";
+    if (own && !client.acceptedAt) return "Сначала примите заявку";
     return foreignWriteDenied(req, client, own);
   }
 
@@ -442,7 +442,7 @@ describe("промт и инструменты — из прав актора", 
     expect(tools).not.toContain("get_lead_sources");
     expect(tools).toContain("create_task");
     expect(system).toContain("- Клиенты —");
-    for (const section of ["- Финансы —", "- Отчёты —", "- Источники лидов —", "- Настройки CRM —", "- Изменения на сайте —"]) {
+    for (const section of ["- Финансы —", "- Отчёты —", "- Источники заявок —", "- Настройки CRM —", "- Изменения на сайте —"]) {
       expect(system).not.toContain(section);
     }
     expect(system).not.toContain("{{SECTIONS}}");

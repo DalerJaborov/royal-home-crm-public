@@ -13,6 +13,7 @@ import {
 import { relativeTime } from "../lib/format";
 import { ObjectsTabs } from "../components/SectionTabs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MarketingSection, useMarketingSectionMark } from "../components/look/marketing/MarketingSection";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Столько изменений разбирает одно нажатие «Разобрать все» — тот же потолок стоит
@@ -60,6 +61,11 @@ function formatChangeValue(v: unknown): string {
  * поведение, а не облик.
  */
 export function SiteChanges() {
+  return <MarketingSection><SiteChangesScreen /></MarketingSection>;
+}
+
+function SiteChangesScreen() {
+  const section = useMarketingSectionMark();
   const can = useCan();
   const canView = can("siteChanges.view");
   const canResolve = can("siteChanges.resolve");
@@ -96,7 +102,7 @@ export function SiteChanges() {
 
   if (!canView) {
     return (
-      <div className="rh2 screens">
+      <div className="rh2 screens" data-ry-section={section}>
         <div className="scr">
           <div className="pg-h">
             <div>
@@ -115,7 +121,7 @@ export function SiteChanges() {
   }
 
   return (
-    <div className="rh2 screens">
+    <div className="rh2 screens" data-ry-section={section}>
       <div className="scr">
         <div className="pg-h">
           <div>

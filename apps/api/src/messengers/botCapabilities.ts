@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
 import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
+import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 
 /**
  * ЧТО БОТ УМЕЕТ — ползунки в Настройках, а не удалённый код.
@@ -55,6 +56,9 @@ export interface BotCapabilities {
   voiceReplies: boolean;
   /** Режим «только заявки» (13.11.2026): подборок, фото, ссылок нет; см. ai/leadOnlyMode.ts. */
   leadOnly: boolean;
+  /** Режим «только заявки» в WhatsApp с рубильником «номер WhatsApp»: номер отправителя и есть номер для звонка,
+   *  просить номер нельзя ни в промпте, ни в ответе (второе ревью 13.11, №6). */
+  leadOnlyWhatsappNumber: boolean;
 }
 
 /** Всё включено — то, как система работала до появления ползунков.
@@ -95,6 +99,7 @@ const ALL_ENABLED: BotCapabilities = {
   voiceReplies: false,
   // Сбой базы не включает новый режим: прежнее поведение бота.
   leadOnly: false,
+  leadOnlyWhatsappNumber: false,
 };
 
 /**
@@ -123,6 +128,7 @@ export async function loadBotCapabilities(channel?: string): Promise<BotCapabili
         botPromptIntentEconomy: true,
         botCanSendVoiceReplies: true,
         botLeadOnlyMode: true,
+        botUseWhatsappNumber: true,
       },
     });
     if (!s) return ALL_ENABLED;
@@ -149,6 +155,7 @@ export async function loadBotCapabilities(channel?: string): Promise<BotCapabili
       promptEconomy: s.botPromptIntentEconomy,
       voiceReplies: s.botCanSendVoiceReplies,
       leadOnly,
+      leadOnlyWhatsappNumber: leadOnly && channel === "WHATSAPP" && s.botUseWhatsappNumber !== false,
     };
   } catch {
     return ALL_ENABLED;
@@ -173,6 +180,7 @@ export function botAbilitiesOf(c: BotCapabilities): {
   cautious: boolean;
   promptEconomy: boolean;
   leadOnly: boolean;
+  leadOnlyWhatsappNumber: boolean;
 } {
   return {
     showings: c.showings,
@@ -183,6 +191,7 @@ export function botAbilitiesOf(c: BotCapabilities): {
     cautious: c.cautious,
     promptEconomy: c.promptEconomy,
     leadOnly: c.leadOnly,
+    leadOnlyWhatsappNumber: c.leadOnlyWhatsappNumber,
   };
 }
 
@@ -276,6 +285,22 @@ export const LEAD_ONLY_MODE_RULE =
   "Запрещено: присылать подборки и списки объектов, фото, видео, ссылки и карточки, обещать их прислать, " +
   "перечислять варианты. Цены, районы и наличие называй только из данных в этом промте, ничего не придумывай.\n" +
   "Если человек хочет купить, продать или его заинтересовал объект: скажи, что агент позвонит и всё расскажет, " +
-  "и возьми номер. Номер проси одной короткой фразой и не повторяй просьбу в каждом сообщении; если отказался, назови номер офиса 777 070 100 и не настаивай.\n" +
+  "и возьми номер. Номер проси одной короткой фразой и не повторяй просьбу в каждом сообщении; если отказался, назови номер офиса " + PUBLIC_AGENCY_CONTACT.phone + " и не настаивай.\n" +
+  "Вопрос о работе отвечай как обычно, коротко и по существу.\n" +
+  "</только_заявки>";
+
+/**
+ * То же для WhatsApp с рубильником «номер WhatsApp» (второе ревью 13.11, №6): клиент пишет со своего номера,
+ * агент звонит на него. Просить номер запрещено (правило сильнее любых правил выше о номере); второй слой —
+ * leadOnlyStripPhoneAsk в messengers/conversation.ts вырезает просьбу номера из готового ответа.
+ */
+export const LEAD_ONLY_MODE_RULE_WHATSAPP =
+  "\n\n<только_заявки>\n" +
+  "ТЫ ВЕЖЛИВЫЙ АДМИНИСТРАТОР, А НЕ ПРОДАВЕЦ. Отвечай коротко, одной-двумя фразами, как живой человек, без нажима.\n" +
+  "Запрещено: присылать подборки и списки объектов, фото, видео, ссылки и карточки, обещать их прислать, " +
+  "перечислять варианты. Цены, районы и наличие называй только из данных в этом промте, ничего не придумывай.\n" +
+  "НОМЕР ТЕЛЕФОНА НЕ СПРАШИВАЙ (кроме анкеты кандидата на вакансию): клиент пишет в WhatsApp со своего номера, агент позвонит на него. Это правило " +
+  "сильнее всех правил выше о номере телефона. Если человек хочет купить, продать или его заинтересовал объект: скажи, что " +
+  "агент позвонит на этот номер и всё расскажет.\n" +
   "Вопрос о работе отвечай как обычно, коротко и по существу.\n" +
   "</только_заявки>";

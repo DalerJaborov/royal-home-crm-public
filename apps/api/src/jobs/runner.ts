@@ -51,6 +51,9 @@ const HEAVY_TYPES = [
   // Свободный ролик в соцсети (12.10.2026): шесть каналов подряд, минуты — лёгким заданием
   // он держал бы тики очереди перед ответами клиентам.
   "social-video-publish",
+  // Повтор публикации в Meta (18.11.2026): Instagram ждёт обработку контейнера до
+  // пяти минут, серия историй — по столько же на часть.
+  "social-publish-retry",
   // Повторная расшифровка (E6 глубокой проверки 02.10.2026): скачивание записи
   // до 2 минут и Gemini до 3 минут на кусок. Лёгким заданием она снималась с
   // ожидания через 60 с, жгла попытку и продолжалась оторванной, а партия из
@@ -247,7 +250,7 @@ async function runOneInContext(job: BackgroundJob): Promise<void> {
     const timeoutMs = effectiveJobTimeoutMs(job.type);
     const timedOut = Symbol("timeout");
     const result = await Promise.race([
-      handler.run(payload).then(() => "done" as const),
+      handler.run(payload, { attempt: job.attempts + 1 }).then(() => "done" as const),
       new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), timeoutMs)),
     ]);
     if (result === timedOut) {

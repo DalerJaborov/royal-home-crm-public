@@ -455,7 +455,11 @@ export async function resolveConsultantCall(info: LiveVoiceCallInfo): Promise<Li
     language: consultantLanguage(info.settings, who.language),
     clientId: who.clientId,
     contactProfileId: who.contactProfileId,
-    onToolCall: (call, toolCtx) => handleConsultantTool(state, call, toolCtx?.isCancelled),
+    onToolCall: (call, toolCtx) => {
+      // Слова самого звонящего — для проверки района «Рудаки (район)» от модели (liveVoicePropertyTools.ts::voiceDistrictFromModel).
+      if (toolCtx) state.properties.callerWords = toolCtx.transcript.filter((l) => l.startsWith("Клиент:")).slice(-12).join("\n");
+      return handleConsultantTool(state, call, toolCtx?.isCancelled);
+    },
     onFinished: (result) => finishConsultantCall(state, result),
   };
 }
@@ -1102,7 +1106,7 @@ async function askAgentToCallBack(
   // сказал «утром» — задача на начало рабочего дня, без ночного пуша (Б9).
   const due = await callbackDue(call, target.agentDaysOff);
   const reroute = opts.stranger
-    ? " Новый звонящий: консультант обещал звонок агента, а лид ещё никому не ушёл."
+    ? " Новый звонящий: консультант обещал звонок агента, а заявка ещё никому не ушла."
     : target.source === "named" && client.assignedAgentId !== target.agentId
       ? " Звонок обещан агентом объекта, который назвал консультант."
       : target.source === "duty" || target.source === "management"

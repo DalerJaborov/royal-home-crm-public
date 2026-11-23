@@ -56,13 +56,14 @@ export async function storeNarrationMaster(propertyId: string, fromPath: string)
 }
 
 /** Мастер + озвучка версии → готовый ролик по пути outPath. */
-export async function mixFromStoredMaster(input: { masterKey: string; voiceKey: string; outPath: string }): Promise<NarrationMixResult> {
+export async function mixFromStoredMaster(input: { masterKey: string; voiceKey: string; outPath: string; fit?: { allowFreeze: boolean };
+  textOverlay?: { price: string | null; script: string } }): Promise<NarrationMixResult> {
   const masterPath = localVideoFilePath(input.masterKey);
   const voicePath = localVideoFilePath(input.voiceKey);
   if (!masterPath || !voicePath || !fs.existsSync(masterPath) || !fs.existsSync(voicePath)) {
     return { ok: false, code: "FFMPEG", error: "Файл ролика без голоса или озвучки не найден на сервере." };
   }
-  return mixNarrationOntoMaster({ masterPath, voicePath, outPath: input.outPath });
+  return mixNarrationOntoMaster({ masterPath, voicePath, outPath: input.outPath, fit: input.fit, textOverlay: input.textOverlay });
 }
 
 export async function dropNarrationMaster(key: string | null | undefined): Promise<void> {

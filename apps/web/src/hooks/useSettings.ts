@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CoverProvider, LiveVoiceSpendPeriod } from "@royal-home/shared";
+import type { AutomationSwitches, CoverProvider, LiveVoiceSpendPeriod, SecurityAutomationSwitch, SellerAutomationSwitches } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
@@ -17,7 +17,8 @@ export type MetaKeySource = "settings" | "env" | null;
  *  или заводское значение из кода. */
 export type ModelSource = "settings" | "env" | "default";
 
-export interface Settings {
+/** Выключатели «работа с продавцами» (14.11.2026) — поля и тип из packages/shared, здесь не повторяются. */
+export interface Settings extends SellerAutomationSwitches, SecurityAutomationSwitch, AutomationSwitches {
   id: string;
   /** Структура комиссии: доли риелтора/компании, % от цены объекта.
    *  commissionIntakePercent («за приём объекта», отменено 11.09.2026) сервер ещё
@@ -71,19 +72,22 @@ export interface Settings {
   botPauseEscalateHours: number;
   /** Сколько секунд разговора считаются состоявшимся звонком; 0 = порога нет. */
   leadCallMinSeconds: number;
-  /** Максимум активных лидов у агента одновременно; 0 = без лимита. */
-  leadActiveLimit: number;
   /** Максимум объектов у агента одновременно в конвейере подготовки; 0 = без лимита. */
   propertyActiveLimit: number;
   /** Единая политика подбора «клиент ↔ объект» (17.09.2026, matchPolicy.ts):
    *  общий рубильник автоподбора — новый объект сам находит ждущих покупателей. */
   autoMatchEnabled: boolean;
-  /** Включать в подбор клиентов со статусом «Неактивный». */
-  matchIncludeInactive: boolean;
-  /** Включать в подбор отложенных (DEFERRED) клиентов. */
-  matchIncludeDeferred: boolean;
   /** Хозяину объекта приходит пуш, когда его объект предложили чужому клиенту. */
   matchNotifyPropertyOwner: boolean;
+  /** Пуш агенту, когда на Somon/Paydo появилось объявление под его покупателя (по умолчанию выключено). */
+  marketBuyerAlertsEnabled: boolean;
+  /** Подбор с площадок только от собственников, без агентств и риелторов (по умолчанию включено). */
+  marketOwnersOnly: boolean;
+  /** Узкий подбор с площадок (17.11.2026): свежесть сбора (суток), ±% бюджета, разница в комнатах, пушей агенту в сутки. */
+  marketBuyerFreshDays: number;
+  marketBuyerBudgetTolerancePct: number;
+  marketBuyerRoomsTolerance: number;
+  marketBuyerAlertsPerDay: number;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
@@ -101,21 +105,8 @@ export interface Settings {
   /** Жёсткое исключение без порога: бот уже показал клиенту этот объект. */
   ownPropertyShownExceptionEnabled: boolean;
   ownPropertyShownWindowDays: number;
-  /** Лимит активных лидов ограничивает смешанный портфель; свои объекты выходят
-   *  за него через освобождение места, а без обычных лидов — просто сверх. */
-  ownPropertyOverLimitEnabled: boolean;
-  ownPropertyReleaseEnabled: boolean;
-  // ownPropertyReleaseMode убран из ответа API 17.09.2026 (закон владения
-  // П-4/П-6 — режим "random" отменён, система жертву больше не выбирает сама).
-  /** Потолок лидов по своим объектам сверх общего лимита; 0 = без предела. */
-  ownPropertyLeadCap: number;
-  /** «Взвешенные слоты» лимита: свежий лид занимает целое место, после показа —
-   *  половину, «думающий» — четверть. Веса в процентах слота. Выключено по
-   *  умолчанию: правило меняет раздачу лидов всей компании. */
-  weightedLeadSlotsEnabled: boolean;
-  leadSlotWeightFreshPercent: number;
-  leadSlotWeightAfterShowingPercent: number;
-  leadSlotWeightThinkingPercent: number;
+  // Лимит активных лидов, «свои объекты сверх лимита» и «взвешенные слоты»
+  // убраны 16.11.2026 (владелец: «лимитов заявок больше нет и не будет»).
   /** Раздача портфеля уволенного: клиенты — сильным по KPI, объекты — слабым. */
   handoverClientsToHighKpi: boolean;
   handoverPropertiesToLowKpi: boolean;
@@ -157,21 +148,11 @@ export interface Settings {
   // из типа 28.09.2026: ни экран, ни сервер их не читают. Колонки в БД остались.
   /** Резерв объекта на сделке — сколько рабочих дней держим, прежде чем вернуть в продажу. */
   dealReservationBusinessDays: number;
-  /** Штраф за бездействие: сроки предупреждения и штрафа, цена штрафа в баллах. */
-  inactivityWarnAfterDays: number;
-  inactivityPenaltyAfterDays: number;
-  inactivityPenaltyPoints: number;
   /** «Застой сделки» (владелец 30.08.2026): продавец без единого объекта в CRM,
    *  или покупатель без единой сделки, дольше стольких дней — сигнал владельцу и
    *  задача агенту (см. lib/dealStalePipeline.ts). */
   dealStaleSellerDays: number;
   dealStaleBuyerDays: number;
-  /** Светофор неактивных клиентов (владелец 20-21.08.2026): цвет ставит система,
-   *  эти числа настраивают только темп напоминаний и порог перевода в Потерянные
-   *  для каждого уровня (см. lib/inactiveTrafficLight.ts). */
-  inactiveGreenPingHours: number;
-  inactiveYellowPingHours: number;
-  inactiveRedPingHours: number;
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время. */
   lostReturnAcceptMinutes: number;
   /** Приёмка от продавца принята, объекта в CRM ещё нет — предупреждение / критично. */
@@ -199,6 +180,10 @@ export interface Settings {
   botCanConfirmShowings: boolean;
   botCanFollowUp: boolean;
   botCanAnswerComments: boolean;
+  /** Комментарий, на который бот не ответил из-за сбоя, — сводкой тем, кто читает переписки (15.11.2026). */
+  commentFailureWatchEnabled: boolean;
+  /** Передача РОП: уведомлять директора с кнопками «Подтвердить» / «Отклонить» (16.11.2026). */
+  ropTransferAlertEnabled: boolean;
   /** «Соедините с оператором»: очередь звонков и push агентам. */
   botCanRequestCallback: boolean;
   /** Дежурный оператор обратных звонков; null — авто-соединения нет. */
@@ -234,7 +219,16 @@ export interface Settings {
   botWhatsappEnabled: boolean;
   botInstagramEnabled: boolean;
   botFacebookEnabled: boolean;
+  /** Сверка с Meta: сообщение в Messenger / Instagram не дошло до CRM — «Ответьте вручную» (15.11.2026). */
+  messengerInboxReconcileEnabled: boolean;
+  instagramInboxReconcileEnabled: boolean;
   botTelegramEnabled: boolean;
+  /** Telegram: реплика клиента без ответа 30 минут — пуш ответственному (15.11.2026). */
+  telegramSilenceWatchEnabled: boolean;
+  /** Telegram: доставка сообщений в CRM сломалась (getWebhookInfo) — тревога руководству (15.11.2026). */
+  telegramDeliveryWatchEnabled: boolean;
+  /** WhatsApp: входящих нет дольше обычного в рабочие часы — тревога руководству (15.11.2026). */
+  whatsappWebhookWatchEnabled: boolean;
   botWebsiteChatEnabled: boolean;
   /** Задан ли маркер бота Telegram в окружении сервера. Без него канала нет. */
   telegramConfigured: boolean;
@@ -288,6 +282,8 @@ export interface Settings {
   metaAdAccountId: string | null;
   /** Номер приложения Meta — нужен для обмена маркера на 60-дневный. */
   metaAppId: string | null;
+  /** Номер конфигурации входа через Facebook (не секрет). */
+  metaLoginConfigId: string | null;
   metaAdsSyncedAt: string | null;
   /** Секрет в адресе push-подписки Pub/Sub для бюджетных оповещений Google Cloud.
    *  Значение наружу не отдаётся (аудит №4) — только признак «задан». */
@@ -395,10 +391,16 @@ export interface Settings {
   videoHandoffEnabled: boolean;
   /** Ролик от сотрудника через Шабнам (12.11.2026): по умолчанию включён. */
   staffClipIntakeEnabled?: boolean;
+  /** Монтажёр управляет очередью из своего бота (19.11.2026): по умолчанию включено. */
+  montajerQueueControlEnabled?: boolean;
   /** Проверять фото и видео агента перед монтажом (25.09.2026). false — CRM одобряет сама. */
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
+  /** Готовый ролик подтверждает хозяин объекта; без ответа — автопубликация (11.11.2026). */
+  clipOwnerApproveEnabled: boolean;
+  /** Через сколько часов без ответа хозяина ролик публикуется сам (1–48). */
+  clipOwnerAutoPublishHours: number;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */
@@ -472,6 +474,8 @@ export interface Settings {
    *  если клиент сам прислал голосовое в этом же ходе. По умолчанию false (владелец:
    *  «создай, но выключи, сам протестирую»). Тумблер в BOT_ABILITIES (BotTab.tsx). */
   botCanSendVoiceReplies: boolean;
+  /** Склеивать два быстрых сообщения клиента с карточкой в один ответ (окно 6 с). По умолчанию true (владелец 15.11.2026). */
+  botMergeQuickRepeats: boolean;
   /** Режим «только заявки» (13.11.2026): бот берёт заявку и передаёт агенту. По умолчанию false. */
   botLeadOnlyMode: boolean;
   /** В режиме «только заявки»: WhatsApp-номер клиента — номер для звонка (по умолчанию true). */
@@ -480,6 +484,20 @@ export interface Settings {
   botMaxPhoneAsks: number;
   /** В режиме «только заявки»: «хотим посмотреть», «адрес» → заявка агенту сразу (по умолчанию true). */
   botHotIntentHandover: boolean;
+  /** После заявки: сотрудник писал за последние N минут — бот молчит (20.11.2026). */
+  botStaffQuietMinutes?: number;
+  /** «Бот пишет своими словами» (20.11.2026), по умолчанию выключен. */
+  botOwnWords?: boolean;
+  /** Номера проверяющих: с ними бот говорит как с клиентом, заявка карточкой не становится (20.11.2026). */
+  botReviewerPhones?: string[];
+  /** «Бот отвечает сам» (18.11.2026): не зовёт руководство, сам отвечает шагом к номеру. По умолчанию false. */
+  botAnswersItself: boolean;
+  /** Номер из комментария: личное с вопросом, ответ под постом, скрытие (18.11.2026). По умолчанию false. */
+  botCommentPhoneConversation: boolean;
+  botCommentPhoneLead: boolean;
+  /** Реестр разрешённых строек memor.pro: еженедельный забор и показ сотрудникам. */
+  constructionRegistryEnabled: boolean;
+  constructionRegistryNotify: boolean;
   /* Поля браузерного софтфона (asteriskWebrtc*) и список операторов входящих
    * (incomingOperatorIds) убраны 18.08.2026 вместе с самим механизмом: роль
    * оператора отменена, звонки идут прямо агентам. Сервер их пока отдаёт —
@@ -515,6 +533,14 @@ export interface Settings {
    *  если тот не взял — в общую очередь операторов (решение владельца 16.08.2026).
    *  Возврат в очередь исполняет сама АТС, а не CRM. */
   incomingRouteToAssignedAgent: boolean;
+  /** Перезвон клиента из Корзины тому, кто ему звонил для разбора (17.11.2026). */
+  incomingArchiveCallbackEnabled: boolean;
+  /** Пропущенный звонок не теряется (18.11.2026): СМС со ссылкой на WhatsApp сразу после неотвеченного. */
+  missedCallSmsEnabled: boolean;
+  /** Текст этой СМС: таджикский, потом русский, одна голая ссылка. */
+  missedCallSmsText: string;
+  /** Незнакомый пропущенный: карточка и общая задача «Перезвонить». */
+  missedCallCallbackTaskEnabled: boolean;
   /** Сколько секунд станция звонит агенту, прежде чем вернуть звонок в очередь. */
   incomingRouteRingSeconds: number;
   /** ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ: станция играет её агенту в ухо перед соединением,
@@ -543,10 +569,15 @@ export interface Settings {
    *  выключателем. Выключенный отчёт не собирается вовсе. */
   problemReportWeeklyEnabled: boolean;
   problemReportMonthlyEnabled: boolean;
+  /** Финансовый PDF за прошлый месяц директорам в Telegram (выключен по умолчанию). */
+  financePdfMonthlyEnabled?: boolean;
   /** Рабочие часы распределения лидов, "HH:MM" по Душанбе. Бот отвечает 24/7 —
    * это влияет только на то, когда новый лид уходит агенту. */
   workHoursStart: string;
   workHoursEnd: string;
+  /** Начало рабочего дня сотрудников, "HH:MM" по Душанбе (20.11.2026) — с него главная
+   *  руководителя помечает «сегодня не заходил»; не окно раздачи заявок. */
+  workdayStart?: string;
   /** Общие выходные компании (11.10.2026), 0 — воскресенье … 6 — суббота. Пусто — выходных нет. */
   companyDaysOff?: number[];
   /** Ответ бота клиенту вне рабочих часов. */
@@ -1050,6 +1081,8 @@ export interface OpenAiCoverSettings {
   keyConfigured: boolean;
   keyMasked: string | null;
   keySource: "settings" | "env" | null;
+  /** Рубильник OpenAI целиком (14.11.2026): false — ни одного вызова OpenAI, обложки только шаблоном. */
+  openaiEnabled: boolean;
   enabled: boolean;
   /** Кто рисует: TEMPLATE — наш шаблон, OPENAI — ChatGPT (28.09.2026). */
   provider: CoverProvider;
@@ -1097,7 +1130,7 @@ export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
     // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
+    mutationFn: (input: Partial<{ apiKey: string; openaiEnabled: boolean; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });

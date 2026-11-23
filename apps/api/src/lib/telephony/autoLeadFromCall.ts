@@ -7,12 +7,13 @@ import { classifyInbound } from "../../services/leads/intakePolicy.js";
 import { DIRECTION_UNCONFIRMED_NOTE, DIRECTION_UNCONFIRMED_REASON } from "../../ai/leadKind.js";
 import { logSystemError } from "../systemError.js";
 import { logTimeline } from "../timeline.js";
-import { inactiveExitData } from "../clientLifecycle.js";
+import { resumeWorkData } from "../clientLifecycle.js";
 import { describeError } from "../describeError.js";
 import { loadMoneyContext } from "../money.js";
 import { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
 import { loadIncomingSettings } from "./incomingSettings.js";
 import { createClientForCall, qualifyIncomingCall } from "./qualifyIncoming.js";
+import { automationSwitchOn } from "../automationSwitches.js";
 
 /**
  * КАРТОЧКА ПО ВХОДЯЩЕМУ ЗВОНКУ ЗАВОДИТСЯ САМА (решение владельца 18.08.2026).
@@ -201,6 +202,8 @@ async function run(callId: string, knownPropertyId: string | null, ignoreAnswere
     select: {
       id: true,
       phone: true,
+      // WhatsApp или линия: карточка, заведённая по звонку, получает тот же источник.
+      source: true,
       answered: true,
       // Сообщение на автоответчике: непринятый звонок, у которого всё-таки есть
       // что разбирать (см. lib/telephony/voicemailIngest.ts).
@@ -280,6 +283,8 @@ async function decide(call: {
   routeDecision?: string | null;
   routedToId?: string | null;
   autoCreatedClient?: boolean;
+  /** "phone" | "whatsapp" — источник карточки, если её заведёт этот разбор. */
+  source?: string;
 }, knownPropertyId: string | null): Promise<AutoLeadResult> {
   /**
    * ЗВОНОК СОТРУДНИКА — НЕ ЛИД. Агент звонит в офис по своим делам, и карточка
@@ -344,11 +349,8 @@ async function decide(call: {
        * пока карточка не выйдет из этого статуса.
        */
       if (client.workStatus === "INACTIVE") {
-        // Поля светофора гасятся вместе с workStatus (23.09.2026) — тем же
-        // набором, что у обычного возврата (clientLifecycle.ts::inactiveExitData):
-        // иначе прошлый уровень, счётчик и inactiveSince оставались на живой
-        // карточке. status не трогаем: судьбу LOST решает inboundRouting.ts.
-        await prisma.client.update({ where: { id: client.id }, data: { ...inactiveExitData(), returnedAt: new Date() } });
+        // status не трогаем: судьбу LOST решает inboundRouting.ts.
+        await prisma.client.update({ where: { id: client.id }, data: { ...resumeWorkData(), returnedAt: new Date() } });
         // Актор — сам клиент (его звонок вернул карточку в работу), не агент
         // (П-10, 17.09.2026): агент к этому решению не притрагивался.
         await logTimeline({
@@ -404,7 +406,7 @@ async function decide(call: {
      */
     const voicemailWithoutTranscript = !!call.voicemailFile && !transcript;
     const clientId =
-      call.clientId ?? (voicemailWithoutTranscript ? null : await ensureCardByPhone(call.phone));
+      call.clientId ?? (voicemailWithoutTranscript ? null : await ensureCardByPhone(call.phone, call.source));
     return { status: "no_data", clientId, reason: extract ? "модель не уверена" : "нет расшифровки" };
   }
 
@@ -553,6 +555,11 @@ async function candidateFromAssignedClientCall(call: {
 }): Promise<AutoLeadResult | null> {
   const transcript = call.interactionId ? await loadTranscript(call.interactionId) : null;
   if (!callSoundsLikeJobSeeker(transcript)) return null;
+  // Выключатель «ИИ снимает агента, если клиент ищет работу» (19.11.2026): выключено — звонок ведёт себя
+  // как чат: анкета кандидата и уведомление руководству есть, а карточку с агента не снимаем
+  // (captureCandidateFromCall → candidateCardDecision вернёт «keep»). Снимать нечего, подтверждение
+  // модели не нужно: платный разбор пропускаем, хватает слов расшифровки.
+  if (!(await automationSwitchOn("aiJobSeekerAutoDetachEnabled"))) return takeCandidate(call, null, transcript);
   // Здесь одних слов мало: снимать с агента живого клиента без подтверждения
   // модели нельзя. Модель не ответила — оставляем как было.
   const extract = await extractIncomingCallLead(transcript!);
@@ -608,10 +615,10 @@ async function loadTranscript(interactionId: string): Promise<string | null> {
  * «незнакомые номера в базу не кладём», и обходить это решение владельца через
  * чёрный ход нельзя.
  */
-async function ensureCardByPhone(phone: string): Promise<string | null> {
+async function ensureCardByPhone(phone: string, callSource: string | undefined): Promise<string | null> {
   const settings = await loadIncomingSettings();
   if (!settings.autoCreateClient) return null;
-  return createClientForCall(phone);
+  return createClientForCall(phone, callSource);
 }
 
 /**

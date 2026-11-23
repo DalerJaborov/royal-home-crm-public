@@ -15,7 +15,11 @@
  */
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
-import { getBotUsername, sendMessage } from "../telegram/api.js";
+import { getBotUsername, removeKeyboard } from "../telegram/api.js";
+import { sendPushToAgent } from "../push.js";
+import { logAgentAudit } from "./audit.js";
+import { dushanbeDateTimeString } from "./dushanbeTime.js";
+import { logSystemError } from "./systemError.js";
 
 const LINK_CODE_BYTES = 12;
 
@@ -79,10 +83,38 @@ export async function tryLinkAgentByCode(chatId: string, code: string, telegramU
     return true;
   });
   if (!linked) return false;
-  await sendMessage(chatId, `Готово, ${agent.fullName} — этот чат привязан к вашему аккаунту Royal Home CRM.`).catch(
+  // Первое сообщение привязанному сотруднику снимает reply-клавиатуру «Поделиться номером»,
+  // которую клиентский бот мог поставить ему ДО привязки (21.11.2026): кнопка не должна висеть.
+  await removeKeyboard(chatId, `Готово, ${agent.fullName} — этот чат привязан к вашему аккаунту Royal Home CRM.`).catch(
     () => {}
   );
+  await noteTelegramLinked(agent.id);
   return true;
+}
+
+/**
+ * След и весть о привязке (аудит безопасности 17.11.2026, S2). Telegram — канал
+ * кода входа: привязка чужого чата = чужой вход в учётку. Запись в журнале
+ * действий и сообщение самому сотруднику в CRM (колокольчик всегда, пуш на
+ * устройства; вид «безопасность» личными отключениями не глушится). Если
+ * привязывал не он — он узнает сразу, а не когда заглянет в профиль.
+ * Сбой сообщения привязку не отменяет, но попадает в «Здоровье системы».
+ */
+async function noteTelegramLinked(agentId: string): Promise<void> {
+  logAgentAudit(agentId, "TELEGRAM_LINKED", "Agent", agentId, { source: "telegram" });
+  try {
+    await sendPushToAgent(agentId, {
+      kind: "security",
+      title: "🔐 К учётке привязан Telegram",
+      body: `${dushanbeDateTimeString(new Date())} по Душанбе к вашей учётке привязан чат Telegram — туда может приходить код входа. Если это были не вы — нажмите «Отвязать» в профиле и сообщите директору.`,
+      url: "/profile",
+      tag: `telegram-linked-${agentId}`,
+    });
+  } catch (err) {
+    void logSystemError("api", `Сообщение о привязке Telegram не ушло: ${err instanceof Error ? err.message : String(err)}`, {
+      dedupKey: `telegram-linked-notice:${agentId}`,
+    });
+  }
 }
 
 /** Чат уже привязан к какому-то агенту? Основной способ отличить сообщение

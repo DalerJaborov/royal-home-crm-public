@@ -16,6 +16,8 @@ import { pickAgentForLead } from "./services/leads/selection.js";
 import { setPickAgentForLeadHook } from "./lib/telephony/pickAgentForLeadHook.js";
 import { assignAgentForLead, recordAssignReason } from "./services/leads/assignment.js";
 import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/telephony/assignAgentForLeadHook.js";
+import { setVideoIssuedToMontajerHook } from "./lib/videoHandoff.js";
+import { narrationAfterVideoIssued } from "./lib/narrationAutoFlow.js";
 import { settleBackgroundHandoffDispatches } from "./lib/videoHandoff.js";
 import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevisionStartCheck.js";
 
@@ -71,7 +73,35 @@ export function startBackgroundWork(): void {
     console.log("[cron] dev: плановые задачи НЕ запущены (предохранитель от реальных рассылок); включить: DEV_CRONS=1");
   } else {
     startCronJobs();
+    // Группы помощницы после выката: переезд в супергруппу, пропущенный пока бот был выключен, лечится сразу, не через час
+    // (тот же сторож, что у плановой задачи assistant-group-sweep). Ничего в группы не пишет.
+    setTimeout(() => {
+      void import("./lib/assistantGroupWatchdog.js")
+        .then((m) => m.sweepAssistantGroups())
+        .catch((err) => console.error("[assistant-group] обход при старте:", err instanceof Error ? err.message : err));
+    }, GROUP_SWEEP_DELAY_MS).unref();
+    // Словарь произношения озвучки после выката (20.11.2026): устарел — обновляется сам, без ручных шагов. Свежий словарь —
+    // ни одного запроса; отказ ElevenLabs — в журнал ошибок, процесс не падает (lib/narrationPronunciation.ts).
+    setTimeout(() => {
+      void import("./lib/narrationPronunciation.js")
+        .then((m) => m.syncPronunciationDictionaryOnStart())
+        .catch((err) => console.error("[narration] словарь произношения при старте:", err instanceof Error ? err.message : err));
+    }, PRONUNCIATION_SYNC_DELAY_MS).unref();
   }
+  // «Заметки без ярлыков» для похожих карточек (PR #382): старые строки и смена списка ярлыков
+  // досчитываются после выката. Вне предохранителя DEV_CRONS — никому ничего не пишет, только две
+  // служебные колонки Client; отказ — в журнал ошибок, процесс не падает.
+  setTimeout(() => {
+    void import("./lib/clientNotesPlainSweep.js")
+      .then((m) => m.sweepClientNotesPlain())
+      .then((n) => n > 0 && console.log(`[notes-plain] досчитано карточек: ${n}`))
+      .catch((err) =>
+        import("./lib/systemError.js").then((m) =>
+          m.logSystemError("background-jobs", `[notes-plain] досчёт заметок без ярлыков: ${err instanceof Error ? err.message : err}`)
+        )
+      )
+      .catch((err) => console.error("[notes-plain] досчёт:", err instanceof Error ? err.message : err));
+  }, NOTES_PLAIN_SWEEP_DELAY_MS).unref();
   startTelegramBot();
   // Суточный тик, чья минута пришлась на выкат, догоняется сразу после старта
   // (E7/Ф8 глубокой проверки 02.10.2026): node-cron пропущенное не повторяет.
@@ -84,6 +114,12 @@ export function startBackgroundWork(): void {
 }
 
 const CATCH_UP_DELAY_MS = 60_000;
+/** Досчёт «заметок без ярлыков»: после подъёма базы, раньше догона тиков. */
+const NOTES_PLAIN_SWEEP_DELAY_MS = 20_000;
+/** Обход групп помощницы при старте: после того, как бот успел подняться и взять getMe. */
+const GROUP_SWEEP_DELAY_MS = 30_000;
+/** Проверка словаря произношения озвучки при старте: после того, как поднялась база, и не вместе с первыми тиками. */
+const PRONUNCIATION_SYNC_DELAY_MS = 45_000;
 
 /**
  * Запуск отдельным процессом: node dist/worker.js (контейнер worker, этап А3).
@@ -102,6 +138,8 @@ if (isMain) {
   setPickAgentForLeadHook(pickAgentForLead);
   setAssignAgentForLeadHook(assignAgentForLead);
   setRecordAssignReasonHook(recordAssignReason);
+  // Видео выдано монтажёру — одобренный голос следом (21.11.2026, объект №211; videoHandoff.ts ↔ narrationAutoFlow.ts).
+  setVideoIssuedToMontajerHook(narrationAfterVideoIssued);
   // Последний рубеж fire-and-forget промисов — как в index.ts: один необработанный
   // reject из фоновой задачи не имеет права уронить все тики разом.
   process.on("unhandledRejection", (reason) => {

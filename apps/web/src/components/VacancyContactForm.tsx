@@ -1,3 +1,4 @@
+import { RuDateTimeField } from "./look/fields/RuFields";
 import { useState } from "react";
 import { recruitmentContactPreviewSchema, type RecruitmentContactOptions, type RecruitmentCommunicationChannel, type RecruitmentContactPreview, type RecruitmentContactConfirmation } from "@royal-home/shared";
 import type { JobApplication } from "../hooks/useVacancies";
@@ -71,7 +72,7 @@ export function VacancyContactForm({ item, options, purpose, onClose }: {
         <p className="quiet warn">{channels.length === 2 ? "Будут созданы SMS и звонок ассистента." : channels[0] === "SMS" ? "Будет создана отправка SMS." : "Будет создан один звонок ассистента."} Пока вы не нажали кнопку отправки, кандидат ничего не получит.</p>
       </> : <>
         {purpose === "INVITE" ? <>
-          <label className="fld"><span className="lab">Дата и время собеседования</span><input type="datetime-local" value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><span className="msg">Время Душанбе, UTC+5</span></label>
+          <label className="fld"><span className="lab">Дата и время собеседования</span><RuDateTimeField value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><span className="msg">Время Душанбе, UTC+5</span></label>
           <label className="fld"><span className="lab">Адрес встречи</span><textarea rows={2} value={address} required maxLength={300} onChange={event => { setAddress(event.target.value); setAddressEdited(true); }} /></label>
           <label className="fld"><span className="lab">Ссылка на точку на карте</span><input type="url" value={mapUrl} maxLength={1000} onChange={event => setMapUrl(event.target.value)} placeholder="https://…" /><span className="msg">Google Maps, Яндекс Карты или 2ГИС. Проверьте, что точка указана верно.</span></label>
           <label className="fld"><span className="lab">Что подготовить</span><textarea rows={3} value={preparation} maxLength={1000} onChange={event => setPreparation(event.target.value)} placeholder="По желанию: что посмотреть или подготовить к встрече" /></label>

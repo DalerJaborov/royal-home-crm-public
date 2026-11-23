@@ -21,6 +21,11 @@ const lsStore = vi.hoisted(() => {
 vi.mock("../../lib/queryClient", () => ({ queryClient: { clear: vi.fn(), invalidateQueries: vi.fn() } }));
 vi.mock("../../lib/queryPersist", () => ({ clearPersistedQueryCache: vi.fn(async () => {}) }));
 vi.mock("../../lib/pendingMapPin", () => ({ clearPendingMapPin: vi.fn() }));
+// Хуки здесь зовутся вне React: ключ повтора отправки (useState внутри) — простым объектом.
+vi.mock("../useSendIntent", async () => {
+  const { SendIntent } = await import("../../lib/clientSend");
+  return { useSendIntent: () => new SendIntent() };
+});
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {

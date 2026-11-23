@@ -11,7 +11,7 @@ import { httpStatusMessage } from "../httpStatusMessage";
  */
 describe("httpStatusMessage", () => {
   it("в тексте нет цифр кода и нет слова HTTP — для любого кода", () => {
-    for (const status of [0, 400, 401, 403, 404, 408, 409, 413, 422, 429, 500, 502, 503, 504, 599, 200]) {
+    for (const status of [0, 400, 401, 403, 404, 408, 409, 413, 422, 429, 500, 502, 503, 504, 524, 599, 200]) {
       const text = httpStatusMessage(status);
       expect(text, String(status)).not.toMatch(/\d{3}|HTTP/);
       expect(text, String(status)).toMatch(/[А-Яа-яЁё]/);
@@ -24,6 +24,7 @@ describe("httpStatusMessage", () => {
     expect(httpStatusMessage(503)).toContain("временно недоступен");
     expect(httpStatusMessage(504)).toContain("не ответил вовремя");
     expect(httpStatusMessage(413)).toContain("слишком большой");
+    expect(httpStatusMessage(524)).toContain("работа могла завершиться");
     expect(httpStatusMessage(404)).toContain("Не найдено");
     expect(httpStatusMessage(418)).toContain("не принял запрос");
   });

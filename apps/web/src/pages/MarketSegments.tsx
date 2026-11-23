@@ -7,11 +7,13 @@ import { useMarketSegments } from "../hooks/useMarket";
 import { dushanbeDate } from "../lib/date";
 import { formatMoney } from "../lib/format";
 import { marketSourceName } from "../lib/marketSource";
+import { MarketOverpriced } from "../components/MarketOverpriced";
 import { Filters } from "../components/rh2/Filters";
 import { PageHeader } from "../components/rh2/PageHeader";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { MarketingSection } from "../components/look/marketing/MarketingSection";
 
 /**
  * «Рынок — цены по сегментам» (10.11.2026): типичная и средняя цена за м² и за объект по сегментам
@@ -123,6 +125,10 @@ export function MarketSegmentsView({ data, shown, onMore, buildingFilter = false
 }
 
 export function MarketSegments() {
+  return <MarketingSection><MarketSegmentsScreen /></MarketingSection>;
+}
+
+function MarketSegmentsScreen() {
   const [district, setDistrict] = useState("");
   const [rooms, setRooms] = useState<(typeof ROOM_FILTERS)[number]["id"]>("all");
   const [repair, setRepair] = useState("");
@@ -168,6 +174,7 @@ export function MarketSegments() {
           </label>
         }
       />
+      <MarketOverpriced />
       <div className="card tight">
         <Filters
           aria-label="Комнаты"

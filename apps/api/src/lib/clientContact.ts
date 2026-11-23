@@ -3,6 +3,8 @@ import type { Prisma } from "../generated/prisma/client.js";
 /** Actual contact, independent of whether asynchronous AI has filled outcome. */
 export const REAL_CALL_CONTACT_WHERE = {
   type: "CALL",
+  // Звонок-разбор из Корзины (lib/archiveReviewCall.ts) не контакт агента с клиентом.
+  archiveReview: false,
   OR: [
     { callAttempt: "TALKED" },
     { recordingDurationSec: { gt: 0 } },
@@ -15,8 +17,9 @@ export function isRealCallContact(call: {
   callAttempt: string | null;
   recordingDurationSec: number | null;
   outcome: string | null;
+  archiveReview?: boolean;
 }): boolean {
-  return call.type === "CALL" && (
+  return call.type === "CALL" && !call.archiveReview && (
     call.callAttempt === "TALKED" ||
     (call.recordingDurationSec ?? 0) > 0 ||
     (call.callAttempt === null && call.outcome !== null && call.outcome !== "NO_ANSWER")
@@ -35,13 +38,12 @@ export function isHeldMeeting(meeting: {
 
 export const TERMINAL_CLIENT_STATUSES = ["LOST", "ARCHIVED", "DEAL_CLOSED"] as const;
 
-export function inactiveExitData() {
-  return {
-    workStatus: "ACTIVE" as const,
-    inactiveLevel: null,
-    inactiveReasonKey: null,
-    inactiveSince: null,
-    inactiveEnteredAt: null,
-    inactivePingCount: 0 as const,
-  };
+/**
+ * Карточка снова в обычной работе. Светофор и его поля удалены 16.11.2026
+ * (владелец: «ничего лишнего») — код их больше не читает и не пишет; колонки
+ * снимет отдельная миграция. Здесь остаётся только workStatus для старых строк
+ * (пометка нерешённого предложения прежнему агенту).
+ */
+export function resumeWorkData() {
+  return { workStatus: "ACTIVE" as const };
 }

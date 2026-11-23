@@ -48,7 +48,7 @@ export function ClaudeCategorySettings({ month, canManage, onClose }: { month: s
     if (!allowed.current || save.isPending || selected === undefined) return;
     const budget = draft.budget.trim();
     if (budget && !/^\d+(?:[.,]\d{1,2})?$/.test(budget)) { setError("Введите лимит без разделителей тысяч: 1000 или 1000,50."); form.current?.querySelector<HTMLInputElement>('[name="budget"]')?.focus(); return; }
-    if (budget && Number(budget.replace(",", ".")) > 99_999_999.99) { setError("Лимит должен быть не больше 99 999 999,99 с."); form.current?.querySelector<HTMLInputElement>('[name="budget"]')?.focus(); return; }
+    if (budget && Number(budget.replace(",", ".")) > 99_999_999.99) { setError("Лимит должен быть не больше 99\u00a0999 999,99\u00a0с."); form.current?.querySelector<HTMLInputElement>('[name="budget"]')?.focus(); return; }
     if (!draft.title.trim()) { setError("Укажите название категории."); form.current?.querySelector<HTMLInputElement>('[name="title"]')?.focus(); return; }
     const parsed = expenseCategorySchema.safeParse({ title: draft.title, rootCategory: draft.rootCategory, parentId: draft.parentId || null, icon: draft.icon, color: draft.color, budgetMonthly: budget ? Number(budget.replace(",", ".")) : null, active: draft.active });
     if (!parsed.success) {

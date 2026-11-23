@@ -138,6 +138,12 @@ export interface MessengerTurnInput {
    * стоит попытка, а повтор доводит до конца ту же попытку (правило 03.08.2026).
    */
   retryOfPaidTurn?: boolean;
+  /**
+   * С `retryOfPaidTurn`: какой это прогон хода клиента (живой ход — 1; задание ai-reply-retry передаёт свою попытку + 1).
+   * Ядро на канале (режим `core`) — запасной предел трёх прогонов, если счёт сообщения в базе недоступен (CHANNEL_CORE_MAX_ATTEMPTS;
+   * прогон — до 4 платных вызовов модели); старый бот не читает.
+   */
+  retryAttempt?: number;
 }
 
 export interface MessengerTurnResult {
@@ -153,6 +159,8 @@ export interface MessengerTurnResult {
   ready: boolean;
   /** Заявка оформлена в CRM в этом ходе (или ранее). */
   accepted: boolean;
+  /** Номер проверяющего из Настроек (lib/botReviewers.ts): заявку не заводили нарочно — это не сбой, тревоги не нужно. */
+  reviewer?: true;
   /** false — оператор взял диалог на себя, бот-платформа не должна отправлять reply клиенту. */
   shouldReply?: boolean;
   /** true при shouldReply=false — вместо молчания webhooks.ts отвечает реакцией
@@ -179,4 +187,9 @@ export interface MessengerTurnResult {
    *  прислал ли он голосовое) — см. finishQualifyTurn, messengers/botCapabilities.ts::voiceReplies.
    *  Не заменяет текстовую доставку, отправляется ДОПОЛНИТЕЛЬНО (см. webhooks.ts). */
   replyVoiceWav?: Buffer;
+  /**
+   * Сигнал агенту, который отправитель шлёт ТОЛЬКО ПОСЛЕ доставки ответа (16.11.2026):
+   * бот пообещал клиенту с номером звонок агента (ai/callbackPromiseGuard.ts → lib/agentAttention.ts).
+   */
+  agentSignal?: { clientId: string; reason: "call_promised" };
 }

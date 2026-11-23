@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { CallClientButton } from "../../CallClientButton";
 import { ConfirmDialog } from "../../ConfirmDialog";
@@ -9,7 +8,6 @@ import { ApiError } from "../../../lib/api";
 import { toast } from "../../../store/toast";
 import { useMobileUx } from "../../../hooks/useMobileUx";
 import {
-  isRequiresRelease,
   useAcceptLead,
   useAcceptReactivationOffer,
   useConfirmDuplicateReview,
@@ -22,7 +20,7 @@ import {
 import type { Client } from "../../../types";
 
 /**
- * КНОПКИ РЕШЕНИЙ ГЛАВНОЙ АГЕНТА (06.10.2026, E1): принять или отклонить лид,
+ * КНОПКИ РЕШЕНИЙ ГЛАВНОЙ АГЕНТА (06.10.2026, E1): принять или отклонить заявку,
  * «это ваш клиент?», возврат прежнего клиента, звонок. Ни одно решение не
  * меняло смысла: те же хуки и те же запросы, что были в двух прежних главных
  * (ПК и телефон). Здесь они собраны один раз и стоят и в тёмной карточке
@@ -68,7 +66,6 @@ export function CallWide({ clientId, phone }: { clientId: string | null | undefi
 
 /** Принять / Отклонить лид. Отказ спрашивает подтверждение: первый подряд бесплатный, дальше минус к счёту. */
 export function PendingLeadActions({ client, compact }: { client: Client; compact?: boolean }) {
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const accept = useAcceptLead(client.id);
   const decline = useDeclineLead(client.id);
@@ -81,16 +78,9 @@ export function PendingLeadActions({ client, compact }: { client: Client; compac
       <Button
         size={size}
         loading={accept.isPending}
-        {...lock(decline.isPending, "Отклоняем лид")}
+        {...lock(decline.isPending, "Отклоняем заявку")}
         data-endpoint="POST /api/v1/clients/:id/accept"
-        onClick={() =>
-          accept.mutate(undefined, {
-            onError: (err) => {
-              // Портфель полон: сервер просит выбрать, кого освободить, а выбор есть только в карточке.
-              if (isRequiresRelease(err)) navigate(`/clients/${client.shortId}`);
-            },
-          })
-        }
+        onClick={() => accept.mutate()}
       >
         {accept.isPending ? "Принятие…" : "Принять"}
       </Button>
@@ -98,7 +88,7 @@ export function PendingLeadActions({ client, compact }: { client: Client; compac
         size={size}
         variant="soft"
         loading={decline.isPending}
-        {...lock(accept.isPending, "Принимаем лид")}
+        {...lock(accept.isPending, "Принимаем заявку")}
         data-endpoint="POST /api/v1/clients/:id/decline"
         onClick={() => setConfirming(true)}
       >
@@ -106,25 +96,25 @@ export function PendingLeadActions({ client, compact }: { client: Client; compac
       </Button>
       {accept.isError && (
         <div className="rh-home-err">
-          <MutationError mutation={accept} fallback="Не удалось принять лид" variant="rh2" />
+          <MutationError mutation={accept} fallback="Не удалось принять заявку" variant="rh2" />
         </div>
       )}
       {decline.isError && !confirming && (
         <div className="rh-home-err">
-          <MutationError mutation={decline} fallback="Не удалось отклонить лид" variant="rh2" />
+          <MutationError mutation={decline} fallback="Не удалось отклонить заявку" variant="rh2" />
         </div>
       )}
       {confirming && !busy && (
         <ConfirmDialog
-          title="Отклонить лид?"
-          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Лид сразу уйдёт следующему свободному агенту, а если отдать некому или лид по вашему объекту — руководителю. Эту карточку вы больше не увидите."
+          title="Отклонить заявку?"
+          description="Первый отказ подряд ничего не стоит Royal Score, второй и следующие подряд снижают счёт. Заявка сразу уйдёт следующему свободному агенту, а если отдать некому или заявка по вашему объекту — руководителю. Эту карточку вы больше не увидите."
           confirmLabel="Отклонить"
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);
             decline.mutate(undefined, {
               onSuccess: (res) =>
-                toast.success(res.reassignedTo ? "Отклонён: лид ушёл следующему агенту" : "Отклонён: лид ушёл руководителю"),
+                toast.success(res.reassignedTo ? "Отклонена: заявка ушла следующему агенту" : "Отклонена: заявка ушла руководителю"),
               // Пока агент решал, лид успел принять кто-то другой или права поменялись: список надо перечитать.
               onError: (err) => {
                 if (err instanceof ApiError && [403, 404, 409].includes(err.status)) {

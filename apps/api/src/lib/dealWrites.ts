@@ -144,6 +144,17 @@ export function canCompleteDeal(req: DealActor): boolean {
 }
 
 /**
+ * СВОЮ СДЕЛКУ САМ НЕ ЗАКРЫВАЕШЬ (владелец 16.11.2026, аудит прав Р1–Р3, Р5).
+ * РОП — тоже продавец: сам вписал себе комиссию и сам закрыл — второго человека
+ * нет. Закрытие, одобрение, переоценка закрытой, аннулирование и чистка
+ * документов своей сделки — только у того, у кого есть деньги компании
+ * (finance.manage: директор, админ). Чужие сделки РОП ведёт как раньше.
+ */
+export function isOwnDealWithoutFinance(req: DealActor, deal: { agentId: string | null }): boolean {
+  return !!deal.agentId && deal.agentId === req.agent!.id && !can(req, "finance.manage");
+}
+
+/**
  * Видит ли сотрудник деньги ЭТОЙ сделки: право на финансы, своя сделка — или
  * сделка ждёт его одобрения (одобряющий видит цифры, которые одобряет; подробно —
  * у seesDealMoney в routes/deals.ts). Одно правило на REST и помощницу.
@@ -382,9 +393,6 @@ export async function createDealFor(
       if (liveDeal) {
         throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
       }
-      // Сделка — пятая ветка «Итога показа» («Договор»): дошли до неё, значит
-      // «Подбор»/«Переговоры» больше не актуальны, сделка несёт свою стадию сама.
-      await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: null } });
       return tx.deal.create({
         // Валюта комиссии = валюта объекта: commissionAmount считается от property.price
         // (см. выше), и без этого снапшота сумма теряла единицы измерения ещё на входе.
@@ -521,6 +529,9 @@ export async function updateDealFor(
   // иначе сообщение об ошибке намекало бы, что дело только в стадии.
   if (data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && !canCompleteDeal(req)) {
     return fail(403, { error: "Закрыть сделку может только руководитель" });
+  }
+  if (data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && isOwnDealWithoutFinance(req, existing)) {
+    return fail(403, { error: "Свою сделку закрывает директор: вы продавец, второй человек должен подтвердить" });
   }
   // ЗАВЕРШЕНИЕ ЧЕРЕЗ «ОТПРАВЛЕНО НА ЗАКРЫТИЕ» — но не единственный путь (19.08.2026,
   // просьба владельца). Обычный агент сначала указывает фактическую цену и комиссию
@@ -724,10 +735,24 @@ export async function updateDealFor(
   // Правка суммы у УЖЕ закрытой сделки (директор исправляет опечатку) обязана
   // пересчитать снапшот долей: иначе Финансы продолжали показывать выплаты от старой
   // суммы, и «валовая комиссия ≠ выплаты + доход компании» — отчёт переставал сходиться.
+  // Любое денежное поле закрытой сделки (суммы, доли, цена продажи) — только деньги компании.
+  if (
+    existing.stage === "COMPLETED" &&
+    !can(req, "finance.manage") &&
+    (data.commissionAmount !== undefined || data.commissionPercent !== undefined ||
+      data.commissionRealtorAmount !== undefined || data.commissionCompanyAmount !== undefined ||
+      data.soldPrice !== undefined)
+  ) {
+    return fail(403, { error: "Деньги закрытой сделки меняет только директор" });
+  }
   const isRepricingClosed =
     existing.stage === "COMPLETED" &&
     (data.commissionAmount !== undefined || data.commissionPercent !== undefined) &&
     !isCompleting;
+  // Закрытую сделку задним числом переоценивают только деньги компании (Р3).
+  if (isRepricingClosed && !can(req, "finance.manage")) {
+    return fail(403, { error: "Комиссию закрытой сделки меняет только директор" });
+  }
 
   /**
    * Один процент без суммы (26.08.2026): раньше isRepricingClosed срабатывал, но
@@ -945,7 +970,7 @@ export async function updateDealFor(
         if (otherClosedClientDeals === 0) {
           await tx.client.updateMany({
             where: { id: existing.clientId, status: "DEAL_CLOSED" },
-            data: { status: "HOT" },
+            data: { status: "CONTACTED" },
           });
         }
       }
@@ -1605,8 +1630,9 @@ export async function markDealPayoutFor(
       dryRun?: true;
     }
 > {
-  if (!can(req, "finance.manage") && !can(req, "deals.setCommission")) {
-    return fail(403, { error: "Недостаточно прав" });
+  // Отметка «комиссия выплачена» — бухгалтерия, а не комиссия (Р2, 16.11.2026).
+  if (!can(req, "finance.manage")) {
+    return fail(403, { error: "Отметить выплату может только директор" });
   }
 
   const parsed = dealPayoutSchema.safeParse(body);
@@ -1674,6 +1700,10 @@ export async function annulDealFor(
 ): Promise<DealWriteFailure | { ok: true; status: 200; result: { id: string; stage: string; propertyReturnedToSale: boolean } }> {
   if (!can(req, "deals.complete")) {
     return fail(403, { error: "Аннулировать сделку может только руководитель" });
+  }
+  const annulTarget = await prisma.deal.findUnique({ where: { id: dealId }, select: { agentId: true } });
+  if (annulTarget && isOwnDealWithoutFinance(req, annulTarget)) {
+    return fail(403, { error: "Свою сделку аннулирует директор" });
   }
   const parsed = dealAnnulSchema.safeParse(body);
   if (!parsed.success) {

@@ -1,20 +1,18 @@
 import { ownsProperty, OWNER_OPEN_AFTER_PUBLISH_FIELDS } from "../../lib/propertyAccess.js";
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
-import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router, type Request } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { Prisma, Property } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import {
   bulkTrashPropertiesSchema,
   propertyCreateSchema,
   propertyUpdateSchema,
   buildPropertyTitle,
   PROPERTY_PIPELINE_STATUSES,
-  requiresPropertyModeration,
   PROPERTY_FIELDS_OPEN_AFTER_PUBLISH,
   agentReelLinkClosed,
   floorRuleError,
@@ -23,15 +21,12 @@ import {
   MIN_PROPERTY_PHOTOS,
   isInstagramLink,
 } from "@royal-home/shared";
-import { prisma } from "../../db.js";
+import { prisma, type PropertyRecord } from "../../db.js";
 import { can, canBindClient, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { uploadsDir } from "../../upload.js";
 import {
   blockersForSale,
-  closeEditingPush,
-  closePendingReviewPush,
   isPipelineStatus,
-  notifyEditingStarted,
   notifyPendingReview,
   publishAfterEditingComplete,
 } from "../../lib/propertyPipeline.js";
@@ -55,18 +50,20 @@ import { generateReelsCaptionWithAi } from "../../ai/reelsCaptionAi.js";
 import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { localVideoDelete } from "../../lib/localVideoStorage.js";
 import { removePurgedNarrationAudio } from "../../lib/propertyNarrationCleanup.js";
-import { startNarrationForNewProperty } from "../../lib/narrationAutoFlow.js";
+import { startNarrationForNewProperty, wizardNarrationTextRejection } from "../../lib/narrationAutoFlow.js";
 import { propertyOwnedFilePaths } from "../../lib/diskCleanup.js";
 import {
   skipVideoHandoffOnManualPublish,
-  closeVideoHandoff,
 } from "../../lib/videoHandoff.js";
 import { describeError } from "../../lib/describeError.js";
-import { closeWorkAfterLeavingSale } from "../../lib/propertyLeftSale.js";
+import { completeEditing } from "../../lib/propertyCompleteEditing.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
 import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
-import { recordPropertyRemoval } from "../../lib/propertyRemovalEvidence.js";
-import { recomputeSellerCardState } from "../../lib/sellerCardState.js";
+import {
+  propertyStatusChangeBlock,
+  recordStatusRemovalInTx,
+  runPropertyStatusEffects,
+} from "../../lib/propertyStatusChange.js";
 import {
   assignableAgentError,
   canManageProperty,
@@ -82,16 +79,11 @@ import { districtFromMap } from "../../lib/propertyDistrict.js";
 import { attachDraftRows, finishDraftAttachment, type DraftAttachmentPlan } from "./draftAttach.js";
 import { DraftConflictError, assertActiveDraft, draftMediaFingerprint, lockOwnDraft, withDraftLock } from "./draftLifecycle.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
-import {
-  PROPERTY_MODERATION_REQUIRED_MESSAGE,
-  completedDealRevertBlock,
-  manualStatusChangeBlock,
-  saleReadinessBlock,
-} from "../../lib/propertyStatusDealGuards.js";
 import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -416,7 +408,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
    * ВЫБРАНА КАРТОЧКА ПРОДАВЦА — «КОНТАКТ ВЛАДЕЛЬЦА» БЕРЁМ ИЗ НЕЁ, С СЕРВЕРА.
    *
    * Форма раньше копировала номер из выбранной карточки на клиенте — но агент без
-   * права clients.viewPhone получает номер ЗАМАСКИРОВАННЫМ («+992•••••57»), и ровно
+   * права clients.viewPhone получает номер ЗАМАСКИРОВАННЫМ («+9929300••456»), и ровно
    * эти точки уезжали в ownerContact навсегда. Маска — для глаз агента; сама связь
    * «объект → карточка продавца» номер не раскрывает, поэтому честный телефон в
    * ownerContact кладёт сервер, у которого он есть. Пустой или замаскированный
@@ -720,7 +712,6 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent.id);
     return createdProperty;
   });
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   /**
    * ПОДВАЛ ПОДПИСИ — ПОСЛЕ СОЗДАНИЯ, А НЕ ДО (23.09.2026). Номер объекта
@@ -879,7 +870,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
 
   // Озвучка ролика: сразу ставится в очередь, агенту придёт на одобрение (lib/narrationAutoFlow.ts).
   // Под рубильником autoGenerate; ошибка не роняет создание объекта.
-  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration);
+  void startNarrationForNewProperty(property.id, req.agent.id, parsedDraftRef.data.narration, req.source === "telegram" ? "TELEGRAM" : "CRM");
+  // Текст агента не принят (доллары и т.п., ревью 21.11): мастеру — честно и сразу, в ответе сохранения.
+  const narrationTextRejected = wizardNarrationTextRejection(parsedDraftRef.data.narration);
+  const narrationNote = narrationTextRejected ? { narrationTextRejected } : {};
 
   // Автопубликации у объекта в конвейере нет: пока не сняли видео, публиковать
   // нечего, и попытка кончилась бы отказом сайта на каждом созданном объекте.
@@ -889,7 +883,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
   // это не значит «готов к публикации», это значит «публикации не будет вовсе».
   if (isPipelineStatus(property.status) || property.offSite) {
     publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
   }
 
   // Автопубликация сразу при создании — по решению директора. Best-effort и молча:
@@ -906,8 +900,9 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
+  void autoLinkPropertyById(property.id);
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
 }
 
 crudRouter.post("/", requireAuth, async (req, res) => {
@@ -952,6 +947,20 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     Object.fromEntries(Object.entries(parsed.data).filter(([k]) => k !== "version" && k !== "clientId")),
     existing as unknown as Record<string, unknown>
   );
+
+  // МАРКЕТИНГ И МОНТАЖЁР РАБОТАЮТ С МАТЕРИАЛАМИ, НЕ С ЦЕНОЙ (аудит прав М9/Д3,
+  // владелец 16.11.2026). Право «правка чужих карточек» им нужно для фото, видео и
+  // описания; цену, валюту и контакт собственника чужого объекта они меняют только
+  // заявкой через агента или руководство.
+  // Контакт собственника сюда не входит: скрытый от них контакт форма шлёт как null, и сервер
+  // отбрасывает его ниже (stripOwnerContact), так что маркетолог не может его изменить.
+  if (
+    (req.agent!.role === "MARKETING" || req.agent!.role === "EDITOR") &&
+    !ownsProperty(req.agent!.id, existing) &&
+    changedFields.some((f) => f === "price" || f === "currency" || f === "soldPrice")
+  ) {
+    return res.status(403).json({ error: "Цену и контакт собственника меняет агент объекта или руководитель" });
+  }
 
   // ЦЕНА ПРОДАННОГО ОБЪЕКТА — ТОЛЬКО РУКОВОДСТВУ (глубокая проверка 02.10.2026,
   // D12). Выгрузка бухгалтерии (routes/expenses.ts) берёт soldPrice ?? price и
@@ -1007,66 +1016,23 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   }
 
   /**
-   * Смена статуса вручную: открытая сделка (SOLD/WITHDRAWN, резерв → в продаже), затем
-   * ПЕРЕХОДЫ, КОТОРЫХ НЕТ НИ В ОДНОЙ ТАБЛИЦЕ (находка №182: раньше их отсекал только
-   * список статусов на экране, прямой PATCH ставил «Резерв»/«Продано» без сделки и
-   * возвращал объект из продажи в любой этап подготовки), затем «Резерв»/«Продано» ставит
-   * сделка. Тело — lib/propertyStatusDealGuards.ts (его же зовёт ИИ-помощник); право на
-   * шаг конвейера проверяется ниже.
+   * СМЕНА СТАТУСА ВРУЧНУЮ — ОДНА ДВЕРЬ С ПОМОЩНИКОМ И ЗАЯВКАМИ (17.11.2026,
+   * lib/propertyStatusChange.ts, тот же порядок и те же тексты, что жили здесь):
+   *  1. открытая сделка (SOLD/WITHDRAWN, резерв → в продаже), переходы, которых нет ни в
+   *     одной таблице (находка №182), «Резерв»/«Продано» ставит сделка;
+   *  2. КОНВЕЙЕР ДВИГАЕТ МАРКЕТИНГ (дыра 16.08.2026): шаг вне PROPERTY_AGENT_TRANSITIONS
+   *     без properties.moderate — 403. Проверяется ЯВНЫЙ статус из запроса: автовозврат по
+   *     видео и автопубликация из монтажа ниже — решения сервера;
+   *  3. выход в продажу из подготовки или из «Снято» — только готовым (фото и ссылка на
+   *     ролик; ссылку форма может менять в этом же запросе — передаём её);
+   *  4. обратный переход из SOLD при закрытой сделке запрещён.
    */
-  if (parsed.data.status !== undefined && parsed.data.status !== existing.status) {
-    const block = await manualStatusChangeBlock(existing, parsed.data.status, can(req, "properties.moderate"));
-    if (block) return res.status(block.status).json({ error: block.error });
-  }
-
-  /**
-   * КОНВЕЙЕР ДВИГАЕТ МАРКЕТИНГ, А НЕ ТОТ, КТО ЗАВЁЛ ОБЪЕКТ (дыра 16.08.2026).
-   *
-   * Кнопки «Одобрить»/«Запросить новые» закрыты правом properties.moderate, но
-   * этот PATCH их обходил: агенту хватало выбрать «Монтаж» в списке статусов —
-   * объект уходил мимо проверки маркетинга целиком, а монтажёр получал пуш
-   * «фото и видео одобрены» про материалы, которых никто не видел.
-   *
-   * Что остаётся агенту, описано один раз в @royal-home/shared
-   * (PROPERTY_AGENT_TRANSITIONS): вернуть объект на проверку после доработки,
-   * закрыть монтаж выходом в продажу и снять объект с продажи. Проверяем ЯВНЫЙ
-   * статус из запроса: автовозврат по видео и автопубликация из монтажа ниже —
-   * решения сервера, и они укладываются в те же разрешённые переходы.
-   */
-  if (
-    parsed.data.status !== undefined &&
-    requiresPropertyModeration(existing.status, parsed.data.status) &&
-    !can(req, "properties.moderate")
-  ) {
-    return res.status(403).json({ error: PROPERTY_MODERATION_REQUIRED_MESSAGE });
-  }
-
-  // ВЫХОД ИЗ КОНВЕЙЕРА ПОДГОТОВКИ. Последний этап — монтажёр публикует видео-обзор
-  // в Instagram и вставляет ссылку в карточку (решение владельца 02.08.2026). Пока
-  // ссылки нет, объект в продажу не выходит: именно на этом шаге работа и обрывалась
-  // чаще всего, а карточка при этом уже считалась готовой.
-  //
-  // Проверяем ТОЛЬКО переход из конвейера: объект, который уже был в продаже, этому
-  // требованию не подчиняется — отменённая сделка возвращает статус AVAILABLE, и
-  // старая карточка без ссылки не должна блокировать отмену сделки.
-  //
-  // WITHDRAWN — тоже вход в продажу «с нуля», а не «уже был в продаже»: он нарочно
-  // не входит в isPipelineStatus (это не этап подготовки), но собственник мог снять
-  // объект давно, фото/ссылка с тех пор протухли или вовсе не собирались — находка
-  // 13.09.2026, без этой строки возврат из WITHDRAWN пропускал проверку готовности
-  // целиком (см. requiresPropertyModeration выше — та же дыра была и в праве).
-  if (parsed.data.status === "AVAILABLE" && (isPipelineStatus(existing.status) || existing.status === "WITHDRAWN")) {
-    const instagramUrl =
-      parsed.data.instagramUrl !== undefined ? parsed.data.instagramUrl : existing.instagramUrl;
-    const notReady = await saleReadinessBlock(existing, instagramUrl);
-    if (notReady) return res.status(notReady.status).json({ error: notReady.error });
-  }
-
-  // Обратный переход из SOLD запрещён, если по объекту уже есть ЗАКРЫТАЯ сделка
-  // (lib/propertyStatusDealGuards.ts).
   if (parsed.data.status !== undefined) {
-    const revert = await completedDealRevertBlock(existing, parsed.data.status);
-    if (revert) return res.status(revert.status).json({ error: revert.error });
+    const block = await propertyStatusChangeBlock(existing, parsed.data.status, {
+      canModerate: can(req, "properties.moderate"),
+      instagramUrl: parsed.data.instagramUrl !== undefined ? parsed.data.instagramUrl : existing.instagramUrl,
+    });
+    if (block) return res.status(block.status).json({ error: block.error });
   }
 
   /**
@@ -1082,7 +1048,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // Скрытый номер владельца форма получает пустым и шлёт обратно `null` — правка
   // этажа стирала номер собственника у того, кому он не показан (аудит 23.09.2026,
   // №31). Кому номер скрыт, тот его и не меняет: поле отбрасывается целиком.
-  if (data.ownerContact !== undefined && stripOwnerContact(existing, req.agent!.id, can(req, "properties.viewOwners")).ownerContactHidden) {
+  if (data.ownerContact !== undefined && stripOwnerContact(existing, can(req, "properties.viewOwners")).ownerContactHidden) {
     delete data.ownerContact;
   }
 
@@ -1275,8 +1241,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    */
   const { version: clientVersion, ...dataWithoutVersion } = data;
 
-  let updated: Property;
-  let priceBefore: Property;
+  let updated: PropertyRecord;
+  let priceBefore: PropertyRecord;
   let priceDelivery: PropertyPriceDelivery | null;
   try {
     ({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx) => {
@@ -1340,8 +1306,14 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       if (clientVersion !== undefined && result.count === 0) {
         throw new PropertyConflictError();
       }
-      if (result.count && data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN") {
-        await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation: "withdraw" });
+      if (result.count) {
+        await recordStatusRemovalInTx(tx, {
+          propertyId: existing.id,
+          from: existing.status,
+          to: data.status,
+          removal: removal.data,
+          actorId: req.agent!.id,
+        });
       }
       const after = await tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
       const amountChanged = !before.price.equals(after.price);
@@ -1402,13 +1374,20 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    * по файлу под своими action — здесь ловится ОБЩИЙ случай: любая смена
    * статуса или ответственного через обычный PATCH, включая ручную (не через
    * кнопки конвейера) правку статуса руководителем.
+   *
+   * Журнал статуса и всё, что следует за сменой статуса (пуши конвейера, автоподбор,
+   * карточка продавца, монтаж, фото-посты, сайт), — одна функция с помощником и
+   * исполнителем заявок (lib/propertyStatusChange.ts, 17.11.2026). Автопубликация из
+   * монтажа зовёт автоподбор сама (publishAfterEditingComplete ниже) — здесь его не дублируем.
    */
-  if (data.status !== undefined && data.status !== existing.status) {
-    logAudit(req, "PROPERTY_STATUS_CHANGED", "Property", existing.id, {
-      was: existing.status,
-      becomes: data.status,
-    });
-  }
+  const statusFx = await runPropertyStatusEffects({
+    actorId: req.agent!.id,
+    before: existing,
+    updated,
+    to: data.status,
+    removalReason: removal.data.removalReason ?? null,
+    autoPublished: willAutoPublish,
+  });
   // Остальные поля — одной записью «было → стало» (владелец 23.09.2026). Считаем
   // заново по data: сервер мог сам дописать поля выше (статус автопубликации).
   const fieldChanges = describePropertyChanges(
@@ -1436,29 +1415,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     });
   }
 
-  // Пуш тем, кому статус адресует объект — ровно один раз за запрос: статус меняется
-  // здесь единственный раз, явным PATCH, поэтому
-  // сравнение «было/стало» не даёт задвоить уведомление на повторных PATCH без
-  // реальной смены статуса.
-  if (data.status !== undefined && data.status !== existing.status && data.status === "PENDING_REVIEW") {
-    void notifyPendingReview(updated.id, updated.shortId, updated.title).catch((err) =>
-      console.error("[push] объект на проверку:", err)
-    );
-  }
-  if (data.status !== undefined && data.status !== existing.status && data.status === "EDITING") {
-    void notifyEditingStarted(updated.id, updated.shortId, updated.title).catch((err) =>
-      console.error("[push] объект передан в монтаж:", err)
-    );
-  }
-  // Объект ушёл из PENDING_REVIEW/EDITING другим путём, чем кнопки конвейера ниже
-  // по файлу (ручная смена статуса руководителем через этот PATCH) — гасим пуш
-  // остальным модераторам/монтажёрам тем же способом, что и в кнопках.
-  if (data.status !== undefined && data.status !== existing.status && existing.status === "PENDING_REVIEW") {
-    void closePendingReviewPush(existing.id).catch((err) => console.error("[push] закрытие «на проверке»:", err));
-  }
-  if (data.status !== undefined && data.status !== existing.status && existing.status === "EDITING") {
-    void closeEditingPush(existing.id).catch((err) => console.error("[push] закрытие «в монтаже»:", err));
-  }
+  // Пуши конвейера при смене статуса (на проверку, в монтаж, гашение) — в
+  // runPropertyStatusEffects выше, ровно один раз за реальную смену.
   // ПРАВКА ДО ПУБЛИКАЦИИ (владелец 07.10.2026): карточку поправили, пока она на
   // проверке или на монтаже, — модератору/монтажёру уходит «было → стало»
   // (lib/propertyEditNotify.ts). Фоном и без ожидания: отказ уйдёт в журнал, а не в 500.
@@ -1478,15 +1436,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       actorId: req.agent!.id,
     });
   }
-  // Объект встал в AVAILABLE напрямую этим PATCH (ручной выбор статуса маркетингом/
-  // руководителем, возврат из SOLD/WITHDRAWN) — НЕ считая willAutoPublish: тот путь
-  // ниже вызывает publishAfterEditingComplete, у которой уже есть свой такой же хук
-  // (lib/propertyPipeline.ts), вызывать дважды не нужно.
-  if (data.status !== undefined && data.status !== existing.status && data.status === "AVAILABLE" && !willAutoPublish) {
-    void notifyWaitingBuyersOfNewProperty(updated).catch((err) =>
-      console.error("[автоподбор] объект переведён в продажу:", err instanceof Error ? err.message : err)
-    );
-  }
+  // Объект встал в AVAILABLE напрямую (не «Готово») — автоподбор зовёт
+  // runPropertyStatusEffects выше (autoPublished: willAutoPublish).
 
   // СНИЖЕНИЕ ЦЕНЫ → автоподбор покупателей (блок D плана 12.09.2026) живёт теперь в
   // runPostUpdateEffects (lib/propertyUpdateEffects.ts) и вызывается ниже.
@@ -1500,106 +1451,9 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     geocodeInBackground(updated.id);
   }
 
-  // Best-effort: an object published on the site follows the CRM status both
-  // ways — SOLD puts the «Продано» badge up, reverting from SOLD (deal fell
-  // through) takes it down. Never blocks the response on the site being
-  // reachable — see webhooks.ts for the same philosophy in reverse (site lead
-  // intake never blocks on the CRM). Failures are logged via logSystemError — same
-  // contract as resyncPhotosIfPublished in siteSync.ts — so they reach the
-  // «Здоровье системы» screen; console.error alone never did.
-  const becameSold = data.status === "SOLD" && existing.status !== "SOLD";
-  const becameUnsold = data.status !== undefined && data.status !== "SOLD" && existing.status === "SOLD";
-  // СНЯТИЕ С ПРОДАЖИ ТОЖЕ ОБЯЗАНО ДОЙТИ ДО САЙТА. Раньше здесь ловилась только
-  // продажа: объект, снятый с продажи в CRM, продолжал висеть на royalhome.tj
-  // живым объявлением — по нему звонили покупатели, а показать было нечего.
-  // «Снято» на сайте не бейдж, как «Продано», а отсутствие объявления: собственник
-  // ушёл, и рекламировать его квартиру мы больше не вправе.
-  const becameWithdrawn = data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN";
-  if (becameWithdrawn && updated.sellerClientId) {
-    await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: removal.data.removalReason ?? null });
-  }
-  const becameReserved = data.status === "RESERVED" && existing.status !== "RESERVED";
-  // Объект из продажи вернули в подготовку (маркетинг, находка №180): объявление
-  // на сайте больше не показывается покупателям так же, как при снятии.
-  const enteredPipeline =
-    data.status !== undefined && isPipelineStatus(data.status) && existing.status === "AVAILABLE";
-
-  /**
-   * ОБЪЕКТ ВЫШЕЛ ИЗ ПРОДАЖИ, ПОКА ОН НА МОНТАЖЕ (25.09.2026, А3) — продажа,
-   * снятие с продажи или резерв, пока `videoHandoffStatus` ещё QUEUED/
-   * SENT_TO_EDITOR, раньше не освобождали место монтажёра и не предупреждали
-   * его: editorIsBusy() продолжал считать место занятым ИМЕННО ЭТИМ объектом,
-   * и вся очередь «строго по одному» вставала за ним замертво (тот же класс,
-   * что нашли 19.09.2026 у ручной публикации мимо бота — skipVideoHandoffOnManualPublish
-   * выше решает его для другого пути). closeVideoHandoff сам не делает ничего,
-   * если объект не в очереди — вызывать безусловно дешевле, чем повторять
-   * условие статуса здесь.
-   */
-  /**
-   * ВОЗВРАТ ИЗ МОНТАЖА НА ДОРАБОТКУ (глубокая проверка 02.10.2026, D8):
-   * маркетинг вернул объект из EDITING в AWAITING_PHOTOS/AWAITING_VIDEO/
-   * PENDING_REVIEW, а передача монтажёру оставалась живой — монтажёр, не
-   * знающий о возврате, сдавал ролик, и приём (finalizePropertyAvailability)
-   * выводил объект в продажу со старыми материалами, пропуская доработку.
-   * Монтажёр получает «сняли с монтажа», место освобождается; после
-   * повторного одобрения объект встанет в очередь заново тем же путём, что
-   * и в первый раз.
-   */
-  if (existing.status === "EDITING" && data.status !== undefined && data.status !== "EDITING" && isPipelineStatus(data.status)) {
-    void closeVideoHandoff(updated.id, { holdQueue: false, reason: "возвращён на доработку" }).catch((err) =>
-      void logSystemError(
-        "video-handoff",
-        `Объект ${updated.id}: закрытие монтажа при возврате на доработку не удалось: ${describeError(err)}`
-      )
-    );
-  }
-
-  if (becameSold || becameWithdrawn || becameReserved) {
-    // Монтаж, фото-посты, повторы и будущие показы — одной общей функцией, той же,
-    // что зовут закрытие сделки и ночная сверка статуса (lib/propertyLeftSale.ts).
-    // Ниже в этом файле остаётся только то, что относится к сайту.
-    closeWorkAfterLeavingSale(updated.id, becameSold ? "sold" : becameWithdrawn ? "withdrawn" : "reserved");
-  }
-
-  /* Гашение «Итога объекта» при переходе в «Продан»/«Снят» убрано 13.09.2026
-     вместе с механизмом окон. */
-  if (existing.publishedOnSite && (becameSold || becameUnsold || becameWithdrawn || enteredPipeline)) {
-    const withRelations = await prisma.property.findUnique({
-      where: { id: updated.id },
-      include: { district: true, photos: { orderBy: { order: "asc" } } },
-    });
-    if (withRelations) {
-      // Снятие сильнее возврата из «Продано»: переход SOLD → WITHDRAWN — это оба
-      // признака сразу, и объявление в таком случае убирается, а не оживает.
-      const action = becameWithdrawn || enteredPipeline ? "unpublish" : becameSold ? "sold" : "unsold";
-      void syncPropertiesToSite([withRelations], action)
-        .then((result) => {
-          const problem = !result.ok ? result.error : result.results.find((r) => !r.ok)?.error;
-          if (!problem) {
-            // Объявления на сайте больше нет — снимаем отметку, иначе карточка
-            // считается опубликованной, и кнопка «Опубликовать на сайт» не
-            // появится тому, кто вернёт объект в продажу.
-            if (action === "unpublish") {
-              return prisma.property
-                .update({ where: { id: updated.id }, data: { publishedOnSite: false } })
-                .then(() => undefined);
-            }
-            return;
-          }
-          console.error(`[siteSync] Статус объекта ${updated.id} не дошёл до сайта: ${problem}`);
-          void logSystemError("site-sync", `Статус объекта ${updated.id} не дошёл до сайта: ${problem}`, {
-            url: `/properties/${updated.id}`,
-          });
-        })
-        .catch((err) => {
-          const reason = err instanceof Error ? err.message : String(err);
-          console.error(`[siteSync] Статус объекта ${updated.id}:`, reason);
-          void logSystemError("site-sync", `Статус объекта ${updated.id} — ошибка синхронизации: ${reason}`, {
-            url: `/properties/${updated.id}`,
-          });
-        });
-    }
-  }
+  // Сайт, карточка продавца, монтаж, фото-посты при переходах «Продано»/«Снято»/«Резерв»/
+  // в подготовку — в runPropertyStatusEffects выше (lib/propertyStatusChange.ts).
+  const { becameSold, becameUnsold, becameWithdrawn, enteredPipeline } = statusFx;
 
   /**
    * ЭФФЕКТЫ ПОСЛЕ ПРАВКИ — вынесены в lib/propertyUpdateEffects.ts без смены поведения
@@ -1628,6 +1482,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     resyncReason: "правка карточки (PATCH)",
     awaitPriceSync: false,
     priceCaptionStage: priceDelivery?.caption,
+    actorId: req.agent!.id,
   });
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
@@ -1647,6 +1502,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.json(presentProperty(published, req));
   }
 
+  void autoLinkPropertyById(updated.id);
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
   res.json(presentProperty(updated, req));
 });
@@ -1675,40 +1531,34 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
  * «Готово» — намеренное завершающее действие монтажёра, который должен
  * узнать, если сайт объект не принял, а не увидеть в CRM «опубликован»
  * молча разошедшийся с реальностью.
+ *
+ * Тело: пусто (обычное нажатие) или `{ withoutInstagram: true }` — явное «вывести без Instagram»
+ * (директор/админ, 17.11.2026; правило — в lib/propertyCompleteEditing.ts).
  */
 crudRouter.post("/:id/complete-editing", requireAuth, async (req, res) => {
-  const property = await prisma.property.findUnique({
-    where: { id: req.params.id },
-    include: { district: true, photos: { orderBy: { order: "asc" } } },
+  const body = z.object({ withoutInstagram: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
+  // Само «Готово» — lib/propertyCompleteEditing.ts: ту же дверь зовёт ИИ-помощник (complete_property_editing).
+  const outcome = await completeEditing({
+    propertyId: req.params.id,
+    actor: { agentId: req.agent!.id, can: (permission) => can(req, permission) },
+    audit: req,
+    withoutInstagram: body.data.withoutInstagram,
   });
-  if (!property || property.deletedAt) return res.status(404).json({ error: "Объект не найден" });
-  if (!canManageProperty(req, property)) return res.status(403).json({ error: "Недостаточно прав" });
-
-  if (property.status !== "EDITING") {
-    return res.status(409).json({ error: "Кнопка «Готово» доступна только на этапе «Монтаж»" });
+  if (!outcome.ok) {
+    // code/blockers/withoutInstagram — экрану, чтобы директору показать «Вывести без Instagram», а
+    // остальным — понятную причину; текст ошибки остаётся главным.
+    return res.status(outcome.status).json({
+      error: outcome.error,
+      code: outcome.code,
+      ...(outcome.blockers ? { blockers: outcome.blockers } : {}),
+      ...(outcome.withoutInstagram ? { withoutInstagram: outcome.withoutInstagram } : {}),
+    });
   }
-  const blockers = blockersForSale({ instagramUrl: property.instagramUrl, photoCount: property.photos.length });
-  if (blockers.length > 0) {
-    return res.status(409).json({ error: `Объект не готов: ${blockers.join(", ")}` });
+  if (outcome.siteSyncError) {
+    return res.status(207).json({ ...presentProperty(outcome.property, req), siteSyncError: outcome.siteSyncError });
   }
-
-  const updated = await prisma.property.update({
-    where: { id: property.id },
-    data: { status: "AVAILABLE", stageEnteredAt: new Date() },
-    include: { district: true, photos: { orderBy: { order: "asc" } } },
-  });
-
-  const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
-  // См. комментарий у аналогичного вызова в автопубликации PATCH выше — та же
-  // защита от навсегда занятого места монтажёра, только для ручной кнопки «Готово».
-  void skipVideoHandoffOnManualPublish(published.id).catch((err) =>
-    console.error("[video-handoff] закрытие хендоффа при «Готово»:", err)
-  );
-  publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.status, actorId: req.agent!.id });
-  if (siteSyncError) {
-    return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
-  }
-  res.json(presentProperty(published, req));
+  res.json(presentProperty(outcome.property, req));
 });
 
 /**

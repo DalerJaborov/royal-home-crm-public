@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import sharp from "sharp";
 import { createHash, randomUUID } from "node:crypto";
 import {
   SOCIAL_VIDEO_ALLOWED_EXTENSIONS,
@@ -9,7 +11,11 @@ import {
   SOCIAL_VIDEO_DEFAULT_COVER_PROVIDER,
   SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES,
   SOCIAL_VIDEO_STATUSES,
+  SOCIAL_PHOTO_POST_MAX_IMAGES,
+  SOCIAL_VIDEO_CHANNEL_LABELS as CHANNEL_LABELS_FOR_PHOTO,
   destinationKeyOf,
+  isPhotoPostChannel,
+  evaluatePhotoPostForChannel,
   evaluateVideoForChannel,
   parseDestinationKey,
   publishedPostLink,
@@ -48,8 +54,17 @@ import { extractVideoFrameJpeg } from "./socialVideoFrame.js";
 import { getSocialVideoTrends } from "./socialVideoTrends.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { logSystemError } from "./systemError.js";
+import { loadPublishScheduleRules } from "./publishScheduleRules.js";
+import { findSlotCollision, loadOccupiedPublishSlotsDetailed, OCCUPIED_SLOT_KIND_LABEL, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.js";
+import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
 import { describeError } from "./describeError.js";
 import { sendPushToAgent } from "../push.js";
+import { tellStaffSocialPostResult } from "../telegram/staffSocialPostResult.js";
+import { sharpFromUpload } from "./heicInput.js";
+import { publicUploadUrl } from "./crmPublicUrl.js";
+import { publishInstagramCarousel, publishFacebookPhotoPost, publishTelegramPhotoPost, type PhotoPostPublishResult } from "./photoPosts.js";
+import { loadCredentials } from "../messengers/meta.js";
+import { publishViaInstagramPublisher, resolveInstagramPublisher } from "./instagramPublisher.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — сервис (12.10.2026).
@@ -82,10 +97,20 @@ export const SOCIAL_VIDEO_PUBLISH_JOB_TYPE = "social-video-publish";
 export class SocialVideoError extends Error {
   constructor(
     message: string,
-    readonly status: number = 409
+    readonly status: number = 409,
+    /** Доп. поля тела ответа (например код и подсказка при занятом времени) — маршрут добавляет их рядом с `error`. */
+    readonly extra?: Record<string, unknown>
   ) {
     super(message);
   }
+}
+
+/** «14:00», а если другой день, чем у выбранного человеком времени, — «20.11 14:00» (по Душанбе). */
+function clockOf(at: Date, ref: Date): string {
+  const time = dushanbeTimeString(at);
+  const date = dushanbeDateString(at);
+  if (date === dushanbeDateString(ref)) return time;
+  return `${date.slice(8, 10)}.${date.slice(5, 7)} ${time}`;
 }
 
 const WITH_CREATOR = { createdBy: { select: { id: true, fullName: true } } } satisfies Prisma.SocialVideoPostInclude;
@@ -100,6 +125,8 @@ const RETRY_FROM: SocialVideoStatus[] = ["FAILED", "PARTIAL"];
 /** Статусы, из которых можно ДОБАВИТЬ новые адреса к вышедшему ролику. */
 const ADD_FROM: SocialVideoStatus[] = ["DONE", "PARTIAL", "FAILED"];
 /** Публикация, которой не дали закончиться дольше этого срока, считается оборванной. */
+/** Сколько вперёд читаем занятые слоты при проверке времени: до следующего открытия окна публикаций и ещё сутки с запасом. */
+const SLOT_LOOKAHEAD_MS = 3 * 86_400_000;
 const STUCK_PUBLISHING_MS = 45 * 60_000;
 const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60_000;
 
@@ -218,8 +245,11 @@ export function presentSocialVideo(row: Row, runtime: Partial<Record<SocialVideo
   const channels = channelsOfDestinations(destinations);
   const facts = factsOf(row);
   const status = (SOCIAL_VIDEO_STATUSES as readonly string[]).includes(row.status) ? (row.status as SocialVideoStatus) : "DRAFT";
+  const isPhoto = row.mediaKind === "PHOTO";
   return {
     id: row.id,
+    mediaKind: isPhoto ? "PHOTO" : "VIDEO",
+    imagePaths: row.imagePaths ?? [],
     title: row.title,
     caption: row.caption,
     brief: row.brief,
@@ -241,7 +271,7 @@ export function presentSocialVideo(row: Row, runtime: Partial<Record<SocialVideo
     startedAt: row.startedAt?.toISOString() ?? null,
     finishedAt: row.finishedAt?.toISOString() ?? null,
     results: parseResults(row.channelResults),
-    verdicts: channels.map((c) => evaluateVideoForChannel(c, facts, row.caption, runtime[c])),
+    verdicts: channels.map((c) => (isPhoto ? photoVerdict(c, row.caption) : evaluateVideoForChannel(c, facts, row.caption, runtime[c]))),
     createdAt: row.createdAt.toISOString(),
     createdBy: row.createdBy ? { id: row.createdBy.id, name: row.createdBy.fullName } : null,
   };
@@ -277,7 +307,8 @@ export async function listSocialVideos(query: { status?: SocialVideoStatus; limi
 const publicToDisk = (publicPath: string): string => path.join(uploadsDir, publicPath.slice("/uploads/".length));
 
 async function removeVideoFile(publicPath: string): Promise<void> {
-  if (!/^\/uploads\/handoff\/promo-[0-9a-f-]{36}\.(mp4|mov|m4v)$/.test(publicPath)) return;
+  // Ролик (`promo-<uuid>.mp4`) или фото фото-поста (`promo-<uuid>-<n>.jpg`); чужие файлы не трогаем.
+  if (!/^\/uploads\/handoff\/promo-[0-9a-f-]{36}(\.(mp4|mov|m4v)|-\d{1,2}\.jpg)$/.test(publicPath)) return;
   try {
     await fs.promises.rm(publicToDisk(publicPath), { force: true });
   } catch (err) {
@@ -335,6 +366,85 @@ async function findDuplicate(hash: string, originalName: string, durationSec: nu
     createdAt: row.createdAt.toISOString(),
     publishedTo: await Promise.all(publishedKeys.map(labelOfKey)),
   };
+}
+
+const photoVerdict = evaluatePhotoPostForChannel;
+
+/**
+ * Фото под Instagram: JPEG, ширина до 1080, пропорции в пределах 4:5 … 1.91:1 (иначе Graph API откажет).
+ * Вертикальный снимок телефона (3:4, 9:16) обрезается по центру до 4:5, панорама — до 1.91:1.
+ */
+async function normalizePostImage(buf: Buffer, outDisk: string): Promise<{ width: number; height: number }> {
+  const rotated = await (await sharpFromUpload(buf)).rotate().toBuffer({ resolveWithObject: true });
+  const w = rotated.info.width;
+  const h = rotated.info.height;
+  const ratio = w / h;
+  const targetRatio = ratio < 0.8 ? 0.8 : ratio > 1.91 ? 1.91 : ratio;
+  const outW = Math.min(1080, w);
+  const outH = Math.round(outW / targetRatio);
+  const info = await sharp(rotated.data).resize(outW, outH, { fit: "cover", position: "centre" }).jpeg({ quality: 88 }).toFile(outDisk);
+  return { width: info.width, height: info.height };
+}
+
+/** ФОТО-ПОСТ (16.11.2026): те же название, подпись и каналы, что у ролика, но вместо видео — 1–10 фото. */
+export async function createSocialPhotoPostFromUpload(input: {
+  files: Array<{ buffer: Buffer; originalName: string }>;
+  title: string;
+  caption: string;
+  brief?: string | null;
+  channels: SocialVideoChannel[];
+  destinations?: SocialVideoDestination[];
+  createdById: string;
+}): Promise<SocialVideoItem> {
+  if (input.files.length === 0) throw new SocialVideoError("Приложите хотя бы одно фото", 400);
+  if (input.files.length > SOCIAL_PHOTO_POST_MAX_IMAGES) throw new SocialVideoError(`Не больше ${SOCIAL_PHOTO_POST_MAX_IMAGES} фото в одном посте`, 422);
+  const id = randomUUID();
+  await fs.promises.mkdir(videoHandoffDir, { recursive: true });
+  const written: string[] = [];
+  try {
+    let first: { width: number; height: number } | null = null;
+    let total = 0;
+    for (let i = 0; i < input.files.length; i++) {
+      const publicPath = `/uploads/handoff/promo-${id}-${i + 1}.jpg`;
+      let dims: { width: number; height: number };
+      try {
+        dims = await normalizePostImage(input.files[i].buffer, publicToDisk(publicPath));
+      } catch {
+        throw new SocialVideoError(`Файл «${input.files[i].originalName}» не удалось прочитать как фото — нужен JPEG, PNG, WebP или HEIC`, 422);
+      }
+      written.push(publicPath);
+      first ??= dims;
+      total += (await fs.promises.stat(publicToDisk(publicPath))).size;
+    }
+    const dests = (input.destinations ? normalizeDestinations(input.destinations) : destinationsFromChannels(input.channels, [])).filter((d) =>
+      isPhotoPostChannel(d.channel)
+    );
+    const row = await prisma.socialVideoPost.create({
+      data: {
+        id,
+        mediaKind: "PHOTO",
+        imagePaths: written,
+        title: input.title,
+        caption: input.caption,
+        brief: input.brief?.trim() || null,
+        videoPath: written[0],
+        // Миниатюра в списке — первое фото (поле обложки показывает её без отдельного кода).
+        coverPath: written[0],
+        originalName: input.files[0].originalName.slice(0, 200),
+        sizeBytes: total,
+        width: first?.width ?? null,
+        height: first?.height ?? null,
+        channels: channelsOfDestinations(dests),
+        destinations: destinationsJson(dests),
+        createdById: input.createdById,
+      },
+      include: WITH_CREATOR,
+    });
+    return presentSocialVideo(row);
+  } catch (err) {
+    for (const p of written) await fs.promises.rm(publicToDisk(p), { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 export async function createSocialVideoFromUpload(input: {
@@ -458,6 +568,7 @@ export async function updateSocialVideo(
  */
 export async function copySocialVideo(id: string, createdById: string): Promise<SocialVideoItem> {
   const row = await loadRow(id);
+  if (row.mediaKind === "PHOTO") throw new SocialVideoError("Копия фото-поста пока не поддерживается — создайте новый пост", 409);
   const newId = randomUUID();
   const ext = path.extname(row.videoPath).toLowerCase();
   const destPublic = `/uploads/handoff/promo-${newId}${ext}`;
@@ -512,6 +623,7 @@ export async function copySocialVideo(id: string, createdById: string): Promise<
 
 async function assertCoverEditable(id: string): Promise<Row> {
   const row = await loadRow(id);
+  if (row.mediaKind === "PHOTO") throw new SocialVideoError("У фото-поста нет обложки — первым идёт первое фото", 409);
   if (row.status === "PUBLISHING") throw new SocialVideoError("Ролик сейчас публикуется — обложку менять поздно", 409);
   if (row.status === "DONE") throw new SocialVideoError("Ролик уже опубликован — обложку менять нельзя", 409);
   return row;
@@ -628,7 +740,8 @@ async function publishProblems(row: Row, dests: SocialVideoDestination[]): Promi
     checkedChannels.add(dest.channel);
     const liveInfo = live.find((l) => l.channel === dest.channel);
     if (liveInfo?.quota && liveInfo.quota.remaining === 0) problems.push(`${label}: ${liveInfo.problem ?? "суточный лимит публикаций исчерпан"}`);
-    const verdict = evaluateVideoForChannel(dest.channel, facts, row.caption, liveInfo?.runtime ?? {});
+    const verdict =
+      row.mediaKind === "PHOTO" ? photoVerdict(dest.channel, row.caption) : evaluateVideoForChannel(dest.channel, facts, row.caption, liveInfo?.runtime ?? {});
     for (const blocker of verdict.blockers) problems.push(`${label}: ${blocker}`);
   }
   return problems;
@@ -680,6 +793,9 @@ async function claimForPublishing(
       channels: channelsOfDestinations(dests),
       destinations: destinationsJson(dests),
       channelResults: resultsJson(results),
+      // Новый заход публикации — новая «бронь исполнителя» (см. claimRun): старая принадлежала прошлому заходу.
+      runClaimedAt: null,
+      runClaimedBy: null,
       ...(clearSchedule ? { scheduledAt: null } : {}),
     },
   });
@@ -688,7 +804,14 @@ async function claimForPublishing(
 
 export async function publishSocialVideo(
   id: string,
-  input: { mode: "NOW" | "SCHEDULE"; scheduledAt?: string; channels?: SocialVideoChannel[]; destinations?: SocialVideoDestination[] }
+  input: {
+    mode: "NOW" | "SCHEDULE";
+    scheduledAt?: string;
+    channels?: SocialVideoChannel[];
+    destinations?: SocialVideoDestination[];
+    /** Человек увидел, что время занято, и настоял на своём. */
+    acceptSlotConflict?: boolean;
+  }
 ): Promise<SocialVideoItem> {
   const row = await loadRow(id);
   if (!FIRST_PUBLISH_FROM.includes(row.status as SocialVideoStatus)) {
@@ -718,9 +841,36 @@ export async function publishSocialVideo(
       throw new SocialVideoError(`Время публикации — не раньше чем через ${SOCIAL_VIDEO_MIN_SCHEDULE_LEAD_MINUTES} мин`, 422);
     }
     if (at.getTime() > Date.now() + MAX_SCHEDULE_AHEAD_MS) throw new SocialVideoError("Дальше чем на год вперёд публикацию не планируем", 422);
-    const scheduled = await prisma.socialVideoPost.updateMany({
-      where: { id, deletedAt: null, status: { in: FIRST_PUBLISH_FROM } },
-      data: { status: "SCHEDULED", scheduledAt: at, channels: channelsOfDestinations(dests), destinations: destinationsJson(dests) },
+    // ВРЕМЯ — ТО, ЧТО ВЫБРАЛ ЧЕЛОВЕК (19.11.2026): молча не двигаем. Но шкала публикаций общая (ролики объектов,
+    // фото-посты, повторы, подборки): проверка и запись идут под её замком, иначе автоматический слот мог бы занять
+    // это же время между проверкой и записью. Занято (ближе промежутка) — отвечаем 409 с ближайшим свободным
+    // временем; человек вправе настоять (`acceptSlotConflict`) — тогда пишем его время как есть.
+    const rules = (await loadPublishScheduleRules()).rules;
+    const scheduled = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUBLISH_SLOT_LOCK_ID}::bigint)`;
+      if (rules.enabled && !input.acceptSlotConflict) {
+        const gapMs = rules.minGapMin * 60_000;
+        const occupied = await loadOccupiedPublishSlotsDetailed(tx, new Date(at.getTime() - gapMs), undefined, id, new Date(at.getTime() + SLOT_LOOKAHEAD_MS));
+        const collision = findSlotCollision(at, occupied, gapMs, { startMin: rules.windowStartMin, endMin: rules.windowEndMin });
+        if (collision) {
+          throw new SocialVideoError(
+            `В ${clockOf(collision.takenAt, at)} уже выходит ${OCCUPIED_SLOT_KIND_LABEL[collision.kind]}, ближайшее свободное время — ${clockOf(collision.suggestedAt, at)}. ` +
+              `Между публикациями держим ${rules.minGapMin} мин, чтобы они не уходили залпом.`,
+            409,
+            {
+              code: "SLOT_TAKEN",
+              takenAt: collision.takenAt.toISOString(),
+              takenKind: collision.kind,
+              suggestedAt: collision.suggestedAt.toISOString(),
+              minGapMin: rules.minGapMin,
+            }
+          );
+        }
+      }
+      return tx.socialVideoPost.updateMany({
+        where: { id, deletedAt: null, status: { in: FIRST_PUBLISH_FROM } },
+        data: { status: "SCHEDULED", scheduledAt: at, channels: channelsOfDestinations(dests), destinations: destinationsJson(dests) },
+      });
     });
     if (scheduled.count !== 1) throw new SocialVideoError("Ролик только что изменился — обновите страницу", 409);
     return getSocialVideo(id);
@@ -822,8 +972,33 @@ export async function deleteSocialVideo(id: string): Promise<void> {
     data: { deletedAt: new Date() },
   });
   if (deleted.count !== 1) throw new SocialVideoError("Ролик только что изменился — обновите страницу", 409);
+  if (row.mediaKind === "PHOTO") {
+    for (const p of row.imagePaths) await removeVideoFile(p);
+    return;
+  }
   await removeVideoFile(row.videoPath);
   await removeCoverFiles([row.coverPath, row.coverSquarePath]);
+}
+
+/**
+ * Удалить ЧЕРНОВИК, только если его никто не трогал после `unchangedSince` (Шабнам, 21.11.2026):
+ * одним условным запросом — всё ещё DRAFT, не удалён и updatedAt не позже отметки. Черновик, который
+ * поправили, поставили в расписание или опубликовали в «Роликах» CRM, не удаляется никогда. true — удалён.
+ */
+export async function deleteSocialVideoDraftIfUntouched(id: string, unchangedSince: Date): Promise<boolean> {
+  const row = await prisma.socialVideoPost.findUnique({ where: { id } });
+  if (!row) return false;
+  const deleted = await prisma.socialVideoPost.updateMany({
+    where: { id, deletedAt: null, status: "DRAFT", updatedAt: { lte: unchangedSince } },
+    data: { deletedAt: new Date() },
+  });
+  if (deleted.count !== 1) return false;
+  if (row.mediaKind === "PHOTO") for (const p of row.imagePaths) await removeVideoFile(p);
+  else {
+    await removeVideoFile(row.videoPath);
+    await removeCoverFiles([row.coverPath, row.coverSquarePath]);
+  }
+  return true;
 }
 
 // ───────────────────────────── исполнение (фон) ─────────────────────────────
@@ -941,9 +1116,52 @@ async function notifyCreator(
   } catch (err) {
     void logSystemError("api", `Свободный ролик ${id}: не удалось уведомить автора об итоге — ${describeError(err)}`, { dedupKey: "social-video-notify" });
   }
+  // Пост от Шабнам (21.11.2026): итог ещё и в личку Telegram того, кто нажал «Опубликовать», со ссылками.
+  try {
+    const links = keys.map((k) => results[k]?.url).filter((u): u is string => !!u);
+    await tellStaffSocialPostResult(id, [`${status === "DONE" ? "✅" : "⚠️"} ${payload.title}. ${payload.body}`, ...links].join("\n"));
+  } catch (err) {
+    void logSystemError("telegram", `Свободный ролик ${id}: итог в Telegram не ушёл — ${describeError(err)}`, { dedupKey: "social-video-notify-telegram" });
+  }
 }
 
 const inFlight = new Set<string>();
+
+/** Для диагностики (кто держал бронь): хост и pid. На решение о брошенной брони НЕ влияет — в Docker pid всегда 1, а хост меняется при каждом выкате. */
+export const PROCESS_IDENTITY = `${os.hostname()}:${process.pid}`;
+
+/** Аренда брони исполнителя: живой исполнитель продлевает её раз в минуту; не продлена дольше срока — исполнитель умер. */
+export const CLAIM_HEARTBEAT_MS = 60_000;
+export const CLAIM_LEASE_STALE_MS = 3 * 60_000;
+
+/** Бронь брошена: аренду не продлевали дольше срока (процесс упал, перезапущен, выкачен заново). */
+export function isClaimAbandoned(claimedAt: Date, now: number = Date.now()): boolean {
+  return claimedAt.getTime() < now - CLAIM_LEASE_STALE_MS;
+}
+
+/**
+ * БРОНЬ ИСПОЛНИТЕЛЯ В БАЗЕ — ПРОДЛЕВАЕМАЯ АРЕНДА (19.11.2026). Тик расписания уже переводит SCHEDULED → PUBLISHING
+ * одним условным обновлением (claimForPublishing), так что два тика не запустят ролик дважды. Но само ИСПОЛНЕНИЕ
+ * могли запустить двое: задание очереди приходит повторно, второй процесс — а у обоих адреса в QUEUED, и пост ушёл бы
+ * в соцсеть дважды. Исполнитель записывает `runClaimedAt` и, пока публикует, обновляет его раз в минуту
+ * (runSocialVideoPublish). Свежая аренда — исполняет другой, выходим. Аренда не продлена дольше 3 минут — исполнитель
+ * умер (падение и автоперезапуск, новый выкат): runner перезапускает зависшее задание, и оно доделывает адреса.
+ * Ни хост, ни pid не используются: в Docker pid всегда 1, а имя хоста меняется при каждом выкате. Замена брони условная
+ * (по прочитанному значению), поэтому двое «наследников» не возьмут её оба.
+ */
+async function claimRun(id: string): Promise<boolean> {
+  const row = await prisma.socialVideoPost.findFirst({
+    where: { id, deletedAt: null, status: "PUBLISHING" },
+    select: { runClaimedAt: true },
+  });
+  if (!row) return false;
+  if (row.runClaimedAt && !isClaimAbandoned(row.runClaimedAt)) return false;
+  const claimed = await prisma.socialVideoPost.updateMany({
+    where: { id, deletedAt: null, status: "PUBLISHING", runClaimedAt: row.runClaimedAt },
+    data: { runClaimedAt: new Date(), runClaimedBy: PROCESS_IDENTITY },
+  });
+  return claimed.count === 1;
+}
 
 /**
  * Исполнитель задания. Идемпотентен: берёт только адреса, где ещё ничего не вышло и нет
@@ -956,7 +1174,20 @@ export async function runSocialVideoPublish(id: string): Promise<void> {
   if (inFlight.has(id)) return;
   inFlight.add(id);
   try {
-    await doRun(id);
+    // inFlight — память одного процесса. Второй исполнитель (другой процесс, повторная доставка задания очередью,
+    // перезапуск) её не видит — поэтому исполнителя берём ещё и в базе, условным обновлением.
+    if (!(await claimRun(id))) return;
+    // Пока публикуем — продлеваем аренду; не получилось продлить один раз — не страшно, срок 3 минуты.
+    const heartbeat = setInterval(() => {
+      prisma.socialVideoPost
+        .updateMany({ where: { id, status: "PUBLISHING" }, data: { runClaimedAt: new Date() } })
+        .catch(() => undefined);
+    }, CLAIM_HEARTBEAT_MS);
+    try {
+      await doRun(id);
+    } finally {
+      clearInterval(heartbeat);
+    }
   } finally {
     inFlight.delete(id);
   }
@@ -1033,6 +1264,12 @@ async function doRunUnsafe(id: string): Promise<void> {
     else stillOk.push(d);
   }
   todo = stillOk;
+
+  if (row.mediaKind === "PHOTO") {
+    await runPhotoDestinations(row, todo);
+    await finalize(id);
+    return;
+  }
 
   // Токены и чаты явно выбранных аккаунтов — за публикатора решаем здесь (он их не ищет).
   const igTargets: Array<{ key: string; token: string }> = [];
@@ -1129,11 +1366,109 @@ async function doRunUnsafe(id: string): Promise<void> {
   await finalize(id);
 }
 
+/**
+ * Публикация ФОТО-ПОСТА (16.11.2026): по адресам по очереди, теми же публикаторами, что фото-посты
+ * объектов (lib/photoPosts.ts): Instagram — одно фото или карусель, Facebook — пост страницы с фото,
+ * Telegram — альбом. Исход каждого адреса пишется сразу, как у роликов, чтобы «Повторить» не задвоило.
+ */
+async function runPhotoDestinations(row: Pick<Row, "id" | "imagePaths" | "caption">, todo: SocialVideoDestination[]): Promise<void> {
+  const id = row.id;
+  const paths = row.imagePaths.map(publicToDisk);
+  const maybeUrls = row.imagePaths.map((p) => publicUploadUrl(p));
+  const urls = maybeUrls.every((u): u is string => u != null) ? (maybeUrls as string[]) : [];
+  for (const d of todo) {
+    const key = destinationKeyOf(d);
+    if (!isPhotoPostChannel(d.channel)) {
+      await recordFailed(id, key, `${CHANNEL_LABELS_FOR_PHOTO[d.channel]} не принимает фото-посты — только ролики`);
+      continue;
+    }
+    await patchChannel(id, key, (current) => ({
+      ...current,
+      state: "PUBLISHING",
+      error: null,
+      retriable: false,
+      attempts: current.attempts + 1,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    }));
+    let r: PhotoPostPublishResult;
+    try {
+      if (d.channel === "INSTAGRAM") {
+        const target = await resolveInstagramTarget(d.accountId);
+        if ("error" in target) r = { ok: false, error: target.error };
+        else if (urls.length === 0) r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
+        else {
+          // Чем и в какой аккаунт — одна дверь (22.11.2026, lib/instagramPublisher.ts).
+          const publisher = await resolveInstagramPublisher(target.token);
+          r = publisher.ok
+            ? (await publishViaInstagramPublisher(publisher, (igUserId, token) => publishInstagramCarousel(id, igUserId, token, urls, row.caption))).result
+            : { ok: false, error: `Не удалось определить аккаунт Instagram: ${publisher.error}` };
+        }
+      } else if (d.channel === "FACEBOOK") {
+        const creds = await loadCredentials();
+        if (!creds.pageToken || !creds.pageId) r = { ok: false, error: "Facebook не подключён в Настройках" };
+        else if (urls.length === 0) r = { ok: false, error: "Не настроен CRM_PUBLIC_URL — Meta неоткуда забрать фото" };
+        else r = await publishFacebookPhotoPost(creds.pageId, creds.pageToken, urls, row.caption);
+      } else {
+        let chatId: string | null = null;
+        if (d.accountId) {
+          const target = await resolveTelegramTarget(d.accountId);
+          if ("error" in target) r = { ok: false, error: target.error };
+          else chatId = target.chatId;
+        } else {
+          const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramChannelId: true } });
+          chatId = settings?.telegramChannelId?.trim() || null;
+          if (!chatId) r = { ok: false, error: "Канал Telegram не настроен" };
+        }
+        r = chatId ? await publishTelegramPhotoPost(chatId, paths, row.caption.slice(0, 1024)) : r!;
+      }
+    } catch (err) {
+      r = { ok: false, error: describeError(err) };
+    }
+    if (r.ok) {
+      // Telegram: номер ПЕРВОГО сообщения альбома (снятие уберёт подпись и первое фото; остальные — руками).
+      const tgFirst = r.secondaryId?.split(",")[0];
+      await recordPublished(id, {
+        channel: d.channel as PublishChannel,
+        destinationKey: key,
+        ok: true,
+        postId: r.mediaId ?? tgFirst,
+        // Facebook: номер поста страницы — и как запасной для снятия (сначала пробуется как видео).
+        secondaryPostId: d.channel === "FACEBOOK" ? r.mediaId : undefined,
+        permalink: r.permalink,
+      });
+    } else {
+      void logSystemError("meta", `Фото-пост ${id} в ${key} не вышел: ${scrub(r.error ?? "без объяснения")}`, { dedupKey: `social-photo-post:${d.channel}` });
+      await recordFailed(id, key, scrub(r.error ?? "Площадка отказала без объяснения"), Boolean(r.pending));
+    }
+  }
+}
+
 // ───────────────────────────── расписание ─────────────────────────────
 
 /** Раз в минуту: запускает ролики, чьё время пришло, и снимает оборванные публикации. */
+/** Снимает брошенные брони (аренда не продлена дольше срока): исполнитель умер. */
+export async function releaseAbandonedClaims(): Promise<number> {
+  const held = await prisma.socialVideoPost.findMany({
+    where: { status: "PUBLISHING", runClaimedAt: { not: null } },
+    select: { id: true, runClaimedAt: true, runClaimedBy: true },
+    take: 50,
+  });
+  let released = 0;
+  for (const row of held) {
+    if (!row.runClaimedAt || !isClaimAbandoned(row.runClaimedAt)) continue;
+    const r = await prisma.socialVideoPost.updateMany({
+      where: { id: row.id, status: "PUBLISHING", runClaimedAt: row.runClaimedAt },
+      data: { runClaimedAt: null, runClaimedBy: null },
+    });
+    released += r.count;
+  }
+  return released;
+}
+
 export async function runSocialVideoScheduleTick(now: Date = new Date()): Promise<{ started: number; recovered: number }> {
   let started = 0;
+  await releaseAbandonedClaims();
   const due = await prisma.socialVideoPost.findMany({
     where: { status: "SCHEDULED", deletedAt: null, scheduledAt: { lte: now } },
     include: WITH_CREATOR,

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
-import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE,
+import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE, SAY_ASKING_WORDS_RU,
   type CustomerAgentSayInput } from "../src/ai/customerAgentSay.js";
 import { summarizeCustomerAgentSayDay, reportCustomerAgentSayDay } from "../src/lib/customerAgentSayStats.js";
 import { customerAgentSayMode } from "../src/lib/customerAgentFeaturePolicy.js";
@@ -25,7 +25,7 @@ describe("say validator: positive examples", () => {
     "Понял, вас интересует эта квартира.",
     "Спасибо, что рассказали о своей ситуации.",
     "Извините, что вам пришлось ждать ответа.",
-    "Хорошо, давайте разберёмся вместе.",
+    "Давайте разберёмся вместе.",
     "Понимаю, выбор жилья для семьи важное дело.",
   ])("accepts %s", say => { expect(check(say)).toEqual({ ok: true, text: say }); });
   it.each([...CUSTOMER_AGENT_SAY_EXAMPLES.ru])("accepts the prompt example (ru): %s", say => { expect(check(say).ok).toBe(true); });
@@ -38,10 +38,14 @@ describe("say validator: positive examples", () => {
     expect(reason("Понял, вы смотрите квартиры в Шохмансуре.", { inputText: "Ищу светлую квартиру в Шохмансуре" })).toBe("ok");
   });
   it("lets a call word through only with a callback or handover receipt in the decision refs", () => {
-    expect(reason("Хорошо, мы вам позвоним.")).toBe("promise");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("ok");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "handover_requested" }] })).toBe("ok");
-    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "contact_saved" }] })).toBe("promise");
+    expect(reason("Мы вам позвоним.")).toBe("promise");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("ok");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "handover_requested" }] })).toBe("ok");
+    expect(reason("Мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "contact_saved" }] })).toBe("promise");
+  });
+  it("refuses an agreement word with its own reason (review #211, round 7): «Хорошо, …» reads as «да»", () => {
+    expect(reason("Хорошо, давайте разберёмся вместе.")).toBe("agree");
+    expect(reason("Хорошо, мы вам позвоним.", { selectedEvidence: [{ kind: "receipt", outcome: "callback_requested" }] })).toBe("agree");
   });
   it("lets a saved word through only with a saved-contact or job-application receipt", () => {
     expect(reason("Я записал ваши данные.")).toBe("promise");
@@ -110,7 +114,9 @@ describe("say validator: every refusal code, Russian", () => {
   it("echo: five words in a row from the customer's own message", () => {
     const inputText = "Мне нужна просторная светлая квартира возле парка";
     expect(reason("Понял: нужна просторная светлая квартира возле.", { inputText })).toBe("echo");
-    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("ok");
+    expect(reason("Понял: нужна квартира для семьи.", { inputText })).toBe("ok");
+    // Praise of a flat is a claim since review #211, even in the customer's own words («светлая и просторная» to «она светлая?»).
+    expect(reason("Понял: нужна просторная квартира для семьи.", { inputText })).toBe("fact_claim");
   });
   it("echo ignores content the customer only forwarded (document, crm note)", () => {
     const inputText = `Вот файл ${wrapUntrusted("document", "нужна просторная светлая квартира возле парка")}`;
@@ -194,14 +200,14 @@ describe("normalizeSayText", () => {
 
 describe("say validator for a decision", () => {
   const evidence = [{ ref: "e0", value: { kind: "receipt", outcome: "callback_requested" } }, { ref: "e1", value: { kind: "receipt", outcome: "contact_saved" } }];
-  const base = { say: "Хорошо, мы вам позвоним.", language: "ru" as const, surface: "dm" as const, inputText: "Перезвоните мне", evidence };
+  const base = { say: "Мы вам позвоним.", language: "ru" as const, surface: "dm" as const, inputText: "Перезвоните мне", evidence };
   it("takes receipts from the refs the decision selected, not from all evidence", () => {
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e0"] } }).ok).toBe(true);
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e1"] } })).toEqual({ ok: false, reason: "promise" });
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "propose", social: "none", ref: "e0" } }).ok).toBe(true);
   });
   it("reads earlier bot turns and the social act from the decision and the verified context", () => {
-    const verifiedContext = { turns: [{ role: "assistant" as const, text: "Хорошо, мы вам позвоним." }, { role: "user" as const, text: "ок" }] };
+    const verifiedContext = { turns: [{ role: "assistant" as const, text: "Мы вам позвоним." }, { role: "user" as const, text: "ок" }] };
     expect(validateCustomerAgentSayForDecision({ ...base, decision: { kind: "reply", social: "none", refs: ["e0"] }, verifiedContext })).toEqual({ ok: false, reason: "repeat" });
   });
 });
@@ -214,6 +220,15 @@ describe("model guidance", () => {
       expect(CUSTOMER_AGENT_SAY_EXAMPLES[language]).toHaveLength(3);
       for (const example of CUSTOMER_AGENT_SAY_EXAMPLES[language]) expect(CUSTOMER_AGENT_SAY_GUIDANCE).toContain(`"say":"${example}"`);
     }
+  });
+  it("names the words the validator reads as a question, and every one of them really is dropped as a question", () => {
+    // 13.11.2026: 11 phrases a day were dropped as «question» although the model was only told «no questions». The word list in the guidance must never drift from ASKING.
+    // The list is cut out of the guidance and compared EXACTLY (a substring check would pass «скажите» inside «подскажите»).
+    const listed = /без слов (.+?) — сервер отбрасывает/u.exec(CUSTOMER_AGENT_SAY_GUIDANCE)?.[1]?.split(", ");
+    expect(listed).toEqual(["как (и любых на «как»: какой", "какая", "каким)", ...SAY_ASKING_WORDS_RU, "не подскажете"]);
+    for (const word of [...SAY_ASKING_WORDS_RU, "как", "какой", "какая", "каким", "не подскажете"]) expect(reason(`Понял, ${word} это важно.`)).toBe("question");
+    expect(reason("Понял, как это важно для семьи.")).toBe("question");
+    expect(reason("Понял, какая квартира вам нужна.")).toBe("question");
   });
   it("does not touch the pinned system prompt: its hash cannot ride the ordinary revision advance if it changes", () => {
     expect(CUSTOMER_AGENT_SYSTEM).not.toContain("replyLanguage");
@@ -240,6 +255,15 @@ describe("mode and daily statistics", () => {
     expect(summarizeCustomerAgentSayDay([{ guard: "say_dropped_shadow", count: 99 }, { guard: "say_dropped_contact", count: 1 }]).alert).toBe(true);
     expect(summarizeCustomerAgentSayDay([]).alert).toBe(false);
   });
+  it("does not count a phrase switched off on purpose (Tajik in v1, non-private surfaces) as a drop or as a reason for the alert", () => {
+    const tajikOnly = summarizeCustomerAgentSayDay([{ guard: "say_dropped_language_disabled", count: 40 }, { guard: "say_used", count: 10 }, { guard: "say_dropped_surface_disabled", count: 5 }]);
+    expect(tajikOnly).toMatchObject({ total: 10, dropped: 0, share: 0, alert: false, intentional: 45, reasons: [] });
+    // The real day of 13.11.2026: 12 used, 58 dropped, of which 38 were the switched-off Tajik phrase. The honest rate is 18 of 30, and it still alerts.
+    const real = summarizeCustomerAgentSayDay([{ guard: "say_used", count: 12 }, { guard: "say_dropped_language_disabled", count: 38 }, { guard: "say_dropped_question", count: 11 },
+      { guard: "say_dropped_language", count: 3 }, { guard: "say_dropped_contact", count: 3 }, { guard: "say_dropped_cliche", count: 1 }]);
+    expect(real).toMatchObject({ total: 30, dropped: 18, share: 0.6, alert: true, intentional: 38 });
+    expect(real.reasons.map(item => item.reason)).not.toContain("language_disabled");
+  });
   it("writes one owner log line per day with the reasons, keyed by the day", async () => {
     vi.mocked(logSystemError).mockClear();
     guardRows.rows = [{ guard: "say_dropped_promise", count: 3 }, { guard: "say_used", count: 5 }, { guard: "say_dropped_contact", count: 1 }];
@@ -248,8 +272,25 @@ describe("mode and daily statistics", () => {
     const [source, message, context] = vi.mocked(logSystemError).mock.calls[0]!;
     expect(source).toBe("ai");
     expect(message).toContain("44%"); expect(message).toContain("promise 3"); expect(message).toContain("contact 1");
-    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24" });
+    // Prod log 13–16.11.2026: the day key alone kept the default 10-minute window, so a row every 10 minutes (47 in four days).
+    // The window must cover the day, and the quality line must not wake the director with a push every new day.
+    expect(context).toEqual({ dedupKey: "customer-agent-say:2026-10-24", dedupWindowMs: 24 * 60 * 60_000, silent: true });
     expect(String(message)).not.toMatch(/Понял|Спасибо/);
+  });
+  it("tells the owner how many phrases were switched off on purpose, beside (not inside) the percentage", async () => {
+    vi.mocked(logSystemError).mockClear();
+    guardRows.rows = [{ guard: "say_used", count: 2 }, { guard: "say_dropped_question", count: 3 }, { guard: "say_dropped_language_disabled", count: 38 }];
+    await reportCustomerAgentSayDay(new Date("2026-10-24T10:00:00Z"));
+    const [, message] = vi.mocked(logSystemError).mock.calls[0]!;
+    expect(message).toContain("60%"); expect(message).toContain("3 из 5"); expect(message).toContain("question 3");
+    expect(message).toContain("выключено намеренно"); expect(message).toContain(": 38");
+    expect(String(message)).not.toContain("language_disabled");
+  });
+  it("stays silent when only the switched-off Tajik phrase was dropped", async () => {
+    vi.mocked(logSystemError).mockClear();
+    guardRows.rows = [{ guard: "say_used", count: 9 }, { guard: "say_dropped_language_disabled", count: 60 }];
+    await reportCustomerAgentSayDay(new Date("2026-10-24T10:00:00Z"));
+    expect(logSystemError).not.toHaveBeenCalled();
   });
   it("stays silent when nothing needs the owner", async () => {
     vi.mocked(logSystemError).mockClear();

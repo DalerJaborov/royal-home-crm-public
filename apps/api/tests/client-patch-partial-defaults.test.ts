@@ -112,7 +112,8 @@ describe("PATCH клиента только с одним полем", () => {
     expect(history.some((h) => h.type === "STATUS_CHANGE")).toBe(false);
   });
 
-  it("явно присланный статус по-прежнему меняется", async () => {
+  // 17.11.2026: статус клиента вручную не меняется никем (владелец) — 400.
+  it("явно присланный статус отклоняется, статус прежний", async () => {
     const id = await createClient(directorToken, {
       fullName: "Смена статуса вручную",
       phone: `+99290${runId}3`,
@@ -124,9 +125,9 @@ describe("PATCH клиента только с одним полем", () => {
       .set("Authorization", `Bearer ${directorToken}`)
       .send({ status: "HOT" });
 
-    expect(patched.status).toBe(200);
+    expect(patched.status).toBe(400);
     const after = await prisma.client.findUniqueOrThrow({ where: { id } });
-    expect(after.status).toBe("HOT");
-    expect(after.statusSetManuallyAt).not.toBeNull();
+    expect(after.status).not.toBe("HOT");
+    expect(after.statusSetManuallyAt).toBeNull();
   });
 });

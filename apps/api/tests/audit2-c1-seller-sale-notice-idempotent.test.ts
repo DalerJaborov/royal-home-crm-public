@@ -21,6 +21,17 @@ vi.mock("../src/lib/sellerCardState.js", async (importOriginal) => ({
   recomputeSellerCardState: vi.fn(async () => ({ next: "KEEP", objectsInWork: 1 })),
 }));
 
+/**
+ * Выключатели «работа с продавцами» (14.11.2026) — подменяются ТОЛЬКО в этом файле:
+ * по умолчанию всё включено, как в базе, а выключение не трогает общую строку
+ * Settings, которую в тот же момент читают тесты других файлов.
+ */
+const switchesOff = vi.hoisted(() => new Set<string>());
+vi.mock("../src/lib/sellerSwitches.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sellerSwitches.js")>()),
+  sellerSwitchOn: async (key: string) => !switchesOff.has(key),
+}));
+
 import { prisma } from "../src/db.js";
 import { notifySellerSideOfSale } from "../src/lib/sellerSaleNotice.js";
 
@@ -107,5 +118,18 @@ describe("notifySellerSideOfSale: повтор не дублирует исто�
     await notifySellerSideOfSale(input());
     expect(await soldNotes()).toHaveLength(2);
     expect(sendPushToAgent).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("выключатель «сообщения после сделки» (14.11.2026)", () => {
+  it("выключен — пуша интейкеру нет, но продажа в хронологии продавца записана", async () => {
+    switchesOff.add("dealAfterCloseMessagesEnabled");
+    try {
+      await notifySellerSideOfSale(input());
+    } finally {
+      switchesOff.delete("dealAfterCloseMessagesEnabled");
+    }
+    expect(sendPushToAgent).not.toHaveBeenCalled();
+    expect(await soldNotes()).toHaveLength(1);
   });
 });

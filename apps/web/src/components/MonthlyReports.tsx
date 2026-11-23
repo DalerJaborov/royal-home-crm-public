@@ -19,6 +19,10 @@ interface MonthlyMetrics {
   commission: number | null;
   dealsCompleted: number;
   expenses: number | null;
+  /** Деньги отчёта живые (как в «Финансах»); это — снимок при закрытии месяца, справкой. */
+  profit?: number | null;
+  commissionAtClose?: number | null;
+  expensesAtClose?: number | null;
   agents: { agentId: string; fullName: string; leads: number; showings: number | null; deals: number; commission: number | null }[];
   sources: { source: string; count: number }[];
   propertiesAdded: number;
@@ -239,6 +243,19 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
             расходы за месяц
           </span>
         )}
+        {m.profit != null && (
+          <span>
+            <b>
+              <Rh2Money value={m.profit} cur="с." />
+            </b>
+            прибыль за месяц
+          </span>
+        )}
+        {m.expenses !== null && m.expensesAtClose != null && Math.abs(m.expenses - m.expensesAtClose) >= 0.01 && (
+          <span className="quiet">
+            расходы изменились после закрытия месяца: было <Rh2Money value={m.expensesAtClose} cur="с." />
+          </span>
+        )}
         <span>
           <b>{m.propertiesAdded}</b>объектов заведено
         </span>
@@ -267,7 +284,7 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
               <thead>
                 <tr>
                   <th scope="col">Агент</th>
-                  <th scope="col" className="num">Лиды</th>
+                  <th scope="col" className="num">Заявки</th>
                   <th scope="col" className="num">Показы</th>
                   <th scope="col" className="num">Сделки</th>
                   {seesMoney && <th scope="col" className="num">Комиссия</th>}
@@ -303,8 +320,8 @@ export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit
             />
             <p className="state">
               {seesMoney
-                ? "Полоса это комиссия за месяц. Лиды, показы и сделки видно на компьютере."
-                : "Полоса это закрытые сделки за месяц. Лиды и показы видно на компьютере."}
+                ? "Полоса это комиссия за месяц. Заявки, показы и сделки видно на компьютере."
+                : "Полоса это закрытые сделки за месяц. Заявки и показы видно на компьютере."}
             </p>
           </div>
         </>

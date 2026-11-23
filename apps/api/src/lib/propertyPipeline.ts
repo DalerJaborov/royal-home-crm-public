@@ -26,8 +26,8 @@ import {
 import { prisma } from "../db.js";
 import { sendPushToAgent, sendPushToAgents, closeLeadPushNotifications } from "../push.js";
 import { findAgentsWithPermission } from "./recipients.js";
-import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "./scoreJournal.js";
-import { logAudit, logSystemAudit } from "./audit.js";
+import { automationSwitchOn } from "./automationSwitches.js";
+import { logAgentAudit, logAudit, logSystemAudit } from "./audit.js";
 import { isInstagramLink } from "./instagramLink.js";
 import { syncPropertiesToSite } from "./siteSync.js";
 import { logSystemError } from "./systemError.js";
@@ -39,6 +39,17 @@ import { reportCronRowError } from "./cronHeartbeat.js";
 /** Предохранитель по частоте (владелец 15.09.2026) — повторный аларм по одному
  *  и тому же поводу не чаще раза в сутки, см. doc-comment у shouldAlert в notifications.ts. */
 const ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * С какого момента действует правило «один сигнал руководителю на каждую просрочку
+ * фото/видео, в том числе без ответственного агента» (16.11.2026, снятие штрафов).
+ * Просрочки, наступившие ДО этого момента, новым правилом не трогаются: при старом
+ * о них уже сказали (тогда отметкой был штраф), а по объектам без ответственного
+ * не говорили вовсе — и первый тик после выката иначе засыпал бы руководство
+ * пачкой давних просрочек разом. Момент выбран раньше любого возможного выката:
+ * просрочка, наступившая между ним и выкатом, получит ровно один сигнал.
+ */
+export const MATERIALS_ALERT_RULE_SINCE = new Date("2026-11-16T12:00:00Z");
 
 /** Запасные сроки в днях — ровно те, что стоят умолчаниями колонок в схеме. */
 const FALLBACK_DAYS: Partial<Record<PropertyStatus, number>> = {
@@ -97,21 +108,34 @@ export async function loadPipelineDeadlines(): Promise<PipelineDeadlines> {
  *  сервер считали по одному правилу. Реэкспорт: импорты по коду не трогаем. */
 export { MIN_PROPERTY_PHOTOS };
 
-export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
-  const blockers: string[] = [];
-  if (property.photoCount < MIN_PROPERTY_PHOTOS) {
-    blockers.push(`фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`);
-  }
-  // Пустое поле и заполненное «не тем» — РАЗНЫЕ сообщения, и это не придирка к
+/** Коды причин, по которым объект не выходит в продажу. Условия живут ТОЛЬКО здесь: тексты экрана
+ *  (`blockersForSale`) и советы помощнику (`saleBlockerAdvice`, lib/propertyCompleteEditing.ts)
+ *  строятся по этим кодам, а не повторяют проверки. */
+export type SaleBlockerCode = "PHOTOS_BELOW_MIN" | "NO_INSTAGRAM_LINK" | "LINK_NOT_INSTAGRAM";
+
+export function saleBlockerCodes(property: { instagramUrl: string | null; photoCount: number }): SaleBlockerCode[] {
+  const codes: SaleBlockerCode[] = [];
+  if (property.photoCount < MIN_PROPERTY_PHOTOS) codes.push("PHOTOS_BELOW_MIN");
+  // Пустое поле и заполненное «не тем» — РАЗНЫЕ причины, и это не придирка к
   // словам. Общее «нет ссылки» на карточке, где поле на глазах заполнено, уже
   // отправляло владельца заполнять заполненное (см. историю в lib/instagramLink.ts).
   const link = property.instagramUrl?.trim();
-  if (!link) {
-    blockers.push("нет ссылки на видео-обзор в Instagram");
-  } else if (!isInstagramLink(link)) {
-    blockers.push("в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram");
-  }
-  return blockers;
+  if (!link) codes.push("NO_INSTAGRAM_LINK");
+  else if (!isInstagramLink(link)) codes.push("LINK_NOT_INSTAGRAM");
+  return codes;
+}
+
+export function blockersForSale(property: { instagramUrl: string | null; photoCount: number }): string[] {
+  return saleBlockerCodes(property).map((code) => {
+    switch (code) {
+      case "PHOTOS_BELOW_MIN":
+        return `фото меньше минимума (${property.photoCount} из ${MIN_PROPERTY_PHOTOS})`;
+      case "NO_INSTAGRAM_LINK":
+        return "нет ссылки на видео-обзор в Instagram";
+      case "LINK_NOT_INSTAGRAM":
+        return "в поле видео-обзора ссылка не на Instagram — обзор должен быть опубликован в Instagram";
+    }
+  });
 }
 
 /** Состояния конвейера — множеством, чтобы проверка «объект ещё готовится» была
@@ -153,23 +177,21 @@ export function stageState(
 }
 
 /**
- * Просрочка этапов «Ожидает фото» / «Ожидает видео» — штраф Royal Score
- * (таблица владельца, п. 21-22) для ответственного за объект.
+ * Просрочка этапов конвейера объекта — сигнал руководству.
  *
- * ОДИН ШТРАФ НА ВЕСЬ ПРОСТОЙ, А НЕ ЗА КАЖДЫЙ ТИК. sourceId = id объекта: пока
- * объект не покидал этот этап, уникальность (kind, sourceId) в журнале не даст
- * записать событие повторно — тот же приём, что и в notifyOverdueTasks. Если
- * объект уйдёт с этапа и вернётся на него снова (возврат на доработку), второй
- * штраф уже не спишется — id объекта тот же. Компромисс в пользу простоты,
- * симметричный остальным «overdue»-джобам.
- *
- * PUSH — ТОЖЕ РОВНО ОДИН, А НЕ КАЖДЫЙ ЧАС. У Property нет своего поля-отметки
- * (в отличие от Interaction.noShowNotifiedAt) — заводить миграцию ради одного
- * булева поля дороже, чем спросить сам журнал: если событие уже записано, тик
- * не первый, и push отправлять незачем. Проверяем ДО recordScoreEvent (он
- * fire-and-forget и не гарантирует, что запись видна тут же), а не после.
+ * ШТРАФ СНЯТ 16.11.2026. До этого просрочка «Ожидает фото» / «Ожидает видео»
+ * ещё и списывала баллы Royal Score (photos_overdue / video_overdue), и строка
+ * штрафа была отметкой «о просрочке уже сказали». Автоматических штрафов больше
+ * нет (решение владельца), поэтому отметка — само уведомление: один сигнал на
+ * каждое попадание объекта на этап (с момента stageEnteredAt), а не раз в сутки
+ * и не на каждом часовом тике. Вернулся на доработку и снова просрочил — новый
+ * сигнал, раньше второго не было вовсе (id объекта в журнале тот же).
  */
-export async function notifyOverdueMaterials(now: Date = new Date()): Promise<number> {
+export async function notifyOverdueMaterials(
+  now: Date = new Date(),
+  /** Для тестов: момент начала нового правила (см. MATERIALS_ALERT_RULE_SINCE). */
+  ruleSince: Date = MATERIALS_ALERT_RULE_SINCE
+): Promise<number> {
   const [deadlines, properties, rawReviewRequired] = await Promise.all([
     loadPipelineDeadlines(),
     prisma.property.findMany({
@@ -206,14 +228,9 @@ export async function notifyOverdueMaterials(now: Date = new Date()): Promise<nu
     .map((p) => p.id);
   if (overdueIds.length === 0) return 0;
 
-  const alreadyScored = await prisma.royalScoreEvent.findMany({
-    where: { kind: { in: ["photos_overdue", "video_overdue"] }, sourceId: { in: overdueIds } },
-    select: { sourceId: true },
-  });
-  const alreadyScoredIds = new Set(alreadyScored.map((e) => e.sourceId));
-
-  const points = await loadEventPoints();
   let notified = 0;
+  // Выключатель «Объект долго на проверке» (19.11.2026) — один раз на тик, гасит только это уведомление.
+  const reviewAlertOn = await automationSwitchOn("notifyPropertyReviewOverdueEnabled");
 
   for (const property of properties) {
     // Сбой одной записи не обрывает остальные (E8 глубокой проверки 02.10.2026, класс №173).
@@ -228,6 +245,7 @@ export async function notifyOverdueMaterials(now: Date = new Date()): Promise<nu
        * одобрить (properties.moderate), через ту же очередь алармов руководству.
        */
       if (property.status === "PENDING_REVIEW") {
+        if (!reviewAlertOn) continue;
         // Рубильник «проверка исходников» (25.09.2026) меняет ДЕЙСТВИЕ, а не
         // видимость (07.10.2026): раньше при выключенной проверке здесь стоял
         // `continue`, и объект, застрявший на PENDING_REVIEW, висел вечно, не
@@ -260,8 +278,9 @@ export async function notifyOverdueMaterials(now: Date = new Date()): Promise<nu
         continue;
       }
 
-      const responsibleId = property.intakeAgentId ?? property.assignedAgentId ?? property.createdById;
-      if (!responsibleId) continue;
+      // Проверка «есть ли ответственный агент» стояла здесь ради штрафа (его
+      // некому было бы списать). Штрафа нет с 16.11.2026 — руководству о
+      // просрочке говорим и про объект без ответственного: там он нужнее всего.
 
       /**
        * МОНТАЖ — НЕ ЭТАП АГЕНТА, И ШТРАФА ЗА НЕГО НЕТ. Материалы он сдал, владелец
@@ -289,30 +308,20 @@ export async function notifyOverdueMaterials(now: Date = new Date()): Promise<nu
         continue;
       }
 
-      const kind: ScoreEventKind = property.status === "AWAITING_PHOTOS" ? "photos_overdue" : "video_overdue";
-      if (alreadyScoredIds.has(property.id)) continue;
+      // Просрочка наступила до нового правила — о ней уже сказали (или по старому
+      // правилу не говорили вовсе); залпа давних сигналов после выката не будет.
+      if (stageState(property.status, property.stageEnteredAt, deadlines, ruleSince).overdue) continue;
 
-      recordScoreEvent({
-        agentId: responsibleId,
-        kind,
-        delta: points[kind],
-        reason:
-          kind === "photos_overdue"
-            ? "Фотографии объекта не сданы в срок"
-            : "Видео объекта не сдано в срок",
-        sourceId: property.id,
-      });
-
-      // Часы алармов (владелец 07.09.2026): штраф выше уже начислен сразу
-      // (idempotent через royalScoreEvent, не ждёт часов алармов) — откладывается
-      // только пуш руководству о нём.
-      // Штраф идемпотентен через royalScoreEvent, а пуш — нет: при выключенном Royal Score
-      // событие не пишется, и без этой проверки очередь пополнялась бы на каждый тик.
+      const photos = property.status === "AWAITING_PHOTOS";
+      // Один сигнал на попадание на этап: окно shouldAlert — от stageEnteredAt до
+      // сейчас (см. шапку функции). Часы алармов соблюдает сама очередь
+      // enqueueDirectorAlert (владелец 07.09.2026).
       const materialsTag = `materials-overdue-${property.id}`;
-      if (await shouldAlert(materialsTag, ALERT_MIN_INTERVAL_MS, now)) {
+      const sinceStageMs = Math.max(0, now.getTime() - property.stageEnteredAt.getTime());
+      if (await shouldAlert(materialsTag, sinceStageMs, now)) {
         await enqueueDirectorAlert({
-          title: kind === "photos_overdue" ? "❗ Фото объекта просрочены" : "❗ Видео объекта просрочено",
-          body: `${property.title} — этап «${property.status === "AWAITING_PHOTOS" ? "Ожидает фото" : "Ожидает видео"}» превысил срок`,
+          title: photos ? "❗ Фото объекта просрочены" : "❗ Видео объекта просрочено",
+          body: `${property.title} — этап «${photos ? "Ожидает фото" : "Ожидает видео"}» превысил срок`,
           url: `/properties/${property.shortId}`,
           tag: materialsTag,
           recipientPermission: "clients.assign",
@@ -549,10 +558,6 @@ export async function revertToReviewAfterVideoUpload(property: {
   shortId: number;
   title: string;
   status: PropertyStatus;
-  videoRejectionCount: number;
-  intakeAgentId: string | null;
-  assignedAgentId: string | null;
-  createdById: string | null;
 }): Promise<void> {
   if (property.status !== "AWAITING_VIDEO") return;
   await prisma.property.update({
@@ -565,17 +570,8 @@ export async function revertToReviewAfterVideoUpload(property: {
       reviewRejectionVoiceTranscript: null,
     },
   });
-  const responsibleId = property.intakeAgentId ?? property.assignedAgentId ?? property.createdById;
-  if (responsibleId) {
-    const points = await loadEventPoints();
-    recordScoreEvent({
-      agentId: responsibleId,
-      kind: "property_rework_fixed",
-      delta: points.property_rework_fixed,
-      reason: "Новое видео загружено — объект возвращён на проверку",
-      sourceId: `reject-${property.id}-video-${property.videoRejectionCount}`,
-    });
-  }
+  // Баллы «объект исправлен после возврата» сняты 16.11.2026 вместе со штрафом
+  // за доработку (это был возврат 90% штрафа) — см. каталог Royal Score.
   await notifyPendingReview(property.id, property.shortId, property.title);
 }
 
@@ -640,10 +636,22 @@ async function notifyPublished(
  * транзакции менять статус — при автопути это та же транзакция, что и остальной
  * PATCH). Здесь — только сайд-эффекты публикации, которые нельзя завести дважды.
  */
+/** Автор «Готово» без HTTP-запроса: нажал сотрудник, но не на экране CRM (ИИ-помощник).
+ *  Аудит пишется от его имени, `meta` — источник (помощник, id действия). */
+export interface PublishAuditAuthor {
+  agentId: string;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+function isPublishAuditAuthor(req: Request | PublishAuditAuthor): req is PublishAuditAuthor {
+  return "agentId" in req;
+}
+
 export async function publishAfterEditingComplete(
   /** null — конвейер закрывает не HTTP-запрос, а фоновая публикация ролика от
-   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система». */
-  req: Request | null,
+   *  монтажёра (lib/videoHandoff.ts): аудит пишется от имени «Система».
+   *  PublishAuditAuthor — нажал сотрудник через помощника (lib/propertyCompleteEditing.ts). */
+  req: Request | PublishAuditAuthor | null,
   property: {
     id: string;
     shortId: number;
@@ -656,7 +664,13 @@ export async function publishAfterEditingComplete(
   // Пишем в историю СРАЗУ после смены статуса, а не после успешной публикации на
   // сайт: то, что объект вышел из конвейера, — случившийся в CRM факт независимо
   // от того, ответит ли внешний сайт.
-  if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
+  if (req && isPublishAuditAuthor(req)) {
+    logAgentAudit(req.agentId, "PROPERTY_EDITING_DONE", "Property", property.id, {
+      shortId: property.shortId,
+      title: property.title,
+      ...(req.meta ?? {}),
+    });
+  } else if (req) logAudit(req, "PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
   else logSystemAudit("PROPERTY_EDITING_DONE", "Property", property.id, { shortId: property.shortId, title: property.title });
 
   // Тот же факт «объект вышел из конвейера» — повод уведомить того, кто его завёл.

@@ -1,5 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MarketBuyerListingsResponse, MarketSegmentsQuery, MarketSegmentsResponse } from "@royal-home/shared";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  MARKET_BUYER_LISTINGS_MAX,
+  MARKET_BUYER_LISTINGS_MAX_OFFSET,
+  type MarketBuyerListingsResponse,
+  type MarketHistoryResponse,
+  type MarketOverpricedResponse,
+  type MarketSegmentsQuery,
+  type MarketSegmentsResponse,
+} from "@royal-home/shared";
 import { api } from "../lib/api";
 import type { MarketDynamicsData, MarketPropertyEstimate, OwnMarketMatchesData } from "../types";
 
@@ -55,14 +63,25 @@ export function useSetMatchStatus(propertyId: string) {
   });
 }
 
+/** Следующая страница «Показать ещё» или undefined, если показано всё (или дошли до предела глубины). */
+export function nextMarketBuyerOffset(last: MarketBuyerListingsResponse): number | undefined {
+  if (last.status !== "ok") return undefined;
+  const next = last.offset + last.listings.length;
+  return last.listings.length > 0 && next < last.total && next <= MARKET_BUYER_LISTINGS_MAX_OFFSET ? next : undefined;
+}
+
 /**
  * Объявления с площадок под запрос покупателя (GET /clients/:id/market-listings): отдельная секция
- * рядом с нашими объектами. Подбор и исключение «наших» считает сервер.
+ * рядом с нашими объектами. Подбор, порядок и исключение «наших» считает сервер; первая страница —
+ * лучшие десять, дальше — «Показать ещё» (offset).
  */
 export function useMarketBuyerListings(clientId: string | null | undefined, enabled = true) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["client-match", clientId, "market"],
-    queryFn: () => api<MarketBuyerListingsResponse>(`/clients/${clientId}/market-listings`),
+    queryFn: ({ pageParam }) =>
+      api<MarketBuyerListingsResponse>(`/clients/${clientId}/market-listings?limit=${MARKET_BUYER_LISTINGS_MAX}&offset=${pageParam}`),
+    initialPageParam: 0,
+    getNextPageParam: nextMarketBuyerOffset,
     enabled: !!clientId && enabled,
     staleTime: 5 * 60_000,
     retry: false,
@@ -77,6 +96,27 @@ export function useMarketSegments(filters: Partial<Omit<MarketSegmentsQuery, "ci
   return useQuery({
     queryKey: ["market-segments", query],
     queryFn: () => api<MarketSegmentsResponse>(`/market/segments${query ? `?${query}` : ""}`),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Ряд медиан цены за м² по району и комнатам объекта (GET /market/property/:id/history) — копится ночной записью. */
+export function useMarketHistory(propertyId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["market-history", propertyId],
+    queryFn: () => api<MarketHistoryResponse>(`/market/property/${propertyId}/history`),
+    enabled: !!propertyId,
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+}
+
+/** Наши объекты в продаже, которые просят дороже рынка (GET /market/overpriced): сравнение считает сервер. */
+export function useMarketOverpriced() {
+  return useQuery({
+    queryKey: ["market-overpriced"],
+    queryFn: () => api<MarketOverpricedResponse>("/market/overpriced"),
     staleTime: 5 * 60_000,
     retry: false,
   });

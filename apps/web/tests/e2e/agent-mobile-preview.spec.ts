@@ -33,7 +33,7 @@ for (const theme of ["light", "night"]) for (const width of [360, 430]) {
       await expect(duration).toBeVisible();
       await expect.poll(() => duration.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const pause = page.getByRole("button", { name: "Не принимать лиды", exact: true });
+      const pause = page.getByRole("button", { name: "Не принимать заявки", exact: true });
       await expect(pause).toBeVisible();
       const bounds = await pause.boundingBox();
       expect(bounds).not.toBeNull();

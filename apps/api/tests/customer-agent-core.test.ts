@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CUSTOMER_AGENT_ANSWER_GUIDANCE } from "../src/ai/customerAgentAnswer.js";
 import { customerAgentDecisionSchema, customerAgentToolCallSchema } from "@royal-home/shared";
 import { runCustomerAgentTurn, type CustomerAgentModelTurn, type CustomerCoreFrame, type CustomerCorePorts } from "../src/ai/customerAgentCore.js";
 import { createProviderOperation } from "../src/ai/providerContract.js";
@@ -104,7 +105,8 @@ describe("Perceived media stays in the common customer brain", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 1 });
     if (result.status !== "ready") throw Error("Expected media response");
-    expect(result.text).toContain("кухня"); expect(result.text).not.toContain("недоступно");
+    // 16.11.2026 (audit): the list of what is seen («кухня, окна») is not shown to the customer; a short thank-you is.
+    expect(result.text).toContain("Спасибо, фото получил."); expect(result.text).not.toContain("недоступно");
     expect(JSON.stringify(f.modelTurn.mock.calls[0][0].contents)).toContain("untrustedCustomerMedia");
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
@@ -294,7 +296,9 @@ describe("CustomerAgentCore private canonical public-read extension", () => {
   it.each(["commission", "rental", "payment", "negotiation"] as const)("%s is a useful actual-source answer without mutation or a phone request", async topic => {
     const knowledge = readCustomerAgentCompanyKnowledge();
     const f = fixture({ requestedFacts: [], tools: [{ name: "get_company_policy", description: "Read approved public company policy" }] });
-    const frame = { ...f.frame, revision: { ...f.frame.revision, knowledgeSourceHash: customerAgentCompanyKnowledgeHash(knowledge) } };
+    // 16.11.2026: the rental refusal answers only a customer who speaks about rent (audit: «Тобеи марказ намешавад» got it).
+    const frame = { ...f.frame, ...(topic === "rental" ? { inputText: "Вы сдаёте квартиры в аренду?" } : {}),
+      revision: { ...f.frame.revision, knowledgeSourceHash: customerAgentCompanyKnowledgeHash(knowledge) } };
     f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_company_policy", args: { topic }, id: "policy-1" }],
       modelParts: [{ functionCall: { name: "get_company_policy", args: { topic }, id: "policy-1" } }] })
       .mockResolvedValueOnce(final({ refs: ["e0"], question: topic === "commission" ? "role" : "none" }));
@@ -355,7 +359,7 @@ describe("CustomerAgentCore draft positive obligations", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result.status).toBe("ready");
     if (result.status !== "ready") throw new Error("Expected TG response");
-    expect(result.text).toContain("сомонӣ"); expect(result.text).toContain("чанд ҳуҷра");
+    expect(result.text).toContain("сомонӣ"); expect(result.text).toContain("Чанд ҳуҷра");
     expect(result.text.match(/[?？]/gu)).toHaveLength(1);
   });
   it("preserves original model parts/signature and matching call id in order", async () => {
@@ -384,7 +388,7 @@ describe("CustomerAgentCore draft positive obligations", () => {
       .mockResolvedValueOnce(final({ refs: ["e0"] }));
     f.executeAllowedTool.mockResolvedValue({ status: "observed", observation: { kind: "receipt", outcome: "callback_requested" } });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан." });
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял." });
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(1);
   });
 });
@@ -484,7 +488,9 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result.status).toBe("ready");
     const contents = f.modelTurn.mock.calls[0][0].contents;
-    expect(JSON.stringify(contents).match(/Сколько комнат вам нужно/gu)).toHaveLength(1);
+    // The answer guidance lists the approved question wordings (one of them is this one): the context itself carries it once.
+    const guidance = JSON.stringify(JSON.stringify(CUSTOMER_AGENT_ANSWER_GUIDANCE).slice(1, -1)).slice(1, -1); // inside a JSON part, inside JSON
+    expect(JSON.stringify(contents).replaceAll(guidance, "").match(/Сколько комнат вам нужно/gu)).toHaveLength(1);
     expect(contents.at(-1)).toEqual({ role: "user", parts: [{ text: "Две" }] });
     expect(f.frame.inputText).toBe("Две"); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
@@ -614,7 +620,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(readFacts("r1", ["price"])).mockResolvedValueOnce(readFacts("r2", ["address"])).mockResolvedValueOnce(callback);
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", rounds: 3, fallbackReason: "receipt_confirmation", fallbackCause: "round_limit",
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", rounds: 3, fallbackReason: "receipt_confirmation", fallbackCause: "round_limit",
       decision: { kind: "reply" } });
     expect(callsOf(f, "request_callback")).toBe(1);
     expect(f.modelTurn).toHaveBeenCalledTimes(3);
@@ -628,7 +634,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     f.modelTurn.mockResolvedValueOnce(callback);
     for (const step of script) f.modelTurn.mockResolvedValueOnce(step);
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackReason: "receipt_confirmation", fallbackCause: cause });
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackReason: "receipt_confirmation", fallbackCause: cause });
     expect(callsOf(f, "request_callback")).toBe(1);
   });
   it("returns only the final validated closed decision metadata when a surface decision is denied", async () => {
@@ -644,7 +650,7 @@ describe("A committed write never ends in silence, and the loop recovers from fi
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockRejectedValueOnce(new TypeError("provider failed"));
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", rounds: 1,
+    expect(result).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", rounds: 1,
       toolCalls: 1, fallbackReason: "receipt_confirmation", fallbackCause: "TypeError" });
     expect(callsOf(f, "request_callback")).toBe(1);
     expect(f.modelTurn).toHaveBeenCalledTimes(2);
@@ -679,13 +685,13 @@ describe("A committed write never ends in silence, and the loop recovers from fi
   it("write, then an over-long final: confirmed from the receipt (output_limit)", async () => {
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("x".repeat(2500)));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "output_limit" });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackCause: "output_limit" });
   });
   it("a correction round can never repeat the committed write", async () => {
     const f = withCallback(); committed(f);
     f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("oops"))
       .mockResolvedValueOnce(toolTurn([{ name: "request_callback", args: { topic: "ещё раз" }, id: "cb2" }]));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "repeated_effect_denied" });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Спасибо, заявку на звонок принял.", fallbackCause: "repeated_effect_denied" });
     expect(callsOf(f, "request_callback")).toBe(1);
   });
   it("an unsettled (unknown) write is never turned into a confirmation", async () => {
@@ -866,16 +872,29 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     await runCustomerAgentTurn(without.frame, without.ports);
     expect(modelText(without)).toContain('"replyLanguage":"ru"');
   });
-  it("sends the say rules to the model in the private-message context only, and not in the pinned system prompt", async () => {
+  it("sends the model-text rules in the private-message context only (since 16.11 the whole-answer rules), never in the pinned system prompt", async () => {
     const dm = fixture({ verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
     await runCustomerAgentTurn(dm.frame, dm.ports);
-    expect(modelText(dm)).toContain("sayGuidance");
+    expect(modelText(dm)).toContain("answerGuidance");
     const noContext = fixture();
     await runCustomerAgentTurn(noContext.frame, noContext.ports);
-    expect(modelText(noContext)).toContain("sayGuidance");
+    expect(modelText(noContext)).toContain("answerGuidance");
     const publicTurn = fixture({ surface: "public_comment", verifiedContext: { surface: "public_comment", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
     await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
+    expect(modelText(publicTurn)).not.toContain("answerGuidance");
     expect(modelText(publicTurn)).not.toContain("sayGuidance");
+  });
+  it("one-brain step 1: Russian and Tajik both get the whole-answer rules; the old say rules are no longer sent", async () => {
+    const dmContext = { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } as const;
+    const tajik = fixture({ language: "tg", verifiedContext: dmContext });
+    await runCustomerAgentTurn(tajik.frame, tajik.ports);
+    expect(modelText(tajik)).toContain('"replyLanguage":"tg"');
+    expect(modelText(tajik)).toContain("answerGuidance");
+    expect(modelText(tajik)).not.toContain("sayGuidance");
+    const russian = fixture({ language: "ru", verifiedContext: dmContext });
+    await runCustomerAgentTurn(russian.frame, russian.ports);
+    expect(modelText(russian)).toContain("answerGuidance");
+    expect(modelText(russian)).not.toContain("sayGuidance");
   });
   it("delivery sealing re-renders the identical text from the stored decision (the print matches)", async () => {
     const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
@@ -884,5 +903,25 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
       knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText });
     expect(again).toBe(result.text);
     expect(customerAgentDecisionSchema.parse(result.decision)).toMatchObject({ say: GOOD });
+  });
+});
+
+// Review #206 В4 (16.11.2026): the core and the delivery seal render with the same inputs. An ad-button text together with a
+// forwarded post used to give «what are you interested in» in the core and «which object» at the seal → render_changed → silence.
+describe("core text equals the sealed re-render when an attachment comes with the ad button", () => {
+  it.each([[{ kinds: ["share"] }], [undefined]] as const)("attachment %j", async attachmentInput => {
+    const { customerAgentVerifiedContextSchema: schema } = await import("@royal-home/shared");
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    const verifiedContext = schema.parse({ surface: "dm", revisionId: hash, turns: [], publicState: { language: "unknown", topic: "unknown", openQuestion: "none" } });
+    const f = fixture({ inputText: "Привет! Можно узнать об этом подробнее?", requestedFacts: [], verifiedContext,
+      ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    f.modelTurn.mockResolvedValue(final({ kind: "clarify", question: "property" }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    if (result.status !== "ready") return; // an attachment-only branch may hold; the point is no divergence when it answers
+    const sealed = renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, inputText: f.frame.inputText,
+      language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", knowledgeSourceHash: hash,
+      verifiedContext, ...(attachmentInput ? { attachmentInput: attachmentInput as never } : {}) });
+    expect(sealed).toBe(result.text);
+    if (!attachmentInput) expect(result.text).toContain("купить, продать недвижимость или работа у нас");
   });
 });

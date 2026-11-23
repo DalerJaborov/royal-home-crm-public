@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useScrollLock } from "../hooks/useScrollLock";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Delete, Phone } from "lucide-react";
-import { formatLocalDialNumber, isDialable, LOCAL_NUMBER_LENGTH, toLocalDialDigits } from "@royal-home/shared";
+import { FOREIGN_PHONE_CALL_ERROR, formatLocalDialNumber, isForeignPhone, isDialable, LOCAL_NUMBER_LENGTH, toLocalDialDigits } from "@royal-home/shared";
 import { useClients, useDialNumber } from "../hooks/useClients";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { LAST_DIAL_KEY } from "../lib/lastDial";
@@ -53,6 +54,8 @@ const KEYS: { digit: string; letters?: string }[] = [
 
 
 export function DialPadModal({ onClose }: { onClose: () => void }) {
+  // Окно на весь экран телефона: прокрутка только внутри, страница под ним стоит (класс «прокрутка проваливается», 21.11.2026).
+  useScrollLock();
   const [digits, setDigits] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Кнопка «Вставить номер» — видна только если в буфере обмена РЕАЛЬНО лежит
@@ -101,15 +104,22 @@ export function DialPadModal({ onClose }: { onClose: () => void }) {
   /** Служебный код (*43) и внутренний номер (1006) — тоже законный набор. */
   const isService = digits.startsWith("*") || digits.startsWith("#");
   const canCall = isDialable(digits);
+  /** Длиннее девяти цифр — номер другой страны (вставлен из WhatsApp/Instagram).
+   *  Станция его не наберёт: показываем как есть, без «+992», и объясняем (17.11.2026). */
+  const tooLong = !isService && digits.length > LOCAL_NUMBER_LENGTH;
+  const foreign = tooLong && isForeignPhone(digits);
 
-  const shown = useMemo(() => (isService ? digits : formatLocalDialNumber(digits)), [digits, isService]);
+  const shown = useMemo(
+    () => (isService || tooLong ? digits : formatLocalDialNumber(digits)),
+    [digits, isService, tooLong]
+  );
 
   /**
    * АВТООПРЕДЕЛЕНИЕ КОНТАКТА (README прототипа): от трёх набранных цифр ищем
    * клиента, чей номер начинается или кончается на набранное, — тем же
    * /clients?q=, которым ищет весь остальной интерфейс (сервер ищет и по
    * телефону). Показываем только клиентов с ЧИТАЕМЫМ номером: маскированный
-   * (+992•••••57) не подставить в поле, и совпадение по огрызку цифр из маски
+   * (+9929300••456) не подставить в поле, и совпадение по огрызку цифр из маски
    * было бы враньём. Маскирование решает сервер — здесь ничего не открывается.
    */
   const debouncedDigits = useDebouncedValue(digits, 300);
@@ -287,7 +297,7 @@ export function DialPadModal({ onClose }: { onClose: () => void }) {
             {digits ? (
               <div className="dp-line">
                 {/* Код страны — отдельной меткой: его нельзя стереть, он не «исчезает». */}
-                {!isService && <span className="dp-cc">+992</span>}
+                {!isService && !tooLong && <span className="dp-cc">+992</span>}
                 <span className={`dp-digits${shown.length > 12 ? " sm" : ""}`}>{shown}</span>
               </div>
             ) : (
@@ -341,6 +351,8 @@ export function DialPadModal({ onClose }: { onClose: () => void }) {
             {!isService && lookupFailed && digits.length === LOCAL_NUMBER_LENGTH && (
               <p className="dp-note">Не удалось проверить, есть ли клиент в базе</p>
             )}
+
+            {foreign && <p className="dp-note err">{FOREIGN_PHONE_CALL_ERROR}</p>}
 
             {error && <p className="dp-note err">{error}</p>}
           </div>

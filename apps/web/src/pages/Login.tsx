@@ -8,6 +8,8 @@ import { useUiPrefs } from "../store/uiPrefs";
 import { useBranding } from "../hooks/useBranding";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
 import { loginRetryAfterMs } from "../lib/loginRetry";
+import { RoyalSection } from "../components/look/clients/RoyalSection";
+import { RECORDS_SECTION, usePublicRoyalLook } from "../components/look/records/publicLook";
 import "./Login.css";
 import {
   guessDeviceName,
@@ -125,6 +127,11 @@ export function Login() {
   const requestInFlight = useRef(false);
 
   const branding = useBranding();
+  // «Новый вид» на входе — только по `?look=royal` или запомненному выбору сотрудника
+  // на этом устройстве (publicLook.ts); иначе экран прежний до пикселя.
+  const royal = usePublicRoyalLook();
+  // Главная кнопка: в новом виде — обычная синяя `.pill` (у «золотой» нет токена нового вида).
+  const go = royal ? "pill" : "pill gold";
   const setSession = useAuthStore((s) => s.setSession);
   const navigate = useNavigate();
 
@@ -272,7 +279,8 @@ export function Login() {
   const gerb = <Gerb logoUrl={logoUrl} name={name} />;
 
   return (
-    <Rh2Screen>
+    <RoyalSection name={royal ? RECORDS_SECTION : undefined}>
+    <Rh2Screen className={royal ? "ry-login" : undefined}>
       <div className="lgn">
         {step === "offer" ? (
           <form
@@ -283,14 +291,14 @@ export function Login() {
             }}
           >
             {gerb}
-            <h1>Входить по отпечатку / Face ID без кода?</h1>
+            <h1>Входить по отпечатку или лицу без кода?</h1>
             <p className="sub">Отпечаток и лицо остаются внутри устройства. В следующий раз войдёте одним касанием.</p>
 
             <div className="grav" aria-hidden />
 
             {offerError && <ErrorNote>{offerError}</ErrorNote>}
 
-            <button className="pill gold" type="submit" disabled={addPasskey.isPending}>
+            <button className={go} type="submit" disabled={addPasskey.isPending}>
               {addPasskey.isPending ? "Ждём устройство…" : "Включить"}
             </button>
             <p className="alt">
@@ -311,6 +319,7 @@ export function Login() {
             error={error}
             loading={loading}
             gerb={gerb}
+            goClass={go}
             onSubmit={handleVerifyTotp}
             onBack={() => {
               setTotpToken(null);
@@ -332,6 +341,7 @@ export function Login() {
             error={error}
             loading={loading}
             gerb={gerb}
+            goClass={go}
             onSubmit={handleVerifyCode}
             onBack={() => {
               setStep("phone");
@@ -371,7 +381,7 @@ export function Login() {
             {error && <ErrorNote>{error}</ErrorNote>}
             {phoneWaitSec > 0 && <p className="login-code-status" role="status" aria-live="off">Новый код можно запросить через {phoneWaitSec} с</p>}
 
-            <button className="pill gold" type="submit" disabled={loading || phoneWaitSec > 0}>
+            <button className={go} type="submit" disabled={loading || phoneWaitSec > 0}>
               {loading ? "Отправляем код…" : "Получить код"}
             </button>
             <div className="steps" aria-hidden>
@@ -381,7 +391,7 @@ export function Login() {
             {canPasskey && (
               <p className="alt">
                 <button className="lnk" type="button" onClick={() => void handlePasskeyLogin()} disabled={loading || passkeyBusy}>
-                  {passkeyBusy ? "Ждём устройство…" : "Войти по отпечатку / Face ID"}
+                  {passkeyBusy ? "Ждём устройство…" : "Войти по отпечатку или лицу"}
                 </button>
               </p>
             )}
@@ -390,6 +400,7 @@ export function Login() {
         )}
       </div>
     </Rh2Screen>
+    </RoyalSection>
   );
 }
 
@@ -441,6 +452,7 @@ function CodeStep({
   error,
   loading,
   gerb,
+  goClass,
   onSubmit,
   onBack,
 }: {
@@ -457,6 +469,7 @@ function CodeStep({
   error: string | null;
   loading: boolean;
   gerb: React.ReactNode;
+  goClass: string;
   onSubmit: (e: React.FormEvent) => void;
   onBack: () => void;
 }) {
@@ -496,7 +509,7 @@ function CodeStep({
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <button className="pill gold" type="submit" disabled={loading || code.length !== 6}>
+      <button className={goClass} type="submit" disabled={loading || code.length !== 6}>
         {loading ? "Проверяем…" : "Подтвердить"}
       </button>
       {!totp && onResend && (

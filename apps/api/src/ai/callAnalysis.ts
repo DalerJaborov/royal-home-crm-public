@@ -1,19 +1,18 @@
 import {
   CALL_OUTCOME_CHOICES,
-  INACTIVE_REASON_LABELS,
   MIN_ANALYZED_TRANSCRIPT_CHARS,
   confirmedClientIntents,
-  type InactiveReason,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { rememberCallShowingCandidate } from "../lib/buyerShowingCandidates.js";
 import { rememberSellerIntakeAppointment } from "../lib/sellerIntakeAppointments.js";
 import { wrapUntrusted } from "./untrustedContent.js";
 import { callAiText } from "./client.js";
-import { dushanbeDateTimeString, dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { applyAiCallOutcome } from "../lib/aiCallOutcome.js";
-import { deactivateClient, hasNewerContactSince } from "../lib/clientWorkStatus.js";
 import { hasNearbyShowing, scheduleShowing } from "../lib/scheduleShowing.js";
+import { findActiveShowing } from "../lib/showingBooking.js";
+import { askShowingAgreement } from "../lib/showingQuestionAsk.js";
 import { findMatchingPropertiesForClient } from "../routes/matching.js";
 import { sendPushToAgent } from "../push.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -21,7 +20,7 @@ import { logTimeline } from "../lib/timeline.js";
 import { describeError } from "../lib/describeError.js";
 import { checkAgentPhoneAsk } from "../lib/agentPhoneAskDetector.js";
 import { resolveCallPropertyId } from "../lib/propertyVoice/callProperty.js";
-import { raiseBuyerDesiredPropertyCount, raiseSellerDeclaredPropertyCount } from "../lib/declaredPropertyCount.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 
 /**
  * Разбор телефонного разговора: что получилось, что нет, о чём договорились.
@@ -49,42 +48,6 @@ const MIN_TRANSCRIPT_CHARS = MIN_ANALYZED_TRANSCRIPT_CHARS;
 const MAX_TRANSCRIPT_CHARS = 6000;
 
 /**
- * ИИ ПЕРЕВОДИТ КЛИЕНТА В НЕАКТИВНЫЕ (владелец 20.08.2026: «ИИ также имеет право
- * перевести в неактивный клиента, продавца, покупателя, если по разговорам это
- * ясно»). Подмножество INACTIVE_REASONS, а не весь список: STOPPED_RESPONDING и
- * OTHER здесь не годятся ПО СМЫСЛУ — это разбор состоявшегося разговора (есть
- * расшифровка), а «перестал отвечать» описывает ровно противоположное — молчание
- * в переписке. Оставшиеся шесть причин — то, что клиент мог сказать словами прямо
- * в этом звонке. deactivateClient (lib/clientWorkStatus.ts) всё равно проверит
- * gate/lead-limit сама — список здесь сужен по смыслу, а не ради обхода проверки.
- */
-const AI_INACTIVE_REASONS: readonly InactiveReason[] = [
-  "THINKING",
-  "NO_MONEY_YET",
-  "POSTPONED",
-  "NOT_READY_YET",
-  "ASKED_LATER",
-  "FAMILY_CIRCUMSTANCES",
-];
-
-/**
- * «НЕ ГОТОВ» ПОСЛЕ ДОГОВОРЁННОСТИ О ПОКАЗЕ — ЭТО ОШИБКА МОДЕЛИ, А НЕ ПАУЗА
- * (живой случай ПК-000475, 24.09.2026). Оператор поговорил с покупательницей:
- * квартира за 35 000 $ у фабрики «Гулдаст», «свяжем с агентом для показа,
- * пришлите WhatsApp». Модель заполнила inactiveReason=NOT_READY_YET, и клиентка,
- * готовая смотреть квартиру, ушла в Неактивные в ту же минуту.
- *
- * Два случая, когда пауза противоречит самому разговору, — и слово модели здесь
- * не принимается:
- *  1. исход — показ, встреча с продавцом или подборка, либо названо время показа:
- *     клиент продолжает, а не приостанавливает;
- *  2. это входящий звонок на приём (строка IncomingCall): говорил оператор
- *     первой линии, агента у лида ещё нет — решать «не готов» будет агент после
- *     своего разговора, а не разбор первого звонка в агентство.
- */
-const CONTINUING_OUTCOMES = new Set(["WAITING_SHOWING", "SELLER_MEETING", "WAITING_OPTIONS"]);
-
-/**
  * СИГНАЛ «УЖЕ ОБРАЩАЛСЯ» — ОДНА ЗАПИСЬ НА КЛИЕНТА, А НЕ НА КАЖДЫЙ РАЗГОВОР
  * (живой случай ПК-000381, 24.09.2026: одна и та же заметка легла в ленту ТРИ
  * РАЗА за четыре дня).
@@ -105,17 +68,6 @@ const PRIOR_CONTACT_NOTE =
   "Клиент упомянул в разговоре, что уже обращался к нам раньше — проверьте, нет ли дубликата " +
   "карточки (кнопка «Объединить с другой карточкой» на карточке клиента).";
 const PRIOR_CONTACT_DEDUP_DAYS = 14;
-
-async function inactiveReasonAllowed(
-  interactionId: string,
-  outcome: unknown,
-  showingAt: Date | null
-): Promise<boolean> {
-  if (typeof outcome === "string" && CONTINUING_OUTCOMES.has(outcome)) return false;
-  if (showingAt) return false;
-  const incoming = await prisma.incomingCall.findFirst({ where: { interactionId }, select: { id: true } });
-  return !incoming;
-}
 
 interface AnalysisExtract {
   score?: number;
@@ -142,17 +94,6 @@ interface AnalysisExtract {
   /** Клиент упомянул, что уже обращался к нам раньше (звонил/писал) — сигнал
    *  проверить дубликаты карточек (владелец 19.08.2026). */
   mentionsPriorContact?: boolean;
-  /** Сколько объектов на продажу упомянул продавец — владелец 06.09.2026, разбор
-   *  слепых зон п.3: «не агент решает сколько у клиента объектов — ИИ сам
-   *  понимает и вносит». Пусто/null — числа не называл. */
-  sellerPropertyCount?: number | null;
-  /** Симметрично выше, но покупатель — сколько объектов он хочет купить
-   *  (владелец 06.09.2026: «а если хочет купить несколько»). */
-  buyerPropertyCount?: number | null;
-  /** Работу с клиентом стоит приостановить — см. AI_INACTIVE_REASONS. Взаимоисключимо
-   *  с outcome: одно и то же решение, «активный» или «неактивный», форма никогда не
-   *  спрашивает оба сразу (см. summaryCompleteCallResultSchema). */
-  inactiveReason?: string | null;
 }
 
 const analysisSchema = {
@@ -216,23 +157,6 @@ const analysisSchema = {
         "WAITING_CALL — договорились созвониться позже, без подборки и показа; " +
         "NEGATIVE — клиент отказался, не интересно, передумал; " +
         "NO_ANSWER — разговора не было (не туда попали, сразу бросили трубку, тишина).",
-    },
-    /**
-     * КЛИЕНТ САМ СКАЗАЛ ПРИОСТАНОВИТЬ РАБОТУ (владелец 20.08.2026: «ИИ также имеет
-     * право перевести в неактивный клиента, продавца, покупателя, если по
-     * разговорам это ясно»). НЕ то же самое, что NEGATIVE у outcome — там клиент
-     * отказался совсем, здесь он не отказывается, а прямо просит паузу.
-     */
-    inactiveReason: {
-      type: "string",
-      enum: AI_INACTIVE_REASONS as unknown as string[],
-      description:
-        "Заполняй ТОЛЬКО если клиент прямо и недвусмысленно сказал приостановить работу с ним: " +
-        "THINKING — «подумаю»; NO_MONEY_YET — денег пока нет; POSTPONED — отложил покупку/продажу; " +
-        "NOT_READY_YET — сам не готов; ASKED_LATER — просит вернуться к разговору позже, к конкретному сроку; " +
-        "FAMILY_CIRCUMSTANCES — семейные обстоятельства. Обычный разговор, где просто нет мгновенного " +
-        "результата, — НЕ повод: используй outcome (например WAITING_CALL). Сомневаешься — оставь пусто, " +
-        "перевод в Неактивные снимает клиента с активной работы агента.",
     },
     /** Что дальше делать агенту — одной строкой, как задача. */
     nextAction: {
@@ -307,31 +231,6 @@ const analysisSchema = {
       type: "string",
       description: "Один конкретный совет агенту на будущее, обращаясь к нему на «вы». Пусто, если разговор хороший",
     },
-    /**
-     * СКОЛЬКО ОБЪЕКТОВ У ПРОДАВЦА (владелец 06.09.2026, разбор слепых зон п.3):
-     * «не агент решает сколько у клиента объектов на продажу — ИИ сам понимает
-     * это из разговора и вносит». Число заменяет прежнее целиком, а не
-     * складывается с ним — тот же приём, что у бюджета: если продавец
-     * поправился «на самом деле три», записывается три, а не два плюс три.
-     */
-    sellerPropertyCount: {
-      type: "number",
-      description:
-        "Если ПРОДАВЕЦ (не покупатель) назвал или перечислил, сколько у него объектов недвижимости на " +
-        "продажу — впиши число: «у меня однушка и двушка» → 2, «пара квартир» → 2, «три объекта, но один " +
-        "пока не готов» → 3. Читай СМЫСЛ, а не только цифры. Явного числа или перечисления нет — оставь пусто, " +
-        "не гадай. Разговор с покупателем — всегда пусто.",
-    },
-    /** Симметрично sellerPropertyCount выше, но для покупателя (владелец
-     *  06.09.2026: «а если хочет купить несколько»). */
-    buyerPropertyCount: {
-      type: "number",
-      description:
-        "Если ПОКУПАТЕЛЬ (не продавец) явно сказал, что хочет купить НЕСКОЛЬКО объектов — впиши число: " +
-        "«хочу квартиру себе и ещё одну сдавать» → 2, «ищу две квартиры под инвестицию» → 2. Обычный " +
-        "покупатель одной квартиры — всегда пусто, не пиши 1. Явного намерения купить несколько нет — оставь " +
-        "пусто, не гадай.",
-    },
   },
 };
 
@@ -392,9 +291,13 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
         createdAt: true,
         transcript: true,
         recordingDurationSec: true,
+        archiveReview: true,
       },
     });
     if (!interaction?.transcript) return { ok: false, reason: "нет расшифровки" };
+    // Разбор удалённого клиента из Корзины (lib/archiveReviewCall.ts) — не работа агента: без оценки
+    // разговора, меток «просил номер» и правок карточки. Запись и расшифровка остаются для РОПа.
+    if (interaction.archiveReview) return { ok: false, reason: "разбор удалённого клиента" };
     if (!interaction.agentId) return { ok: false, reason: "звонок без агента" };
     if (interaction.transcript.length < MIN_TRANSCRIPT_CHARS) {
       return { ok: false, reason: "разговор слишком короткий" };
@@ -570,102 +473,11 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
       }
     }
 
-    /**
-     * ЧИСЛО ОБЪЕКТОВ ПРОДАВЦА → НА КАРТОЧКУ (владелец 06.09.2026, разбор слепых
-     * зон п.3). Пишет только ИИ — агент может оспорить через отдельную заявку
-     * (routes/clients/propertyCountDisputes.ts), но не исправить поле напрямую.
-     *
-     * НЕ ЗАМЕНЯЕМ ЦЕЛИКОМ — БЕРЁМ БОЛЬШЕЕ (владелец 18.09.2026, живой случай
-     * Ахтам/Ноза): разбор звонка видит только ЭТОТ разговор, а он почти всегда
-     * про один объект; звонок про снижение цены одной квартиры тихо переписывал
-     * известные 4 объекта на 1. Почему и как — lib/declaredPropertyCount.ts.
-     */
-    if (typeof extract.sellerPropertyCount === "number" && Number.isFinite(extract.sellerPropertyCount)) {
-      const count = Math.max(0, Math.trunc(extract.sellerPropertyCount));
-      if (count > 0) await raiseSellerDeclaredPropertyCount(interaction.clientId, count);
-    }
-    /** Симметрично выше, но для покупателя (владелец 06.09.2026: «а если хочет
-     *  купить несколько»). Ещё без своего аларма/заявки на пересмотр — это
-     *  только сбор числа, сравнение с реально закрытыми сделками — пункт 4.
-     *  Та же правка «берём большее», по той же причине. */
-    if (typeof extract.buyerPropertyCount === "number" && Number.isFinite(extract.buyerPropertyCount)) {
-      const count = Math.max(0, Math.trunc(extract.buyerPropertyCount));
-      if (count > 0) await raiseBuyerDesiredPropertyCount(interaction.clientId, count);
-    }
-
     const showingAt = parseShowingAt(extract.showingAt, interaction.createdAt);
     // Тем же разбором, что и время показа: проверки («это вообще дата», «не
     // прошлое», «не через год») у договорённости о звонке ровно те же, а вторая
     // копия этих трёх условий разъехалась бы с первой при первой же правке.
     const callbackAt = parseShowingAt(extract.callbackAt, interaction.createdAt);
-
-    /**
-     * ИИ ПРИОСТАНАВЛИВАЕТ РАБОТУ С КЛИЕНТОМ (владелец 20.08.2026: «ИИ также имеет
-     * право перевести в неактивный клиента, продавца, покупателя, если по
-     * разговорам это ясно») — ПРОВЕРЯЕМ ДО applyAiCallOutcome и, если сработало,
-     * ВОЗВРАЩАЕМСЯ СРАЗУ: клиент либо остаётся в активной работе с договорённостью
-     * на потом, либо снимается со счётчика — не то и другое разом по одному
-     * разговору (та же взаимоисключимость, что у status ACTIVE/INACTIVE в
-     * summaryCompleteCallResultSchema). Переиспользуем deactivateClient
-     * (lib/clientWorkStatus.ts) — тот же путь, что и у человека из формы «Как
-     * прошёл звонок»: тот же гейт «след работы», тот же светофор, та же запись
-     * в хронологию. initiator="CLIENT" — причину назвал клиент своими словами
-     * прямо в этом разговоре, не агент и не руководитель её выбрал.
-     */
-    const claimedInactive = AI_INACTIVE_REASONS.includes(extract.inactiveReason as never)
-      ? (extract.inactiveReason as InactiveReason)
-      : null;
-    const inactiveReason = claimedInactive
-      ? await inactiveReasonAllowed(interactionId, extract.outcome, showingAt)
-        ? claimedInactive
-        : null
-      : null;
-    if (inactiveReason) {
-      /**
-       * РАЗБОР МОГ УСТАРЕТЬ (ПР-000381, 24.09.2026). Конвейер расшифровки
-       * асинхронный (минуты) — за это время клиент мог уже вернуться в работу
-       * сам, ответить на более поздний звонок или написать в мессенджер.
-       * Деактивировать по устаревшему разбору в этом случае — тихо перечеркнуть
-       * то, что уже произошло. См. hasNewerContactSince (lib/clientWorkStatus.ts).
-       */
-      const stale = await hasNewerContactSince(interaction.clientId, interaction.createdAt);
-      if (stale) {
-        await logTimeline({
-          clientId: interaction.clientId,
-          actor: { kind: "ai", source: "call-analysis", subjectAgentId: interaction.agentId },
-          type: "SYSTEM",
-          notes:
-            `Разбор звонка от ${dushanbeDateTimeString(interaction.createdAt)} предлагал перевести в ` +
-            `Неактивные (${INACTIVE_REASON_LABELS[inactiveReason]}), но с тех пор клиент снова на связи — ` +
-            `оставлен в работе.`,
-        }).catch(() => {});
-      } else {
-        const deactivated = await deactivateClient({
-          clientId: interaction.clientId,
-          evidenceAt: interaction.createdAt,
-          expectedAgentId: interaction.agentId,
-          // П-10: причину назвал ИИ по разбору звонка, а не сотрудник, что вёл
-          // разговор (interaction.agentId, если он вообще есть) — тот остаётся
-          // адресатом задачи через subjectAgentId.
-          actor: { kind: "ai", source: "call-analysis", subjectAgentId: interaction.agentId },
-          reason: inactiveReason,
-          initiator: "CLIENT",
-          actualNeeds: summaryText,
-          comment: "Причина и решение определены ИИ по разбору звонка — проверьте карточку, если что-то не так.",
-        });
-        if (deactivated.ok) {
-          await prisma.pendingSummary.updateMany({
-            where: { kind: "call_result", subjectId: interactionId, doneAt: null },
-            data: { doneAt: new Date() },
-          });
-          return { ok: true };
-        }
-      }
-      // Не деактивировали (разбор устарел — см. выше) либо гейт не пропустил
-      // (карточка не найдена — тот же клиент удалён параллельно, или что-то ещё
-      // редкое): не роняем разбор, просто ведём себя как обычно — заявленная
-      // причина проигнорирована, окно «Как прошёл звонок» остаётся агенту.
-    }
 
     /**
      * АВТОЗАПИСЬ ИСХОДА — БЕЗ ОКНА «КАК ПРОШЁЛ ЗВОНОК» (владелец 17-18.08.2026).
@@ -711,41 +523,35 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
     }
 
     /**
-     * ДОГОВОРИЛИСЬ О ПОКАЗЕ — ЗАВОДИМ ОКНО «НАЗНАЧЬТЕ ПОКАЗ».
+     * ДОГОВОРИЛИСЬ О ПОКАЗЕ — ПОСТАВИТЬ САМОМУ ИЛИ СПРОСИТЬ АГЕНТА (владелец 22.11.2026).
      *
-     * Владелец 10.08.2026: «по телефону сказали, что надо сегодня встретиться в 18:00,
-     * а показ автоматически не назначился — должно было открыться окно с выбором
-     * объекта и назначением показа». Именно окно, а не автоматическое назначение:
-     * объект в разговоре чаще всего не назван («пришлю пару вариантов, потом
-     * съездим»), и выбрать его может только агент. Дата и время подставляются из
-     * разговора, агент их правит, если модель расслышала неверно.
+     * История: 10.08 — окно «Назначьте показ»; 18.08 — автоназначение, «только когда
+     * однозначно» (строгий подбор дал РОВНО один объект); 13.09 — окна удалены, и
+     * неясная договорённость (объектов 0 или 2+, нет времени) терялась: оставалась
+     * тихая запись BuyerShowingCandidate, которая никого не будит.
      *
-     * subjectName несёт дату: PendingSummary своих полей под данные не имеет, а окну
-     * нужно показать «Показ 10.08 в 18:00» ещё до того, как агент выберет объект.
-     * Разбирается обратно на сервере при выдаче окна (routes/me.ts).
+     * Аудит 21.11: объект показа брался ИЗ ПОДБОРА, а не из разговора. Подбор «ровно
+     * один» — это «единственный подходящий в каталоге», а не «тот, о котором говорили»;
+     * доказанный объект разговора (resolveCallPropertyId: объект в записи звонка или
+     * объект, по которому пришёл клиент) уже считался выше, но для показа не брался.
+     *
+     * Теперь (решение владельца 22.11: «показы делать уведомлением с кнопками в Шабнам»):
+     *  1. время понятно И объект доказан (и ещё продаётся) — показ ставится сам, как раньше;
+     *  2. иначе — через минуту Шабнам спрашивает агента «Договорились о показе?» с
+     *     кнопками (lib/showingQuestions.ts, telegram/showingQuestionNotice.ts), страховка —
+     *     тот же вопрос в CRM. Объект из подбора — только кнопкой на выбор, не сам;
+     *  3. рубильник «Шабнам переспрашивает» выключен — прежнее поведение 18.08: показ сам,
+     *     если подбор дал ровно один объект.
+     * Продавцу показ не ставится и вопрос не задаётся (см. ниже).
      */
-    if (showingAt) {
+    const quote = typeof extract.showingAgreementQuote === "string" ? extract.showingAgreementQuote.trim() : "";
+    // Цитата без времени считается, только если она правда есть в расшифровке (тот же
+    // порог, что у rememberCallShowingCandidate): модель не должна выдумать договорённость.
+    const quoteProven = quote.length >= 10 && interaction.transcript.includes(quote);
+    if (showingAt || quoteProven) {
       /**
-       * СТРАХОВКА, А НЕ ВТОРОЙ ВОПРОС (владелец 12.08.2026: «и ИИ открывает окно
-       * „назначьте показ“, и это наше окно тоже — это же не логично?»).
-       *
-       * Агент выбирает объект прямо в окне итога звонка, и показ создаётся там же
-       * (routes/me.ts, completeCallResultSummary). Разбор приходит позже, и если он
-       * снова попросит назначить показ, человек ответит на один вопрос дважды.
-       * Поэтому окно заводится, ТОЛЬКО когда агент показ не назначил: либо он
-       * выбрал другой исход, либо ещё не заполнил итог, а модель встречу расслышала.
-       * Тогда это по-прежнему ценно — ловит то, что забыли.
-       */
-      /**
-       * ЗАЩИТА ОТ ДУБЛЕЙ ПРИ РУЧНОМ И АВТО-НАЗНАЧЕНИИ (аудит 02.09.2026, §7 S11/S17)
-       * живёт НИЖЕ, в nearbyExists перед scheduleShowing — она гасит только
-       * АВТОНАЗНАЧЕНИЕ показа. Раньше `client` целиком обнулялся здесь, если
-       * поблизости уже есть показ, — и вместе с автоназначением пропадало окно
-       * requireSummary(showing_book): агент вообще не видел, что разговор был,
-       * дубль сам себя чинил молча, а не так, как задумано (§7: "окно остаётся,
-       * просто не блокирует экран"). Найдено 03.09.2026 регрессионным тестом
-       * «дубль не создаётся» — showings.length оставался верным (1), а window
-       * (requireSummary) пропадал вместе с ним.
+       * ЗАЩИТА ОТ ДУБЛЕЙ ПРИ РУЧНОМ И АВТО-НАЗНАЧЕНИИ (аудит 02.09.2026, §7 S11/S17):
+       * показ на это время уже стоит (агент поставил руками) — ни ставить, ни спрашивать.
        */
       const client = await prisma.client.findFirst({
         where: { id: interaction.clientId, deletedAt: null },
@@ -762,64 +568,74 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
        * ветки на человека, который просто отдавал нам свою квартиру; за три часа
        * их набралось семь, и владелец сказал «достало».
        *
-       * Выдержки из той расшифровки: агент едет «посмотреть» квартиру продавца,
-       * а модель записала «показать 3-комнатную квартиру клиенту» — направление
-       * перепутано на самом входе, и одна ошибка потянула весь каскад.
-       *
        * Правильный путь продавца — исход «Объект принят в работу» и окно «Итог
        * объекта» через 36 часов (см. propertyAcceptedAt и requirePropertySummaries).
        */
-      if (client && (!confirmedClientIntents(client).buys || extract.outcome === "SELLER_MEETING")) {
-        console.log(
-          `[разбор] показ не предлагаем: клиент ${interaction.clientId} — продавец, встреча по объекту это приём, а не показ`
-        );
+      if (!client || !confirmedClientIntents(client).buys || extract.outcome === "SELLER_MEETING") {
+        if (client) console.log(`[разбор] показ не предлагаем: клиент ${interaction.clientId} — продавец, встреча по объекту это приём, а не показ`);
         return { ok: true };
       }
       // Newly eligible dual-intent sellers are collected privately above. Do not
       // broaden the legacy live autobooking/push path without activation approval.
-      if (client?.kind === "SELLER") return { ok: true };
-      if (client) {
-        /**
-         * ПОКАЗ НАЗНАЧАЕТСЯ САМ — НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026,
-         * после того как это же самое уже пробовали и дважды отменяли: 05.08 —
-         * потребовал вернуть именно окно вместо мягкого баннера; 17.08 — живой
-         * сбой на продавце, семь окон за три часа). Условие сузили нарочно:
-         *
-         *  • строгий подбор findMatchingPropertiesForClient — НЕ тот, что с
-         *    запасным вариантом «весь каталог» (см. usePropertyPickerOptions на
-         *    фронте): пусто или несколько подходящих объектов — не однозначно,
-         *    выбор остаётся агенту;
-         *  • hasNearbyShowing — не создаём второй показ на то же время, если
-         *    агент уже назначил его руками (ни этот дубль-щит, ни сам показ
-         *    раньше не проверялись друг на друга вовсе).
-         *
-         * Не подошло ни то, ни другое — окно «Назначьте показ» остаётся, как и
-         * было, просто больше не блокирует экран (см. PendingSummaryBanner.tsx).
-         */
-        const matched = await findMatchingPropertiesForClient(client.id, { take: 2 });
-        const nearbyExists = matched.length === 1 ? await hasNearbyShowing(client.id, showingAt) : false;
-        if (matched.length === 1 && !nearbyExists) {
-          const booked = await scheduleShowing({
-            clientId: client.id,
-            agentId: interaction.agentId,
-            propertyId: matched[0].propertyId,
-            showingAt,
-            note: `Показ назначен автоматически по разговору: ${matched[0].title}`,
-          });
-          if (booked.ok) {
-            void sendPushToAgent(interaction.agentId, {
-              title: "✅ Показ назначен автоматически",
-              body: `${client.fullName} — ${matched[0].title}, ${showingAt.toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}`,
-              tag: `showing-auto-${interactionId}`,
-            }).catch(() => {});
-            return { ok: true };
-          }
-          // Назначить не удалось (например, объект удалили в ту же секунду) —
-          // не молчим, а падаем в обычное окно ниже, как будто автопути не было.
+      if (client.kind === "SELLER") return { ok: true };
+      const alreadyBooked = showingAt
+        ? await hasNearbyShowing(client.id, showingAt)
+        : !!(await findActiveShowing({ clientId: client.id, now: new Date() }));
+      if (alreadyBooked) return { ok: true };
+
+      // Выключатель «ИИ сам назначает показ по разговору агента» (19.11.2026).
+      const autoBook = await automationSwitchOn("aiAgentShowingAutoBookEnabled");
+      const askAgent = await automationSwitchOn("showingAgreementAskEnabled");
+      // Доказанный объект годится, только пока его можно показать: проданный или
+      // удалённый объект — не «понятно», а повод спросить.
+      const provenProperty = callPropertyId
+        ? await prisma.property.findFirst({ where: { id: callPropertyId, deletedAt: null, status: "AVAILABLE" }, select: { id: true, title: true } })
+        : null;
+
+      const book = async (property: { id: string; title: string }) => {
+        const booked = await scheduleShowing({
+          clientId: client.id,
+          agentId: interaction.agentId!,
+          propertyId: property.id,
+          showingAt: showingAt!,
+          note: `Показ назначен автоматически по разговору: ${property.title}`,
+        });
+        if (booked.ok) {
+          void sendPushToAgent(interaction.agentId!, {
+            title: "✅ Показ назначен автоматически",
+            body: `${client.fullName} — ${property.title}, ${showingAt!.toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}`,
+            tag: `showing-auto-${interactionId}`,
+          }).catch(() => {});
         }
-        /* Окно «Назначить показ» здесь больше не заводится: механизм обязательных
-           окон удалён 13.09.2026. Договорённость остаётся в хронологии разговора,
-           а автоназначение показа выше работает как работало. */
+        // Назначить не удалось (например, объект удалили в ту же секунду) — не молчим,
+        // а идём дальше, как будто автопути не было.
+        return booked.ok;
+      };
+
+      if (autoBook && showingAt && provenProperty && (await book(provenProperty))) return { ok: true };
+
+      if (askAgent) {
+        await askShowingAgreement({
+          agentId: interaction.agentId,
+          clientId: client.id,
+          sourceType: "CALL",
+          sourceId: interactionId,
+          proposedAt: showingAt,
+          propertyId: provenProperty?.id ?? null,
+          quote: quoteProven ? quote : null,
+        });
+        return { ok: true };
+      }
+
+      /**
+       * ПРЕЖНЕЕ ПОВЕДЕНИЕ (рубильник «Шабнам переспрашивает» выключен): строгий подбор
+       * findMatchingPropertiesForClient — НЕ тот, что с запасным «весь каталог»; пусто
+       * или несколько подходящих — показ сам не ставится, договорённость остаётся в
+       * хронологии разговора.
+       */
+      if (autoBook && showingAt) {
+        const matched = await findMatchingPropertiesForClient(client.id, { take: 2 });
+        if (matched.length === 1) await book({ id: matched[0].propertyId, title: matched[0].title });
       }
     }
 

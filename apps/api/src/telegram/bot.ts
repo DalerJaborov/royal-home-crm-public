@@ -2,6 +2,7 @@ import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
+import { handleTransferReviewCallback } from "./transferReviewBot.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
@@ -14,7 +15,7 @@ import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
 import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
-import { batchWindowFor, debounceAndMerge } from "../messengers/debounceBuffer.js";
+import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
 import { deliverVoiceToConversation } from "../lib/conversationDelivery.js";
 import { synthesizeChatVoiceReply, pcmToWavBuffer } from "../ai/tts.js";
@@ -30,7 +31,7 @@ import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "./attach
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
 import type { ChatMessage, ImageInput, StoredAttachment } from "../ai/client.js";
-import { mergeDraft, runQualifyTurn } from "../ai/leadQualifier.js";
+import { mergeDraft, runLegacyQualifyTurn } from "../ai/legacyQualifyDoor.js";
 import { extractTypedPhone, extractVolunteeredPhone, normalizeDigits } from "../lib/shared/phoneText.js";
 import { lastClientLanguage } from "../ai/shortAgentReply.js";
 import { type LeadDraft } from "../ai/leadDraft.js";
@@ -44,6 +45,8 @@ import {
   lastClientWords,
   recentBotText,
   silentTurnReason,
+  intendedSilenceReply,
+  verifiedCoreReply,
 } from "../messengers/replyChain.js";
 import {
   FALLBACK_ACCEPT_ERROR,
@@ -111,6 +114,8 @@ import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProf
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { ingestGroupComment, isTelegramGroupCommentsEnabled } from "../messengers/telegramGroupComments.js";
 import { handleTelegramDirectMessage } from "../messengers/telegramDirectMessages.js";
+import { migrateSettingsTelegramChat } from "../lib/settingsTelegramChatMigration.js";
+import { groupMigrationEvent } from "./assistantGroupParticipation.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
 
 async function getConversation(chatId: string, username: string | undefined) {
@@ -182,6 +187,8 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   if (await handleModerationCallback(query)) return;
   // Проверка готового ролика (telegram/clipReviewBot.ts, 25.09.2026) — cr:*.
   if (await handleClipReviewCallback(query)) return;
+  // Передача РОП — решение директора (telegram/transferReviewBot.ts, 16.11.2026) — tr:*.
+  if (await handleTransferReviewCallback(query)) return;
   if (query.data === "call_agent") {
     // Диалог мог уже принять заявку (клиент нажал кнопку из старого сообщения
     // после того, как оформился заявкой текстом) — тогда просто подтверждаем,
@@ -278,7 +285,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
       return;
     }
     // Меню — telegram/montajerBot.ts; незнакомая (старая) кнопка — меню заново.
-    await runMontajerCommand(chatId, parseMontajerCallback(query.data) ?? { kind: "menu" });
+    await runMontajerCommand(chatId, parseMontajerCallback(query.data) ?? { kind: "menu" }, agent.id);
     return;
   }
   // «📋 Текст поста» (28.09.2026, lib/agentSharePost.ts) — подпись отдельным
@@ -394,6 +401,10 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
+    // Группа стала супергруппой (20.11.2026): адреса в Настройках (группа комментариев канала, чаты публикации)
+    // переезжают на новый id ПЕРВЫМИ — ниже служебное сообщение забирает помощница (свою регистрацию она
+    // переносит сама и возвращает true), и до ветки группы комментариев оно не доходит.
+    await moveSettingsChatOnMigrationEvent(msg);
     await captureAssistantTelegramContext(msg, update.update_id);
     // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
     if (await handleAssistantGroupMessage(msg, update.update_id)) {
@@ -421,6 +432,26 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
     return;
   }
   return handleClientMessages([msg]);
+}
+
+/**
+ * Служебное сообщение «группа стала супергруппой» из чата, записанного в Настройках. Только адреса Настроек —
+ * дверью migrateSettingsTelegramChat (узко, со сравнением «значение всё ещё старое»); в чат ничего не пишем.
+ * Сбой записи не роняет разбор апдейта: адрес дотянет почасовой сторож (settingsTelegramChatWatchdog.ts).
+ */
+async function moveSettingsChatOnMigrationEvent(msg: TelegramIncomingMessage): Promise<void> {
+  const migration = groupMigrationEvent(msg.chat.id, msg.migrate_to_chat_id, msg.migrate_from_chat_id);
+  if (!migration) return;
+  try {
+    const outcome = await migrateSettingsTelegramChat(migration.oldChatId, migration.newChatId);
+    if (outcome.kind === "done" && outcome.moved.length > 0) {
+      console.log(`[settings-telegram-chat] группа стала супергруппой, адрес в Настройках заменён: ${outcome.moved.join(", ")}`);
+    }
+  } catch (err) {
+    await logSystemError("telegram", `Группа Telegram стала супергруппой, но адрес в Настройках заменить не удалось: ${describeError(err)}. Сторож повторит в течение часа.`, {
+      dedupKey: "settings-telegram-chat-migration-failed",
+    });
+  }
 }
 
 /** Сообщение из ЛЮБОЙ группы/супергруппы — не только настроенной группы-обсуждения:
@@ -580,7 +611,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     return true;
   }
   if (!ownText && msg.text) return true;
-  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""));
+  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""), agent.id);
   return true;
 }
 
@@ -695,7 +726,7 @@ export async function finishTelegramQualifyTurn(params: {
   draft: LeadDraft;
   history: ChatMessage[];
   text: string;
-  turn: NonNullable<Awaited<ReturnType<typeof runQualifyTurn>>>;
+  turn: NonNullable<Awaited<ReturnType<typeof runLegacyQualifyTurn>>>;
   capabilities: Awaited<ReturnType<typeof loadBotCapabilities>>;
   /** Клиент в ЭТОМ ходе прислал голосовое — условие для голосового ответа
    *  (см. докстринг у синтеза ниже). Повтор из jobs/telegramReplyRetry.ts
@@ -856,7 +887,9 @@ export async function finishTelegramQualifyTurn(params: {
   // Ответ съели фильтры — не молчим (аудит 10.10.2026, P0-1): повторить ход модели
   // здесь нечем (окончание хода общее с фоновым повтором), поэтому сразу короткая
   // нейтральная реплика; щит исходящих спрашиваем заранее.
-  const filtered = await finalizeBotReply({
+  const filtered = turn.silent ? intendedSilenceReply()
+    : turn.verified ? await verifiedCoreReply(turn.reply.join(" "), (bubbles) => repeatBlockedTexts("TELEGRAM", chatId, bubbles))
+    : await finalizeBotReply({
     reply: turn.reply,
     conversationId: conversation.id,
     channelLabel: "TELEGRAM",
@@ -1854,7 +1887,8 @@ async function replyAfterWindow(p: {
       p.conversationId,
       p.text,
       { voice: p.voice, media: p.hasMedia, messageId: p.messageId },
-      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia })
+      batchWindowFor({ accepted: !!p.registeredClientId, hasMedia: p.hasMedia,
+        mergeQuickRepeats: !!p.registeredClientId && (await quickRepeatMergeEnabled()) })
     );
     if (!batch) return; // клиент дописал — ответит более свежий вызов, за всю пачку
     const images = drainBatchImages(p.conversationId);
@@ -2000,13 +2034,13 @@ async function replyToBatch(p: {
   // заводить колонку ради потока, которого там почти нет.
   // showcase не передаётся тоже: отправка фотографий в чат есть только в каналах Meta
   // (см. messengers/propertyShowcase.ts), и промт по умолчанию считает, что показа нет.
-  const result = await runQualifyTurn(promptHistory, draft, {
+  const result = await runLegacyQualifyTurn(promptHistory, draft, {
     images: p.images,
     abilities,
     conversationId: conversation.id,
     contactProfile: await contactProfileForPrompt(conversation.contactProfileId, draft),
     phoneKnown: clientPhoneKnown,
-  });
+  }, { channel: "TELEGRAM" });
 
   if (!result) {
     /**

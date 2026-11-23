@@ -3,7 +3,8 @@ import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { z } from "zod";
 import { clientPropertyActivityQuerySchema, type ClientActivityProperty, type ClientPropertyActivity } from "@royal-home/shared";
-import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { can, requireAuth } from "../../auth/middleware.js";
+import { resolveClientCardAccess } from "../../lib/clientCardAccess.js";
 import { prisma } from "../../db.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
 import { assignmentWriteDenied } from "../../lib/assignmentCompletion.js";
@@ -34,12 +35,14 @@ propertyActivityRouter.get("/:id/property-activity", requireAuth, async (req, re
   const client = await prisma.client.findUnique({ where: { id: id.data },
     select: { assignedAgentId: true, lastAgentId: true, acceptedAt: true, deletedAt: true, assignmentCompletedAt: true } });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
-  const ownAgentId = scopeToOwnAgent(req);
-  if (!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId) {
-    const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });
-    if (!hasDeal) return res.status(403).json({ error: "Недостаточно прав" });
+  // Та же дверь, что у карточки (lib/clientCardAccess.ts, аудит 17.11.2026 S1):
+  // бывшему агенту — пустой список, а не история показов и отправок.
+  const access = await resolveClientCardAccess(req, { ...client, id: id.data });
+  if (access === "denied") return res.status(403).json({ error: "Недостаточно прав" });
+  if (access === "nameOnly") return res.status(403).json({ error: "Сначала примите заявку" });
+  if (access === "transferred") {
+    return res.json({ items: [], total: 0, page: query.data.page, pageSize } satisfies ClientPropertyActivity);
   }
-  if (ownAgentId === client.assignedAgentId && !client.acceptedAt) return res.status(403).json({ error: "Сначала примите лид" });
   const { section, page } = query.data;
   const skip = (page - 1) * pageSize;
   const seesPhone = can(req, "clients.viewPhone");

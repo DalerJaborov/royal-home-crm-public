@@ -28,7 +28,6 @@ interface RoyalScoreView {
   companyRank: number;
   totalCompanyAgents: number;
   activeClients: number;
-  freeSlots: number | null;
   history: { date: string; score: number }[];
   /** Динамика счёта; null у периода — истории ещё не набралось. */
   dynamics: { day: number | null; week: number | null; month: number | null };
@@ -49,7 +48,7 @@ interface RoyalScoreView {
  *  истины по числам). */
 const CATEGORY_LABELS: { key: string; label: string; weightPercent: number }[] = [
   { key: "sales", label: "Продажи", weightPercent: 40 },
-  { key: "speed", label: "Скорость обработки лидов", weightPercent: 20 },
+  { key: "speed", label: "Скорость обработки заявок", weightPercent: 20 },
   { key: "crm", label: "Работа с CRM", weightPercent: 15 },
   { key: "properties", label: "Работа с объектами", weightPercent: 10 },
   { key: "tasks", label: "Выполнение задач", weightPercent: 10 },
@@ -103,7 +102,7 @@ export function RoyalScoreCard() {
       <div className="sec-h stack">
         <h2>Мой Royal Score</h2>
         <span className="note">
-          в компании {data.companyRank} из {data.totalCompanyAgents}, среди активных {data.rank} из {data.totalAgents}
+          рейтинг агента по работе с клиентами: в компании {data.companyRank} из {data.totalCompanyAgents}, среди активных {data.rank} из {data.totalAgents}
         </span>
       </div>
 
@@ -136,13 +135,6 @@ export function RoyalScoreCard() {
         <div className="tile">
           <span className="hd">Клиентов в работе</span>
           <b>{data.activeClients}</b>
-          <small>
-            {data.freeSlots === null
-              ? "лимит не задан"
-              : data.freeSlots === 0
-                ? "мест нет, новые лиды не придут"
-                : `свободно мест: ${data.freeSlots}`}
-          </small>
         </div>
         <div className="tile">
           <span className="hd">Динамика</span>

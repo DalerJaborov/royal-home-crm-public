@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { CleanPropertyItem } from "./clean/CleanPropertyItem";
+import { RoyalPropertyItem } from "./look/objects/RoyalPropertyItem";
 import { Link } from "react-router-dom";
 import { formatMoney, formatPricePerSqm, STAGE_OWNER_LABELS } from "../lib/format";
 import { formatPropertyCode } from "../lib/clientFormat";
@@ -17,6 +18,7 @@ function rowFloors(p: { type: string; floor?: number | null; totalFloors?: numbe
   return f.label === "Этаж" ? `, ${f.value} этаж` : `, ${f.value}`;
 }
 import type { Property } from "../types";
+import { PropertyPhoto } from "./property/PropertyPhoto";
 
 /**
  * ЧИПЫ СОСТОЯНИЯ МОНТАЖА (25.09.2026, задание D, владелец: «в списке объектов
@@ -102,6 +104,7 @@ export function PropertyRow({
   hideHandoffBrief,
   clean = false,
   cleanVariant = "row",
+  royal = false,
 }: {
   property: Property;
   /** Текущий сотрудник — чтобы показать чип «Передан вам», когда объект передан
@@ -127,11 +130,14 @@ export function PropertyRow({
   band?: ReactNode;
   clean?: boolean;
   cleanVariant?: "row" | "card";
+  /** «Новый вид» (облик royal): те же данные и действия в раскладке макета. Передаёт только каталог. */
+  royal?: boolean;
 }) {
   const agent = ownerAgent(p);
   const stage = p.pipeline;
   if (clean) {
-    return <CleanPropertyItem property={p} health={health} variant={cleanVariant} selected={selected} onToggleSelect={onToggleSelect} onTogglePublish={onTogglePublish} agentName={agent?.fullName} agentTitle={ownerAgentTitle(p)} floors={rowFloors(p)} awaitingAcceptance={!!p.handoverPendingSince && !!myId && p.intakeAgent?.id === myId} handoff={hideHandoffBrief ? [] : videoHandoffBriefChips(p)} subline={subline} band={band} />;
+    const Item = royal ? RoyalPropertyItem : CleanPropertyItem;
+    return <Item property={p} health={health} variant={cleanVariant} selected={selected} onToggleSelect={onToggleSelect} onTogglePublish={onTogglePublish} agentName={agent?.fullName} agentTitle={ownerAgentTitle(p)} floors={rowFloors(p)} awaitingAcceptance={!!p.handoverPendingSince && !!myId && p.intakeAgent?.id === myId} handoff={hideHandoffBrief ? [] : videoHandoffBriefChips(p)} subline={subline} band={band} />;
   }
   return (
     <>
@@ -154,7 +160,7 @@ export function PropertyRow({
           Есть снимок — он и стоит в рамке (эталон допускает `.ph img`). */}
       <span className="ph">
         {p.photos[0] ? (
-          <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" />
+          <PropertyPhoto fill compact sources={[p.photos[0].thumbUrl, p.photos[0].url]} />
         ) : (
           <svg className="i" viewBox="0 0 24 24">
             <path d="M3 11 12 3l9 8v10H3z" />

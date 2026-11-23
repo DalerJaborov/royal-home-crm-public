@@ -12,6 +12,7 @@ import { loadCustomerTransportForConversation, resolveCustomerEndpoint, type Cus
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
+import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
 
 /** Local relation witness, NOT customer identity or a private ACL. By-ID callers
  * already select an authorized native resource; public ASIDs must not mint it. */
@@ -278,6 +279,8 @@ export async function noticeOwnerOfConversationInterest(input: {
     const client = conv.client && !conv.client.deletedAt ? conv.client : null;
     if (client?.assignedAgentId === ownerId) return; // клиент уже у хозяина объекта
     if (!client?.assignedAgentId && conv.propertyChatAgentId === ownerId) return; // агент уже отвечает, новые сообщения уведомляются отдельно
+    // Режим «только заявки»: пока клиент не оставил номер (карточки нет), «по вашему объекту пишут» не шлём (13.11.2026).
+    if (!client && await leadOnlyQuietBeforeLead(conv.channel)) return;
 
     const owner = await prisma.agent.findUnique({ where: { id: ownerId }, select: { isActive: true, role: true } });
     const ownerActive = !!owner?.isActive;
@@ -368,7 +371,7 @@ async function pullQueueLeadToOwner(
 ): Promise<boolean> {
   if (client.acceptedAt || (client.assignReason && client.assignReason !== "queue")) return false;
   const now = new Date();
-  const reason = `Клиент из очереди пишет по объекту №${property.shortId} — лид передан хозяину объекта до принятия`;
+  const reason = `Клиент из очереди пишет по объекту №${property.shortId} — заявка передана хозяину объекта до принятия`;
   const committed = await prisma.$transaction(async tx => {
     if (witness.clientId !== client.id) return null;
     const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Client" WHERE "id"=${client.id} AND "deletedAt" IS NULL FOR UPDATE`;
@@ -412,11 +415,11 @@ async function pullQueueLeadToOwner(
     await closeOwnershipSatellites({ clientId: client.id, clientShortId: client.shortId, fromAgentId: client.assignedAgentId,
       toAgentId: ownerId, reason: `[objectInterest.pull] ${reason}`, queueReturnFromAgentId: client.assignedAgentId ? null : committed.lastAgentId });
   } catch (error) {
-    void logSystemError("api", `Лид по объекту передан, но последующие обновления не завершены: ${describeError(error)}`, { dedupKey: "property-interest-pull-satellites" });
+    void logSystemError("api", `Заявка по объекту передана, но последующие обновления не завершены: ${describeError(error)}`, { dedupKey: "property-interest-pull-satellites" });
   }
   if (!await ownerNoticeCurrent(property.id, ownerId, true, committed.witness)) return true; // local transfer succeeded; do not undo/replay it for a notification race
   sendLeadPush(ownerId, client.id, {
-    title: "🔔 Новый лид по вашему объекту",
+    title: "🔔 Новая заявка по вашему объекту",
     body: `Клиент пишет по объекту №${property.shortId}, примите заявку`,
     url: `/clients/${client.shortId}`,
     tag: `lead-${client.id}`,

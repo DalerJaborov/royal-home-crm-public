@@ -13,6 +13,7 @@ import { INVALIDATION } from "../liveEvents";
 
 /** Ключи TanStack Query, которые реально живут в хуках apps/web/src/hooks. */
 const KNOWN_ROOTS = new Set([
+  "transfer-requests",
   "clients",
   "client",
   "conversations",
@@ -38,8 +39,6 @@ const KNOWN_ROOTS = new Set([
   "property-delete-requests",
   "property-delete-request",
   "property-change-requests",
-  "property-count-disputes",
-  "client-property-count-dispute",
   "report-waiting-now",
   "me",
   "clients-lost",
@@ -92,7 +91,7 @@ describe("карта инвалидации живых событий", () => {
     // «marketing» — очереди передачи видео читают те же объекты (ночная проверка 01.10.2026, №252).
     expect(roots("property.updated")).toEqual(expect.arrayContaining(["properties", "property", "marketing"]));
     expect(roots("request.updated")).toEqual(
-      expect.arrayContaining(["delete-requests", "property-delete-requests", "property-count-disputes"])
+      expect.arrayContaining(["delete-requests", "property-delete-requests", "property-change-requests"])
     );
   });
 });

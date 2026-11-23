@@ -45,17 +45,22 @@ export function somonAd(ad: TestAd): Record<string, unknown> {
 export interface PageOptions {
   /** Рубрика самой страницы; null — общая лента (`"rubric":{}`). */
   pageRubricId?: number | null;
-  /** Сколько ссылок пагинации на странице (последняя известная страница). */
+  /** Сколько ссылок пагинации на странице (последняя известная страница); 0 — ссылок нет совсем. */
   links?: number;
+  /** Счётчики списка, как у сайта с 11.2026 (`"count":9050`, `"total_pages":151`); по умолчанию их нет. */
+  count?: number;
+  totalPages?: number;
 }
 
 export function somonListPageHtml(ads: TestAd[], options: PageOptions = {}): string {
-  const { pageRubricId = RUBRIC_FLATS_PAGE, links = 1 } = options;
+  const { pageRubricId = RUBRIC_FLATS_PAGE, links = 1, count, totalPages } = options;
   const adverts = ads.map(somonAd);
   const data = JSON.stringify({
     // Как у сайта: в next_page нет «page=» (курсор), номера страниц — только в ссылках пагинации.
     next_page: `?location=1&rubric=${pageRubricId ?? ""}&cursor=1&page_size=${adverts.length}`,
     rubric: pageRubricId == null ? {} : { id: pageRubricId, slug: pageRubricId === RUBRIC_FLATS_PAGE ? "prodazha-kvartir" : "prodazha-domov-havli-i-dach" },
+    ...(count != null ? { count } : {}),
+    ...(totalPages != null ? { total_pages: totalPages } : {}),
     location_ids: [1],
     adverts,
   });

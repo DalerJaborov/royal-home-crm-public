@@ -1,7 +1,8 @@
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { NavLink } from "react-router-dom";
-import { Plus } from "lucide-react";
-import { lazy, Suspense, useRef, useState } from "react";
+import { Grip, Plus } from "lucide-react";
+import { Suspense, useRef, useState } from "react";
+import { lazyWithReload } from "../lib/lazyWithReload";
 import { hapticSuccess, hapticTap } from "../lib/haptics";
 /**
  * МЕНЮ «+» ЗАГРУЖАЕТСЯ ПО НАЖАТИЮ (10.09.2026).
@@ -12,7 +13,7 @@ import { hapticSuccess, hapticTap } from "../lib/haptics";
  * шторкой хуже, чем открыться на кадр позже; файл предзагружается service
  * worker, поэтому и офлайн меню открывается.
  */
-const FabMenu = lazy(() => import("./FabMenu").then((m) => ({ default: m.FabMenu })));
+const FabMenu = lazyWithReload(() => import("./FabMenu").then((m) => ({ default: m.FabMenu })));
 // Панель ассистента — общей обёрткой на все места оболочки (там же разобрано,
 // почему ленивый импорт обязан быть во ВСЕХ них, иначе сборщик оставляет модуль
 // во входном куске).
@@ -28,6 +29,9 @@ import { legacyAgentBottomNavStyles as legacyStyle } from "../lib/legacyAgentBot
 
 type BottomNavVariant = "current" | "legacy-agent";
 
+/** «Новый вид»: значки капсулы своим куском, только тем, у кого вид включён. */
+const RoyalNavIcon = lazyWithReload(() => import("./look/RoyalNavIcon"));
+
 /**
  * Короткий отклик на переключение вкладки.
  *
@@ -37,7 +41,7 @@ type BottomNavVariant = "current" | "legacy-agent";
  */
 const tapFeedback = hapticTap;
 
-function Tab({ to, end, icon: Icon, label, badge, variant }: NavItem & { variant: BottomNavVariant }) {
+function Tab({ to, end, icon: Icon, label, badge, variant, royal }: NavItem & { variant: BottomNavVariant; royal?: boolean }) {
   const legacy = variant === "legacy-agent";
   return (
     <NavLink
@@ -57,7 +61,9 @@ function Tab({ to, end, icon: Icon, label, badge, variant }: NavItem & { variant
               атрибуты ничем не заняты, скин целится строго через
               html[data-theme^="royal-home-2026-"], механика вкладки не тронута. */}
           <span className="relative" data-tab-icon>
-            <Icon className={legacy ? legacyStyle.icon(isActive) : "w-6 h-6"} strokeWidth={1.6} />
+            {royal
+              ? <Suspense fallback={<span className="block w-6 h-6" />}><RoyalNavIcon to={to} active={isActive} /></Suspense>
+              : <Icon className={legacy ? legacyStyle.icon(isActive) : "w-6 h-6"} strokeWidth={1.6} />}
             {/* Значок непрочитанного — по прототипу: 15px, прижат к правому
                 верхнему углу иконки (top:-2px; right:-7px), цифра 9px. */}
             {!!badge && (
@@ -94,7 +100,7 @@ function Tab({ to, end, icon: Icon, label, badge, variant }: NavItem & { variant
  * первым пунктом меню для роли агента; директор/админ и другие роли видят
  * набор из 4 пунктов, состав задаёт FabMenu.tsx по образцу `SETS.boss` и т.д.
  * из прототипа. Владелец прислал скриншот именно такого меню. */
-export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
+export function BottomNavSurface({ variant, royal = false, chatOpen = false }: { variant: BottomNavVariant; royal?: boolean; chatOpen?: boolean }) {
   const legacy = variant === "legacy-agent";
   const glass = useUiPrefs((s) => s.glass);
   const { bottom } = useNavigation();
@@ -161,6 +167,9 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
     // считан по этой же высоте: 66 + 10 + safe-area = 96.
     <nav
       data-bottomnav
+      // Открыта переписка нового вида: на телефоне (< 820 px) она занимает весь экран и меню под ней не нужно —
+      // скрывает CSS (theme-2026-mobile-shell.css), а не размонтирование: на планшете это боковая рейка, она остаётся.
+      data-chat-open={chatOpen || undefined}
       className={legacy ? legacyStyle.nav : "sh-tabbar rh-glass md:hidden fixed bottom-0 left-0 right-0 z-40"}
       style={legacy ? {
         backdropFilter: glass ? "blur(18px) saturate(160%)" : "none",
@@ -170,7 +179,7 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
     >
       <div className="h-[66px] grid grid-cols-5 items-center px-0.5">
         {left.map((item) => (
-          <Tab key={item.to + item.label} {...item} variant={variant} />
+          <Tab key={item.to + item.label} {...item} variant={variant} royal={royal} />
         ))}
         <div className="relative h-full grid place-items-center">
           <button
@@ -206,8 +215,16 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
           </button>
         </div>
         {right.map((item) => (
-          <Tab key={item.to + item.label} {...item} variant={variant} />
+          <Tab key={item.to + item.label} {...item} variant={variant} royal={royal} />
         ))}
+        {/* «Ещё» — только в рейке планшета «Нового вида» (768–1023, theme-look-royal.css):
+            на телефоне все разделы открывает аватар в шапке, а в рейке аватара нет
+            под рукой. У агента «Ещё» уже есть справа — второй раз не рисуем. */}
+        {royal && !right.some((item) => item.to === "/more") && (
+          <div className="ry-rail-only">
+            <Tab to="/more" icon={Grip} label="Ещё" group="system" variant={variant} royal />
+          </div>
+        )}
       </div>
       {/* Условный рендер вокруг FabMenu, а не только проп `open`: пока меню не
           открывали, файл не нужно скачивать вовсе. Само меню проп `open`
@@ -224,7 +241,8 @@ export function BottomNavSurface({ variant }: { variant: BottomNavVariant }) {
   );
 }
 
-export function BottomNav() {
+export function BottomNav({ royal = false, chatOpen = false }: { royal?: boolean; chatOpen?: boolean }) {
   const legacy = useLegacyAgentMobile();
-  return <BottomNavSurface key={legacy ? "legacy-agent" : "current"} variant={legacy ? "legacy-agent" : "current"} />;
+  // The legacy agent phone bar has its own contract; «Новый вид» never restyles it.
+  return <BottomNavSurface key={legacy ? "legacy-agent" : "current"} variant={legacy ? "legacy-agent" : "current"} royal={royal && !legacy} chatOpen={chatOpen && !legacy} />;
 }

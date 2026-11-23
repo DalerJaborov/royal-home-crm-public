@@ -553,3 +553,151 @@ html[data-theme="royal-home-2026-night"] {
   font-weight: 400 !important;
   padding-inline: 0;
 }
+
+/*
+ * СТРОКА КЛИЕНТА НА ТЕЛЕФОНЕ: ИМЯ ВАЖНЕЕ ВСЕГО ОСТАЛЬНОГО (17.11.2026, кадры 375 px
+ * у директора и РОП: от имени оставалось 2-3 буквы — «Си…», «Умед С…», — потому что
+ * чип действия («первый звонок»), время и трубка стояли в одну линию с ним).
+ * Строка клиента (Row с data-client-row, pages/Clients.tsx) раскладывается сеткой:
+ * аватар | имя и описание | трубка; чип или время — второй строкой под именем;
+ * кнопки «Принять/Отклонить» — третьей, на всю ширину. Имя переносится на вторую
+ * строку, а не режется. У агента на телефоне свой список (MobileClientsList).
+ */
+@media (max-width: 819px) {
+  .rh2 .scr .row.rh-row[data-client-row] {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 12px;
+    row-gap: 6px;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .av {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .t {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  /* Ссылка-заголовок внутри <b> — по тегу, без её класса: её растяжку и зону
+     нажатия здесь не трогаем (сторож tapTargetsCss.test.ts), только перенос. */
+  .rh2 .scr .row.rh-row[data-client-row] > .t b,
+  .rh2 .scr .row.rh-row[data-client-row] > .t b > :is(a, button) {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > :is(.chip, .meta) {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .rh2 .scr .row.rh-row[data-client-row] > .act {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .rh2 .scr .row.rh-row.rh-row-wrap[data-client-row] > .act {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+/* «Состояние функций» (14.11.2026, pages/settings/FunctionStatus.tsx): строка списка с переносом текста,
+   подпись-причина, имена серверных переменных мелким шрифтом. Только токены темы, обе темы. */
+.rh2 .row.fs-item { align-items: flex-start; gap: 12px; padding-block: 14px; }
+.rh2 .row.fs-item > .dot { margin-top: 7px; }
+.rh2 .row.fs-item .fs-body { min-width: 0; flex: 1; }
+.rh2 .row.fs-item .fs-body > b { white-space: normal; overflow: visible; text-overflow: clip; }
+.rh2 .fs-body p { margin: 4px 0 0; white-space: normal; overflow-wrap: anywhere; }
+.rh2 .fs-what { font-size: var(--fs-13); color: var(--muted); }
+.rh2 .fs-reason { font-size: var(--fs-14); color: var(--ink); }
+.rh2 .fs-detail { font-size: var(--fs-13); color: var(--body); }
+.rh2 .fs-err { display: block; margin-top: 4px; font-size: var(--fs-13); color: var(--crit); overflow-wrap: anywhere; }
+.rh2 .fs-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+.rh2 .fs-env { font-size: var(--fs-13); color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+/* Подпись полей даты (RuFields): выключенное поле, в том числе внутри <fieldset disabled>, тускнеет вместе с подписью. */
+.ru-field:has(input:disabled) > .ru-field-text { opacity: .55; }
+.rh2 .fs-dev { margin-top: 6px; font-size: var(--fs-13); color: var(--muted); }
+.rh2 .fs-dev summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.rh2 .fs-dev dl { margin: 4px 0 0; }
+.rh2 .fs-dev dd { margin: 0 0 6px; overflow-wrap: anywhere; }
+.rh2 .fs-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted);
+  background: var(--soft); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+.rh2 .fs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.rh2 .fs-crons { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rh2 .fs-cron { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: var(--fs-13); color: var(--body); }
+.rh2 .fs-cron-name { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.rh2 .fs-cron-when { color: var(--muted); }
+.rh2 .fs-crons-all { padding: 6px 4px 2px; gap: 12px; }
+.rh2 .fs-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.rh2 .chip.fs-filter { cursor: pointer; min-height: 36px; font: inherit; font-size: var(--fs-13); }
+.rh2 .chip.fs-filter.on { background: var(--pill); color: var(--pill-ink); border-color: transparent; }
+.rh2 .fs-all > summary { cursor: pointer; padding: 10px 4px; font-size: var(--fs-14); color: var(--ink); min-height: 44px; display: flex; align-items: center; }
+.rh2 .quiet.fs-entry { margin-bottom: 12px; flex-wrap: wrap; }
+.rh2 .quiet.fs-entry .txt { flex: 1; min-width: 200px; }
+
+/* Строка файла в мастере объекта (.vrow, блок «Видео»; iPhone владельца 21.11.2026: «IMG_1210.MOV» и
+   «109.4 МБ · Готово» стояли столбиком по букве — чип «Исходник монтажёру» и «Убрать» не сжимались).
+   Имя — одна строка с многоточием в основе и видимым расширением (.fn > .stem + .ext), значок и текст
+   держат минимум 9em, а чип с кнопками (.act) целиком уходят на вторую строку, не сжимая имя. Лежит здесь,
+   а не в theme-2026-wizard.css (тот собирается скриптом) — действует и в старом, и в новом виде. */
+.rh2 .wiz .vrow { flex-wrap: wrap; }
+.rh2 .wiz .vrow .info { flex: 1 1 9em; min-width: 9em; }
+.rh2 .wiz .vrow .nm.fn { display: flex; min-width: 0; overflow-wrap: normal; word-break: normal; }
+.rh2 .wiz .vrow .nm.fn .stem { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh2 .wiz .vrow .nm.fn .ext { flex: none; white-space: nowrap; }
+.rh2 .wiz .vrow .act { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; flex: 0 0 auto; max-width: 100%; }
+
+/* ═══ ВОПРОСЫ О ПОКАЗЕ (components/ShowingQuestionsPanel.tsx) — 22.11.2026 ═══
+ * Карточка стоит и на Главной (старая оболочка), и в карточке клиента внутри `.rh2`, где общий
+ * сброс темы `.rh2 button { background:none; padding:0; font:inherit }` превращал кнопки в текст
+ * (кадры 04–06). Свои классы с весом выше сброса (`.sq-card button.sq-btn` — 0,2,1 против 0,1,1).
+ * Главная кнопка — один синий во всех темах: белый текст на #1d5fe0 даёт 5,6:1, а светлый
+ * ночной акцент чистой оболочки (139 177 255) с белым — меньше 2:1 (кадр 10). Вторичная — рамка и
+ * подложка, чтобы «Нет» и шаги «что дальше» читались кнопками, а не подписями. Не ниже 44 px. */
+.sq-card button.sq-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+.sq-card button.sq-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.sq-card button.sq-btn.sq-btn-primary {
+  background: #1d5fe0;
+  color: #ffffff;
+  border: 1px solid #1d5fe0;
+}
+@media (hover: hover) {
+  .sq-card button.sq-btn.sq-btn-primary:hover:not(:disabled) {
+    background: #154ab0;
+    border-color: #154ab0;
+  }
+  .sq-card button.sq-btn.sq-btn-secondary:hover:not(:disabled) {
+    border-color: rgb(var(--rgb-ink) / 0.45);
+  }
+}
+.sq-card button.sq-btn.sq-btn-secondary {
+  background: var(--c-hover-tint);
+  color: rgb(var(--rgb-ink));
+  border: 1px solid var(--c-line);
+}
+.sq-card button.sq-btn:focus-visible {
+  outline: 2px solid #1d5fe0;
+  outline-offset: 2px;
+}

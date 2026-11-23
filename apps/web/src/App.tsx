@@ -69,6 +69,11 @@ const EventFeedPlayground = import.meta.env.DEV
   ? lazyWithReload(() => import("./pages/dev/EventFeedPlayground"))
   : null;
 
+// Дев-стенд блока озвучки карточки (18.11.2026, «поменял, послушал, утвердил») — тот же приём, только DEV.
+const NarrationPreviewPlayground = import.meta.env.DEV
+  ? lazyWithReload(() => import("./pages/dev/NarrationPreviewPlayground"))
+  : null;
+
 // Дев-стенд задачи 5 слоя 2 (AskPanel) — только `import.meta.env.DEV`, тот же
 // приём: не собирается и не роутится в проде.
 const AskPanelPlayground = import.meta.env.DEV
@@ -144,21 +149,21 @@ const PropertiesMap = lazyWithReload(() => import("./pages/PropertiesMap").then(
 const MarketSegments = lazyWithReload(() => import("./pages/MarketSegments").then((m) => ({ default: m.MarketSegments })));
 const PropertyDetail = lazyWithReload(() => import("./pages/PropertyDetail").then((m) => ({ default: m.PropertyDetail })));
 const Clients = lazyWithReload(loadCleanClients);
-const LostClients = lazyWithReload(() => import("./pages/LostClients").then((m) => ({ default: m.LostClients })));
-const DeferredClients = lazyWithReload(() =>
-  import("./pages/DeferredClients").then((m) => ({ default: m.DeferredClients }))
-);
-const LeadFunnel = lazyWithReload(() => import("./pages/LeadFunnel").then((m) => ({ default: m.LeadFunnel })));
 const ClientDetail = lazyWithReload(() => import("./pages/ClientDetail").then((m) => ({ default: m.ClientDetail })));
 const Activity = lazyWithReload(() => import("./pages/Activity").then((m) => ({ default: m.Activity })));
 const Deals = lazyWithReload(loadCleanDeals);
 const Calendar = lazyWithReload(() => import("./pages/Calendar").then((m) => ({ default: m.Calendar })));
 const Reports = lazyWithReload(() => import("./pages/Reports").then((m) => ({ default: m.Reports })));
+const DirectorDashboard = lazyWithReload(() => import("./pages/DirectorDashboard").then((m) => ({ default: m.DirectorDashboard })));
 const Sources = lazyWithReload(() => import("./pages/Sources").then((m) => ({ default: m.Sources })));
 const Settings = lazyWithReload(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const RolesMatrix = lazyWithReload(() =>
   import("./pages/settings/RolesMatrix").then((m) => ({ default: m.RolesMatrix })),
 );
+const FunctionStatus = lazyWithReload(() =>
+  import("./pages/settings/FunctionStatus").then((m) => ({ default: m.FunctionStatus })),
+);
+const UiCheck = lazyWithReload(() => import("./pages/UiCheck").then((m) => ({ default: m.UiCheck })));
 const Profile = lazyWithReload(() => import("./pages/Profile").then((m) => ({ default: m.Profile })));
 const Finance = lazyWithReload(loadCleanFinance);
 const Archive = lazyWithReload(() => import("./pages/Archive").then((m) => ({ default: m.Archive })));
@@ -264,6 +269,16 @@ export default function App() {
       />
       {/* Дев-стенд задачи 7 слоя 2 — вне ProtectedRoute/AppLayout: своя фикстура,
           api не нужен. Маршрут существует только в DEV (см. EventFeedPlayground выше). */}
+      {NarrationPreviewPlayground && (
+        <Route
+          path="/dev/narration-preview"
+          element={
+            <Suspense fallback={<AppSkeleton />}>
+              <NarrationPreviewPlayground />
+            </Suspense>
+          }
+        />
+      )}
       {EventFeedPlayground && (
         <Route
           path="/dev/event-feed"
@@ -406,29 +421,21 @@ export default function App() {
           бы «страницу не найдено» вместо списка.
         */}
         <Route path="hot-clients" element={<Navigate to="/clients" replace />} />
-        {/* «Потерянные клиенты» — предел передач исчерпан (решение владельца 11.08.2026). */}
-        <Route path="lost-clients" element={<LostClients />} />
-        {/* «Неактивные» (владелец 17.09.2026) — оба вида сразу, тот же список
-            «Клиенты» с фильтром workStatus=INACTIVE (см. Clients.tsx,
-            trafficLightDrilldown), а не отдельный компонент: второго источника
-            правды по светофору заводить незачем. Настоящий маршрут, а не
-            редирект на /clients?workStatus=INACTIVE: тот путь сливался с
-            «Покупателями» (тот же /clients), и подсветка активной вкладки
-            (ScreenTabs сравнивает pathname) указывала на неверную вкладку.
-            kind не важен — Clients.tsx сам решает по pathname, см. ниже. */}
-        <Route path="inactive-clients" element={<Clients key="inactive-clients" kind="BUYER" />} />
+        {/* «Потерянные», «Неактивные», «Отложенные» и «Воронка лидов» удалены
+            16.11.2026 (владелец: «удалить все папки и статусы, ничего лишнего»).
+            Адреса остаются ПЕРЕХОДОМ на общий список: они разосланы пушами и
+            лежат в закладках — старая ссылка не должна отдавать «не найдено». */}
+        <Route path="lost-clients" element={<Navigate to="/clients" replace />} />
+        <Route path="inactive-clients" element={<Navigate to="/clients" replace />} />
+        <Route path="deferred-clients" element={<Navigate to="/clients" replace />} />
+        <Route path="lead-funnel" element={<Navigate to="/clients" replace />} />
         {/* «Все мои клиенты» (18.09.2026, задание В §f п.1, Р-2/Р-7
             docs/audit/lead-ownership-17-09.md) — тот же список без Корзины/
             kind-среза, у своего агента показывает буквально всё, где он
             держатель сейчас или был последним (см. Clients.tsx, isAllMineRoute
             и scope=allMine на сервере, routes/clients/list.ts). */}
-        <Route path="clients/all-mine" element={<Clients key="all-mine" kind="BUYER" />} />
-        {/* «Отложенные» — задача G, план 03-04.09.2026: EXPENSIVE/FINANCE_ISSUE/
-            WRONG_OBJECT, обычный исход рынка, не отказ. */}
-        <Route path="deferred-clients" element={<DeferredClients />} />
-        {/* «Воронка лидов» — лиды по стадиям ClientStatus (макет c99db05f,
-            renderFunnel). НЕ путать с /funnel (лид-магниты маркетинга). */}
-        <Route path="lead-funnel" element={<LeadFunnel />} />
+        {/* «Не на виду» снято 17.11.2026 — старая ссылка ведёт в обычный список. */}
+        <Route path="clients/all-mine" element={<Navigate to="/clients" replace />} />
         <Route path="other-inquiries" element={<Clients kind="OTHER" />} />
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="deals" element={<Deals />} />
@@ -438,12 +445,18 @@ export default function App() {
         <Route path="comments" element={<Comments />} />
         <Route path="funnel" element={<Funnel />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="director" element={<DirectorDashboard />} />
         <Route path="sources" element={<Sources />} />
         <Route path="settings" element={<Settings />} />
         {/* «Права по ролям» — таблица роль на роль по пресетам shared/permissions.ts,
             вход из Настройки → Сотрудники. Право settings.view, как у самой страницы. */}
         <Route path="settings/roles" element={<RolesMatrix />} />
+        {/* «Состояние функций» — что включено, что «только проверка», что выключено и почему.
+            Только директор и администратор (проверка на самой странице и на сервере); вход — Настройки → Данные и система. */}
+        <Route path="settings/functions" element={<FunctionStatus />} />
         <Route path="profile" element={<Profile />} />
+        {/* «Проверка экрана» — цифры окна и видимой области для разбора багов iPhone; любому вошедшему. */}
+        <Route path="ui-check" element={<UiCheck />} />
         <Route path="finance" element={<Finance />} />
         <Route path="ads" element={<Ads />} />
         {/* Студия запуска рекламы убрана 12.10.2026: старые закладки ведут на доску. */}

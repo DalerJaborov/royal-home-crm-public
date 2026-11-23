@@ -4,24 +4,33 @@
  * шлёт одни и те же три объекта, горячий покупатель «хотим посмотреть, куда ехать»
  * ушёл без звонка агента).
  *
- * Бот в этом режиме — вежливый администратор: одна-две короткие фразы, берёт
- * заявку и передаёт агенту. Подборок, фото, видео, ссылок и карточек нет.
- *
- * Здесь только ЧИСТЫЕ функции: какой сценарий у хода, что ответить, что вырезать
- * из уже готового ответа. Без базы, без модели, без времени «сейчас» внутри:
- * всё, что меняется (настройки, часы, найденные в базе цены), приходит
- * аргументами. Так одно и то же решение принимают и ядро
- * (lib/customerLeadOnlyCore.ts), и старый путь (messengers/conversation.ts), и
- * оно проверяется тестами без стенда.
- *
- * Цифры в ответе — только из аргументов (данные базы), сам модуль их не придумывает.
+ * С 19.11.2026 (этап 1.2) ход в режиме целиком ведёт оператор приёма заявок (ai/operator): шаги, роли и ВСЕ
+ * тексты клиенту — там. Здесь остались общие части режима, ЧИСТЫЕ функции без базы и модели: в каких каналах режим
+ * действует, его настройки по умолчанию, горячие слова и отказ от звонка (запасные правила оператора), время звонка
+ * по рабочим часам, вопрос о цене услуг, фильтры чужого текста (ссылки и подборки, просьба номера в WhatsApp) и
+ * последняя дверь текста режима (`leadOnlyOutgoing`). Прежние шаблоны и сценарии удалены вместе с их тестами.
  */
+import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
-import { customerRoleSignals } from "./customerAgentRole.js";
-import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
-import { customerSearchIntent } from "./customerAgentSearchIntent.js";
 import { clientOwnWords } from "./untrustedContent.js";
-import { looksLikeRentRequest } from "./rentGuard.js";
+import { withoutAgreementOpenings } from "./customerAgentHumanText.js";
+import { foldCustomerText } from "./customerAgentRole.js";
+
+/** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
+export const LEAD_ONLY_ROLES = ["buyer", "seller", "renter", "landlord", "job", "other"] as const;
+export type LeadOnlyRole = typeof LEAD_ONLY_ROLES[number];
+export interface LeadOnlyIntent {
+  role: LeadOnlyRole;
+  /** Клиент готов действовать сейчас: хочет приехать / посмотреть, спрашивает, куда ехать. */
+  hot: boolean;
+  /** Слова клиента, на которых стоит роль (у модели — проверенная цитата; у запасного пути — null). */
+  quote: string | null;
+  /** Слова ЭТОГО сообщения, на которых стоит горячесть. */
+  hotQuote: string | null;
+  source: "model" | "fallback";
+  /** Почему запасной путь (для журнала): нет ответа модели, не прошла проверка, не о чем спрашивать. */
+  fallbackReason?: "no_letters" | "model_unavailable" | "invalid_answer" | "quote_not_found";
+}
 
 export type LeadOnlyLanguage = "ru" | "tg";
 export type LeadOnlyChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "WEBSITE" | string;
@@ -36,21 +45,49 @@ export interface LeadOnlyConfig {
   hotIntentHandover: boolean;
   workHoursStart: string;
   workHoursEnd: string;
+  /** «Бот отвечает и после заявки» (владелец 20.11.2026, реестр выключателей). Старые вызовы без поля — ВКЛ. */
+  repliesAfterLead?: boolean;
+  /** После заявки: сотрудник писал в переписке за последние N минут — бот молчит (владелец 20.11.2026). */
+  staffQuietMinutes?: number;
+  /** «Бот пишет своими словами» (SPEC, этап 1.4): ВЫКЛ по умолчанию. */
+  ownWords?: boolean;
 }
 
 export const LEAD_ONLY_DEFAULTS: LeadOnlyConfig = Object.freeze({
   enabled: false, useWhatsappNumber: true, maxPhoneAsks: 2, hotIntentHandover: true,
-  workHoursStart: "09:30", workHoursEnd: "18:00",
+  workHoursStart: "09:30", workHoursEnd: "18:00", repliesAfterLead: true, staffQuietMinutes: 180, ownWords: false,
 });
 
 /**
  * Режим действует ТОЛЬКО в WhatsApp, Instagram и Facebook (решение 13.11.2026 после ревью):
- * чат сайта остаётся прежним (поиск, ссылки, фото), Telegram и комментарии тоже. Одно
- * место, которое все проверки режима спрашивают про канал.
+ * чат сайта остаётся прежним (поиск, ссылки, фото), Telegram и комментарии тоже.
+ * One config point (17.11.2026): env BOT_LEAD_ONLY_CHANNELS, a comma list of known names; empty, unset or only
+ * unknown names = the default. Every mode check (both bot routes, the channel core, notifications) asks leadOnlyAppliesTo.
  */
-export const LEAD_ONLY_CHANNELS: readonly string[] = Object.freeze(["WHATSAPP", "INSTAGRAM", "FACEBOOK"]);
-export function leadOnlyAppliesTo(channel: string | null | undefined): boolean {
-  return !!channel && LEAD_ONLY_CHANNELS.includes(channel);
+export const LEAD_ONLY_DEFAULT_CHANNELS: readonly string[] = Object.freeze(["WHATSAPP", "INSTAGRAM", "FACEBOOK"]);
+/** Names the setting accepts. WEBSITE and TELEGRAM are accepted so that extending the mode is one setting. */
+export const LEAD_ONLY_KNOWN_CHANNELS: readonly string[] = Object.freeze([...LEAD_ONLY_DEFAULT_CHANNELS, "WEBSITE", "TELEGRAM"]);
+const leadOnlyChannelsLogged = new Set<string>();
+const leadOnlyChannelsParsed = new Map<string, readonly string[]>();
+/** The channels of the mode from BOT_LEAD_ONLY_CHANNELS. Unknown names are ignored and logged once per value. */
+export function leadOnlyChannels(env: Readonly<Record<string, string | undefined>> = process.env): readonly string[] {
+  const rawValue = env.BOT_LEAD_ONLY_CHANNELS ?? "";
+  const cached = leadOnlyChannelsParsed.get(rawValue);
+  if (cached) return cached;
+  const raw = rawValue.split(",").map(name => name.trim().toUpperCase()).filter(Boolean);
+  const known = [...new Set(raw.filter(name => LEAD_ONLY_KNOWN_CHANNELS.includes(name)))];
+  const unknown = raw.filter(name => !LEAD_ONLY_KNOWN_CHANNELS.includes(name));
+  if (unknown.length && !leadOnlyChannelsLogged.has(rawValue)) {
+    leadOnlyChannelsLogged.add(rawValue);
+    console.error(`[lead-only] BOT_LEAD_ONLY_CHANNELS=${JSON.stringify(rawValue)}: unknown channel name(s) ignored: ${unknown.join(", ")}` +
+      (known.length ? "" : `; the default ${LEAD_ONLY_DEFAULT_CHANNELS.join(",")} applies`));
+  }
+  const result = Object.freeze(known.length ? known : [...LEAD_ONLY_DEFAULT_CHANNELS]);
+  leadOnlyChannelsParsed.set(rawValue, result);
+  return result;
+}
+export function leadOnlyAppliesTo(channel: string | null | undefined, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return !!channel && leadOnlyChannels(env).includes(channel.trim().toUpperCase());
 }
 
 export function clampMaxPhoneAsks(value: number | null | undefined): number {
@@ -67,8 +104,8 @@ const HOT_PATTERNS: RegExp[] = [
   new RegExp(`${w("куда")}\\s+${w(`ехать|подъехать|приехать|приезжать|подъезжать|идти`)}`, "iu"),
   // «когда можно приехать/посмотреть/подъехать»
   new RegExp(`${w("когда")}\\s+(?:${w("можно|сможем|могу|можем")}\\s+)?${w(`приехать|посмотреть|подъехать|встретиться|показ${TAIL}`)}`, "iu"),
-  // «адрес» (не офиса: про офис отвечает обычный путь)
-  new RegExp(`${w(`адрес${TAIL}`)}`, "iu"),
+  // «Адрес» сам по себе — вопрос об объекте, а не готовность ехать (второе ревью 13.11): горячий только вместе
+  // с намерением приехать, см. ADDRESS_WORD и COME_INTENT ниже.
   // «мы реальные покупатели», «реальный покупатель», «готовы купить»
   new RegExp(`${w(`реальн${TAIL}|настоящ${TAIL}|серь[её]зн${TAIL}`)}\\s+${w(`покупател${TAIL}|клиент${TAIL}`)}`, "iu"),
   new RegExp(`${w(`готов${TAIL}`)}\\s+${w(`купить|брать|взять|покупать`)}`, "iu"),
@@ -79,8 +116,6 @@ const HOT_PATTERNS: RegExp[] = [
   new RegExp(`${w("куҷо|кучо")}\\s+${w(`би[ёе]${TAIL}|рав${TAIL}|омад${TAIL}|равем|биём`)}`, "iu"),
   // «кай омада метавонем», «кай биёем», «кай дидан мумкин»
   new RegExp(`${w("кай")}\\s+(?:${w(`омад${TAIL}|би[ёе]${TAIL}|дид${TAIL}|тамошо${TAIL}`)})`, "iu"),
-  // «суроға», «суроғаш», «суроға(и) хона»
-  new RegExp(`${w(`суро[ғг]${TAIL}`)}`, "iu"),
   // «харидори воқеӣ / аслӣ», «мо харидорем»
   new RegExp(`${w(`харидор${TAIL}`)}\\s+${w(`во[қк]е${TAIL}|асл${TAIL}|ҳақиқ${TAIL}|хакик${TAIL}`)}`, "iu"),
 ];
@@ -90,296 +125,291 @@ const OFFICE_WORD = new RegExp(w(`офис${TAIL}|дафтар${TAIL}|идора
 const NEGATION_BEFORE = new RegExp(`${BW}(?:не|нет|ни|пока\\s+не|ещ[её]\\s+не)\\s+(?:\\p{L}+\\s+)?$`, "iu");
 // «Можно посмотреть фото/видео» — просьба о снимках, а не готовность ехать (снимков в этом режиме нет вовсе).
 const MEDIA_AFTER = new RegExp(`^\\s+(?:(?:ещ[её]|е[её]|его|их|на)\\s+)?${w(`фот${TAIL}|видео${TAIL}|снимк${TAIL}|картинк${TAIL}|планировк${TAIL}|расв${TAIL}|сурат${TAIL}`)}`, "iu");
+// «Можно посмотреть другие / ещё варианты?» — просьба о подборке, а не готовность ехать на объект (второе ревью 13.11).
+const OTHER_OPTIONS_AFTER = new RegExp(`^\\s+(?:${w(`ещ[её]|какие-?(?:то|нибудь)`)}\\s+)?${w(`друг${TAIL}|ин(?:ые|ых|ой|ую)|вариант${TAIL}|подборк${TAIL}|что-?(?:то|нибудь)|ещ[её]|дигар${TAIL}`)}`, "iu");
+// «Какой адрес?» — вопрос; «адрес? хотим завтра приехать» — горячо.
+const ADDRESS_WORD = new RegExp(w(`адрес${TAIL}|суро[ғг]${TAIL}|локаци${TAIL}|геолокаци${TAIL}|лакатсия`), "iu");
+const COME_INTENT = new RegExp(w(`приех${TAIL}|подъех${TAIL}|ехать|приезж${TAIL}|подъезж${TAIL}|прийти|прид[её]м|приду|зайти|зайд[её]м|` +
+  `посмотреть|глянуть|сегодня|завтра|би[ёе]${TAIL}|омада${TAIL}|омадан|равем|равам|дидан|имр[ӯу]з|паго[ҳх]`), "iu");
 
-function hotMatch(text: string): boolean {
-  for (const pattern of HOT_PATTERNS) {
+function hotMatch(text: string, patterns: readonly RegExp[] = HOT_PATTERNS): boolean {
+  for (const pattern of patterns) {
     const found = new RegExp(pattern.source, "giu");
     for (const match of text.matchAll(found)) {
       const start = match.index ?? 0, end = start + match[0].length;
       if (NEGATION_BEFORE.test(text.slice(Math.max(0, start - 24), start))) continue;
-      if (MEDIA_AFTER.test(text.slice(end, end + 40))) continue;
+      if (MEDIA_AFTER.test(text.slice(end, end + 40)) || OTHER_OPTIONS_AFTER.test(text.slice(end, end + 40))) continue;
       return true;
     }
   }
   return false;
 }
 
-/** Клиент готов действовать: хочет посмотреть, спрашивает адрес, «куда ехать». Отрицание и «посмотреть фото» — не горячие. */
+// «Сегодня не могу, напишу позже» — клиент откладывает (третье ревью 13.11, №5): горячим это не делает ни адрес,
+// ни «сегодня» рядом. «Не могу найти, куда ехать» — наоборот, человек уже едет: такие продолжения не гасят.
+// «Не могу говорить / разговаривать» — не отмена встречи, а просьба писать (четвёртое ревью 13.11, №3).
+const POSTPONE = new RegExp([
+  `${w("не")}\\s+${w("могу|можем|смогу|сможем|получится|успею|успеем|сейчас")}` +
+    `(?!\\s+(?:${w("сейчас|щас|пока")}\\s+)?${w(`найти|найд${TAIL}|понять|дозвон${TAIL}|попасть|зайти|открыть|дождаться|` +
+      `говорить|разговаривать|поговорить|ответить|отвечать|звонить|позвонить|слушать|взять`)})`,
+  `${w("напишу|напишем|позвоню|позвоним|свяжусь|свяжемся|отвечу|ответим|сообщу|сообщим")}\\s+(?:\\p{L}+\\s+)?${w("позже|попозже|позднее|потом")}`,
+  `${w("позже|попозже|позднее|потом")}\\s+(?:\\p{L}+\\s+)?${w("напишу|напишем|позвоню|позвоним|свяжусь|свяжемся|отвечу|ответим|сообщу|сообщим")}`,
+  `${w("в")}\\s+${w("другой")}\\s+${w("раз")}`,
+  w(`наметавон${TAIL}|наметонам|наметонем|намешавад|намерасам`),
+  `${w("баъдтар|дертар|баъдан")}\\s+(?:\\p{L}+\\s+)?${w(`менавис${TAIL}|занг${TAIL}|хабар${TAIL}`)}`,
+  `${w(`менавис${TAIL}`)}\\s+${w("баъдтар|дертар")}`,
+].join("|"), "iu");
+// Названа другая встреча — в ЛЮБОМ месте сообщения («сегодня не можем, завтра можно?», «Хочу посмотреть. Завтра можно?
+// Сегодня не могу», четвёртое ревью 13.11, №3): клиент всё ещё хочет приехать.
+const DAY_WORDS = `завтра|послезавтра|вечер${TAIL}|утр${TAIL}|понедельник${TAIL}|вторник${TAIL}|сред(?:а|у)|четверг${TAIL}|` +
+  `пятниц${TAIL}|суббот${TAIL}|воскресень${TAIL}|выходн${TAIL}|пагоҳ|пагох|бегоҳ|бегох`;
+const RESCHEDULE = new RegExp(w(DAY_WORDS), "iu");
+// …кроме дня, от которого клиент отказался: «завтра не могу», «не могу завтра», «пагоҳ наметавонам».
+const CANT = w("могу|можем|смогу|сможем|получится|успею|успеем");
+const DAY_DECLINED = new RegExp(`${w(DAY_WORDS)}\\s+(?:${w("я|мы|тоже|уже")}\\s+)?${w("не")}\\s+${CANT}|` +
+  `${w("не")}\\s+${CANT}\\s+${w(DAY_WORDS)}|${w(DAY_WORDS)}\\s+(?:\\p{L}+\\s+)?${w(`наметавон${TAIL}|наметонам|наметонем`)}`, "giu");
+// «Ҳозир гап зада наметавонам» — не могу говорить, а не не могу приехать.
+const TALK_BEFORE = new RegExp(`${w("гап")}\\s+(?:${w("зада|задан|задам")}\\s+)?$`, "iu");
+
+function postponed(text: string): boolean {
+  if (RESCHEDULE.test(text.replace(DAY_DECLINED, " "))) return false;
+  const found = new RegExp(POSTPONE.source, "giu");
+  for (const match of text.matchAll(found)) {
+    if (TALK_BEFORE.test(text.slice(Math.max(0, (match.index ?? 0) - 20), match.index ?? 0))) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Клиент готов действовать: хочет посмотреть, «куда ехать», адрес вместе с намерением приехать. Отрицание,
+ * «посмотреть фото» и «посмотреть другие варианты» — не горячие; голый «какой адрес?» — вопрос об объекте;
+ * «не могу / напишу позже» без другой названной встречи — не горячие (третье ревью 13.11, №5). */
 export function leadOnlyHotIntent(text: string): boolean {
   const raw = clientOwnWords(text), own = raw.replaceAll("ё", "е").replaceAll("Ё", "Е");
   if (!own.trim()) return false;
-  if (!hotMatch(own) && !hotMatch(raw)) return false;
+  const addressToCome = ADDRESS_WORD.test(own) && (hotMatch(own, [COME_INTENT]) || hotMatch(raw, [COME_INTENT]));
+  if (!addressToCome && !hotMatch(own) && !hotMatch(raw)) return false;
+  if (postponed(own)) return false;
   // «Адрес офиса» и «где ваш офис» — вопрос о компании, а не готовность ехать на объект.
   return !OFFICE_WORD.test(own);
 }
 
-// Клиент говорит именно про объект, который уже в разговоре: «интересует», «эта квартира», «хочу её посмотреть».
-const PROPERTY_INTEREST = new RegExp([
-  w(`интерес${TAIL}|нрав${TAIL}|понрав${TAIL}|посмотреть|подробн${TAIL}|актуальн${TAIL}`),
-  `${w(`эт(?:а|у|от|ой|ого|ом|и|у)`)}\\s+${w(`квартир${TAIL}|дом${TAIL}|вариант${TAIL}|объект${TAIL}|участ${TAIL}|хон${TAIL}`)}`,
-  `${w(`купить|взять|беру|бер[её]м|покупаю`)}\\s+${w(`е[её]|его`)}`,
-  w(`маъ[қк]ул${TAIL}|писанд${TAIL}|дидан${TAIL}`),
-  `${w(`ин|ҳамин|хамин`)}\\s+${w(`хона${TAIL}|квартира${TAIL}|объект${TAIL}|вариант${TAIL}`)}`,
-].join("|"), "iu");
+// ── «Номер» — телефон или номер объекта ─────────────────────────────────────
+// «Напишите номер объекта», «у меня нет номера квартиры», «рақами хона» — не телефон (третье ревью 13.11, №3, №4).
+// Одно место для всех проверок режима, где «номер» значит телефон: отказ, фильтр просьбы в WhatsApp, счёт просьб.
+const NOT_PHONE_NOUN = w(`объект${TAIL}|квартир${TAIL}|дом(?:а|е|у|ов)?|объявлени${TAIL}|карточк${TAIL}|участк${TAIL}|пост(?:а|е)?|` +
+  `лот${TAIL}|заявк${TAIL}|этаж${TAIL}|подъезд${TAIL}|корпус${TAIL}|блок${TAIL}|кадастр${TAIL}|договор${TAIL}|паспорт${TAIL}|` +
+  `машин${TAIL}|хона${TAIL}|эълон${TAIL}`);
+// «Не дам номер СВОЕЙ квартиры», «номер этого объекта» (четвёртое ревью 13.11, №5): слово-указатель между ними не делает номер телефоном.
+const OWNER_WORD = w(`сво(?:й|е|ё|ей|его|ему|ем|их)|мо(?:й|е|ё|ей|его|ем|их)|наш${TAIL}|ваш${TAIL}|эт(?:от|о|а|ой|ого|ом|их|у)|т(?:ой|ого|ом)|` +
+  `нужн${TAIL}|нов${TAIL}|старо${TAIL}|ин|ҳамин|хамин|он`);
+/** «номер/рақам», за которым не стоит «объекта/квартиры/дома…» (в том числе «своей квартиры»): тогда это телефон. */
+const PHONE_NUMBER_WORD = `${w(`номер${TAIL}|рақам${TAIL}|ракам${TAIL}`)}(?!\\s+(?:${OWNER_WORD}\\s+)?${NOT_PHONE_NOUN})`;
 
-// ── Сценарий хода ───────────────────────────────────────────────────────────
-export type LeadOnlyScenario = "hot" | "property" | "seller" | "buyer";
-
-export interface LeadOnlyScenarioInput {
-  /** Слова клиента в этом ходе (вместе с буфером). */
-  text: string;
-  /** Объект определён сервером (ссылка, пост, реклама, картинка) в этом или прошлых ходах. */
-  propertyKnown: boolean;
-  /** Объект определён именно в ЭТОМ сообщении (ссылка, пост, реклама, картинка этого хода). */
-  propertyInMessage?: boolean;
-  /** Клиент спрашивает о самом объекте (цена, адрес, площадь…): решает вызывающий по классификатору вопросов. */
-  propertyAsked?: boolean;
-  /** Разговор уже о работе (вакансии ведёт Ноза — не трогаем). */
-  jobTopic?: boolean;
-  config: Pick<LeadOnlyConfig, "hotIntentHandover">;
+// ── Удобное время звонка ────────────────────────────────────────────────────
+// «Не звоните сейчас, позвоните завтра», «звоните после 6», «пагоҳ занг занед» — не отказ, а согласие со временем
+// (третье ревью 13.11, №4): его записывают в заявку, чтобы агент не позвонил не вовремя.
+const CALL_WORD = w(`(?:пере|по)?звон(?:ите|ить|и|ят)|набер(?:ите|и)|набрать|занг`);
+const TIME_WORD = `(?:${w(`завтра|послезавтра|сегодня|сейчас|вечер${TAIL}|утр${TAIL}|дн[её]м|ночью|позже|попозже|позднее|потом|обед${TAIL}|` +
+  `понедельник${TAIL}|вторник${TAIL}|сред(?:а|у)|четверг${TAIL}|пятниц${TAIL}|суббот${TAIL}|воскресень${TAIL}|выходн${TAIL}|` +
+  `пагоҳ|пагох|бегоҳ|бегох|саҳар|сахар|ҳозир|хозир|имрӯз|имруз|баъдтар|дертар`)}|` +
+  `${w("после|в|к|с|до|соати")}\\s*\\d{1,2}(?:[:.]\\d{2})?|\\d{1,2}(?:[:.]\\d{2})?\\s*${w(`час${TAIL}|соат${TAIL}`)})`;
+const CALL_AT_TIME = new RegExp(`${CALL_WORD}(?:[\\s,]+\\p{L}+){0,3}[\\s,]+${TIME_WORD}|${TIME_WORD}(?:[\\s,]+\\p{L}+){0,3}[\\s,]+${CALL_WORD}`, "iu");
+// Слово звонка под отрицанием — отказ, а не просьба (четвёртое ревью 13.11, №1): «Не звоните мне, я сейчас на работе»,
+// «Звонить не надо, пишите потом», «Занг назанед, ҳозир кор дорам». Время звонка ищется только рядом с просьбой ПОЗВОНИТЬ.
+const NEGATED_CALL = new RegExp([
+  // «Не могли бы позвонить завтра?» — вежливая просьба, поэтому только «не (надо|нужно|стоит) звонить».
+  `${w("не")}\\s+(?:${w("надо|нужно|стоит")}\\s+)?(?:${w("мне|нам|сюда")}\\s+)?${CALL_WORD}`,
+  `${CALL_WORD}\\s+(?:${w("мне|нам|сюда")}\\s+)?${w("не")}\\s+${w("надо|нужно|стоит|обязательно")}`,
+  `${w("занг")}\\s+${w(`назан${TAIL}`)}`,
+  `${w(`занг${TAIL}`)}\\s+(?:${w("задан")}\\s+)?${w("лозим|даркор|шарт")}\\s+${w("нест|не")}`,
+].join("|"), "giu");
+/** Номер телефона в словах клиента (7+ цифр с пробелами, скобками, дефисами): «позвоните 93 555 12 34 завтра». */
+const PHONE_DIGITS = /\+?\d[\d\s\-().]{5,}\d/gu;
+function withoutPhoneDigits(text: string): string {
+  // Цифры номера рвут поиск «позвоните … завтра» (№4 четвёртого ревью); номер в пометку времени не попадает.
+  return text.replace(PHONE_DIGITS, found => (found.replace(/\D/gu, "").length >= 7 ? " " : found));
 }
+const ownForCall = (text: string) => withoutPhoneDigits(clientOwnWords(text)).replaceAll("ё", "е").replaceAll("Ё", "Е");
 
 /**
- * null — ход не про заявку (вопрос о компании, приветствие, вакансия, аренда):
- * его отвечает обычный путь бота, но тоже без подборок, фото и ссылок.
+ * Клиент говорит, КОГДА ему звонить: предложения с просьбой позвонить и временем, как он их написал (без цифр номера),
+ * до 160 знаков. null — о времени звонка ничего. «Не звоните, я сейчас на работе» — не время, а отказ (четвёртое ревью, №1).
  */
-export function leadOnlyScenario(input: LeadOnlyScenarioInput): LeadOnlyScenario | null {
-  const own = clientOwnWords(input.text);
-  if (!own.trim() || input.jobTopic || customerRecruitmentRequested(own)) return null;
-  // Аренды у агентства нет: отказ — дело обычного пути (rentGuard / политика компании).
-  if (looksLikeRentRequest(own)) return null;
-  // Продавец — первым: «продаю, адрес такой-то» не горячий покупатель, а объект, оставшийся в фокусе
-  // с прошлого разговора, не перебивает ясное «хочу продать свою квартиру».
-  const signals = customerRoleSignals(own);
-  if ((signals.sell || signals.landlord) && !signals.buyStrong) return "seller";
-  if (input.config.hotIntentHandover && leadOnlyHotIntent(own)) return "hot";
-  // Объект, оставшийся в фокусе с прошлых ходов, не делает «спасибо» или «где офис?» вопросом об объекте
-  // (ревью 13.11: «Это объект №N, цена X.» на любое сообщение). Объект — только если он пришёл в этом
-  // сообщении или клиент говорит именно о нём.
-  if (input.propertyKnown && (input.propertyInMessage || input.propertyAsked || PROPERTY_INTEREST.test(own))) return "property";
-  if (signals.buyStrong || signals.buyWeak || customerSearchIntent(own)) return "buyer";
-  return null;
+export function leadOnlyCallbackTime(text: string): string | null {
+  const sentences = ownForCall(text).split(/[.!?;\n]+/u).map(s => s.replace(/\s+/gu, " ").replace(/\s+,/gu, ",").trim())
+    .filter(s => s && CALL_AT_TIME.test(s.replace(NEGATED_CALL, " × ")));
+  return sentences.length ? sentences.join(". ").slice(0, 160) : null;
 }
 
-// ── Тексты ──────────────────────────────────────────────────────────────────
-const money = (amount: string, currency: string, language: LeadOnlyLanguage) =>
-  `${amount.replace(/\B(?=(\d{3})+(?!\d))/g, " ")} ${currency === "USD" ? "USD" : language === "tg" ? "сомонӣ" : "сомони"}`;
+/** Пометка для агента в заявке: «…. Удобно звонить: «завтра после 6»». */
+export function leadOnlyNoteWithCallbackTime(note: string, callbackTime: string | null | undefined): string {
+  return callbackTime ? `${note}. Когда звонить: «${callbackTime}»` : note;
+}
 
-export interface LeadOnlyPropertyFacts { shortId: number; price: string | null; currency: string; sold: boolean }
-export interface LeadOnlyMarketSummary { districtName: string | null; minPrice: string; currency: string }
+/** Пометка для агента: клиент отказался от звонка (четвёртое ревью 13.11, №1). */
+export const LEAD_ONLY_NO_CALL_NOTE = "Просит не звонить, писать в чат";
+
+// ── Отказ дать номер ────────────────────────────────────────────────────────
+// «Не хочу давать номер», «номер не дам», «пишите здесь», «звонить не надо». Только после отказа
+// бот говорит «хорошо, без проблем» и называет номер офиса; повторно номер не просит (второе ревью 13.11).
+// «Номер» здесь — только телефон: «у меня нет номера объекта» не отказ (третье ревью 13.11, №4).
+const PHONE_REF = `(?:${PHONE_NUMBER_WORD}|${w(`телефон${TAIL}`)})`;
+const REFUSAL = new RegExp([
+  `${w("не|нет")}\\s+(?:${w("хочу|хотим|буду|будем|могу|можем|дам|дадим|даю|оставлю|оставим")}\\s+)?` +
+    `(?:${w("давать|дать|оставлять|оставить|писать|сообщать|сказать|говорить")}\\s+)?(?:${w("свой|свои|мой|наш")}\\s+)?${PHONE_REF}`,
+  `${PHONE_REF}\\s+(?:${w("я|мы|свой|мой")}\\s+)?${w("не")}\\s+${w("дам|дадим|даю|оставлю|оставим|хочу|хотим|буду|скажу|напишу")}`,
+  `${w("без")}\\s+(?:${PHONE_REF}|${w(`звонк${TAIL}`)})`,
+  `${w("не")}\\s+(?:${w("надо|нужно")}\\s+)?${w("звоните|звонить|звони")}`,
+  `${w(`звонить|звонков`)}\\s+${w("не")}\\s+${w("надо|нужно")}`,
+  `${w("пишите|напишите|отвечайте|ответьте")}\\s+${w("здесь|тут|сюда")}`,
+  `${PHONE_NUMBER_WORD}\\s+${w(`намедиҳ${TAIL}|намедих${TAIL}|намегузор${TAIL}|намегӯ${TAIL}`)}`,
+  `${w("намехоҳам|намехохам|намедиҳам|намедихам")}\\s+${PHONE_NUMBER_WORD}`,
+  `${w("занг")}\\s+${w("назанед|назанен")}`,
+  `${w("ҳамин|хамин|инҷо|инчо")}\\s+(?:${w("ҷо|чо")}\\s+)?${w("нависед|нависен")}`,
+].join("|"), "iu");
+
+/** Клиент отказался дать номер или от звонка (а не просто промолчал о нём). */
+export function leadOnlyPhoneRefused(text: string): boolean {
+  const own = clientOwnWords(text).replaceAll("ё", "е").replaceAll("Ё", "Е");
+  // «Не звоните сейчас, позвоните завтра» — согласие со временем, а не отказ (третье ревью 13.11, №4). Время засчитывается
+  // только рядом с просьбой ПОЗВОНИТЬ: «Не звоните, я сейчас на работе» — отказ (четвёртое ревью 13.11, №1).
+  return !!own.trim() && REFUSAL.test(own) && !leadOnlyCallbackTime(own);
+}
+
+// Вопрос о цене услуг агентства («сколько стоят ваши услуги», «комиссия какая», «хизмати шумо чанд пул»), текст в
+// сложенном алфавите (foldCustomerText: ҳ→х, ӣ→и …).
+const FEE_SUBJECT = /(?:^|[^\p{L}])(?:услуг\p{L}*|комисси\p{L}*|хизмат\p{L}*)/u;
+const FEE_PRICE = /(?:^|[^\p{L}])(?:сколько|скока|цена|цену|стои\p{L}*|почем|процент\p{L}*|чанд|нарх\p{L}*|пул|арзиш\p{L}*|фоиз\p{L}*|ки?мм?ат\p{L}*)(?![\p{L}])/u;
+// Сообщение о своём жилье — уже не «просто цена услуг»: «Квартира 3 комн., цена 70 000$, нужны ваши услуги» (ревью 18.11).
+const FEE_HOUSING = /(?:^|[^\p{L}])(?:квартир\p{L}*|дом|дома|домик\p{L}*|хона\p{L}*|хавли\p{L}*|участ\p{L}*|замин\p{L}*|объект\p{L}*|комнат\p{L}*|хучр\p{L}*|продаж\p{L}*)(?![\p{L}])/u;
+/**
+ * Чистая: клиент спрашивает ТОЛЬКО цену услуг агентства, ни слова о своём жилье и без цифр. Сложенный алфавит
+ * (foldCustomerText: ҳ→х, ӣ→и …).
+ */
+export function leadOnlyAgencyFeeQuestion(text: string): boolean {
+  const folded = foldCustomerText(clientOwnWords(text ?? ""));
+  return FEE_SUBJECT.test(folded) && FEE_PRICE.test(folded) && !/\d/u.test(folded) && !FEE_HOUSING.test(folded);
+}
+
+// ── Время звонка и короткие строки, которые остались у режима ───────────────
 
 /** Когда агент позвонит — честно: в рабочее время «скоро», вне его — со времени начала. */
+/** Сколько минут до конца рабочего дня бот уже не обещает «в ближайшее время». */
+export const LEAD_ONLY_LATE_MINUTES = 60;
+const minutesOf = (hhmm: string): number => { const [h, m] = hhmm.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
+
 export function leadOnlyCallbackWhen(input: { now: string; workHoursStart: string; workHoursEnd: string }):
   { kind: "soon" } | { kind: "today_from" | "tomorrow_from"; from: string } {
   const { now, workHoursStart: start, workHoursEnd: end } = input;
   const inside = start <= end ? now >= start && now < end : now >= start || now < end;
+  // Последний час рабочего дня — уже не «в ближайшее время» (разбор 20.11.2026: вечерние заявки ждут агента 4,5–18 часов):
+  // честно «завтра с <начало>», раньше позвонят — тем лучше.
+  // Круглосуточное окно (00:00–24:00 или начало = концу) — всегда «в ближайшее время» (ревью #333).
+  const roundTheClock = start === end || (minutesOf(start) === 0 && minutesOf(end) >= 23 * 60 + 59);
+  if (inside && !roundTheClock && start <= end && minutesOf(end) - minutesOf(now) <= LEAD_ONLY_LATE_MINUTES) return { kind: "tomorrow_from", from: start };
   if (inside) return { kind: "soon" };
   // До начала окна (раннее утро) — «сегодня с 09:30», после конца — «завтра утром».
   return start <= end && now < start ? { kind: "today_from", from: start } : { kind: "tomorrow_from", from: start };
 }
 
-export type LeadOnlyPhoneState =
-  /** WhatsApp и рубильник «номер WhatsApp»: номер уже есть, не спрашиваем. */
-  | { kind: "whatsapp" }
-  /** Клиент сам дал номер (в этом ходе или раньше). */
-  | { kind: "given" }
-  /** Карточка клиента уже есть (номер в ней), а в этом ходе номера не было: «номер получил» сказать нельзя. */
-  | { kind: "card" }
-  /** Instagram/Facebook: номер ещё не дан; asksSoFar — сколько раз уже просили. */
-  | { kind: "ask"; asksSoFar: number; maxAsks: number; officeAlreadyOffered: boolean };
+/** The office telephone for customers (owner 18.11.2026: «+992446501414 это наш колл центр»). */
+export const LEAD_ONLY_OFFICE_PHONE_TEXT = PUBLIC_AGENCY_CONTACT.phone;
 
-export const LEAD_ONLY_OFFICE_PHONE_TEXT = "777 070 100";
-
-/**
- * Тексты. Два набора там, где это важно для правды:
- *  - `call` — у агента есть номер (WhatsApp, клиент дал номер, карточка уже есть): можно обещать звонок;
- *  - `chat` — номера нет (Instagram/Facebook): звонок обещать нельзя, только «ответит здесь» или просьба номера.
- * Ревью 13.11.2026: «агент подберёт и расскажет» без номера и без уведомления агента было обещанием, которого
- * никто не выполнит.
- */
-const LINES = {
-  hot: { ru: "Хорошо, передаю агенту.", tg: "Хуб, ба агент мерасонам." },
-  hotProperty: { ru: (id: number) => `Хорошо, передаю агенту по объекту №${id}.`, tg: (id: number) => `Хуб, оид ба объекти №${id} ба агент мерасонам.` },
-  hotChat: { ru: "Хорошо, передаю агенту, он ответит вам здесь.", tg: "Хуб, ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад." },
-  hotPropertyChat: {
-    ru: (id: number) => `Хорошо, передаю агенту по объекту №${id}, он ответит вам здесь.`,
-    tg: (id: number) => `Хуб, оид ба объекти №${id} ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад.`,
-  },
-  seller: {
-    ru: (pct: number) => `Да, поможем продать. Комиссия агентства ${pct}%, работаем по Душанбе.`,
-    tg: (pct: number) => `Бале, дар фурӯш кӯмак мекунем. Комиссияи агентӣ ${pct}%, дар Душанбе кор мекунем.`,
-  },
-  propertyPrice: {
-    ru: (id: number, m: string) => `Это объект №${id}, цена ${m}.`,
-    tg: (id: number, m: string) => `Ин объекти №${id}, нархаш ${m}.`,
-  },
-  propertyNoPrice: { ru: (id: number) => `Это объект №${id}.`, tg: (id: number) => `Ин объекти №${id}.` },
-  propertySold: {
-    ru: (id: number) => `Объект №${id} уже продан, агент подскажет похожие.`,
-    tg: (id: number) => `Объекти №${id} аллакай фурӯхта шуд, агент монандашро мегӯяд.`,
-  },
-  propertySoldChat: { ru: (id: number) => `Объект №${id} уже продан.`, tg: (id: number) => `Объекти №${id} аллакай фурӯхта шуд.` },
-  propertyUnknown: { ru: "Понял, о каком объекте речь.", tg: "Фаҳмидам, кадом объектро дар назар доред." },
-  buyerDistrict: {
-    ru: (d: string, m: string) => `Да, есть варианты в районе ${d} от ${m}. Агент подберёт и расскажет подробнее.`,
-    tg: (d: string, m: string) => `Бале, дар ноҳияи ${d} вариантҳо ҳастанд, аз ${m}. Агенти мо интихоб карда, муфассал мегӯяд.`,
-  },
-  buyerDistrictChat: {
-    ru: (d: string, m: string) => `Да, есть варианты в районе ${d} от ${m}.`,
-    tg: (d: string, m: string) => `Бале, дар ноҳияи ${d} вариантҳо ҳастанд, аз ${m}.`,
-  },
-  buyerAny: {
-    ru: (m: string) => `Да, есть варианты от ${m}. Агент подберёт и расскажет подробнее.`,
-    tg: (m: string) => `Бале, вариантҳо ҳастанд, аз ${m}. Агенти мо интихоб карда, муфассал мегӯяд.`,
-  },
-  buyerAnyChat: { ru: (m: string) => `Да, есть варианты от ${m}.`, tg: (m: string) => `Бале, вариантҳо ҳастанд, аз ${m}.` },
-  buyerNone: {
-    ru: "Подберём под ваш запрос, агент расскажет подробнее.",
-    tg: "Мувофиқи дархостатон интихоб мекунем, агенти мо муфассал мегӯяд.",
-  },
-  buyerNoneChat: { ru: "Понял вас.", tg: "Фаҳмидам." },
-  escalate: { ru: "Передаю ваш вопрос агенту, он свяжется с вами.", tg: "Саволатонро ба агент мерасонам, ӯ бо шумо тамос мегирад." },
-  escalateChat: { ru: "Передаю ваш вопрос агенту, он ответит вам здесь.", tg: "Саволатонро ба агент мерасонам, ӯ ҳамин ҷо ба шумо ҷавоб медиҳад." },
+/** Запасная строка свободного пути вне режима (вакансия, вырезанная фильтром подборка): с карточкой — «передал», без — офис. */
+const ESCALATE_VARIANTS = {
+  call: { ru: ["Передаю ваш вопрос агенту, он свяжется с вами.", "Передал ваш вопрос агенту, он свяжется с вами.", "Вопрос уже у агента, он свяжется с вами."],
+    tg: ["Саволатонро ба агент мерасонам, ӯ бо шумо тамос мегирад.", "Саволатонро ба агент расондам, ӯ бо шумо тамос мегирад.", "Савол аллакай дар назди агент аст, ӯ бо шумо тамос мегирад."] },
+  office: { ru: [`С этим вопросом поможет агент. Позвоните нам, пожалуйста: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Подробнее подскажет агент по телефону ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Этот вопрос лучше обсудить с агентом, наш номер: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`],
+  tg: [`Дар ин савол агент ба шумо кӯмак мекунад, рақами мо: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`,
+    `Агент бо телефони ${LEAD_ONLY_OFFICE_PHONE_TEXT} бо тафсилот мегӯяд.`,
+    `Ин саволро беҳтар аст бо агент гап занед, рақами мо: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`] },
 } as const;
 
-/** Короткие ответы на случай, когда всё остальное уже звучало (щит не выпустит третий одинаковый текст). */
+/** Короткая благодарность: последняя дверь не оставляет ответ пустым. */
 const SHORT_ACKS = {
-  ru: ["Понял вас, спасибо.", "Хорошо, понял.", "Да, понял вас."],
-  tg: ["Фаҳмидам, ташаккур.", "Хуб, фаҳмидам.", "Бале, фаҳмидам."],
+  ru: ["Понял вас, спасибо.", "Спасибо за ваше сообщение.", "Спасибо, что написали!"],
+  tg: ["Фаҳмидам, ташаккур.", "Ташаккур барои паёматон.", "Раҳмат, ки навиштед!"],
 } as const;
 
-function whenText(when: ReturnType<typeof leadOnlyCallbackWhen>, language: LeadOnlyLanguage): string {
-  if (when.kind === "soon") return "";
-  if (language === "tg") return when.kind === "today_from" ? `имрӯз аз соати ${when.from}` : `пагоҳ саҳар аз соати ${when.from}`;
-  return when.kind === "today_from" ? `сегодня с ${when.from}` : `завтра утром, с ${when.from}`;
-}
+function normalizeSent(text: string): string { return text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase(); }
 
-const OFFICE_LEAD = { ru: "Хорошо, без проблем. ", tg: "Хуб, бемалол. " } as const;
-
-/** Строка про звонок/номер. null — номер просить больше нельзя и офис уже предлагали: молчим про номер. */
-export function leadOnlyPhoneLine(phone: LeadOnlyPhoneState, when: ReturnType<typeof leadOnlyCallbackWhen>,
-  language: LeadOnlyLanguage): string | null {
-  const at = whenText(when, language);
-  if (phone.kind === "whatsapp") {
-    if (language === "tg") return at ? `Агент ${at} ба ҳамин рақам ба шумо занг мезанад, мувофиқ аст?` : "Агент ба ҳамин рақам ба шумо занг мезанад, мувофиқ аст?";
-    return at ? `Агент позвонит вам на этот номер ${at}. Удобно?` : "Агент позвонит вам на этот номер, удобно?";
-  }
-  if (phone.kind === "given") {
-    if (language === "tg") return at ? `Ташаккур, рақамро гирифтам. Агент ${at} занг мезанад.` : "Ташаккур, рақамро гирифтам. Агент ба зудӣ занг мезанад.";
-    return at ? `Спасибо, номер получил. Агент позвонит ${at}.` : "Спасибо, номер получил. Агент скоро позвонит.";
-  }
-  if (phone.kind === "card") {
-    if (language === "tg") return at ? `Агент ${at} ба шумо занг мезанад.` : "Агент ба зудӣ ба шумо занг мезанад.";
-    return at ? `Агент позвонит вам ${at}.` : "Агент скоро позвонит вам.";
-  }
-  if (phone.asksSoFar < phone.maxAsks) {
-    if (phone.asksSoFar === 0) {
-      return language === "tg" ? "Рақами телефонатонро нависед, то агент занг занад." : "Оставьте, пожалуйста, номер телефона, агент перезвонит.";
-    }
-    return language === "tg" ? "Агар мувофиқ бошад, рақаматонро нависед, агент худаш занг мезанад."
-      : "Если удобно, напишите номер, и агент позвонит сам.";
-  }
-  if (phone.officeAlreadyOffered) return null;
-  return language === "tg" ? `${OFFICE_LEAD.tg}Агар хоҳед, худатон ба мо занг занед: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`
-    : `${OFFICE_LEAD.ru}Если захотите, позвоните нам сами: ${LEAD_ONLY_OFFICE_PHONE_TEXT}.`;
-}
-
-/** Все строки-просьбы номера (для подсчёта, сколько раз уже просили). */
-export function leadOnlyPhoneAskLines(): string[] {
-  return ["Оставьте, пожалуйста, номер телефона, агент перезвонит.", "Если удобно, напишите номер, и агент позвонит сам.",
-    "Рақами телефонатонро нависед, то агент занг занад.", "Агар мувофиқ бошад, рақаматонро нависед, агент худаш занг мезанад."];
-}
-
-/**
- * Сколько раз бот уже просил номер и предлагал ли номер офиса — по своим прежним репликам.
- * Ядро обязано передавать сюда то, что РЕАЛЬНО ушло клиенту (lib/customerLeadOnlyCore.ts читает
- * отправленные части), а не память модели: в памяти ядра остаются только строки из белого списка,
- * и короткий ответ этого режима туда не попадал, отчего счётчик был всегда 0 (ревью 13.11.2026).
- */
-export function leadOnlyPhoneAskHistory(assistantTexts: readonly string[]): { asksSoFar: number; officeAlreadyOffered: boolean } {
-  const asks = leadOnlyPhoneAskLines();
-  // Прежние просьбы номера обычным путём бота тоже считаются (шаблон ядра и вольные фразы старого пути).
-  const generic = new RegExp(`(?:номер${TAIL}\\s+телефон|оставьте\\s+(?:ваш\\s+|свой\\s+)?номер|напишите\\s+(?:ваш\\s+|свой\\s+)?номер|рақам${TAIL}(?:\\s+\\S+){0,2}\\s+нависед|рақам${TAIL}\\s+мегузоред)`, "iu");
-  let asksSoFar = 0, officeAlreadyOffered = false;
-  for (const text of assistantTexts) {
-    if (asks.some(line => text.includes(line)) || generic.test(text)) asksSoFar++;
-    if (text.includes(LEAD_ONLY_OFFICE_PHONE_TEXT)) officeAlreadyOffered = true;
-  }
-  return { asksSoFar, officeAlreadyOffered };
-}
-
-export interface LeadOnlyReplyInput {
-  scenario: LeadOnlyScenario | "escalate";
-  language: LeadOnlyLanguage;
-  phone: LeadOnlyPhoneState;
-  when: ReturnType<typeof leadOnlyCallbackWhen>;
-  /** Объект из базы (сценарий 2 и горячие слова по объекту). */
-  property?: LeadOnlyPropertyFacts | null;
-  /** Сценарий 3: минимальная цена из базы, без неё — без цифр. */
-  market?: LeadOnlyMarketSummary | null;
-  /** Комиссия продавца из фактов агентства (ai/agencyFacts.ts). */
-  sellerCommissionPercent: number;
-}
-
-/** Части ответа: фраза по сути и строка про звонок/номер (её может не быть). */
-export function leadOnlyReplyParts(input: LeadOnlyReplyInput): { intro: string; phoneLine: string | null } {
-  const lang = input.language, p = input.property;
-  // Звонок обещать можно, только если у агента есть номер: WhatsApp, номер от клиента или карточка.
-  const call = input.phone.kind !== "ask";
-  let phoneLine = input.scenario === "escalate" ? null : leadOnlyPhoneLine(input.phone, input.when, lang);
-  // Номер больше не просим: звонка не будет, «передаю агенту» значит «ответит здесь».
-  const chatOnly = !call && input.phone.kind === "ask" && input.phone.asksSoFar >= input.phone.maxAsks;
-  let intro: string;
-  switch (input.scenario) {
-    case "hot":
-      intro = chatOnly ? (p ? LINES.hotPropertyChat[lang](p.shortId) : LINES.hotChat[lang]) : p ? LINES.hotProperty[lang](p.shortId) : LINES.hot[lang];
-      break;
-    case "seller": intro = LINES.seller[lang](input.sellerCommissionPercent); break;
-    case "property":
-      intro = !p ? LINES.propertyUnknown[lang] : p.sold ? (call ? LINES.propertySold : LINES.propertySoldChat)[lang](p.shortId)
-        : p.price ? LINES.propertyPrice[lang](p.shortId, money(p.price, p.currency, lang)) : LINES.propertyNoPrice[lang](p.shortId);
-      break;
-    case "buyer": {
-      const m = input.market;
-      intro = m && Number(m.minPrice) > 0
-        ? m.districtName
-          ? (call ? LINES.buyerDistrict : LINES.buyerDistrictChat)[lang](m.districtName, money(m.minPrice, m.currency, lang))
-          : (call ? LINES.buyerAny : LINES.buyerAnyChat)[lang](money(m.minPrice, m.currency, lang))
-        : call ? LINES.buyerNone[lang] : LINES.buyerNoneChat[lang];
-      break;
-    }
-    default: intro = call ? LINES.escalate[lang] : LINES.escalateChat[lang];
-  }
-  // «Хорошо, передаю агенту… Хорошо, без проблем…» — второе «хорошо» лишнее.
-  if (phoneLine && /^(?:Хорошо|Хуб)/u.test(intro)) phoneLine = phoneLine.replace(OFFICE_LEAD[lang], "");
-  return { intro: intro.replaceAll("—", ","), phoneLine: phoneLine?.replaceAll("—", ",") ?? null };
-}
-
-/** Готовый короткий ответ: одна фраза по сути и одна про звонок. Без ссылок, списков и придуманных цифр. */
-export function leadOnlyReply(input: LeadOnlyReplyInput): string {
-  const parts = leadOnlyReplyParts(input);
-  return [parts.intro, parts.phoneLine].filter(Boolean).join(" ");
-}
-
-const normalizeSent = (text: string) => text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
-
-/**
- * Тот же ответ, но без дословного повтора уже отправленного в этом разговоре. Щит исходящих
- * (lib/outboundShield.ts) не выпускает одинаковый текст в третий раз, а на транспорте его отказ
- * означает молчание. Поэтому повтор заменяется заранее: сначала строкой про звонок, потом самой
- * фразой, потом коротким «понял вас». Пустым ответ не бывает никогда.
- */
-export function leadOnlyReplyAvoidingRepeat(input: LeadOnlyReplyInput, sentTexts: readonly string[]): string {
+/** Запасная строка свободного пути (не режима): без дословного повтора уже отправленного. */
+export function leadOnlyEscalateLine(language: LeadOnlyLanguage, informed: boolean, sentTexts: readonly string[] = []): string {
   const sent = new Set(sentTexts.map(normalizeSent));
-  const parts = leadOnlyReplyParts(input);
-  const candidates = [[parts.intro, parts.phoneLine].filter(Boolean).join(" "), parts.phoneLine ?? "", parts.intro, ...SHORT_ACKS[input.language]]
-    .filter(Boolean);
-  return candidates.find(text => !sent.has(normalizeSent(text))) ?? SHORT_ACKS[input.language][SHORT_ACKS[input.language].length - 1];
+  const variants = ESCALATE_VARIANTS[informed ? "call" : "office"][language];
+  return variants.find(line => !sent.has(normalizeSent(line))) ?? variants[variants.length - 1];
 }
 
-/** Короткий ответ вместо вырезанной фильтром подборки или ссылки (старый путь); тот же смысл, что «escalate». */
-export function leadOnlyEscalateLine(language: LeadOnlyLanguage, call: boolean): string {
-  return (call ? LINES.escalate : LINES.escalateChat)[language];
+/**
+ * THE LAST DOOR of every lead-only reply (17.11.2026, one brain): «Хорошо, …» / «Хуб, …» / «Конечно» after «Скидку сделаете?»
+ * read as «да». Both routes pass the operator's final text here (lib/customerLeadOnlyCore.ts, messengers/conversation.ts): a
+ * consent opening is cut; a reply left empty becomes a neutral thanks. The operator phrases are clean (CI guard), this is the belt.
+ */
+export function leadOnlyOutgoing(text: string, language: LeadOnlyLanguage): string {
+  const cleaned = withoutAgreementOpenings(text).text.trim();
+  return cleaned || SHORT_ACKS[language][1];
+}
+
+// ── Действия ядра, которых в режиме нет ─────────────────────────────────────
+/**
+ * Записи ядра, которые зовут людей сами (пуш агенту, дежурному или собственнику): передача сотруднику, звонок,
+ * вопрос собственнику, показ (пятое ревью 13.11, №1). В режиме их нет ни в наборе модели, ни в исполнении:
+ * людей зовёт только заявка (номер), а «соедините с человеком» без номера — просьба номера или номер офиса.
+ */
+export const LEAD_ONLY_WITHHELD_CUSTOMER_WRITES: readonly string[] = Object.freeze(["request_handover", "request_callback", "ask_owner", "book_showing"]);
+export function leadOnlyWithholdsCustomerWrite(name: string): boolean {
+  return LEAD_ONLY_WITHHELD_CUSTOMER_WRITES.includes(name);
+}
+
+// ── WhatsApp: номер не спрашиваем (второй слой) ─────────────────────────────
+// В WhatsApp с рубильником «номер WhatsApp» номер отправителя и есть номер для звонка (владелец 12–13.11):
+// правило промпта запрещает модели просить номер, а этот фильтр вырезает просьбу, если она всё же прозвучала.
+// «Номер объекта / квартиры» — не телефон: такую просьбу не вырезаем (третье ревью 13.11, №3).
+const PHONE_WORD = new RegExp(`${PHONE_NUMBER_WORD}|${w(`телефон${TAIL}`)}`, "iu");
+const ASK_VERB = new RegExp(w(`оставьте|оставите|напишите|пришлите|отправьте|скиньте|дайте|подскажите|укажите|продиктуйте|` +
+  `поделитесь|нависед|гузоред|фиристед|диҳед|дихед|мегузоред|мефиристед|навиштед|гӯед|гуед`), "iu");
+// Просьба номера объекта/квартиры («номер квартиры», «рақами хона») рядом с просьбой телефона в том же предложении:
+// «Скиньте номер квартиры и ваш номер» — вырезается только просьба телефона (четвёртое ревью 13.11, №5).
+const OBJECT_NUMBER = new RegExp(`${w(`номер${TAIL}|рақам${TAIL}|ракам${TAIL}`)}\\s+(?:${OWNER_WORD}\\s+)?${NOT_PHONE_NOUN}`, "iu");
+const CLAUSE_SPLIT = new RegExp(`(,\\s*|\\s+(?:${w("и|а также|ва")})\\s+)`, "u");
+const LEADING_ASK = new RegExp(`^\\s*(?:${w("пожалуйста|лутфан")}[,\\s]+)?(${ASK_VERB.source})`, "iu");
+
+/** Предложение без просьбы телефона, если в нём есть и просьба номера объекта; null — вырезать предложение целиком. */
+function keepObjectNumberAsk(sentence: string): string | null {
+  if (!OBJECT_NUMBER.test(sentence)) return null;
+  const end = /[.!?…]+$/u.exec(sentence)?.[0] ?? "", body = sentence.slice(0, sentence.length - end.length);
+  const pieces = body.split(CLAUSE_SPLIT); // [фраза, разделитель, фраза, …]
+  const verb = LEADING_ASK.exec(pieces[0] ?? "")?.[1] ?? "";
+  const kept: string[] = [];
+  for (let i = 0; i < pieces.length; i += 2) {
+    const clause = pieces[i] ?? "";
+    if (PHONE_WORD.test(clause.replace(OBJECT_NUMBER, " "))) continue;
+    kept.push(kept.length ? `${pieces[i - 1] ?? " "}${clause}` : clause);
+  }
+  if (!kept.length) return null;
+  let out = kept.join("").trim();
+  // Глагол просьбы стоял в вырезанной части («Скиньте ваш номер и номер квартиры»): возвращаем его к оставшемуся.
+  if (verb && !ASK_VERB.test(out)) out = `${verb} ${out.charAt(0).toLowerCase()}${out.slice(1)}`;
+  return `${out.charAt(0).toUpperCase()}${out.slice(1)}${end}`;
+}
+
+export function leadOnlyStripPhoneAsk(text: string): { text: string; changed: boolean } {
+  let changed = false;
+  const lines = text.split("\n").map(line => {
+    const sentences = line.split(/(?<=[.!?])\s+/u);
+    const kept = sentences.flatMap(sentence => {
+      const ask = PHONE_WORD.test(sentence) && ASK_VERB.test(sentence) && !sentence.includes(LEAD_ONLY_OFFICE_PHONE_TEXT);
+      if (!ask) return [sentence];
+      changed = true;
+      const rest = keepObjectNumberAsk(sentence);
+      return rest ? [rest] : [];
+    });
+    return kept.join(" ");
+  });
+  return { text: changed ? lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() : text, changed };
 }
 
 // ── Фильтр ответа в коде (второй слой запрета) ──────────────────────────────

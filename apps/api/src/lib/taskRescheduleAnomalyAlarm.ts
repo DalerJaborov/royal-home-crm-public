@@ -3,7 +3,7 @@ import { sendPushToAgents } from "../push.js";
 import { createNotifications } from "./notifications.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
-import { loadTrafficLightSettings } from "./inactiveTrafficLight.js";
+import { loadLeadCallMinSeconds } from "./contactTrace.js";
 
 /**
  * СЧЁТЧИК АНОМАЛИЙ «ПЕРЕНОС ЗАДАЧИ БЕЗ КОНТАКТА» (04.09.2026, находка аудита,
@@ -58,6 +58,7 @@ async function hasRealContactBetween(clientId: string, since: Date, until: Date,
       where: {
         clientId,
         type: "CALL",
+        archiveReview: false,
         createdAt: { gt: since, lte: until },
         OR: [{ recordingDurationSec: { gte: minSeconds } }, { callAttempt: "TALKED" }],
       },
@@ -107,7 +108,7 @@ export async function noteTaskRescheduleAndAlarmIfAnomalous(input: {
     });
     if (recent.length <= ANOMALY_THRESHOLD) return;
 
-    const { leadCallMinSeconds } = await loadTrafficLightSettings();
+    const leadCallMinSeconds = await loadLeadCallMinSeconds();
     // Только что случившийся перенос сам по себе уже входит в серию — streak
     // считает СОБЫТИЯ переноса, а не промежутки между ними (та же единица
     // измерения, что и `count` в agentHandoffAnomalyAlarm.ts).

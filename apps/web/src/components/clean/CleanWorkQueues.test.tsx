@@ -43,7 +43,7 @@ describe("clean work queues", () => {
     expect(queues[0].rows[0].href).toBeUndefined();
     expect(queues[0].rows[0].detail).toBe("Ожидает ответа · 12 с");
     expect(queues[0].detail).toContain("пропущенных 1");
-    expect(queues[1].rows[0].detail).toContain("приём лидов на паузе");
+    expect(queues[1].rows[0].detail).toContain("приём заявок на паузе");
     expect(queues[1].rows[0].detail).toContain("ждут принятия 2");
     expect(queues[1].rows[0].href).toBe("/team/agent-1");
   });
@@ -91,7 +91,7 @@ describe("visual working dashboard", () => {
     expect(html).toContain("width:44px");
     expect(html).toContain("ещё 4");
     for(let i=0;i<7;i++)expect(html.match(new RegExp(`href="/team/agent-${i}"`,"g"))).toHaveLength(1);
-    for(const label of ["покупателей 4", "продавцов 6", "принято сегодня 3", "приём лидов на паузе"])expect(html).toContain(label);
+    for(const label of ["покупателей 4", "продавцов 6", "принято сегодня 3", "приём заявок на паузе"])expect(html).toContain(label);
     let anchorDepth = 0;
     for (const tag of html.matchAll(/<\/?a(?:\s[^>]*|)>/g)) { anchorDepth += tag[0].startsWith("</") ? -1 : 1; expect(anchorDepth).toBeGreaterThanOrEqual(0); expect(anchorDepth).toBeLessThanOrEqual(1); }
     expect(anchorDepth).toBe(0);
