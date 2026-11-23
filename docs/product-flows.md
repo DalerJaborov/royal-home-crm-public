@@ -1887,7 +1887,7 @@
   · читает в базе: agent
 - const until = elevatedUntil(req.agent!.id);
   · зовёт elevatedUntil()
-- res.json({ elevated: until !== null, method: agent?.totpEnabled ? "totp" : "code", expiresAt: until ? until.t…
+- res.json({ elevated: until !== null || stepUpExemptRole(agent?.role), method: agent?.totpEnabled ? "totp" : "…
   · ответ 200
 
 ### POST /api/v1/auth/step-up
