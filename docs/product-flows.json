@@ -93417,7 +93417,7 @@
           },
           {
            "k": "if",
-           "t": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
+           "t": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.statu…",
            "a": [],
            "c": [
             {

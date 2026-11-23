@@ -16,6 +16,7 @@
  */
 import { z } from "zod";
 import { BW, EW, TAIL } from "../wordBoundary.js";
+import { PROPERTY_OBJECT_STEM } from "../propertyObjectWord.js";
 import { askLeadOnlyModel, leadOnlyIntentFallback, leadOnlyQuoteFound, leadOnlyStructuredModel, LEAD_ONLY_INTENT_TIMEOUT_MS,
   type LeadOnlyIntentModel } from "../leadOnlyIntent.js";
 import { leadOnlyAgencyFeeQuestion, leadOnlyPhoneRefused } from "../leadOnlyMode.js";
@@ -62,7 +63,7 @@ const recentClientWords = (input: OperatorTurnInput) =>
 
 /** «Эта квартира», «ин хона», «этот объект» — клиент говорит о конкретном объекте (сложенный алфавит). */
 const THIS_PROPERTY = new RegExp(`${BW}(?:эт(?:а|у|от|ой|ого|ом|и)|ин|хамин)${EW}\\s+(?:квартир${TAIL}|дом${TAIL}|хона${TAIL}|хавли${TAIL}|` +
-  `объект${TAIL}|вариант${TAIL}|участ${TAIL})`, "u");
+  `${PROPERTY_OBJECT_STEM}${TAIL}|вариант${TAIL}|участ${TAIL})`, "u");
 const PRICE_WORD = new RegExp(`${BW}(?:сколько|скока|цена|цену|стои${TAIL}|почем|нарх${TAIL}|чанд)${EW}`, "u");
 /**
  * «Где находится», «кадом тараф», «дар куҷо», «адрес», «какой район» — вопрос о месте (сложенный алфавит; 21.11.2026, прод:
@@ -70,7 +71,7 @@ const PRICE_WORD = new RegExp(`${BW}(?:сколько|скока|цена|цен
  */
 const PLACE_WORD = new RegExp(`${BW}(?:кадом|кодом|кадум|чи|кай)\\s+(?:тараф${TAIL}|чо${TAIL}|чой${TAIL}|нохи${TAIL}|район${TAIL}|махал${TAIL}|кисм${TAIL})` +
   `|${BW}(?:дар\\s+)?кучо(?:ст|й|ай|и)?${EW}|${BW}(?:адрес${TAIL}|сурога${TAIL}|локаци${TAIL}|ориентир${TAIL}|расположен${TAIL})` +
-  `|${BW}где\\s+(?:находит${TAIL}|это|он|она|расположен${TAIL}|дом${TAIL}|квартир${TAIL}|участ${TAIL}|объект${TAIL})|${BW}(?:в\\s+)?как(?:ой|ом)\\s+район${TAIL}`, "u");
+  `|${BW}где\\s+(?:находит${TAIL}|это|он|она|расположен${TAIL}|дом${TAIL}|квартир${TAIL}|участ${TAIL}|${PROPERTY_OBJECT_STEM}${TAIL})|${BW}(?:в\\s+)?как(?:ой|ом)\\s+район${TAIL}`, "u");
 /** Хочет посмотреть объект: «показ», «посмотреть», «дидан», «бинам», «нишон диҳед» (сложенный алфавит; 21.11.2026). */
 const SHOWING_WORD = new RegExp(`${BW}(?:показ${TAIL}|покаж${TAIL}|посмотр${TAIL}|смотрет${TAIL}|увидет${TAIL}|просмотр${TAIL}|дидан${TAIL}|` +
   `бинам|бинем|бинем|тамошо${TAIL}|нишон\\s+(?:дихед|медихед|дихетон|дод${TAIL}))${EW}`, "u");
@@ -84,6 +85,18 @@ const AGREE_WORD = new RegExp(`^(?:да|ха|хо|бале|хоп|майли|м�
 const DECLINE_WORD = new RegExp(`^(?:(?:да|ха|ну)\\s+)?(?:нет|неа|не-не|не)(?:\\s|$)` +
   `|${BW}(?:не\\s+(?:надо|нужно|нуждаюсь|сейчас|звон${TAIL}|перезван${TAIL}|хочу|интересн${TAIL})|ненадо|пока\\s+нет|` +
   `(?:лозим|даркор|холо|хозир)\\s+(?:не|нест)|намехох${TAIL}|занг\\s+назан${TAIL}|нахох${TAIL})${EW}`, "u");
+/**
+ * Отказ целиком, без дела в том же сообщении: «Не. Рахмат», «нет спасибо», «не, раҳмат», «не надо», «лозим нест», «намехоҳам»
+ * (сложенный алфавит; разбор суток 23.11.2026, C1 — на такой ответ бот снова спросил «купить или продать?»). Все слова — из
+ * отказа и вежливости, и хотя бы одно — само отказ. «Нет, хочу узнать цену» сюда не попадает: там дело.
+ */
+const REFUSAL_NEGATION = new Set(["нет", "неа", "не", "ненадо", "нест", "намехохам", "намехохем", "нахохам", "лозим", "даркор"]);
+const REFUSAL_POLITE = new Set([...REFUSAL_NEGATION, "да", "ха", "ну", "надо", "нужно", "интересно", "хочу", "сейчас", "пока", "спасибо",
+  "спс", "благодарю", "рахмат", "ташаккур", "холо", "хозир", "ака", "апа", "брат", "бародар", "кор", "мне", "уже", "все", "всё"]);
+function refusalOnly(folded: string): boolean {
+  const words = folded.split(" ").filter(Boolean);
+  return words.length > 0 && words.length <= 5 && words.every(word => REFUSAL_POLITE.has(word)) && words.some(word => REFUSAL_NEGATION.has(word));
+}
 /**
  * Вопрос, на который фактов у бота нет (часовая сверка 21.11.2026, da83282b: «…хонахои бо таъмир ипотека медихад ё на» →
  * голая просьба номера): ипотека, кредит, рассрочка, документы, нотариус, оформление, юрист (сложенный алфавит).
@@ -121,8 +134,24 @@ function russianGuess(own: string): OperatorLanguage | null {
   return RUSSIAN_SENTENCE.test(folded) || /[?؟]/u.test(own) ? "ru" : null;
 }
 
+/**
+ * Слова, общие для русского и таджикского чата («не», «нет», «да», «ха», «ок»): по ним одним язык не решаем. «Не. Рахмат»
+ * (разбор суток 23.11.2026, C1) — таджикский отказ, а русской фразой его считало одно «не», и ответ ушёл по-русски.
+ */
+const SHARED_SHORT_WORDS = new RegExp(`${BW}(?:не|нет|да|ха|а|и|ок|окей)${EW}`, "gu");
+/** Таджикские слова, а «русская фраза» — только из общих слов («Не. Рахмат», «не, раҳмат»): язык таджикский, что бы ни сказал
+ *  детектор (он считает «не» русским словом). */
+function tajikOnlyWords(own: string): boolean {
+  const folded = foldCustomerTextForRole(own);
+  return TAJIK_WORD.test(folded) && !RUSSIAN_SENTENCE.test(folded.replace(SHARED_SHORT_WORDS, " "));
+}
+/** Подсказка «таджикский», когда детектор языка промолчал: таджикские буквы или таджикские слова без русской фразы. */
+function tajikHint(own: string): OperatorLanguage | null {
+  return TAJIK_LETTER.test(own) || tajikOnlyWords(own) ? "tg" : null;
+}
+
 /** Слово о жилье рядом с вопросом о месте: «хони заминитон», «эта квартира», «дом». */
-const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|объект${TAIL}|обект${TAIL})`, "u");
+const HOUSE_WORD = new RegExp(`${BW}(?:хон(?:а|и|е)${TAIL}|хавли${TAIL}|замин${TAIL}|квартир${TAIL}|дом${TAIL}|участ${TAIL}|${PROPERTY_OBJECT_STEM}${TAIL})`, "u");
 /** «Вы бот?», «это робот?», «шумо бот?» — вопрос о том, с кем говорит клиент (сложенный алфавит). */
 const BOT_WORD = new RegExp(`${BW}(?:бот|робот|bot|нейросет${TAIL}|chatgpt)${EW}`, "u");
 const PERSON_WORD = new RegExp(`${BW}(?:живо${TAIL}\\s+человек${TAIL}|одами\\s+зинда)`, "u");
@@ -197,6 +226,18 @@ const STATUS_QUESTION = new RegExp(`${BW}(?:когда|скоро\\s+ли|кай
 const HOURS_QUESTION = new RegExp(`${BW}(?:график${TAIL}|до\\s+скольки|часы\\s+работ${TAIL}|соати\\s+кор${TAIL}|вакти\\s+кор${TAIL}|вақти\\s+кор${TAIL})` +
   `|${BW}(?:когда|кай)${EW}[^.!?]{0,20}(?:работ${TAIL}|кор\\s+мекун${TAIL}|открыт${TAIL})`, "u");
 
+/**
+ * В словах ЭТОГО сообщения есть вопрос (код): «?», вопросительное слово или частица, цена, место, время работы, статус, тема
+ * для агента. Нужен, чтобы утверждение («Покупаем», «Купит квартира») не считалось вопросом (разбор суток 23.11.2026, C8/C10).
+ */
+function codeQuestionSignal(own: string, folded: string): boolean {
+  return /[?؟]/u.test(own) || QUESTION_HINT.test(folded) || PRICE_WORD.test(folded) || PLACE_WORD.test(folded) ||
+    STATUS_QUESTION.test(folded) || HOURS_QUESTION.test(folded) || AGENT_TOPIC.test(folded) || QUESTION_WORD.test(folded) ||
+    // «Квартира продаётся», «бо савдо», «фурӯхта шуд» без «?» — вопрос о статусе и торге объекта (как в focusPropertyQuestion).
+    STATUS_OR_BARGAIN.test(foldCustomerTextForRole(own));
+}
+const QUESTION_WORD = new RegExp(`${BW}(?:как|какой|какая|какие|где|когда|почему|зачем|сколько|чи|чихел${TAIL}|кадом|кай|чаро|кучо)${EW}`, "u");
+
 /** Общая часть понимания — только код: номер, вложения, вежливость, кнопка рекламы, язык, запреты владельца. */
 function codeFacts(input: OperatorTurnInput) {
   const own = clientOwnWords(input.current).trim();
@@ -214,8 +255,8 @@ function codeFacts(input: OperatorTurnInput) {
   return {
     own, folded, phone, letters, adOpener, attachments,
     hasText: letters >= 2 || !!phone,
-    language: letters >= 2 && !neutral && !adOpener ? customerDmDialogueLanguage([own]) ?? russianGuess(own) : null,
-    languageHint: letters >= 1 ? resolveCustomerDmLanguage(own) : null,
+    language: letters >= 2 && !neutral && !adOpener ? (tajikOnlyWords(own) ? "tg" : customerDmDialogueLanguage([own]) ?? russianGuess(own)) : null,
+    languageHint: letters >= 1 ? tajikHint(own) ?? resolveCustomerDmLanguage(own) : null,
     contextLanguage: operatorContextLanguage(input.recent),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
@@ -234,7 +275,9 @@ function codeFacts(input: OperatorTurnInput) {
     showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
     // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
     agrees: AGREE_WORD.test(folded) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
+    refusalOnly: refusalOnly(folded) && !/[?؟]/u.test(own),
     quote: own.replace(/\s+/gu, " ").slice(0, 200),
+    questionSignal: codeQuestionSignal(own, folded),
   };
 }
 
@@ -294,7 +337,8 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     job: { asked: null, openKey: position?.key ?? null },
     attachments: code.attachments, hasText: code.hasText, outsidePlace: outsidePlaceOf(code.own), quote: code.quote,
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
-    showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
+    showing: code.showing, agrees: code.agrees, declines: code.declines || code.refusalOnly, refusalOnly: code.refusalOnly,
+    roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
     agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
@@ -308,9 +352,13 @@ function ownHouseOnly(role: Understanding["role"], code: ReturnType<typeof codeF
   return signals.ownHouse && !signals.sell && !signals.buyStrong && !signals.buyWeak && !EXCHANGE_WORD.test(foldCustomerTextForRole(code.own));
 }
 
-/** Покупатель только по вопросу («Квартира продаётся?», «нархаш чанд?»), без явных слов покупки: это ещё не интерес к звонку. */
-function roleByQuestion(role: Understanding["role"], question: OperatorQuestion, own: string): boolean {
-  return role === "buyer" && question !== "none" && customerRoleSignals(own).strong !== "buyer" && !customerRoleSignals(own).buyWeak;
+/**
+ * Покупатель только по вопросу («Квартира продаётся?», «нархаш чанд?»), без явных слов покупки: это ещё не интерес к звонку.
+ * Утверждение без вопроса («Купит квартира», «Покупаем») — роль словами, а не вопрос (разбор суток 23.11.2026, C10: модель
+ * пометила его вопросом из-за кнопки рекламы выше, и интерес отменился — «Это точно скажет агент» вместо заявки).
+ */
+function roleByQuestion(role: Understanding["role"], question: OperatorQuestion, own: string, questionSignal: boolean): boolean {
+  return role === "buyer" && question !== "none" && questionSignal && customerRoleSignals(own).strong !== "buyer" && !customerRoleSignals(own).buyWeak;
 }
 
 /**
@@ -499,7 +547,13 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   const position = role === "job" ? selectedRecruitmentPosition(ctx.vacancies.open, [code.own, asked ?? ""].join(" ")) : null;
 
   // Вопрос о статусе и о часах код узнаёт и сам: модель промолчала — берём вопрос запасных правил.
-  const question: OperatorQuestion = code.fee ? "fee" : answer.question === "none" && fallback.question !== "other" ? fallback.question : answer.question;
+  let question: OperatorQuestion = code.fee ? "fee" : answer.question === "none" && fallback.question !== "other" ? fallback.question : answer.question;
+  // Кнопка рекламы («Можно узнать об этом подробнее?») в недавних словах клиента — не источник вопроса: в этом сообщении
+  // вопроса нет ни знаком, ни словом («Покупаем», «Купит квартира») — вопроса нет (разбор суток 23.11.2026, C8/C10).
+  if (question !== "none" && question !== "fee" && !code.questionSignal && fallback.question === "none" &&
+    (input.recent ?? []).some(turn => turn.role === "user" && isAdTemplateOpener(clientOwnWords(turn.text)))) {
+    rejected.push("question"); question = "none";
+  }
   const preference = { textOnly: answer.textOnly || fallback.callback.textOnly, noCall: (answer.noCall || fallback.callback.noCall) && !answer.textOnly };
   return {
     rejected,
@@ -507,9 +561,10 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       source: "model", role, question: question === "none" && code.agentTopic ? "other" : question,
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
-      showing: code.showing, agrees: code.agrees, declines: code.declines, ...(roleConflict ? { roleConflict: true } : {}),
+      showing: code.showing, agrees: code.agrees, declines: code.declines || code.refusalOnly, refusalOnly: code.refusalOnly,
+      ...(roleConflict ? { roleConflict: true } : {}),
       agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
-      roleByQuestion: roleByQuestion(role, question, code.own),
+      roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.
@@ -518,7 +573,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       // с признаками языка или явная просьба). 19.11 модель назвала русским таджикское «телефон номера нависед» (маркер
       // «нависед»), и ответ ушёл по-русски. Латиница («Skolko stoit kvartira?») и текст без признаков — решает модель, как
       // раньше; модель промолчала — прежнее слово кода.
-      language: groundedCustomerDmLanguage(code.own)
+      // «Не. Рахмат»: таджикские слова и одно общее «не» — таджикский, даже если детектор ручается за русский (разбор 23.11, C1).
+      language: (code.language === "tg" && tajikOnlyWords(code.own) ? "tg" : null) ?? groundedCustomerDmLanguage(code.own)
         ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language) ?? code.language,
       languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
@@ -542,7 +598,10 @@ export async function understandTurn(input: OperatorTurnInput, state: OperatorSt
   const own = clientOwnWords(input.current).trim();
   // Номер, эмодзи, вложение без слов, готовая кнопка рекламы: спрашивать модель не о чем.
   if (letterCount(own) < 2 || isAdTemplateOpener(own)) return understandFallback(input, state, ctx);
-  const recent = (input.recent ?? []).slice(-MAX_RECENT).map(turn => ({ from: turn.role === "user" ? "client" : "bot",
+  // Кнопка рекламы — не слова клиента (SPEC, строка 12): в контекст модели её не даём, иначе её «вопрос» прилипает к
+  // следующему сообщению («Покупаем» → «это точно скажет агент», разбор суток 23.11.2026, C8).
+  const recent = (input.recent ?? []).filter(turn => !(turn.role === "user" && isAdTemplateOpener(clientOwnWords(turn.text))))
+    .slice(-MAX_RECENT).map(turn => ({ from: turn.role === "user" ? "client" : "bot",
     text: (turn.role === "user" ? clientOwnWords(turn.text) : turn.text).slice(0, 300) }));
   const raw = await askLeadOnlyModel(model, { system: OPERATOR_UNDERSTAND_SYSTEM, conversationId: input.conversationId ?? null,
     user: JSON.stringify({ channel: ctx.channel, conversation: { role: state.role, step: state.step, language: state.language },

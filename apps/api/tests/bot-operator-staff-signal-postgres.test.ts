@@ -31,6 +31,7 @@ const runId = `sig-${randomUUID().slice(0, 8)}`;
 const convIds: string[] = [];
 const clientIds: string[] = [];
 const adIds: string[] = [];
+const propertyIds: string[] = [];
 let agentId = "";
 
 async function chat(opts: { card?: "agent" } = {}) {
@@ -56,6 +57,7 @@ beforeEach(() => { vi.clearAllMocks(); mocks.leadOnlyOn = true; mocks.answersIts
 afterAll(async () => {
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { in: convIds.map((id) => `client-waiting-${id}`) } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: convIds } } });
+  await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
   await prisma.ad.deleteMany({ where: { id: { in: adIds } } });
@@ -100,6 +102,41 @@ describe("дверь «клиент ждёт»: решение оператор�
     await prisma.botConversation.update({ where: { id }, data: { silenceAlertFor: new Date(Date.now() - 3_600_000) } });
     mocks.answersItself = true;
     expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "complaint", since: new Date() })).toBe("director");
+  });
+
+  it("разбор 23.11 (C6): жалоба продавца без закреплённого агента — агенту ЕГО объекта и копией РОПу, а не только руководству", async () => {
+    const id = await chat({ card: "agent" });
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    await prisma.client.update({ where: { id: conv.clientId! }, data: { assignedAgentId: null } });
+    const property = await prisma.property.create({ data: { title: `Квартира ${runId}`, type: "APARTMENT", condition: "GOOD", areaSqm: 80, price: 400000,
+      sellerClientId: conv.clientId!, assignedAgentId: agentId } });
+    propertyIds.push(property.id);
+    expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "complaint" })).toBe("agent");
+    expect(mocks.push).toHaveBeenCalledWith(agentId, expect.objectContaining({ title: "💬 Жалоба клиента" }));
+    expect(await leadershipAlerts(id)).toMatchObject([{ title: "💬 Жалоба клиента", recipientRoles: ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"], excludeAgentId: agentId }]);
+  });
+
+  it("разбор 23.11 (C6): без агента карточки и объекта жалоба идёт тому, кто вёл клиента последним (+ копия руководству)", async () => {
+    const id = await chat({ card: "agent" });
+    const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    await prisma.client.update({ where: { id: conv.clientId! }, data: { assignedAgentId: null, lastAgentId: agentId } });
+    expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "complaint" })).toBe("agent");
+    // Обычное «агент уточнит» прежнему агенту не идёт: клиента у него забрали, беспокоить его по рядовому поводу не надо.
+    const routine = await chat({ card: "agent" });
+    const routineConv = await prisma.botConversation.findUniqueOrThrow({ where: { id: routine }, select: { clientId: true } });
+    await prisma.client.update({ where: { id: routineConv.clientId! }, data: { assignedAgentId: null, lastAgentId: agentId } });
+    vi.clearAllMocks();
+    expect(await alertClientWaiting({ conversationId: routine, trigger: "follow_up", staffReason: "unclear" })).toBe("director");
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("разбор 23.11 (C6): обещание связаться не выполнено — агенту пушем и копией РОПу, текст называет причину", async () => {
+    const id = await chat({ card: "agent" });
+    expect(await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "promise_unkept" })).toBe("agent");
+    expect(mocks.push).toHaveBeenCalledWith(agentId, expect.objectContaining({ title: "💬 Клиенту обещали связаться" }));
+    const [alert] = await leadershipAlerts(id);
+    expect(alert).toMatchObject({ title: "💬 Клиенту обещали связаться, никто не связался", recipientRoles: ["HEAD_OF_SALES", "DIRECTOR", "ADMIN"], urgent: false });
+    expect(alert!.body).toContain("клиенту обещали связаться, ни звонка, ни ответа в переписке так и не было");
   });
 
   it("две жалобы на одну реплику одновременно — один сигнал (ключ эпизода — время реплики)", async () => {

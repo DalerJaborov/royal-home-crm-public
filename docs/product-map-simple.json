@@ -373,7 +373,7 @@
   "narration.some(version => version.status === \"GENERATING\")",
   "narrationHash(current.plan) !== parsed.data.planHash",
   "narrationPlannerOpen(config, key)",
-  "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
+  "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.statu…",
   "needsReadReceipt(bot)",
   "needsReadReceipt(tg)",
   "next.address && next.address !== base.address",
@@ -68104,11 +68104,11 @@
            "more": true
           },
           {
-           "t": "если need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
+           "t": "если need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.statu…",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: \"bot_choice\" }))",
+           "raw": "need === \"no\" || (need === \"human\" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.statu…",
            "more": true
           }
          ]

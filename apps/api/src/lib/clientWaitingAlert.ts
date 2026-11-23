@@ -216,8 +216,25 @@ interface WaitingChat {
   hasCard: boolean;
 }
 
-const activeAgent = (client: { assignedAgent: { id: string; isActive: boolean } | null } | null | undefined) =>
-  client?.assignedAgent?.isActive ? client.assignedAgent.id : null;
+type WaitingClient = { id: string; assignedAgent: { id: string; isActive: boolean } | null;
+  lastAgent: { id: string; isActive: boolean } | null } | null | undefined;
+/** Поводы, где клиенту уже обещан человек: без закреплённого агента зовём и того, кто вёл клиента последним. */
+const PERSON_PROMISED: ReadonlySet<OperatorStaffReason> = new Set(["complaint", "promise_unkept"]);
+
+/**
+ * ЧЕЙ ЭТО КЛИЕНТ (разбор суток 23.11.2026, C6: жалоба собственника «Апи Сурае не отвечает» ушла только руководству — у
+ * карточки продавца нет закреплённого агента, хотя его объект ведёт агент). Действующий: закреплённый агент карточки → агент
+ * объекта, который этот клиент продаёт (Property.sellerClientId, свежий) → для жалобы и невыполненного обещания — агент,
+ * который вёл клиента последним (Client.lastAgentId). Никого — null (руководство).
+ */
+async function responsibleAgent(client: WaitingClient, staffReason: OperatorStaffReason | null): Promise<string | null> {
+  if (!client) return null;
+  if (client.assignedAgent?.isActive) return client.assignedAgent.id;
+  const property = await prisma.property.findFirst({ where: { sellerClientId: client.id, deletedAt: null, assignedAgent: { isActive: true } },
+    orderBy: { updatedAt: "desc" }, select: { assignedAgentId: true } }).catch(() => null);
+  if (property?.assignedAgentId) return property.assignedAgentId;
+  return staffReason && PERSON_PROMISED.has(staffReason) && client.lastAgent?.isActive ? client.lastAgent.id : null;
+}
 
 /**
  * Opting out means «the bot does not write first» (messengers/conversation.ts): it silences the bot's own nudges (`silence`,
@@ -239,7 +256,8 @@ const LEAD_ONLY_QUIET: ReadonlySet<ClientWaitingTrigger> = new Set(["follow_up",
 
 async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: ClientWaitingTrigger, jobTopic = false,
   staffReason: OperatorStaffReason | null = null): Promise<WaitingChat | null> {
-  const client = { select: { fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } } } } as const;
+  const client = { select: { id: true, fullName: true, deletedAt: true, assignedAgent: { select: { id: true, isActive: true } },
+    lastAgent: { select: { id: true, isActive: true } } } } as const;
   if (source === "bot") {
     const chat = await prisma.botConversation.findUnique({
       where: { id },
@@ -252,7 +270,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
       openId: chat.id,
       name: chat.client?.fullName?.trim() || chat.name?.trim() || `клиент из ${CHANNEL_NAME[chat.channel] ?? chat.channel}`,
       messages: chat.messages,
-      agentId: activeAgent(chat.client),
+      agentId: await responsibleAgent(chat.client, staffReason),
       replyHint: "Ответьте клиенту.",
       lastAlertAt: previous,
       clientId: chat.clientId,
@@ -279,7 +297,7 @@ async function loadWaitingChat(source: WaitingChatSource, id: string, trigger: C
     openId: `${source === "telegram" ? TG_PREFIX : TG_DIRECT_PREFIX}${chat.id}`,
     name: chat.client?.fullName?.trim() || (chat.username ? `@${chat.username}` : "клиент из Telegram"),
     messages: chat.messages,
-    agentId: activeAgent(chat.client),
+    agentId: await responsibleAgent(chat.client, staffReason),
     // Telegram Direct из CRM не отвечает (инбокс: canReply=false) — честно говорим, где отвечать.
     replyHint: source === "telegram" ? "Ответьте клиенту." : "Ответьте клиенту в Telegram — из CRM в эту переписку ответить нельзя.",
     lastAlertAt: null,
@@ -392,6 +410,8 @@ export async function alertClientWaiting(input: {
       ? `${name}: клиент снова пишет после жалобы или грубости; бот молчит. ${answerHint}`
       : staffReason === "repeat_question"
       ? `${name}: клиент повторяет тот же вопрос (где работаем, часы, кто мы); бот второй раз отвечать не стал. ${answerHint}`
+      : staffReason === "promise_unkept"
+      ? `${name}: клиенту обещали связаться, ни звонка, ни ответа в переписке так и не было, а он снова пишет. Бот второй раз не обещает. ${answerHint}`
       : staffReason === "no_phone"
       ? `${name}: клиент пишет, но номер не оставил; бот дал номер офиса и больше не просит. ${answerHint}`
       : input.trigger === "follow_up"
@@ -422,21 +442,25 @@ export async function alertClientWaiting(input: {
       // в колокольчике, без пуша (общий список «ждут человека»; дневная сводка — ветка Б). Жалоба — ещё и копией руководству.
       const writer = staffReason === "staff_thread" ? await activeAgentOrNull(lastStaffWriterId(chat.messages)) : null;
       const target = writer ?? agent;
-      const promisedPerson = staffReason === "complaint" || staffReason === "rude";
-      const toLeadership = staffReason === "complaint" || (!target && promisedPerson);
+      const promisedPerson = staffReason === "complaint" || staffReason === "rude" || staffReason === "promise_unkept";
+      // Жалоба и невыполненное обещание связаться — агенту И копией руководству (РОП, директор, админ): агент уже не справился.
+      const toLeadership = staffReason === "complaint" || staffReason === "promise_unkept" || (!target && promisedPerson);
       if (!target && !toLeadership) {
         const leaders = await leadershipAgentIds();
         if (!leaders.length) throw new Error("нет ни агента, ни руководства для сигнала");
         await createNotificationsStrict(leaders, { kind: "message", title: "💬 Клиент ждёт человека", body, url, tag });
         return "director";
       }
-      const queued = toLeadership ? await enqueueDirectorAlert({ title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа, агента нет",
+      const leadershipTitle = staffReason === "complaint" ? "💬 Жалоба клиента"
+        : staffReason === "promise_unkept" ? "💬 Клиенту обещали связаться, никто не связался" : "💬 Клиент ждёт ответа, агента нет";
+      const queued = toLeadership ? await enqueueDirectorAlert({ title: leadershipTitle,
         body, url, kind: "message", level: "CRITICAL", severity: "info", tag, recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
         ...(target ? { excludeAgentId: target } : {}) }) : false;
       let agentTold = false;
       if (target) {
         try {
-          await sendPushToAgent(target, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента" : "💬 Клиент ждёт ответа",
+          await sendPushToAgent(target, { kind: "message", level: "CRITICAL", title: staffReason === "complaint" ? "💬 Жалоба клиента"
+            : staffReason === "promise_unkept" ? "💬 Клиенту обещали связаться" : "💬 Клиент ждёт ответа",
             body, url, tag });
           agentTold = true;
         } catch (err) {

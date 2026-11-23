@@ -183,7 +183,9 @@ describe("runCommentNeedsHumanSweep", () => {
 
   it("197-2: список техотказов — один с ядром; «не смог подтвердить данными» зовёт человека и при выключенном рубильнике", () => {
     expect(commentNeed("FAILED", "managed_core:failed:unsupported_decision_evidence")).toBe("human");
-    expect(commentNeed("FAILED", "managed_core:failed:round_limit")).toBe("technical");
+    // Разбор суток 23.11.2026 (K17–K18): предел шагов — бот запутался в вопросе, а не сбой; человеку и при выключенном рубильнике.
+    expect(commentNeed("FAILED", "managed_core:failed:round_limit")).toBe("human");
+    expect(commentNeed("FAILED", "managed_core:failed:turn_deadline")).toBe("technical");
   });
 
   it("192-6: много комментариев за тик — одна сводка, а не пуш на каждый", async () => {
