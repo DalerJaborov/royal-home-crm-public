@@ -26,6 +26,7 @@ export type StaffSecurityChange =
   | "frozen"
   | "handover"
   | "deactivated"
+  | "reactivated"
   | "deleted"
   | "reset2fa"
   | "lockout";
@@ -41,6 +42,8 @@ const TITLES: Record<StaffSecurityChange, string> = {
   frozen: "❄️ Сотрудник заморожен",
   handover: "📦 Переданы дела",
   deactivated: "🚫 Учётка отключена",
+  // 23.11.2026: включение обратно без кода (Шабнам) не должно тихо возвращать уволенного.
+  reactivated: "♻️ Учётка включена снова",
   deleted: "🗑 Сотрудник удалён",
   reset2fa: "🔐 Сброшен Google Authenticator",
   lockout: "⛔ Неверные коды Google Authenticator",

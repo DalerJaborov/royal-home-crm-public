@@ -7414,6 +7414,12 @@ model Settings {
   /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
   /// @default(false) нарочно: после выката выключено, включает человек.
   securityAutomationEnabled             Boolean @default(false)
+  /// КОД GOOGLE AUTHENTICATOR ДЛЯ ДЕЙСТВИЙ С СОТРУДНИКАМИ В TELEGRAM (владелец 23.11.2026:
+  /// «шабнам добавляла и удаляла сотрудников из Телеграма директора без всяких разрешений»).
+  /// Выключен — директор в своей личке с Шабнам добавляет, отключает сотрудников и меняет права
+  /// одной кнопкой, без кода (apps/api/src/lib/assistantStaffStepUpWaiver.ts). Подписи —
+  /// packages/shared/src/assistantStaffTotpSwitch.ts. @default(false) — решение владельца.
+  assistantStaffTotpEnabled             Boolean @default(false)
   /// ВЫКЛЮЧАТЕЛИ «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти
   /// функции, просто сделать переключатели»). Список, подписи и группы —
   /// packages/shared/src/automationSwitches.ts, проверка — apps/api/src/lib/automationSwitches.ts.
@@ -11472,6 +11478,19 @@ model AssistantTelegramGroup {
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
   context             AssistantTelegramContext[]
+}
+
+/// Кто нажал /start или написал «меню» в ещё НЕ подключённой группе (23.11.2026). Когда группу
+/// подключат, Шабнам одним сообщением отметит их: «вы нажимали /start, теперь я здесь». Только эти
+/// поля, не дольше 48 часов (ASSISTANT_START_PRESS_TTL_MS), одна строка на человека в группе.
+model AssistantGroupStartPress {
+  chatId         String
+  telegramUserId String
+  telegramName   String   @default("")
+  pressedAt      DateTime @default(now())
+
+  @@id([chatId, telegramUserId])
+  @@index([pressedAt])
 }
 
 /// Recent, source-scoped evidence from an explicitly opted-in work group.

@@ -333,7 +333,7 @@ describe("ADMIN наравне с DIRECTOR — раздача прав, роли
     const res = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ fullName: "Права Обход", phone: `+992964${runId}`, role: "ADMIN", password });
+      .send({ fullName: "Права Обход", phone: `+992964${String(runId).slice(-6)}`, role: "ADMIN", password });
     expect(res.status).toBe(201);
     await prisma.agent.deleteMany({ where: { id: res.body.id } });
   });
@@ -342,7 +342,7 @@ describe("ADMIN наравне с DIRECTOR — раздача прав, роли
     const createAsAdmin = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ fullName: "Права Директор-обход", phone: `+992966${runId}`, role: "DIRECTOR", password });
+      .send({ fullName: "Права Директор-обход", phone: `+992966${String(runId).slice(-6)}`, role: "DIRECTOR", password });
     expect(createAsAdmin.status).toBe(403);
 
     const patchAsAdmin = await request(app)
@@ -356,7 +356,7 @@ describe("ADMIN наравне с DIRECTOR — раздача прав, роли
     const created = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ fullName: "Права Обычный", phone: `+992965${runId}`, role: "AGENT", password });
+      .send({ fullName: "Права Обычный", phone: `+992965${String(runId).slice(-6)}`, role: "AGENT", password });
     expect(created.status).toBe(201);
     const patched = await request(app)
       .patch(`/api/v1/agents/${created.body.id}`)

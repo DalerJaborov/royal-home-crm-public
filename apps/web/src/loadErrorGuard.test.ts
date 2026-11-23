@@ -116,6 +116,7 @@ const REASONED: Record<string, string> = {
 /** Осознанные исключения по ОДНОМУ запросу (ключ «файл::запрос»), с причиной; файловые — в REASONED выше. */
 const REASONED_KEYS: Record<string, string> = {
   "pages/Properties.tsx::health=usePropertiesHealth": "значок состояния у строки: нет значка — нет значка; упавшие побочные запросы каталога показывает общая строка",
+  "pages/settings/SystemTab.tsx::{ data: settings }=useSettings#5": "AssistantStaffTotpSection: SettingsLoadError над вкладкой; без настроек переключатель не рисуется",
 };
 
 const baseline: Set<string> = new Set(existsSync(BASELINE_URL) ? (JSON.parse(readFileSync(BASELINE_URL, "utf8")) as string[]) : []);

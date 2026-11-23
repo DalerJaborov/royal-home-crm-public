@@ -43,7 +43,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../db.js": { prisma: db },
     // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
     "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
-    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
+    "./assistantStepUp.js": { bundleNeedsStepUp: async () => false, bundleNeedsStepUpByIds: async () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: noop, editMessageText: noop, answerCallbackQuery: answer },
     // Константы модуля (потолок очереди помощницы) читаются при загрузке — общий пакет целиком.
     "@royal-home/shared": { ...shared, isReadOnlyRole: (role: string) => role === "SHAREHOLDER" },
