@@ -1107,7 +1107,7 @@ export interface TelegramIncomingMessage extends TelegramMedia {
   };
   /** id нужен сверке «визитка — своя»: нативная кнопка request_contact несёт
    *  contact.user_id отправителя, чужая визитка из телефонной книги — нет. */
-  from?: { id?: number; username?: string; first_name?: string; is_bot?: boolean };
+  from?: { id?: number; username?: string; first_name?: string; last_name?: string; is_bot?: boolean };
   /** Сообщение от имени канала или группы (анонимный админ, «от лица канала»). */
   sender_chat?: { id: number; type?: string };
   text?: string;

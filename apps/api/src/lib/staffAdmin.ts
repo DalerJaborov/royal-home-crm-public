@@ -16,6 +16,7 @@ import {
   supervisorLeadPauseSchema,
   type PermissionId,
   type Role,
+  staffPhoneLookupForms,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { setKindMuted } from "./notificationPrefs.js";
@@ -350,7 +351,7 @@ export async function createStaffMember(actor: StaffActor, raw: unknown, opts?: 
   const roleDenied = forbiddenRoleGrant(actor, undefined, rest.role);
   if (roleDenied) return fail(403, roleDenied);
 
-  const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+  const existing = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) } } });
   if (existing) return fail(409, "Агент с таким телефоном уже существует");
 
   // Внутренний номер выдаётся сам, если директор не вписал его вручную: сотрудник
@@ -438,7 +439,7 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   // Телефон — логин сотрудника и уникален (аудит 23.09.2026, №63).
   if (rest.phone) {
     const holder = await prisma.agent.findFirst({
-      where: { phone: rest.phone, id: { not: targetId } },
+      where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id: { not: targetId } },
       select: { fullName: true },
     });
     if (holder) return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);

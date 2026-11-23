@@ -15,7 +15,7 @@ import { isTransientDbError } from "../lib/concurrency.js";
 import { logSystemError } from "../lib/systemError.js";
 import { clearLoginFailures, recordLoginFailure, throttleLoginIfNeeded } from "../lib/loginThrottle.js";
 import { ackLoginCodePush, issueLoginCode, maskPhoneForHint, verifyLoginCode } from "../lib/loginSmsCode.js";
-import { toSmsPhone } from "../lib/sms/index.js";
+import { staffPhoneLookupForms } from "@royal-home/shared";
 import { buildAuthenticationOptions, verifyAuthentication, passkeyLoginEnabled } from "../lib/passkeys.js";
 import { STEP_UP_MINUTES } from "../lib/settingsConstants.js";
 
@@ -104,10 +104,13 @@ const loginCodeSchema = z.object({
   channel: z.enum(["sms", "telegram"]).optional(),
 });
 
-/** Номер в базе записан как «+992…»; человек набирает как угодно. */
+/**
+ * Номер в базе — `+992…`, но у учёток до 23.11.2026 бывает и голые девять цифр, и
+ * `992…`, и с нулём; человек набирает как угодно. Формы — из одного места в shared
+ * (`staffPhoneLookupForms`), чтобы вход, проверка занятости и запись не расходились.
+ */
 function phoneCandidates(raw: string): string[] {
-  const sms = toSmsPhone(raw);
-  return [...new Set([raw, ...(sms ? [`+${sms}`, sms] : [])])];
+  return staffPhoneLookupForms(raw);
 }
 
 authRouter.post("/login/code", async (req, res) => {
