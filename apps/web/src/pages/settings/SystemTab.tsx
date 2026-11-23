@@ -2,7 +2,7 @@ import { RuDateField } from "../../components/look/fields/RuFields";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, ClipboardList, Compass, FileText, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, UploadCloud } from "lucide-react";
+import { Activity, Bot, CheckCircle2, ClipboardList, Compass, FileText, Fingerprint, History, KeyRound, OctagonAlert, RotateCw, ShieldCheck, UploadCloud } from "lucide-react";
 import { api } from "../../lib/api";
 import { downloadFromApi } from "../../lib/downloadFile";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
@@ -18,6 +18,9 @@ import { Rh2EmptyState } from "../../components/rh2/Rh2EmptyState";
 import { Pagination } from "../../components/Pagination";
 import { createLatestRequest } from "../../lib/latestRequest";
 import {
+  ASSISTANT_STAFF_TOTP_KEY,
+  ASSISTANT_STAFF_TOTP_LABEL,
+  isAssistantStaffTotpOn,
   ASSISTANT_DEADLINE_SEC,
   ASSISTANT_LOG_RETENTION_DAYS,
   ASSISTANT_MAX_ROUNDS,
@@ -1220,6 +1223,31 @@ export function PasskeyToggleSection() {
             : "Сервер отказывает и входу по ключу, и привязке новых устройств. Уже привязанные не удалены — включите обратно, и они снова заработают."
         }
         onToggle={() => save.mutate({ passkeyLoginEnabled: !on })}
+      />
+    </SettingsSection>
+  );
+}
+
+/**
+ * Код Google Authenticator для действий с сотрудниками в Telegram (владелец 23.11.2026: «шабнам
+ * добавляла и удаляла сотрудников из Телеграма директора без всяких разрешений»). По умолчанию
+ * выключен. Подписи — packages/shared/src/assistantStaffTotpSwitch.ts, решение на сервере —
+ * apps/api/src/lib/assistantStaffStepUpWaiver.ts. Переключает только директор (сервер отвечает 403
+ * остальным), поэтому остальным блок не показываем.
+ */
+export function AssistantStaffTotpSection({ agentRole }: { agentRole: string | undefined }) {
+  const { data: settings } = useSettings();
+  const save = useUpdateSettings();
+  if (agentRole !== "DIRECTOR" || !settings) return null;
+  const on = isAssistantStaffTotpOn(settings);
+
+  return (
+    <SettingsSection icon={ShieldCheck} title="Сотрудники через Шабнам">
+      <SwitchRow
+        title={ASSISTANT_STAFF_TOTP_LABEL.title}
+        on={on}
+        hint={on ? ASSISTANT_STAFF_TOTP_LABEL.on : ASSISTANT_STAFF_TOTP_LABEL.off}
+        onToggle={() => save.mutate({ [ASSISTANT_STAFF_TOTP_KEY]: !on })}
       />
     </SettingsSection>
   );
