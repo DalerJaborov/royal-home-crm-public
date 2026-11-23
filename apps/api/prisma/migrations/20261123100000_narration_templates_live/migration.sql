@@ -2,12 +2,11 @@
 -- («Дар ноҳияи Сино хонаи чорҳуҷрагӣ фурӯхта мешавад» / «В районе Сино продаётся четырёхкомнатная квартира»), no word-for-word
 -- calques from Russian, Russian templates and endings by property type. Owner decision 21.11.2026 on the narration of №217.
 --
--- NOT A PRISMA MIGRATION YET. Prisma reads only prisma/migrations; this file lies in prisma/pending-data on purpose: whatever reaches
--- main goes to production within a minute, and the owner has to approve the texts first. After his «да» move it to
--- prisma/migrations/<timestamp>_narration_templates_live/migration.sql (tests find it in either place) and ship.
+-- Owner approved the texts on 23.11.2026 («да включай»): promoted from prisma/pending-data into a regular migration,
+-- so `prisma migrate deploy` applies it on the server.
 --
 -- The switch «live words» (propertyNarrationConfig.liveWords, Settings → Озвучка) is OFF by default in code; this migration turns it ON
--- together with the texts. Until then the new words are silent and narration sounds as before.
+-- together with the texts (the new words are silent while it is off).
 -- Rules (Settings."propertyNarrationConfig"; voices, model, keys, limits, dictionary stay untouched):
 --  * a template or ending whose current text is one of the KNOWN OLD texts (11.11 starters, 17.11 library, production on 21.11)
 --    is replaced by the new one with the same id (versions keep their templateId/endingId);

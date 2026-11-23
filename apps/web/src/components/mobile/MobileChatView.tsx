@@ -70,7 +70,7 @@ import { highlightText } from "../../lib/highlightText";
 import { rh2AvatarTone } from "../../lib/rh2Avatar";
 import { ChannelIcon } from "../ChannelIcon";
 import { RH2_SCR_BARE } from "../rh2/Rh2Scope";
-import { validateOutgoingMediaPick } from "../../lib/mediaUpload";
+import { planOutgoingMediaPick } from "../../lib/mediaUpload";
 import { usePendingMediaUploads, type PendingMediaUpload } from "../../store/mediaUploads";
 import { useSellerObject } from "../../hooks/useSellerObject";
 import { SellerObjectStrip } from "../chat/SellerObjectStrip";
@@ -540,15 +540,21 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
 
   /** Файл выбран в скрытом `<input>` — та же проверка, что на десктопе
    *  (lib/mediaUpload.ts::validateOutgoingMediaPick), один источник правды. */
-  function handlePickMedia(file: File | undefined) {
-    if (!file || readOnly || !replyTargetId) return;
+  function handlePickMedia(files: ArrayLike<File> | null | undefined) {
+    if (!files?.length || readOnly || !replyTargetId) return;
     setMediaError(null);
-    const error = validateOutgoingMediaPick(file, replyChannel ?? undefined);
-    if (error) {
-      setMediaError(error);
+    const plan = planOutgoingMediaPick(files, replyChannel ?? undefined);
+    if (plan.error) {
+      setMediaError(plan.error);
       return;
     }
-    setPendingMedia(file);
+    if (plan.single) {
+      setPendingMedia(plan.single);
+      return;
+    }
+    // Несколько файлов — сразу в отправку; подпись из поля уходит с первым.
+    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+    setText("");
   }
 
   /** Отправка фото/видео — тот же приём, что на десктопе: пузырь с прогрессом
@@ -1047,9 +1053,10 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
             ref={mediaInputRef}
             type="file"
             accept="image/*,video/*"
+            multiple
             className="hidden"
             onChange={(e) => {
-              handlePickMedia(e.target.files?.[0]);
+              handlePickMedia(e.target.files);
               e.target.value = "";
             }}
           />
