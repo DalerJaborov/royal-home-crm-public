@@ -16,7 +16,7 @@ import { waitFor } from "./helpers/waitFor.js";
 const runId = String(Date.now()).slice(-7);
 const password = "testpass123";
 const phone = `+992991${runId}`;
-const newPhone = `+992992${runId}`;
+const newPhone = `+99292${runId}`;
 let agentId = "";
 let token = "";
 

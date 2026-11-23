@@ -140,6 +140,8 @@ export const FORBIDDEN_SWITCH_PATTERNS: readonly RegExp[] = [
   /meta(Enabled)?$|^metaEnabled$|Reconcile/i,
   /aiAssistant|grounded|semantic|photoEnhance|openai|gemini|elevenLabs/i,
   /videoHandoff|clip|rawReview|staffClip|handover|leadReassign|salesScenario/i,
+  // Вход и подтверждение личности (23.11.2026: assistantStaffTotpEnabled) — только экраном CRM.
+  /totp|stepUp|twoFactor|2fa|elevation/i,
 ];
 
 /** Приватные поля расследований — их правит только директор с правом СБ, не помощница. */

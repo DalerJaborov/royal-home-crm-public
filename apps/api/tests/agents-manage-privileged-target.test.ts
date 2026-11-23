@@ -81,7 +81,7 @@ describe("agents.manage без permissions.manage", () => {
     const res = await request(app)
       .patch(`/api/v1/agents/${adminId}`)
       .set("Authorization", `Bearer ${actorToken}`)
-      .send({ phone: `+992975${runId}` });
+      .send({ phone: `+99297${runId}` });
     expect(res.status).toBe(403);
   });
 

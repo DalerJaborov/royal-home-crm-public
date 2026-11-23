@@ -79,6 +79,9 @@ export const SYSTEM_SETTINGS_FIELDS = [
   // An emergency shell kill switch must survive restoration of unrelated settings.
   // Rollout changes have a separate role gate and administrative endpoint.
   "uiShellRollout",
+  // Код Authenticator для сотрудников в Telegram (23.11.2026) переключает только директор (routes/settings.ts):
+  // точка возврата, доступная и администратору, его не трогает.
+  "assistantStaffTotpEnabled",
   // Курс обновляется сам (lib/exchangeRate.ts).
   "usdToTjsRate",
   "usdToTjsRateUpdatedAt",

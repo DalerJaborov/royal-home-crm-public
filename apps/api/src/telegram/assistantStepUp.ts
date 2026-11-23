@@ -3,7 +3,8 @@ import { Prisma } from "../generated/prisma/client.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { matchTotpStep } from "../lib/totp.js";
 import { logAgentAudit } from "../lib/audit.js";
-import { getAssistantActionExecutor } from "../lib/assistantActions.js";
+import { getAssistantActionExecutor, type AssistantActionActor } from "../lib/assistantActions.js";
+import { staffStepUpWaived } from "../lib/assistantStaffStepUpWaiver.js";
 import { notifyStaffChangeLater } from "../lib/staffSecurityNotify.js";
 
 /**
@@ -33,6 +34,12 @@ import { notifyStaffChangeLater } from "../lib/staffSecurityNotify.js";
  *  - срок ожидания — 3 минуты; код после срока не уходит модели, а удаляется с
  *    подсказкой нажать ещё раз. Ожидания старше суток чистит
  *    jobs/assistantActionsSweep.ts.
+ *
+ * ИСКЛЮЧЕНИЕ (владелец 23.11.2026: «шабнам добавляла и удаляла сотрудников из Телеграма директора
+ * без всяких разрешений»): пока рубильник «Код Google Authenticator для действий с сотрудниками в
+ * Telegram» выключен (по умолчанию), директор в своей личке добавляет, отключает сотрудника и меняет
+ * права одной кнопкой «Подтвердить», без кода. Решает одна дверь lib/assistantStaffStepUpWaiver.ts —
+ * её же спрашивает брокер, поэтому кнопка и исполнение не расходятся. Всё остальное — как выше.
  */
 
 export const STEP_UP_CODE_TTL_MS = 3 * 60_000;
@@ -92,9 +99,32 @@ export function stepUpText(
   return TEXT[key][language];
 }
 
-/** Нужна ли карточке проверка кодом: хотя бы одно действие связки стоит за step-up. */
-export function bundleNeedsStepUp(actions: readonly { tool: string }[]): boolean {
-  return actions.some((action) => getAssistantActionExecutor(action.tool)?.stepUp === true);
+/**
+ * Нужна ли карточке проверка кодом: хотя бы одно действие связки стоит за step-up и этому
+ * нажавшему его нельзя исполнить без кода (lib/assistantStaffStepUpWaiver.ts — та же дверь,
+ * что у брокера). Непонятные аргументы — «код нужен»: защита по умолчанию.
+ */
+export async function bundleNeedsStepUp(actions: readonly { tool: string; args: unknown }[], actor: AssistantActionActor): Promise<boolean> {
+  for (const action of actions) {
+    const executor = getAssistantActionExecutor(action.tool);
+    if (executor?.stepUp !== true) continue;
+    let args: unknown;
+    try {
+      args = executor.parseArgs(action.args);
+    } catch {
+      return true;
+    }
+    if (!(await staffStepUpWaived(actor, action.tool, args))) return true;
+  }
+  return false;
+}
+
+/** То же по id ожидающих действий (карточка рисуется из видов брокера, где аргументов нет). */
+export async function bundleNeedsStepUpByIds(ids: readonly string[], actor: AssistantActionActor): Promise<boolean> {
+  if (ids.length === 0) return false;
+  const rows = await prisma.assistantAction.findMany({ where: { id: { in: [...ids] } }, select: { tool: true, args: true } });
+  if (!rows.some((row) => getAssistantActionExecutor(row.tool)?.stepUp === true)) return false;
+  return bundleNeedsStepUp(rows, actor);
 }
 
 /** Сколько неверных кодов у сотрудника за окно блокировки (по всем ожиданиям). */

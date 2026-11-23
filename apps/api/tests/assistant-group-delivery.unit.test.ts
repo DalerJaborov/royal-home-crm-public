@@ -33,7 +33,7 @@ function fixture() {
     ] },
     // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
     "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
-    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
+    "./assistantStepUp.js": { bundleNeedsStepUp: async () => false, bundleNeedsStepUpByIds: async () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: plain, TelegramApiError },
     "./assistantReply.js": assistantReply,
     "./assistantGroupParticipation.js": participation,
