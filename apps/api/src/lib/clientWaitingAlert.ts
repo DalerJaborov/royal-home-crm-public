@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createNotificationsStrict } from "./notifications.js";
+import { createNotificationsStrict, shouldAlert } from "./notifications.js";
 import { prisma } from "../db.js";
 import { automationSwitchOn } from "./automationSwitches.js";
 import { TG_PREFIX, TG_DIRECT_PREFIX } from "./conversationId.js";
@@ -431,6 +431,12 @@ export async function alertClientWaiting(input: {
   const url = `/messages?open=${chat.openId}`;
   const tag = `client-waiting-${chat.openId}`;
   const agent = chat.agentId;
+  // «Клиенту обещали связаться» — отдельная поправка 23.11.2026 (слепое ревью, В2): прежний ход засчитывал звонок только
+  // закреплённого агента карточки (Client.lastAgentAttemptAt), а не любой звонок по номеру; эпизод к тому же кончается
+  // после каждого ответа бота, так что следующее сообщение клиента открывает новый — и сигнал мог уходить на КАЖДОЕ
+  // сообщение клиента все 90 дней (разбор суток, C6). Пока первопричину не поправили, сигнал этого вида — не чаще раза в
+  // сутки на переписку (shouldAlert по тому же tag, которым этот же ход помечает уже созданные записи ниже).
+  if (staffReason === "promise_unkept" && !(await shouldAlert(tag, 24 * 60 * 60_000, now))) return "skipped";
 
   try {
     if (staffReason) {

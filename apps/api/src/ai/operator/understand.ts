@@ -172,10 +172,13 @@ function russianGuess(own: string): OperatorLanguage | null {
  */
 const SHARED_SHORT_WORDS = new RegExp(`${BW}(?:не|нет|да|ха|а|и|ок|окей)${EW}`, "gu");
 /** Таджикские слова, а «русская фраза» — только из общих слов («Не. Рахмат», «не, раҳмат»): язык таджикский, что бы ни сказал
- *  детектор (он считает «не» русским словом). */
+ *  детектор (он считает «не» русским словом). Приветствие («Салом», «Ассалому алейкум») само по себе не в счёт — иначе
+ *  «Салом, цена квартиры?» посреди русского разговора ошибочно получало язык «tg» (разбор ревью 23.11.2026, Б1): TAJIK_WORD
+ *  знает «салом»/«ассалом» как таджикское слово, а у «цена квартиры?» нет своих предлогов для RUSSIAN_SENTENCE. */
 function tajikOnlyWords(own: string): boolean {
   const folded = foldCustomerTextForRole(own);
-  return TAJIK_WORD.test(folded) && !RUSSIAN_SENTENCE.test(folded.replace(SHARED_SHORT_WORDS, " "));
+  const withoutGreeting = folded.replace(GREETING_ASSALOM, " ").replace(GREETING_SALOM, " ");
+  return TAJIK_WORD.test(withoutGreeting) && !RUSSIAN_SENTENCE.test(folded.replace(SHARED_SHORT_WORDS, " "));
 }
 /** Подсказка «таджикский», когда детектор языка промолчал: таджикские буквы или таджикские слова без русской фразы. */
 function tajikHint(own: string): OperatorLanguage | null {

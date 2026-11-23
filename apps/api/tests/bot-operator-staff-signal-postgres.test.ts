@@ -139,6 +139,35 @@ describe("дверь «клиент ждёт»: решение оператор�
     expect(alert!.body).toContain("клиенту обещали связаться, ни звонка, ни ответа в переписке так и не было");
   });
 
+  it("слепое ревью 23.11 (В2): невыполненное обещание — сигнал не чаще раза в сутки на клиента, даже в новом эпизоде", async () => {
+    const id = await chat({ card: "agent" });
+    const first = await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "promise_unkept" });
+    expect(first).toBe("agent");
+    vi.clearAllMocks();
+    // Бот ответил (эпизод закрыт) и через 10 минут клиент написал снова: НОВЫЙ эпизод (другой since у waitingEpisodeOf),
+    // тот же повод, тот же клиент — сигнал всё равно не повторяется раньше суток.
+    const soon = new Date(Date.now() + 10 * 60_000);
+    const { messages } = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
+    await prisma.botConversation.update({ where: { id }, data: { messages: [
+      ...(messages as object[]),
+      { role: "assistant", content: "Передал агенту." },
+      { role: "user", content: "Когда позвонят?", at: soon.toISOString() },
+    ] } });
+    const second = await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "promise_unkept", now: soon });
+    expect(second).toBe("skipped");
+    expect(mocks.push).not.toHaveBeenCalled();
+    // Через сутки с лишним — можно снова (третий эпизод).
+    const tomorrow = new Date(Date.now() + 25 * 60 * 60_000);
+    const { messages: messages2 } = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
+    await prisma.botConversation.update({ where: { id }, data: { messages: [
+      ...(messages2 as object[]),
+      { role: "assistant", content: "Передал агенту." },
+      { role: "user", content: "Так и не позвонили", at: tomorrow.toISOString() },
+    ] } });
+    const third = await alertClientWaiting({ conversationId: id, trigger: "follow_up", staffReason: "promise_unkept", now: tomorrow });
+    expect(third).toBe("agent");
+  });
+
   it("две жалобы на одну реплику одновременно — один сигнал (ключ эпизода — время реплики)", async () => {
     const id = await chat();
     const since = new Date(Date.now() - 30_000);

@@ -117,6 +117,17 @@ describe("C. K8: сначала личное, «написали в директ
     expect(privateReplyFailure(new MetaGraphCallError("x", { status: 400, code: 10, subcode: 2018278, type: null, fbtraceId: null, message: "outside window" })))
       .toMatchObject({ kind: "window", code: "10/2018278" });
   });
+
+  it("личное ушло, но постановка публичного ответа упала — личное всё равно легло в переписку CRM (слепое ревью 23.11.2026, В1)", async () => {
+    mocks.model.mockResolvedValueOnce(K8);
+    mocks.privateReply.mockResolvedValueOnce(`${tag}-dm-v1`);
+    // Первый вызов callGraph (meta.js) у этого потока — постановка публичного ответа; делаем его падать.
+    mocks.graph.mockImplementationOnce(async () => { throw new Error("Graph API HTTP 500: temporary"); });
+    const row = await comment("FACEBOOK", "Хона кучода");
+    await expect(handleComment(row as QueuedComment)).rejects.toThrow("temporary");
+    const conv = await prisma.botConversation.findFirst({ where: { channel: "FACEBOOK", subscriberId: row.authorId } });
+    expect(conv?.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: "assistant", content: K8.dm })]));
+  });
 });
 
 describe("B2. Тот же публичный ответ тому же человеку под тем же постом — не дважды", () => {

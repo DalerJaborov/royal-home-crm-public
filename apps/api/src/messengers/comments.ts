@@ -2016,13 +2016,6 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     return "escalated";
   }
   const dm = draftReply ? await maybeSendPrivateReply(row, dmText, account.token, account.id) : { sent: false as const };
-  // «Написали в директ» — только если личное правда ушло; иначе ответ без этих слов, а если от него ничего не осталось —
-  // нейтральный ответ без директа (ai/botSelfAnswerText.ts::commentSelfReply).
-  const replyText = draftReply && !dm.sent && mentionsDirect(draftReply)
-    ? withoutDirectMention(draftReply) || leakSafe(commentSelfReply(row.text, commentPhoneTaken))
-    : draftReply;
-  if (replyText) await humanReplyDelay();
-  const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
   // «Сообщениях» его не было вовсе — и эхо Meta эту дыру не закрывает: транспорт
@@ -2033,7 +2026,17 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // «в инстаграме у меня полная переписка есть, как бот отправляет ссылку, а тут
   // в CRM нет». Тот же шаг давно делает воронка лид-магнита (recordInConversation
   // в lib/leadMagnet.ts) — здесь его просто не было.
+  // Записываем СРАЗУ после отправки, не после публичного ответа (слепое ревью 23.11.2026, В1):
+  // если дальше постановка публичного ответа упадёт, повтор увидит своё же личное (dm_already,
+  // sent=false) и запись бы не состоялась уже никогда — переписка в CRM потеряла бы отправленное.
   if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess, commentInHistory);
+  // «Написали в директ» — только если личное правда ушло; иначе ответ без этих слов, а если от него ничего не осталось —
+  // нейтральный ответ без директа (ai/botSelfAnswerText.ts::commentSelfReply).
+  const replyText = draftReply && !dm.sent && mentionsDirect(draftReply)
+    ? withoutDirectMention(draftReply) || leakSafe(commentSelfReply(row.text, commentPhoneTaken))
+    : draftReply;
+  if (replyText) await humanReplyDelay();
+  const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
