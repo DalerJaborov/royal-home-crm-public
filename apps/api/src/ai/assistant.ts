@@ -1437,6 +1437,12 @@ function failureOf(
   if (err instanceof ModelCallError && (err.original as Partial<GeminiStreamInterruptedError> | null)?.code === "stream_interrupted") {
     return { code: "stream_interrupted", retryable: true };
   }
+  // Ход оборван самой моделью (finishReason не STOP: лимит ответа, безопасность, сломанный вызов
+  // инструмента): ключ и модель тут ни при чём, а «проверьте ключ в Настройках» человека уводило
+  // не туда (23.11.2026, Шабнам при озвучке текста). Это «повторите», как обрыв потока.
+  if (err instanceof ModelCallError && (err.original as { code?: unknown } | null)?.code === "assistant_incomplete_turn") {
+    return { code: "stream_interrupted", retryable: true };
+  }
   if (err instanceof ModelCallError) {
     // Без HTTP-кода — сеть или таймаут попытки: та же «сейчас не получилось», что и 503.
     if (err.status === undefined || isRetryableGeminiStatus(err.status)) {
