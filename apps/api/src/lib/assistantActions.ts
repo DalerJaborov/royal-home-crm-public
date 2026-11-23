@@ -12,6 +12,7 @@ import { canonicalJson, toPlainJson } from "./canonicalJson.js";
 import { logAgentAudit } from "./audit.js";
 import { logSystemError } from "./systemError.js";
 import { isElevated } from "./stepUp.js";
+import { STAFF_WAIVER_HINT, staffStepUpWaived, staffStepUpWaiverEligible } from "./assistantStaffStepUpWaiver.js";
 
 /**
  * ConfirmationBroker ИИ-помощника — действия уровня C (П2, задача 2.3,
@@ -63,6 +64,11 @@ export interface AssistantActionActor {
   channel: AssistantActionChannel;
   /** Verified from the Telegram update, never inferred from the actor's role. */
   telegramPrivate?: boolean;
+  /**
+   * id лички из апдейта Telegram (chat.id), никогда не из текста. Нужен только двери
+   * lib/assistantStaffStepUpWaiver.ts: без кода директор работает лишь в СВОЁМ привязанном чате.
+   */
+  telegramChatId?: string;
   /**
    * Код Google Authenticator проверен ПРЯМО В ЭТОМ нажатии (telegram/assistantStepUp.ts).
    * Ставит только обработчик кода, на одно исполнение одной карточки; из роли, канала
@@ -250,23 +256,36 @@ export const STEP_UP_TELEGRAM_MESSAGE = "Нужен код из Google Authentic
 export const TOTP_REQUIRED_MESSAGE =
   "Сначала включите Google Authenticator в CRM (Профиль → Безопасность). Без кода из приложения такие изменения из Telegram не делаю.";
 
-/** Свежее подтверждение личности для действий со stepUp — на исполнении и откате. */
-function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionActor): void {
-  if (!executor.stepUp) return;
+/**
+ * Свежее подтверждение личности для действий со stepUp — на исполнении и откате.
+ * Возвращает true, если код не понадобился по решению владельца 23.11.2026 (директор в своей
+ * личке, рубильник выключен — lib/assistantStaffStepUpWaiver.ts): это пишется в журнал.
+ */
+async function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionActor, rawArgs: unknown): Promise<boolean> {
+  if (!executor.stepUp) return false;
   if (actor.channel === "telegram") {
-    if (actor.stepUpVerified !== true) throw new AssistantActionError(428, "STEP_UP_REQUIRED", STEP_UP_TELEGRAM_MESSAGE);
-    return;
+    if (actor.stepUpVerified === true) return false;
+    if (await staffStepUpWaived(actor, executor.tool, parseArgs(executor, rawArgs))) return true;
+    throw new AssistantActionError(428, "STEP_UP_REQUIRED", STEP_UP_TELEGRAM_MESSAGE);
   }
   if (!isElevated(actor.agentId)) {
     throw new AssistantActionError(428, "STEP_UP_REQUIRED", "Подтвердите личность в CRM и нажмите ещё раз", { stepUpRequired: true });
   }
+  return false;
 }
 
-/** Telegram: подтверждать нечем, если у сотрудника не включён Authenticator — честный отказ сразу. */
-async function assertStepUpPossible(executor: AssistantActionExecutor, actor: AssistantActionActor): Promise<void> {
+/**
+ * Telegram: подтверждать нечем, если у сотрудника не включён Authenticator — честный отказ сразу.
+ * Исключение — то, что директору можно без кода (assistantStaffStepUpWaiver.ts); остальное
+ * отказывает с подсказкой, что из этого он может сделать без кода.
+ */
+async function assertStepUpPossible(executor: AssistantActionExecutor, actor: AssistantActionActor, args: unknown): Promise<void> {
   if (!executor.stepUp || actor.channel !== "telegram") return;
+  if (await staffStepUpWaived(actor, executor.tool, args)) return;
   const agent = await prisma.agent.findUnique({ where: { id: actor.agentId }, select: { totpEnabled: true, totpSecret: true } });
-  if (!agent?.totpEnabled || !agent.totpSecret) throw new AssistantActionError(412, "TOTP_REQUIRED", TOTP_REQUIRED_MESSAGE);
+  if (agent?.totpEnabled && agent.totpSecret) return;
+  const hint = (await staffStepUpWaiverEligible(actor)) ? ` ${STAFF_WAIVER_HINT}` : "";
+  throw new AssistantActionError(412, "TOTP_REQUIRED", TOTP_REQUIRED_MESSAGE + hint);
 }
 
 function assertPrivateTelegram(executor: AssistantActionExecutor | null, actor: AssistantActionActor) {
@@ -343,8 +362,8 @@ export async function createPendingAssistantAction(
   const now = opts.now ?? new Date();
   const executor = requireExecutor(tool);
   assertActorAllowed(executor, actor);
-  await assertStepUpPossible(executor, actor);
   const args = parseArgs(executor, rawArgs);
+  await assertStepUpPossible(executor, actor, args);
   const snapshot = await readSnapshot(executor, args, actor);
   const preview = assistantActionPreviewSchema.parse(await executor.buildPreview(args, snapshot, actor));
 
@@ -410,6 +429,14 @@ async function stalePreviewError(row: AssistantAction, actor: AssistantActionAct
   return new AssistantActionError(409, "STALE", "Данные изменились, проверьте ещё раз", { stale: true, action });
 }
 
+/** Журнал исполнения; `stepUpWaived` — исполнено без кода по рубильнику 23.11.2026 (видно поимённо). */
+const confirmAuditMeta = (row: AssistantAction, actor: AssistantActionActor, stepUpWaived: boolean) => ({
+  source: "assistant",
+  actionId: row.id,
+  channel: actor.channel,
+  ...(stepUpWaived ? { stepUpWaived: true } : {}),
+});
+
 function claimPendingAction(db: TxClient, row: AssistantAction, actor: AssistantActionActor, now: Date) {
   return db.assistantAction.updateMany({
     where: { id: row.id, agentId: actor.agentId, status: "PENDING", expiresAt: { gt: now } },
@@ -433,7 +460,7 @@ function saveExecutedAction(
 }
 
 async function confirmTransactionalAction(
-  row: AssistantAction, executor: AssistantActionExecutor, actor: AssistantActionActor, now: Date,
+  row: AssistantAction, executor: AssistantActionExecutor, actor: AssistantActionActor, now: Date, stepUpWaived: boolean,
 ): Promise<AssistantActionOutcome> {
   const outcome = await prisma.$transaction(async (tx) => {
     const claimed = await claimPendingAction(tx, row, actor, now);
@@ -463,7 +490,7 @@ async function confirmTransactionalAction(
         entityId: executed.audit?.entityId ?? row.id,
         agentId: actor.agentId,
         agentName: agent?.fullName ?? "Неизвестно",
-        meta: { source: "assistant", actionId: row.id, channel: actor.channel },
+        meta: confirmAuditMeta(row, actor, stepUpWaived),
       },
     });
     const done = await saveExecutedAction(tx, row, executed, snapshotAfter);
@@ -508,8 +535,8 @@ export async function confirmAssistantAction(
     throw expiredError();
   }
   // До захвата: без подтверждения строка остаётся PENDING и ждёт кода.
-  assertStepUp(executor, actor);
-  if (executor.transactional) return confirmTransactionalAction(row, executor, actor, now);
+  const stepUpWaived = await assertStepUp(executor, actor, row.args);
+  if (executor.transactional) return confirmTransactionalAction(row, executor, actor, now, stepUpWaived);
 
   const claimed = await claimPendingAction(prisma, row, actor, now);
   if (claimed.count === 0) {
@@ -564,7 +591,7 @@ export async function confirmAssistantAction(
     `ASSISTANT_${row.tool.toUpperCase()}`,
     executed.audit?.entityType ?? "AssistantAction",
     executed.audit?.entityId ?? row.id,
-    { source: "assistant", actionId: row.id, channel: actor.channel }
+    confirmAuditMeta(row, actor, stepUpWaived)
   );
   return { action: toView(done), replay: false };
 }
@@ -623,10 +650,11 @@ const claimUndoAction = (db: TxClient, row: AssistantAction, actor: AssistantAct
 const saveUndoneAction = (db: TxClient, row: AssistantAction) =>
   db.assistantAction.update({ where: { id: row.id }, data: { status: "UNDONE", undoneAt: new Date() } });
 
-const undoAuditMeta = (row: AssistantAction, actor: AssistantActionActor) => ({
+const undoAuditMeta = (row: AssistantAction, actor: AssistantActionActor, stepUpWaived = false) => ({
   source: "assistant.undo",
   actionId: row.id,
   channel: actor.channel,
+  ...(stepUpWaived ? { stepUpWaived: true } : {}),
 });
 
 async function undoTransactionalAction(
@@ -698,7 +726,7 @@ export async function undoAssistantAction(
   if (!canUndo(executor, row.result) || preview.irreversible) {
     throw new AssistantActionError(409, "NOT_UNDOABLE", "Это действие не откатывается");
   }
-  assertStepUp(executor, actor);
+  const stepUpWaived = await assertStepUp(executor, actor, row.args);
   const windowMs = executor.undoWindowMs ?? ASSISTANT_ACTION_UNDO_WINDOW_MS;
   const undoUntil = new Date(row.executedAt.getTime() + windowMs);
   if (executor.recoverableUndo?.matches(row.result)) {
@@ -753,6 +781,6 @@ export async function undoAssistantAction(
   }
 
   const undone = await saveUndoneAction(prisma, row);
-  logAgentAudit(actor.agentId, `ASSISTANT_${row.tool.toUpperCase()}_UNDO`, "AssistantAction", row.id, undoAuditMeta(row, actor));
+  logAgentAudit(actor.agentId, `ASSISTANT_${row.tool.toUpperCase()}_UNDO`, "AssistantAction", row.id, undoAuditMeta(row, actor, stepUpWaived));
   return { action: toView(undone), replay: false };
 }

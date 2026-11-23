@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 797,
-  "forks": 4246,
+  "forks": 4247,
   "mounts": 90,
   "cron": 146,
   "jobs": 34,
@@ -75611,6 +75611,21 @@
        "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
        "a": [
         "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== \"DIRECT…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Этот переключатель меняет только директор\" });",
+       "a": [
+        "ответ 403 — «Этот переключатель меняет только директор»"
        ],
        "c": []
       }

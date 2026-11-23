@@ -16,9 +16,9 @@
   "paths": 797,
   "cron": 146,
   "jobs": 34,
-  "conditions": 4207,
-  "untranslatedUnique": 475,
-  "untranslatedTotal": 612,
+  "conditions": 4208,
+  "untranslatedUnique": 476,
+  "untranslatedTotal": 613,
   "partialUnique": 1131,
   "translatedShare": 85
  },
@@ -187,6 +187,7 @@
   "EMBEDDING_RELEVANT_FIELDS.some((f) => data[f] !== undefined)",
   "Object.keys(data).length === 0",
   "Object.keys(extraPostIds).length > 0",
+  "Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== \"DIRECT…",
   "a.urgent !== b.urgent",
   "accountsCache && Date.now() - accountsCache.fetchedAt < 30 * 60 * 1000",
   "action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…",
@@ -58517,6 +58518,20 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== \"DIRECT…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Этот переключатель меняет только директор»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== \"DIRECT…"
     },
     {
      "t": "если данные заполнены неправильно",

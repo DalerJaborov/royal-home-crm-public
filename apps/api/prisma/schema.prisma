@@ -7438,6 +7438,12 @@ model Settings {
   /// уведомлением директору и РОП (apps/api/src/lib/securityAutomation.ts).
   /// @default(false) нарочно: после выката выключено, включает человек.
   securityAutomationEnabled             Boolean @default(false)
+  /// КОД GOOGLE AUTHENTICATOR ДЛЯ ДЕЙСТВИЙ С СОТРУДНИКАМИ В TELEGRAM (владелец 23.11.2026:
+  /// «шабнам добавляла и удаляла сотрудников из Телеграма директора без всяких разрешений»).
+  /// Выключен — директор в своей личке с Шабнам добавляет, отключает сотрудников и меняет права
+  /// одной кнопкой, без кода (apps/api/src/lib/assistantStaffStepUpWaiver.ts). Подписи —
+  /// packages/shared/src/assistantStaffTotpSwitch.ts. @default(false) — решение владельца.
+  assistantStaffTotpEnabled             Boolean @default(false)
   /// ВЫКЛЮЧАТЕЛИ «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти
   /// функции, просто сделать переключатели»). Список, подписи и группы —
   /// packages/shared/src/automationSwitches.ts, проверка — apps/api/src/lib/automationSwitches.ts.

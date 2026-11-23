@@ -17,6 +17,7 @@ export function actionActorFrom(actor: AssistantActor, channel: AssistantActionA
     agentId: actor.id,
     channel,
     telegramPrivate: actor.surface === "telegram-private",
+    ...(actor.surface === "telegram-private" && actor.telegramChatId ? { telegramChatId: actor.telegramChatId } : {}),
     can: (permission) => actor.permissions?.has(permission) ?? false,
   };
 }

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **797**. Развилок в самих путях: **2529**; вместе с задачами по расписанию и фоновыми заданиями — **4246**. Модулей: **90**.
+Путей: **797**. Развилок в самих путях: **2530**; вместе с задачами по расписанию и фоновыми заданиями — **4247**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16226,6 +16226,9 @@
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
+- если Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== "DIRECT…
+  - return res.status(403).json({ error: "Этот переключатель меняет только директор" });
+    · ответ 403 — «Этот переключатель меняет только директор»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
   · проверяет данные схемой settingsUpdateSchema
 - если !parsed.success

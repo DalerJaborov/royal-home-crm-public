@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
+import { ASSISTANT_STAFF_TOTP_KEY, assistantStaffTotpSwitchUpdateSchema, AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -1394,6 +1394,8 @@ const settingsUpdateSchema = z.object({
   ...sellerAutomationSwitchesUpdateSchema.shape,
   /** Рубильник «Служба безопасности: автоматика» (18.11.2026) — packages/shared/src/securityAutomationSwitch.ts. */
   ...securityAutomationSwitchUpdateSchema.shape,
+  /** Код Google Authenticator для действий с сотрудниками в Telegram (23.11.2026) — packages/shared/src/assistantStaffTotpSwitch.ts. */
+  ...assistantStaffTotpSwitchUpdateSchema.shape,
   /** Выключатели «Автоматика ИИ и напоминания» (19.11.2026) — packages/shared/src/automationSwitches.ts. */
   ...automationSwitchesUpdateSchema.shape,
 });
@@ -1403,6 +1405,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
   // Рубильник автоматики СБ (18.11.2026) — тот же круг, что у дел СБ: сотрудник с правом
   // на настройки не должен уметь выключить контроль над собой.
   if (Object.prototype.hasOwnProperty.call(req.body ?? {}, SECURITY_AUTOMATION_KEY) && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
+  // Код Authenticator для сотрудников в Telegram (23.11.2026) снимается только у директора — и
+  // переключает его только директор: администратор с правом на настройки не решает за него.
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, ASSISTANT_STAFF_TOTP_KEY) && req.agent?.role !== "DIRECTOR") return res.status(403).json({ error: "Этот переключатель меняет только директор" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -2026,6 +2031,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...Object.fromEntries(SELLER_AUTOMATION_FIELDS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
     // Автоматика СБ (18.11.2026): кто и когда включил/выключил — в журнале.
     ...(rest[SECURITY_AUTOMATION_KEY] !== undefined ? { [SECURITY_AUTOMATION_KEY]: rest[SECURITY_AUTOMATION_KEY] } : {}),
+    // Код Authenticator для сотрудников в Telegram (23.11.2026): кто и когда снял или вернул — в журнале.
+    ...(rest[ASSISTANT_STAFF_TOTP_KEY] !== undefined ? { [ASSISTANT_STAFF_TOTP_KEY]: rest[ASSISTANT_STAFF_TOTP_KEY] } : {}),
     // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
     ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
   });
