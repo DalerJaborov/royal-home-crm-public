@@ -35,7 +35,7 @@ import {
 } from "../hooks/useConversations";
 import type { ConversationMessage } from "../types";
 import { usePendingMediaUploads } from "../store/mediaUploads";
-import { validateOutgoingMediaPick } from "../lib/mediaUpload";
+import { planOutgoingMediaPick } from "../lib/mediaUpload";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
@@ -1461,15 +1461,21 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   /** Файл выбран в скрытом `<input>` — проверяем размер СРАЗУ, до загрузки: канал
    *  диалога уже известен, дожидаться ответа сервера ради очевидного отказа незачем.
    *  У видео это больше не отказ по каналу (гибридный режим) — только 1 ГБ предохранитель. */
-  function handlePickMedia(file: File | undefined) {
-    if (!file || readOnly || !replyTargetId) return;
+  function handlePickMedia(files: ArrayLike<File> | null | undefined) {
+    if (!files?.length || readOnly || !replyTargetId) return;
     setMediaError(null);
-    const error = validateOutgoingMediaPick(file, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
-    if (error) {
-      setMediaError(error);
+    const plan = planOutgoingMediaPick(files, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
+    if (plan.error) {
+      setMediaError(plan.error);
       return;
     }
-    setPendingMedia(file);
+    if (plan.single) {
+      setPendingMedia(plan.single);
+      return;
+    }
+    // Несколько файлов — сразу в отправку; подпись из поля уходит с первым.
+    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+    setText("");
   }
 
   /**
@@ -2165,9 +2171,10 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             ref={mediaInputRef}
             type="file"
             accept="image/*,video/*"
+            multiple
             className="hidden"
             onChange={(e) => {
-              handlePickMedia(e.target.files?.[0]);
+              handlePickMedia(e.target.files);
               e.target.value = "";
             }}
           />
@@ -2263,9 +2270,10 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           ref={mediaInputRef}
           type="file"
           accept="image/*,video/*"
+            multiple
           className="hidden"
           onChange={(e) => {
-            handlePickMedia(e.target.files?.[0]);
+            handlePickMedia(e.target.files);
             e.target.value = "";
           }}
         />

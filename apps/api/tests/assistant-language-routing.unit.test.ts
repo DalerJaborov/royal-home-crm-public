@@ -39,6 +39,11 @@ describe("assistant language routing", () => {
   it.each(["MAX_TOKENS", "SAFETY", "MALFORMED_FUNCTION_CALL", undefined])("rejects incomplete tool turns: %s", (reason) => {
     expect(() => assertCompletedAssistantTurn(reason)).toThrow();
   });
+  it("names the finish reason in the error so the production log shows what cut the turn", () => {
+    expect(() => assertCompletedAssistantTurn("MAX_TOKENS")).toThrow(/finishReason=MAX_TOKENS/);
+    expect(() => assertCompletedAssistantTurn("STOP", "SAFETY")).toThrow(/blockReason=SAFETY/);
+    expect(() => assertCompletedAssistantTurn(undefined)).toThrow(/finishReason пуст/);
+  });
   it("accepts only a completed unblocked turn", () => {
     expect(() => assertCompletedAssistantTurn("STOP")).not.toThrow();
     expect(() => assertCompletedAssistantTurn("STOP", "SAFETY")).toThrow();
