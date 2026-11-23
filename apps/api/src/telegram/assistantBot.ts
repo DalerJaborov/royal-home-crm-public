@@ -12,6 +12,7 @@ export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { stepUpExemptRole } from "../lib/stepUp.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
@@ -249,6 +250,7 @@ function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: bo
   return {
     agentId, channel: "telegram", telegramPrivate,
     ...(telegramPrivate && telegramChatId ? { telegramChatId } : {}),
+    ...(stepUpExemptRole(access.role) ? { stepUpExempt: true } : {}),
     can: (permission) => access.permissions.has(permission),
   };
 }
@@ -771,9 +773,11 @@ async function sendTurnResult(
   const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const irreversible = result.pending.some((a) => a.preview.irreversible);
   // Код на кнопке — та же дверь, что у брокера на нажатии (директор без кода, 23.11.2026).
+  const ownerExempt = stepUpExemptRole((await loadAgentAccess(ctx.agentId, prisma).catch(() => null))?.role);
   const needsCode = !tajikPrice && await bundleNeedsStepUpByIds(binding.actionIds, {
     agentId: ctx.agentId, channel: "telegram", telegramPrivate: ctx.scope === "private",
-    ...(ctx.scope === "private" ? { telegramChatId: chatId } : {}), can: () => false,
+    ...(ctx.scope === "private" ? { telegramChatId: chatId } : {}),
+    ...(ownerExempt ? { stepUpExempt: true } : {}), can: () => false,
   });
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);

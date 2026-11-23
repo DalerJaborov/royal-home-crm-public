@@ -5322,6 +5322,14 @@
        ]
       },
       {
+       "k": "do",
+       "t": "const actor: AssistantActionActor = { agentId: agent.id, channel: \"crm\", can: (permission)",
+       "a": [
+        "зовёт stepUpExemptRole()"
+       ],
+       "c": []
+      },
+      {
        "k": "try",
        "t": "пробует",
        "a": [],
@@ -5435,6 +5443,14 @@
        ]
       },
       {
+       "k": "do",
+       "t": "const actor: AssistantActionActor = { agentId: agent.id, channel: \"crm\", can: (permission)",
+       "a": [
+        "зовёт stepUpExemptRole()"
+       ],
+       "c": []
+      },
+      {
        "k": "try",
        "t": "пробует",
        "a": [],
@@ -5546,6 +5562,14 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "const actor: AssistantActionActor = { agentId: agent.id, channel: \"crm\", can: (permission)",
+       "a": [
+        "зовёт stepUpExemptRole()"
+       ],
+       "c": []
       },
       {
        "k": "try",
@@ -8259,7 +8283,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ elevated: until !== null, method: agent?.totpEnabled ? \"totp\" : \"code\", expiresAt: until ? until.t…",
+     "t": "res.json({ elevated: until !== null || stepUpExemptRole(agent?.role), method: agent?.totpEnabled ? \"totp\" : \"…",
      "a": [
       "ответ 200"
      ],

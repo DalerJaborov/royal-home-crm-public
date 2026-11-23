@@ -781,7 +781,7 @@ export const listSwitchesTool: AssistantReadToolPlugin = {
     const rows = args.key ? all.filter((s) => s.key === args.key) : all;
     return {
       switches: rows.map((s) => ({ key: s.key, name: s.label, on: s.on, state: s.on ? "включён" : "выключен", whatItDoes: s.hint })),
-      tip: "Переключить — set_switch; нужен код из Google Authenticator (в CRM — подтверждение личности).",
+      tip: "Переключить — set_switch; директору и администратору кода не нужно, остальным нужен код из Google Authenticator.",
       href: "/settings",
     };
   },
@@ -819,7 +819,7 @@ export const setSwitchExecutor: AssistantActionExecutor<SwitchArgs> = {
       title: `🔀 ${args.on ? "Включить" : "Выключить"}: ${def.label}`.slice(0, 200),
       was: { [def.label]: stateWord(snap.on) },
       becomes: { [def.label]: stateWord(args.on) },
-      risk: `${def.hint} Нужен код из Google Authenticator.`.slice(0, 500),
+      risk: `${def.hint}`.slice(0, 500),
     };
   },
 
@@ -855,7 +855,7 @@ export const setSwitchTool: AssistantWriteToolPlugin = {
     "Включить или выключить ОДИН рубильник Настроек из белого списка: " + switchList + ". Зови на «выключи сторож WhatsApp», " +
     "«включи финансовый PDF», «Royal Score-ро хомӯш кун», «ҳисоботи ҳафтаинаро фаъол кун». Другие настройки (ключи, бот для " +
     "клиентов, звонки, рассылки, реклама) — честно скажи, что только в Настройках CRM. Сам ничего не меняет: карточка " +
-    "«было → станет», человек подтверждает кнопкой и кодом из Google Authenticator. Без вызова не говори «выключила».",
+    "«было → станет», человек подтверждает кнопкой (у директора и администратора кода нет, у остальных — ещё код из Google Authenticator). Без вызова не говори «выключила».",
   parameters: {
     type: "object",
     properties: {

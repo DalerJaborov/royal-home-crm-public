@@ -56,9 +56,23 @@ export function revokeElevation(agentId: string): void {
   elevations.delete(agentId);
 }
 
+/**
+ * Директор и администратор подтверждения не проходят (решение владельца 23.11.2026:
+ * «выключить Google Authenticator для директора и администратора полностью, для любых
+ * действий из Телеграма и для настроек: такая защита не нужна»). Касается ТОЛЬКО окна
+ * подтверждения действий (Настройки, сотрудники, карточки Шабнам); вход в CRM и код при
+ * входе остаются как были. Вернуть защиту без правки кода: STEP_UP_OWNERS_EXEMPT=0 в
+ * окружении сервера (тесты ставят именно так, чтобы старые проверки 428 остались в силе).
+ */
+export function stepUpExemptRole(role: string | null | undefined): boolean {
+  if (process.env.STEP_UP_OWNERS_EXEMPT === "0") return false;
+  return role === "DIRECTOR" || role === "ADMIN";
+}
+
 /** 428 Precondition Required — фронт по нему показывает окно подтверждения. */
 export async function requireElevation<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Не авторизован" });
+  if (stepUpExemptRole(req.agent.role)) return next();
   if (!isElevated(req.agent.id) && isSettingsMaintenancePath(req.originalUrl) && settingsMaintenanceWindowUntil()) {
     try {
       const actor = await prisma.agent.findUnique({ where: { id: req.agent.id },

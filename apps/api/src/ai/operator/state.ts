@@ -45,6 +45,7 @@ const storedSchema = z.object({
   place: shortText.default(null),
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
     propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
+    lastOffer: z.boolean().optional(),
     sellerByWords: z.boolean().default(false),
     bothRoles: z.boolean().default(false), roleChangedFrom: z.enum(["buyer", "seller"]).nullable().default(null),
     clientTurns: z.number().int().min(0).max(10_000).default(0), phoneAskTurn: z.number().int().min(0).max(10_000).default(0),
@@ -76,6 +77,8 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
       delete state.spoken.note_added; delete state.spoken.no_agent_noted; delete state.spoken.welcome; delete state.spoken.lead_reminder;
       // Справочные ответы («где работаем», часы, «вы бот?»…) после суток тишины можно сказать снова (ревью #333).
       for (const key of ["where_work", "work_hours", "identity", "bot_identity", "buyer_free"] as const) delete state.spoken[key];
+      // Новый день — снова здороваемся в ответ и снова приглашаем продолжить (23.11.2026, слепое ревью).
+      for (const key of ["greet", "greet_assalom", "greet_continue"] as const) delete state.spoken[key];
       // Новый эпизод: сигналы «не понял» и «вложения» снова возможны (ревью #333).
       state.flags = { ...state.flags, signaled: [] };
     }

@@ -7,7 +7,7 @@ import { signPending2faToken, verifyPending2faToken } from "../lib/pending-2fa.j
 import { verifyTotpCode } from "../lib/totp.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { requireAuth } from "../auth/middleware.js";
-import { elevatedUntil, grantElevation, revokeElevation } from "../lib/stepUp.js";
+import { elevatedUntil, grantElevation, revokeElevation, stepUpExemptRole } from "../lib/stepUp.js";
 import { settingsMaintenanceUntil } from "../lib/settingsMaintenance.js";
 import { recordLogin } from "../lib/loginLog.js";
 import { createOrRefreshSession, touchSession, revokeSession } from "../lib/sessions.js";
@@ -397,7 +397,7 @@ authRouter.get("/step-up", requireAuth, async (req, res) => {
   // expiresAt — для строки «раздел открыт до 13:17» в шапке Настроек (макет владельца).
   const until = elevatedUntil(req.agent!.id);
   res.json({
-    elevated: until !== null,
+    elevated: until !== null || stepUpExemptRole(agent?.role),
     method: agent?.totpEnabled ? "totp" : "code",
     expiresAt: until ? until.toISOString() : null,
     settingsMaintenanceUntil: agent ? settingsMaintenanceUntil(agent) : null,
