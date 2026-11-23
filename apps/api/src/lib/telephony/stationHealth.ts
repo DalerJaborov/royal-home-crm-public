@@ -13,7 +13,7 @@ import {
 import { loadAmiCredentials, testAmiConnection, amiAction, amiDbGet, amiQueueStatus, type AmiCredentials } from "./amiClient.js";
 import { stationHasContext, stationContextContains, type ContextContentStatus } from "./dialplanContext.js";
 import { ROUTE_CONTEXT, ROUTE_EXTEN, WAIT_CONTEXT } from "./inboundRouting.js";
-import { buildDialWithMobileFallback } from "./agentMobileFallback.js";
+import { buildDialWithMobileFallback, incomingPrimaryExtension } from "./agentMobileFallback.js";
 import { runIncomingCallsSilenceTick } from "./incomingCallsSilenceAlarm.js";
 import { loadFailoverConfig, readFailoverFromStation, failoverDiffers, type FailoverConfig } from "./failoverSync.js";
 import { EXTENSION_RECORDING_KEYS, EXTENSION_RECORDING_VALUE } from "./extensionPool.js";
@@ -502,7 +502,28 @@ export function memberHasLiveLeg(
   return MOBILE_LEG_RE.test(dial ?? "");
 }
 
+/**
+ * ПРИЁМ ИДЁТ НА АППАРАТ, А НЕ В ОЧЕРЕДЬ (решение владельца 18.11.2026, подтверждено 23.11.2026:
+ * «10 секунд на 2020, не ответили — сразу директору»). Станция при непустом
+ * ROYALHOME/failover/target в очередь 1000 входящий не ведёт вовсе (extensions_custom.conf,
+ * ветка target), операторов в CRM ноль — и «ни один участник не на связи» здесь норма, а не
+ * поломка. До 23.11.2026 эта строка горела красным на рабочей схеме. Не «ok: true»: очередь
+ * никто не проверял, поэтому «не проверяется». Достижимость самой схемы стерегут другие:
+ * аппарат в рабочее время — officeDeskPhoneWatch.ts, переадресация директору — сверка
+ * «Настройки звонков» (telephonyBaseline.ts). Отдельно от сети — ради теста.
+ */
+export function queueNotUsedCheck(primaryExtension: string): StationCheck {
+  return {
+    name: "Очередь приёма: доступность",
+    ok: null,
+    detail: `входящие идут прямо на аппарат ${primaryExtension}, очередь операторов для приёма не используется — не проверяется`,
+    cls: "config",
+  };
+}
+
 async function probeQueueAvailability(ariCreds: AriCredentials, amiCreds: AmiCredentials, now: number): Promise<StationCheck[]> {
+  const primary = await incomingPrimaryExtension();
+  if (primary) return [queueNotUsedCheck(primary)];
   const raw = await readRawQueueMembers(amiCreds);
   if (!raw.ok) {
     const cls = classifyStationError(raw.error);
