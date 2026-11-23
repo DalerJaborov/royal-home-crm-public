@@ -76,6 +76,12 @@ export interface AssistantActionActor {
    * действует окно подтверждения личности CRM (lib/stepUp.ts, isElevated).
    */
   stepUpVerified?: boolean;
+  /**
+   * Директор или администратор: подтверждение личности (окно в CRM, код Authenticator в
+   * Telegram) не требуется вовсе (stepUpExemptRole, 23.11.2026). Выставляют только места,
+   * где актор собран из настоящей роли сотрудника.
+   */
+  stepUpExempt?: boolean;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -263,6 +269,7 @@ export const TOTP_REQUIRED_MESSAGE =
  */
 async function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionActor, rawArgs: unknown): Promise<boolean> {
   if (!executor.stepUp) return false;
+  if (actor.stepUpExempt === true) return true;
   if (actor.channel === "telegram") {
     if (actor.stepUpVerified === true) return false;
     if (await staffStepUpWaived(actor, executor.tool, parseArgs(executor, rawArgs))) return true;

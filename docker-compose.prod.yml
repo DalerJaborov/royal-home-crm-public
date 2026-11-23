@@ -128,6 +128,9 @@ services:
       # Owner-approved temporary settings-only SMS pause; strict again on
       # 21 November 2026. Empty override disables the pause immediately.
       SETTINGS_STEP_UP_MAINTENANCE_UNTIL: "${SETTINGS_STEP_UP_MAINTENANCE_UNTIL-2026-11-21T06:30:00.000Z}"
+      # Директор и админ без кода подтверждения (владелец 23.11.2026). Пусто или любое значение кроме 0 —
+      # без кода; STEP_UP_OWNERS_EXEMPT=0 в .env.production возвращает защиту без правки кода.
+      STEP_UP_OWNERS_EXEMPT: "${STEP_UP_OWNERS_EXEMPT:-}"
       PORT: 4000
       # Пул потоков libuv (22.09.2026, вместе с параллельной обработкой фото —
       # см. routes/properties/photos.ts). Node по умолчанию даёт 4 потока на

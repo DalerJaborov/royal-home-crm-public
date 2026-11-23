@@ -225,6 +225,9 @@ beforeAll(async () => {
  * tests/push-quiet-hours.test.ts включает правило обратно у себя.
  */
 process.env.PUSH_QUIET_HOURS ??= "off";
+// Окно подтверждения личности для директора/админа отключено в проде (23.11.2026); тесты прежних
+// проверок 428 гоняют с защитой, а новое поведение включают явно (tests/step-up-owner-exempt.test.ts).
+process.env.STEP_UP_OWNERS_EXEMPT ??= "0";
 const envAtFileStart = { ...process.env };
 
 afterAll(() => {

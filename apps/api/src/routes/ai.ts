@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { stepUpExemptRole } from "../lib/stepUp.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
@@ -1043,7 +1044,10 @@ function assistantActionRoute(handler: AssistantActionHandler) {
       return res.status(400).json({ error: "Неверный идентификатор действия", details: params.error.flatten() });
     }
     const agent = req.agent!;
-    const actor: AssistantActionActor = { agentId: agent.id, channel: "crm", can: (permission) => agent.can(permission) };
+    const actor: AssistantActionActor = {
+      agentId: agent.id, channel: "crm", can: (permission) => agent.can(permission),
+      ...(stepUpExemptRole(agent.role) ? { stepUpExempt: true } : {}),
+    };
     try {
       const outcome = await handler(params.data.id, actor);
       return res.json(outcome);
