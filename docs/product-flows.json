@@ -4340,7 +4340,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: targetId } }, select: { …",
+         "t": "const holder = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id: …",
          "a": [
           "читает в базе: agent"
          ],
@@ -4968,7 +4968,7 @@
       },
       {
        "k": "do",
-       "t": "const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });",
+       "t": "const existing = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) } } }…",
        "a": [
         "читает в базе: agent"
        ],
@@ -45209,7 +45209,7 @@
       },
       {
        "k": "do",
-       "t": "const conflict = await prisma.agent.findUnique({ where: { phone: rest.phone } });",
+       "t": "const conflict = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id…",
        "a": [
         "читает в базе: agent"
        ],

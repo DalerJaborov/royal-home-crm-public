@@ -265,7 +265,7 @@ describe("Внутренний номер вручную — заведение 
       .set("Authorization", `Bearer ${directorToken}`)
       .send({
         fullName: `Новичок ${runId}`,
-        phone: `+99290${runId}04`,
+        phone: `+99290${String(runId).slice(-5).padStart(5, "0")}04`,
         role: "AGENT",
         password: "verysecret1",
         sipExtension: EXT_UNKNOWN,
@@ -273,7 +273,7 @@ describe("Внутренний номер вручную — заведение 
 
     expect(res.status).toBe(409);
     expect(res.body.error).toContain("На АТС нет внутреннего номера");
-    const created = await prisma.agent.findUnique({ where: { phone: `+99290${runId}04` } });
+    const created = await prisma.agent.findUnique({ where: { phone: `+99290${String(runId).slice(-5).padStart(5, "0")}04` } });
     expect(created).toBeNull();
   });
 
@@ -288,7 +288,7 @@ describe("Внутренний номер вручную — заведение 
       .set("Authorization", `Bearer ${directorToken}`)
       .send({
         fullName: `Новичок2 ${runId}`,
-        phone: `+99290${runId}05`,
+        phone: `+99290${String(runId).slice(-5).padStart(5, "0")}05`,
         role: "AGENT",
         password: "verysecret1",
         sipExtension: extraFree,

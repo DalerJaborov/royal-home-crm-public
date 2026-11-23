@@ -49,6 +49,28 @@ export function assistantGroupFixture() {
   const publicCatalog = vi.fn(async () => [{ id: 801, crmShortId: 123, price: 630000 }] as
     { id: number; crmShortId: number | null; price: number }[] | null);
   const publicShellReply = vi.fn(async (_request: unknown, _lang: string) => "Квартира меҷӯед ё ҳавлӣ?");
+  // Нажатия /start и «меню» (23.11.2026): та же форма, что у таблицы AssistantGroupStartPress.
+  const presses: { chatId: string; telegramUserId: string; telegramName: string; pressedAt: Date }[] = [];
+  const startPress = {
+    upsert: async ({ create: row, update }: any) => {
+      const found = presses.find(p => p.chatId === row.chatId && p.telegramUserId === row.telegramUserId);
+      if (found) Object.assign(found, update); else presses.push({ ...row });
+      return row;
+    },
+    deleteMany: async ({ where }: any) => {
+      const before = presses.length;
+      for (let i = presses.length - 1; i >= 0; i--) {
+        const p = presses[i];
+        if ((where.chatId === undefined || p.chatId === where.chatId)
+            && (where.telegramUserId?.in === undefined || where.telegramUserId.in.includes(p.telegramUserId))
+            && (where.pressedAt?.lt === undefined || p.pressedAt < where.pressedAt.lt)) presses.splice(i, 1);
+      }
+      return { count: before - presses.length };
+    },
+    findMany: async ({ where, take }: any) => presses
+      .filter(p => p.chatId === where.chatId && p.pressedAt >= where.pressedAt.gte)
+      .sort((a, b) => a.pressedAt.getTime() - b.pressedAt.getTime()).slice(0, take),
+  };
   const create = vi.fn(async (input: { skipDuplicates: boolean }) => {
     expect(input.skipDuplicates).toBe(true);
     // Atomic winner, including overlapping async handler invocations.
@@ -76,6 +98,7 @@ export function assistantGroupFixture() {
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
       sendMessageWithButtons: buttons, sendChatAction: indicator, setMessageReaction: reaction },
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
+      assistantGroupStartPress: startPress,
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
         findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
         updateMany: async ({ where, data }: any) => {
@@ -135,7 +158,7 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, presses, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

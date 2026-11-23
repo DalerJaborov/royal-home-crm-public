@@ -1056,7 +1056,7 @@
       - return fail(409, check.error);
         · дословно из кода
   - если rest.phone
-    - const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: targetId } }, select: { …
+    - const holder = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id: …
       · читает в базе: agent
     - если holder
       - return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);
@@ -1192,7 +1192,7 @@
   - если roleDenied
     - return fail(403, roleDenied);
       · дословно из кода
-  - const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+  - const existing = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) } } }…
     · читает в базе: agent
   - если existing
     - return fail(409, "Агент с таким телефоном уже существует");
@@ -10104,7 +10104,7 @@
   - если !isElevated(req.agent!.id)
     - return res.status(428).json({ error: "Подтвердите личность кодом, чтобы сменить номер", stepUpRequired: true …
       · ответ 428 — «Подтвердите личность кодом, чтобы сменить номер»
-  - const conflict = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+  - const conflict = await prisma.agent.findFirst({ where: { phone: { in: staffPhoneLookupForms(rest.phone) }, id…
     · читает в базе: agent
   - если conflict
     - return res.status(409).json({ error: "Этот телефон уже используется другим сотрудником" });

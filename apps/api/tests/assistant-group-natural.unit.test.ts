@@ -316,7 +316,12 @@ describe("natural group addressing and silence", () => {
     f.plain.mockClear();
     f.setLinked(false);
     expect(await f.send("Какая цена у ОБ-123?")).toBe(false);
-    expect(await f.send(screenshotQuestion, { chat: { id: -200, type: "supergroup" } })).toBe(false);
+    // Неподключённая группа (23.11.2026): прямое обращение получает подсказку «как подключить», не ИИ.
+    expect(await f.send(screenshotQuestion, { chat: { id: -200, type: "supergroup" } })).toBe(true);
+    expect(f.plain.mock.calls.map(call => call[1])).toEqual([
+      expect.stringContaining("ещё не подключена"), expect.stringContaining("пайваст нестам"),
+    ]);
+    f.plain.mockClear();
     expect(await f.send("Какая цена у ОБ-123?", { forward_origin: { type: "user" } })).toBe(false);
     f.setDiscussion("-100");
     expect(await f.send(screenshotQuestion)).toBe(false);
@@ -415,14 +420,18 @@ describe("one greeting per authorized registration", () => {
     await f.send("/assistant_on");
     expect(f.voice).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
   });
-  it("tries both voices without posting text if voice is unavailable", async () => {
+  // 23.11.2026: раньше (#114) приветствие было только голосом, и без озвучки группа не слышала ничего
+  // (живой случай «Royal Home»). Теперь голос не ушёл — тот же текст обычным сообщением.
+  it("tries both voices and posts the same text when voice is unavailable", async () => {
     const f = fixture(); f.setRegistered(false); f.voice.mockResolvedValue(false);
     await f.send("/assistant_on салом");
     expect(f.voice).toHaveBeenCalledTimes(2);
     expect(f.voice.mock.calls[0]?.[1]).toContain("Привет");
     expect(f.voice.mock.calls[1]?.[1]).toContain("Салом");
     expect(f.html).not.toHaveBeenCalled();
-    expect(f.plain).not.toHaveBeenCalled();
+    expect(f.plain.mock.calls.map(call => String(call[1]))).toEqual([
+      expect.stringContaining("Привет, коллеги"), expect.stringContaining("Салом, ҳамкорон"),
+    ]);
     await f.send("/assistant_on салом");
     expect(f.voice).toHaveBeenCalledTimes(2);
   });
@@ -1115,16 +1124,29 @@ describe("Telegram membership welcomes", () => {
     expect(await f.send("Какая цена у ОБ-123?")).toBe(true);
     expect(f.run).not.toHaveBeenCalled();
   });
-  it.each(["foreign", "unlinked", "agent", "discussion", "disabled"])("does not greet an unapproved addition: %s", async kind => {
+  it.each(["foreign", "discussion", "disabled"])("does not greet an unapproved addition: %s", async kind => {
     const f = fixture(); f.setRegistered(false);
-    if (kind === "unlinked") f.setLinked(false);
-    if (kind === "agent") f.setRole("AGENT");
     if (kind === "discussion") f.setDiscussion("-100");
     if (kind === "disabled") f.setEnabled(false);
     await f.send("", { new_chat_members: [{ ...bot, username: kind === "foreign" ? "other_bot" : bot.username }] });
     expect(f.create).not.toHaveBeenCalled();
     expect(f.voice).not.toHaveBeenCalled();
     expect(f.plain).not.toHaveBeenCalled();
+  });
+  // 23.11.2026: добавил не директор/админ CRM — группу не подключаем, но и не молчим: раз в 10 минут
+  // на двух языках, как подключить (раньше бот молчал, и это выглядело как поломка).
+  it.each(["unlinked", "agent"])("explains how to connect after an unapproved addition: %s", async kind => {
+    const f = fixture(); f.setRegistered(false);
+    if (kind === "unlinked") f.setLinked(false);
+    if (kind === "agent") f.setRole("AGENT");
+    await f.send("", { new_chat_members: [bot] });
+    await f.send("", { new_chat_members: [bot] });
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.voice).not.toHaveBeenCalled();
+    expect(f.plain.mock.calls.map(call => call[1])).toEqual([
+      expect.stringContaining("ещё не подключена"), expect.stringContaining("пайваст нестам"),
+    ]);
+    for (const [, text] of f.plain.mock.calls) expect(String(text)).not.toMatch(/—/);
   });
   it("greets newcomers once per burst, respects quiet mode and stops after bot removal", async () => {
     const f = fixture();
@@ -1230,5 +1252,152 @@ describe("third review 08.11.2026: window before the long turn, global slots", (
     for (const done of finishers.slice(1)) done({ ok: true, reply: "Готово." });
     for (const m of msgs) await f.adapter.takeDeferredAssistantReply(m);
     expect(f.adapter.assistantTurnSlotsForTests()).toEqual({ running: 0, waiting: 0 });
+  });
+});
+
+// 23.11.2026, живой случай группы «Royal Home»: люди жали /start@бот и писали «меню», бот молчал.
+describe("/start and «меню» in a group: a short hint instead of silence or the model", () => {
+  const TEN_MINUTES = 10 * 60_000;
+  const person = (id: number, first_name: string) => ({ from: { id, first_name } });
+  const texts = (calls: unknown[][]) => calls.map(call => String(call[1]));
+
+  it("unregistered group: one bilingual «how to connect» per 10 minutes, every presser is remembered", async () => {
+    const f = fixture(); f.setRegistered(false);
+    expect(await f.send("/start@fixture_bot", person(11, "Химматой"))).toBe(true);
+    expect(await f.send("/start", person(12, "Tohirzoda"))).toBe(true);
+    expect(await f.send("меню", person(13, "Владелец"))).toBe(true);
+    expect(texts(f.plain.mock.calls)).toEqual([
+      expect.stringContaining("ещё не подключена"), expect.stringContaining("пайваст нестам"),
+    ]);
+    expect(texts(f.plain.mock.calls).join(" ")).not.toMatch(/—/);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.presses.map(p => p.telegramUserId).sort()).toEqual(["11", "12", "13"]);
+    f.advance(TEN_MINUTES + 1);
+    await f.send("/start@fixture_bot", person(11, "Химматой"));
+    expect(f.plain).toHaveBeenCalledTimes(4);
+    expect(f.presses).toHaveLength(3);
+  });
+
+  it("registration greets all three pressers in ONE message with id mentions, then the skills hint; never twice", async () => {
+    const f = fixture(); f.setRegistered(false);
+    await f.send("/start@fixture_bot crm", person(11, "Химматой"));
+    await f.send("/start", person(12, "Tohirzoda <Sh>"));
+    await f.send("меню", person(13, "D"));
+    f.plain.mockClear();
+    expect(await f.send("/assistant_on")).toBe(true);
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.html).toHaveBeenCalledTimes(1);
+    const mention = String(f.html.mock.calls[0]?.[1]);
+    for (const id of [11, 12, 13]) expect(mention).toContain(`<a href="tg://user?id=${id}">`);
+    expect(mention).toContain("Tohirzoda &lt;Sh&gt;");
+    expect(mention).toContain("Вы нажимали /start, теперь я здесь");
+    expect(texts(f.plain.mock.calls)).toEqual([expect.stringContaining("Я Шабнам из Royal Home"), expect.stringContaining("Ман Шабнам аз Royal Home")]);
+    expect(f.presses).toHaveLength(0);
+    await f.send("/assistant_on");
+    await f.send("", { left_chat_member: { id: 99, is_bot: true, username: "fixture_bot" } });
+    await f.send("", { new_chat_members: [{ id: 99, is_bot: true, username: "fixture_bot" }] });
+    expect(f.html).toHaveBeenCalledTimes(1);
+  });
+
+  it("registered group: skills hint (not the model) once per 10 minutes; the ones left out are tagged next time", async () => {
+    const f = fixture();
+    expect(await f.send("/start@fixture_bot", person(21, "Сотрудник"))).toBe(true);
+    expect(texts(f.plain.mock.calls)).toEqual([expect.stringContaining("Я Шабнам из Royal Home"), expect.stringContaining("Ман Шабнам")]);
+    expect(await f.send("меню", person(22, "Ученик"))).toBe(true);
+    expect(await f.send("/start", person(23, "Ещё ученик"))).toBe(true);
+    expect(f.plain).toHaveBeenCalledTimes(2);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.html).not.toHaveBeenCalled();
+    f.advance(TEN_MINUTES + 1);
+    await f.send("Меню!", person(24, "Третий"));
+    expect(f.html).toHaveBeenCalledTimes(1);
+    const mention = String(f.html.mock.calls[0]?.[1]);
+    expect(mention).toContain("tg://user?id=22");
+    expect(mention).toContain("tg://user?id=23");
+    expect(mention).not.toContain("tg://user?id=24");
+    expect(f.plain).toHaveBeenCalledTimes(4);
+    expect(f.presses).toHaveLength(0);
+  });
+
+  it("a people-joined greeting tags those who pressed /start while the hint was on cooldown", async () => {
+    const f = fixture();
+    await f.send("/start", person(31, "Первый"));
+    await f.send("/start", person(32, "Второй"));
+    f.advance(Math.max(TEN_MINUTES, participation.GROUP_WELCOME_INTERVAL_MS) + 1);
+    await f.send("", { new_chat_members: [{ id: 33, is_bot: false }] });
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.html).toHaveBeenCalledTimes(1);
+    expect(String(f.html.mock.calls[0]?.[1])).toContain("tg://user?id=32");
+  });
+
+  it("ignores /start for another bot, forwarded /start and «меню» in the channel discussion group", async () => {
+    const f = fixture();
+    expect(await f.send("/start@other_bot")).toBe(false);
+    expect(await f.send("/start", { forward_origin: { type: "user" } })).toBe(false);
+    f.setDiscussion("-100");
+    expect(await f.send("меню")).toBe(false);
+    // Ревью 23.11: клиентский комментарий «/start» в группе-обсуждении канала не должен проглатываться.
+    expect(await f.send("/start")).toBe(false);
+    expect(await f.send("/start@fixture_bot crm")).toBe(false);
+    expect(f.plain).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.presses).toHaveLength(0);
+  });
+
+  it("stays silent when the assistant is off in Settings and leaves /start to the old handling", async () => {
+    const f = fixture(); f.setRegistered(false); f.setEnabled(false);
+    expect(await f.send("/start@fixture_bot")).toBe(false);
+    expect(await f.send("меню")).toBe(false);
+    expect(f.plain).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.presses).toHaveLength(0);
+  });
+
+  it("a failed send keeps the pressers: they are tagged by the next hint, and the presser still gets the skills", async () => {
+    const f = fixture(); f.setRegistered(false);
+    await f.send("/start", person(11, "Первый"));
+    await f.send("/start", person(12, "Второй"));
+    f.html.mockRejectedValueOnce(new Error("429 Too Many Requests"));
+    await f.send("/assistant_on");
+    expect(f.presses.map(p => p.telegramUserId).sort()).toEqual(["11", "12"]);
+    f.plain.mockClear();
+    f.advance(TEN_MINUTES + 1);
+    f.html.mockRejectedValueOnce(new Error("timeout"));
+    await f.send("меню", person(13, "Третий"));
+    expect(texts(f.plain.mock.calls)).toEqual([expect.stringContaining("Я Шабнам из Royal Home"), expect.stringContaining("Ман Шабнам")]);
+    expect(f.presses.map(p => p.telegramUserId).sort()).toEqual(["11", "12", "13"]);
+    f.advance(TEN_MINUTES + 1);
+    await f.send("меню", person(14, "Четвёртый"));
+    const mention = String(f.html.mock.calls.at(-1)?.[1]);
+    for (const id of [11, 12, 13]) expect(mention).toContain(`tg://user?id=${id}`);
+    expect(mention).not.toContain("tg://user?id=14");
+    expect(f.presses.map(p => p.telegramUserId)).toEqual([]);
+  });
+
+  it("addressing Shabnam by name in an unregistered group gets the connect hint, not the model", async () => {
+    const f = fixture(); f.setRegistered(false);
+    expect(await f.send("Шабнам, найди ОБ-123")).toBe(true);
+    expect(texts(f.plain.mock.calls)[0]).toContain("ещё не подключена");
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("/assistant_on without rights always gets the personal answer, never the rate-limited hint", async () => {
+    const f = fixture(); f.setRegistered(false); f.setLinked(false);
+    await f.send("/assistant_on");
+    await f.send("/assistant_on");
+    expect(f.create).not.toHaveBeenCalled();
+    const replies = texts(f.plain.mock.calls);
+    expect(replies).toHaveLength(2);
+    expect(replies[0]).toBe(replies[1]);
+    expect(replies.join(" ")).not.toContain("ещё не подключена");
+  });
+
+  it("adding the bot by someone without rights: one hint; re-adding to an already connected group stays quiet", async () => {
+    const f = fixture(); f.setRegistered(false); f.setLinked(false);
+    await f.send("", { new_chat_members: [{ id: 99, is_bot: true, username: "fixture_bot" }] });
+    expect(texts(f.plain.mock.calls)).toEqual([expect.stringContaining("ещё не подключена"), expect.stringContaining("пайваст нестам")]);
+    const g = fixture(); g.setLinked(false);
+    await g.send("", { new_chat_members: [{ id: 99, is_bot: true, username: "fixture_bot" }] });
+    expect(g.plain).not.toHaveBeenCalled();
   });
 });

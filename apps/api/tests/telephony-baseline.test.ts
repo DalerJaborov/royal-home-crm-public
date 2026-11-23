@@ -1,9 +1,21 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { prisma } from "../src/db.js";
 import { TELEPHONY_OPTIONS, telephonyOptionTitle } from "@royal-home/shared";
-import { checkSettingsBaseline, checkOperatorsBaseline, describeDrift } from "../src/lib/telephony/telephonyBaseline.js";
-import { BASELINE_CHECK_NAME, LEGACY_BASELINE_CHECK_NAMES, dropLegacyHealthSnapshots } from "../src/lib/telephony/stationHealth.js";
+import {
+  checkOperatorsBaseline,
+  describeDrift,
+  evaluateSettingsBaseline,
+  operatorsMatter,
+  type BaselineContext,
+  type BaselineSettings,
+} from "../src/lib/telephony/telephonyBaseline.js";
+import {
+  BASELINE_CHECK_NAME,
+  LEGACY_BASELINE_CHECK_NAMES,
+  dropLegacyHealthSnapshots,
+  queueNotUsedCheck,
+} from "../src/lib/telephony/stationHealth.js";
 
 /**
  * СТОРОЖ РАБОЧЕЙ НАСТРОЙКИ ТЕЛЕФОНИИ (просьба владельца 21.09.2026: «если всё
@@ -13,142 +25,146 @@ import { BASELINE_CHECK_NAME, LEGACY_BASELINE_CHECK_NAMES, dropLegacyHealthSnaps
  * ИМЕННО ТЕ значения, при которых звонки терялись по-настоящему. Каждый случай
  * ниже — след реального простоя, а не выдуманная комбинация:
  *
- *  — приём на прямой аппарат: тридцать дней тишины 21.08-19.09.2026;
+ *  — приём не на тот аппарат или без переадресации директору: урок 1003,
+ *    тридцать дней тишины 21.08-19.09.2026 (схема владельца с 18.11/23.11.2026:
+ *    10 секунд аппарат 2020, не ответили — сразу директору);
+ *  — ложная тревога 23.11.2026: сторож требовал очередь, 40 с и оператора на
+ *    рабочей схеме — первый случай ниже держит, чтобы это не повторилось;
  *  — пустое действие при неответе: станция не знает, что делать со звонком
  *    (`none` с 03.10.2026 — осознанное «звонить без предела», тревогой не считается);
  *  — звонок агенту на настольную трубку: их нет ни у кого с 18.08.2026;
- *  — ноль операторов приёма: очередь станции пустеет за пятнадцать минут, и
- *    незнакомый клиент не дозванивается никому;
+ *  — ноль операторов приёма, когда приём идёт через очередь: очередь станции
+ *    пустеет за пятнадцать минут, и незнакомый клиент не дозванивается никому;
  *  — режим маршрутизации «kpi_queue»/«dedicated_operator»: незнакомый номер
  *    уходит агенту мимо оператора, против решения владельца 20.09.2026
  *    (ночная проверка 24.09.2026, К2-З1).
  *
- * Значения настроек в конце теста возвращаются на место — иначе следующий тест
- * в этом же файле базы получил бы чужую поломку и искал бы её у себя.
+ * Сверка настроек — чистая функция (evaluateSettingsBaseline): база для неё не нужна.
  */
 
-const KEYS = {
-  incomingPrimaryTarget: true,
-  incomingRouteToAssignedAgent: true,
-  asteriskAgentDialMode: true,
-  incomingNoAnswerAction: true,
-  incomingNoAnswerSeconds: true,
-  incomingRoutingMode: true,
-} as const;
+/** Номер директора в тесте — заглушка, не настоящий. */
+const DIRECTOR_PHONE = "+992900000001";
 
-type Snapshot = Awaited<ReturnType<typeof snapshot>>;
-async function snapshot() {
-  return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: KEYS });
+/**
+ * Рабочая схема владельца (18.11.2026 + 23.11.2026): 10 секунд звонит аппарат 2020,
+ * не ответили — сразу директору (а дальше автоответчик). Ровно эти значения стояли
+ * на проде 23.11.2026, когда сторож показывал «сломан».
+ */
+function good(): BaselineSettings {
+  return {
+    incomingPrimaryTarget: "extension",
+    incomingPrimaryExtension: "2020",
+    incomingRouteToAssignedAgent: true,
+    asteriskAgentDialMode: "mobile",
+    incomingNoAnswerAction: "both",
+    incomingNoAnswerSeconds: 10,
+    incomingRoutingMode: "assigned_then_forward",
+    incomingForwardPhone: DIRECTOR_PHONE,
+  };
 }
-
-/** Привести настройки к эталону — исходная точка каждого случая. */
-async function setGood(): Promise<void> {
-  await prisma.settings.update({
-    where: { id: "singleton" },
-    data: {
-      incomingPrimaryTarget: "queue",
-      incomingRouteToAssignedAgent: true,
-      asteriskAgentDialMode: "mobile",
-      incomingNoAnswerAction: "voicemail",
-      incomingNoAnswerSeconds: 40,
-      incomingRoutingMode: "assigned_then_forward",
-    },
-  });
-}
-
-let before: Snapshot;
-
-beforeAll(async () => {
-  before = await snapshot();
+const ctx = (over: Partial<BaselineContext> = {}): BaselineContext => ({
+  directorPhones: [DIRECTOR_PHONE],
+  consultantStationMode: "",
+  ...over,
 });
-
-afterAll(async () => {
-  await prisma.settings.update({ where: { id: "singleton" }, data: before });
-});
+const driftOf = (s: BaselineSettings, c: BaselineContext = ctx()) =>
+  evaluateSettingsBaseline(s, c).filter((r) => !r.ok);
+const names = (s: BaselineSettings, c?: BaselineContext) => driftOf(s, c).map((d) => d.name);
 
 describe("сторож рабочей настройки телефонии", () => {
-  it("на эталонных значениях молчит", async () => {
-    await setGood();
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift).toEqual([]);
+  it("схема владельца 23.11.2026 (2020 на 10 с → директору) — тревоги нет; до 23.11 тут было «сломан»", () => {
+    expect(driftOf(good())).toEqual([]);
+    // Ложная тревога 23.11.2026: на этих значениях сторож требовал очередь, 40 с и оператора.
+    expect(operatorsMatter(evaluateSettingsBaseline(good(), ctx()))).toBe(false);
   });
 
-  it("замечает приём, переведённый на прямой аппарат", async () => {
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingPrimaryTarget: "extension" } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).toContain("Куда идёт входящий");
+  it("«только переадресация» без автоответчика после директора — тоже схема владельца", () => {
+    expect(driftOf({ ...good(), incomingNoAnswerAction: "forward" })).toEqual([]);
   });
 
-  it("«none» при неответе — осознанный выбор владельца (звонить без предела), тревогой НЕ считается", async () => {
-    // С 03.10.2026 none в диалплане = «звонить, пока не снимут» (RH_DWAIT пуст), а не обрыв.
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingNoAnswerAction: "none" } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).not.toContain("Что делать, если не ответили");
+  it("замечает приём, возвращённый в очередь, — и тогда снова нужны операторы", () => {
+    const rules = evaluateSettingsBaseline({ ...good(), incomingPrimaryTarget: "queue" }, ctx());
+    expect(rules.filter((r) => !r.ok).map((r) => r.name)).toContain("Куда идёт входящий");
+    expect(operatorsMatter(rules)).toBe(true);
   });
 
-  it("пустое значение при неответе — тревога: станция не знает, что делать со звонком", async () => {
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingNoAnswerAction: "" } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    const rule = drift.find((d) => d.name === "Что делать, если не ответили");
-    expect(rule).toBeDefined();
-    expect(rule?.actual).toBe("не задано");
+  it("замечает другой аппарат приёма и пустое/мусорное поле аппарата", () => {
+    expect(names({ ...good(), incomingPrimaryExtension: "1003" })).toContain("Аппарат приёма");
+    const empty = driftOf({ ...good(), incomingPrimaryExtension: "" }).find((d) => d.name === "Аппарат приёма");
+    expect(empty?.actual).toBe("не задан");
+    // Мусор станция отбрасывает целиком (internalExtensionDigits) — для сторожа это тоже «не задан».
+    expect(driftOf({ ...good(), incomingPrimaryExtension: "2020;Hangup" }).find((d) => d.name === "Аппарат приёма")?.actual).toBe("не задан");
+    // «20 20» — та же 2020, человек набрал с пробелом: не тревога.
+    expect(names({ ...good(), incomingPrimaryExtension: "20 20" })).not.toContain("Аппарат приёма");
   });
 
-  it("переадресация дежурному вместо автоответчика тревогой НЕ считается", async () => {
-    // Правило намеренно «задано хоть что-то», а не «равно voicemail»: годится любой
-    // запасной путь. Иначе сторож мешал бы владельцу выбрать переадресацию.
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingNoAnswerAction: "forward" } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).not.toContain("Что делать, если не ответили");
+  it("замечает возврат ожидания к прежним 40 секундам", () => {
+    const d = driftOf({ ...good(), incomingNoAnswerSeconds: 40 }).find((r) => r.name === "Сколько звонит аппарат приёма");
+    expect(d).toBeDefined();
+    expect(describeDrift([d!])).toContain("сейчас «40 с», нужно «10 с»");
   });
 
-  it("замечает выключенный перевод известного клиента своему агенту", async () => {
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRouteToAssignedAgent: false } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).toContain("Известный клиент — своему агенту");
+  describe("не ответили на аппарате — директору", () => {
+    const rule = (s: BaselineSettings, c?: BaselineContext) =>
+      evaluateSettingsBaseline(s, c ?? ctx()).find((r) => r.name === "Не ответили на аппарате — директору")!;
+
+    it("автоответчик сразу после аппарата — тревога: директору никто не звонит", () => {
+      expect(rule({ ...good(), incomingNoAnswerAction: "voicemail" }).ok).toBe(false);
+      expect(rule({ ...good(), incomingNoAnswerAction: "none" }).actual).toBe("не переадресуется (выбрано другое действие)");
+    });
+
+    it("номер переадресации пустой — тревога (станция молча получила бы «ничего»)", () => {
+      expect(rule({ ...good(), incomingForwardPhone: "" }).actual).toBe("номер для переадресации не задан");
+      expect(rule({ ...good(), incomingForwardPhone: null }).ok).toBe(false);
+    });
+
+    it("номер не директора — тревога; тот же номер в другой записи (без +992, с пробелами) — не тревога", () => {
+      expect(rule({ ...good(), incomingForwardPhone: "+992900000002" }).actual).toBe("номер для переадресации не директора");
+      expect(rule({ ...good(), incomingForwardPhone: "90 000 00 01" }).ok).toBe(true);
+      expect(rule(good(), ctx({ directorPhones: [] })).ok).toBe(false);
+    });
+
+    it("робот на входящих перехватывает звонок вместо директора — тревога", () => {
+      expect(rule(good(), ctx({ consultantStationMode: "no_answer" })).actual).toBe("трубку берёт робот, а не директор");
+    });
   });
 
-  it("замечает звонок агенту на настольную трубку, которой ни у кого нет", async () => {
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { asteriskAgentDialMode: "extension" } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).toContain("Чем звонить агенту");
+  it("«none» и «переадресация» при неответе — заданный выбор, правило «Что делать» молчит; пусто — тревога", () => {
+    expect(names({ ...good(), incomingNoAnswerAction: "none" })).not.toContain("Что делать, если не ответили");
+    const empty = driftOf({ ...good(), incomingNoAnswerAction: "" }).find((d) => d.name === "Что делать, если не ответили");
+    expect(empty?.actual).toBe("не задано");
   });
 
-  it("замечает возврат ожидания к прежним 45 секундам", async () => {
-    await setGood();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { incomingNoAnswerSeconds: 45 } });
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).toContain("Сколько ждёт незнакомый");
+  it("замечает выключенный перевод известного клиента своему агенту", () => {
+    expect(names({ ...good(), incomingRouteToAssignedAgent: false })).toContain("Известный клиент — своему агенту");
+  });
+
+  it("замечает звонок агенту на настольную трубку, которой ни у кого нет", () => {
+    expect(names({ ...good(), asteriskAgentDialMode: "extension" })).toContain("Чем звонить агенту");
   });
 
   // Ночная проверка 24.09.2026 (К2-З1): режимы «kpi_queue» и «dedicated_operator»
-  // включаются одной кнопкой в Настройках → Каналы связи и уводят незнакомый
-  // номер агенту мимо очереди оператора — против решения владельца 20.09.2026
-  // («незнакомый входящий — только оператору»). Сторож обязан это заметить.
+  // уводят незнакомый номер агенту мимо решения владельца 20.09.2026.
   for (const mode of ["kpi_queue", "dedicated_operator"] as const) {
-    it(`замечает режим «${mode}» — незнакомый звонок уходит агенту мимо оператора`, async () => {
-      await setGood();
-      await prisma.settings.update({ where: { id: "singleton" }, data: { incomingRoutingMode: mode } });
-      const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-      const found = drift.find((d) => d.name === "Незнакомый звонок — оператору");
-      expect(found).toBeDefined();
+    it(`замечает режим «${mode}» — незнакомый звонок уходит агенту`, () => {
+      const found = driftOf({ ...good(), incomingRoutingMode: mode }).find((d) => d.name === "Незнакомый звонок — оператору");
       expect(found?.actual).toBe(mode);
       expect(found?.expected).toBe("assigned_then_forward");
-      // Текст для журнала должен назвать и решение, и дату — чтобы читающий понял без нас.
       expect(describeDrift([found!])).toContain("Незнакомые звонки должны идти оператору (решение 20.09");
     });
   }
 
-  it("режим «assigned_then_forward» — тревоги нет", async () => {
-    await setGood();
-    const drift = (await checkSettingsBaseline()).filter((r) => !r.ok);
-    expect(drift.map((d) => d.name)).not.toContain("Незнакомый звонок — оператору");
+  it("пустой режим маршрутизации читается как умолчание — тревоги нет", () => {
+    expect(names({ ...good(), incomingRoutingMode: "" })).not.toContain("Незнакомый звонок — оператору");
+  });
+});
+
+describe("очередь приёма при приёме на аппарат", () => {
+  it("не судится: «ни один участник не на связи» — норма, когда звонки идут на 2020 (ложная тревога до 23.11.2026)", () => {
+    const check = queueNotUsedCheck("2020");
+    expect(check.name).toBe("Очередь приёма: доступность");
+    expect(check.ok).toBeNull();
+    expect(check.detail).toContain("2020");
   });
 });
 
