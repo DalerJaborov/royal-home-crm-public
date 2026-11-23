@@ -13,6 +13,7 @@ import { CustomerAgentRolloutSection } from "./CustomerAgentRolloutSection";
 import { SettingsLoadError } from "./SettingsLoadError";
 import {
   AssistantAuditSection,
+  AssistantStaffTotpSection,
   ImportSection,
   PasskeyToggleSection,
   ProblemReportsSection,
@@ -72,7 +73,7 @@ function CleanSettingsTaskBody({ task, agentRole }: { task: CleanSettingsTask; a
     case "bot/rollout": return agentRole === "DIRECTOR" || agentRole === "ADMIN" ? <CustomerAgentRolloutSection /> : null;
     case "system/monitoring": return <><FunctionStatusEntry /><SystemHealthSection /><AssistantAuditSection /><StuckConversationsSection /><ProblemReportsSection /><FinancePdfMonthlySection /></>;
     case "system/workspace": return <PultModulesSection />;
-    case "system/security": return <PasskeyToggleSection />;
+    case "system/security": return <><PasskeyToggleSection /><AssistantStaffTotpSection agentRole={agentRole} /></>;
     case "system/data": return <><RestorePointsSection /><ImportSection /></>;
     case "system/website": return agentRole === "DIRECTOR" ? <SiteAdminSection /> : null;
     default: return <p role="alert">Блок настроек не найден. Выберите другой блок выше.</p>;
@@ -161,6 +162,7 @@ function SettingsTabBody({ tab, agentRole }: { tab: SettingsTabId; agentRole: st
 
       <SettingsGroupLabel>Безопасность</SettingsGroupLabel>
       <PasskeyToggleSection />
+      <AssistantStaffTotpSection agentRole={agentRole} />
 
       <SettingsGroupLabel>Данные</SettingsGroupLabel>
       <RestorePointsSection />

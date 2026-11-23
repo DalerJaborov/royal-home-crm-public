@@ -64,6 +64,7 @@ import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import {
   bundleNeedsStepUp,
+  bundleNeedsStepUpByIds,
   cancelStepUpForBundle,
   findPendingStepUp,
   parseStepUpCode,
@@ -239,9 +240,17 @@ export function assistantActorFor(
   return { ...actorFromAccess(agentId, { role: access.role, permissions }, "telegram-group"), hiddenTools: GROUP_HIDDEN_TOOLS };
 }
 
-/** Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. */
-function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: boolean): AssistantActionActor {
-  return { agentId, channel: "telegram", telegramPrivate, can: (permission) => access.permissions.has(permission) };
+/**
+ * Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. `telegramChatId` — id
+ * лички из апдейта (только для лички): по нему дверь lib/assistantStaffStepUpWaiver.ts сверяет,
+ * что директор работает без кода в своём привязанном чате.
+ */
+function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: boolean, telegramChatId?: string): AssistantActionActor {
+  return {
+    agentId, channel: "telegram", telegramPrivate,
+    ...(telegramPrivate && telegramChatId ? { telegramChatId } : {}),
+    can: (permission) => access.permissions.has(permission),
+  };
 }
 
 // ───────────────────────────── рендер ─────────────────────────────
@@ -360,6 +369,8 @@ interface TurnParams {
   turnKey?: string;
   /** Прямое обращение в группе: даёт модели инструмент set_group_quiet (ai/assistant/tools/groupQuietTool.ts). */
   groupChat?: { chatId: string; registeredAt: number };
+  /** Личка: id чата из апдейта — для двери «директор без кода» (lib/assistantStaffStepUpWaiver.ts). */
+  privateChatId?: string;
   /** К запросу приложен текст файла: записи без карточки подтверждения закрыты (attachedFileHiddenTools). */
   attachedFile?: boolean;
   /**
@@ -530,6 +541,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (params.groupChat && params.scope === "group" && !params.forwardedEvidence && !params.readOnlyGroup && !params.onlyGroupConfirmation) {
     actor.groupChat = params.groupChat;
   }
+  if (params.scope === "private" && params.privateChatId) actor.telegramChatId = params.privateChatId;
   if (params.onlyGroupConfirmation) {
     actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...listAssistantToolPlugins()
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
@@ -758,13 +770,18 @@ async function sendTurnResult(
   // Show the same order that pressing either card will execute.
   const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const irreversible = result.pending.some((a) => a.preview.irreversible);
+  // Код на кнопке — та же дверь, что у брокера на нажатии (директор без кода, 23.11.2026).
+  const needsCode = !tajikPrice && await bundleNeedsStepUpByIds(binding.actionIds, {
+    agentId: ctx.agentId, channel: "telegram", telegramPrivate: ctx.scope === "private",
+    ...(ctx.scope === "private" ? { telegramChatId: chatId } : {}), can: () => false,
+  });
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
     // Сотрудники и права: кнопка честно говорит, что дальше спросят код (assistantStepUp.ts). Рамка — на
     // языке содержимого (у карточек сотрудников она русская), поэтому и надпись кнопки — русская.
-    { text: tajikPrice ? "Ҳа" : bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Ҳа" : needsCode ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
     { text: tajikPrice ? "Бекор" : maskPhones ? frame.cancelPlain : frame.cancel, callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
@@ -1138,7 +1155,7 @@ export async function handleAssistantPrivate(
     // Справка уходит только в запрос к модели (modelContext): в истории остаются слова сотрудника целиком.
     const showingContext = forwardedEvidence ? "" : await showingQuestionContext(agent.id).catch(() => "");
     const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
-    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+    const result = await runTurn({ agentId: agent.id, scope: "private", privateChatId: chatId, history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
       attachedFile: Boolean(attachedFileText.trim()), modelContext: showingContext || undefined,
       showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
@@ -2224,7 +2241,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       }
       return true;
     };
-    const actor = actionActorOf(clicker.id, access, callbackChat?.type === "private");
+    const actor = actionActorOf(clicker.id, access, callbackChat?.type === "private", chatId ?? undefined);
 
     // «Записать» под пачкой расходов, у которой вышло время: честно «ничего не записала» на языке
     // карточки и «Показать снова» с теми же строками (17.11.2026: 10–11.11 две карточки истекли молча).
@@ -2269,7 +2286,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
         return true;
       }
       // Откат того, что стояло за подтверждением личности, — тоже только с кодом.
-      if (bundleNeedsStepUp(executed)) {
+      if (await bundleNeedsStepUp(executed, actor)) {
         await askStepUpCode({ agentId: clicker.id, chatId, bundleId, kind: "undo", cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
         return true;
       }
@@ -2283,7 +2300,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
     // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
     const awaiting = actions.some((a) => a.status === "PENDING" && a.expiresAt.getTime() > Date.now());
-    if (awaiting && bundleNeedsStepUp(actions)) {
+    if (awaiting && await bundleNeedsStepUp(actions, actor)) {
       if (callbackChat?.type !== "private" || !chatId) {
         await answerCallbackQuery(query.id, "Это действие доступно в личке с Шабнам");
         return true;
@@ -2391,7 +2408,7 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
         throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
       }
       const currentActor: AssistantActionActor = {
-        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true, actor.telegramChatId),
         // Код проверен в этом же исполнении (assistantStepUp.ts) — только для него.
         ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
       };
@@ -2434,7 +2451,7 @@ async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{
         throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
       }
       const currentActor: AssistantActionActor = {
-        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true, actor.telegramChatId),
         ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
       };
       const { action, replay } = await undoAssistantAction(id, currentActor);
@@ -2525,7 +2542,7 @@ async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; 
     await sendMessage(challenge.chatId, tg ? "Корт кӯҳна шуд. Боз нависед." : "Карточка устарела. Повторите просьбу.").catch(() => {});
     return;
   }
-  const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
+  const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true, challenge.chatId), stepUpVerified: true };
   if (challenge.kind === "undo") {
     const undone = await serializeBundle(challenge.bundleId, () => undoBundle(actions.map((a) => a.id), actor));
     await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, undoSummary(undone, agent.fullName), null);

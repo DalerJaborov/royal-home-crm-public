@@ -230,7 +230,9 @@ function staffTool<A>(spec: StaffToolSpec<A>): AssistantWriteToolPlugin {
 }
 
 const has = (actor: AssistantActor, permission: PermissionId) => actor.permissions?.has(permission) ?? false;
-const STEP_UP_NOTE = " Нужен код из Google Authenticator (в CRM — подтверждение личности).";
+// Код в Telegram решает CRM (lib/assistantStaffStepUpWaiver.ts: директору без кода, 23.11.2026) — модель
+// его не обещает и не просит, карточка спросит сама, если нужен.
+const STEP_UP_NOTE = " Может понадобиться код из Google Authenticator (в CRM — подтверждение личности): его спросит карточка, сама не проси.";
 
 // ───────────────────────────── создать ─────────────────────────────
 
