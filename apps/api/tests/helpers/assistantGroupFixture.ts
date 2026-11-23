@@ -62,6 +62,7 @@ export function assistantGroupFixture() {
       for (let i = presses.length - 1; i >= 0; i--) {
         const p = presses[i];
         if ((where.chatId === undefined || p.chatId === where.chatId)
+            && (where.telegramUserId?.in === undefined || where.telegramUserId.in.includes(p.telegramUserId))
             && (where.pressedAt?.lt === undefined || p.pressedAt < where.pressedAt.lt)) presses.splice(i, 1);
       }
       return { count: before - presses.length };

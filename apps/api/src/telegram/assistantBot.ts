@@ -1275,9 +1275,9 @@ export function isGroupMenuRequest(text: string, botUsername: string): boolean {
 }
 
 /**
- * Служебный /start в группе. По ссылке «добавить в группу» (`?startgroup=crm`) Telegram сам шлёт в
- * группу `/start@бот crm` от имени добавившего. Это не просьба к Шабнам: молчим и ничего не запускаем.
- * /start другому боту (`/start@other_bot`) — не наше, его не трогаем.
+ * /start в группе. По ссылке «добавить в группу» (`?startgroup=crm`) Telegram сам шлёт в группу
+ * `/start@бот crm` от имени добавившего. Это не вопрос к ИИ: отвечаем короткой подсказкой (раз в 10
+ * минут на группу), ИИ не запускаем. /start другому боту (`/start@other_bot`) — не наше, не трогаем.
  */
 export function isGroupStartCommand(text: string, botUsername: string): boolean {
   const command = /^\/start(?:@(\w+))?(?:\s|$)/i.exec(text.trim());
@@ -1325,7 +1325,8 @@ async function rememberStartPress(msg: TelegramIncomingMessage): Promise<void> {
  * Отметить одним сообщением всех, кто жал /start или писал «меню» за 48 часов (отметка по id,
  * работает и без @имени), затем подсказка умений. «connected» — группу только что подключили;
  * «hint» — подключённая группа, отмечаем только вместе с подсказкой умений (раз в 10 минут), иначе
- * нажатия ждут следующего раза. Строки стираются ДО отправки: повтор второго сообщения не пришлёт.
+ * нажатия ждут следующего раза. Строки стираются ПОСЛЕ успешной отправки и только те, кого отметили
+ * (ревью 23.11: при сбое отправки нажавшие не должны пропасть, параллельная запись не должна теряться).
  */
 async function greetStartPressers(
   msg: TelegramIncomingMessage, variant: "connected" | "hint", opts: { preClaimed?: boolean; except?: string } = {},
@@ -1336,18 +1337,22 @@ async function greetStartPressers(
     orderBy: { pressedAt: "asc" }, take: START_PRESS_MENTION_LIMIT,
   });
   const others = rows.filter(row => row.telegramUserId !== opts.except && /^\d{1,20}$/.test(row.telegramUserId));
+  // Стираем только названных по id: строка другого нажавшего, записанная между чтением и стиранием, не пропадёт.
+  const forget = async (list: typeof rows) => {
+    if (list.length) await prisma.assistantGroupStartPress.deleteMany({ where: { chatId, telegramUserId: { in: list.map(row => row.telegramUserId) } } });
+  };
   if (!others.length) {
-    if (rows.length && opts.preClaimed) await prisma.assistantGroupStartPress.deleteMany({ where: { chatId } });
+    if (opts.preClaimed) await forget(rows);
     return;
   }
   const skills = opts.preClaimed || claimGroupHint("skills", chatId);
   if (variant === "hint" && !skills) return;
-  await prisma.assistantGroupStartPress.deleteMany({ where: { chatId } });
   const lines = variant === "connected" ? ASSISTANT_GROUP_START_PRESSED : ASSISTANT_GROUP_START_PRESSED_HINT;
   const mentions = others.map(row => `<a href="tg://user?id=${row.telegramUserId}">${htmlEscape(row.telegramName || "Коллега")}</a>`).join(", ");
   const text = `${mentions}\n${htmlEscape(lines.ru)}\n${htmlEscape(lines.tg)}`;
   if (msg.message_thread_id === undefined) await sendHtmlMessage(chatId, text);
   else await sendHtmlMessage(chatId, text, undefined, undefined, msg.message_thread_id);
+  await forget(opts.preClaimed ? rows : others);
   if (skills && !opts.preClaimed) await sendGroupHint(msg, ASSISTANT_GROUP_SKILLS);
 }
 
@@ -1358,9 +1363,10 @@ async function greetStartPressers(
 async function answerGroupHelp(msg: TelegramIncomingMessage, isStart: boolean): Promise<boolean> {
   const chatId = String(msg.chat.id);
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDiscussionGroupId: true } });
-  // «меню» в комментариях канала — слово клиента, пусть разбирает своя логика.
-  if (settings?.telegramDiscussionGroupId === chatId) return isStart;
-  if (!(await isAiAssistantEnabled())) return isStart;
+  // Комментарии канала (и /start, и «меню») — слова клиента: их разбирает логика комментариев, не мы.
+  // Ревью 23.11: возврат true здесь терял клиентский комментарий «/start», Telegram его не повторяет.
+  if (settings?.telegramDiscussionGroupId === chatId) return false;
+  if (!(await isAiAssistantEnabled())) return false;
   const registered = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
   if (!registered) {
     // Не записалось — подсказку всё равно даём, сбой в журнал.
@@ -1374,7 +1380,9 @@ async function answerGroupHelp(msg: TelegramIncomingMessage, isStart: boolean): 
   await rememberStartPress(msg).catch((err) => logSystemError("telegram",
     `Шабнам: не удалось запомнить нажавшего /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
   if (claimGroupHint("skills", chatId)) {
-    await greetStartPressers(msg, "hint", { preClaimed: true, except: msg.from?.id ? String(msg.from.id) : undefined });
+    // Сбой отметки нажавших не должен лишать запросившего самой подсказки умений.
+    await greetStartPressers(msg, "hint", { preClaimed: true, except: msg.from?.id ? String(msg.from.id) : undefined })
+      .catch((err) => logSystemError("telegram", `Шабнам: не удалось отметить нажавших /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
     await sendGroupHint(msg, ASSISTANT_GROUP_SKILLS);
   }
   return true;
@@ -1384,7 +1392,11 @@ async function greetGroup(chatId: string, lines: { ru: string; tg: string }, rep
   for (const language of ["ru", "tg"] as const) {
     // Озвучка недоступна (нет ключа, бюджет, сбой) — тот же текст обычным сообщением, а не тишина
     // (23.11.2026, живой случай: группу подключили, приветствия не было ни голосом, ни текстом).
-    if (!(await sendAssistantVoiceReply(chatId, lines[language], replyTo))) await sendMessage(chatId, lines[language], replyTo);
+    // Сбой текста не должен лишать группу второго языка: ловим и идём дальше.
+    if (!(await sendAssistantVoiceReply(chatId, lines[language], replyTo))) {
+      await sendMessage(chatId, lines[language], replyTo).catch((err) => logSystemError("telegram",
+        `Шабнам: текстовое приветствие в группу не ушло: ${describeError(err)}`, { dedupKey: "assistant-group-greeting-text" }));
+    }
   }
 }
 
@@ -1546,8 +1558,11 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       // молчим (23.11.2026). Добавление бота и /assistant_on в ещё не подключённой группе получают
       // подсказку «как подключить» раз в 10 минут; в подключённой группе /assistant_on — прежние ответы.
       const deny = async (personal: string) => {
-        if (!onOff || !(await prisma.assistantTelegramGroup.findUnique({ where: { chatId } }))) await explainGroupNotConnected(msg);
-        else await reply(personal);
+        // Явная команда /assistant_on получает личный ответ ВСЕГДА, без лимита (ревью 23.11: иначе
+        // тишина, похожая на поломку). Подсказка с лимитом — только на добавление бота; в группе,
+        // где строка уже есть (повторное добавление), «ещё не подключена» было бы неправдой.
+        if (onOff) await reply(personal);
+        else if (!(await prisma.assistantTelegramGroup.findUnique({ where: { chatId } }))) await explainGroupNotConnected(msg);
       };
       if (!sender) {
         await deny(NOT_LINKED_TEXT);
