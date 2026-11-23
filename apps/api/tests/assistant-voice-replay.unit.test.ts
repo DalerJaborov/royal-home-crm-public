@@ -129,6 +129,8 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     // «Озвучь текст» (16.11.2026): просьбы нет — сообщение идёт дальше обычным путём.
     "./assistantFreeNarration.js": { handleFreeNarrationMessage: async () => false, handleAdTextRequest: async () => false, offerNarrationButton: async () => false, showVoiceNarrationDraft: async () => undefined, parseFreeNarrationTrigger: () => null, narrationBodyAfterCue: (t: string) => t, looksLikeNarrationDictation: () => false, isBareNarrationAsk: () => false },
     // «Повтори голосом» и «удали присланное» (17.11.2026) — настоящие, без базы и сети.
+    // Язык ответа считается до «рекламного текста» (23.11.2026): здесь русский.
+    "../ai/assistant/languageRouting.js": { assistantLanguage: () => "ru" },
     "./assistantChatCommands.js": chatCommands,
     "./sentMessageLog.js": sentLog,
     // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.

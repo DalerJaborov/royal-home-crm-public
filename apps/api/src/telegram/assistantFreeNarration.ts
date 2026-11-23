@@ -149,6 +149,7 @@ const copy = {
     voiceDraftHead: (chars: number) => `Я расслышала так (${chars} знаков). Озвучка читает слово в слово, поэтому проверьте текст. Если всё верно, нажмите «Озвучить как есть».`,
     editAsk: "Хорошо. Пришлите исправленный текст одним сообщением, набранным. Чтобы отменить, напишите «отмена».",
     offerHead: (chars: number) => `Могу озвучить этот текст слово в слово (${chars} знаков).`,
+    textHead: (chars: number) => `Принят текст (${chars} знаков), просьбу «озвучь» я убрала. Читается слово в слово. Если всё верно, нажмите «Озвучить как есть».`,
     heardNothing: "Не удалось расслышать текст. Пришлите его сообщением.",
     b2: { ok: "🎙 Озвучить", asIs: "🎙 Озвучить как есть", offer: "🎙 Озвучить этот текст", edit: "✏️ Править", fix: "✏️ Исправить (пришлю текстом)", rewrite: "🔄 Переписать" },
     cancelled: "Отменено.",
@@ -185,6 +186,7 @@ const copy = {
     voiceDraftHead: (chars: number) => `Ман чунин шунидам (${chars} аломат). Овозонӣ калима ба калима мехонад, барои ҳамин матнро санҷед. Агар ҳама дуруст бошад, «Айнан овоз диҳед»-ро пахш кунед.`,
     editAsk: "Хуб. Матни ислоҳшударо бо як паём, навишта фиристед. Барои бекор кардан «бекор» нависед.",
     offerHead: (chars: number) => `Ин матнро калима ба калима овоз дода метавонам (${chars} аломат).`,
+    textHead: (chars: number) => `Матн қабул шуд (${chars} аломат), хоҳиши «овоз кун»-ро хориҷ кардам. Калима ба калима хонда мешавад. Агар ҳама дуруст бошад, «Айнан овоз диҳед»-ро пахш кунед.`,
     heardNothing: "Матнро шунида натавонистам. Онро бо паём фиристед.",
     b2: { ok: "🎙 Овоз додан", asIs: "🎙 Айнан овоз диҳед", offer: "🎙 Ин матнро овоз диҳед", edit: "✏️ Ислоҳ", fix: "✏️ Ислоҳ (бо матн мефиристам)", rewrite: "🔄 Аз нав навиштан" },
     cancelled: "Бекор шуд.",
@@ -275,7 +277,7 @@ function draftButtons(rowId: string, kind: FreeNarrationDraftKind, lang: Lang): 
 function draftText(row: FreeNarrationRow, kind: FreeNarrationDraftKind, lang: Lang): string {
   const c = copy[lang];
   if (kind === "OFFER") return c.offerHead(row.script.length);
-  return `${kind === "AD" ? c.adHead(row.script.length) : c.voiceDraftHead(row.script.length)}\n\n${draftPreview(row.script)}`;
+  return `${kind === "AD" ? c.adHead(row.script.length) : kind === "TEXT" ? c.textHead(row.script.length) : c.voiceDraftHead(row.script.length)}\n\n${draftPreview(row.script)}`;
 }
 
 /** Черновик текста со своим набором кнопок. Деньги ElevenLabs до «Озвучить» не тратятся. */
@@ -290,15 +292,16 @@ async function createDraftAndShow(chatId: string, agentId: string, text: string,
 }
 
 /** Расшифровка голосового как текст озвучки: показать и спросить, деньги не тратятся (23.11.2026). */
-export async function showVoiceNarrationDraft(chatId: string, agentId: string, heardText: string, lang: Lang): Promise<void> {
-  await createDraftAndShow(chatId, agentId, heardText, "VOICE", lang);
+export async function showVoiceNarrationDraft(chatId: string, agentId: string, heardText: string, lang: Lang, kind: "VOICE" | "TEXT" = "VOICE"): Promise<void> {
+  await createDraftAndShow(chatId, agentId, heardText, kind, lang);
 }
 
 /** Текст после слова-просьбы в расшифровке длинной диктовки («озвучь, …текст…»); без просьбы в начале — как есть. */
 export function narrationBodyAfterCue(text: string): string {
   const cue = DICTATION_CUE.exec(text);
   if (!cue || cue.index > 80) return text.trim();
-  return text.slice(cue.index + cue[0].length).replace(/^[\s,:;.!?—–-]+/u, "").trim();
+  // «озвучь вот это: …», «озвучь этот текст …»: слова-указатели тоже часть просьбы.
+  return text.slice(cue.index + cue[0].length).replace(/^[\s,:;.!?—–-]+/u, "").replace(/^(?:(?:вот\s+это|вот\s+так|вот|это|этот\s+текст|текст)(?![\p{L}\p{N}])[\s,:;.!?—–-]*)+/iu, "").trim();
 }
 
 function adFailureText(result: Exclude<AdScriptResult, { status: "OK" }>, lang: Lang): string {

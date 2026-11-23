@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adFactsUsable, adScriptViolation, parseAdTextRequest, tidyAdScript } from "../src/ai/assistant/adScript.js";
-import { looksLikeOfferableText, narrationBodyAfterCue } from "../src/telegram/assistantFreeNarration.js";
+import { looksLikeNarrationDictation, looksLikeOfferableText, narrationBodyAfterCue } from "../src/telegram/assistantFreeNarration.js";
 
 /**
  * 23.11.2026: рекламный текст из фактов, расшифровка голоса как черновик, кнопка «Озвучить этот текст».
@@ -31,6 +31,36 @@ describe("просьба «сделай рекламный текст»", () => 
     expect(parseAdTextRequest("сделай рекламу")).toBeNull();
     expect(parseAdTextRequest("сколько мы потратили на рекламный текст в октябре")).toBeNull();
     expect(parseAdTextRequest("найди клиента, ему нужен рекламный текст")).toBeNull();
+  });
+});
+
+describe("живой пример владельца 23.11: «приготовить текст для озвучки» + факты", () => {
+  const TJ = "RUDAKI TOWER, ноҳияи Рудаки, наздики қасри Фарҳанг, барқ, канализатсия, 3 лифт дар блок, тахфиф 10–15%, таваққуфгоҳ, ҳавлии кӯдакон, аз 6500 смн барои кв. м, аз 59 кв. м, Сомониён";
+  it.each([
+    "Надо приготовить текст для озвучки и озвучить вот это",
+    "Подготовь текст для озвучки и озвучь",
+    "Составь текст для озвучки, потом озвучь:",
+    "Напиши текст для озвучки",
+  ])("русская просьба «%s» + таджикские факты: путь «реклама из фактов»", (head) => {
+    const r = parseAdTextRequest(`${head}
+
+${TJ}`);
+    expect(r && adFactsUsable(r.facts)).toBe(true);
+    expect(r?.facts.startsWith("RUDAKI TOWER")).toBe(true);
+  });
+  it("таджикская просьба", () => {
+    const r = parseAdTextRequest(`Матнро барои овозонӣ тайёр кунед ва овоз кунед:
+${TJ}`);
+    expect(r?.facts.startsWith("RUDAKI TOWER")).toBe(true);
+  });
+  it("«озвучь вот это» + длинный текст: не реклама, а дословно без просьбы", () => {
+    const text = `Озвучь вот это:
+
+${TJ}`;
+    expect(parseAdTextRequest(text)).toBeNull();
+    expect(looksLikeNarrationDictation(text)).toBe(true);
+    expect(narrationBodyAfterCue(text).startsWith("RUDAKI TOWER")).toBe(true);
+    expect(narrationBodyAfterCue("озвучь это текст добро пожаловать")).toBe("добро пожаловать");
   });
 });
 
@@ -84,7 +114,7 @@ describe("кнопка «Озвучить этот текст»: только н
 describe("тело диктовки голосом", () => {
   it("снимает слово-просьбу в начале", () => {
     expect(narrationBodyAfterCue("озвучь, добро пожаловать в наш комплекс")).toBe("добро пожаловать в наш комплекс");
-    expect(narrationBodyAfterCue("Озвучь это: привет всем")).toBe("это: привет всем".replace(/^это: /, "это: "));
+    expect(narrationBodyAfterCue("Озвучь это: привет всем")).toBe("привет всем");
   });
   it("без просьбы в начале текст как есть", () => {
     expect(narrationBodyAfterCue("добро пожаловать")).toBe("добро пожаловать");

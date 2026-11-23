@@ -112,7 +112,9 @@ export async function pendingFreeNarrationTextWait(agentId: string, chatId: stri
  * с фактами (requestKey `adfacts:<id черновика>`): без неё «Переписать» нечем. Деньги ElevenLabs до подтверждения не
  * тратятся: подтверждённый черновик становится обычным AWAITING_VOICE, дальше выбор голоса и захват, как раньше.
  */
-export type FreeNarrationDraftKind = "VOICE" | "AD" | "OFFER";
+/** TEXT — набранный текст «озвучь вот это» (просьба снята и показан принятый текст). */
+export type FreeNarrationDraftKind = "VOICE" | "AD" | "OFFER" | "TEXT";
+const DRAFT_KINDS: readonly string[] = ["AD", "OFFER", "TEXT"];
 export const FREE_NARRATION_AD_REWRITES_MAX = 5;
 export type FreeNarrationDraftOutcome = { status: "CREATED"; row: FreeNarrationRow } | Exclude<FreeNarrationCreateOutcome, { status: "CREATED" | "EXISTS" | "KEY_CONFLICT" }>;
 
@@ -137,9 +139,9 @@ export async function createFreeNarrationDraft(input: { agentId: string; chatId:
 export async function loadFreeNarrationDraft(id: string, agentId: string): Promise<{ row: FreeNarrationRow; kind: FreeNarrationDraftKind; facts: string | null } | null> {
   const row = await prisma.freeNarration.findUnique({ where: { id } });
   if (!row || row.agentId !== agentId || row.status !== "DRAFT") return null;
-  const kind: FreeNarrationDraftKind = row.errorCode === "AD" || row.errorCode === "OFFER" ? row.errorCode : "VOICE";
-  const facts = kind === "AD" ? (await prisma.freeNarration.findUnique({ where: { requestKey: `adfacts:${id}` }, select: { script: true } }))?.script ?? null : null;
-  return { row, kind, facts };
+  const kind = (row.errorCode && DRAFT_KINDS.includes(row.errorCode) ? row.errorCode : "VOICE") as FreeNarrationDraftKind;
+  const factsRow = kind === "AD" ? await prisma.freeNarration.findUnique({ where: { requestKey: `adfacts:${id}` }, select: { script: true } }) : null;
+  return { row, kind, facts: factsRow?.script ?? null };
 }
 
 /** «Озвучить как есть»: черновик становится заявкой на выбор голоса. Одно нажатие = один переход (повтор вернёт null). */
