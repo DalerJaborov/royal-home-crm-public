@@ -70,6 +70,12 @@ export interface AssistantActionActor {
    * действует окно подтверждения личности CRM (lib/stepUp.ts, isElevated).
    */
   stepUpVerified?: boolean;
+  /**
+   * Директор или администратор: подтверждение личности (окно в CRM, код Authenticator в
+   * Telegram) не требуется вовсе (stepUpExemptRole, 23.11.2026). Выставляют только места,
+   * где actor собран из настоящей роли сотрудника.
+   */
+  stepUpExempt?: boolean;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -252,7 +258,7 @@ export const TOTP_REQUIRED_MESSAGE =
 
 /** Свежее подтверждение личности для действий со stepUp — на исполнении и откате. */
 function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionActor): void {
-  if (!executor.stepUp) return;
+  if (!executor.stepUp || actor.stepUpExempt === true) return;
   if (actor.channel === "telegram") {
     if (actor.stepUpVerified !== true) throw new AssistantActionError(428, "STEP_UP_REQUIRED", STEP_UP_TELEGRAM_MESSAGE);
     return;
@@ -264,7 +270,7 @@ function assertStepUp(executor: AssistantActionExecutor, actor: AssistantActionA
 
 /** Telegram: подтверждать нечем, если у сотрудника не включён Authenticator — честный отказ сразу. */
 async function assertStepUpPossible(executor: AssistantActionExecutor, actor: AssistantActionActor): Promise<void> {
-  if (!executor.stepUp || actor.channel !== "telegram") return;
+  if (!executor.stepUp || actor.channel !== "telegram" || actor.stepUpExempt === true) return;
   const agent = await prisma.agent.findUnique({ where: { id: actor.agentId }, select: { totpEnabled: true, totpSecret: true } });
   if (!agent?.totpEnabled || !agent.totpSecret) throw new AssistantActionError(412, "TOTP_REQUIRED", TOTP_REQUIRED_MESSAGE);
 }

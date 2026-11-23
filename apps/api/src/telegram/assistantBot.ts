@@ -12,6 +12,7 @@ export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { stepUpExemptRole } from "../lib/stepUp.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
@@ -241,7 +242,10 @@ export function assistantActorFor(
 
 /** Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. */
 function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: boolean): AssistantActionActor {
-  return { agentId, channel: "telegram", telegramPrivate, can: (permission) => access.permissions.has(permission) };
+  return {
+    agentId, channel: "telegram", telegramPrivate, can: (permission) => access.permissions.has(permission),
+    ...(stepUpExemptRole(access.role) ? { stepUpExempt: true } : {}),
+  };
 }
 
 // ───────────────────────────── рендер ─────────────────────────────
@@ -761,10 +765,11 @@ async function sendTurnResult(
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
+  const ownerExempt = stepUpExemptRole((await loadAgentAccess(ctx.agentId, prisma).catch(() => null))?.role);
   const buttons = [[
     // Сотрудники и права: кнопка честно говорит, что дальше спросят код (assistantStepUp.ts). Рамка — на
     // языке содержимого (у карточек сотрудников она русская), поэтому и надпись кнопки — русская.
-    { text: tajikPrice ? "Ҳа" : bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Ҳа" : !ownerExempt && bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
     { text: tajikPrice ? "Бекор" : maskPhones ? frame.cancelPlain : frame.cancel, callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
@@ -2070,7 +2075,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
         return true;
       }
       // Откат того, что стояло за подтверждением личности, — тоже только с кодом.
-      if (bundleNeedsStepUp(executed)) {
+      if (!actor.stepUpExempt && bundleNeedsStepUp(executed)) {
         await askStepUpCode({ agentId: clicker.id, chatId, bundleId, kind: "undo", cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
         return true;
       }
@@ -2084,7 +2089,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
     // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
     const awaiting = actions.some((a) => a.status === "PENDING" && a.expiresAt.getTime() > Date.now());
-    if (awaiting && bundleNeedsStepUp(actions)) {
+    if (awaiting && !actor.stepUpExempt && bundleNeedsStepUp(actions)) {
       if (callbackChat?.type !== "private" || !chatId) {
         await answerCallbackQuery(query.id, "Это действие доступно в личке с Шабнам");
         return true;

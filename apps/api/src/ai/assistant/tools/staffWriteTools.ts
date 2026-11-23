@@ -228,7 +228,7 @@ function staffTool<A>(spec: StaffToolSpec<A>): AssistantWriteToolPlugin {
 }
 
 const has = (actor: AssistantActor, permission: PermissionId) => actor.permissions?.has(permission) ?? false;
-const STEP_UP_NOTE = " Нужен код из Google Authenticator (в CRM — подтверждение личности).";
+const STEP_UP_NOTE = " Директору и администратору кода не нужно — только кнопка в карточке; остальным нужен код из Google Authenticator.";
 
 // ───────────────────────────── создать ─────────────────────────────
 
