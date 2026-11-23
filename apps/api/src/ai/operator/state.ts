@@ -45,6 +45,7 @@ const storedSchema = z.object({
   place: shortText.default(null),
   flags: z.object({ bargainAsked: z.boolean().default(false), adPriceAsked: z.boolean().default(false),
     propertyLineFor: z.string().uuid().nullable().default(null), lastAck: z.boolean().default(false),
+    lastOffer: z.boolean().optional(),
     sellerByWords: z.boolean().default(false),
     bothRoles: z.boolean().default(false), roleChangedFrom: z.enum(["buyer", "seller"]).nullable().default(null),
     clientTurns: z.number().int().min(0).max(10_000).default(0), phoneAskTurn: z.number().int().min(0).max(10_000).default(0),

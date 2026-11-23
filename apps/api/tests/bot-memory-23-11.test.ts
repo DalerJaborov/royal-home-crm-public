@@ -254,3 +254,39 @@ describe("от обратного (слепое ревью): знаки без �
     });
   }
 });
+
+describe("знак согласия — «да» только на последнюю фразу бота «предложение звонка / просьба номера» (повторное ревью)", () => {
+  const property = { propertyId: "11111111-1111-4111-8111-111111111111", shortId: 501, priceText: { ru: "520 000 сомони", tg: "520 000 сомонӣ" }, sold: false };
+  const area = answer({ question: "area", language: "ru" });
+  for (const [name, c] of [["WhatsApp", ctx({ channel: "WHATSAPP", phoneKnown: true })],
+    ["реклама объекта в WhatsApp", ctx({ channel: "WHATSAPP", phoneKnown: true, ad: { topic: "property", propertyId: property.propertyId }, focus: property })],
+    ["Facebook", ctx()]] as const) {
+    for (const sign of ["👍", "+", "ок"]) {
+      it(`${name}: «Сколько стоит?» → предложение звонка → «А где вы?» → «Работаем по Душанбе» → «${sign}»: не согласие, ни заявки, ни просьбы номера`, async () => {
+        const turns = await dialog([{ text: "Сколько стоит?" }, { text: "А где вы?", model: area }, { text: sign }], c);
+        expect(turns[0]!.keys).toContain("offer_call");
+        expect(turns[1]!.keys).toEqual(["where_work"]);
+        expect(turns[2]!.actions.filter(action => action.type === "accept_lead")).toEqual([]);
+        expect(turns[2]!.keys).not.toContain("ask_phone");
+        expect(turns[2]!.keys).not.toContain("lead_known_phone");
+        expect(turns[2]!.state.leadAccepted).toBe(false);
+      });
+    }
+  }
+
+  for (const sign of ["👍", "+", "ок"]) {
+    it(`сразу после предложения звонка «${sign}» — по-прежнему согласие: просьба номера (Facebook), заявка (WhatsApp)`, async () => {
+      const fb = await dialog([{ text: "Сколько стоит?" }, { text: sign }]);
+      expect(fb[0]!.keys).toContain("offer_call");
+      expect(fb[1]!.keys, sign).toContain("ask_phone");
+      const wa = await dialog([{ text: "Сколько стоит?" }, { text: sign }], ctx({ channel: "WHATSAPP", phoneKnown: true }));
+      expect(wa[1]!.actions.filter(action => action.type === "accept_lead"), sign).toHaveLength(1);
+    });
+  }
+
+  it("память до правки (поля нет): прежнее правило — после предложения звонка «👍» согласие", () => {
+    const state = { ...initialOperatorState(), role: "buyer_property" as const, step: "role" as const, spoken: { offer_call: 1 } };
+    const d = decide(state, understandFallback({ current: "👍" }, state, ctx()), ctx());
+    expect(d.steps.map(step => step.key)).toContain("ask_phone");
+  });
+});

@@ -37,6 +37,8 @@ export const OPERATOR_SELLER_FIELDS: readonly OperatorDetailField[] = ["district
 const ONCE_PER_CONVERSATION: ReadonlySet<PhraseKey> = new Set(["where_work", "work_hours", "identity", "bot_identity", "buyer_free"]);
 /** Отметки «передал агенту» после заявки: клиент дописывает подряд — отмечаем один раз на серию. */
 const ACK_KEYS: ReadonlySet<PhraseKey> = new Set(["note_added", "question_noted", "lead_status", "no_agent_noted"]);
+/** Фразы, после которых короткое «да» / «+» / «👍» — согласие на звонок (повторное ревью 23.11.2026). */
+const OFFER_KEYS: ReadonlySet<PhraseKey> = new Set(["offer_call", "ask_phone", "ask_phone_seller", "phone_where"]);
 /** Вопросы, на которые у бота до заявки фактов нет: ответ «скажет агент», а не голая просьба номера (владелец 21.11.2026). */
 const QUESTION_FOR_AGENT: ReadonlySet<Understanding["question"]> = new Set(["other", "property_other", "property_price"]);
 /** Шагов в ответе не больше двух: одна мысль на сообщение, не больше двух предложений (SPEC, правило 10 и «Тон»). */
@@ -229,7 +231,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // тишина без сигнала людям: это «ок» смайликом (владелец 10.11: людей зря не беспокоить).
   // «+» / «👍» сразу после предложения звонка или просьбы номера — это «да» (слепое ревью 23.11): ход идёт обычным путём
   // согласия (просьба номера, «куда позвонить»), а не в ветку реакций и вложений.
-  const agreeing = !!u.agreeSign && !s.leadAccepted && (said("offer_call") || s.step === "contact");
+  // Только на ПОСЛЕДНЮЮ фразу бота «предложение звонка / просьба номера»: «👍» после «Работаем по Душанбе» — не «звоните»
+  // (повторное ревью: иначе в WhatsApp такой знак молча заводил заявку с обещанием звонка).
+  const lastOffer = s.flags.lastOffer ?? (said("offer_call") || s.step === "contact");
+  const agreeing = !!u.agreeSign && !s.leadAccepted && lastOffer;
   if (u.reaction && !agreeing) {
     const firstWord = !s.leadAccepted && s.role === "unknown" && s.asked.role === 0 && !ctx.staffThread &&
       Object.values(s.spoken).every(count => !count);
@@ -472,7 +477,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // ответ и предложение звонка (часовая сверка 21.11.2026, da83282b). Детали без вопроса или после предложения — интерес.
   const questionTurn = u.question !== "none" || !!u.placeQuestion || !!u.agentTopic;
   const detailsInterest = u.hasDetails && !(questionTurn && !said("offer_call"));
-  const agreedToCall = said("offer_call") && u.declines !== true && (u.agrees === true || u.ackOnly);
+  // Тот же класс, что у знаков: «ок» / «да» — согласие, только когда последней фразой бота было предложение звонка или просьба номера.
+  const agreedToCall = said("offer_call") && lastOffer && u.declines !== true && (u.agrees === true || u.ackOnly);
   /**
    * Второй вопрос по делу после предложения звонка — тоже интерес (слепое ревью #345: на рекламе объекта клиент спрашивал цену,
    * место, этаж, документы, ремонт, а бот отвечал «скажет агент», номер не просил, заявку не заводил). В WhatsApp — заявка.
@@ -711,5 +717,7 @@ function compose(s: OperatorState, language: OperatorLanguage, answers: readonly
   }
   // Серия «передал агенту»: помним, что прошлый ответ был только отметкой (тишина серию не прерывает).
   if (steps.length) s.flags.lastAck = steps.every(step => ACK_KEYS.has(step.key));
+  // Тишина «последнюю фразу» не меняет: клиент мог помолчать и ответить «👍» на то же предложение.
+  if (steps.length) s.flags.lastOffer = steps.some(step => OFFER_KEYS.has(step.key));
   return { state: s, language, steps, actions, silent: steps.length === 0 };
 }
