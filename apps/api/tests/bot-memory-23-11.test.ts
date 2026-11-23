@@ -33,13 +33,13 @@ const answer = (over: Record<string, unknown> = {}) => ({
 
 type Line = { role: "user" | "assistant"; text: string };
 /** Разговор ходами через настоящую дверь хода (память — то, что ход вернул; история — что видел клиент). */
-async function dialog(messages: Array<{ text: string; model?: unknown; attachments?: Record<string, unknown> }>, c = ctx()) {
+async function dialog(messages: Array<{ text: string; model?: unknown; attachments?: Record<string, unknown>; at?: string }>, c = ctx()) {
   let stored: unknown = null;
   const recent: Line[] = [];
   const turns = [];
   for (const message of messages) {
     const model: LeadOnlyIntentModel = async () => message.model ?? null;
-    const turn = await runOperatorTurn({ storedState: stored, ctx: c, model, now: new Date("2026-11-23T12:45:00Z"),
+    const turn = await runOperatorTurn({ storedState: stored, ctx: c, model, now: new Date(message.at ?? "2026-11-23T12:45:00Z"),
       input: { current: message.text, recent: [...recent], ...(message.attachments ? { attachments: message.attachments } : {}) } });
     stored = turn.stored;
     recent.push({ role: "user", text: message.text });
@@ -59,7 +59,8 @@ describe("прод 23.11.2026: «😍» → «Ассалому алайкум» 
       { text: "Мехарам", model: answer({ role: "buyer", roleQuote: "Мехарам", language: "tg" }) },
     ]);
     // 1. Реакция на ролик — не вложение и не заявка: спасибо и приглашение, без вопроса «купить или продать?».
-    expect(reaction!.keys).toEqual(["reaction_thanks"]);
+    expect(reaction!.keys).toEqual(["reaction_thanks", "reaction_invite"]);
+    expect(reaction!.text).toBe("Спасибо! Если ищете или продаёте недвижимость, напишите, поможем.");
     expect(reaction!.text).not.toMatch(/получил|гирифтам/iu);
     expect(reaction!.text).not.toMatch(/[?]/u);
     expect(reaction!.language).toBe("ru");
@@ -109,15 +110,37 @@ describe("сбой 2: приветствие после заданного во�
     expect(buyer!.language).toBe("tg");
   });
 
-  it("русский клиент: «Здравствуйте» дважды — второй раз без того же вопроса, язык русский; третий «привет» — тишина без сигнала", async () => {
+  it("русский клиент: «Здравствуйте» дважды — второй раз без того же вопроса; третий в тот же день — вопрос другими словами, не тишина навсегда", async () => {
     const turns = await dialog([{ text: "Здравствуйте" }, { text: "Здравствуйте" }, { text: "Здравствуйте" }]);
     expect(turns[0]!.keys).toEqual(["greet", "ask_role"]);
     expect(turns[1]!.keys).toEqual(["greet_continue"]);
     expect(turns[1]!.language).toBe("ru");
     expect(turns[1]!.text).not.toMatch(/[?]/u);
-    expect(turns[2]!.keys).toEqual([]);
-    expect(turns[2]!.actions).toEqual([]);
-    expect(turns.map(turn => turn.state.asked.role)).toEqual([1, 1, 1]);
+    expect(turns[2]!.keys).toEqual(["ask_role"]);
+    expect(turns[2]!.text).toBe("Подскажите, пожалуйста: вы покупаете или продаёте?");
+    expect(turns.map(turn => turn.state.asked.role)).toEqual([1, 1, 2]);
+  });
+
+  it("повторное приветствие через сутки — снова ответ на приветствие и приглашение (суточный сброс), а не вечная тишина", async () => {
+    const turns = await dialog([
+      { text: "Ассалому алайкум", at: "2026-11-23T10:00:00Z" },
+      { text: "Ассалому алайкум", at: "2026-11-23T10:05:00Z" },
+      { text: "Ассалому алайкум", at: "2026-11-24T12:00:00Z" },
+    ]);
+    expect(turns[0]!.keys).toEqual(["greet_assalom", "ask_role"]);
+    expect(turns[1]!.keys).toEqual(["greet_continue"]);
+    expect(turns[2]!.keys).toEqual(["greet_assalom", "greet_continue"]);
+    expect(turns[2]!.text).toBe("Ваалайкум ассалом! Нависед, чӣ хизмат кунем.");
+    expect(turns[2]!.state.asked.role).toBe(1);
+  });
+
+  it("приветствия с вариантами написания и обращением — тоже только приветствие: вопрос не повторяется", async () => {
+    for (const hello of ["Ассаламу алейкум", "Ассалам алейкум", "Ассаламу алейкум!", "Салом ака", "Салом, хубед?", "Ассалому алейкум апа."]) {
+      const [, greeting] = await dialog([{ text: "", attachments: { foreignPost: true } }, { text: hello, model: answer({ language: "tg" }) }]);
+      expect(greeting!.keys, hello).toEqual(hello.startsWith("Салом") ? ["greet", "greet_continue"] : ["greet_assalom", "greet_continue"]);
+      expect(greeting!.state.asked.role, hello).toBe(1);
+      expect(greeting!.language, hello).toBe("tg");
+    }
   });
 
   it("содержательный, но неясный ответ после вопроса — как прежде: вопрос другими словами (второй и последний раз)", async () => {
@@ -130,7 +153,7 @@ describe("сбой 2: приветствие после заданного во�
 
 describe("сбой 1: язык клиента — по его словам, а не по прошлому ответу бота", () => {
   it("«Салом» / «Ассалому алайкум» первым словом клиента — таджикский, даже если бот до этого ответил по-русски по умолчанию", async () => {
-    for (const hello of ["Салом", "Ассалому алайкум", "Ассалом алейкум"]) {
+    for (const hello of ["Салом", "Ассалому алайкум", "Ассалом алейкум", "Ассаламу алейкум"]) {
       const [, greeting] = await dialog([{ text: "😍" }, { text: hello, model: answer({ language: "tg" }) }]);
       expect(greeting!.language, hello).toBe("tg");
       expect(greeting!.state.language, hello).toBe("tg");
@@ -142,6 +165,14 @@ describe("сбой 1: язык клиента — по его словам, а �
     expect(ru[1]!.language).toBe("ru");
     const tg = await dialog([{ text: "Ассалому алайкум" }, { text: "ок" }, { text: "Мехарам" }]);
     expect(tg.map(turn => turn.language)).toEqual(["tg", "tg", "tg"]);
+  });
+
+  it("голое «Салам» таджикским не считается (его пишут и русскоязычные): ответ русский, как на main", async () => {
+    const [first] = await dialog([{ text: "Салам" }]);
+    expect(first!.language).toBe("ru");
+    expect(first!.state.language).not.toBe("tg");
+    const [, afterReaction] = await dialog([{ text: "😍" }, { text: "Салам" }]);
+    expect(afterReaction!.language).toBe("ru");
   });
 
   it("свой ответ бота по умолчанию язык разговора не закрепляет: «😍», «ок», потом «Салом» — таджикский", async () => {
@@ -181,7 +212,7 @@ describe("реакция-эмодзи: не вложение, не заявка,
     expect(mid[1]!.actions).toEqual([]);
     expect(mid[1]!.state.asked.role).toBe(1);
     const twice = await dialog([{ text: "🔥" }, { text: "❤️" }]);
-    expect(twice[0]!.keys).toEqual(["reaction_thanks"]);
+    expect(twice[0]!.keys).toEqual(["reaction_thanks", "reaction_invite"]);
     expect(twice[1]!.keys).toEqual([]);
     expect(twice[1]!.actions).toEqual([]);
   });
@@ -196,7 +227,30 @@ describe("реакция-эмодзи: не вложение, не заявка,
   it("реакция на ролик по-таджикски известным языком — таджикская фраза на «шумо»", () => {
     const state: OperatorState = { ...initialOperatorState(), language: "tg" };
     const d = decide(state, understandFallback({ current: "😍" }, state, ctx()), ctx());
-    expect(d.steps.map(step => step.key)).toEqual(["reaction_thanks"]);
+    expect(d.steps.map(step => step.key)).toEqual(["reaction_thanks", "reaction_invite"]);
     expect(renderOperatorReply(d.steps, d.language)).toMatch(/нависед/u);
   });
+});
+
+describe("от обратного (слепое ревью): знаки без эмодзи — не реакция, «+» и «👍» на просьбу номера — согласие", () => {
+  const notLost = (turn: { keys: string[]; actions: unknown[] }) => turn.keys.length > 0 || turn.actions.length > 0;
+
+  for (const sign of ["+", "?", "...", "."]) {
+    it(`«${sign}» — не реакция: прежний путь, клиент не теряется молча`, async () => {
+      const [first] = await dialog([{ text: sign }]);
+      expect(first!.keys, sign).not.toContain("reaction_thanks");
+      expect(notLost(first!), sign).toBe(true);
+      // После вопроса по делу («Хочу купить квартиру» → вопрос о районе): «?» — не тишина без сигнала.
+      const [, mid] = await dialog([{ text: "Хочу купить квартиру" }, { text: sign }]);
+      if (sign !== "+") expect(notLost(mid!), `${sign} после вопроса`).toBe(true);
+    });
+  }
+
+  for (const sign of ["+", "👍", "👍🏻", "👌"]) {
+    it(`«${sign}» сразу после просьбы номера — согласие: «куда позвонить», а не тишина`, async () => {
+      const turns = await dialog([{ text: "Хочу купить квартиру" }, { text: "Сино, 2 комнаты, до 500 тысяч" }, { text: sign }]);
+      expect(turns[1]!.keys).toContain("ask_phone");
+      expect(turns[2]!.keys, sign).toEqual(["phone_where"]);
+    });
+  }
 });

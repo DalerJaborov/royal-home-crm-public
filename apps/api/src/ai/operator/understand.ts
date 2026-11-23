@@ -194,6 +194,20 @@ function textPreference(own: string): { textOnly: boolean; noCall: boolean } {
   return { textOnly, noCall: refused && !textOnly };
 }
 
+const EMOJI = /\p{Extended_Pictographic}/u;
+/** Только знаки согласия: «+», «👍», «👌», «🤝», «✅», «✔️» (с оттенком кожи и вариантом начертания). */
+const AGREE_SIGN = /^(?:\s*(?:\+|👍|👌|🤝|✅|✔)[\u{1F3FB}-\u{1F3FF}\u{FE0F}]*)+\s*$/u;
+/**
+ * Язык по приветствию — только когда оно его выдаёт (23.11.2026): «Ассалому алайкум», «Ассалам алейкум», «Салом» — таджикский,
+ * «Здравствуйте», «Добрый день» — русский. Голое «Салам» пишут и русскоязычные: языка не решает (слепое ревью).
+ */
+function greetingLanguageOf(folded: string): OperatorLanguage | null {
+  const greeting = greetingOf(folded);
+  if (greeting === "ru") return "ru";
+  if (greeting === "assalom") return "tg";
+  return greeting === "salom" && /^(?:салом|salom)(?![\p{L}])/u.test(folded) ? "tg" : null;
+}
+
 function greetingOf(folded: string): Understanding["greeting"] {
   if (GREETING_ASSALOM.test(folded)) return "assalom";
   if (GREETING_SALOM.test(folded)) return "salom";
@@ -251,10 +265,14 @@ function codeFacts(input: OperatorTurnInput) {
     contextLanguage: operatorContextLanguage(input.recent),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
-    // Реакция: только эмодзи и знаки, без букв, цифр и вложений (прод 23.11.2026: «😍» на ролик принят за вложение).
-    reaction: letters === 0 && !phone && !/\d/u.test(own) && own.length > 0 && attachments.voice === "none" && !attachments.media &&
-      !attachments.ownPost && !attachments.foreignPost,
+    // Реакция: есть эмодзи, нет букв, цифр и вложений (прод 23.11.2026: «😍» на ролик принят за вложение). «+», «?», «...» без
+    // эмодзи — не реакция: у них прежний путь (слепое ревью: «+» на просьбу номера иначе пропадал без сигнала).
+    reaction: letters === 0 && !phone && !/\d/u.test(own) && EMOJI.test(own) && attachments.voice === "none" &&
+      !attachments.media && !attachments.ownPost && !attachments.foreignPost,
+    // «+», «👍», «👌» одни: знак согласия (decide.ts берёт его как «да» только сразу после предложения звонка или просьбы номера).
+    agreeSign: letters === 0 && AGREE_SIGN.test(own),
     greeting: greetingOf(folded),
+    greetingLanguage: greetingLanguageOf(folded),
     rent: looksLikeRentRequest(own), job: customerRecruitmentRequested(own),
     rude: abuse === "threat" || abuse === "insult", spam: abuse === "spam",
     fee: leadOnlyAgencyFeeQuestion(own),
@@ -268,7 +286,7 @@ function codeFacts(input: OperatorTurnInput) {
       /[?؟]/u.test(own) && !TAJIK_WORD.test(foldCustomerTextForRole(own)))),
     showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
     // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
-    agrees: AGREE_WORD.test(folded) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
+    agrees: (AGREE_WORD.test(folded) || AGREE_SIGN.test(own)) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
     quote: own.replace(/\s+/gu, " ").slice(0, 200),
   };
 }
@@ -326,7 +344,8 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     phone: code.phone,
     callback: { when: operatorCallbackRange(code.own, language), ...preference },
     language: ownLanguage, languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
-    reaction: code.reaction, ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
+    reaction: code.reaction, agreeSign: code.agreeSign, greetingLanguage: code.greetingLanguage,
+    ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
     bargain: customerPolicyTermAsked("negotiation", code.own), rude: code.rude, botQuestion,
     offTopic: code.spam, complaint: looksLikeNoContactComplaint(code.own),
     job: { asked: null, openKey: position?.key ?? null },
@@ -561,7 +580,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       language: groundedCustomerDmLanguage(code.own) ?? answered?.language
         ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language) ?? code.language,
       languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
-      reaction: code.reaction, ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
+      reaction: code.reaction, agreeSign: code.agreeSign, greetingLanguage: code.greetingLanguage,
+      ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
       bargain: answer.bargain || fallback.bargain,
       // Грубость и жалоба закрывают разговор для бота: модель ИЛИ код; лишний раз позвать человека дешевле, чем спорить.
       rude: answer.rude || code.rude, complaint: answer.complaint || fallback.complaint,

@@ -56,7 +56,7 @@ export const OPERATOR_PHRASE_KEYS = [
   "topic_by_agent",
   // Реакция-эмодзи первым сообщением (прод 23.11.2026: «😍» на ролик) — короткое спасибо без «получил» и без вопроса; приветствие
   // после уже заданного вопроса о роли — ответ на приветствие и приглашение, без повтора того же вопроса.
-  "reaction_thanks", "greet_continue",
+  "reaction_thanks", "reaction_invite", "greet_continue",
   // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
   "reviewer_reset",
 ] as const;
@@ -180,6 +180,10 @@ export interface Understanding {
    * Не вложение («Спасибо, получил» — неправда) и не ответ на вопрос.
    */
   reaction?: boolean;
+  /** Одни знаки согласия («+», «👍», «👌»): «да» сразу после предложения звонка или просьбы номера (код, 23.11.2026). */
+  agreeSign?: boolean;
+  /** Язык, который выдаёт само приветствие («Ассалому алайкум» — tg, «Здравствуйте» — ru, «Салам» — нет). */
+  greetingLanguage?: OperatorLanguage | null;
   ackOnly: boolean;
   thanksOnly: boolean;
   /** Только текст кнопки рекламы Meta, своих слов нет. */
