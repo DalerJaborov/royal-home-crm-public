@@ -14,12 +14,12 @@
  "totals": {
   "screens": 51,
   "paths": 797,
-  "cron": 146,
+  "cron": 147,
   "jobs": 34,
-  "conditions": 4210,
+  "conditions": 4215,
   "untranslatedUnique": 476,
-  "untranslatedTotal": 613,
-  "partialUnique": 1133,
+  "untranslatedTotal": 614,
+  "partialUnique": 1136,
   "translatedShare": 85
  },
  "untranslated": [
@@ -67450,6 +67450,87 @@
       },
       {
        "t": "если отправленных больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "channel-volume-watch",
+   "when": "40 * * * *",
+   "label": "channel-volume-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это не канал watch hour",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: alert или разосланных тревог today содержит есть ключ",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть queued",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог количество больше 0",
        "k": "if",
        "a": [],
        "c": []

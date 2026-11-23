@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **797**. Развилок в самих путях: **2532**; вместе с задачами по расписанию и фоновыми заданиями — **4249**. Модулей: **90**.
+Путей: **797**. Развилок в самих путях: **2532**; вместе с задачами по расписанию и фоновыми заданиями — **4254**. Модулей: **90**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20763,6 +20763,45 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### channel-volume-watch — 40 * * * *
+
+- пробует
+  - const { alerted } = await runChannelVolumeWatchTick();
+    · зовёт runChannelVolumeWatchTick()
+    - если !isChannelWatchHour(at)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { alerted: [] };
+        · дословно из кода
+    - const rows = await prisma.$queryRaw<VolumeRow[]>` SELECT "channel"::text AS channel, COUNT(*) FILTER (WHERE e…
+      · обращается к базе своим SQL
+    - const day = dushanbeDateString(at);
+      · зовёт dushanbeDateString()
+    - для каждого: const channel of WATCHED_CHANNELS
+      - const { alert, average } = channelVolumeVerdict(current, Number(row?.past ?? 0));
+        · зовёт channelVolumeVerdict()
+      - если !alert || alertedToday.has(key)
+        - continue;
+          · переходит к следующему
+      - const queued = await enqueueDirectorAlert({ title: `📉 ${channelName(channel)}: новых обращений почти нет`, b…
+        · зовёт enqueueDirectorAlert()
+      - если queued
+        - alertedToday.add(key);
+          · дословно из кода
+        - alerted.push(channel);
+          · дословно из кода
+  - если alerted.length > 0
+    - console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «канал затих»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### chunked-uploads-cleanup — 17 * * * *
 
