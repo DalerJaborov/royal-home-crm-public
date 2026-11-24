@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import {
   captureAssistantTelegramContext,
@@ -45,6 +45,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // Прежние тесты проверяют «выключено — не пишем»; автопамять (24.11.2026) включается в своём тесте ниже.
+  vi.stubEnv("ASSISTANT_GROUP_AUTO_MEMORY", "0");
   await prisma.assistantTelegramGroup.deleteMany({ where: { chatId: { in: [String(chatId), String(otherChatId)] } } });
   await prisma.assistantTelegramGroup.createMany({ data: [
     { chatId: String(chatId), registeredByAgentId: agentId, contextEnabledAt: enabledAt },
@@ -317,5 +319,24 @@ describe("opted-in Telegram group evidence", () => {
       where: { groupChatId: String(chatId) }, select: { transcript: true },
     });
     expect(records).toEqual([{ transcript: null }]);
+  });
+
+  it("автопамять: подключённая группа без ручного включения начинает запоминать с первого сообщения, и новичков тоже (24.11.2026)", async () => {
+    vi.stubEnv("ASSISTANT_GROUP_AUTO_MEMORY", "");
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null, contextIncludeUnlinked: false } });
+    await captureAssistantTelegramContext(message(21), 21, now);
+    await captureAssistantTelegramContext(message(22, { from: { id: telegramUserId + 7 }, text: "Я новенький, где посмотреть варианты?" }), 22, now);
+    const group = await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId: String(chatId) } });
+    expect(group.contextEnabledAt).not.toBeNull();
+    expect(group.contextIncludeUnlinked).toBe(true);
+    const rows = await prisma.assistantTelegramContext.findMany({ where: { groupChatId: String(chatId), messageId: { in: [21, 22] } }, select: { messageId: true } });
+    expect(rows.map(r => r.messageId).sort()).toEqual([21, 22]);
+  });
+
+  it("автопамять выключается рубильником ASSISTANT_GROUP_AUTO_MEMORY=0", async () => {
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null } });
+    await captureAssistantTelegramContext(message(31), 31, now);
+    expect((await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId: String(chatId) } })).contextEnabledAt).toBeNull();
+    expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId), messageId: 31 } })).toBe(0);
   });
 });
