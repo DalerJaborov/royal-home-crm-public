@@ -60,6 +60,8 @@ export type GuardName =
    */
   | "two_questions"
   | "banned_word"
+  /* 24.11.2026: срок звонка агента в ответе бота — см. ai/callTimePromiseGuard.ts. */
+  | "call_time_promise"
   /*
    * ПРИШЁЛ ПО РЕКЛАМЕ И НИЧЕГО НЕ НАПИСАЛ (17.09.2026) — click-to-WhatsApp
    * подставляет готовую фразу, и лид заводился по нажатию кнопки, с выдуманными
@@ -169,6 +171,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   unresolved_share_repeat: "Повтор нераспознанного пересланного видео",
   two_questions: "Два вопроса в одном сообщении",
   banned_word: "Запрещённое слово из правил языка",
+  call_time_promise: "Срок звонка агента убран из ответа",
   ad_no_words: "Реклама: человек не написал ничего своего",
   money_request_card: "Просьба о помощи дошла до карточки (не по теме)",
   direction_question: "Наводящий вопрос про покупку/продажу заменён на нейтральный",
