@@ -1,4 +1,5 @@
 import { clientLanguageScores, detectClientLanguage } from "../ai/clientLanguage.js";
+import { unwrapUntrusted } from "../ai/untrustedContent.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers, ruPlural } from "@royal-home/shared";
@@ -272,6 +273,9 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   // eslint-disable-next-line no-control-regex
   text = text.replace(/[\u0000\u0001]/g, "");
   text = splitVoiceMarker(text).text;
+  // 24.11.2026 (скриншоты владельца): модель переписывала в ответ служебные границы <client_content kind="crm_note">…</client_content>
+  // из полей CRM (район, заметки), и сотрудник видел сырые теги в списке объектов. Границы нужны модели, человеку нет.
+  text = unwrapUntrusted(text).replace(/(\S) {2,}(\S)/g, "$1 $2");
   text = text.replace(TEMPERATURE_STATUS, "").replace(TEMPERATURE_TAG, "");
   text = text.replace(OBJECT_CODE_AFTER_LINK, (_m, label: string, path: string, parenthesized: string | undefined, inline: string | undefined) => {
     const code = parenthesized ?? inline;
