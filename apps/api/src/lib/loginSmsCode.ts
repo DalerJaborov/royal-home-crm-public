@@ -99,6 +99,11 @@ export type CodeAgent = { id: string; phone: string; telegramChatId: string | nu
 
 export type CodePurpose = "login" | "step-up" | "telegram-link";
 
+/** Назначение в базе (LoginSmsCode.purpose): вход и подтверждение личности — одно «login», привязка — своё. */
+function codeKind(purpose: CodePurpose): "login" | "telegram-link" {
+  return purpose === "telegram-link" ? "telegram-link" : "login";
+}
+
 /** Текст кода по назначению. Код привязки Telegram вводят в чате с ботом — ему своя строка, без «никогда не спрашивают». */
 function codeText(purpose: CodePurpose, code: string): { text: string; journal: string; pushTitle: string } {
   if (purpose === "telegram-link") {
@@ -221,6 +226,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
       data: {
         agentId: agent.id,
         codeHash: hashCode(agent.id, code),
+        purpose: codeKind(purpose),
         channel: wanted,
         expiresAt: new Date(now + LOGIN_SMS_CODE_TTL_MS),
         ...(ackToken ? { ackTokenHash: hashAck(ackToken) } : {}),
@@ -299,7 +305,7 @@ export function scheduleSmsFallback(agent: CodeAgent, rowId: string, code: strin
 export async function runSmsFallback(agent: CodeAgent, rowId: string, code: string, purpose: CodePurpose = "login"): Promise<void> {
   const row = await prisma.loginSmsCode.findUnique({ where: { id: rowId } });
   if (!row || row.ackedAt || row.consumedAt || row.fallbackSentAt || row.expiresAt.getTime() < Date.now()) return;
-  const latest = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" }, select: { id: true } });
+  const latest = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id, purpose: row.purpose }, orderBy: { createdAt: "desc" }, select: { id: true } });
   if (latest?.id !== rowId) return;
   // Условно: два срабатывания подряд не отправят две СМС.
   const claimed = await prisma.loginSmsCode.updateMany({
@@ -310,7 +316,7 @@ export async function runSmsFallback(agent: CodeAgent, rowId: string, code: stri
   const errors: string[] = [];
   for (const ch of ["sms", ...(agent.telegramChatId ? (["telegram"] as const) : [])] as const) {
     // A newer request/verification may finish while the previous provider waits.
-    const current = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" } });
+    const current = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id, purpose: row.purpose }, orderBy: { createdAt: "desc" } });
     if (current?.id !== rowId || current.ackedAt || current.consumedAt || current.expiresAt.getTime() < Date.now()) return;
     const sent = await deliver(agent, ch, code, purpose);
     if (sent.ok) {
@@ -346,9 +352,15 @@ export async function ackLoginCodePush(ackToken: string, endpoint?: string): Pro
 
 export type VerifyResult = { ok: true } | { ok: false; error: string };
 
-export async function verifyLoginCode(agentId: string, code: string): Promise<VerifyResult> {
+/**
+ * Проверка кода. `purpose` — для чего его вводят (повторное ревью 25.11.2026): код привязки Telegram не
+ * пускает в CRM и не подтверждает личность, код входа не привязывает Telegram. «Последний» считается в
+ * своём назначении: выдача кода привязки не гасит код входа, а неверные догадки в боте не тратят его попытки.
+ * Вход и подтверждение личности по-прежнему одно назначение («login»): так было и раньше.
+ */
+export async function verifyLoginCode(agentId: string, code: string, purpose: CodePurpose = "login"): Promise<VerifyResult> {
   const latest = await prisma.loginSmsCode.findFirst({
-    where: { agentId },
+    where: { agentId, purpose: codeKind(purpose) },
     orderBy: { createdAt: "desc" },
   });
   if (!latest || latest.consumedAt || latest.expiresAt.getTime() < Date.now()) {

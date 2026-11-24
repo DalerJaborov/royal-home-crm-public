@@ -34,6 +34,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botSpamFilterEnabled",
   "botCoreFailAlertEnabled",
   "shabnamSocialPublishEnabled",
+  "shabnamGroupAutoMemoryEnabled",
   "shabnamGroupUnaddressedEnabled",
   "telegramPhoneLinkEnabled",
   "instagramCompanyKeyEnabled",
@@ -161,6 +162,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Новичок в группе жмёт кнопку, делится номером в личке с ботом и вводит код из СМС на этот номер. Директора и администратора по номеру не привязывает: им только через профиль.",
     off: "Telegram привязывают только в CRM: Профиль → Telegram. Шабнам новичку в группе подсказывает этот путь.",
   },
+  // Владелец 24-25.11.2026: «Шабнам в группах молчит без обращения»: память группы никто не включал.
+  shabnamGroupAutoMemoryEnabled: {
+    title: "Шабнам запоминает разговор в подключённой группе",
+    on: "Подключённая группа сама начинает помнить последние сообщения (7 дней, без ссылок и контактов), включая тех, кто ещё не привязан к CRM. Без этого Шабнам не отвечает на вопросы без обращения и не знает, о чём говорили.",
+    off: "Новые подключённые группы ничего не запоминают, пока память не включена вручную. Уже запомненное остаётся до срока.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -198,7 +205,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

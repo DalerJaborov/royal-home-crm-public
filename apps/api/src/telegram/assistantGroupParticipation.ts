@@ -61,7 +61,15 @@ export function unaddressedReadRequest(text: string): boolean {
 // и «Можно ли завтра показать клиенту из заявки?» — разговор людей, а не вопрос к помощнице.
 const B = String.raw`(?:^|[^\p{L}\p{N}])`;
 const E = String.raw`(?=$|[^\p{L}\p{N}])`;
-const LISTING_WORDS = String.raw`(?:вариант\p{L}*|\d+\s*-?\s*(?:х|к|ком\p{L}*)|(?:одно|двух|тр[её]х|четыр[её]х|пяти)комнат\p{L}*|двушк\p{L}*|тр[её]шк\p{L}*|однушк\p{L}*|комнат\p{L}*|новостро\p{L}*|вторичк\p{L}*|ҳуҷрагӣ|хуҷрагӣ|хучраги|ҳавлӣ|хавли)`;
+// Число комнат — одна цифра 1–5 (повторное ревью 25.11.2026): «2к», «2-к», «3х комнатная», «2 ком». Сумма
+// («50 к», «100 к», «2 500к») — не комнаты: перед цифрой нет другой цифры, «к» слитно с ней; «х» — только с «комн/ком»
+// («2х экземплярах» — не квартира).
+const ROOM_COUNT = String.raw`(?<![\p{N}.,])(?<![\p{N}][\s.,])[1-5](?:-?к|\s*-?\s*(?:х\s*-?\s*)?ком\p{L}*)`;
+/** «Нужна трёшка, кто может завтра показать?» — просьба к людям, не к помощнице. */
+const PEOPLE_TASK = /кто\s+(?:может|сможет|из\s+вас|покажет|поедет|свободен|возьм\p{L}*)/iu;
+/** «Найдите мне клиента на двушку» — ищут покупателя среди людей, а не вариант в базе. */
+const CLIENT_SEARCH = /(?:найд|ищ|подбер)\p{L}*\s+(?:\p{L}+\s+)?клиент/iu;
+const LISTING_WORDS = String.raw`(?:вариант\p{L}*|${ROOM_COUNT}|(?:одно|двух|тр[её]х|четыр[её]х|пяти)комнат\p{L}*|двушк\p{L}*|тр[её]шк\p{L}*|однушк\p{L}*|комнат\p{L}*|новостро\p{L}*|вторичк\p{L}*|ҳуҷрагӣ|хуҷрагӣ|хучраги|ҳавлӣ|хавли)`;
 const LISTING_SUBJECT = new RegExp(`${B}${LISTING_WORDS}${E}`, "iu");
 const CRM_MARK = String.raw`(?:crm|црм|срм)`;
 const CRM_SUBJECT = new RegExp(String.raw`${B}(?:${CRM_MARK}|карточк\p{L}*|заявк\p{L}*)${E}`, "iu");
@@ -83,7 +91,7 @@ function speaksToPerson(text: string): boolean {
 
 export function unaddressedHelpQuestion(text: string): boolean {
   if (!text || text.length > 300 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return false;
-  if (speaksToPerson(text)) return false;
+  if (speaksToPerson(text) || PEOPLE_TASK.test(text) || CLIENT_SEARCH.test(text)) return false;
   const listing = LISTING_SUBJECT.test(text);
   if ((listing || CRM_SUBJECT.test(text)) && STRONG_ASK.test(text)) return true;
   return listing && (LISTING_ASK.test(text) || HELP_AVAILABILITY_END.test(text));

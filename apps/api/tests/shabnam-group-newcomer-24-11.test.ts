@@ -300,6 +300,40 @@ describe("привязка по номеру в личке", () => {
     expect(agent.telegramUserId).toBeNull();
   });
 
+  it("код прислан дважды одновременно: привязка одна, второе сообщение код не тратит и не пугает ошибкой", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Дважды ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never);
+    sent.removed.length = 0;
+    const code = lastCode();
+    const results = await Promise.all([
+      tryConfirmStaffLinkCode(privateMsg(id, { text: code }) as never),
+      tryConfirmStaffLinkCode(privateMsg(id, { text: code, message_id: 2 }) as never),
+    ]);
+    // Второе либо застало занятое окно (true, без ответа), либо уже закрытое (false — не наше сообщение).
+    expect(results).toContain(true);
+    const texts = sent.removed.map(call => String(call[1]));
+    expect(texts.filter(t => t.includes("Готово"))).toHaveLength(1);
+    expect(texts.some(t => t.includes("Код не подошёл") || t.includes("Код истёк"))).toBe(false);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBe(id);
+    const row = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId, purpose: "telegram-link" } });
+    expect(row.attempts).toBe(0);
+  });
+
+  it("/start staff освежает отметку: уборка не снесёт окно посреди привязки", async () => {
+    const id = newTelegramId();
+    await prisma.assistantTelegramLinkOffer.create({ data: { telegramUserId: id, chatId, offeredAt: new Date(Date.now() - LINK_OFFER_RETENTION_MS + 60_000) } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    const offer = await prisma.assistantTelegramLinkOffer.findUniqueOrThrow({ where: { telegramUserId: id } });
+    expect(Date.now() - offer.offeredAt.getTime()).toBeLessThan(60_000);
+    await cleanupTelegramLinkOffers(new Date(Date.now() + 120_000));
+    expect(await prisma.assistantTelegramLinkOffer.findUnique({ where: { telegramUserId: id } })).not.toBeNull();
+  });
+
   it("отметки старше 90 дней убираются", async () => {
     const id = newTelegramId();
     await prisma.assistantTelegramLinkOffer.create({ data: { telegramUserId: id, chatId, offeredAt: new Date(Date.now() - LINK_OFFER_RETENTION_MS - 60_000) } });

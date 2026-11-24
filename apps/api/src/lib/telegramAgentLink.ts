@@ -172,7 +172,8 @@ export async function askStaffContactForLink(msg: TelegramIncomingMessage): Prom
   await prisma.assistantTelegramLinkOffer.upsert({
     where: { telegramUserId },
     create: { telegramUserId, chatId, offeredAt: now, contactRequestedAt: now },
-    update: { contactRequestedAt: now, pendingAgentId: null, codeSentAt: null },
+    // offeredAt тоже свежий: строка живёт 90 дней от последнего действия, окно не уберёт уборка посреди привязки.
+    update: { offeredAt: now, contactRequestedAt: now, pendingAgentId: null, codeSentAt: null },
   });
   await requestContact(chatId, bothLanguages(ASSISTANT_LINK_ASK_CONTACT));
   return true;
@@ -253,20 +254,27 @@ export async function tryConfirmStaffLinkCode(msg: TelegramIncomingMessage): Pro
     where: { telegramUserId, pendingAgentId: agentId, codeSentAt: sentAt },
     data: { pendingAgentId: null, codeSentAt: null },
   });
+  // Сначала атомарно занимаем окно, потом проверяем код (повторное ревью 25.11.2026): второе сообщение
+  // (дубль апдейта или код, отправленный дважды) окно уже не застанет и код не тронет; ответ даст первое.
+  if ((await closeWindow()).count !== 1) return true;
   if (Date.now() - sentAt.getTime() > LOGIN_SMS_CODE_TTL_MS || !(await phoneLinkEnabled())) {
-    await closeWindow();
     await answer(ASSISTANT_LINK_RESULT.codeExpired);
     return true;
   }
-  const verified = await verifyLoginCode(agentId, code);
+  const verified = await verifyLoginCode(agentId, code, "telegram-link");
   if (!verified.ok) {
     const final = !/^Неверный код/.test(verified.error);
-    if (final) await closeWindow();
+    // Неверные цифры — окно возвращаем с прежним сроком (попытки считает сам код: пять и всё), если
+    // за это время человек не начал новое.
+    if (!final) {
+      await prisma.assistantTelegramLinkOffer.updateMany({
+        where: { telegramUserId, pendingAgentId: null, codeSentAt: null, contactRequestedAt: null },
+        data: { pendingAgentId: agentId, codeSentAt: sentAt },
+      });
+    }
     await answer(final ? ASSISTANT_LINK_RESULT.codeExpired : ASSISTANT_LINK_RESULT.wrongCode);
     return true;
   }
-  // Один верный код — одна привязка: дубль апдейта окно уже не застанет.
-  if ((await closeWindow()).count !== 1) return true;
   const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { fullName: true, role: true, isActive: true } });
   if (!agent?.isActive) { await answer(ASSISTANT_LINK_RESULT.notFound); return true; }
   if (OWNER_ROLES.has(agent.role)) { await answer(ASSISTANT_LINK_RESULT.ownerRole); return true; }

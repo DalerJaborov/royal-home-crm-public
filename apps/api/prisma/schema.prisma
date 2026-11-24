@@ -7446,6 +7446,7 @@ model Settings {
   /// только, что на номер когда-то завели аккаунт. Включена — номер ещё подтверждается кодом по СМС, директора и
   /// администратора по номеру не привязываем никогда. lib/telegramAgentLink.ts.
   telegramPhoneLinkEnabled              Boolean @default(false)
+  shabnamGroupAutoMemoryEnabled         Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -10772,6 +10773,9 @@ model LoginSmsCode {
   codeHash   String
   /// Куда ушёл код: sms | telegram (19.10.2026).
   channel    String    @default("sms")
+  /// Для чего код (25.11.2026): login (вход и подтверждение личности) | telegram-link (привязка Telegram по номеру).
+  /// verifyLoginCode принимает код только своего назначения.
+  purpose    String    @default("login")
   expiresAt  DateTime
   attempts   Int       @default(0)
   consumedAt DateTime?
@@ -10783,6 +10787,7 @@ model LoginSmsCode {
   fallbackSentAt DateTime?
 
   @@index([agentId, createdAt])
+  @@index([agentId, purpose, createdAt])
   @@index([ackTokenHash])
 }
 
@@ -11487,7 +11492,7 @@ model AssistantTelegramGroup {
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
   /// Директор или админ выключил память группы командой /assistant_memory off (24.11.2026).
-  /// Пока стоит, автопамять (ASSISTANT_GROUP_AUTO_MEMORY) её не включает обратно.
+  /// Пока стоит, автопамять (рубильник shabnamGroupAutoMemoryEnabled) её не включает обратно.
   contextOptOutAt      DateTime?
   context             AssistantTelegramContext[]
 }
