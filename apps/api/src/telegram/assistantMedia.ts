@@ -9,6 +9,8 @@ import { reserveAssistantGeminiAttempt } from "../ai/assistant/attemptBudget.js"
 import { assistantLimitText } from "../ai/assistant/limitText.js";
 import { recognizeShortAssistantVoice } from "./assistantScribe.js";
 
+const TAJIK_LETTERS = /[ғӣқӯҳҷ]/iu;
+
 /** Bounded download even when Telegram's reported file_size is wrong. No arbitrary URL input. */
 export async function downloadAssistantMedia(fileId: string, maximum: number): Promise<Buffer> {
   // Свой Bot API-сервер отвечает на getFile, только когда сам докачал файл у
@@ -75,6 +77,8 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
   wallet?: AssistantMoneyWallet;
   /** Язык собеседника для отказа денежной защиты, если подписи нет (голосовое): по истории чата. */
   language?: () => Promise<"ru" | "tg">;
+  /** Голосовое в группе, где Шабнам НЕ звали: таджикская речь остаётся на быстрой расшифровке (без расхода сильной модели). */
+  fastTajikOk?: boolean;
 } = {}): Promise<{ text: string; error?: string; extraction?: Awaited<ReturnType<typeof understandAssistantMedia>>["extraction"] }> {
   if ((msg.chat.type !== "private" && !options.allowGroup) || !agentId) return { text: "Файлы помощник разбирает только в личном чате сотрудника.", error: "media_scope" };
   const isVoice = Boolean(msg.voice || msg.audio);
@@ -99,7 +103,10 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
     stage = "recognition";
     if (shortNativeGroupVoice && buffer.length <= 128_000) {
       const short = await recognizeShortAssistantVoice(buffer);
-      if (short) return { text: short.transcript, extraction: {
+      // Таджикскую речь быстрая расшифровка портит («Рут сиех. Голосовая гуш к охи», 24.11.2026): когда Шабнам
+      // позвали, как в личке, она идёт на сильную модель ниже (тот же счёт попыток и денег). Быстрый путь — для
+      // русского, «спасибо» и всех голосовых, адресованных не ей: на них сильную модель не тратим.
+      if (short && (options.fastTajikOk || (short.language !== "tg" && !TAJIK_LETTERS.test(short.transcript)))) return { text: short.transcript, extraction: {
         ...short, readableText: "", visualDescription: "", incomplete: false,
       } };
     }
