@@ -32,6 +32,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyPropertyReviewOverdueEnabled",
   "botRepliesAfterLeadEnabled",
   "botSpamFilterEnabled",
+  "botCoreFailAlertEnabled",
   "shabnamSocialPublishEnabled",
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
@@ -118,6 +119,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если объект завис на проверке дольше срока, проверяющему или руководству приходит уведомление.",
     off: "Уведомления нет. Срок по-прежнему красится на карточке объекта.",
   },
+  // 24.11.2026: ход бота упал с исключением (customer_core_unavailable), клиенту тишина: звать агента сразу, не через 30 минут.
+  botCoreFailAlertEnabled: {
+    title: "Бот сломался на ходе: сразу позвать агента",
+    on: "Ход бота упал, клиенту ничего не ушло: ответственный (или руководство) получает сигнал сразу, а не через 30 минут. Клиенту текст не отправляется.",
+    off: "Сигнал придёт только через 30 минут от сторожа «клиент молчит» (если он включён).",
+  },
   // Владелец 20.11.2026: «таким спамерам как то не отвечать или как то сэкономить токены».
   botSpamFilterEnabled: {
     title: "Спам — без ответа",
@@ -182,7 +189,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "instagramCompanyKeyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "instagramCompanyKeyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
