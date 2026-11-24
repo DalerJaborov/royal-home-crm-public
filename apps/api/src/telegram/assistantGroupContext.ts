@@ -89,6 +89,12 @@ function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
 }
 
 /** Call only from a Telegram update received by the common poller/webhook dispatcher. */
+/** Рубильник автопамяти групп: по умолчанию ВКЛ, ASSISTANT_GROUP_AUTO_MEMORY=0 выключает. */
+export function groupAutoMemoryEnabled(): boolean {
+  const value = process.env.ASSISTANT_GROUP_AUTO_MEMORY?.trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "off";
+}
+
 export async function captureAssistantTelegramContext(raw: unknown, updateId: number, now = new Date()): Promise<void> {
   const source = groupEvidenceSource(raw, updateId, now);
   if (!source) return;
@@ -103,7 +109,22 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
     where: { chatId: groupChatId },
     select: { contextEnabledAt: true, contextIncludeUnlinked: true },
   });
-  const enabledAt = registration?.contextEnabledAt;
+  let enabledAt = registration?.contextEnabledAt;
+  let includeUnlinked = registration?.contextIncludeUnlinked ?? false;
+  if (registration && !enabledAt && groupAutoMemoryEnabled()) {
+    // 24.11.2026, жалоба владельца «в группе она как без памяти»: память включалась только руками в базе
+    // (в коде её не включал никто), и в новой рабочей группе Шабнам не помнила разговор и не видела новичков.
+    // Подключённая группа теперь запоминает сама, начиная с первого сообщения; выключить — ASSISTANT_GROUP_AUTO_MEMORY=0.
+    const claimed = await prisma.assistantTelegramGroup.updateMany({
+      where: { chatId: groupChatId, contextEnabledAt: null },
+      data: { contextEnabledAt: occurredAt, contextIncludeUnlinked: true },
+    });
+    if (claimed.count === 1) { enabledAt = occurredAt; includeUnlinked = true; }
+    else {
+      const fresh = await prisma.assistantTelegramGroup.findUnique({ where: { chatId: groupChatId }, select: { contextEnabledAt: true, contextIncludeUnlinked: true } });
+      enabledAt = fresh?.contextEnabledAt ?? undefined; includeUnlinked = fresh?.contextIncludeUnlinked ?? false;
+    }
+  }
   if (!enabledAt || occurredAt < enabledAt) return;
 
   const authorTelegramId = String(message.from.id);
@@ -111,7 +132,7 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
     findAgentByTelegramUserId(authorTelegramId),
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDiscussionGroupId: true } }),
   ]);
-  if ((!author && !registration.contextIncludeUnlinked && !isEdit)
+  if ((!author && !includeUnlinked && !isEdit)
       || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
 
   const authorAgentId = author?.id ?? null;

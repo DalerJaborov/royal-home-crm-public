@@ -281,6 +281,8 @@ services:
       # пусто = действует умолчание из кода (200 и 1).
       ASSISTANT_GEMINI_DAILY_USD: ${ASSISTANT_GEMINI_DAILY_USD:-}
       ASSISTANT_GEMINI_TURN_USD: ${ASSISTANT_GEMINI_TURN_USD:-}
+      # Автопамять подключённых групп Шабнам (24.11.2026): пусто = включена; 0 выключает.
+      ASSISTANT_GROUP_AUTO_MEMORY: ${ASSISTANT_GROUP_AUTO_MEMORY:-}
       # Independent gates for the approved policy index and paid private lookup.
       ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED:-false}"
       ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED: "${ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED:-false}"
