@@ -35,7 +35,7 @@ export const OPERATOR_BUYER_FIELDS: readonly OperatorDetailField[] = ["rooms", "
 /** Продавцу — три главных пункта, а не анкета: площадь, этаж, ремонт агент узнает сам (владелец 20.11.2026). */
 export const OPERATOR_SELLER_FIELDS: readonly OperatorDetailField[] = ["district", "rooms", "price"];
 /** Справочные ответы, которые в разговоре звучат один раз (повтор — не та же фраза, а сигнал человеку). */
-const ONCE_PER_CONVERSATION: ReadonlySet<PhraseKey> = new Set(["where_work", "work_hours", "identity", "bot_identity", "buyer_free",
+export const ONCE_PER_CONVERSATION: ReadonlySet<PhraseKey> = new Set(["where_work", "work_hours", "identity", "bot_identity", "buyer_free",
   "no_installment", "stock_yes", "services_intro"]);
 /** Отметки «передал агенту» после заявки: клиент дописывает подряд — отмечаем один раз на серию. */
 const ACK_KEYS: ReadonlySet<PhraseKey> = new Set(["note_added", "question_noted", "lead_status", "no_agent_noted"]);
@@ -288,14 +288,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       else answers.push(draft("buyer_free"));
     }
     // «Можно фото, видео?» — фото и видео объекта присылает агент (у бота отправки фото в режиме заявок нет), а не повтор цены.
-    if (u.photoRequest && !s.leadAccepted) answers.push(draft("photo_by_agent"));
+    if (u.photoRequest && !s.leadAccepted && u.role !== "seller" && s.role !== "seller") answers.push(draft("photo_by_agent"));
     // «Какие услуги вы предлагаете?» при неясной роли — сначала ответ по сути, потом вопрос о роли (прод 24.11.2026, db061eef:
     // был один вопрос «купить или продать?»). Комиссию здесь не называем: роль ещё не ясна, покупателю — никогда.
     if (u.question === "services" && s.role === "unknown" && !s.leadAccepted) answers.push(draft("services_intro"));
     if (u.question === "area") answers.push(draft("where_work"));
     // Ответы, которые знаем сами (владелец 22.11.2026: «на простые вопросы отвечает сам»): ипотеки и рассрочки нет; в Душанбе
     // объекты есть (не продавцу: «есть квартира в Душанбе» от продавца — о своём); после заявки делать ничего не нужно.
-    if (u.installmentQuestion && !u.offTopic) answers.push(draft("no_installment"));
+    if (u.installmentQuestion && !u.offTopic && u.role !== "seller" && s.role !== "seller") answers.push(draft("no_installment"));
     if (u.stockQuestion && u.role !== "seller" && s.role !== "seller") answers.push(draft("stock_yes"));
     if (u.nextStepQuestion && s.leadAccepted) answers.push(draft("next_step"));
     // «Вы бот?» модель часто метит и как «кто вы»: «Нет, это агентство…» прозвучало бы отрицанием бота (живой прогон 19.11).

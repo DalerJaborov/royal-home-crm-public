@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { parseLeadOnlyPending } from "../../lib/leadOnlyPending.js";
 import type { prisma, TxClient } from "../../db.js";
-import { emptyOperatorDetails, initialOperatorState } from "./decide.js";
+import { emptyOperatorDetails, initialOperatorState, ONCE_PER_CONVERSATION } from "./decide.js";
 import { OPERATOR_DETAIL_FIELDS, OPERATOR_PHRASE_KEYS, type OperatorState } from "./types.js";
 
 /** Разговор, где клиент молчал дольше месяца, начинается заново (заявка и карточка живут в CRM, не здесь). */
@@ -76,7 +76,8 @@ export function readOperatorState(raw: unknown, now: Date = new Date()): Operato
     if (age > OPERATOR_HANDOFF_RESET_MS) {
       delete state.spoken.note_added; delete state.spoken.no_agent_noted; delete state.spoken.welcome; delete state.spoken.lead_reminder;
       // Справочные ответы («где работаем», часы, «вы бот?»…) после суток тишины можно сказать снова (ревью #333).
-      for (const key of ["where_work", "work_hours", "identity", "bot_identity", "buyer_free"] as const) delete state.spoken[key];
+      // Один список с decide.ts (ревью #418: новые справки — ипотека, «есть в Душанбе», услуги — иначе молчали бы навсегда).
+      for (const key of ONCE_PER_CONVERSATION) delete state.spoken[key];
       // Новый день — снова здороваемся в ответ и снова приглашаем продолжить (23.11.2026, слепое ревью).
       for (const key of ["greet", "greet_assalom", "greet_continue"] as const) delete state.spoken[key];
       // Новый эпизод: сигналы «не понял» и «вложения» снова возможны (ревью #333).

@@ -125,10 +125,12 @@ const REPEAT_WINDOW = 2;
 const sameLine = (text: string) => text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
 export function withoutOwnRepeats(decision: { steps: OperatorStepOut[]; language: OperatorLanguage; actions: OperatorAction[]; silent: boolean },
   recent: OperatorTurnRequest["input"]["recent"], sent: readonly string[] = []): void {
-  const lastBot = [...(recent ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text), ...sent].slice(-REPEAT_WINDOW).map(sameLine);
+  // Два прошлых ответа, каждый — по целым предложениям (ревью #418: не подстрока, иначе «Понял.» совпало бы внутри длинного ответа).
+  const lastBot = [...(recent ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text), ...sent].slice(-REPEAT_WINDOW);
+  const sentences = new Set(lastBot.flatMap(text => [sameLine(text), ...text.split(/(?<=[.!?])\s+|\n+/u).map(sameLine)]).filter(Boolean));
   // Ход с заявкой не глушим: строка заявки звучит один раз, и клиент должен узнать, что заявка принята.
   if (!lastBot.length || !decision.steps.length || decision.actions.some(action => action.type === "accept_lead")) return;
-  const seen = (step: OperatorStepOut) => { const line = sameLine(renderOperatorStep(step, decision.language)); return lastBot.some(text => text.includes(line)); };
+  const seen = (step: OperatorStepOut) => sentences.has(sameLine(renderOperatorStep(step, decision.language)));
   const kept: OperatorStepOut[] = [];
   for (const step of decision.steps) {
     if (step.key === "ask_role" || step.key === "greet" || step.key === "greet_assalom" || !seen(step)) { kept.push(step); continue; }

@@ -125,7 +125,7 @@ const AGENT_TOPIC = new RegExp(`${BW}(?:документ${TAIL}|хуччат${TA
 /**
  * Ипотека и рассрочка — ответ ЗНАЕМ: сейчас их нет (владелец 22.11.2026: «ипотеки сейчас нет… говорить честно, не обещать»).
  * Прод 23.11.2026 (7f2fa950): «хонае ҳастай ки ҳармоҳа супори», «бо банк харем» получали «Инро аниқ агенти мо мегӯяд».
- * Вопросительного знака не требуем: «хочу в рассрочку» — тот же вопрос.
+ * Только ВОПРОС или желание покупателя (ревью #418): «квартира в ипотеке» продавца и «нақд, бе кредит» — не вопрос об ипотеке.
  */
 const INSTALLMENT_WORD = new RegExp(`${BW}(?:ипотек${TAIL}|ипатек${TAIL}|кредит${TAIL}|карз${TAIL}|рассрочк${TAIL}|расрочк${TAIL}|насия${TAIL}|` +
   `бо\\s+кисм${TAIL}|хармох${TAIL}|хар\\s+мох${TAIL}|мохона${TAIL}|ежемесячн${TAIL}|помесячн${TAIL}\\s+(?:оплат${TAIL}|плат${TAIL})|бо\\s+банк${TAIL}|через\\s+банк${TAIL})`, "u");
@@ -138,10 +138,20 @@ const STOCK_HAVE = new RegExp(`${BW}(?:хаст${TAIL}|доред|дорен|д�
 /** «Какие услуги вы предлагаете?», «чем занимаетесь?», «чи хизмат мекунед?» — вопрос об услугах (прод 24.11.2026, db061eef). */
 const SERVICES_WORD = new RegExp(`${BW}(?:как(?:ие|ую)\\s+(?:у\\s+вас\\s+)?услуг${TAIL}|чем\\s+(?:вы\\s+)?занимает${TAIL}|что\\s+вы\\s+(?:делаете|предлагаете)|` +
   `(?:чи|кадом)\\s+хизмат${TAIL}|услуга?тон\\s+чи${TAIL}|шумо\\s+чи\\s+кор\\s+мекун${TAIL})`, "u");
-/** «Можно фото/видео?», «скиньте фото», «акс фиристед», «видео ҳаст?» — просьба фото объекта (прод 24.11.2026, 71178348). */
-const PHOTO_REQUEST = new RegExp(`${BW}(?:фото${TAIL}|видео${TAIL}|акс${TAIL}|сурат${TAIL}|видеош${TAIL})` +
-  `[^.!]{0,40}(?:можно|скин${TAIL}|пришл${TAIL}|отправ${TAIL}|покаж${TAIL}|есть|фирист${TAIL}|равон${TAIL}|партоф${TAIL}|хаст|мешава${TAIL}|\\?)` +
-  `|${BW}(?:можно|скиньте|пришлите|отправьте|фиристед|фиристен|партоед|партофта)${EW}[^.!]{0,30}(?:фото${TAIL}|видео${TAIL}|акс${TAIL}|сурат${TAIL})`, "u");
+/** Вопрос или желание об ипотеке: «есть?», «можно?», «хочу», «бо банк харем», «ҳаст / ҳастай / мешавад / медиҳед». */
+const INSTALLMENT_ASK = new RegExp(`${BW}(?:есть|можно|хочу|хотим|хотел${TAIL}|нужн${TAIL}|даете|даёте|возможн${TAIL}|хаст(?:ай|ми)?|мешава${TAIL}|` +
+  `медихед|медихад|доред|дорен|мумкин|харем|харам|харидан|мехарам|мехарем|мехохам|мехохем|лозим|даркор)${EW}`, "u");
+/** «Нақд, бе кредит», «без ипотеки», «наличными» — клиент как раз говорит, что ипотека не нужна. */
+const INSTALLMENT_NOT = new RegExp(`${BW}(?:бе|без)\\s+(?:кредит${TAIL}|ипотек${TAIL}|карз${TAIL}|насия${TAIL}|рассрочк${TAIL})|${BW}(?:накд${TAIL}|наличн${TAIL})`, "u");
+/**
+ * Просьба фото объекта (прод 24.11.2026, 71178348; ревью #418): «Можно фото?», «скиньте видео», «акс фиристед», голое «Фото?».
+ * Слово — целиком («акс», «аксҳо», «аксашро»; не «аксия», «аксаран»), и не обещание самого клиента («фото скину», «акс мефиристам»).
+ */
+const PHOTO_WORD = new RegExp(`${BW}(?:фото(?:графи${TAIL})?|фотки|видео|видос${TAIL}|акс(?:хо|ро|и|аш|ашро|хоро|хояш|ашон|ашонро)?|сурат(?:хо|ро|и|аш|ашро)?)${EW}`, "u");
+const PHOTO_ASK = new RegExp(`${BW}(?:можно|скиньте|скинте|скинь|пришлите|отправьте|покажите|есть|имеется|фиристед|фиристен|фирстед|` +
+  `партоед|партоен|равон\\s+кунед|нишон\\s+дихед|хаст|доред|дорен|мешава${TAIL}|мумкин)${EW}`, "u");
+const PHOTO_SELF_SEND = new RegExp(`${BW}(?:скину|скинем|отправлю|отправим|пришлю|пришлем|пришлём|мефиристам|мефиристем|равон\\s+мекун${TAIL}|` +
+  `мепартоям|мепартоем|партофтам|фиристодам)${EW}`, "u");
 /** Условия агентства: «шартҳо», «условия», «хизматрасонӣ» рядом со словом вопроса — вопрос о цене услуг (сложенный алфавит). */
 const CONDITIONS_WORD = new RegExp(`${BW}(?:шарт${TAIL}|услови${TAIL}|хизматрасон${TAIL})`, "u");
 const CONDITIONS_HOW = new RegExp(`${BW}(?:чихел${TAIL}|чи\\s*гуна|чигуна|какие|каковы|какой)${EW}`, "u");
@@ -306,9 +316,12 @@ function codeFacts(input: OperatorTurnInput) {
       (/[?؟]/u.test(own) || QUESTION_HINT.test(folded) || CONDITIONS_HOW.test(folded))),
     placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
     agentTopic: !isAdTemplateOpener(own) && AGENT_TOPIC.test(folded) && (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
-    photoRequest: !isAdTemplateOpener(own) && PHOTO_REQUEST.test(folded),
+    // Знак «?» — по сырому тексту: сложенный текст его уже не несёт (голое «Фото?» иначе не ловилось, ревью #418).
+    photoRequest: !isAdTemplateOpener(own) && PHOTO_WORD.test(folded) && !PHOTO_SELF_SEND.test(folded) &&
+      (PHOTO_ASK.test(folded) || /[?؟]/u.test(own)),
     servicesQuestion: !isAdTemplateOpener(own) && SERVICES_WORD.test(folded),
-    installmentQuestion: !isAdTemplateOpener(own) && INSTALLMENT_WORD.test(folded),
+    installmentQuestion: !isAdTemplateOpener(own) && INSTALLMENT_WORD.test(folded) && !INSTALLMENT_NOT.test(folded) &&
+      (/[?؟]/u.test(own) || INSTALLMENT_ASK.test(folded) || QUESTION_HINT.test(folded)) && !customerRoleSignals(own).sell,
     stockQuestion: !isAdTemplateOpener(own) && HOUSE_WORD.test(folded) && STOCK_PLACE.test(folded) && STOCK_HAVE.test(folded) &&
       (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
     nextStepQuestion: !isAdTemplateOpener(own) && NEXT_STEP.test(folded),

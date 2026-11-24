@@ -3,6 +3,7 @@ import { decide, initialOperatorState } from "../src/ai/operator/decide.js";
 import { OPERATOR_PHRASES, renderOperatorReply, renderOperatorStep } from "../src/ai/operator/phrases.js";
 import { understandFallback } from "../src/ai/operator/understand.js";
 import { withoutOwnRepeats } from "../src/ai/operator/index.js";
+import { readOperatorState, serializeOperatorState } from "../src/ai/operator/state.js";
 import { leadOnlyOutgoing } from "../src/ai/leadOnlyMode.js";
 import { stripCallTimePromise } from "../src/ai/callTimePromiseGuard.js";
 import { customerPublicLanguage, customerPublicSellerOffer } from "../src/ai/customerAgentConversationPolicy.js";
@@ -40,11 +41,28 @@ const leadsOf = (turns: ReturnType<typeof dialog>) => turns.flatMap(t => t.d.act
 const CLOCK_OR_DAY = /\d{1,2}[:.]\d{2}|сегодня|завтра|имрӯз|пагоҳ|соати|ба зудӣ|в ближайшее время/iu;
 
 describe("п.1 срок звонка агента не называется никогда (7d0df9a4 09:37, bd6aeec4, 7b231fa1, fa92b195)", () => {
-  it("ни одна фраза оператора не несёт срока звонка — ни переменной {when}/{time}, ни дня, ни часов", () => {
+  it("ни одна фраза оператора не несёт срока звонка — ни переменной {when}/{time}, ни дня; последняя дверь не меняет ни одной фразы", () => {
+    // Все переменные фраз — образцами данных (часы работы — настоящими часами: ревью #418, сторож вырезал их из «Мы на связи с…»).
+    const vars = { id: 214, price: "75 000 USD", place: "Сино, Душанбе", percent: 2, phone: "+992 00 000 00 02", brand: "Royal Home",
+      from: "09:30", to: "18:00", missing: ["district", "price"], where: "WHATSAPP", list: ["менеджер"], position: "менеджер", time: "с 11:00 до 14:30" };
     for (const [key, phrase] of Object.entries(OPERATOR_PHRASES)) {
-      for (const text of [...phrase.ru, ...phrase.tg]) {
-        expect(text, key).not.toMatch(/\{when\}|\{time\}/u);
-        if (key !== "work_hours") expect(text, key).not.toMatch(CLOCK_OR_DAY);
+      for (const [language, variants] of [["ru", phrase.ru], ["tg", phrase.tg]] as const) {
+        variants.forEach((template, variant) => {
+          expect(template, key).not.toMatch(/\{when\}|\{time\}/u);
+          expect(template, key).not.toMatch(/сегодня|завтра|имрӯз|пагоҳ|ба зудӣ|в ближайшее время/iu);
+          const text = renderOperatorStep({ key: key as PhraseKey, vars, variant }, language);
+          expect(leadOnlyOutgoing(text, language), `${key}/${language}/${variant}`).toBe(text);
+        });
+      }
+    }
+  });
+  it("ревью #418: «когда работаете» — часы работы доходят до клиента через последнюю дверь целиком", () => {
+    for (const language of ["ru", "tg"] as const) {
+      for (const variant of [0, 1]) {
+        const text = renderOperatorStep({ key: "work_hours", vars: { from: "09:30", to: "18:00" }, variant }, language);
+        const out = leadOnlyOutgoing(text, language);
+        expect(out).toContain("09:30");
+        expect(out).toContain("18:00");
       }
     }
   });
@@ -166,6 +184,31 @@ describe("п.4–5 простые вопросы — ответ сам, а не 
   });
 });
 
+describe("ревью #418: справки только на вопрос покупателя, фото — только просьба, общий список справок", () => {
+  it("ипотека: «квартира в ипотеке» продавца и «нақд, бе кредит» — без справки; у продавца комиссия не теряется", () => {
+    const [seller] = dialog(ctx(), ["Продаю квартиру, она в ипотеке"]);
+    expect(seller!.keys).not.toContain("no_installment");
+    expect(seller!.keys).toContain("seller_intro");
+    const [cash] = dialog(IG(), ["Нақд мехарам, бе кредит"]);
+    expect(cash!.keys).not.toContain("no_installment");
+    const [ask] = dialog(IG(), ["Ипотека есть?"]);
+    expect(ask!.keys).toContain("no_installment");
+  });
+  it("фото: «фото скину», «Аксия ҳаст?», «аксаран» — не просьба; голые «Фото?» и «Видео?» — просьба", () => {
+    const [own] = dialog(ctx(), ["Мефурӯшам, фото скину"]);
+    expect(own!.keys).not.toContain("photo_by_agent");
+    for (const text of ["Аксия ҳаст?", "аксаран хонаҳо дар Сино"]) expect(dialog(IG(), [text])[0]!.keys, text).not.toContain("photo_by_agent");
+    for (const text of ["Фото?", "Видео?"]) expect(dialog(IG(), [text])[0]!.keys, text).toContain("photo_by_agent");
+  });
+  it("суточный сброс знает новые справки (один список с decide.ts)", () => {
+    const now = new Date("2026-11-25T10:00:00Z");
+    const state = { ...initialOperatorState(), spoken: { no_installment: 1, stock_yes: 1, services_intro: 1, buyer_free: 1 } };
+    const stored = serializeOperatorState(state, new Date(now.getTime() - 25 * 3600_000));
+    const read = readOperatorState(stored, now);
+    for (const key of ["no_installment", "stock_yes", "services_intro", "buyer_free"] as const) expect(read.spoken[key], key).toBeUndefined();
+  });
+});
+
 describe("п.13 сторож повтора своей реплики (9d656fe1: одна фраза о комиссии трижды подряд)", () => {
   it("тот же текст, что в прошлом ответе, — другой вариант фразы; оба уже звучали — тишина и сигнал человеку", () => {
     const step = { key: "seller_commission" as PhraseKey, vars: { percent: 2 }, variant: 0 };
@@ -178,6 +221,13 @@ describe("п.13 сторож повтора своей реплики (9d656fe1:
     expect(twice.silent).toBe(true);
     expect(twice.actions).toEqual([{ type: "call_staff", reason: "repeat_question" }]);
   });
+  it("сравнение — целыми предложениями, а не подстрокой (ревью #418)", () => {
+    const step = { key: "got_it" as PhraseKey, vars: {}, variant: 1 };
+    const said = renderOperatorStep(step, "ru"); // «Спасибо, понял.»
+    const d = { steps: [step], language: "ru" as const, actions: [] as never[], silent: false };
+    withoutOwnRepeats(d, [{ role: "assistant", text: `${said.slice(0, -1)}, это важно для агента.` }]);
+    expect(d.steps).toEqual([step]);
+  });
   it("ход с заявкой не глушится", () => {
     const step = { key: "lead_known_phone" as PhraseKey, vars: {}, variant: 0 };
     const said = renderOperatorStep(step, "ru");
@@ -188,13 +238,19 @@ describe("п.13 сторож повтора своей реплики (9d656fe1:
 });
 
 describe("п.7–8 комментарии: продавцу не про наш объект; язык ответа = язык комментария", () => {
-  it("17b273e4, 464ca263, 5be84f3c: продавец со своим жильём узнаётся; покупатель с вопросом — нет", () => {
-    expect(customerPublicSellerOffer("ХОНАИ ФУРУШИ ЛАВИ РОХ 112МКР ПРЯМ БАРИ ПАЙКАР ДОМИ КОЛИНХОИ ФОРС 6 ЭТАЖ 68КВ РЕМОНТ КАДАГИ БА ХАМА ЧИЗОШ ТАЙЁР")).toBe(true);
+  it("464ca263, 5be84f3c: продавец по первому лицу или по своему номеру; покупатель с вопросом — нет (ревью #418)", () => {
     expect(customerPublicSellerOffer("ҳавли фуруши дорем да тарафи Гай балх станса ҳуҷатош 100% обу светаш ҳаст 10 сотиқ замин хоноҳош тайёр 884 83 66 00.")).toBe(true);
+    expect(customerPublicSellerOffer("срочна ҳавли фуруши дорем да тарафи гай балх 10 сотиқ 884 83 66 00. 8888 016 71")).toBe(true);
     expect(customerPublicSellerOffer("Продаю 2-комнатную, 5 этаж, звоните")).toBe(true);
     expect(customerPublicSellerOffer("Хонаи фурӯшӣ доред?")).toBe(false);
     expect(customerPublicSellerOffer("Нархаш чанд?")).toBe(false);
     expect(customerPublicSellerOffer("Эта квартира продается?")).toBe(false);
+    // Ревью #418: вопрос о цене — покупатель; цена из семи цифр — не телефон.
+    expect(customerPublicSellerOffer("Хонаи фурӯшӣ 3 хонага Сино нархаш чанд")).toBe(false);
+    expect(customerPublicSellerOffer("Продается 3 комн 80 кв сколько")).toBe(false);
+    expect(customerPublicSellerOffer("Продается дом 1500000 сомони")).toBe(false);
+    // 17b273e4 (без первого лица и без номера) по правилу ревью продавцом не считается — известный пробел.
+    expect(customerPublicSellerOffer("ХОНАИ ФУРУШИ ЛАВИ РОХ 112МКР ПРЯМ БАРИ ПАЙКАР ДОМИ КОЛИНХОИ ФОРС 6 ЭТАЖ 68КВ РЕМОНТ КАДАГИ БА ХАМА ЧИЗОШ ТАЙЁР")).toBe(false);
   });
   it("рендер комментария продавца — без номера нашего объекта и без цены, с приглашением", () => {
     const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [], language: "tg",
@@ -207,6 +263,8 @@ describe("п.7–8 комментарии: продавцу не про наш �
     expect(customerPublicLanguage("Катлаванай")).toBe("tg");
     expect(customerPublicLanguage("Давай")).toBe("ru");
     expect(customerPublicLanguage("Сарай")).toBe("ru");
+    expect(customerPublicLanguage("Отдыхай")).toBe("ru");
+    expect(customerPublicLanguage("Вспоминай")).toBe("ru");
   });
 });
 
