@@ -17,9 +17,11 @@ import { logSystemError } from "../lib/systemError.js";
  * `channel-core-run`): строки `ProcessedMessage` с каналом `ai-retry-no-reply`, ключ = переписка + реплика + номер.
  * Новое задание крона счёт не обнуляет; строки стареют вместе с таблицей (3 дня, webhookDedupe.ts).
  *  - пустой повтор (ответа нет, ошибки нет) — +1; на AI_RETRY_NO_REPLY_CAP-м повтор этой реплики останавливается молча
- *    (одна строка в журнал ошибок; «клиент ждёт» людям говорит сторож молчания, со всеми своими правилами);
+ *    НА СРОК CAP_STOP_MS (одна строка в журнал ошибок; «клиент ждёт» людям говорит сторож молчания со своими правилами);
+ *    после срока — одна новая попытка, снова пусто — ещё срок;
  *  - вердикт транспорта «ключ канала мёртв» (messengers/meta.ts → MetaGraphCallError.channelKeyDead) — остановка сразу,
- *    НА СРОК KEY_STOP_MS: ключ ожил или его переподключили — после срока повтор снова пробует (один ход ИИ на срок);
+ *    НА СРОК KEY_STOP_MS: ключ ожил или его переподключили — после срока повтор снова пробует (один ход ИИ на срок).
+ *    Отпечаток ключа в метке — только для разбора (какой ключ отказал); снять остановку раньше срока может кнопка;
  *    ответственному — один сигнал на эпизод;
  *  - кнопка «Повторить зависшим» снимает остановки и счёт (resetAiRetryCap); остановку, которую допишет задание,
  *    начатое ДО нажатия, метка сброса перекрывает (сравнение по времени начала задания).
@@ -29,6 +31,8 @@ import { logSystemError } from "../lib/systemError.js";
 export const AI_RETRY_NO_REPLY_CAP = 3;
 /** Сколько держится остановка по мёртвому ключу: минутный 401 не должен глушить переписку на весь день. */
 export const KEY_STOP_MS = 2 * 60 * 60 * 1000;
+/** Сколько держится остановка после трёх пустых повторов: дольше рабочего дня не глушим (аккаунт включили, ход освободился). */
+export const CAP_STOP_MS = 6 * 60 * 60 * 1000;
 const LEDGER = "ai-retry-no-reply";
 
 /** Ключ счёта: переписка + последняя реплика клиента. null — реплики нет (тогда и потолка нет: повторять нечего). */
@@ -48,11 +52,12 @@ const keyStopPrefix = (base: string) => `${base}:stop-key:`;
 const resetMark = (conversationId: string) => `${conversationId}:reset`;
 const conversationOf = (base: string) => base.slice(0, base.indexOf(":"));
 
-/** Повтор этой реплики остановлен: потолком, или мёртвым ключом не дольше KEY_STOP_MS назад, и после последнего нажатия кнопки. */
+/** Повтор этой реплики остановлен: потолком не дольше CAP_STOP_MS назад или мёртвым ключом не дольше KEY_STOP_MS назад,
+ *  и после последнего нажатия кнопки. */
 export async function aiRetryStopped(base: string, now: Date = new Date()): Promise<boolean> {
   const rows = await prisma.processedMessage.findMany({
     where: { channel: LEDGER, OR: [
-      { messageId: capStop(base) },
+      { messageId: capStop(base), createdAt: { gte: new Date(now.getTime() - CAP_STOP_MS) } },
       { messageId: { startsWith: keyStopPrefix(base) }, createdAt: { gte: new Date(now.getTime() - KEY_STOP_MS) } },
       { messageId: resetMark(conversationOf(base)) },
     ] }, select: { messageId: true, createdAt: true } });
@@ -104,17 +109,13 @@ export async function stopAiRetry(input: { conversationId: string; base: string;
         why: "ответ бота не ушёл, ключ канала не работает (руководство об этом знает)" });
     }
     await logSystemError("ai",
-      `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала не работает (через 2 часа повтор попробует снова)" : `${AI_RETRY_NO_REPLY_CAP} пустых повтора`} — ИИ по этому сообщению сейчас не зовётся.`,
+      `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала не работает (через 2 часа повтор попробует снова)" : `${AI_RETRY_NO_REPLY_CAP} пустых повтора (через 6 часов одна новая попытка)`} — ИИ по этому сообщению сейчас не зовётся.`,
       { dedupKey: `ai-retry-stop:${input.conversationId}`, quietPult: true });
-    if (input.stop.reason === "channel_key_dead") {
-      // Тот же ключ снова мёртв после срока — срок продлевается (иначе устаревшая метка разрешала бы ход ИИ каждые 30 минут).
-      const messageId = `${keyStopPrefix(input.base)}${input.stop.keyFingerprint}`;
-      await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
-        VALUES (${randomUUID()},${LEDGER},${messageId},${input.startedAt},now())
-        ON CONFLICT ("channel","messageId") DO UPDATE SET "createdAt" = GREATEST("ProcessedMessage"."createdAt", EXCLUDED."createdAt")`;
-    } else {
-      await claim(capStop(input.base), input.startedAt);
-    }
+    // Снова пусто (снова мёртв) после срока — срок продлевается: иначе устаревшая метка разрешала бы ход ИИ каждые 30 минут.
+    const messageId = input.stop.reason === "channel_key_dead" ? `${keyStopPrefix(input.base)}${input.stop.keyFingerprint}` : capStop(input.base);
+    await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+      VALUES (${randomUUID()},${LEDGER},${messageId},${input.startedAt},now())
+      ON CONFLICT ("channel","messageId") DO UPDATE SET "createdAt" = GREATEST("ProcessedMessage"."createdAt", EXCLUDED."createdAt")`;
   } catch (error) {
     console.error("[ai-retry-cap] остановка повтора:", error instanceof Error ? error.message : "UnknownError");
   }

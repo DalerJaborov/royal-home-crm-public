@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 774,
-  "forks": 4174,
+  "forks": 4173,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -120697,34 +120697,12 @@
            "c": []
           },
           {
-           "k": "if",
-           "t": "input.stop.reason === \"channel_key_dead\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
-             "a": [
-              "обращается к базе своим SQL"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "else",
-           "t": "иначе",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await claim(capStop(input.base), input.startedAt);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
           }
          ]
         },

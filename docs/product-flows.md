@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4174**. Модулей: **86**.
+Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -26826,12 +26826,8 @@
           · зовёт alertClientWaiting()
       - await logSystemError("ai", `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала…
         · запись в журнал ошибок
-      - если input.stop.reason === "channel_key_dead"
-        - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
-          · обращается к базе своим SQL
-      - иначе
-        - await claim(capStop(input.base), input.startedAt);
-          · дословно из кода
+      - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
+        · обращается к базе своим SQL
     - если сорвалось
       - console.error("[ai-retry-cap] остановка повтора:", error instanceof Error ? error.message : "UnknownError");
         · пишет строку в журнал сервера

@@ -326,6 +326,18 @@ describe("потолок фонового повтора (jobs/aiReplyRetryCap.t
     expect(alertClientWaiting).toHaveBeenCalledTimes(2);
   });
 
+  it("остановка после трёх пустых — на 6 часов: потом одна новая попытка, снова пусто — ещё срок", async () => {
+    const id = await makeConversation([{ role: "user", content: "салом", at }]);
+    retryMock.mockResolvedValue("no-reply");
+    for (let i = 0; i < 4; i++) await aiReplyRetryJob.run({ conversationId: id });
+    expect(retryMock).toHaveBeenCalledTimes(3);
+    await prisma.processedMessage.updateMany({ where: { channel: "ai-retry-no-reply", messageId: { endsWith: ":stop" } },
+      data: { createdAt: new Date(Date.now() - 7 * 60 * 60_000) } });
+    await aiReplyRetryJob.run({ conversationId: id });
+    await aiReplyRetryJob.run({ conversationId: id });
+    expect(retryMock).toHaveBeenCalledTimes(4);
+  });
+
   it("сигнал до метки: упали между ними — следующий повтор доводит остановку, сигнал не теряется", async () => {
     const id = await makeConversation([{ role: "user", content: "нарх?", at }]);
     keyDead();

@@ -16,7 +16,7 @@
   "paths": 774,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4135,
+  "conditions": 4134,
   "untranslatedUnique": 474,
   "untranslatedTotal": 609,
   "partialUnique": 1113,
@@ -78255,20 +78255,6 @@
            "k": "do",
            "a": [],
            "c": []
-          },
-          {
-           "t": "если причина — «channel_key_dead»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "иначе",
-           "k": "else",
-           "a": [],
-           "c": [],
-           "more": true
           }
          ]
         },

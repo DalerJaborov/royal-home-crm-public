@@ -48,7 +48,7 @@ import {
   describeMetaToken,
   facebookPageTokenFor,
   forgetPageToken,
-  instagramPageRouteConfigured,
+  companyPageRouteConfigured,
   instagramReadRequest,
   pageRouteFailed,
   pageRoutePolicyRefused,
@@ -2150,7 +2150,7 @@ export async function callGraph<T = unknown>(
       // путь Страницы (пауза Страницы, лимит 613, сбой выдачи маркера — временные, ключ канала жив). Ревью #423.
       let channelKeyDead: { fingerprint: string } | null = null;
       if (isMetaAuthFailure(res.status, text) && !fellBackFromPage &&
-          (routed.route !== "unchanged" || !(await instagramPageRouteConfigured(routed.token)))) {
+          (routed.route !== "unchanged" || !(await companyPageRouteConfigured(routed.token)))) {
         channelKeyDead = { fingerprint: createHash("sha256").update(routed.token).digest("hex").slice(0, 12) };
       }
       if (isMetaAuthFailure(res.status, text)) {
