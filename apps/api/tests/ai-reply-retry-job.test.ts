@@ -27,6 +27,13 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgent, sendPushToAgents: sendPushToAgent }));
 vi.mock("../src/lib/recipients.js", () => ({ findAgentsWithPermission: async () => ["agent-1"] }));
+// Сигнал «клиент без ответа» при остановке повтора — проверяем вызов двери, а не доставку.
+const alertClientWaiting = vi.hoisted(() => vi.fn(async () => "agent" as const));
+vi.mock("../src/lib/clientWaitingAlert.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/clientWaitingAlert.js")>()), alertClientWaiting }));
+const logSystemError = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError }));
 
 import { prisma } from "../src/db.js";
 import { retryStuckConversation } from "../src/lib/stuckConversations.js";
@@ -243,5 +250,89 @@ describe("сдача задания: петля на непроходимом х
 
   afterAll(async () => {
     await prisma.backgroundJob.deleteMany({ where: { type: { in: ["ai-reply-retry", "ai-turn-blocked-followup"] } } });
+  });
+});
+
+/**
+ * ПОТОЛОК ПОВТОРА НА РЕПЛИКУ КЛИЕНТА (разбор прода 24.11.2026): крон каждые 30 минут ставил новое задание на переписку
+ * без ответа, задание завершалось «отвечать не нужно», и так 31–35 раз по одной переписке. Счёт на реплике, в базе.
+ */
+describe("потолок фонового повтора (jobs/aiReplyRetryCap.ts)", () => {
+  const at = new Date(Date.now() - 10 * 60_000).toISOString();
+  async function setCap(on: boolean) {
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", botRetryCapEnabled: on } as never,
+      update: { botRetryCapEnabled: on } });
+  }
+  beforeEach(async () => {
+    alertClientWaiting.mockClear();
+    logSystemError.mockClear();
+    await prisma.processedMessage.deleteMany({ where: { channel: "ai-retry-no-reply" } });
+    await setCap(true);
+  });
+  afterAll(async () => {
+    await prisma.processedMessage.deleteMany({ where: { channel: "ai-retry-no-reply" } });
+    await setCap(true);
+  });
+
+  it("три пустых повтора одной реплики — дальше задание завершается без хода; человек и журнал — по разу", async () => {
+    const id = await makeConversation([{ role: "user", content: "салом", at }]);
+    retryMock.mockResolvedValue("no-reply");
+    for (let i = 0; i < 5; i++) await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
+    expect(retryMock).toHaveBeenCalledTimes(3);
+    expect(alertClientWaiting).toHaveBeenCalledTimes(1);
+    expect(alertClientWaiting.mock.calls[0][0]).toMatchObject({ conversationId: id, trigger: "failed" });
+    const stops = logSystemError.mock.calls.filter((c) => String(c[1]).includes("Повтор ответа бота остановлен"));
+    expect(stops).toHaveLength(1);
+    expect(stops[0][2]).toMatchObject({ dedupKey: `ai-retry-stop:${id}` });
+    // В журнале только служебный id переписки — ни слов клиента, ни имени.
+    expect(String(stops[0][1])).not.toContain("салом");
+  });
+
+  it("ключ канала не принят — стоп сразу: без исключения (без лесенки) и без второго хода", async () => {
+    const id = await makeConversation([{ role: "user", content: "нарх?", at }]);
+    retryMock.mockResolvedValue("channel-dead");
+    await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
+    await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
+    expect(retryMock).toHaveBeenCalledTimes(1);
+    expect(alertClientWaiting).toHaveBeenCalledTimes(1);
+    expect(String((alertClientWaiting.mock.calls[0][0] as { why?: string }).why)).toContain("ключ канала");
+  });
+
+  it("новая реплика клиента — новый счёт: бот снова пробует ответить", async () => {
+    const id = await makeConversation([{ role: "user", content: "салом", at }]);
+    retryMock.mockResolvedValue("no-reply");
+    for (let i = 0; i < 4; i++) await aiReplyRetryJob.run({ conversationId: id });
+    expect(retryMock).toHaveBeenCalledTimes(3);
+    await prisma.botConversation.update({ where: { id }, data: { messages: [{ role: "user", content: "салом", at },
+      { role: "user", content: "хона доред?", at: new Date().toISOString() }] as never } });
+    await aiReplyRetryJob.run({ conversationId: id });
+    expect(retryMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("«ИИ лежит» и обычный сбой не считаются: лесенка поставщика как раньше", async () => {
+    const id = await makeConversation([{ role: "user", content: "вопрос", at }]);
+    retryMock.mockResolvedValue("ai-down");
+    for (let i = 0; i < 4; i++) await expect(aiReplyRetryJob.run({ conversationId: id })).rejects.toThrow(/недоступен/);
+    retryMock.mockResolvedValue("failed");
+    await expect(aiReplyRetryJob.run({ conversationId: id })).rejects.toThrow(/не удался/);
+    expect(retryMock).toHaveBeenCalledTimes(5);
+    expect(alertClientWaiting).not.toHaveBeenCalled();
+  });
+
+  it("рубильник выключен — прежнее поведение: повторы без потолка, мёртвый ключ — обычный сбой (лесенка)", async () => {
+    await setCap(false);
+    const id = await makeConversation([{ role: "user", content: "салом", at }]);
+    retryMock.mockResolvedValue("no-reply");
+    for (let i = 0; i < 5; i++) await aiReplyRetryJob.run({ conversationId: id });
+    expect(retryMock).toHaveBeenCalledTimes(5);
+    retryMock.mockResolvedValue("channel-dead");
+    await expect(aiReplyRetryJob.run({ conversationId: id })).rejects.toThrow(/ключ канала/);
+    expect(alertClientWaiting).not.toHaveBeenCalled();
+  });
+
+  it("рубильник подписан и по умолчанию включён", async () => {
+    const { AUTOMATION_SWITCH_LABELS, isAutomationSwitchOn } = await import("@royal-home/shared");
+    expect(AUTOMATION_SWITCH_LABELS.botRetryCapEnabled.title).toBeTruthy();
+    expect(isAutomationSwitchOn(null, "botRetryCapEnabled")).toBe(true);
   });
 });

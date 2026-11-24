@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 774,
-  "forks": 4166,
+  "forks": 4173,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -82197,7 +82197,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"dm_lane_held\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82275,7 +82275,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"dm_lane_core\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82830,7 +82830,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"principal_stale\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82944,7 +82944,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"reply_held\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82967,7 +82967,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"outbound_shield\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82990,7 +82990,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"meta_send_block\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -120509,6 +120509,48 @@
     },
     {
      "k": "do",
+     "t": "const capOn = await automationSwitchOn(\"botRetryCapEnabled\");",
+     "a": [
+      "зовёт automationSwitchOn()"
+     ],
+     "c": [],
+     "from": "automationSwitchOn() — apps/api/src/lib/automationSwitches.ts"
+    },
+    {
+     "k": "do",
+     "t": "const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;",
+     "a": [
+      "зовёт aiRetryLedgerBase()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const message = channelCoreMessageKey(messages);",
+       "a": [
+        "зовёт channelCoreMessageKey()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "aiRetryLedgerBase() — apps/api/src/jobs/aiReplyRetryCap.ts"
+    },
+    {
+     "k": "if",
+     "t": "capBase && await aiRetryStopped(capBase)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
      "t": "const outcome = await retryStuckConversation({ id: conversation.id, channel: conversation.channel, subscriber…",
      "a": [
       "зовёт retryStuckConversation()"
@@ -120527,6 +120569,21 @@
           {
            "k": "do",
            "t": "traceOutcome(\"failed\");",
+           "a": [
+            "зовёт traceOutcome()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "result === \"channel-dead\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "traceOutcome(\"blocked\", \"channel_key_dead\");",
            "a": [
             "зовёт traceOutcome()"
            ],
@@ -120571,6 +120628,114 @@
     },
     {
      "k": "if",
+     "t": "outcome === \"channel-dead\"",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!capBase",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new Error(\"повтор не удался: ключ канала не принят (подробности в журнале ошибок)\");",
+         "a": [
+          "ошибка Error — «повтор не удался: ключ канала не принят (подробности в журнале ошибок»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: \"channel_key_dead\", messages: his…",
+       "a": [
+        "зовёт stopAiRetry()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await claim(`${input.base}:stop`))",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(\"ai\", `Повтор ответа бота остановлен (${input.conversationId}): ${input.reason === \"chan…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "await conversationSilenceIntended(input.messages)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await alertClientWaiting({ conversationId: input.conversationId, trigger: \"failed\", why });",
+           "a": [
+            "зовёт alertClientWaiting()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[ai-retry-cap] остановка повтора:\", error instanceof Error ? error.message : \"UnknownError\");",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "stopAiRetry() — apps/api/src/jobs/aiReplyRetryCap.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "outcome === \"failed\"",
      "a": [],
      "c": [
@@ -120579,6 +120744,21 @@
        "t": "throw new Error(\"повтор не удался (подробности в журнале ошибок)\");",
        "a": [
         "ошибка Error — «повтор не удался (подробности в журнале ошибок»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"no-reply\" && capBase && await noteAiRetryNoReply(capBase)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: \"retry_cap\", messages: history });",
+       "a": [
+        "зовёт stopAiRetry()"
        ],
        "c": []
       }

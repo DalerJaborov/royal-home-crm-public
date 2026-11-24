@@ -14,12 +14,22 @@ import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
 import { isOutboundBlockedError } from "./outboundShield.js";
-import { handOverBlockedConversation, isMetaSendBlockError, metaSendBlockCoveringMessage, metaSendWarnedTurn, withoutMetaSendProbe } from "./metaSendBlock.js";
+import { handOverBlockedConversation, MetaGraphCallError, isMetaSendBlockError, metaSendBlockCoveringMessage, metaSendWarnedTurn, withoutMetaSendProbe } from "./metaSendBlock.js";
 import { accountTokenById, listAccounts } from "../messengers/accounts.js";
 import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
+import { isMetaAuthFailureText } from "./channelKeyAlarm.js";
+
+/** Отказ ключа канала Meta: HTTP 401 или код 190/102 (полем ошибки Graph — текст обрезан до 300 знаков). */
+export function isChannelKeyDeadError(err: unknown): boolean {
+  if (err instanceof MetaGraphCallError && (err.graph.status === 401 || err.graph.code === 190 || err.graph.code === 102)) return true;
+  // Only the Meta transport's own error text: an AI provider's «HTTP 401» is not the channel's key.
+  return err instanceof Error && /^Graph API HTTP \d{3}:/.test(err.message) && isMetaAuthFailureText(err.message);
+}
+/** Исход повтора. `channel-dead` — Meta не приняла ключ канала (HTTP 401, код 190/102): повторять бессмысленно. */
+export type StuckRetryOutcome = "sent" | "no-reply" | "failed" | "ai-down" | "channel-dead";
 
 /**
  * ЗАВИСШИЕ ДИАЛОГИ — общая логика для ручной кнопки (routes/errorLog.ts) и
@@ -180,36 +190,37 @@ function stuckWhere(): Prisma.Sql {
  */
 export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry",
   /** Which run of this customer turn (the live turn was 1): a fallback bound on the core's runs (CHANNEL_CORE_MAX_ATTEMPTS). */
-  attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+  attempt?: number): Promise<StuckRetryOutcome> {
   return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, source, text: row.lastText,
     knownContacts: row.name ? [row.name] : [] }, async () => {
     const result = await retryStuckConversationImpl(row, attempt);
     if (result === "failed" || result === "ai-down") traceOutcome("failed");
+    else if (result === "channel-dead") traceOutcome("blocked", "channel_key_dead");
     else if (result === "no-reply") traceNoReply();
     return result;
   });
 }
-async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
-  if (await currentTurnHasCustomerOutbox(row.id)) return "no-reply";
+async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Promise<StuckRetryOutcome> {
+  if (await currentTurnHasCustomerOutbox(row.id)) { traceNoReply("outbox_owned"); return "no-reply"; }
   const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: {
     messages: true, lastMessageAt: true, channel: true, subscriberId: true, accountId: true,
   } });
-  if (stored && customerPropertyTurnTerminal((stored.messages as unknown as ChatMessage[]) ?? [])) return "no-reply";
+  if (stored && customerPropertyTurnTerminal((stored.messages as unknown as ChatMessage[]) ?? [])) { traceNoReply("turn_terminal"); return "no-reply"; }
   const history = (stored?.messages as unknown as ChatMessage[]) ?? [];
   let last = history.length - 1;
   while (last >= 0 && history[last].role === "assistant" && history[last].deliveryStatus === "failed") last--;
   const original = history[last];
-  if (original?.heldRouting === true) return "no-reply"; // held by routing: no bot answers it (13.11.2026)
+  if (original?.heldRouting === true) { traceNoReply("held_routing"); return "no-reply"; } // held by routing: no bot answers it (13.11.2026)
   if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
     stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
-    original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";
+    original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) { traceNoReply("turn_changed"); return "no-reply"; }
   const originalAt = typeof original.at === "string" && !Number.isNaN(Date.parse(original.at)) ? new Date(original.at) : row.lastMessageAt;
   // Повтор — не проба «Meta снова пропускает?»: старый ответ клиенту, который ждал, решает человек (lib/metaSendBlock.ts).
   return withLegacyMetaDmSource(row.lastMid, () =>
     withoutMetaSendProbe(() => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt, originalAt)));
 }
 async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number,
-  originalAt: Date = row.lastMessageAt): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
+  originalAt: Date = row.lastMessageAt): Promise<StuckRetryOutcome> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -234,10 +245,10 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
     // Аккаунт выключен тумблером: входящий путь отбирает у него токен, и отвечать им
     // повтором нельзя (CHANNEL-NEW-11). До хода ИИ, чтобы не платить за ответ, который не
     // уйдёт; завершаем как «отвечать не нужно»: включат аккаунт, и клиент напишет снова.
-    if (metaChannel && row.accountId && (await accountTokenById(row.accountId, metaChannel)).disabled) return "no-reply";
+    if (metaChannel && row.accountId && (await accountTokenById(row.accountId, metaChannel)).disabled) { traceNoReply("account_disabled"); return "no-reply"; }
     const customerTransport = await loadCustomerTransportForConversation(row.id);
-    if (!customerTransport) return "no-reply";
-    if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) return "no-reply";
+    if (!customerTransport) { traceNoReply("no_transport"); return "no-reply"; }
+    if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) { traceNoReply("already_attempted"); return "no-reply"; }
     deliveryTransport = customerTransport;
     /**
      * META НЕ ПРОПУСКАЕТ ОТПРАВКУ АККАУНТА (18.11.2026, lib/metaSendBlock.ts). Реплика
@@ -251,11 +262,11 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
       if (block) {
         await handOverBlockedConversation(row.id, block).catch((err) =>
           void logSystemError("meta", `Повтор зависшего ${row.id}: переписку не удалось передать человеку: ${describeError(err)}`));
-        traceOutcome("blocked");
+        traceOutcome("blocked", "meta_send_block");
         return "no-reply";
       }
       // На этот ход Meta уже предупредила о навязчивой отправке (613/2018338): тому же получателю не повторяем.
-      if (await metaSendWarnedTurn(row.id)) { traceOutcome("blocked"); return "no-reply"; }
+      if (await metaSendWarnedTurn(row.id)) { traceOutcome("blocked", "meta_send_warned"); return "no-reply"; }
     }
     const account =
       metaChannel && row.accountId ? (await listAccounts(metaChannel)).find((a) => a.id === row.accountId) : null;
@@ -275,7 +286,7 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
     // «Модель всё ещё лежит» и «отвечать не нужно по правилам» — разные исходы:
     // первый ретраит задание ai-reply-retry, второй завершает его как успех.
     if (result.aiUnavailable) return "ai-down";
-    if (result.shouldReply === false || !result.reply) return "no-reply";
+    if (result.shouldReply === false || !result.reply) { traceNoReply("bot_silent"); return "no-reply"; }
 
     // Чат на сайте: реплика уже в переписке, сети здесь нет — ход завершён.
     if (!metaChannel) return "sent";
@@ -314,13 +325,23 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * нужно»: причина уже записана в журнал самим щитом, диалог на паузе, и
      * первое же сообщение живого человека снимет её само.
      */
-    if (isOutboundBlockedError(err)) { traceOutcome("blocked"); return "no-reply"; }
+    if (isOutboundBlockedError(err)) { traceOutcome("blocked", "outbound_shield"); return "no-reply"; }
     // Meta не пропускает отправку по правилам — повторять нечего: очередь иначе пробовала бы
     // ещё часами с новым текстом. Ответ помечен «не дошло», человек уже позван (lib/metaSendBlock.ts).
     if (isMetaSendBlockError(err)) {
       if (metaChannel) await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
-      traceOutcome("blocked");
+      traceOutcome("blocked", "meta_send_block");
       return "no-reply";
+    }
+    /**
+     * КЛЮЧ КАНАЛА МЁРТВ (разбор прода 24.11.2026: Instagram отвечал HTTP 401, код 190). Повтор через 30 секунд, час или
+     * 13 часов упрётся в тот же ключ, а каждая попытка заново зовёт ИИ. Ответ помечаем «не дошло», тревогу о ключе
+     * руководству уже поставил транспорт (messengers/meta.ts → channelKeyAlarm.ts), а задание решает, что дальше
+     * (jobs/aiReplyRetryCap.ts: стоп повторов этого сообщения и сигнал ответственному).
+     */
+    if (metaChannel && isChannelKeyDeadError(err)) {
+      await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
+      return "channel-dead";
     }
     /**
      * ОТВЕТ, КОТОРЫЙ НЕ УШЁЛ, НЕ ДОЛЖЕН ВЫГЛЯДЕТЬ ОТПРАВЛЕННЫМ — И В ПОВТОРЕ ТОЖЕ
@@ -360,7 +381,7 @@ export async function retryAllStuckConversations(rows: StuckRow[]): Promise<{ se
     if (result === "sent") sent++;
     // «ИИ лежит» для нажавшего кнопку — тоже неуспех: ответа клиент не получил.
     // Сам диалог при этом уже стоит в очереди ai-reply-retry и догонит позже.
-    else if (result === "failed" || result === "ai-down") failed++;
+    else if (result === "failed" || result === "ai-down" || result === "channel-dead") failed++;
     if (i < rows.length - 1) await sleep(1200);
   }
   return { sent, failed };

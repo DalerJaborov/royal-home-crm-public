@@ -113,6 +113,26 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
   return since ? { since, eventKeys, untracked } : null;
 }
 
+/**
+ * Все неотвеченные реплики эпизода ядро удержало НАМЕРЕННО (по тикетам ядра; реплика без тикета намеренность не доказывает).
+ * Одно правило на сторож молчания и на остановку фонового повтора (jobs/aiReplyRetryCap.ts). Чистая функция.
+ */
+export function episodeAllIntentional(episode: WaitingEpisode, intentionalKeys: ReadonlySet<string>): boolean {
+  return episode.untracked === 0 && episode.eventKeys.every((k) => intentionalKeys.has(k));
+}
+
+/** Тот же вопрос для одной переписки: молчание здесь — решение, а не сбой (человека не зовём). Сбой чтения — «не доказано». */
+export async function conversationSilenceIntended(messages: unknown): Promise<boolean> {
+  const episode = waitingEpisodeOf(messages);
+  if (!episode || episode.eventKeys.length === 0) return false;
+  try {
+    const tickets = await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: episode.eventKeys } }, select: { eventKey: true, errorCode: true } });
+    return episodeAllIntentional(episode, new Set(tickets.filter((t) => t.errorCode && INTENTIONAL_SILENCE_REASONS.has(t.errorCode)).map((t) => t.eventKey)));
+  } catch {
+    return false;
+  }
+}
+
 /** escalate — модель сама решила «нужен сотрудник»; failed — ход бота сломался (лимит шагов,
  *  сбой, очередь сдалась); silence — сторож увидел молчание через 30 минут. */
 /** follow_up — бот ответил клиенту «это скажет агент» / «агент позвонит» (15.11.2026): обещание правдиво, только
@@ -674,7 +694,7 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
   let alerted = 0;
   for (const d of due) {
     try {
-      const allIntentional = d.episode.untracked === 0 && d.episode.eventKeys.every((k) => intentional.has(k));
+      const allIntentional = episodeAllIntentional(d.episode, intentional);
       if (allIntentional) continue;
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.episode.since.getTime()) continue;
@@ -687,7 +707,7 @@ async function sweepBotConversations(now: Date): Promise<{ checked: number; aler
   const repeatOn = repeat.length > 0 && (await loadBotPauseWatchSettings()).enabled;
   for (const d of repeatOn ? repeat : []) {
     try {
-      const allIntentional = d.episode.untracked === 0 && d.episode.eventKeys.every((k) => intentional.has(k));
+      const allIntentional = episodeAllIntentional(d.episode, intentional);
       if (allIntentional) continue;
       const called = d.clientId ? lastCall.get(d.clientId) : undefined;
       if (called && called.getTime() > d.episode.since.getTime()) continue;

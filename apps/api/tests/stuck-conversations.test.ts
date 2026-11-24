@@ -383,6 +383,30 @@ describe("retryAllStuckConversations — отправка только зави�
       { ...facebook.transport, subscriberId: conv.subscriberId });
   });
 
+  it("ключ канала не принят (HTTP 401, код 190) — channel-dead, «не дошло», без строки «не удался» в журнал", async () => {
+    /**
+     * Разбор прода 24.11.2026: Instagram отвечал 401/190, повтор считал это обычным сбоем отправки («failed») и
+     * лесенка задания до 46 раз заново звала ИИ ради ответа, который не может уйти. Теперь это отдельный исход:
+     * задание его останавливает (jobs/aiReplyRetryCap.ts).
+     */
+    const conv = await makeConversation("key-dead");
+    sendMessage.mockRejectedValueOnce(new Error('Graph API HTTP 401: {"error":{"message":"Error validating access token","type":"OAuthException","code":190}}'));
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    expect(await retryStuckConversation(snapshot, "ai_retry")).toBe("channel-dead");
+    expect(markLastReplyUndelivered).toHaveBeenCalledTimes(1);
+    expect(logSystemError).not.toHaveBeenCalled();
+  });
+
+  it("отказ ключа узнаётся и по полю ошибки Graph, а «HTTP 401» чужого сервиса — нет", async () => {
+    const { MetaGraphCallError } = await import("../src/lib/metaSendBlock.js");
+    const { isChannelKeyDeadError } = await import("../src/lib/stuckConversations.js");
+    const graph = { status: 400, code: 190, subcode: 463, type: "OAuthException", fbtraceId: null } as ConstructorParameters<typeof MetaGraphCallError>[1];
+    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 400: …обрезано…", graph))).toBe(true);
+    expect(isChannelKeyDeadError(new Error("Graph API HTTP 401: {}"))).toBe(true);
+    expect(isChannelKeyDeadError(new Error("Graph API HTTP 500: temporary"))).toBe(false);
+    expect(isChannelKeyDeadError(new Error("Gemini HTTP 401: API key not valid"))).toBe(false);
+  });
+
   it("отправка удалась — отметку «не дошло» не ставим", async () => {
     await makeConversation("delivered");
 

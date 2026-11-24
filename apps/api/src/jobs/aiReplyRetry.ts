@@ -11,6 +11,8 @@ import type { ChatMessage } from "../ai/client.js";
 import type { JobHandler } from "./registry.js";
 import { aiReplyRetryBackoffMs, BOT_TURN_JOB_TIMEOUT_MS } from "./aiReplyRetryPolicy.js";
 import { enqueueBackgroundJob } from "./enqueue.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { aiRetryLedgerBase, aiRetryStopped, noteAiRetryNoReply, stopAiRetry } from "./aiReplyRetryCap.js";
 
 /** Эскалация через 2 и 24 часа, если агент так и не вернул бота — см. aiTurnBlockedFollowup.ts. */
 const FOLLOWUP_24H_MS = 24 * 60 * 60 * 1000;
@@ -113,6 +115,11 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     const last = lastIdx >= 0 ? history[lastIdx] : undefined;
     if (!last || last.role !== "user" || !last.content) return;
 
+    // Потолок повтора на реплику клиента (aiReplyRetryCap.ts): остановленный повтор — сразу конец, без ИИ и без трассы.
+    const capOn = await automationSwitchOn("botRetryCapEnabled");
+    const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;
+    if (capBase && await aiRetryStopped(capBase)) return;
+
     const outcome = await retryStuckConversation({
       id: conversation.id,
       channel: conversation.channel,
@@ -126,7 +133,17 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     // Модель всё ещё лежит или отправка не удалась — исключение отдаёт задание
     // очереди на следующую ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (outcome === "ai-down") throw new Error("ИИ всё ещё недоступен");
+    // Ключ канала мёртв: повтор бессмыслен, ИИ больше не зовём (рубильник выключен — прежняя лесенка, как обычный сбой).
+    if (outcome === "channel-dead") {
+      if (!capBase) throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "channel_key_dead", messages: history });
+      return;
+    }
     if (outcome === "failed") throw new Error("повтор не удался (подробности в журнале ошибок)");
+    // Пустой повтор (ответа нет по правилам) завершает задание, а крон через 30 минут поставит новое: считаем на реплике.
+    if (outcome === "no-reply" && capBase && await noteAiRetryNoReply(capBase)) {
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "retry_cap", messages: history });
+    }
   },
   async onGiveUp(payload) {
     /**
