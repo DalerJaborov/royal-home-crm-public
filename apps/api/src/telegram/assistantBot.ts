@@ -16,6 +16,7 @@ import { stepUpExemptRole } from "../lib/stepUp.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
+import { assistantTurnReplied, markAssistantTurnReplied } from "../lib/assistantTurnReplied.js";
 import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
@@ -942,8 +943,8 @@ function forwardedVoicePrompt(msg: TelegramIncomingMessage, transcript: string):
   if (!msg.forward_origin && !msg.forward_from_message_id) return null;
   const language = assistantLanguage([{ role: "user", content: transcript }]);
   const prompt = language === "tg" || language === "mixed"
-    ? "Аз рӯи ин овоз ба ман ҷавоб деҳ. Агар объект ҷӯянд, бо search_properties ҷустуҷӯ кун. Навъ, масоҳат, ҳолат ва маҳалҳоро дақиқ нигоҳ дор. Агар видео пурсанд, withVideo-ро истифода бар. Агар тирезаҳои зиёд пурсанд, шумораашро бигӯ. Натиҷа ва пайванди кортро деҳ. Агар чизе намерасад, як саволи кӯтоҳ деҳ. Бе сарлавҳа ва бе шарҳи кори худ."
-    : "Ответь по делу на это пересланное голосовое. Если в записи ищут варианты объекта, сначала найди их через search_properties. Используй названные тип, диапазон площади, стадию, альтернативные места и наличие видео. Для пожелания о многих окнах покажи фактическое число. Дай только проверенные варианты и ссылки на карточки. Если просьба неясна, задай один короткий вопрос. Без заголовков и служебных фраз.";
+    ? "Аз рӯи ин овоз ба ман ҷавоб деҳ. Агар объект ҷӯянд: барои ориентир, ноҳия, кӯча ва «аз X то Y» find_properties_by_place (landmarkFrom ва landmarkTo), барои навъ, масоҳат ва нарх search_properties ҷустуҷӯ кун; ҳарду шартро якҷоя гир. Навъ, масоҳат, ҳолат ва маҳалҳоро дақиқ нигоҳ дор. Агар видео пурсанд, withVideo-ро истифода бар. Агар тирезаҳои зиёд пурсанд, шумораашро бигӯ. Натиҷа ва пайванди кортро деҳ. Агар чизе намерасад, як саволи кӯтоҳ деҳ. Бе сарлавҳа ва бе шарҳи кори худ."
+    : "Ответь по делу на это пересланное голосовое. Если в записи ищут варианты объекта: места, ориентиры, районы, улицы и «от X до Y» ищи через find_properties_by_place (для «от X до Y» landmarkFrom и landmarkTo), тип, площадь и цену — через search_properties; условия совмещай. Используй названные тип, диапазон площади, стадию, альтернативные места и наличие видео. Для пожелания о многих окнах покажи фактическое число. Дай только проверенные варианты и ссылки на карточки. Если просьба неясна, задай один короткий вопрос. Без заголовков и служебных фраз.";
   return `${prompt}\n${wrapUntrusted("document", transcript, 3000)}`;
 }
 
@@ -1159,9 +1160,17 @@ export async function handleAssistantPrivate(
     // Справка уходит только в запрос к модели (modelContext): в истории остаются слова сотрудника целиком.
     const showingContext = forwardedEvidence ? "" : await showingQuestionContext(agent.id).catch(() => "");
     const history = [...previous, { role: "user" as const, content: attachedRequest(text, attachedFileText).slice(0, 4000) }];
+    // Повторная доставка того же сообщения (перезапуск, сброс отметки «в работе»): ответ на него уже ушёл,
+    // в том числе частичный после срыва потока, — второй ход не запускаем (lib/assistantTurnReplied.ts).
+    const privateTurnKey = `tg:${chatId}:${msg.message_id}`;
+    const turnIdentified = Number.isSafeInteger(msg.message_id);
+    if (turnIdentified && await assistantTurnReplied(privateTurnKey)) {
+      console.log(`[telegram:assistant] ${privateTurnKey}: ответ уже отправлен, повторный ход пропущен`);
+      return;
+    }
     const result = await runTurn({ agentId: agent.id, scope: "private", privateChatId: chatId, history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
       attachedFile: Boolean(attachedFileText.trim()), modelContext: showingContext || undefined,
-      showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
+      showWorking: showTyping, turnKey: privateTurnKey,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });
     if (!result) return;
@@ -1175,6 +1184,7 @@ export async function handleAssistantPrivate(
         cardLanguage: assistantLanguage(history.slice(-6)),
       });
     }
+    if (!result.failed && turnIdentified) await markAssistantTurnReplied(privateTurnKey);
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }], msg.message_id);
     // Длинный набранный текст без «озвучь» (23.11.2026): после ответа предлагаем кнопку «Озвучить этот текст» (узкий признак, раз в 5 минут).
     if (ownWords && !fromVoice && !msg.contact && !msg.photo?.length && !msg.document && msg.text) {
