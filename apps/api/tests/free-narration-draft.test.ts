@@ -15,12 +15,18 @@ const tg = vi.hoisted(() => ({
   editMessageText: vi.fn(async () => undefined),
   sendChatAction: vi.fn(async () => undefined),
 }));
+const samples = vi.hoisted(() => ({ ready: true }));
 const ad = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>>, next: [] as Array<Record<string, unknown>> }));
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage: tg.sendMessage, sendMessageWithButtons: tg.sendMessageWithButtons, answerCallbackQuery: tg.answerCallbackQuery,
   sendDocumentFile: tg.sendDocumentFile, editMessageText: tg.editMessageText, sendChatAction: tg.sendChatAction, isTelegramEnabled: () => true,
 }));
+vi.mock("../src/lib/narrationGeneration.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/narrationGeneration.js")>();
+  // Образцы голосов «готовы» (файла на диске нет, отправка образца пропускается): нужны, чтобы Шабнам выбрала режим «по одному».
+  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: "none" }))) : [] };
+});
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/assistant.js")>(), isAiAssistantEnabled: async () => true }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: () => "test-key" }));
 vi.mock("../src/ai/assistant/adScript.js", async (importOriginal) => {
@@ -293,16 +299,28 @@ describe("голос по одному (24.11.2026)", () => {
       expect(first).toContain(`fnr:v:${created.row.id}:0m`);
       expect(first.every((d) => Buffer.byteLength(d) <= 64)).toBe(true);
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1a`));
-      expect(lastText()).toContain("Голос 2 из 4: Анна");
+      await waitFor(() => lastText().includes("Голос 2 из 4: Анна"));
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:0m`));
-      expect(lastText()).toContain("Голос 1 из 2: Фаррух");
+      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1m`));
-      expect(lastText()).toContain("Голос 2 из 2: Рустам");
+      await waitFor(() => lastText().includes("Голос 2 из 2: Рустам"));
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:2m`)); // за краем: по кругу
-      expect(lastText()).toContain("Голос 1 из 2: Фаррух");
+      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
       expect(fetcher).not.toHaveBeenCalled();
       expect(await prisma.freeNarration.findUnique({ where: { id: created.row.id } })).toMatchObject({ status: "AWAITING_VOICE" });
     } finally { vi.unstubAllGlobals(); await setConfig(); }
+  });
+
+  it("образцов голосов ещё нет: прежний список кнопок, а не восемь шагов вслепую", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.ready = false;
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      expect(callbacks().filter((d) => d.startsWith("fnr:p:")).length).toBe(4);
+    } finally { samples.ready = true; await setConfig(); }
   });
 
   it("рубильник выключен: прежний список голосов кнопками", async () => {

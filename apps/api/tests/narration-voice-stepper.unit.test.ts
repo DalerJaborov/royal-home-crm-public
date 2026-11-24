@@ -20,6 +20,12 @@ describe("голос по одному", () => {
     expect(list.map((v) => v.id)).toEqual(["v3", "v1", "v2", "v4"]);
     expect(list.every((v) => config.voices[v.index]!.id === v.id)).toBe(true);
   });
+  it("голос по умолчанию с номером за пределом восьми всё равно первый", () => {
+    const many = { defaultVoiceId: "v10", voices: Array.from({ length: 12 }, (_, i) => ({ id: `v${i + 1}`, name: `Г${i + 1}`, gender: "female" as const })) };
+    const list = stepperVoices(many, "a");
+    expect(list[0]!.id).toBe("v10");
+    expect(list).toHaveLength(8);
+  });
   it("фильтры «Муж.» и «Жен.»", () => {
     expect(stepperVoices(config, "m").map((v) => v.id)).toEqual(["v2", "v4"]);
     expect(stepperVoices(config, "f").map((v) => v.id)).toEqual(["v3", "v1"]);

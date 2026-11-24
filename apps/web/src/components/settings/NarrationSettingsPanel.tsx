@@ -108,7 +108,7 @@ export function NarrationSettingsPanel() {
         <legend className="text-sm font-semibold">Озвучка текста в помощнике</legend>
         <Check checked={freeEnabled ?? config.freeNarrationEnabled !== false} onChange={setFreeEnabled}>Сотрудники могут прислать Шабнам любой текст, выбрать голос и получить аудиофайл. Читается слово в слово</Check>
         <Check checked={freeAd ?? config.freeNarrationAdText !== false} onChange={setFreeAd}>Шабнам может написать рекламный текст из присланных фактов (без выдумок), показать его и после «Озвучить» озвучить</Check>
-        <Check checked={freeStepper ?? config.freeNarrationVoiceStepper !== false} onChange={setFreeStepper}>Шабнам даёт выбрать голос по одному: образец, кнопки «Выбрать», «Следующий», «Муж.», «Жен.», «Все»</Check>
+        <Check checked={freeStepper ?? config.freeNarrationVoiceStepper !== false} onChange={setFreeStepper}>Шабнам даёт выбрать голос по одному: образец, кнопки «Выбрать», «Назад», «Дальше», «Муж.», «Жен.», «Все»</Check>
         <Check checked={freeOffer ?? config.freeNarrationOfferButton === true} onChange={setFreeOffer}>Под длинным присланным текстом Шабнам предлагает кнопку «Озвучить этот текст»</Check>
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="block text-sm">Озвучек на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 5)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>

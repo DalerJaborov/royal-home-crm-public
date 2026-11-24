@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
  * вызова провайдера, один платёж на запрос (кнопка дважды, два нажатия разом, повтор ключа),
  * отказ провайдера не повторяется сам, права, уборка файлов.
  */
+const samples = vi.hoisted(() => ({ ready: true }));
 const tg = vi.hoisted(() => ({
   sendMessage: vi.fn(async () => ({ message_id: 1 })),
   sendMessageWithButtons: vi.fn(async () => ({ message_id: 2 })),
@@ -24,6 +25,11 @@ const tg = vi.hoisted(() => ({
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/lib/localVideoStorage.js")>();
   return { ...real, localVideoUpload: async (key: string, body: Buffer) => { if (tg.failUpload) throw new Error("disk full"); return real.localVideoUpload(key, body); } };
+});
+vi.mock("../src/lib/narrationGeneration.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/narrationGeneration.js")>();
+  // Образцы голосов «готовы» (файла на диске нет, отправка образца пропускается): нужны, чтобы Шабнам выбрала режим «по одному».
+  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: "none" }))) : [] };
 });
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),

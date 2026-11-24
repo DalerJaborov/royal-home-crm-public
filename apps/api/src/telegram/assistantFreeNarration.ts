@@ -25,7 +25,7 @@ import {
   freeNarrationFilePath, loadFreeNarrationDraft, pendingFreeNarrationTextWaitMode, lockAdRewrite, finishAdRewrite, setFreeNarrationLang, startFreeNarrationTextWait, canUseFreeNarration,
   FREE_NARRATION_AD_REWRITES_MAX, type FreeNarrationClaim, type FreeNarrationDraftKind, type FreeNarrationRow, type FreeNarrationRunOutcome,
 } from "../lib/freeNarration.js";
-import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -262,19 +262,28 @@ async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, 
     [{ text: c.b.cancel, callback_data: `fnr:x:${row.id}` }],
   ];
   const head = c.step.head(pos + 1, list.length, voice.name, marks);
-  // Образец идёт первым, чтобы кнопки остались под ним, в конце разговора.
-  const sent = await sendVoiceSamples(chatId, config, row.lang === "tg" ? "tg" : "ru", "", voice.id).catch(() => 0);
-  const text = `${head}
-${sent ? c.step.sampleSent : c.step.noSample}`;
-  // Прежнее сообщение теряет кнопки (иначе в чате копятся живые клавиатуры), новое с кнопками идёт под образцом.
-  if (edit?.text) await editMessageText(chatId, edit.messageId, edit.text, null).catch(() => {});
-  await sendMessageWithButtons(chatId, text, rows);
+  const sendStep = async () => {
+    // Образец идёт первым, чтобы кнопки остались под ним, в конце разговора.
+    const sent = await sendVoiceSamples(chatId, config, row.lang === "tg" ? "tg" : "ru", "", voice.id).catch(() => 0);
+    await sendMessageWithButtons(chatId, `${head}
+${sent ? c.step.sampleSent : c.step.noSample}`, rows);
+  };
+  if (!edit) { await sendStep(); return; }
+  // Нажатие: сначала у прежнего сообщения снимаются кнопки (двойное нажатие не плодит клавиатуры; «не изменено» значит, нажатие уже обработано),
+  // а загрузку образца (до минуты) уводим в фон: очередь входящих у бота одна на все чаты.
+  if (edit.text) {
+    const stripped = await editMessageText(chatId, edit.messageId, edit.text, null).then(() => true, (err) => !/not modified/iu.test(err instanceof Error ? err.message : String(err)));
+    if (!stripped) return;
+  }
+  void trackBackgroundTask(sendStep().catch((err) => { void logSystemError("telegram", `Голос по одному в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-voice-step" }); }));
 }
 
 async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, edit?: { messageId: number; text?: string }): Promise<void> {
   const { config } = await loadNarrationConfiguration();
   const last = await narrationLastChoiceFor(row.agentId, config);
-  if (freeNarrationVoiceStepperEnabled(config) && config.voices.length > 0) { await showVoiceStep(chatId, row, lang, config, last.voiceId, { filter: "a" }, edit); return; }
+  const stepLang = row.lang === "tg" ? "tg" : "ru";
+  const hasSamples = freeNarrationVoiceStepperEnabled(config) && config.voices.length > 0 && (await readyVoiceSamples(config).catch(() => [])).some((x) => x.lang === stepLang);
+  if (hasSamples) { await showVoiceStep(chatId, row, lang, config, last.voiceId, { filter: "a" }, edit); return; }
   const text = copy[lang].head(row.script.length, langLabel(lang, row.lang));
   const buttons = voiceButtons(row, config, lang, last.voiceId);
   if (edit) await editMessageText(chatId, edit.messageId, text, buttons);
@@ -557,6 +566,7 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
     const voice = config.voices[Number(arg)];
     if (!voice || voiceHash(voice.id) !== hash) { await answer(c.voiceChanged); return true; }
     const retryData = query.data ?? "";
+    if (row.status === "READY" && row.voiceId && row.voiceId !== voice.id) { await answer(c.stale); return true; }
     if (row.status === "READY") { await answer(); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
     await answer(c.preparing);
     // Занять запись быстро, а вызов ElevenLabs и отправку файла (до двух минут) вынести из обработчика:

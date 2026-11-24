@@ -18,10 +18,10 @@ export function voiceFilterOf(raw: string | undefined): { pos: number; filter: V
 export function stepperVoices(config: Pick<NarrationConfig, "voices" | "defaultVoiceId">, filter: VoiceFilter): StepperVoice[] {
   const defaultId = pickNarrationVoice(config);
   return config.voices
-    .slice(0, VOICE_STEPPER_MAX)
     .map((v, index) => ({ index, id: v.id, name: v.name, gender: v.gender }))
-    .filter((v) => filter === "a" || (filter === "m" ? v.gender === "male" : v.gender === "female"))
-    .sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId));
+    .sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId))
+    .slice(0, VOICE_STEPPER_MAX)
+    .filter((v) => filter === "a" || (filter === "m" ? v.gender === "male" : v.gender === "female"));
 }
 
 /** Какие фильтры вообще нужны: если все голоса одного пола, кнопок «Муж./Жен.» нет. */
