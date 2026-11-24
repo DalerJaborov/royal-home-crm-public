@@ -326,8 +326,9 @@ describe("Шабнам в Telegram", () => {
       const buttons = lastButtons();
       // С 24.11.2026 голос по одному: первым идёт голос по умолчанию, под ним «Выбрать» и «Дальше».
       const shown = (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string])[1];
-      expect(shown).toContain("Голос 1 из 2: Анна");
-      expect(shown).toContain("по умолчанию");
+      expect(shown).toContain("Анна");
+      expect(shown).toContain("1 из 2");
+      expect(shown).toContain("рекомендуем");
       expect(buttons[0][0].callback_data).toMatch(/^fnr:p:/);
       expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:v:"))).toBe(true);
       const row = (await prisma.freeNarration.findFirst({ where: { agentId: user.id } }))!;
