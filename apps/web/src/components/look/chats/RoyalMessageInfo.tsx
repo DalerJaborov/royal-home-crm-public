@@ -2,7 +2,6 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { Check, CheckCheck } from "lucide-react";
 import type { ConversationMessage } from "../../../types";
 import { Rh2Sheet } from "../../rh2/Rh2Sheet";
-import { BotReplyFeedback } from "../../BotReplyFeedback";
 import { messageInfoRows } from "./chatThread";
 
 /**
@@ -11,29 +10,19 @@ import { messageInfoRows } from "./chatThread";
  * В окне переписки наши ответы — бота и сотрудника — выглядят одинаково, как у
  * бизнес-аккаунта WhatsApp: ни метки «бот», ни «Верно/Неверно» под пузырём.
  * Кто ответил, когда и дошло ли — здесь, по долгому нажатию на пузырь (или по
- * правой кнопке / кнопке «⌄» на компьютере). Сюда же переехала оценка ответа
- * бота: BotReplyFeedback сам показывается только при `settings.manage`
- * (директор, админ) — агент её не видит, как и раньше.
+ * правой кнопке / кнопке «⌄» на компьютере). Оценки ответа бота («Верно/Неверно»)
+ * здесь нет: её убрали вместе с «Обучением бота» (13.11.2026).
  */
 export function RoyalMessageInfo({
   message,
   text,
-  conversationId,
-  messageKey,
-  index,
-  readOnly,
   onClose,
 }: {
   message: ConversationMessage;
   /** Текст пузыря в том виде, в каком он на экране (без служебных подсказок). */
   text: string;
-  conversationId: string;
-  messageKey: string;
-  index: number;
-  readOnly: boolean;
   onClose: () => void;
 }) {
-  const isBotAnswer = message.role === "assistant" && (!message.by || message.by.kind === "bot");
   const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
   async function copy() {
     try {
@@ -63,11 +52,6 @@ export function RoyalMessageInfo({
           </div>
         ))}
       </dl>
-      {isBotAnswer && !readOnly && message.sourceChannel !== "TELEGRAM_DIRECT" && (
-        <section className="ry-msg-info-rate" aria-label="Оценка ответа бота">
-          <BotReplyFeedback conversationId={conversationId} message={message} messageKey={messageKey} index={index} />
-        </section>
-      )}
     </Rh2Sheet>
   );
 }

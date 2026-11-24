@@ -63,7 +63,7 @@ describe("presentMessages без права на номер", () => {
     },
   ];
 
-  it("content, перевод и заметка оценки без номера", () => {
+  it("content, перевод и старая заметка оценки (13.11.2026 — не отдаётся вовсе) без номера", () => {
     const out = presentMessages(raw, true, false);
     expect(JSON.stringify(out)).not.toContain(DIGITS);
     expect(out[0].content).toContain("вот мой ватсап");
@@ -72,7 +72,8 @@ describe("presentMessages без права на номер", () => {
   it("с правом на номер всё как есть", () => {
     const out = presentMessages(raw, true, true);
     expect(out[0].content).toContain(DIGITS);
-    expect(out[1].feedback?.note).toContain(DIGITS);
+    // Оценка ответа бота удалена вместе с «Обучением бота»: старое поле в базе наружу не идёт.
+    expect((out[1] as Record<string, unknown>).feedback).toBeUndefined();
   });
 });
 

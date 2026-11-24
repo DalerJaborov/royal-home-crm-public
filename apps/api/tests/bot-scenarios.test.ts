@@ -49,7 +49,6 @@ const runId = `sc-${Date.now().toString(36)}`;
 const NAMED_SCENARIO = SALES_SCENARIOS.find((s) => s.prompt.trim().length > 0)!;
 
 const conversationIds: string[] = [];
-const lostIds: string[] = [];
 const SETTINGS_SELECT = {
   salesScenarioTestEnabled: true,
   botEnabled: true,
@@ -71,7 +70,7 @@ async function setTest(enabled: boolean): Promise<void> {
 /** Диалог напрямую в базе — без вебхуков и ИИ, когда проверяем только подсчёт. */
 async function makeConversation(
   tag: string,
-  options: { scenario?: string | null; withClient?: string | null; lost?: boolean; scoped?: boolean } = {}
+  options: { scenario?: string | null; withClient?: string | null; scoped?: boolean } = {}
 ): Promise<string> {
   const data = {
     channel: "INSTAGRAM",
@@ -88,24 +87,6 @@ async function makeConversation(
     where: { id: (await fixture!.ensureConversation(`${runId}-${tag}`)).id }, data,
   }) : await prisma.botConversation.create({ data });
   conversationIds.push(conv.id);
-  if (options.lost) {
-    const lost = await prisma.lostConversation.create({
-      data: {
-        conversationId: conv.id,
-        channel: "INSTAGRAM",
-        reason: "silent",
-        stage: "other",
-        lastMessageAt: new Date(),
-        clientMessages: 2,
-        followUpsSent: 0,
-        finding: `тест ${runId}`,
-        suggestion: "",
-        botMessage: "бот",
-        clientMessage: "клиент",
-      },
-    });
-    lostIds.push(lost.id);
-  }
   return conv.id;
 }
 
@@ -127,7 +108,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.lostConversation.deleteMany({ where: { id: { in: lostIds } } });
   const inquiries = await prisma.customerInquiry.findMany({ where: { conversationId: { in: conversationIds } }, select: { id: true } });
   await fixture?.dispose();
   await prisma.botConversation.deleteMany({ where: { id: { in: conversationIds } } });
@@ -266,7 +246,7 @@ describe("подсчёт результата", () => {
     });
 
     await makeConversation("stat-lead", { scenario: NAMED_SCENARIO.id, withClient: client.id });
-    await makeConversation("stat-lost", { scenario: NAMED_SCENARIO.id, lost: true });
+    await makeConversation("stat-silent", { scenario: NAMED_SCENARIO.id });
     await makeConversation("stat-open", { scenario: NAMED_SCENARIO.id });
     await makeConversation("stat-other", { scenario: other.id });
     // Диалог без манеры (начался до сравнения) в счёт не идёт вовсе.
@@ -278,8 +258,9 @@ describe("подсчёт результата", () => {
     const named = { before: beforeOf(NAMED_SCENARIO.id), after: afterOf(NAMED_SCENARIO.id) };
     expect(named.after.conversations - named.before.conversations).toBe(3);
     expect(named.after.leads - named.before.leads).toBe(1);
-    expect(named.after.lost - named.before.lost).toBe(1);
-    expect(named.after.undecided - named.before.undecided).toBe(1);
+    // «Ушли молча» больше не считается (разбор оборванных переписок удалён 13.11.2026).
+    expect(named.after.lost).toBe(0);
+    expect(named.after.undecided - named.before.undecided).toBe(2);
 
     expect(afterOf(other.id).conversations - beforeOf(other.id).conversations).toBe(1);
     expect(after.totalConversations - before.totalConversations).toBe(4);

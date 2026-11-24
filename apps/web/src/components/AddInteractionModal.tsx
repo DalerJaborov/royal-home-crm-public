@@ -17,6 +17,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { dushanbeInputToIso, dushanbeTodayKey } from "../lib/date";
 import { parseResultPatch } from "../lib/addInteractionParse";
+import { reminderLeadText } from "../lib/reminderLeadText";
 import { buildAiClientPatch, saveInteractionWithCard, type AiClientUpdates } from "../lib/addInteractionSave";
 import { useDraftBeforeUpdate } from "../hooks/useDraftBeforeUpdate";
 
@@ -302,7 +303,7 @@ export function AddInteractionModal({
       return;
     }
     // Будущий показ без даты и времени — не показ, а пометка: календарь и
-    // напоминания (за 2 часа и 40 минут) отсчитываются именно от них.
+    // напоминание (одно, за 2 часа) отсчитываются именно от них.
     if (type === "SHOWING" && (!nextActionDate || !nextActionTime)) {
       setError("Укажите дату и время показа");
       if (!scheduling) setStep(3);
@@ -315,7 +316,7 @@ export function AddInteractionModal({
       setError("Выберите будущее время показа"); return;
     }
     // «Ждёт показ» без даты и времени раньше сохранялся, но ничего не запускал —
-    // ни календаря, ни напоминания за 2 часа/40 минут. Спецификация требует их
+    // ни календаря, ни напоминания. Спецификация требует их
     // обязательными именно для этого исхода.
     if (outcome === "WAITING_SHOWING" && (!nextActionDate || !nextActionTime)) {
       setError("Для «Ждёт показ» укажите дату и время");
@@ -448,7 +449,7 @@ export function AddInteractionModal({
             </div>
             <p className="quiet">
               <span className="dot" />
-              <span className="txt">Показ попадёт в календарь, напомним за 2 часа и за 40 минут.</span>
+              <span className="txt">Показ попадёт в календарь, напомним {reminderLeadText("SHOWING")}.</span>
             </p>
             <label className="fld">
               <span className="lab">Комментарий, по желанию</span>
@@ -582,8 +583,8 @@ export function AddInteractionModal({
               <p className="quiet">
                 <span className="dot" />
                 <span className="txt">
-                  На следующем шаге укажите дату и время показа, они обязательны для этого исхода, напомним за 2 часа
-                  и за 40 минут.
+                  На следующем шаге укажите дату и время показа, они обязательны для этого исхода, напомним{" "}
+                  {reminderLeadText(type)}.
                 </span>
               </p>
             )}
@@ -643,7 +644,7 @@ export function AddInteractionModal({
                   disabled={!nextActionDate}
                 />
                 <span className="msg">
-                  {type === "SHOWING" ? "Напомним за 2 часа и за 40 минут" : "Напомним за час"}
+                  Напомним {reminderLeadText(type)}
                 </span>
               </label>
             </div>

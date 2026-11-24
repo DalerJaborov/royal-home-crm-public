@@ -11,10 +11,10 @@
 | Что | Сколько |
 |---|---|
 | Экранов (адресов в интерфейсе) | 73 |
-| Из них видно в меню | 33 |
-| Модулей сервера | 89 |
-| Адресов сервера всего | 791 |
-| Задач по расписанию | 139 |
+| Из них видно в меню | 32 |
+| Модулей сервера | 85 |
+| Адресов сервера всего | 768 |
+| Задач по расписанию | 135 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -30,10 +30,10 @@
 | `/activity` | Activity | **Активность команды** | `apps/web/src/pages/Activity.tsx` |
 | `/ads` | Ads | **Реклама** | `apps/web/src/pages/Ads.tsx` |
 | `/ads/launch/*` | Navigate | переход на `/ads` | — |
-| `/ai-learning` | AiLearning | **Обучение бота** | `apps/web/src/pages/AiLearning.tsx` |
+| `/ai-learning` | Navigate | переход на `/settings?tab=bot&task=learning` | — |
 | `/archive` | Archive | **Архив** | `apps/web/src/pages/Archive.tsx` |
 | `/backups` | Backups | **Резервные копии** | `apps/web/src/pages/Backups.tsx` |
-| `/bot-training` | Navigate | переход на `/ai-learning?tab=manner` | — |
+| `/bot-training` | Navigate | переход на `/settings?tab=bot&task=learning` | — |
 | `/calendar` | Calendar | **Календарь** | `apps/web/src/pages/Calendar.tsx` |
 | `/calls` | Calls | **Звонки** | `apps/web/src/pages/Calls.tsx` |
 | `/clients` | Clients | **Клиенты** | `apps/web/src/pages/Clients.tsx` |
@@ -133,7 +133,6 @@
 | system | Интеграции и каналы | `/integrations` | всем |
 | system | Резервные копии | `/backups` | всем |
 | system | Что не доехало | `/stuck-work` | всем |
-| system | Обучение бота | `/ai-learning` | всем |
 | system | Архив | `/archive` | всем |
 | team | Проверки | `/security` | всем |
 | inbox | Чаты | `/messages` | всем |
@@ -179,8 +178,8 @@
 | `/api/v1/reports` | Отчёты за период | 24 | да (5 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/report-pdf` | **без подписи** | 2 | нет | `apps/api/src/routes/reportPdf.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
-| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
-| `/api/v1/settings` | Настройки CRM и точки возврата | 61 | да (11 мест) | `apps/api/src/routes/settings.ts` |
+| `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (12 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
+| `/api/v1/settings` | Настройки CRM и точки возврата | 62 | да (12 мест) | `apps/api/src/routes/settings.ts` |
 | `/api/v1/ui-shell` | **без подписи** | 1 | нет | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
@@ -210,18 +209,14 @@
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
 | `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 14 | да (4 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 13 | да (4 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |
 | `/api/v1/integrations` | Состояние внешних подключений | 1 | да (1 мест) | `apps/api/src/routes/integrations.ts` |
 | `/api/v1/stuck-work` | Экран «Что не доехало»: работа, которую система не довела до конца | 2 | да (2 мест) | `apps/api/src/routes/stuckWork.ts` |
 | `/api/v1/backups` | Отчёты о резервных копиях | 2 | нет | `apps/api/src/routes/backups.ts` |
-| `/api/v1/bot-audit` | Находки ночного судьи диалогов | 6 | да (2 мест) | `apps/api/src/routes/botAudit.ts` |
-| `/api/v1/bot-learning` | Уроки, извлечённые из ошибок бота | 8 | да (2 мест) | `apps/api/src/routes/botLearning.ts` |
-| `/api/v1/bot-trainer` | Ручная тренировка бота | 3 | да (1 мест) | `apps/api/src/routes/botTrainer.ts` |
 | `/api/v1/bot-scenarios` | Сценарии продаж для бота | 1 | да (1 мест) | `apps/api/src/routes/botScenarios.ts` |
-| `/api/v1/bot-training` | Экран «Манера» — закрыт тумблером | 6 | да (1 мест) | `apps/api/src/routes/botTraining.ts` |
 | `/api/v1/attachments` | Вложения переписки | 1 | да (2 мест) | `apps/api/src/routes/attachments.ts` |
 | `/api/v1/media` | Отдача файлов чата по ссылке | 1 | нет | `apps/api/src/routes/mediaProxy.ts` |
 | `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
@@ -252,8 +247,6 @@
 | `background-jobs` | `* * * * *` | Тик очереди фоновых заданий |
 | `backup-freshness` | `17 * * * *` | **без подписи** |
 | `balance-watch` | `20 9 * * *` | **без подписи** |
-| `bot-audit` | `15 3 * * *` | Ночной судья диалогов: сверяет переписки с правилами и копит нарушения |
-| `bot-lessons` | `30 */2 * * *` | Превращает ошибки бота в короткие правила и подмешивает их в его инструкцию |
 | `bot-pause-watch` | `20 * * * *` | Бот на паузе и забыли: напоминает, при долгой паузе снимает сам |
 | `buyer-no-call-alarm` | `0 * * * *` | Активный покупатель с высокой оценкой без звонка два дня |
 | `buyer-thinking-slow-track` | `*/30 * * * *` | Двигает задачи «покупатель думает», заведённые без даты |
@@ -303,7 +296,6 @@
 | `lead-stale-reassignment` | `* * * * *` | Передаёт непринятые лиды дальше по карусели и эскалирует |
 | `live-voice-orphan-sweep` | `*/10 * * * *` | **без подписи** |
 | `log-cleanup` | `0 3 * * *` | Ночная уборка технических журналов и уведомлений |
-| `lost-conversations` | `45 2 * * *` | Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди |
 | `market-buyer-alerts` | `12,27,42,57 * * * *` | **без подписи** |
 | `market-median-history` | `30 6 * * *` | **без подписи** |
 | `market-own-match` | `*/30 * * * *` | **без подписи** |
@@ -369,7 +361,6 @@
 | `video-handoff-unfinished-publish-watchdog` | `*/5 * * * *` | **без подписи** |
 | `voicemail-ingest` | `*/2 * * * *` | Забирает сообщения с автоответчика, чтобы ночной звонок не потерялся |
 | `webhook-dedupe-cleanup` | `40 3 * * *` | Чистит отметки обработанных входящих сообщений |
-| `weekly-lost-digest` | `0 9 * * 1` | Понедельничная сводка «куда уходят клиенты» |
 | `weekly-marketing-insights` | `20 9 * * 1` | Недельный разбор маркетинга приходит сам, без открытия отчётов |
 | `weekly-problem-report` | `10 9 * * 1` | Недельный разбор проблемных мест агентства |
 | `weekly-reactivation-campaign` | `0 10 * * 1` | Ставит рассылку старым клиентам для возврата |

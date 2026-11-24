@@ -1,6 +1,7 @@
 import { customerPropertyFactKindSchema, type CustomerPropertyFactKind } from "@royal-home/shared";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
 import { PER_SQM_SOURCE } from "./customerPropertyPerSqm.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 import { OBJECT_CODE_NUMBER_SOURCE, WEAK_PROPERTY_NUMBER_SOURCE, schemelessPropertyUrls, stripSchemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 const words = (alternatives: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
@@ -43,7 +44,7 @@ export function classifyCustomerPropertyFactIntent(text: string, options: { hasP
   // A contact, vacancy or arbitrary URL may carry the actual requested action.
   if (unsupportedUrl) return null;
   const consumeSelector = () => { explicitProperty = true; return " "; };
-  rest = rest.replace(words("(?:объект(?:а|у|е|ом|ы|ов|и|ро)?)\\s*[№#]?\\s*[1-9]\\d{0,8}"), consumeSelector);
+  rest = rest.replace(words(`${PROPERTY_OBJECT_STEM}(?:а|у|е|ом|ы|ов|и|ро)?\\s*[№#]?\\s*[1-9]\\d{0,8}`), consumeSelector);
   rest = rest.replace(/(?<![\p{L}\p{N}])[№#]\s*[1-9]\d{0,8}(?!\d)/gu, consumeSelector);
   rest = rest.replace(new RegExp(WEAK_PROPERTY_NUMBER_SOURCE, "giu"), consumeSelector);
   rest = rest.replace(new RegExp(OBJECT_CODE_NUMBER_SOURCE, "giu"), consumeSelector);

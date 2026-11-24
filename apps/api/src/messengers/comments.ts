@@ -19,7 +19,6 @@ import { cleanOutgoingReply, isReactionOnly, stripMachineTypography } from "../a
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { callAiText } from "../ai/client.js";
-import { learnedRulesBlock } from "../lib/botLessons.js";
 import { screenIncomingText } from "../ai/inboundScreen.js";
 import { siteListingUrl } from "../lib/siteListingUrl.js";
 import { loadMoneyContext } from "../lib/money.js";
@@ -58,12 +57,15 @@ import { extractAllPhones } from "../lib/shared/phoneText.js";
 import { commentNeedsPerson, loadBotAnswersItself, loadCommentPhoneConversation, loadCommentPhoneLead } from "../lib/botAnswersItself.js";
 import { isCustomerAgentCommentOff } from "../lib/customerAgentChannelOff.js";
 import { COMMENT_PHONE_DM, commentPhonePublicReply, commentSelfReply, selfLanguageOf } from "../ai/botSelfAnswerText.js";
+import { mentionsDirect, withoutDirectMention } from "../ai/commentDirectMention.js";
+import { commentWantsAnswer, publicReplyRepeatsForAuthor } from "../lib/commentReplyRepeat.js";
 import { captureCommentPhoneIntoConversation, clientPhonesOf, COMMENT_HISTORY_PREFIX, COMMENT_PHONE_HOLD_MS, commentLeadBlocked,
   createLeadFromCommentPhone } from "./commentPhoneLead.js";
 import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
 import { onBotOffCommentsStored } from "../lib/commentBotOffHook.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
-import { isAccountSendBlocked, isMetaSendBlockError } from "../lib/metaSendBlock.js";
+import { isAccountSendBlocked, isMetaSendBlockError, MetaGraphCallError } from "../lib/metaSendBlock.js";
+import { sendErrorKind } from "../lib/metaEternalTokens.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
 import { commentDecisionProviderSchema, type ClientSource, type CommentDecision } from "@royal-home/shared";
@@ -1102,13 +1104,7 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
       AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
       input.brand
     ),
-    // Выводы из случаев, где бот уже ошибался (lib/botLessons.ts) — та же функция,
-    // что и в личной переписке (ai/leadQualifier.ts). В ИЗМЕНЯЕМУЮ часть промта, а
-    // прямо в чате, см. routes/conversations.ts POST /:id/reply-feedback) чаще, чем
-    // живёт кэш, и внутри кэшируемого блока новое правило не пробилось бы в промт,
-    // пока не сменится что-то ещё в стабильной части (см. тот же приём и комментарий
-    // в leadQualifier.ts).
-    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")), input.brand),
+    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()), input.brand),
     user: `Комментарий от ${author}: «${input.text}»`,
     maxTokens: 400,
     // Комментарий читают посторонние — это лицо компании на публике, и экономить
@@ -1342,8 +1338,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         const committed = await finishPublicAgentDecision(draft.principal, { kind: "review",
           reason: `moderation_${draft.action}_${draft.reason}` });
         return committed ? "escalated" : "skipped";
-      } else if (draft.principal && draft.reason === "staff_review_required") {
-        const committed = await finishPublicAgentDecision(draft.principal, { kind: "review", reason: "staff_review_required" });
+      } else if (draft.principal && (draft.reason === "staff_review_required" || draft.reason === "duplicate_public_reply")) {
+        // Повтор того же ответа тому же человеку — человеку, а не второй раз под пост (разбор 23.11, K14–K16).
+        const committed = await finishPublicAgentDecision(draft.principal, { kind: "review", reason: draft.reason });
         return committed ? "escalated" : "skipped";
       }
       // Operational skipped counter only; HELD never marks the source REPLIED,
@@ -1850,12 +1847,11 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     // для читателей — ответа нет, объявление убираем с глаз, как у кода выше.
     const publicReply = await priceSafe(leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text)), context);
     if (publicReply) {
-      await humanReplyDelay();
-      const replyCommentId = await postCommentReply(row, publicReply, account.token);
+      // Публичный ответ уходит ПОСЛЕ личного (contactOwner): «написали в директ» — только если личное ушло (разбор 23.11, K8).
       return contactOwner(row, account, {
         note: "owner",
         hidden: false,
-        publicReply: { text: publicReply, id: replyCommentId },
+        publicDraft: publicReply,
         propertyId: context.property?.id,
       });
     }
@@ -1994,15 +1990,25 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   const selfAnswer = decision.action === "escalate" && await loadBotAnswersItself() &&
     !commentNeedsPerson({ text: row.text, reason: decision.reason }) && (commentPhoneTaken || !clientPhonesOf(row.text).length);
   const modelReply = await priceSafe(leakSafe(cleanPublicCommentReply(rawReply, row.text)), context);
-  const replyText = selfAnswer ? leakSafe(commentSelfReply(row.text, commentPhoneTaken)) : modelReply;
-  if (replyText) await humanReplyDelay();
-  const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
+  const draftReply = selfAnswer ? leakSafe(commentSelfReply(row.text, commentPhoneTaken)) : modelReply;
 
-  // Личное только после публичного ответа: если публичный не ушёл, значит с
-  // комментарием что-то не так, и лезть человеку в личку тем более не стоит.
+  // СНАЧАЛА ЛИЧНОЕ, ПОТОМ ПУБЛИЧНЫЙ ОТВЕТ (разбор суток 23.11.2026, K8). Раньше публичный «Ба директ навиштем 📩» уходил под
+  // пост до попытки личного, а личное падало (`dm_failed`, 7 из 7 за сутки на Facebook) — человек под постом читал «написали
+  // вам», а в личке пусто. Личное — только когда модель решила ответить публично (как раньше: без ответа — без личного).
   // Личное — это обычная переписка, и правила там ровно те же, что в директе.
   const dmText = (await priceSafe(leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)), context)) || undefined;
-  const dm = replyText ? await maybeSendPrivateReply(row, dmText, account.token, account.id) : { sent: false as const };
+  // Тот же публичный ответ тому же человеку под тем же постом второй раз не уходит (разбор суток 23.11.2026, K14–K16): ни
+  // ответа, ни личного — человеку, он ответит по существу (lib/commentReplyRepeat.ts, одна дверь с ядром).
+  if (draftReply && await publicReplyRepeatsForAuthor({ commentId: row.id, text: draftReply })) {
+    if (!commentWantsAnswer(row.text)) {
+      await finish(row.id, { status: "SKIPPED", note: "duplicate_public_reply", propertyId: context.property?.id });
+      return "skipped";
+    }
+    await escalate(row, "бот ответил бы этому человеку то же, что уже писал под этим постом");
+    await finish(row.id, { status: "ESCALATED", note: "duplicate_public_reply", propertyId: context.property?.id });
+    return "escalated";
+  }
+  const dm = draftReply ? await maybeSendPrivateReply(row, dmText, account.token, account.id) : { sent: false as const };
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
   // «Сообщениях» его не было вовсе — и эхо Meta эту дыру не закрывает: транспорт
@@ -2013,7 +2019,17 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // «в инстаграме у меня полная переписка есть, как бот отправляет ссылку, а тут
   // в CRM нет». Тот же шаг давно делает воронка лид-магнита (recordInConversation
   // в lib/leadMagnet.ts) — здесь его просто не было.
+  // Записываем СРАЗУ после отправки, не после публичного ответа (слепое ревью 23.11.2026, В1):
+  // если дальше постановка публичного ответа упадёт, повтор увидит своё же личное (dm_already,
+  // sent=false) и запись бы не состоялась уже никогда — переписка в CRM потеряла бы отправленное.
   if (dm.sent && dmText) await recordPrivateReply(row, dmText, dm.mid ?? null, account.id, accountGuess, commentInHistory);
+  // «Написали в директ» — только если личное правда ушло; иначе ответ без этих слов, а если от него ничего не осталось —
+  // нейтральный ответ без директа (ai/botSelfAnswerText.ts::commentSelfReply).
+  const replyText = draftReply && !dm.sent && mentionsDirect(draftReply)
+    ? withoutDirectMention(draftReply) || leakSafe(commentSelfReply(row.text, commentPhoneTaken))
+    : draftReply;
+  if (replyText) await humanReplyDelay();
+  const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   if (decision.action === "escalate" && !selfAnswer) {
     await escalate(row, decision.reason);
@@ -2114,7 +2130,7 @@ export function ownerDmText(tajik: boolean, buyers: number): string {
 async function contactOwner(
   row: QueuedComment,
   account: { id: string | null; token?: string; certain?: boolean },
-  opts: { note: string; hidden: boolean; publicReply?: { text: string; id: string | null }; propertyId?: string }
+  opts: { note: string; hidden: boolean; publicDraft?: string; propertyId?: string }
 ): Promise<keyof CommentRunStats> {
   // Подбор — не повод не написать: сбой подбора даёт письмо без строки о покупателях.
   const buyers = await matchBuyersForListing(row.text).catch((err) => {
@@ -2134,21 +2150,28 @@ async function contactOwner(
       );
     });
   }
+  // Публичный ответ собственнику — после личного: личное не ушло — без слов о директе (разбор суток 23.11.2026, K8).
+  let publicReply: { text: string; id: string | null } | undefined;
+  if (opts.publicDraft) {
+    const text = !dm.sent && mentionsDirect(opts.publicDraft) ? withoutDirectMention(opts.publicDraft) || commentSelfReply(row.text) : opts.publicDraft;
+    await humanReplyDelay();
+    publicReply = { text, id: await postCommentReply(row, text, account.token) };
+  }
   const note = (
     `${OWNER_NOTE_PREFIX}${opts.note}; ${dm.sent ? "написали в личку" : `личное: ${dm.note ?? "нет"}`}` +
     (buyers?.total ? `; покупателей: ${buyers.total}` : "")
   ).slice(0, 200);
   await finish(row.id, {
-    status: opts.publicReply ? "REPLIED" : opts.hidden ? "HIDDEN" : "SKIPPED",
+    status: publicReply ? "REPLIED" : opts.hidden ? "HIDDEN" : "SKIPPED",
     note,
     ...(opts.hidden ? { hiddenAt: new Date() } : {}),
-    ...(opts.publicReply
-      ? { replyText: opts.publicReply.text, replyCommentId: opts.publicReply.id, repliedAt: new Date() }
+    ...(publicReply
+      ? { replyText: publicReply.text, replyCommentId: publicReply.id, repliedAt: new Date() }
       : {}),
     ...(opts.propertyId ? { propertyId: opts.propertyId } : {}),
     ...(dm.sent ? { dmSentAt: new Date(), dmText } : {}),
   });
-  return opts.publicReply ? "replied" : opts.hidden ? "hidden" : "skipped";
+  return publicReply ? "replied" : opts.hidden ? "hidden" : "skipped";
 }
 
 /**
@@ -2242,11 +2265,32 @@ async function maybeSendPrivateReply(
   } catch (err) {
     await release();
     if (isMetaSendBlockError(err)) return { sent: false, note: "dm_blocked" };
-    // Личное — приятное дополнение к публичному ответу. Его отказ (человек закрыл
-    // личку, окно истекло) не должен отменять уже опубликованный ответ.
-    void logSystemError("meta", `Личное сообщение по комментарию ${row.commentId} не ушло: ${describeError(err)}`);
-    return { sent: false, note: "dm_failed" };
+    // Личное — дополнение к публичному ответу; его отказ (человек закрыл личку, окно истекло, нет права у приложения) ответ не
+    // отменяет. Причина — в пометке комментария и в журнале с кодом Meta (разбор суток 23.11.2026: 7 из 7 личных по Facebook
+    // не ушли, а в пометке было голое «dm_failed» — почему, видно не было).
+    const why = privateReplyFailure(err);
+    void logSystemError("meta", `Личное по комментарию ${row.channel} ${row.commentId} не ушло (${why.label}): ${describeError(err)}`,
+      { dedupKey: `comment-dm-failed:${row.channel}:${why.code}`, dedupWindowMs: 6 * 60 * 60_000 });
+    return { sent: false, note: `dm_failed:${why.kind}:${why.code}` };
   }
+}
+
+/**
+ * Почему Meta не приняла личное по комментарию — коротко для пометки и журнала. `permission` — у приложения нет права
+ * (pages_messaging / instagram_manage_messages, App Review): это не про клиента, чинится в настройках приложения Meta.
+ */
+export function privateReplyFailure(err: unknown): { kind: "permission" | "window" | "recipient" | "rate" | "thread_owner" | "other"; code: string; label: string } {
+  if (!(err instanceof MetaGraphCallError)) return { kind: "other", code: "—", label: "не ответ Meta" };
+  const { code, subcode, message } = err.graph;
+  const tag = `${code ?? "—"}/${subcode ?? "-"}`;
+  const text = message ?? "";
+  const known = sendErrorKind(code, subcode);
+  const kind = known ?? (code === 10 || code === 200 || code === 230 || code === 3 || (code !== null && code >= 200 && code < 300) ||
+    /permission|pages_messaging|instagram_manage_messages|app review|advanced access/iu.test(text) ? "permission" : "other");
+  const label = kind === "permission" ? "у приложения Meta нет права на личные (App Review / разрешения)"
+    : kind === "window" ? "окно ответа на комментарий закрыто" : kind === "recipient" ? "получатель недоступен"
+    : kind === "rate" ? "Meta ограничила частоту" : kind === "thread_owner" ? "переписку ведёт другое приложение" : `код Meta ${tag}`;
+  return { kind, code: tag, label: `${label}, код ${tag}${text ? `: ${text.slice(0, 160)}` : ""}` };
 }
 
 /**

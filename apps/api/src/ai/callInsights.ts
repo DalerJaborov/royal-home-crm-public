@@ -2,7 +2,6 @@ import { prisma } from "../db.js";
 import { callAiText } from "./client.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { sanitizeStyleText } from "./styleLearning.js";
 
 /**
  * Ночной разбор всех разговоров: где агентство сильно, где просаживается.
@@ -33,7 +32,6 @@ interface InsightsExtract {
   weaknesses?: string[];
   clientDemand?: string[];
   recommendations?: string[];
-  botAnswers?: { question: string; answer: string }[];
 }
 
 const insightsSchema = {
@@ -64,18 +62,6 @@ const insightsSchema = {
       maxItems: 4,
       description: "Что сделать руководителю на этой неделе. Конкретные действия, а не пожелания",
     },
-    botAnswers: {
-      type: "array",
-      maxItems: 5,
-      description: "Частые вопросы клиентов и лучший ответ на них из разговоров — для обучения бота",
-      items: {
-        type: "object",
-        properties: {
-          question: { type: "string" },
-          answer: { type: "string" },
-        },
-      },
-    },
   },
 };
 
@@ -88,41 +74,6 @@ const SYSTEM_PROMPT =
   "соглашаются и заканчивают разговор — нужен ответ про рассрочку и торг». " +
   "Если данных для вывода мало, лучше промолчать, чем придумать. " +
   "Ответ передавай через инструмент submit_reply.";
-
-/**
- * Кладёт удачные ответы агентов в очередь обучения бота.
- *
- * Дубли отсекаются по вопросу: «есть ли рассрочка» звучит в каждом втором разговоре,
- * и без проверки очередь за месяц наполнилась бы одним и тем же, а каждый случай в
- * ней стоит отдельного вызова модели при ночном разборе.
- *
- * Правила отсюда попадают в промт бота (learnedRulesBlock) и, как все остальные,
- * выключаются владельцем в разделе «Чему бот научился».
- */
-async function saveBotAnswers(pairs: InsightsExtract["botAnswers"]): Promise<void> {
-  if (!Array.isArray(pairs)) return;
-  for (const pair of pairs.slice(0, 5)) {
-    // sanitizeStyleText обязателен (26.08.2026): пары берутся из расшифровок
-    // ТЕЛЕФОННЫХ разговоров, где агент диктует номера и имена постоянно, а урок
-    // из них уезжает в промт каждого диалога с любым клиентом. StyleExample эту
-    // угрозу давно чистит — здесь чистки не было вовсе.
-    const question = typeof pair?.question === "string" ? sanitizeStyleText(pair.question).slice(0, 400) : "";
-    const answer = typeof pair?.answer === "string" ? sanitizeStyleText(pair.answer).slice(0, 600) : "";
-    if (!question || !answer) continue;
-    try {
-      const duplicate = await prisma.botLesson.findFirst({
-        where: { kind: "call_answer", botMessage: question },
-        select: { id: true },
-      });
-      if (duplicate) continue;
-      await prisma.botLesson.create({
-        data: { kind: "call_answer", channel: "PHONE", botMessage: question, humanMessage: answer },
-      });
-    } catch (err) {
-      void logSystemError("ai", `Ответ агента не сохранён для обучения бота: ${describeError(err)}`);
-    }
-  }
-}
 
 /**
  * Собирает разбор за период: сильные и слабые стороны, спрос рынка, что делать.
@@ -197,13 +148,6 @@ export async function buildCallInsights(days = 30): Promise<CallInsightsResult> 
         actions: recommendations,
       },
     });
-
-    // Бот учится у живых продавцов. Пары «о чём спрашивают клиенты» → «как отвечают
-    // агенты» уходят в тот же механизм обучения, что работает с ошибками бота
-    // (lib/botLessons.ts): ночной разбор выведет из них короткие правила, и они
-    // подмешаются в промт. Это самый качественный источник из трёх — не догадка
-    // модели и не разбор чужой ошибки, а то, как в агентстве отвечают на самом деле.
-    await saveBotAnswers(extract.botAnswers);
 
     return { ok: true };
   } catch (err) {

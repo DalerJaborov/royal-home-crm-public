@@ -206,17 +206,6 @@ describe("GET /marketing/recently-published — «Показать ещё»", ()
 });
 
 describe("Счётчики, упиравшиеся в предел выборки", () => {
-  it("тренажёр бота: total — все ждущие случаи, а не длина очереди в 30", async () => {
-    const res = await request(app).get("/api/v1/bot-trainer/queue?limit=1").set("Authorization", `Bearer ${adminToken}`);
-    expect(res.status).toBe(200);
-    const [lessons, findings] = await Promise.all([
-      prisma.botLesson.count({ where: { lesson: null } }),
-      prisma.botAuditFinding.count({ where: { resolvedAt: null } }),
-    ]);
-    expect(res.body.items.length).toBeLessThanOrEqual(1);
-    expect(res.body.total).toBeGreaterThanOrEqual(lessons + findings);
-  });
-
   it("«Сейчас ждут ответа»: сумма по каналам — COUNT без предела в 200", async () => {
     const res = await request(app).get("/api/v1/reports/waiting-now").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
@@ -226,12 +215,5 @@ describe("Счётчики, упиравшиеся в предел выборк�
     const rows = await findStuckConversations();
     // Подсчёт и выборка — одно условие: пока строк меньше предела, числа совпадают.
     if (rows.length < 200) expect(counts.reduce((a, c) => a + c.count, 0)).toBe(rows.length);
-  });
-
-  it("аудит диалогов: total — count(), а не длина выборки в 500", async () => {
-    const res = await request(app).get("/api/v1/bot-audit").set("Authorization", `Bearer ${adminToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body.total).toBe(res.body.unresolvedTotal);
-    expect(typeof res.body.groupsLimited).toBe("boolean");
   });
 });

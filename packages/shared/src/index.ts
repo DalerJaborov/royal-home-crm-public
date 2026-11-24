@@ -153,3 +153,4 @@ export * from "./messagingWindow.js";
 export * from "./directorDashboard.js";
 export * from "./budget.js";
 export * from "./agentGlance.js";
+export * from "./botGuardStats.js";

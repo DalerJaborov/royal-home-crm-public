@@ -309,7 +309,7 @@ const ALL_SCREENS: Record<"DIRECTOR" | "MANAGER" | "AGENT", string[]> = {
     "/finance", "/reports", "/director", "/team", "/oversight", "/mission-control", "/settings", "/profile", "/notifications", "/archive", "/vacancies",
     "/security", "/activity", "/pult", "/funnel", "/sources", "/insights", "/health", "/comments", "/site-changes", "/market", "/more",
     "/hall-of-fame", "/lead-funnel", "/hot-clients", "/lost-clients", "/inactive-clients", "/deferred-clients", "/other-inquiries",
-    "/clients/all-mine", "/telephony", "/integrations", "/backups", "/stuck-work", "/ai-learning", "/bot-training", "/pipeline", "/settings/roles"],
+    "/clients/all-mine", "/telephony", "/integrations", "/backups", "/stuck-work", "/pipeline", "/settings/roles"],
   MANAGER: ["/", "/clients", "/sellers", "/properties", "/deals", "/calendar", "/messages", "/calls", "/team", "/oversight", "/notifications", "/profile", "/more"],
   // Агенту «Новый вид» на телефоне выдаётся с #329 (hooks/shellDevicePolicy.ts).
   AGENT: ["/", "/clients", "/sellers", "/properties", "/deals", "/calendar", "/messages", "/calls", "/notifications", "/profile", "/more"],

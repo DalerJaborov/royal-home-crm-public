@@ -11,7 +11,7 @@ vi.mock("../src/lib/inboundSideEffects.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/inboundSideEffects.js")>()),
   applyInboundSideEffects: vi.fn(async () => ({ status: "duplicate" as const })),
 }));
-// The «Обучение бота» counters, observed (the real function still runs): which drop reason the model's words got.
+// The bot guard counters (Settings → «Бот» → «Проверка бота»), observed (the real function still runs): which drop reason the model's words got.
 vi.mock("../src/ai/guardMetrics.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/ai/guardMetrics.js")>();
   return { ...actual, guardFired: vi.fn(actual.guardFired) };

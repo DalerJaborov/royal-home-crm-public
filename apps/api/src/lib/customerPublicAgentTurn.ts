@@ -31,6 +31,7 @@ import { recruitmentPostCode, recruitmentKeyword } from '@royal-home/shared';
 import { readRecruitmentPositions } from './recruitmentPositions.js';
 import { customerPublicAddresseeLabel, readCustomerPublicAddressee } from './customerPublicAddressee.js';
 import { readCustomerAgentBrand } from './customerAgentBrandRead.js';
+import { commentWantsAnswer, publicReplyRepeatsForAuthor } from './commentReplyRepeat.js';
 
 export type CustomerPublicAgentDraft =
   | { status: 'moderate'; principal: PublicCommentPrincipal }
@@ -211,6 +212,11 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
       return { status: 'held', reason: 'public_facts_target_conflict' };
     }
     if (!sealed.text.trim()) return { status: 'held', reason: 'empty_public_draft' };
+    // Тот же ответ тому же человеку под тем же постом второй раз не уходит — комментарий идёт человеку (разбор 23.11, K14–K16).
+    if (ref.table === 'meta' && await publicReplyRepeatsForAuthor({ commentId: ref.id, text: sealed.text })) {
+      return commentWantsAnswer(original.text) ? { status: 'held', reason: 'duplicate_public_reply', principal }
+        : { status: 'skip', reason: 'duplicate', principal };
+    }
     return { status: 'readyDraft', principal, text: sealed.text, agentRevisionId: revision.id,
       ...(fact?.kind === 'facts' ? { factsReadWitness: { facts: fact.facts } } : {}),
       ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) };
@@ -247,10 +253,10 @@ export async function publicAgentCommentLane(id: string): Promise<'legacy' | 'ma
  * and genuine principal remain mandatory; stale source cannot be closed. */
 export async function finishPublicAgentDecision(principal: PublicCommentPrincipal, decision:
   | { kind: 'skip'; reason: 'no_reply_needed' | 'duplicate' | 'unsupported' }
-  | { kind: 'review'; reason: 'staff_review_required' | 'moderation_hide_spam' | 'moderation_hide_abuse' |
+  | { kind: 'review'; reason: 'staff_review_required' | 'duplicate_public_reply' | 'moderation_hide_spam' | 'moderation_hide_abuse' |
       'moderation_delete_spam' | 'moderation_delete_abuse' }): Promise<boolean> {
   const original = inspectPublicCommentPrincipal(principal);
-  const notes = new Set(['no_reply_needed', 'duplicate', 'unsupported', 'staff_review_required',
+  const notes = new Set(['no_reply_needed', 'duplicate', 'unsupported', 'staff_review_required', 'duplicate_public_reply',
     'moderation_hide_spam', 'moderation_hide_abuse', 'moderation_delete_spam', 'moderation_delete_abuse']);
   if (!original || original.source.table !== 'meta' || !notes.has(decision.reason) ||
       (await revalidatePublicCommentPrincipal(principal)).status !== 'current') return false;

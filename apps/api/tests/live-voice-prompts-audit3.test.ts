@@ -68,7 +68,6 @@ describe("п. 4: замок «только русский» не оставля�
     const knowledge = buildLiveVoiceKnowledge({
       folkGeography: VOICE_CENTER_RULE,
       sellerRules: "",
-      learnedRules: "",
       usdToTjs: null,
       wallClock: new Date("2026-10-02T10:00:00Z"),
     });

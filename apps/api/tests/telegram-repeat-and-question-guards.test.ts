@@ -2,15 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 /**
  * TELEGRAM ШЁЛ В ОБХОД ТРЁХ РУБЕЖЕЙ, КОТОРЫЕ УЖЕ ЕСТЬ У WHATSAPP/INSTAGRAM
- * (разбор находок судьи 30.08.2026, BotAuditFinding).
+ * (разбор находок судьи 30.08.2026, находки ночного судьи).
  *
  * У Telegram свой, отдельный от messengers/conversation.ts (processMessengerTurn)
  * путь сборки ответа — runQualifyTurn вызывается прямо в telegram/bot.ts. Предел
  * на просьбы номера (MAX_PHONE_ASKS/dropPhoneAsks), обрезка двух вопросов в одном
  * сообщении (ai/oneQuestionGuard.ts) и вычёркивание дословного повтора
  * (ai/replyRepeatGuard.ts) стояли только в этом отдельном пути — Telegram не знал
- * о них вовсе. BotAuditFinding судит TelegramConversation наравне с остальными
- * каналами (ai/botAudit.ts), поэтому и защита обязана быть одна на все.
+ * о них вовсе. находки ночного судьи судит TelegramConversation наравне с остальными
+ * каналами (ночной судья, удалён 13.11.2026), поэтому и защита обязана быть одна на все.
  *
  * Транспорт и ИИ подменены — тест не ходит ни в Telegram, ни к модели.
  */

@@ -31,6 +31,7 @@ import {
 export { looksLikeHousing };
 import { districtByPoint } from "../lib/propertyDistrict.js";
 import { BW, EW, TAIL } from "../ai/wordBoundary.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 
 /**
  * Клиент прислал наш пост/рилс или ответил на нашу историю.
@@ -307,7 +308,8 @@ async function rememberInstagramMediaId(property: { id: string }, mediaId: strin
  * нумерации агентства) совпадение более вероятно, а ошибка маршрутизации
  * означает, что лид уйдёт владельцу ЧУЖОГО, случайно совпавшего объекта.
  */
-const PROPERTY_MENTION_CONTEXT_RE = /кварт|объект|обьект|дом|квартир|номер\s*объ|листинг|недвиж|(?<![\p{L}])(?:об|ob)-?\d/iu;
+// Варианты слова «объект» — один список на сервер (ai/propertyObjectWord.ts).
+const PROPERTY_MENTION_CONTEXT_RE = new RegExp(`кварт|${PROPERTY_OBJECT_STEM}|дом|квартир|номер\\s*объ|листинг|недвиж|(?<![\\p{L}])(?:об|ob)-?\\d`, "iu");
 
 /** Строгая версия captionShortId для текста клиента: тот же формат «№N», но
  *  только рядом со словом, явно указывающим на объект недвижимости. */
