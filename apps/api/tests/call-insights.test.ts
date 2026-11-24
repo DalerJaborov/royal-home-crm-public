@@ -45,7 +45,6 @@ const interactionIds: string[] = [];
 const foreignInsightIds = new Set<string>();
 /** Наши: только их читает проверка и только их убирает уборка. */
 const myInsightIds = new Set<string>();
-const lessonQuestions: string[] = [];
 
 /** Разбор разговора внутри окна: `daysAgo` отсчитывается от выдуманного «сейчас». */
 async function makeAnalysis(daysAgo: number, extra: Record<string, unknown> = {}) {
@@ -144,7 +143,6 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { id: clientId } });
   await prisma.agent.deleteMany({ where: { id: agentId } });
   await prisma.callInsight.deleteMany({ where: { id: { in: [...myInsightIds] } } });
-  await prisma.botLesson.deleteMany({ where: { botMessage: { in: lessonQuestions } } });
   vi.useRealTimers();
   await prisma.$disconnect();
 });
@@ -250,63 +248,5 @@ describe("что уходит в модель и что ложится в баз
 
     expect(await buildCallInsights()).toEqual({ ok: false, reason: "ошибка разбора" });
     expect(await insightsFromCall()).toEqual([]);
-  });
-});
-
-describe("ответы агентов в очередь обучения бота", () => {
-  async function runWithAnswers(botAnswers: unknown) {
-    for (let i = 0; i < 8; i++) await makeAnalysis(i + 1);
-    callAiText.mockResolvedValue({ ...FULL_REPLY, botAnswers });
-    return buildCallInsights();
-  }
-
-  it("пара «вопрос — ответ» ложится уроком телефонного канала", async () => {
-    const question = `Есть ли рассрочка ${MARK}`;
-    lessonQuestions.push(question);
-    expect(await runWithAnswers([{ question, answer: "Да, застройщик даёт рассрочку на два года" }])).toEqual({ ok: true });
-
-    const lesson = await prisma.botLesson.findFirst({ where: { botMessage: question } });
-    expect(lesson).toMatchObject({ kind: "call_answer", channel: "PHONE", active: true });
-    expect(lesson!.humanMessage).toContain("рассрочку на два года");
-  });
-
-  it("номер телефона из расшифровки не уезжает в промт бота", async () => {
-    const question = `Как с вами связаться ${MARK}`;
-    lessonQuestions.push(question);
-    await runWithAnswers([{ question, answer: "Звоните мне на +992 900 11 22 33, отвечу сразу" }]);
-
-    const lesson = await prisma.botLesson.findFirst({ where: { botMessage: question } });
-    expect(lesson).toBeTruthy();
-    expect(lesson!.humanMessage).not.toContain("900 11 22 33");
-    expect(lesson!.humanMessage).not.toMatch(/\d{6}/);
-  });
-
-  it("тот же вопрос второй раз урок не заводит", async () => {
-    const question = `Сколько стоит оформление ${MARK}`;
-    lessonQuestions.push(question);
-    await runWithAnswers([{ question, answer: "Оформление у нотариуса, около трёхсот сомони" }]);
-    await runWithAnswers([{ question, answer: "Другой ответ на тот же вопрос клиента" }]);
-
-    expect(await prisma.botLesson.count({ where: { botMessage: question } })).toBe(1);
-  });
-
-  it("пустые и неполные пары пропускаются", async () => {
-    const question = `Годный вопрос ${MARK}`;
-    lessonQuestions.push(question);
-    await runWithAnswers([
-      { question: "", answer: "ответ без вопроса" },
-      { question: `Вопрос без ответа ${MARK}`, answer: "" },
-      { question: 42, answer: "не строка" },
-      { question, answer: "Настоящий ответ агента на настоящий вопрос" },
-    ]);
-
-    expect(await prisma.botLesson.count({ where: { botMessage: `Вопрос без ответа ${MARK}` } })).toBe(0);
-    expect(await prisma.botLesson.count({ where: { botMessage: question } })).toBe(1);
-  });
-
-  it("без пар от модели очередь обучения не трогается", async () => {
-    const before = await prisma.botLesson.count({ where: { kind: "call_answer" } });
-    expect(await runWithAnswers(undefined)).toEqual({ ok: true });
-    expect(await prisma.botLesson.count({ where: { kind: "call_answer" } })).toBe(before);
   });
 });

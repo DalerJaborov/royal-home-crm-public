@@ -23,7 +23,6 @@ const wall = new Date(Date.UTC(2026, 8, 24, 10, 30));
 const knowledge = buildLiveVoiceKnowledge({
   folkGeography: "\n<карта>Профсоюз — Сино</карта>",
   sellerRules: "\n<про_нас>ЧЕМ МЫ НЕ ЗАНИМАЕМСЯ: Земля</про_нас>",
-  learnedRules: "\nВЫВОДЫ: не обещать рассрочку",
   usdToTjs: 10.95,
   wallClock: wall,
 });
@@ -37,10 +36,9 @@ describe("справочник голоса — те же блоки, что у 
     }
   });
 
-  it("то, что читается из базы, печатается как пришло: карта мест, «про нас», выученное, курс, время", () => {
+  it("то, что читается из базы, печатается как пришло: карта мест, «про нас», курс, время", () => {
     expect(knowledge).toContain("Профсоюз — Сино");
     expect(knowledge).toContain("ЧЕМ МЫ НЕ ЗАНИМАЕМСЯ: Земля");
-    expect(knowledge).toContain("не обещать рассрочку");
     expect(knowledge).toContain("1 USD = 10.95 TJS");
     expect(knowledge).toContain("СЕЙЧАС В ДУШАНБЕ");
   });
@@ -51,7 +49,7 @@ describe("справочник голоса — те же блоки, что у 
   });
 
   it("курс не прочитался — строки о курсе нет вовсе, а не «1 USD = 0»", () => {
-    const out = buildLiveVoiceKnowledge({ folkGeography: "", sellerRules: "", learnedRules: "", usdToTjs: null, wallClock: wall });
+    const out = buildLiveVoiceKnowledge({ folkGeography: "", sellerRules: "", usdToTjs: null, wallClock: wall });
     expect(out).not.toContain("КУРС ДОЛЛАРА");
   });
 

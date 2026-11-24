@@ -30,9 +30,6 @@ vi.mock("../src/messengers/appendMessages.js", async (importOriginal) => ({
   appendConversationMessages: vi.fn(async () => undefined),
   appendTelegramConversationMessages: vi.fn(async () => undefined),
 }));
-vi.mock("../src/lib/botLessons.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/botLessons.js")>()), recordLesson: vi.fn(async () => undefined),
-}));
 
 const { prisma } = await import("../src/db.js");
 let fixture: CustomerMessengerFixture;
