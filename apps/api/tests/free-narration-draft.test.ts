@@ -15,12 +15,18 @@ const tg = vi.hoisted(() => ({
   editMessageText: vi.fn(async () => undefined),
   sendChatAction: vi.fn(async () => undefined),
 }));
+const samples = vi.hoisted(() => ({ ready: true }));
 const ad = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>>, next: [] as Array<Record<string, unknown>> }));
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage: tg.sendMessage, sendMessageWithButtons: tg.sendMessageWithButtons, answerCallbackQuery: tg.answerCallbackQuery,
   sendDocumentFile: tg.sendDocumentFile, editMessageText: tg.editMessageText, sendChatAction: tg.sendChatAction, isTelegramEnabled: () => true,
 }));
+vi.mock("../src/lib/narrationGeneration.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/narrationGeneration.js")>();
+  // Образцы голосов «готовы» (файла на диске нет, отправка образца пропускается): нужны, чтобы Шабнам выбрала режим «по одному».
+  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: "none" }))) : [] };
+});
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/assistant.js")>(), isAiAssistantEnabled: async () => true }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: () => "test-key" }));
 vi.mock("../src/ai/assistant/adScript.js", async (importOriginal) => {
@@ -92,7 +98,7 @@ describe("голос в ожидании текста: расшифровка ч
       const ok = buttons.find((b) => b.callback_data?.startsWith("fnr:o:"))!.callback_data!;
       expect(await handleFreeNarrationCallback(click(user.chat, ok))).toBe(true);
       expect(await prisma.freeNarration.findUnique({ where: { id: draft.id } })).toMatchObject({ status: "AWAITING_VOICE", script: "Добро пожаловать в Рудаки Тауэр" });
-      expect(lastButtons()[0][0].text).toContain("Анна"); // выбор голоса
+      expect(lastText()).toContain("Анна"); expect(lastButtons()[0][0].callback_data).toMatch(/^fnr:p:/); // выбор голоса
       // Повтор нажатия «Озвучить как есть» ничего не создаёт и не платит.
       await handleFreeNarrationCallback(click(user.chat, ok));
       expect(await prisma.freeNarration.count({ where: { agentId: user.id } })).toBe(1);
@@ -267,5 +273,79 @@ describe("уборка", () => {
     await prisma.freeNarration.updateMany({ where: { agentId: user.id }, data: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
     await purgeFreeNarrations();
     expect(await prisma.freeNarration.count({ where: { agentId: user.id } })).toBe(0);
+  });
+});
+
+describe("голос по одному (24.11.2026)", () => {
+  const four = [
+    { id: `sA-${runId}`, name: "Анна", gender: "female" as const }, { id: `sB-${runId}`, name: "Фаррух", gender: "male" as const },
+    { id: `sC-${runId}`, name: "Мадина", gender: "female" as const }, { id: `sD-${runId}`, name: "Рустам", gender: "male" as const },
+  ];
+  const callbacks = () => lastButtons().flat().map((b) => b.callback_data ?? "");
+
+  it("показан один голос с «Выбрать», «Назад/Дальше», «Муж./Жен./Все»; кнопки листают и фильтруют, деньги не тратятся", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    const user = await makeAgent();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      expect(lastText()).toContain("Голос 1 из 4: Мадина");
+      const first = callbacks();
+      expect(first.some((d) => d.startsWith("fnr:p:"))).toBe(true);
+      expect(first).toContain(`fnr:v:${created.row.id}:1a`);
+      expect(first).toContain(`fnr:v:${created.row.id}:0m`);
+      expect(first.every((d) => Buffer.byteLength(d) <= 64)).toBe(true);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1a`));
+      await waitFor(() => lastText().includes("Голос 2 из 4: Анна"));
+      await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:0m`));
+      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
+      await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1m`));
+      await waitFor(() => lastText().includes("Голос 2 из 2: Рустам"));
+      await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:2m`)); // за краем: по кругу
+      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(await prisma.freeNarration.findUnique({ where: { id: created.row.id } })).toMatchObject({ status: "AWAITING_VOICE" });
+    } finally { vi.unstubAllGlobals(); await setConfig(); }
+  });
+
+  it("образцов голосов ещё нет: прежний список кнопок, а не восемь шагов вслепую", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.ready = false;
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      expect(callbacks().filter((d) => d.startsWith("fnr:p:")).length).toBe(4);
+    } finally { samples.ready = true; await setConfig(); }
+  });
+
+  it("рубильник выключен: прежний список голосов кнопками", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id, freeNarrationVoiceStepper: false });
+    const user = await makeAgent();
+    const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
+    if (created.status !== "CREATED") throw new Error(created.status);
+    await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+    expect(callbacks().filter((d) => d.startsWith("fnr:p:")).length).toBe(4);
+    expect(callbacks().some((d) => d.startsWith("fnr:v:"))).toBe(false);
+    await setConfig();
+  });
+
+  it("чужой черновик и устаревшая кнопка не листаются", async () => {
+    await setConfig({ voices: four });
+    const user = await makeAgent();
+    const other = await makeAgent();
+    const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
+    if (created.status !== "CREATED") throw new Error(created.status);
+    await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+    tg.sendMessageWithButtons.mockClear();
+    await handleFreeNarrationCallback(click(other.chat, `fnr:v:${created.row.id}:1a`));
+    expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+    await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:zz`));
+    expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+    await setConfig();
   });
 });

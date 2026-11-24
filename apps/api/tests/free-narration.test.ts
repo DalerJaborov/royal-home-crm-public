@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
  * вызова провайдера, один платёж на запрос (кнопка дважды, два нажатия разом, повтор ключа),
  * отказ провайдера не повторяется сам, права, уборка файлов.
  */
+const samples = vi.hoisted(() => ({ ready: true }));
 const tg = vi.hoisted(() => ({
   sendMessage: vi.fn(async () => ({ message_id: 1 })),
   sendMessageWithButtons: vi.fn(async () => ({ message_id: 2 })),
@@ -24,6 +25,11 @@ const tg = vi.hoisted(() => ({
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/lib/localVideoStorage.js")>();
   return { ...real, localVideoUpload: async (key: string, body: Buffer) => { if (tg.failUpload) throw new Error("disk full"); return real.localVideoUpload(key, body); } };
+});
+vi.mock("../src/lib/narrationGeneration.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/narrationGeneration.js")>();
+  // Образцы голосов «готовы» (файла на диске нет, отправка образца пропускается): нужны, чтобы Шабнам выбрала режим «по одному».
+  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: "none" }))) : [] };
 });
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
@@ -310,10 +316,12 @@ describe("Шабнам в Telegram", () => {
       expect(await handleFreeNarrationMessage(msg(user.chat, "озвучь: Добро пожаловать в Royal Home"), user)).toBe(true);
       expect(fetcher).not.toHaveBeenCalled(); // до выбора голоса денег нет
       const buttons = lastButtons();
-      expect(buttons[0][0].text).toContain("Анна");
-      expect(buttons[0][0].text).toContain("по умолчанию");
-      expect(buttons[1][0].text).toContain("Мадина");
-      expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:s:"))).toBe(true);
+      // С 24.11.2026 голос по одному: первым идёт голос по умолчанию, под ним «Выбрать» и «Дальше».
+      const shown = (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string])[1];
+      expect(shown).toContain("Голос 1 из 2: Анна");
+      expect(shown).toContain("по умолчанию");
+      expect(buttons[0][0].callback_data).toMatch(/^fnr:p:/);
+      expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:v:"))).toBe(true);
       const row = (await prisma.freeNarration.findFirst({ where: { agentId: user.id } }))!;
       expect(row).toMatchObject({ status: "AWAITING_VOICE", script: "Добро пожаловать в Royal Home" });
       expect(buttons.flat().every((x) => (x.callback_data ?? "").length <= 64)).toBe(true);
