@@ -1,6 +1,7 @@
 import { convertToTjs, FALLBACK_USD_TO_TJS, formatPropertyCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { normalizeForQuoteMatch } from "../ai/callQuoteCheck.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 import { loadMoneyContext } from "./money.js";
 
 /**
@@ -103,7 +104,7 @@ export function textObjectNumbers(text: string | null | undefined, opts: { leadi
     if (!UNIT_AFTER.test(after)) found.add(Number(m[1]));
   }
   const spoken = normalizeForQuoteMatch(text);
-  for (const m of spoken.matchAll(/(?:^| )(?:объект|объекта|объекту|объекти)( )(\d{1,6})(?= |$)/gu)) {
+  for (const m of spoken.matchAll(new RegExp(`(?:^| )${PROPERTY_OBJECT_STEM}(?:а|у|и)?( )(\\d{1,6})(?= |$)`, "gu"))) {
     const after = spoken.slice((m.index ?? 0) + m[0].length);
     if (!UNIT_AFTER.test(after)) found.add(Number(m[2]));
   }

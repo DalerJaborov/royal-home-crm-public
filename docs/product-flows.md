@@ -20394,7 +20394,7 @@
       - если need === "technical" && !technicalOn
         - continue;
           · переходит к следующему
-      - если need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: "bot_choice" }))
+      - если need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.statu…
         - continue;
           · переходит к следующему
     - если !due.length

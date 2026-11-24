@@ -3,7 +3,7 @@ import { clientLanguageScores as baseClientLanguageScores, detectClientLanguage 
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
-import { adTemplateLanguage, isAdTemplateOpener } from "./adTemplatePhrase.js";
+import { adTemplateLanguage, isAdTemplateOpener, SALAAM_WORDS } from "./adTemplatePhrase.js";
 
 /**
  * CUSTOMER-CORE WORD LISTS (audit 16.11.2026; review #206 С2: only this path, the legacy bot and the voice keep theirs).
@@ -147,7 +147,7 @@ export function customerColloquialTajikLanguage(input: string): boolean {
 /** Words that carry no language evidence of their own (greeting, thanks, ok/yes/no), folded alphabet. */
 const NEUTRAL_WORDS = new Set(["привет", "здравствуйте", "здравствуй", "добрый", "доброе", "день", "вечер", "утро", "спасибо",
   "благодарю", "ок", "окей", "ok", "okay", "хорошо", "ладно", "да", "нет", "ага", "угу", "понятно", "ясно", "отлично", "супер",
-  "салом", "асалом", "ассалом", "ассалому", "алейкум", "алайкум", "ассаломуалейкум", "асаломалейкум", "саломалейкум", "рахмат",
+  ...SALAAM_WORDS, "рахмат",
   "ташаккур", "хуб", "майлаш", "бале", "ха", "salom", "rahmat", "tashakkur", "hi", "hello", "yes", "no", "thanks"]);
 
 /** Up to two neutral words, or nothing readable at all (a bare link, @handle, emoji): no reason to switch the dialogue language. */

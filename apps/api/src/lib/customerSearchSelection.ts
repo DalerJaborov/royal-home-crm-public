@@ -3,6 +3,7 @@ import { readCustomerAcceptedSearchCollections } from "./customerSearchHistory.j
 import { customerPrincipalAuthenticatedInput, type CustomerPrincipal } from "./customerPrincipal.js";
 import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { clientOwnWords } from "../ai/untrustedContent.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 import type { TxClient } from "../db.js";
 
 /** Shape/meaning only, not presentation or focus permission. Short answers
@@ -11,7 +12,8 @@ export function customerSearchPosition(raw: string): { position: number | null; 
   const text = clientOwnWords(raw).trim();
   // "Object №2" is the public ID even when a previous list had a second
   // item. Leave that reference to the canonical ingress resolver, at any ID.
-  if (/(?<![\p{L}])(?:объект[аеи]?|object)\s*[№#]?\s*\d+/iu.test(text)) return null;
+  // «обьект 2» — тоже номер объекта, а не второй вариант списка (ai/propertyObjectWord.ts, разбор 23.11).
+  if (new RegExp(`(?<![\\p{L}])(?:${PROPERTY_OBJECT_STEM}[аеи]?|object)\\s*[№#]?\\s*\\d+`, "iu").test(text)) return null;
   if (/^[1-8][.!?]?$/u.test(text)) return { position: Number(text[0]), bare: true };
   const found = new Set<number>();
   const names = ["перв(?:ый|ая|ое|ую|ого|ом)|якум|аввал(?:ин|ӣ)?", "втор(?:ой|ая|ое|ую|ого|ом)|дуюм", "трет(?:ий|ья|ье|ью|ьего|ьем)|сеюм",
@@ -19,8 +21,9 @@ export function customerSearchPosition(raw: string): { position: number | null; 
   const ordinal = (name: string) => `(?<![\\p{L}\\p{N}])(?:${name})(?![\\p{L}\\p{N}])`;
   const short = text.replace(new RegExp(ordinal(names.join("|")), "giu"), " ")
     .replace(/(?<![\p{L}])(?:не|на|или|ё|а|и)(?![\p{L}])/giu, " ").replace(/[\s,;.!?]+/gu, "") === "";
-  const nounBefore = /(?:^|[^\p{L}])(?:вариант[\p{L}]*|объект[\p{L}]*|квартир[\p{L}]*|дом[ае]?|хона[и]?|object)\s+$/iu;
-  const nounAfter = /^\s+(?:вариант[\p{L}]*|объект[\p{L}]*|квартир[\p{L}]*|дом[ае]?|хона[и]?|object)(?![\p{L}])/iu;
+  const noun = `(?:вариант[\\p{L}]*|${PROPERTY_OBJECT_STEM}[\\p{L}]*|квартир[\\p{L}]*|дом[ае]?|хона[и]?|object)`;
+  const nounBefore = new RegExp(`(?:^|[^\\p{L}])${noun}\\s+$`, "iu");
+  const nounAfter = new RegExp(`^\\s+${noun}(?![\\p{L}])`, "iu");
   const requestBefore = /(?:покажи(?:те)?|интересует|выбираю|выбрать|выберу|беру|давай(?:те)?|расскажи(?:те)?|хочу|нишон(?:\s+диҳед)?|цена|стоимость|нархи?)\s+(?:(?:мне|про|о|об|у|лутфан)\s+)*$/iu;
   const requestAfter = /^\s+(?:интересует|понравил[\p{L}]*|нравится|подходит|сколько\s+стоит|чанд(?:\s+пул)?|нарх[\p{L}]*|поч[её]м)(?:$|[\s.!?])/iu;
   let negated = false;
@@ -37,7 +40,7 @@ export function customerSearchPosition(raw: string): { position: number | null; 
           requestBefore.test(before) && /^[\s.!?]*$/u.test(after)) add(index + 1, match.index);
     }
   });
-  for (const match of text.matchAll(/(?<![\p{L}\p{N}])([1-8])\s*[- ]?\s*(?:й|ой|ум|юм)?\s*(?:вариант|объект)(?![\p{L}])/giu)) add(Number(match[1]), match.index);
+  for (const match of text.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])([1-8])\\s*[- ]?\\s*(?:й|ой|ум|юм)?\\s*(?:вариант|${PROPERTY_OBJECT_STEM})(?![\\p{L}])`, "giu"))) add(Number(match[1]), match.index);
   for (const match of text.matchAll(/(?<![\p{L}])(?:вариант|варианти)\s*[№#]?\s*([1-8])(?!\d)/giu)) add(Number(match[1]), match.index);
   if (negated || found.size > 1) return { position: null, bare: false };
   return found.size ? { position: [...found][0], bare: short } : null;

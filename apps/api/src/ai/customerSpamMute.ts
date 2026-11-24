@@ -5,6 +5,7 @@ import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { looksLikeMoneyRequest } from "./moneyRequestGuard.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { PROPERTY_OBJECT_STEM } from "./propertyObjectWord.js";
 
 /**
  * "Spammer" mute (30.10.2026). The same people forward other people's reels and like-exchange chains to us every day, several
@@ -52,7 +53,7 @@ const INTEREST = new RegExp([
   `${BW}(?:цен[аыуе]|ценой|стоимост|стоит|почем|сколько|нарх|чанд\\s+(?:пул|аст|мешавад|сомони|доллар))${TAIL}`,
   `${BW}(?:адрес|сурога|локаци|район|ноих|микрорайон|ориентир)${TAIL}`,
   `${BW}(?:продам|продаю|продаем|продать|продается|мефурушам|мефурушем|фуруш|куплю|купить|покупк|покупа|харидан|харидорам|мехарам|мехарем|харид|снять|сниму|сдам|сдаю|сдается|аренд|ичора|ичорагир)${TAIL}`,
-  `${BW}(?:обект|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр|ваканс|резюме)${TAIL}`,
+  `${BW}(?:${PROPERTY_OBJECT_STEM}|обявлени|элон|риелтор|риэлтор|рассрочк|кредит|задаток|просмотр|ваканс|резюме)${TAIL}`,
   `${BW}(?:об|ob)\\s*[-№#]?\\s*\\d{1,6}${EW}`, `№\\s*\\d{1,6}${EW}`,
   `${BW}(?:narx|price|cena|tsena|skolko|kvartira|xona|hona|dom|adres|address|nomer|telefon|vacancy|rabota)${TAIL}`,
   `${BW}royal\\s*home${TAIL}`,
