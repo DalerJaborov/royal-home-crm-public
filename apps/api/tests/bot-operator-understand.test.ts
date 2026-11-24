@@ -176,7 +176,7 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const seller = await runOperatorTurn({ storedState: { ...serializeOperatorState({ ...initialOperatorState(), role: "seller" }) },
       input: { current: "Вы кто? Это не Фаррух?" }, ctx: broken, model });
     expect(seller.actions.map(a => a.type)).toEqual(["accept_lead"]);
-    expect(seller.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер в ближайшее время.");
+    expect(seller.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер WhatsApp.");
   });
 
   it("случай 3 через одну дверь: память переходит между ходами через jsonb, заявка одна, текст и шаги для compose", async () => {
@@ -191,18 +191,16 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const now = new Date("2026-11-19T10:00:00.000Z");
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const first = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: c, now, model });
-    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
-      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
-    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "lead_and_details_seller"]);
-    expect(first.facts).toMatchObject({ percent: 2, when: "в ближайшее время" });
-    // П1 приёмки 19.11: номер известен — заявка в этот же ход, клиент без ответа о деталях не пропадает.
-    expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
+    // Владелец 22.11.2026: голая роль — сначала вопрос по сути, без заявки и без срока звонка.
+    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
+    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "role_details_seller"]);
+    expect(first.facts).toMatchObject({ percent: 2 });
+    expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
     const second = await runOperatorTurn({ storedState: JSON.parse(JSON.stringify(first.stored)),
       input: { current: "Сино, 3 комнаты, 80 кв, 5 этаж, ремонт, 90 000$", recent: [{ role: "user", text: "Хочу продать квартиру" }, { role: "assistant", text: first.text! }] },
-      ctx: { ...c, leadPending: true }, now, model });
-    expect(second.text).toBe("Передал агенту.");
-    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
-    expect(second.actions[0]).toMatchObject({ type: "append_note" });
+      ctx: c, now, model });
+    expect(second.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер WhatsApp.");
+    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
     const third = await runOperatorTurn({ storedState: second.stored, input: { current: "ок" }, ctx: { ...c, leadPending: true }, now, model });
     expect(third.text).toBeNull();
     expect(third.actions).toEqual([]);

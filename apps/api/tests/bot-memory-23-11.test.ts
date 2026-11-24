@@ -130,7 +130,8 @@ describe("сбой 2: приветствие после заданного во�
     expect(turns[0]!.keys).toEqual(["greet_assalom", "ask_role"]);
     expect(turns[1]!.keys).toEqual(["greet_continue"]);
     expect(turns[2]!.keys).toEqual(["greet_assalom", "greet_continue"]);
-    expect(turns[2]!.text).toBe("Ваалайкум ассалом! Нависед, чӣ хизмат кунем.");
+    // Сторож повтора (24.11.2026, 9d656fe1): прошлым ответом было то же приглашение — звучит другой его вариант.
+    expect(turns[2]!.text).toBe("Ваалайкум ассалом! Бемалол нависед, чӣ хизмат кунем.");
     expect(turns[2]!.state.asked.role).toBe(1);
   });
 

@@ -14,6 +14,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { withoutAgreementOpenings } from "./customerAgentHumanText.js";
+import { stripCallTimePromise } from "./callTimePromiseGuard.js";
 import { foldCustomerText } from "./customerAgentRole.js";
 
 /** Кто клиент — перечень ответа модели (ai/leadOnlyIntent.ts). Здесь, а не там: тип нужен сценарию, а круга импортов быть не должно. */
@@ -349,7 +350,9 @@ export function leadOnlyEscalateLine(language: LeadOnlyLanguage, informed: boole
  * consent opening is cut; a reply left empty becomes a neutral thanks. The operator phrases are clean (CI guard), this is the belt.
  */
 export function leadOnlyOutgoing(text: string, language: LeadOnlyLanguage): string {
-  const cleaned = withoutAgreementOpenings(text).text.trim();
+  // Срок звонка агента — вырезается кодом и здесь (владелец 22.11.2026; прод 24.11 09:37, 7d0df9a4: «имрӯз баъд аз соати 10:00»
+  // ушло мимо сторожа #407, который стоял только на свободном тексте модели ядра, а не на фразах оператора).
+  const cleaned = withoutAgreementOpenings(stripCallTimePromise(text)).text.trim();
   return cleaned || SHORT_ACKS[language][1];
 }
 

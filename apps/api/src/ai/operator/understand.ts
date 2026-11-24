@@ -120,9 +120,34 @@ const DECLINE_WORD = new RegExp(`^(?:(?:да|ха|ну)\\s+)?(?:нет|неа|н
  * Вопрос, на который фактов у бота нет (часовая сверка 21.11.2026, da83282b: «…хонахои бо таъмир ипотека медихад ё на» →
  * голая просьба номера): ипотека, кредит, рассрочка, документы, нотариус, оформление, юрист (сложенный алфавит).
  */
-const AGENT_TOPIC = new RegExp(`${BW}(?:ипотек${TAIL}|ипатек${TAIL}|кредит${TAIL}|карз${TAIL}|рассрочк${TAIL}|расрочк${TAIL}|насия${TAIL}|` +
-  `бо\\s+кисм${TAIL}|документ${TAIL}|хуччат${TAIL}|нотариус${TAIL}|натариус${TAIL}|оформлен${TAIL}|юрист${TAIL}|кадастр${TAIL}|` +
+const AGENT_TOPIC = new RegExp(`${BW}(?:документ${TAIL}|хуччат${TAIL}|нотариус${TAIL}|натариус${TAIL}|оформлен${TAIL}|юрист${TAIL}|кадастр${TAIL}|` +
   `техпаспорт${TAIL}|справк${TAIL})`, "u");
+/**
+ * Ипотека и рассрочка — ответ ЗНАЕМ: сейчас их нет (владелец 22.11.2026: «ипотеки сейчас нет… говорить честно, не обещать»).
+ * Прод 23.11.2026 (7f2fa950): «хонае ҳастай ки ҳармоҳа супори», «бо банк харем» получали «Инро аниқ агенти мо мегӯяд».
+ * Вопросительного знака не требуем: «хочу в рассрочку» — тот же вопрос.
+ */
+const INSTALLMENT_WORD = new RegExp(`${BW}(?:ипотек${TAIL}|ипатек${TAIL}|кредит${TAIL}|карз${TAIL}|рассрочк${TAIL}|расрочк${TAIL}|насия${TAIL}|` +
+  `бо\\s+кисм${TAIL}|хармох${TAIL}|хар\\s+мох${TAIL}|мохона${TAIL}|ежемесячн${TAIL}|помесячн${TAIL}\\s+(?:оплат${TAIL}|плат${TAIL})|бо\\s+банк${TAIL}|через\\s+банк${TAIL})`, "u");
+/**
+ * «Есть ли у вас дома в Душанбе?», «хонаи фурушитон дар шаҳри Душанбе ҳаст?» (прод 23.11.2026, 2cc65bc3: ответ «скажет агент» на
+ * вопрос, ответ на который мы знаем — да). Слово о жилье + Душанбе/«в городе» + вопрос наличия.
+ */
+const STOCK_PLACE = new RegExp(`${BW}(?:душанбе${TAIL}|шахр${TAIL}|город${TAIL})`, "u");
+const STOCK_HAVE = new RegExp(`${BW}(?:хаст${TAIL}|доред|дорен|дорет|бор|есть|имеется|имеются|продаете|продаёте|мефурушед)${EW}`, "u");
+/** «Какие услуги вы предлагаете?», «чем занимаетесь?», «чи хизмат мекунед?» — вопрос об услугах (прод 24.11.2026, db061eef). */
+const SERVICES_WORD = new RegExp(`${BW}(?:как(?:ие|ую)\\s+(?:у\\s+вас\\s+)?услуг${TAIL}|чем\\s+(?:вы\\s+)?занимает${TAIL}|что\\s+вы\\s+(?:делаете|предлагаете)|` +
+  `(?:чи|кадом)\\s+хизмат${TAIL}|услуга?тон\\s+чи${TAIL}|шумо\\s+чи\\s+кор\\s+мекун${TAIL})`, "u");
+/** «Можно фото/видео?», «скиньте фото», «акс фиристед», «видео ҳаст?» — просьба фото объекта (прод 24.11.2026, 71178348). */
+const PHOTO_REQUEST = new RegExp(`${BW}(?:фото${TAIL}|видео${TAIL}|акс${TAIL}|сурат${TAIL}|видеош${TAIL})` +
+  `[^.!]{0,40}(?:можно|скин${TAIL}|пришл${TAIL}|отправ${TAIL}|покаж${TAIL}|есть|фирист${TAIL}|равон${TAIL}|партоф${TAIL}|хаст|мешава${TAIL}|\\?)` +
+  `|${BW}(?:можно|скиньте|пришлите|отправьте|фиристед|фиристен|партоед|партофта)${EW}[^.!]{0,30}(?:фото${TAIL}|видео${TAIL}|акс${TAIL}|сурат${TAIL})`, "u");
+/** Условия агентства: «шартҳо», «условия», «хизматрасонӣ» рядом со словом вопроса — вопрос о цене услуг (сложенный алфавит). */
+const CONDITIONS_WORD = new RegExp(`${BW}(?:шарт${TAIL}|услови${TAIL}|хизматрасон${TAIL})`, "u");
+const CONDITIONS_HOW = new RegExp(`${BW}(?:чихел${TAIL}|чи\\s*гуна|чигуна|какие|каковы|какой)${EW}`, "u");
+/** «Что нужно делать?», «чи кор кунам?», «чикоркардан даркор» — после заявки: ничего, агент свяжется (прод 23.11.2026, 58fa7438). */
+const NEXT_STEP = new RegExp(`${BW}(?:что\\s+(?:мне\\s+|нам\\s+)?(?:нужно|надо)\\s+(?:делать|сделать)|что\\s+(?:мне\\s+|нам\\s+)?делать|` +
+  `чи\\s*кор\\s*(?:кунам|кунем|кардан|карданам|кардан\\s+даркор|кардан\\s+лозим)|чикоркардан${TAIL}|чикор\\s+кунам|чикор\\s+кунем)`, "u");
 /** Вопрос без «?»: «…ипотека медиҳад ё на», «есть ли рассрочка», «мумкин бо қисм?» (сложенный алфавит). */
 const QUESTION_HINT = new RegExp(`${BW}(?:ё|е)\\s+(?:на|не)${EW}|${BW}(?:ми|магар|оё|мумкин|мешавад|мешава|медихед|медихад|медиха|хаст|доред|дорен|ли|можно|есть)${EW}`, "u");
 /** Таджикские буквы в сыром тексте: такое сообщение не переводит разговор на русский. */
@@ -275,9 +300,20 @@ function codeFacts(input: OperatorTurnInput) {
     greetingLanguage: greetingLanguageOf(folded),
     rent: looksLikeRentRequest(own), job: customerRecruitmentRequested(own),
     rude: abuse === "threat" || abuse === "insult", spam: abuse === "spam",
-    fee: leadOnlyAgencyFeeQuestion(own),
+    // «Шартҳояш чихел, хизматрасонӣ чи гуна?», «какие у вас условия?» — тот же вопрос о цене услуг (прод 21.11.2026, b0c0290a:
+    // ответ «Саволатонро ба агент расондам», хотя ответ знаем: покупателю бесплатно, продавцу комиссия).
+    fee: leadOnlyAgencyFeeQuestion(own) || (CONDITIONS_WORD.test(folded) && !HOUSE_WORD.test(folded) && !/\d/u.test(folded) &&
+      (/[?؟]/u.test(own) || QUESTION_HINT.test(folded) || CONDITIONS_HOW.test(folded))),
     placeQuestion: !isAdTemplateOpener(own) && PLACE_WORD.test(folded),
     agentTopic: !isAdTemplateOpener(own) && AGENT_TOPIC.test(folded) && (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
+    photoRequest: !isAdTemplateOpener(own) && PHOTO_REQUEST.test(folded),
+    servicesQuestion: !isAdTemplateOpener(own) && SERVICES_WORD.test(folded),
+    installmentQuestion: !isAdTemplateOpener(own) && INSTALLMENT_WORD.test(folded),
+    stockQuestion: !isAdTemplateOpener(own) && HOUSE_WORD.test(folded) && STOCK_PLACE.test(folded) && STOCK_HAVE.test(folded) &&
+      (/[?؟]/u.test(own) || QUESTION_HINT.test(folded)),
+    nextStepQuestion: !isAdTemplateOpener(own) && NEXT_STEP.test(folded),
+    // Одна ссылка (Reels, пост) без своих слов — не вопрос: «Это точно скажет агент» на голую ссылку бессмысленно (прод c319ee90).
+    linkOnly: /https?:\/\/|www\./iu.test(own) && letterCount(own.replace(/(?:https?:\/\/|www\.)\S+/giu, " ")) < 2,
     // Явная просьба о языке («пишите на русском», «не понимаю по-таджикски», «бо тоҷикӣ нависед») меняет язык всегда; иначе
     // переход на русский — по русской фразе без таджикских букв (ревью #358).
     languagePreference: customerDmLanguagePreference(own),
@@ -339,7 +375,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
   const preference = textPreference(code.own);
   const digitsBeyondPhone = /\d/u.test(code.phone ? code.own.replace(/\+?\d[\d\s\-().]{5,}\d/gu, " ") : code.own);
   return {
-    source: "fallback", role, question: question === "none" && code.agentTopic ? "other" : question, aboutThisProperty, details,
+    source: "fallback", role, question: code.linkOnly ? "none" : code.servicesQuestion && (question === "other" || question === "none") ? "services" : question === "none" && code.agentTopic ? "other" : question, aboutThisProperty, details,
     hasDetails: Object.keys(details).length > 0 || (digitsBeyondPhone && code.letters > 0),
     phone: code.phone,
     callback: { when: operatorCallbackRange(code.own, language), ...preference },
@@ -353,6 +389,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     placeQuestion: code.placeQuestion, bothRoles: role === "seller" && customerRoleSignals(code.own).both,
     showing: code.showing, agrees: code.agrees, declines: code.declines, roleByQuestion: roleByQuestion(role, question, code.own),
     agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
+    installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
     ...(ownHouseOnly(role, code) ? { roleConflict: true } : {}),
@@ -563,11 +600,12 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
   return {
     rejected,
     understanding: {
-      source: "model", role, question: question === "none" && code.agentTopic ? "other" : question,
+      source: "model", role, question: code.linkOnly ? "none" : code.servicesQuestion && (question === "other" || question === "none") ? "services" : question === "none" && code.agentTopic ? "other" : question,
       aboutThisProperty: !code.adOpener && (answer.aboutThisProperty || fallback.aboutThisProperty),
       placeQuestion: code.placeQuestion, bothRoles: role === "seller" && fallback.bothRoles === true,
       showing: code.showing, agrees: code.agrees, declines: code.declines, ...(roleConflict ? { roleConflict: true } : {}),
       agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
+      installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
       roleByQuestion: roleByQuestion(role, question, code.own),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
@@ -586,7 +624,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       // Грубость и жалоба закрывают разговор для бота: модель ИЛИ код; лишний раз позвать человека дешевле, чем спорить.
       rude: answer.rude || code.rude, complaint: answer.complaint || fallback.complaint,
       botQuestion: answer.botQuestion || fallback.botQuestion,
-      offTopic: (answer.offTopic || code.spam) && role === null,
+      // Ипотека, рассрочка, «дома в Душанбе есть?» — наше дело, ответ знаем (прод 23.11.2026): модель метит «кредит» как не по теме.
+      offTopic: (answer.offTopic && !code.installmentQuestion && !code.stockQuestion || code.spam) && role === null,
       job: { asked, openKey: position?.key ?? null },
       attachments: code.attachments, hasText: code.hasText, outsidePlace, quote: code.quote,
     },

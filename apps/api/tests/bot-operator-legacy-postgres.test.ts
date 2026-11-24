@@ -73,9 +73,9 @@ async function conversationOf(peer: string) {
 describe("оператор приёма заявок, старый путь", () => {
   it("случай 3, WhatsApp, продавец: заявка в этот же ход и вопрос о деталях; дальше заметка; модель ответа не звалась", async () => {
     const peer = digits();
-    const first = await turn(peer, "Здравствуйте, хочу продать свою квартиру");
-    // «Здравствуйте» клиента — приветствие в ответ (SPEC п. 4, 21.11.2026).
-    expect(first.reply).toBe("Здравствуйте! Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
+    const first = await turn(peer, "Здравствуйте, хочу продать свою квартиру, 2 комнаты");
+    // «Здравствуйте» клиента — приветствие в ответ (SPEC п. 4, 21.11.2026); роль и комнаты — заявка сразу, без срока звонка (24.11.2026).
+    expect(first.reply).toBe("Здравствуйте! Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он с вами свяжется, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const conv = await conversationOf(peer);
     expect(conv.clientId).not.toBeNull();
@@ -94,7 +94,7 @@ describe("оператор приёма заявок, старый путь", ()
   it("WhatsApp, наш пост объекта: объект и цена из базы, заявка уходит агенту-хозяину объекта", async () => {
     const peer = digits();
     const result = await turn(peer, "Интересует эта квартира", { sharedPropertyId: propertyId });
-    expect(result.reply).toBe(`Это объект №${propertyShortId}, цена 450 000 сомони. Спасибо, передаю агенту, он позвонит вам на этот номер в ближайшее время.`);
+    expect(result.reply).toBe(`Это объект №${propertyShortId}, цена 450 000 сомони. Спасибо, передаю агенту, он позвонит вам на этот номер WhatsApp.`);
     const conv = await conversationOf(peer);
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
     expect(client.assignedAgentId).toBe(ownerId);
@@ -143,10 +143,11 @@ describe("ревью 19.11: старый путь", () => {
 
   it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» вместо «Передал агенту» (старый путь)", async () => {
     const peer = digits();
-    await turn(peer, "Здравствуйте, хочу продать свою квартиру");
+    // Роль и суть (комнаты) — заявка сразу (голая роль с 24.11.2026 сначала получает вопрос по сути).
+    await turn(peer, "Здравствуйте, хочу продать свою квартиру, 2 комнаты");
     const conv = await conversationOf(peer);
     await prisma.client.update({ where: { id: conv.clientId! }, data: { assignedAgentId: null } });
     const second = await turn(peer, "Сино, 3 комнаты, 5 этаж, 80 кв");
-    expect(second.reply).toMatch(/^Записали, с вами свяжутся /u);
+    expect(second.reply).toBe("Записали, с вами свяжутся.");
   });
 });
