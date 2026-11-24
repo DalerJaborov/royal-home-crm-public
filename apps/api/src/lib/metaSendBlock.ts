@@ -282,8 +282,11 @@ export async function isAccountSendBlocked(account: MetaSendAccountRef, surface:
 
 /** Отказ Graph API с разобранными полями (код, подкод, fbtrace); текст прежний — `Graph API HTTP NNN: <тело>`. */
 export class MetaGraphCallError extends Error {
-  constructor(message: string, readonly graph: MetaGraphErrorFields) {
+  /** Отказ пришёл от запасного личного ключа после отказа пути Страницы: сам ключ канала (Страница) мог быть жив. */
+  readonly fellBackFromPage: boolean;
+  constructor(message: string, readonly graph: MetaGraphErrorFields, options?: { fellBackFromPage?: boolean }) {
     super(message);
+    this.fellBackFromPage = options?.fellBackFromPage === true;
     this.name = "MetaGraphCallError";
   }
 }

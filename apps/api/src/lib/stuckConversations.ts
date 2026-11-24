@@ -20,13 +20,39 @@ import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
-import { isMetaAuthFailureText } from "./channelKeyAlarm.js";
+import { createHash } from "node:crypto";
 
-/** Отказ ключа канала Meta: HTTP 401 или код 190/102 (полем ошибки Graph — текст обрезан до 300 знаков). */
+/**
+ * Отказ КЛЮЧА канала Meta — только там, где это точно токен (ревью #423): HTTP 401 или код 190/102 с текстом про маркер
+ * («access token», «session»). Код 190 бывает и не про ключ (окно ответа на комментарий истекло), а 401 запасного личного
+ * ключа после отказа пути Страницы не доказывает, что мёртв ключ канала: это обычный сбой, лесенка как раньше.
+ */
+const TOKEN_REFUSAL = /access token|session has been invalidated|session has expired|session is invalid/i;
 export function isChannelKeyDeadError(err: unknown): boolean {
-  if (err instanceof MetaGraphCallError && (err.graph.status === 401 || err.graph.code === 190 || err.graph.code === 102)) return true;
+  if (err instanceof MetaGraphCallError) {
+    if (err.fellBackFromPage) return false;
+    if (err.graph.status === 401) return true;
+    return (err.graph.code === 190 || err.graph.code === 102) && TOKEN_REFUSAL.test(err.message);
+  }
   // Only the Meta transport's own error text: an AI provider's «HTTP 401» is not the channel's key.
-  return err instanceof Error && /^Graph API HTTP \d{3}:/.test(err.message) && isMetaAuthFailureText(err.message);
+  if (!(err instanceof Error) || !/^Graph API HTTP \d{3}:/.test(err.message)) return false;
+  return /^Graph API HTTP 401:/.test(err.message) || (/"code"\s*:\s*(190|102)\b/.test(err.message) && TOKEN_REFUSAL.test(err.message));
+}
+
+/**
+ * Отпечаток ключа, которым повтор отправил бы ответ (12 знаков sha256; сам ключ не хранится и не печатается). Остановка
+ * повтора по мёртвому ключу привязана к нему: переподключили аккаунт — отпечаток другой, повтор снова идёт.
+ * Не Meta, нет ключа или сбой чтения — "none".
+ */
+export async function channelKeyFingerprint(channel: string, accountId: string | null): Promise<string> {
+  const metaChannel = asMetaChannel(channel);
+  if (!metaChannel) return "none";
+  try {
+    const { token } = await accountTokenById(accountId, metaChannel);
+    return token ? createHash("sha256").update(token).digest("hex").slice(0, 12) : "none";
+  } catch {
+    return "none";
+  }
 }
 /** Исход повтора. `channel-dead` — Meta не приняла ключ канала (HTTP 401, код 190/102): повторять бессмысленно. */
 export type StuckRetryOutcome = "sent" | "no-reply" | "failed" | "ai-down" | "channel-dead";

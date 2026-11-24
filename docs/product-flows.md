@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **774**. Развилок в самих путях: **2470**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
+Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5961,6 +5961,9 @@
 
 - const rows = await findStuckConversations();
   · зовёт findStuckConversations()
+- если rows.length > 0
+  - await resetAiRetryCap(rows.map((row)
+    · зовёт resetAiRetryCap()
 - res.json({ queued: rows.length });
   · ответ 200
 - если rows.length === 0
@@ -26793,7 +26796,20 @@
   · зовёт aiRetryLedgerBase()
   - const message = channelCoreMessageKey(messages);
     · зовёт channelCoreMessageKey()
-- если capBase && await aiRetryStopped(capBase)
+- const keyFingerprint = capBase ? await channelKeyFingerprint(conversation.channel, conversation.accountId) : …
+  · зовёт channelKeyFingerprint()
+  - const metaChannel = asMetaChannel(channel);
+    · зовёт asMetaChannel()
+  - если !metaChannel
+    - return "none";
+      · дословно из кода
+  - пробует
+    - const { token } = await accountTokenById(accountId, metaChannel);
+      · зовёт accountTokenById()
+  - если сорвалось
+    - return "none";
+      · дословно из кода
+- если capBase && await aiRetryStopped(capBase, keyFingerprint)
   - return;
     · дальше не идёт, ничего не меняя
 - const outcome = await retryStuckConversation({ id: conversation.id, channel: conversation.channel, subscriber…
@@ -26815,29 +26831,15 @@
   - если !capBase
     - throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
       · ошибка Error — «повтор не удался: ключ канала не принят (подробности в журнале ошибок»
-  - await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "channel_key_dead", messages: his…
+  - await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "channel_key_dead", keyFi…
     · зовёт stopAiRetry()
-    - пробует
-      - если !(await claim(`${input.base}:stop`))
-        - return;
-          · дальше не идёт, ничего не меняя
-      - await logSystemError("ai", `Повтор ответа бота остановлен (${input.conversationId}): ${input.reason === "chan…
-        · запись в журнал ошибок
-      - если await conversationSilenceIntended(input.messages)
-        - return;
-          · дальше не идёт, ничего не меняя
-      - await alertClientWaiting({ conversationId: input.conversationId, trigger: "failed", why });
-        · зовёт alertClientWaiting()
-    - если сорвалось
-      - console.error("[ai-retry-cap] остановка повтора:", error instanceof Error ? error.message : "UnknownError");
-        · пишет строку в журнал сервера
   - return;
     · дальше не идёт, ничего не меняя
 - если outcome === "failed"
   - throw new Error("повтор не удался (подробности в журнале ошибок)");
     · ошибка Error — «повтор не удался (подробности в журнале ошибок»
 - если outcome === "no-reply" && capBase && await noteAiRetryNoReply(capBase)
-  - await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "retry_cap", messages: history });
+  - await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "retry_cap" } });
     · зовёт stopAiRetry()
 - когда попытки кончились
   - const giveUps = await prisma.backgroundJob.count({ where: { type: "ai-reply-retry", status: "GIVEN_UP", updat…

@@ -3,7 +3,7 @@ import { prisma } from "../db.js";
 import { customerPropertyTurnTerminal } from "../lib/customerPropertyHistory.js";
 import { currentTurnHasCustomerOutbox } from "../lib/customerOutbox.js";
 import { logSystemError } from "../lib/systemError.js";
-import { retryStuckConversation } from "../lib/stuckConversations.js";
+import { channelKeyFingerprint, retryStuckConversation } from "../lib/stuckConversations.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { OPERATOR_REPLY_PAUSE_MS } from "../lib/conversationDelivery.js";
@@ -118,7 +118,9 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     // Потолок повтора на реплику клиента (aiReplyRetryCap.ts): остановленный повтор — сразу конец, без ИИ и без трассы.
     const capOn = await automationSwitchOn("botRetryCapEnabled");
     const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;
-    if (capBase && await aiRetryStopped(capBase)) return;
+    // Ключ, которым уйдёт ответ: остановка «ключ мёртв» действует только для него (переподключили — пробуем снова).
+    const keyFingerprint = capBase ? await channelKeyFingerprint(conversation.channel, conversation.accountId) : "none";
+    if (capBase && await aiRetryStopped(capBase, keyFingerprint)) return;
 
     const outcome = await retryStuckConversation({
       id: conversation.id,
@@ -136,13 +138,13 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     // Ключ канала мёртв: повтор бессмыслен, ИИ больше не зовём (рубильник выключен — прежняя лесенка, как обычный сбой).
     if (outcome === "channel-dead") {
       if (!capBase) throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
-      await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "channel_key_dead", messages: history });
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "channel_key_dead", keyFingerprint } });
       return;
     }
     if (outcome === "failed") throw new Error("повтор не удался (подробности в журнале ошибок)");
     // Пустой повтор (ответа нет по правилам) завершает задание, а крон через 30 минут поставит новое: считаем на реплике.
     if (outcome === "no-reply" && capBase && await noteAiRetryNoReply(capBase)) {
-      await stopAiRetry({ conversationId: conversation.id, base: capBase, reason: "retry_cap", messages: history });
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "retry_cap" } });
     }
   },
   async onGiveUp(payload) {

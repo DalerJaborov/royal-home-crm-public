@@ -115,22 +115,10 @@ export function waitingEpisodeOf(messages: unknown): WaitingEpisode | null {
 
 /**
  * Все неотвеченные реплики эпизода ядро удержало НАМЕРЕННО (по тикетам ядра; реплика без тикета намеренность не доказывает).
- * Одно правило на сторож молчания и на остановку фонового повтора (jobs/aiReplyRetryCap.ts). Чистая функция.
+ * Одно правило на обе выборки сторожа молчания (первый сигнал и повтор). Чистая функция.
  */
 export function episodeAllIntentional(episode: WaitingEpisode, intentionalKeys: ReadonlySet<string>): boolean {
   return episode.untracked === 0 && episode.eventKeys.every((k) => intentionalKeys.has(k));
-}
-
-/** Тот же вопрос для одной переписки: молчание здесь — решение, а не сбой (человека не зовём). Сбой чтения — «не доказано». */
-export async function conversationSilenceIntended(messages: unknown): Promise<boolean> {
-  const episode = waitingEpisodeOf(messages);
-  if (!episode || episode.eventKeys.length === 0) return false;
-  try {
-    const tickets = await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: episode.eventKeys } }, select: { eventKey: true, errorCode: true } });
-    return episodeAllIntentional(episode, new Set(tickets.filter((t) => t.errorCode && INTENTIONAL_SILENCE_REASONS.has(t.errorCode)).map((t) => t.eventKey)));
-  } catch {
-    return false;
-  }
 }
 
 /** escalate — модель сама решила «нужен сотрудник»; failed — ход бота сломался (лимит шагов,

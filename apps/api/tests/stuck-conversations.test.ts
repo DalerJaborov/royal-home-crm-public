@@ -397,11 +397,17 @@ describe("retryAllStuckConversations — отправка только зави�
     expect(logSystemError).not.toHaveBeenCalled();
   });
 
-  it("отказ ключа узнаётся и по полю ошибки Graph, а «HTTP 401» чужого сервиса — нет", async () => {
+  it("«ключ мёртв» — только там, где это точно токен (ревью #423)", async () => {
     const { MetaGraphCallError } = await import("../src/lib/metaSendBlock.js");
     const { isChannelKeyDeadError } = await import("../src/lib/stuckConversations.js");
-    const graph = { status: 400, code: 190, subcode: 463, type: "OAuthException", fbtraceId: null } as ConstructorParameters<typeof MetaGraphCallError>[1];
-    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 400: …обрезано…", graph))).toBe(true);
+    type Graph = ConstructorParameters<typeof MetaGraphCallError>[1];
+    const graph = (status: number, code: number) => ({ status, code, subcode: null, type: "OAuthException", fbtraceId: null }) as Graph;
+    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 400: Error validating access token: Session has expired", graph(400, 190)))).toBe(true);
+    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 401: {}", graph(401, 190)))).toBe(true);
+    // 190 бывает и не про ключ: окно ответа истекло — не «ключ мёртв».
+    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 400: comment reply window has expired", graph(400, 190)))).toBe(false);
+    // 401 запасного личного ключа после отказа пути Страницы — ключ канала мог быть жив.
+    expect(isChannelKeyDeadError(new MetaGraphCallError("Graph API HTTP 401: {}", graph(401, 190), { fellBackFromPage: true }))).toBe(false);
     expect(isChannelKeyDeadError(new Error("Graph API HTTP 401: {}"))).toBe(true);
     expect(isChannelKeyDeadError(new Error("Graph API HTTP 500: temporary"))).toBe(false);
     expect(isChannelKeyDeadError(new Error("Gemini HTTP 401: API key not valid"))).toBe(false);

@@ -17,9 +17,9 @@
   "cron": 142,
   "jobs": 34,
   "conditions": 4134,
-  "untranslatedUnique": 476,
-  "untranslatedTotal": 611,
-  "partialUnique": 1111,
+  "untranslatedUnique": 474,
+  "untranslatedTotal": 609,
+  "partialUnique": 1112,
   "translatedShare": 85
  },
  "untranslated": [
@@ -27,7 +27,6 @@
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
-  "!(await claim(`${input.base}:stop`))",
   "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
   "!(await discardDraft(d.id, { expiredAt: now }))",
@@ -208,7 +207,6 @@
   "await alertExpenseOverrun()",
   "await blockDuplicateFinalBeforePublish(property.id, property.shortId, diskPath)",
   "await claimForPublishing(row, [\"SCHEDULED\"], parseDestinations(row.destinations, row.channels), [])",
-  "await conversationSilenceIntended(input.messages)",
   "await currentTurnHasCustomerOutbox(payload.conversationId)",
   "await defaultInstagramAccountHasToken()",
   "await editorIsBusy(tx)",
@@ -251,7 +249,7 @@
   "buffer.subarray(0, 5).toString() !== \"%PDF-\"",
   "buffered[event.side] >= MAX_BUFFERED_SAMPLES",
   "buffers[side].length === 0",
-  "capBase && await aiRetryStopped(capBase)",
+  "capBase && await aiRetryStopped(capBase, keyFingerprint)",
   "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
   "channel && !bot.toggles.channels[channel]",
@@ -24783,6 +24781,12 @@
     "/settings"
    ],
    "tree": [
+    {
+     "t": "если rows количество больше 0",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
     {
      "t": "всё хорошо, отвечает данными",
      "k": "do",
@@ -78160,11 +78164,36 @@
      "c": []
     },
     {
-     "t": "если capBase && await aiRetryStopped(capBase)",
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: Meta канал",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если capBase && await aiRetryStopped(capBase, keyFingerprint)",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "capBase && await aiRetryStopped(capBase)"
+     "raw": "capBase && await aiRetryStopped(capBase, keyFingerprint)"
     },
     {
      "t": "внутри этого шага",
@@ -78224,48 +78253,6 @@
         {
          "t": "поломка: «повтор не удался: ключ канала не принят (подробности в журнале ошибок»",
          "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "пробует сделать",
-         "k": "try",
-         "a": [],
-         "c": [
-          {
-           "t": "если !(await claim(`${input.base}:stop`))",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "!(await claim(`${input.base}:stop`))",
-           "more": true
-          },
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          },
-          {
-           "t": "если await conversationSilenceIntended(input.messages)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "await conversationSilenceIntended(input.messages)",
-           "more": true
-          }
-         ]
-        },
-        {
-         "t": "если не получилось",
-         "k": "catch",
          "a": [],
          "c": []
         }

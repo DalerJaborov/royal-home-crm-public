@@ -2194,7 +2194,7 @@ export async function callGraph<T = unknown>(
         continue;
       }
       // Код, подкод и fbtrace — полями ошибки: обрезка текста до 300 знаков их больше не съедает.
-      throw new MetaGraphCallError(message, graphError);
+      throw new MetaGraphCallError(message, graphError, { fellBackFromPage });
     }
     // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
     gateSettled = true;
