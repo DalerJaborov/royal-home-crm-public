@@ -23,7 +23,10 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   setMessageReaction: vi.fn(async () => {}),
   getBotUsername: async () => "rh_test_bot",
 }));
-vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: vi.fn(async () => false) }));
+vi.mock("../src/telegram/assistantVoice.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/assistantVoice.js")>()),
+  sendAssistantVoiceReply: vi.fn(async () => false),
+}));
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/assistant.js")>()),
   isAiAssistantEnabled: async () => true,
