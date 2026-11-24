@@ -543,12 +543,11 @@ describe("ревью 19.11: Р1–Р8 и путь рекрутёра", () => {
     expect(leads(ig)[0]).toMatchObject({ noCall: false });
   });
 
-  it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» и сигнал руководству, без «передал агенту»", () => {
+  it("Р4: карточка без живого агента — «Записали, увидит сотрудник» (без срока и «свяжутся», разбор 23.11) и сигнал руководству, без «передал агенту»", () => {
     const c = ctx({ leadExists: true, cardAgentActive: false });
     const t = one(c, ru({ details: { floor: "5" }, hasDetails: true }));
     expect(t.keys).toEqual(["no_agent_noted"]);
-    // Срок звонка не называем никогда (владелец 22.11.2026; прод 24.11 09:37, 7d0df9a4).
-    expect(t.text).toBe("Записали, с вами свяжутся.");
+    expect(t.text).toBe("Записали, ваше сообщение увидит сотрудник.");
     expect(t.actions.map(a => a.type)).toEqual(["append_note", "follow_up"]);
     expect(one(c, ru({ callback: { when: "с 11:00 до 14:30", textOnly: false, noCall: false } })).actions.map(a => a.type)).toEqual(["append_note", "follow_up"]);
   });

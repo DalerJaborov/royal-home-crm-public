@@ -320,11 +320,19 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     }
     // Карточка без живого агента: «передал агенту» — неправда; честно «записали», руководство узнаёт (Р4).
     const noAgent = !ctx.cardAgentActive;
+    // Обещание связаться уже звучало и не выполнено (ни звонка, ни ответа сотрудника): второй раз не обещаем — «записали,
+    // увидит сотрудник» и сигнал агенту с копией руководству (разбор суток 23.11.2026, C6: «Записали, с вами свяжутся
+    // сегодня» → «Вы не раз это говорили»).
+    // Сотрудник сам сейчас пишет в переписке — обещание уже выполняется, сигнал не нужен.
+    const unkept = ctx.promiseUnkept === true && !ctx.staffActive;
+    const noPromise = noAgent || unkept;
+    // Мимо callStaff (он зовёт один раз за разговор): «клиент ждёт» сама держит один сигнал на эпизод ожидания.
+    if (unkept && !u.ackOnly && !u.thanksOnly) actions.push({ type: "call_staff", reason: "promise_unkept" });
     // Клиент дописывает подряд: «передал агенту» звучит один раз на серию, дальше — молча в заметку.
     const burst = !!ctx.recentTurn && s.flags.lastAck;
     const noted = (key: PhraseKey, vars: PhraseVars = {}, oncePerDay = true): void => {
-      if (burst && (ACK_KEYS.has(key) || noAgent)) return;
-      if (noAgent) { if (extra || !said("no_agent_noted")) flow.push(draft("no_agent_noted")); return; }
+      if (burst && (ACK_KEYS.has(key) || noPromise)) return;
+      if (noPromise) { if (extra || !said("no_agent_noted")) flow.push(draft("no_agent_noted")); return; }
       // Новое поведение: каждая новая деталь отмечается (варианты по кругу), прежнее — один раз в сутки.
       if (extra || !oncePerDay || !said(key)) flow.push(draft(key, vars));
     };
@@ -373,7 +381,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       noted("lead_status");
     } else if (extra && goalRole && !newGoal) {
       // Клиент повторил то, что уже в заявке («хочу продать»): напоминаем, что заявка у агента, один раз в сутки.
-      if (!said("lead_reminder") && !said("no_agent_noted")) flow.push(noAgent ? draft("no_agent_noted") : draft("lead_reminder"));
+      if (!said("lead_reminder") && !said("no_agent_noted")) flow.push(noPromise ? draft("no_agent_noted") : draft("lead_reminder"));
     } else if (extra && answers.length === 0 && substantive) {
       // Вопрос по делу — «передал ваш вопрос»; сообщение без вопроса — «передал агенту». Оба — заметкой в карточку.
       const asked = u.question !== "none" || /[?]/u.test(u.quote);
@@ -382,12 +390,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     } else if (extra && u.greetingOnly && answers.length === 0) {
       if (!said("lead_reminder") && !said("no_agent_noted")) {
         flow.push(draft(u.greeting === "assalom" ? "greet_assalom" : "greet"));
-        flow.push(noAgent ? draft("no_agent_noted") : draft("lead_reminder"));
+        flow.push(noPromise ? draft("no_agent_noted") : draft("lead_reminder"));
       }
     } else if (u.thanksOnly && !said("welcome")) flow.push(draft("welcome"));
     // Бот ответил сам (условия, ипотека, «что делать?»): вопрос всё равно уходит агенту заметкой, без второй фразы «передал».
     if (answers.length && substantive && !actions.some(action => action.type === "append_note")) note(`Вопрос клиента: «${u.quote}»`);
     if (noAgent && actions.some(action => action.type === "append_note")) actions.push({ type: "follow_up" });
+    // «Записали, увидит сотрудник» без пометки (приветствие, напоминание): обещание «увидит» правдиво, только если сигнал ушёл.
+    else if (noAgent && flow.some(item => item.key === "no_agent_noted")) actions.push({ type: "follow_up" });
     // Инвариант (ревью #333): карточка без живого агента, бот молчит не на «ок» — руководство узнаёт.
     else if (noAgent && !answers.length && !flow.length && !u.ackOnly && !u.thanksOnly) actions.push({ type: "follow_up" });
     // Сотрудник сам ведёт переписку прямо сейчас: бот молчит, заметки агенту остаются (агенту — штатный пуш о сообщении).
@@ -463,7 +473,11 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   }
   // «Нет, просто узнать», «Да нет, пока не надо» после предложения звонка (слепое ревью #345): номер не просим, коротко «пишите,
   // когда удобно» один раз. Это не вечное «не звоните»: следующий вопрос по делу — снова интерес.
-  if (said("offer_call") && u.declines && !u.phone && u.question === "none" && !u.placeQuestion && !u.showing && !u.hasDetails &&
+  // Короткий отказ без предложения звонка («Не. Рахмат», «нет спасибо», «не, раҳмат» в ответ на «купить или продать?») — тоже
+  // отказ: вопрос о роли второй раз не задаём (разбор суток 23.11.2026, C1). Дальше на тот же отказ — тишина.
+  // Только как ответ на наш вопрос (о роли или номере): первое «нет» в разговоре — не отказ от чего-то.
+  const plainRefusal = u.refusalOnly === true && !u.role && !u.attachments.ownPost && (s.asked.role > 0 || s.asked.phone > 0);
+  if ((said("offer_call") || plainRefusal) && u.declines && !u.phone && u.question === "none" && !u.placeQuestion && !u.showing && !u.hasDetails &&
     s.role !== "buyer" && s.role !== "seller") {
     if (!said("no_call_ack")) flow.push(draft("no_call_ack"));
     return finish();

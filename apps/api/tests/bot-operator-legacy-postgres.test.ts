@@ -141,13 +141,13 @@ describe("ревью 19.11: старый путь", () => {
     await prisma.pendingDirectorAlert.deleteMany({ where: { tag: `client-waiting-${conv.id}` } });
   });
 
-  it("Р4: карточка без живого агента — «Записали, с вами свяжутся …» вместо «Передал агенту» (старый путь)", async () => {
+  it("Р4: карточка без живого агента — «Записали, увидит сотрудник» вместо «Передал агенту» (старый путь, разбор 23.11)", async () => {
     const peer = digits();
     // Роль и суть (комнаты) — заявка сразу (голая роль с 24.11.2026 сначала получает вопрос по сути).
     await turn(peer, "Здравствуйте, хочу продать свою квартиру, 2 комнаты");
     const conv = await conversationOf(peer);
     await prisma.client.update({ where: { id: conv.clientId! }, data: { assignedAgentId: null } });
     const second = await turn(peer, "Сино, 3 комнаты, 5 этаж, 80 кв");
-    expect(second.reply).toBe("Записали, с вами свяжутся.");
+    expect(second.reply).toMatch(/^Записали, ваше сообщение увидит сотрудник\./u);
   });
 });

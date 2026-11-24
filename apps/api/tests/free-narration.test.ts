@@ -162,6 +162,14 @@ describe("дверь озвучки текста", () => {
     expect((await createFreeNarrationRequest({ agentId: b.id, source: "API", text: "Привет, это проверка ключа", requestKey })).status).toBe("NO_ACCESS");
   });
 
+  it("без потолка на человека (по умолчанию 0): шесть озвучек подряд проходят", async () => {
+    await setConfig({ freeNarrationPerPersonDaily: 0 });
+    const user = await makeAgent();
+    const fetcher = audioFetch();
+    for (let i = 0; i < 6; i++) expect((await runFreeNarration({ id: (await newRequest(user.id)).id, agentId: user.id, fetcher })).status).toBe("READY");
+    expect(fetcher).toHaveBeenCalledTimes(6);
+  });
+
   it("потолок на человека: сверх него ElevenLabs не зовётся; у другого человека свой счёт", async () => {
     await setConfig({ freeNarrationPerPersonDaily: 2 });
     const user = await makeAgent();
@@ -195,7 +203,7 @@ describe("дверь озвучки текста", () => {
     expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "ab" })).status).toBe("TOO_SHORT");
     expect(await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(101) })).toEqual({ status: "TOO_LONG", max: 100, length: 101 });
     await setConfig();
-    expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(1501) })).status).toBe("TOO_LONG");
+    expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(5001) })).status).toBe("TOO_LONG");
   });
 
   it("отказ провайдера: понятный исход, расход засчитан, сам не повторяется; «кредиты кончились» отличается", async () => {
@@ -258,10 +266,10 @@ describe("REST /properties/narration-free", () => {
   it("параметры: голоса, голос по умолчанию, потолки и остаток на сегодня", async () => {
     const res = await request(app).get("/properties/narration-free/options");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ enabled: true, defaultVoiceId: voices[1].id, maxChars: 1500, perPersonDaily: 50 });
+    expect(res.body).toMatchObject({ enabled: true, defaultVoiceId: voices[1].id, maxChars: 5000, perPersonDaily: 50 });
     expect(res.body.voices.map((v: { id: string }) => v.id)).toEqual(voices.map((v) => v.id));
     expect(res.body.remainingToday).toBeLessThanOrEqual(50);
-    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 5, maxChars: 1500, budgetPercent: 30 });
+    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 0, maxChars: 5000, budgetPercent: 100 });
   });
 
   it("плохое тело — 400; нет доступа — 403", async () => {
@@ -318,8 +326,9 @@ describe("Шабнам в Telegram", () => {
       const buttons = lastButtons();
       // С 24.11.2026 голос по одному: первым идёт голос по умолчанию, под ним «Выбрать» и «Дальше».
       const shown = (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string])[1];
-      expect(shown).toContain("Голос 1 из 2: Анна");
-      expect(shown).toContain("по умолчанию");
+      expect(shown).toContain("Анна");
+      expect(shown).toContain("1 из 2");
+      expect(shown).toContain("рекомендуем");
       expect(buttons[0][0].callback_data).toMatch(/^fnr:p:/);
       expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:v:"))).toBe(true);
       const row = (await prisma.freeNarration.findFirst({ where: { agentId: user.id } }))!;
@@ -405,8 +414,8 @@ describe("Шабнам в Telegram", () => {
     expect(await handleFreeNarrationMessage(msg(shareholder.chat, "озвучь: Привет всем"), shareholder)).toBe(true);
     expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("нет доступа");
     const user = await makeAgent();
-    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(400)}`), user);
-    expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("длиннее 1500 знаков");
+    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(1000)}`), user);
+    expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("длиннее 5000 знаков");
     expect(await prisma.freeNarration.count({ where: { agentId: { in: [shareholder.id, user.id] } } })).toBe(0);
   });
 
@@ -532,7 +541,7 @@ describe("правки после ревью (16.11.2026)", () => {
     const user = await makeAgent();
     const dialog = { chatId: String(user.chat), agentId: user.id, kind: "test", payload: { lang: "tg" }, expiresAt: new Date(Date.now() + 3_600_000) };
     await prisma.telegramDialogState.create({ data: dialog });
-    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(400)}`), user);
+    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(1000)}`), user);
     const text = String(tg.sendMessage.mock.calls.at(-1)?.[1]);
     expect(text).toMatch(/шумо \d+ аломат навиштед/u);
     await prisma.telegramDialogState.deleteMany({ where: { chatId: String(user.chat) } });

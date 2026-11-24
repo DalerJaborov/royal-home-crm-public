@@ -105,8 +105,8 @@ const narrationConfigBase = z.object({
    *  в {сотки}, «ва ним» у половины сотки) работают. По умолчанию ВЫКЛЮЧЕН: пока владелец не утвердил тексты, озвучка
    *  звучит как раньше. Миграция новых текстов (prisma/migrations/*_narration_templates_live, 23.11.2026) включает его сама, вместе с заменой текстов. */
   liveWords: z.boolean().optional(),
-  /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); по умолчанию FREE_NARRATION_DEFAULTS. */
-  freeNarrationPerPersonDaily: z.number().int().min(1).max(100).optional(),
+  /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); 0 = без ограничения (по умолчанию, 24.11.2026: рабочим не нужен потолок). */
+  freeNarrationPerPersonDaily: z.number().int().min(0).max(100).optional(),
   /** Предел знаков одного свободного текста; по умолчанию FREE_NARRATION_DEFAULTS. */
   freeNarrationMaxChars: z.number().int().min(50).max(5000).optional(),
   /** Доля дневного предела озвучки (знаки и озвучки), которую могут выбрать свободные тексты, %; по умолчанию FREE_NARRATION_DEFAULTS. */

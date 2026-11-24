@@ -3,6 +3,7 @@ import { describeMedia } from "../ai/geminiMedia.js";
 import { fetchAttachments, type AttachmentSource } from "./attachments.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 import { BW, EW, TAIL } from "../ai/wordBoundary.js";
 
 /**
@@ -155,7 +156,7 @@ export function captionFooterShortId(caption: string | undefined | null): number
   // «Объект №557», а в подписях, набранных руками, и «Объекти № 557», «обьект #557»,
   // «Объект 557» (02.10.2026: в тексте рекламы номер пишут по-разному).
   // Без «№» — только от трёх цифр: «Объект 3 хонагӣ» в чужой подписи — это комнаты.
-  const m = caption?.match(/(?:Объект|Обьект|Объекти|Обьекти)\s*(?:[№#]\s*(\d{1,6})|(\d{3,6}))(?![\d.,])/iu);
+  const m = caption?.match(new RegExp(`${PROPERTY_OBJECT_STEM}и?\\s*(?:[№#]\\s*(\\d{1,6})|(\\d{3,6}))(?![\\d.,])`, "iu"));
   return m ? Number(m[1] ?? m[2]) : null;
 }
 

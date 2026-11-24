@@ -62,6 +62,12 @@ describe("запасные правила на живых фразах SPEC.md",
     expect(fb("Рахмат")).toMatchObject({ ackOnly: true, thanksOnly: true, language: null });
   });
 
+  it("«Салом» + русский вопрос без предлогов — русский, не таджикский (разбор 23.11.2026, Б1)", () => {
+    expect(fb("Салом, цена квартиры?")).toMatchObject({ greeting: "salom", language: "ru" });
+    expect(fb("Салом, квартира ещё актуальна?")).toMatchObject({ greeting: "salom", language: "ru" });
+    expect(fb("Салом. 3 комнатная квартира Сино цена?")).toMatchObject({ greeting: "salom", language: "ru" });
+  });
+
   it("кнопка рекламы «Привет! Можно узнать об этом подробнее?» — не «этот объект» и язык не решает", () => {
     expect(fb("Привет! Можно узнать об этом подробнее?")).toMatchObject({ adOpener: true, aboutThisProperty: false, language: null });
   });

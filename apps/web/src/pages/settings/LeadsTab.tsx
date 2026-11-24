@@ -6,6 +6,7 @@ import { KeywordTags } from "../../components/ui/KeywordTags";
 import { NumberRow, SaveRow } from "../../components/settings/SettingsRows";
 import { OwnerConfirmTransferSection } from "./OwnerConfirmTransferSection";
 import { Link } from "react-router-dom";
+import { reminderLeadText } from "../../lib/reminderLeadText";
 import { MATCH_SCORE_WEIGHTS } from "@royal-home/shared";
 import {
   SHOWING_CONFIRM_ON_TEXT,
@@ -352,7 +353,7 @@ export function LeadsTab() {
           }
           hint={
             settings.pushShowingsToSupervisors
-              ? "Руководитель видит те же напоминания о показах, что и агент: за день, за 2 часа и за 40 минут."
+              ? `Руководитель видит то же напоминание о показе, что и агент: одно, ${reminderLeadText("SHOWING")} до показа.`
               : "Напоминания о показах приходят только агенту, который этот показ проводит."
           }
         />

@@ -425,7 +425,7 @@ describe("ревью 19.11: недостающие тесты подключен
     } finally { await prisma.settings.update({ where: { id: "singleton" }, data: before }); }
   });
 
-  it("Р4: карточка без живого агента — «Записали, с вами свяжутся …», пометка и сигнал руководству (ядро)", async () => {
+  it("Р4: карточка без живого агента — «Записали, увидит сотрудник» (разбор 23.11), пометка и сигнал руководству (ядро)", async () => {
     const peer = `operator-noagent-${randomUUID()}`;
     const client = await prisma.client.create({ data: { fullName: "Клиент оператора без агента", phone: `+992${phone9()}`, source: "INSTAGRAM" } });
     clientIds.push(client.id);
@@ -434,7 +434,7 @@ describe("ревью 19.11: недостающие тесты подключен
     const plan = await planCustomerLeadOnlyTurn({ config: { ...LEAD_ONLY_DEFAULTS, enabled: true, workHoursStart: "00:00", workHoursEnd: "24:00" },
       channel: "INSTAGRAM", peer, conversationId: conv.id, eventKey: "a".repeat(64), inputText: "Сино, 3 комнаты, 5 этаж", focusPropertyId: null,
       turns: [], model: async () => null });
-    expect(plan?.text).toBe("Записали, с вами свяжутся.");
+    expect(plan?.text).toBe("Записали, ваше сообщение увидит сотрудник.");
     expect(plan?.signal).toEqual({ kind: "follow_up" });
     expect(plan?.intakes[0]).toMatchObject({ scenario: "note" });
   });

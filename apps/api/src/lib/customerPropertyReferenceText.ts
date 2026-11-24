@@ -1,4 +1,5 @@
 import { BW, EW } from "../ai/wordBoundary.js";
+import { PROPERTY_OBJECT_STEM } from "../ai/propertyObjectWord.js";
 
 /** Link written without a scheme ("instagram.com/p/…", "www.royalhome.tj/…").
  * Only our own and the two social hosts we can read; the character before the
@@ -14,11 +15,12 @@ export function stripSchemelessPropertyUrls(text: string): string {
 }
 
 /** "объект №12" / "№12": the strong, long-standing public-selector forms. */
-export const STRONG_PROPERTY_NUMBER_SOURCE = `${BW}(?:(?:объект[а-яё]*|объекти?)\\s*[№#]?\\s*|[№#]\\s*)(\\d{1,9})(?!\\d)`;
+// «обьект 117», «обект №117» — те же опечатки, что у чата (ai/propertyObjectWord.ts; разбор 23.11, K14–K18).
+export const STRONG_PROPERTY_NUMBER_SOURCE = `${BW}(?:${PROPERTY_OBJECT_STEM}[а-яё]*\\s*[№#]?\\s*|[№#]\\s*)(\\d{1,9})(?!\\d)`;
 /** "номер 12", "рақами объект 12", "id 12": a short object number, never a phone
  * — at most six digits and not the head of a longer digit group ("номер 98 765 4321"). */
 export const WEAK_PROPERTY_NUMBER_SOURCE =
-  `${BW}(?:номер(?:а|у|ом)?|рақам(?:и)?(?:\\s+объект\\p{L}*)?|id|ид|айди)\\s*[:№#]?\\s*([1-9]\\d{0,5})(?!\\d|[ \\-]\\d)${EW}`;
+  `${BW}(?:номер(?:а|у|ом)?|рақам(?:и)?(?:\\s+${PROPERTY_OBJECT_STEM}\\p{L}*)?|id|ид|айди)\\s*[:№#]?\\s*([1-9]\\d{0,5})(?!\\d|[ \\-]\\d)${EW}`;
 /** The CRM object code as the customer copies it ("ОБ-000088", "ob-88"): the dash is required, so "об этом 5 этаже" is not a number. */
 export const OBJECT_CODE_NUMBER_SOURCE = `${BW}(?:об|ob)\\s*[-–—]\\s*0*([1-9]\\d{0,8})(?!\\d)`;
 /**
@@ -27,7 +29,7 @@ export const OBJECT_CODE_NUMBER_SOURCE = `${BW}(?:об|ob)\\s*[-–—]\\s*0*([1
  * a lone «№12» on a photo is just as often a house or apartment number. Exactly one distinct number,
  * otherwise null — a caption naming two objects identifies neither. The CRM check is the resolver's.
  */
-const CAPTION_PROPERTY_NUMBER_SOURCE = `${BW}объект(?:и|а|у|е)?\\s*[№#]\\s*([1-9]\\d{0,8})(?!\\d)`;
+const CAPTION_PROPERTY_NUMBER_SOURCE = `${BW}${PROPERTY_OBJECT_STEM}(?:и|а|у|е)?\\s*[№#]\\s*([1-9]\\d{0,8})(?!\\d)`;
 export function captionPropertyNumber(text: string | undefined | null): string | null {
   if (!text) return null;
   const numbers = new Set([...text.matchAll(new RegExp(CAPTION_PROPERTY_NUMBER_SOURCE, "giu"))].map(match => match[1]));
