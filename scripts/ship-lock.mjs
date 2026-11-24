@@ -17,21 +17,47 @@
  * Снимается замок в любом исходе: успех, остановка, ошибка.
  */
 
+import { hostname } from "node:os";
+
 export const LOCK_REF = "ship/lock";
 export const HEARTBEAT_MS = 5 * 60_000;
 export const STALE_MS = 45 * 60_000;
 export const POLL_MS = 60_000;
 
-/** Что записано в служебном коммите замка; null — не наш формат. */
+/** Что записано в служебном коммите замка; null — не наш формат. host/pid — с 24.11, у старых их нет. */
 export function parseLockMessage(message) {
   const text = String(message ?? "");
   if (!text.startsWith("ship-lock\n")) return null;
   const holder = /^holder: (.+)$/mu.exec(text)?.[1]?.trim();
   const at = Number(/^at: (\d+)$/mu.exec(text)?.[1]);
-  return holder && Number.isFinite(at) ? { holder, at } : null;
+  if (!holder || !Number.isFinite(at)) return null;
+  const host = /^host: (.+)$/mu.exec(text)?.[1]?.trim() || null;
+  const pid = Number(/^pid: (\d+)$/mu.exec(text)?.[1]) || null;
+  return host && pid ? { holder, at, host, pid } : { holder, at };
 }
 
-export const lockMessage = (holder, at) => `ship-lock\nholder: ${holder}\nat: ${at}\n`;
+export const lockMessage = (holder, at, owner = null) =>
+  `ship-lock\nholder: ${holder}\nat: ${at}\n${owner ? `host: ${owner.host}\npid: ${owner.pid}\n` : ""}`;
+
+/** Жив ли процесс на ЭТОЙ машине. EPERM — жив, но чужой; ESRCH — нет такого. */
+export function pidAlive(pid, kill = process.kill.bind(process)) {
+  try {
+    kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === "EPERM";
+  }
+}
+
+/**
+ * Замок брошен ЭТОЙ машиной: тот же компьютер, процесс-держатель уже умер (24.11.2026).
+ * Ship, убитый снаружи (taskkill /F — mem-guard, закрытый чат), не успевает отпустить замок,
+ * и следующий запуск ждал 45 минут собственный труп; за ночь 24.11 так ушло 10 запусков из 28.
+ * Чужую машину проверить нельзя — там остаётся правило 45 минут молчания.
+ */
+export function abandonedHere(held, { host, pid }, alive = pidAlive) {
+  return Boolean(held?.host && held.pid && held.host === host && held.pid !== pid && !alive(held.pid));
+}
 
 /**
  * Взять замок; ждать, пока занят. Возвращает функцию «отпустить» (без ошибок, повторный вызов —
@@ -46,12 +72,14 @@ export async function acquireShipLock(gh, holder, {
   heartbeatMs = HEARTBEAT_MS,
   setIntervalImpl = setInterval,
   clearIntervalImpl = clearInterval,
+  owner = { host: hostname(), pid: process.pid },
+  alive = pidAlive,
 } = {}) {
   const lockCommit = async (at) => {
     const main = await gh.call("GET", "/{repo}/git/ref/heads/main");
     const mainCommit = await gh.call("GET", `/{repo}/git/commits/${main.object.sha}`);
     const commit = await gh.call("POST", "/{repo}/git/commits", {
-      message: lockMessage(holder, at), tree: mainCommit.tree.sha, parents: [main.object.sha],
+      message: lockMessage(holder, at, owner), tree: mainCommit.tree.sha, parents: [main.object.sha],
     }, { retries: 2 });
     return commit.sha;
   };
@@ -80,6 +108,13 @@ export async function acquireShipLock(gh, holder, {
     const held = await current();
     if (!held) continue; // отпустили между попытками — сразу снова
     const silentMs = now() - held.at;
+    if (abandonedHere(held, owner, alive)) {
+      log(`  очередь выкатов: замок «${held.holder}» оставил умерший процесс ${held.pid} на этой машине — снимаю`);
+      // Снимаем только этот коммит замка: если его успели переставить, удалять нельзя.
+      const again = await current();
+      if (again?.sha === held.sha) { try { await gh.call("DELETE", `/{repo}/git/refs/${LOCK_REF}`); } catch { /* уже сняли */ } }
+      continue;
+    }
     if (silentMs > staleMs) {
       log(`  очередь выкатов: замок «${held.holder}» молчит ${Math.round(silentMs / 60_000)} мин — считаю брошенным, снимаю`);
       try { await gh.call("DELETE", `/{repo}/git/refs/${LOCK_REF}`); } catch { /* уже сняли */ }

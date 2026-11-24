@@ -481,7 +481,23 @@ const NETWORK_CODES = new Set([
   "UND_ERR_CONNECT_TIMEOUT",
   "UND_ERR_HEADERS_TIMEOUT",
   "UND_ERR_BODY_TIMEOUT",
+  // 24.11.2026: Wi-Fi ноутбука переподключался 07:00:15→07:01:29 (журнал WLAN 8003/8001),
+  // getaddrinfo отдал ENOTFOUND, и ship упал сырым TypeError без единого повтора (run27/28).
+  "ENOTFOUND",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "EHOSTUNREACH",
 ]);
+
+/**
+ * Отказы ДО соединения: запрос не ушёл на сервер вовсе, значит повтор безопасен и для записи
+ * (POST/PATCH/DELETE). 24.11 четыре выката (run10/13/15/17) остановились на
+ * «POST git/refs: связь оборвалась (UND_ERR_CONNECT_TIMEOUT)» — запись замка не дошла до GitHub,
+ * а повторов у записей нет. Вливание (PUT merge) сюда тоже попадает: если связи не было, GitHub
+ * его не видел; если ответ потерялся ПОСЛЕ отправки — это другие коды, и путь сверки этапа 9 цел.
+ */
+const PRE_CONNECT_CODES = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "ENETDOWN", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
+const WRITE_PRE_CONNECT_RETRIES = 3;
 
 /** Код отказа связи из любой глубины `cause`; null — это не отказ связи. */
 export function networkErrorCode(err) {
@@ -490,6 +506,9 @@ export function networkErrorCode(err) {
   }
   return null;
 }
+
+/** Запрос не ушёл дальше соединения — повторить можно и запись. */
+export const isPreConnectFailure = (code) => PRE_CONNECT_CODES.has(code);
 
 /** Ответы GitHub, которые имеет смысл просить снова (чтения). */
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
@@ -536,14 +555,18 @@ export function github(token, { owner, repo }, { fetchImpl = fetch, sleep, log =
         }
         const code = readSignal?.aborted ? "ETIMEDOUT" : networkErrorCode(err);
         if (code === null) throw err;
-        if (readSignal?.aborted || networkAttempt >= networkRetries) {
+        // Запись, которая не дошла даже до соединения, повторяем: сервер её не видел.
+        const limit = method !== "GET" && isPreConnectFailure(code)
+          ? Math.max(networkRetries, WRITE_PRE_CONNECT_RETRIES) : networkRetries;
+        if (readSignal?.aborted || networkAttempt >= limit) {
           const stop = new Stop(`GitHub ${method} ${path}: связь оборвалась (${code})`);
           stop.network = code;
           throw stop;
         }
-        const delay = method === "GET" ? READ_NETWORK_DELAYS_MS[networkAttempt] ?? 30000 : 1500 * (networkAttempt + 1);
+        const delay = method === "GET" || isPreConnectFailure(code)
+          ? READ_NETWORK_DELAYS_MS[networkAttempt] ?? 30000 : 1500 * (networkAttempt + 1);
         networkAttempt += 1;
-        log(`  связь с GitHub оборвалась (${code}), повтор ${networkAttempt} из ${networkRetries} через ${delay / 1000} с`);
+        log(`  связь с GitHub оборвалась (${code}), повтор ${networkAttempt} из ${limit} через ${delay / 1000} с`);
         await wait(delay);
         continue;
       }
@@ -1000,6 +1023,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       env: { ...process.env, NODE_USE_ENV_PROXY: "1", NODE_NO_WARNINGS: "1" },
     });
     process.exit(again.status ?? 1);
+  }
+  // Ctrl+C, закрытое окно, мягкое завершение: отпустить замок очереди, а не оставлять его на 45 минут.
+  // taskkill /F сюда не попадает вовсе — для него замок снимает следующий запуск (abandonedHere).
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
+    process.once(sig, () => {
+      console.error(`\n✘ Выкат прерван (${sig}); отпускаю очередь выкатов.`);
+      Promise.resolve(state.releaseLock?.()).finally(() => process.exit(130));
+    });
   }
   holdProcessUntilSettled(main()).finally(() => state.cleanup?.()).finally(() => state.releaseLock?.()).then(
     (code) => process.exit(code),
