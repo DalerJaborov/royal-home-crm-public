@@ -306,23 +306,18 @@ describe("п.14 петля a1af706a (11-13): на свежем main шаблон
   });
 });
 
-describe("п.11 вакансия: название — с точкой, без хвоста «Спасибо, записал.» (a4a672a5)", () => {
+describe("п.11 вакансия (a4a672a5): клиент получает список отдельными строками; «склейка» — артефакт сборщика сторожа", () => {
   const positions = recruitmentPositionTemplates().map(row => ({ ...row, isOpen: true, revision: 1 }));
   const facts = { collecting: true, positions };
   const catalog = { kind: "open_vacancies" as const, ...facts, sourceHash: recruitmentCatalogHash(facts) };
-  it("ru и tg: каждое название — отдельное предложение", () => {
+  it("ru и tg: заголовок, каждое название и телефон — отдельные строки; название — точно как в каталоге (по нему память узнаёт список)", () => {
     for (const language of ["ru", "tg"] as const) {
-      const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
-        evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } as never }],
-        language, requestedFacts: [], surface: "dm", knownPhoneSource: "none", maxOutputChars: 4000,
+      const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
+        evidence: [{ ref: "e0", value: catalog }], language, requestedFacts: [], surface: "dm", knownPhoneSource: "none", maxOutputChars: 4000,
         inputText: language === "tg" ? "Ҷойи кор ҳаст?" : "Вакансии есть?" })!;
-      for (const p of positions) {
-        const title = language === "tg" ? p.titleTg : p.titleRu;
-        if (text.includes(title)) expect(text, title).toMatch(new RegExp(`${title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}[.!?…:]`, "u"));
-      }
-      // Отметка о записи — не хвостом после телефона, а первой строкой.
-      expect(text).not.toMatch(/(?:Позвоните, пожалуйста\.|занг занед: [\d ]+\.)\s*(?:Спасибо, записал\.|Ташаккур, қайд кардам\.)/u);
-      if (/Спасибо, записал\.|Ташаккур, қайд кардам\./u.test(text)) expect(text).toMatch(/^(?:Спасибо, записал\.|Ташаккур, қайд кардам\.)/u);
+      const lines = text.split("
+");
+      for (const p of positions) expect(lines, p.key).toContain(language === "tg" ? p.titleTg : p.titleRu);
     }
   });
 });

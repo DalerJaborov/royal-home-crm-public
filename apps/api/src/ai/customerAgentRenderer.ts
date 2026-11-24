@@ -86,11 +86,6 @@ function adOpeningTurn(input: { surface: CustomerAgentSurface; decision: Custome
       e.value.kind === "open_vacancies" && "refs" in input.decision && input.decision.refs.includes(e.ref)) &&
     customerAdOpening(input);
 }
-/** Строка-предложение: точка в конце, если её нет (названия вакансий из Настроек приходят без точки). */
-function withSentenceEnd(text: string): string {
-  const trimmed = text.trim();
-  return !trimmed || /[.!?…:]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
-}
 const VACANCY_LIST_HEADERS = ["Сейчас открыты вакансии:", "Открыта вакансия:", "Ҷойҳои кори кушода:", "Ҷойи кори кушода:"];
 /** The vacancy list (its header and at least one of the current titles) was already sent in this conversation. */
 function vacancyListSentBefore(context: CustomerAgentVerifiedContext | undefined, positions: readonly { titleRu: string; titleTg: string }[]): boolean {
@@ -819,8 +814,9 @@ function renderDecisionCore(input: {
           mediaText: perception?.success ? [perception.data.transcript, perception.data.readableText].join("\n") : "",
           knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns });
         lines.push(lang === "tg" ? matched ? "Ҷойи кори кушода:" : "Ҷойҳои кори кушода:" : matched ? "Открыта вакансия:" : "Сейчас открыты вакансии:");
-        // Название — отдельное предложение с точкой (прод 24.11.2026, a4a672a5: «…Менеджер по продажам недвижимости Всю информацию…»).
-        for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(withSentenceEnd(lang === "tg" ? position.titleTg : position.titleRu));
+        // Название — отдельной строкой, как есть: память разговора узнаёт список по точному совпадению строки (vacancyListSentBefore).
+        // «Склейка без точки» в находке 11 — это сборщик сторожа (collect.mjs::clip сжимает переносы в пробел), не сообщение клиенту.
+        for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(lang === "tg" ? position.titleTg : position.titleRu);
         if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа.`
           : `И ещё ${item.value.positions.length - 12} позиций.`);
         // Conditions are not discussed in the chat: only the specialist's phone (owner 10–11.11.2026), once per chat.
@@ -837,17 +833,6 @@ function renderDecisionCore(input: {
     if (item.value.kind === "agency_contact") {
       if (!isCanonicalAgencyContact(item.value)) return null;
       if (requestedContact) lines.push(`${lang === "tg" ? "Занг занед" : "Позвоните"}: ${item.value.contact.phone}.`);
-    }
-  }
-  // Ответ о вакансии (список или телефон Нозы) не кончается хвостом «Спасибо, записал.» (прод 24.11.2026, a4a672a5: «…Позвоните,
-  // пожалуйста. Спасибо, записал.»): отметка о записи — первой строкой, как человек: «Спасибо, записал. Открыта вакансия: …».
-  if (input.surface === "dm" && lines.some(line => VACANCY_LIST_HEADERS.includes(line) || line === recruitmentPhoneLine(lang))) {
-    const receipt = outcomes.job_application_saved[lang];
-    const at = lines.indexOf(receipt);
-    if (at > 0) {
-      lines.splice(at, 1);
-      const first = lines.findIndex(line => line && !isSocialLine(line)); // приветствие остаётся первым
-      lines.splice(first < 0 ? lines.length : first, 0, receipt);
     }
   }
   if (input.surface === "dm" && jobConversation && d.kind !== "propose") {
