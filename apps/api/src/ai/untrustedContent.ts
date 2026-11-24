@@ -139,7 +139,7 @@ export function clientOwnWords(text: string): string {
 /** Снимает только границы, оставляя текст: нужно там, где содержимое читает КОД
  *  (например определитель языка), а не модель. */
 export function unwrapUntrusted(text: string): string {
-  return text.replace(new RegExp(`</?${TAG}(?: kind="[a-z]+")?>`, "g"), " ");
+  return text.replace(new RegExp(`</?${TAG}(?: kind="[a-z_]+")?>`, "g"), " ");
 }
 
 /**
