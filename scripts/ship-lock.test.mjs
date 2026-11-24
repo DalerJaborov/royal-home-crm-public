@@ -44,7 +44,7 @@ function fakeGitHub() {
     refs.set(LOCK_REF, sha);
     return sha;
   };
-  return { gh, refs, calls, hold };
+  return { gh, refs, calls, hold, commits };
 }
 
 const quiet = { log: () => {}, setIntervalImpl: () => null, clearIntervalImpl: () => {} };
@@ -115,4 +115,33 @@ test("признак жизни переставляет ссылку тольк
 test("ошибка GitHub, кроме «занято», не глотается", async () => {
   const gh = { call: async () => { throw new Error("GitHub X → 403: нет прав"); } };
   await assert.rejects(acquireShipLock(gh, "fix/a", quiet), /403/);
+});
+
+// 24.11.2026: ship убит снаружи (taskkill /F), замок остался; следующий запуск на той же машине
+// ждал собственный брошенный замок до 45 минут.
+test("замок умершего процесса этой машины снимается сразу, живого или чужой машины — нет", async () => {
+  const { abandonedHere, pidAlive } = await import("./ship-lock.mjs");
+  const me = { host: "pc", pid: 10 };
+  const dead = () => false, alive = () => true;
+  assert.equal(abandonedHere({ host: "pc", pid: 7 }, me, dead), true);
+  assert.equal(abandonedHere({ host: "pc", pid: 7 }, me, alive), false, "живой сосед на той же машине");
+  assert.equal(abandonedHere({ host: "other", pid: 7 }, me, dead), false, "чужую машину не проверить");
+  assert.equal(abandonedHere({ host: null, pid: null }, me, dead), false, "старый формат без host/pid");
+  assert.equal(pidAlive(1, () => { throw Object.assign(new Error(), { code: "ESRCH" }); }), false);
+  assert.equal(pidAlive(1, () => { throw Object.assign(new Error(), { code: "EPERM" }); }), true);
+  const parsed = parseLockMessage(lockMessage("b", 5, { host: "pc", pid: 7 }));
+  assert.deepEqual(parsed, { holder: "b", at: 5, host: "pc", pid: 7 });
+});
+
+test("acquire: брошенный этой машиной замок забирается без 45 минут ожидания", async () => {
+  const { gh, refs, commits } = fakeGitHub();
+  commits.set("old", { sha: "old", message: lockMessage("ветка", 1_000, { host: "pc", pid: 7 }), tree: { sha: "tree0" } });
+  refs.set(LOCK_REF, "old");
+  const logs = [];
+  const release = await acquireShipLock(gh, "ветка", { log: (s) => logs.push(s), sleep: async () => { throw new Error("ждать не должен"); },
+    now: () => 2_000, owner: { host: "pc", pid: 10 }, alive: () => false, setIntervalImpl: () => null, clearIntervalImpl: () => {} });
+  assert.notEqual(refs.get(LOCK_REF), "old");
+  assert.ok(logs.some((l) => /умерший процесс 7/.test(l)));
+  await release();
+  assert.equal(refs.has(LOCK_REF), false);
 });
