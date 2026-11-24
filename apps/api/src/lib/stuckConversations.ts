@@ -20,39 +20,14 @@ import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
-import { createHash } from "node:crypto";
 
 /**
- * Отказ КЛЮЧА канала Meta — только там, где это точно токен (ревью #423): HTTP 401 или код 190/102 с текстом про маркер
- * («access token», «session»). Код 190 бывает и не про ключ (окно ответа на комментарий истекло), а 401 запасного личного
- * ключа после отказа пути Страницы не доказывает, что мёртв ключ канала: это обычный сбой, лесенка как раньше.
+ * Вердикт «ключ канала мёртв» выносит ОДИН раз транспорт (messengers/meta.ts::callGraph → MetaGraphCallError.channelKeyDead,
+ * узкая проверка channelKeyAlarm.ts::isMetaAuthFailure): про тот ключ, которым шла отправка, и только если он не запасной.
+ * Здесь его не пересчитывают. null — обычный сбой.
  */
-const TOKEN_REFUSAL = /access token|session has been invalidated|session has expired|session is invalid/i;
-export function isChannelKeyDeadError(err: unknown): boolean {
-  if (err instanceof MetaGraphCallError) {
-    if (err.fellBackFromPage) return false;
-    if (err.graph.status === 401) return true;
-    return (err.graph.code === 190 || err.graph.code === 102) && TOKEN_REFUSAL.test(err.message);
-  }
-  // Only the Meta transport's own error text: an AI provider's «HTTP 401» is not the channel's key.
-  if (!(err instanceof Error) || !/^Graph API HTTP \d{3}:/.test(err.message)) return false;
-  return /^Graph API HTTP 401:/.test(err.message) || (/"code"\s*:\s*(190|102)\b/.test(err.message) && TOKEN_REFUSAL.test(err.message));
-}
-
-/**
- * Отпечаток ключа, которым повтор отправил бы ответ (12 знаков sha256; сам ключ не хранится и не печатается). Остановка
- * повтора по мёртвому ключу привязана к нему: переподключили аккаунт — отпечаток другой, повтор снова идёт.
- * Не Meta, нет ключа или сбой чтения — "none".
- */
-export async function channelKeyFingerprint(channel: string, accountId: string | null): Promise<string> {
-  const metaChannel = asMetaChannel(channel);
-  if (!metaChannel) return "none";
-  try {
-    const { token } = await accountTokenById(accountId, metaChannel);
-    return token ? createHash("sha256").update(token).digest("hex").slice(0, 12) : "none";
-  } catch {
-    return "none";
-  }
+export function channelKeyDeathOf(err: unknown): { fingerprint: string } | null {
+  return err instanceof MetaGraphCallError ? err.channelKeyDead : null;
 }
 /** Исход повтора. `channel-dead` — Meta не приняла ключ канала (HTTP 401, код 190/102): повторять бессмысленно. */
 export type StuckRetryOutcome = "sent" | "no-reply" | "failed" | "ai-down" | "channel-dead";
@@ -216,17 +191,19 @@ function stuckWhere(): Prisma.Sql {
  */
 export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manual_retry" = "manual_retry",
   /** Which run of this customer turn (the live turn was 1): a fallback bound on the core's runs (CHANNEL_CORE_MAX_ATTEMPTS). */
-  attempt?: number): Promise<StuckRetryOutcome> {
+  attempt?: number,
+  /** Out: with `channel-dead` — fingerprint of the refused key, as the transport judged it (jobs/aiReplyRetryCap.ts). */
+  observed?: { channelKeyFingerprint?: string }): Promise<StuckRetryOutcome> {
   return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, source, text: row.lastText,
     knownContacts: row.name ? [row.name] : [] }, async () => {
-    const result = await retryStuckConversationImpl(row, attempt);
+    const result = await retryStuckConversationImpl(row, attempt, observed);
     if (result === "failed" || result === "ai-down") traceOutcome("failed");
     else if (result === "channel-dead") traceOutcome("blocked", "channel_key_dead");
     else if (result === "no-reply") traceNoReply();
     return result;
   });
 }
-async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Promise<StuckRetryOutcome> {
+async function retryStuckConversationImpl(row: StuckRow, attempt?: number, observed?: { channelKeyFingerprint?: string }): Promise<StuckRetryOutcome> {
   if (await currentTurnHasCustomerOutbox(row.id)) { traceNoReply("outbox_owned"); return "no-reply"; }
   const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: {
     messages: true, lastMessageAt: true, channel: true, subscriberId: true, accountId: true,
@@ -243,10 +220,10 @@ async function retryStuckConversationImpl(row: StuckRow, attempt?: number): Prom
   const originalAt = typeof original.at === "string" && !Number.isNaN(Date.parse(original.at)) ? new Date(original.at) : row.lastMessageAt;
   // Повтор — не проба «Meta снова пропускает?»: старый ответ клиенту, который ждал, решает человек (lib/metaSendBlock.ts).
   return withLegacyMetaDmSource(row.lastMid, () =>
-    withoutMetaSendProbe(() => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt, originalAt)));
+    withoutMetaSendProbe(() => retryStuckConversationBody(row, row.lastMid ?? undefined, attempt, originalAt, observed)));
 }
 async function retryStuckConversationBody(row: StuckRow, originalMid?: string, attempt?: number,
-  originalAt: Date = row.lastMessageAt): Promise<StuckRetryOutcome> {
+  originalAt: Date = row.lastMessageAt, observed?: { channelKeyFingerprint?: string }): Promise<StuckRetryOutcome> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -365,8 +342,10 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * руководству уже поставил транспорт (messengers/meta.ts → channelKeyAlarm.ts), а задание решает, что дальше
      * (jobs/aiReplyRetryCap.ts: стоп повторов этого сообщения и сигнал ответственному).
      */
-    if (metaChannel && isChannelKeyDeadError(err)) {
+    const keyDeath = metaChannel ? channelKeyDeathOf(err) : null;
+    if (metaChannel && keyDeath) {
       await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
+      if (observed) observed.channelKeyFingerprint = keyDeath.fingerprint;
       return "channel-dead";
     }
     /**

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 774,
-  "forks": 4173,
+  "forks": 4174,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -120550,71 +120550,8 @@
      "from": "aiRetryLedgerBase() — apps/api/src/jobs/aiReplyRetryCap.ts"
     },
     {
-     "k": "do",
-     "t": "const keyFingerprint = capBase ? await channelKeyFingerprint(conversation.channel, conversation.accountId) : …",
-     "a": [
-      "зовёт channelKeyFingerprint()"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "const metaChannel = asMetaChannel(channel);",
-       "a": [
-        "зовёт asMetaChannel()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!metaChannel",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return \"none\";",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const { token } = await accountTokenById(accountId, metaChannel);",
-         "a": [
-          "зовёт accountTokenById()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return \"none\";",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ],
-     "from": "channelKeyFingerprint() — apps/api/src/lib/stuckConversations.ts"
-    },
-    {
      "k": "if",
-     "t": "capBase && await aiRetryStopped(capBase, keyFingerprint)",
+     "t": "capBase && await aiRetryStopped(capBase, startedAt)",
      "a": [],
      "c": [
       {
@@ -120726,11 +120663,88 @@
       },
       {
        "k": "do",
-       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: \"channel_key_dead\", keyFi…",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: \"channel_key_d…",
        "a": [
         "зовёт stopAiRetry()"
        ],
-       "c": []
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "keyDead",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await alertClientWaiting({ conversationId: input.conversationId, trigger: \"failed\", why: \"ответ бота не ушёл,…",
+             "a": [
+              "зовёт alertClientWaiting()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(\"ai\", `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? \"ключ канала…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "input.stop.reason === \"channel_key_dead\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "else",
+           "t": "иначе",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await claim(capStop(input.base), input.startedAt);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[ai-retry-cap] остановка повтора:\", error instanceof Error ? error.message : \"UnknownError\");",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "stopAiRetry() — apps/api/src/jobs/aiReplyRetryCap.ts"
       },
       {
        "k": "do",
@@ -120764,7 +120778,7 @@
      "c": [
       {
        "k": "do",
-       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: \"retry_cap\" } });",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: \"retry_cap\" } …",
        "a": [
         "зовёт stopAiRetry()"
        ],

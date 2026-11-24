@@ -282,11 +282,15 @@ export async function isAccountSendBlocked(account: MetaSendAccountRef, surface:
 
 /** Отказ Graph API с разобранными полями (код, подкод, fbtrace); текст прежний — `Graph API HTTP NNN: <тело>`. */
 export class MetaGraphCallError extends Error {
-  /** Отказ пришёл от запасного личного ключа после отказа пути Страницы: сам ключ канала (Страница) мог быть жив. */
-  readonly fellBackFromPage: boolean;
-  constructor(message: string, readonly graph: MetaGraphErrorFields, options?: { fellBackFromPage?: boolean }) {
+  /**
+   * Вердикт callGraph «ключ канала мёртв» (ревью #423): Meta не приняла ТОТ ключ, которым шла отправка, и он не запасной
+   * (не личный ключ аккаунта с настроенным путём Страницы, не повтор после отказа Страницы). `fingerprint` — 12 знаков
+   * sha256 этого ключа (сам ключ не хранится). null — не вердикт «ключ»: обычный сбой, лесенка повторов как раньше.
+   */
+  readonly channelKeyDead: { fingerprint: string } | null;
+  constructor(message: string, readonly graph: MetaGraphErrorFields, options?: { channelKeyDead?: { fingerprint: string } | null }) {
     super(message);
-    this.fellBackFromPage = options?.fellBackFromPage === true;
+    this.channelKeyDead = options?.channelKeyDead ?? null;
     this.name = "MetaGraphCallError";
   }
 }

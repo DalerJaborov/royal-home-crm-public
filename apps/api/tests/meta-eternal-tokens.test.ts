@@ -372,12 +372,15 @@ describe("суточная проверка при вечном пути", () =>
 describe("сторож мёртвых ключей", () => {
   it("узнаёт 401, код 190/102 и текст «session has been invalidated»", () => {
     expect(isMetaAuthFailure(401, "")).toBe(true);
-    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "x" } }))).toBe(true);
+    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "Error validating access token" } }))).toBe(true);
+    // Ревью #423: 190 без слова про маркер или сессию — не ключ (например «окно ответа на комментарий истекло»).
+    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "The comment reply window has expired" } }))).toBe(false);
     expect(isMetaAuthFailure(400, "The session has been invalidated because the user changed their password")).toBe(true);
     expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 10, error_subcode: 2534022 } }))).toBe(false);
     expect(isMetaAuthFailure(500, "")).toBe(false);
-    expect(isMetaAuthFailureText("HTTP 400 (code 190): expired")).toBe(true);
-    expect(isMetaAuthFailureText("HTTP 400 код 102: x")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 (code 190): Session has expired")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 код 102: Session key invalid")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 (code 190): comment reply window has expired")).toBe(false);
     expect(isMetaAuthFailureText("HTTP 400 (code 1900): x")).toBe(false);
     // Только error.message от Meta, без кода и статуса (публикация, 22.11.2026): сообщения кода 190.
     expect(isMetaAuthFailureText("Invalid OAuth access token - Cannot parse access token")).toBe(true);

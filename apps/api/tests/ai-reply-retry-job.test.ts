@@ -19,8 +19,6 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
  */
 vi.mock("../src/lib/stuckConversations.js", () => ({
   retryStuckConversation: vi.fn(),
-  // Отпечаток ключа канала: тест меняет его, как будто аккаунт переподключили.
-  channelKeyFingerprint: vi.fn(async () => "fp-old"),
 }));
 
 // Пуш при сдаче непроходимого хода — проверяем факт вызова, а не доставку.
@@ -38,7 +36,7 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError }));
 
 import { prisma } from "../src/db.js";
-import { channelKeyFingerprint, retryStuckConversation } from "../src/lib/stuckConversations.js";
+import { retryStuckConversation } from "../src/lib/stuckConversations.js";
 import { aiReplyRetryJob } from "../src/jobs/aiReplyRetry.js";
 
 const retryMock = vi.mocked(retryStuckConversation);
@@ -261,7 +259,14 @@ describe("сдача задания: петля на непроходимом х
  */
 describe("потолок фонового повтора (jobs/aiReplyRetryCap.ts)", () => {
   const at = new Date(Date.now() - 10 * 60_000).toISOString();
-  const fingerprintMock = vi.mocked(channelKeyFingerprint);
+  /** Транспорт вынес вердикт «ключ мёртв» и отпечаток ключа, которым шла отправка (meta.ts::callGraph). */
+  const keyDead = (fingerprint = "fp-old") => retryMock.mockImplementation(async (_row, _source, _attempt, observed) => {
+    if (observed) observed.channelKeyFingerprint = fingerprint;
+    return "channel-dead";
+  });
+  const ageKeyStops = (hours: number) => prisma.processedMessage.updateMany({
+    where: { channel: "ai-retry-no-reply", messageId: { contains: ":stop-key:" } },
+    data: { createdAt: new Date(Date.now() - hours * 60 * 60_000) } });
   async function setCap(on: boolean) {
     await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", botRetryCapEnabled: on } as never,
       update: { botRetryCapEnabled: on } });
@@ -270,7 +275,6 @@ describe("потолок фонового повтора (jobs/aiReplyRetryCap.t
   beforeEach(async () => {
     alertClientWaiting.mockClear();
     logSystemError.mockClear();
-    fingerprintMock.mockResolvedValue("fp-old");
     await prisma.processedMessage.deleteMany({ where: { channel: "ai-retry-no-reply" } });
     await setCap(true);
   });
@@ -291,9 +295,9 @@ describe("потолок фонового повтора (jobs/aiReplyRetryCap.t
     expect(String(stopLines()[0][1])).not.toContain("салом");
   });
 
-  it("мёртвый ключ — стоп сразу (без лесенки), один сигнал «ответьте вручную»; переподключили аккаунт — ответ уходит", async () => {
+  it("мёртвый ключ — стоп сразу (без лесенки), один сигнал «ответьте вручную»; через 2 часа повтор снова пробует", async () => {
     const id = await makeConversation([{ role: "user", content: "нарх?", at }]);
-    retryMock.mockResolvedValue("channel-dead");
+    keyDead();
     await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
     await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
     expect(retryMock).toHaveBeenCalledTimes(1);
@@ -302,16 +306,29 @@ describe("потолок фонового повтора (jobs/aiReplyRetryCap.t
     expect(why).toContain("ключ канала");
     // Агенту нечего переподключать: текст не шлёт его в Настройки.
     expect(why).not.toMatch(/Настройк|переподключ/u);
-    // Владелец переподключил аккаунт: ключ другой — крон или кнопка снова пробуют, и ответ уходит.
-    fingerprintMock.mockResolvedValue("fp-new");
+    // Ключ ожил (или его переподключили): через 2 часа остановка истекает, ответ уходит.
+    await ageKeyStops(3);
+    retryMock.mockReset();
     retryMock.mockResolvedValue("sent");
     await expect(aiReplyRetryJob.run({ conversationId: id })).resolves.toBeUndefined();
+    expect(retryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ключ всё ещё мёртв после срока — остановка продлевается, а не разрешает ход ИИ каждые 30 минут", async () => {
+    const id = await makeConversation([{ role: "user", content: "нарх?", at }]);
+    keyDead();
+    await aiReplyRetryJob.run({ conversationId: id });
+    await ageKeyStops(3);
+    await aiReplyRetryJob.run({ conversationId: id });
+    await aiReplyRetryJob.run({ conversationId: id });
     expect(retryMock).toHaveBeenCalledTimes(2);
+    // Сигнал — один на эпизод: дверь сама гасит повтор (здесь подменена — проверяем, что зовём её не больше раза за стоп).
+    expect(alertClientWaiting).toHaveBeenCalledTimes(2);
   });
 
   it("сигнал до метки: упали между ними — следующий повтор доводит остановку, сигнал не теряется", async () => {
     const id = await makeConversation([{ role: "user", content: "нарх?", at }]);
-    retryMock.mockResolvedValue("channel-dead");
+    keyDead();
     alertClientWaiting.mockRejectedValueOnce(new Error("сбой сети"));
     await aiReplyRetryJob.run({ conversationId: id });
     // Метки нет — повтор ещё раз, и теперь сигнал уходит.
@@ -320,6 +337,20 @@ describe("потолок фонового повтора (jobs/aiReplyRetryCap.t
     expect(retryMock).toHaveBeenCalledTimes(2);
     expect(alertClientWaiting).toHaveBeenCalledTimes(2);
     expect(await alertClientWaiting.mock.results[1].value).toBe("agent");
+  });
+
+  it("гонка с кнопкой: остановку дописало задание, начатое ДО нажатия, — метка сброса её перекрывает", async () => {
+    const { resetAiRetryCap, stopAiRetry, aiRetryLedgerBase, aiRetryStopped } = await import("../src/jobs/aiReplyRetryCap.js");
+    const id = await makeConversation([{ role: "user", content: "салом", at }]);
+    const base = aiRetryLedgerBase(id, [{ role: "user", content: "салом", at }])!;
+    const jobStartedAt = new Date(Date.now() - 60_000);
+    await resetAiRetryCap([id]);
+    await stopAiRetry({ conversationId: id, base, startedAt: jobStartedAt, stop: { reason: "retry_cap" } });
+    expect(await aiRetryStopped(base)).toBe(false);
+    // Остановка задания, начатого ПОСЛЕ нажатия, действует.
+    await prisma.processedMessage.deleteMany({ where: { channel: "ai-retry-no-reply", messageId: `${base}:stop` } });
+    await stopAiRetry({ conversationId: id, base, startedAt: new Date(Date.now() + 1000), stop: { reason: "retry_cap" } });
+    expect(await aiRetryStopped(base, new Date(Date.now() + 2000))).toBe(true);
   });
 
   it("кнопка «Повторить зависшим» снимает остановку и счёт (resetAiRetryCap)", async () => {

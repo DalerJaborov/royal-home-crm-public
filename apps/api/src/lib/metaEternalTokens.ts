@@ -345,6 +345,22 @@ function pageOnlyRoute(s: Snapshot, token: string): InstagramRoute | null {
  * Каким путём говорить с Instagram, если в руках — маркер аккаунта. Никогда не
  * бросает: худший исход — прежний личный путь.
  */
+/**
+ * Этот личный ключ Instagram — ЗАПАСНОЙ: аккаунту настроен путь через Страницу (ключ компании). Настройка, а не текущее
+ * состояние: пауза Страницы, лимит 613 или сбой выдачи маркера не делают его «единственным». Без сети. Сбой чтения —
+ * true (не доказано, что ключ единственный: «ключ канала мёртв» не выносим). Ревью #423, второй круг.
+ */
+export async function instagramPageRouteConfigured(token: string): Promise<boolean> {
+  try {
+    if (pageTokenOwner.has(token)) return false;
+    const s = await loadSnapshot();
+    if (!instagramAllowed(s)) return false;
+    return s.accounts.some((a) => a.channel === "INSTAGRAM" && a.token === token && !!a.pageId);
+  } catch {
+    return true;
+  }
+}
+
 export async function instagramRouteForToken(token: string, opts: { ignoreBench?: boolean } = {}): Promise<InstagramRoute> {
   const fallback: InstagramRoute = { kind: "instagram_login", token };
   try {

@@ -283,16 +283,16 @@ describe("повтор зависших диалогов", () => {
     const subscriber = `stuck-${runId}-retry-stopped`;
     const conv = await makeStuckConversation(subscriber);
     const { aiRetryLedgerBase } = await import("../src/jobs/aiReplyRetryCap.js");
-    const { channelKeyFingerprint } = await import("../src/lib/stuckConversations.js");
     const base = aiRetryLedgerBase(conv.id, conv.messages)!;
-    const fingerprint = await channelKeyFingerprint("FACEBOOK", conv.accountId);
-    for (const messageId of [`${base}:stop`, `${base}:stop-key:${fingerprint}`]) {
+    for (const messageId of [`${base}:stop`, `${base}:stop-key:fp-test`]) {
       await prisma.processedMessage.create({ data: { channel: "ai-retry-no-reply", messageId, completedAt: new Date() } });
     }
 
     const res = await request(app).post("/api/v1/errors/stuck-conversations/retry").set("Authorization", `Bearer ${directorToken}`);
     expect(res.status).toBe(200);
-    expect(await prisma.processedMessage.count({ where: { channel: "ai-retry-no-reply", messageId: { startsWith: `${conv.id}:` } } })).toBe(0);
+    // Остановки и счёт сняты; осталась только метка сброса.
+    expect((await prisma.processedMessage.findMany({ where: { channel: "ai-retry-no-reply", messageId: { startsWith: `${conv.id}:` } },
+      select: { messageId: true } })).map((r) => r.messageId)).toEqual([`${conv.id}:reset`]);
 
     const ownCall = () => sendMessage.mock.calls.find((c) => c[1] === subscriber);
     const jobKey = `ai-reply-retry:${conv.id}`;

@@ -235,6 +235,7 @@ errorLogRouter.post("/stuck-conversations/retry", requireAuth, requirePermission
   const rows = await findStuckConversations();
   // Нажал человек — его решение важнее потолка повтора: остановки и счёт этих переписок снимаются ДО постановки,
   // иначе задание (своё или уже стоящее от крона — очередь их сливает) увидело бы остановку и молча вышло (ревью #423).
+  // Метка сброса перекрывает и остановку, которую допишет задание, начатое до нажатия (jobs/aiReplyRetryCap.ts).
   if (rows.length > 0) await resetAiRetryCap(rows.map((row) => row.id));
   res.json({ queued: rows.length });
   if (rows.length === 0) return;

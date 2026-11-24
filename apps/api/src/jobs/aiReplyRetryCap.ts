@@ -18,13 +18,17 @@ import { logSystemError } from "../lib/systemError.js";
  * Новое задание крона счёт не обнуляет; строки стареют вместе с таблицей (3 дня, webhookDedupe.ts).
  *  - пустой повтор (ответа нет, ошибки нет) — +1; на AI_RETRY_NO_REPLY_CAP-м повтор этой реплики останавливается молча
  *    (одна строка в журнал ошибок; «клиент ждёт» людям говорит сторож молчания, со всеми своими правилами);
- *  - отказ ключа канала — остановка сразу, но ПРИВЯЗАННАЯ К ОТПЕЧАТКУ КЛЮЧА: переподключили аккаунт — отпечаток другой,
- *    и ближайший повтор (крон через ≤30 минут или кнопка) отвечает клиенту; ответственному — один сигнал на эпизод;
- *  - кнопка «Повторить зависшим» снимает остановку и счёт (resetAiRetryCap): решение человека важнее потолка.
+ *  - вердикт транспорта «ключ канала мёртв» (messengers/meta.ts → MetaGraphCallError.channelKeyDead) — остановка сразу,
+ *    НА СРОК KEY_STOP_MS: ключ ожил или его переподключили — после срока повтор снова пробует (один ход ИИ на срок);
+ *    ответственному — один сигнал на эпизод;
+ *  - кнопка «Повторить зависшим» снимает остановки и счёт (resetAiRetryCap); остановку, которую допишет задание,
+ *    начатое ДО нажатия, метка сброса перекрывает (сравнение по времени начала задания).
  * Новая реплика клиента — новый ключ и новый счёт. «ИИ лежит» и обычный сбой отправки сюда не считаются: у них своя
  * лесенка и своя сдача (aiReplyRetryPolicy.ts, onGiveUp в aiReplyRetry.ts). Рубильник `botRetryCapEnabled` (ВКЛ).
  */
 export const AI_RETRY_NO_REPLY_CAP = 3;
+/** Сколько держится остановка по мёртвому ключу: минутный 401 не должен глушить переписку на весь день. */
+export const KEY_STOP_MS = 2 * 60 * 60 * 1000;
 const LEDGER = "ai-retry-no-reply";
 
 /** Ключ счёта: переписка + последняя реплика клиента. null — реплики нет (тогда и потолка нет: повторять нечего). */
@@ -33,20 +37,27 @@ export function aiRetryLedgerBase(conversationId: string, messages: unknown): st
   return message ? `${conversationId}:${message}` : null;
 }
 
-async function claim(messageId: string): Promise<boolean> {
+async function claim(messageId: string, at: Date = new Date()): Promise<boolean> {
   const inserted = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
-    VALUES (${randomUUID()},${LEDGER},${messageId},now(),now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
+    VALUES (${randomUUID()},${LEDGER},${messageId},${at},now()) ON CONFLICT ("channel","messageId") DO NOTHING`;
   return inserted === 1;
 }
 
 const capStop = (base: string) => `${base}:stop`;
-const keyStop = (base: string, keyFingerprint: string) => `${base}:stop-key:${keyFingerprint}`;
+const keyStopPrefix = (base: string) => `${base}:stop-key:`;
+const resetMark = (conversationId: string) => `${conversationId}:reset`;
+const conversationOf = (base: string) => base.slice(0, base.indexOf(":"));
 
-/** Повтор этой реплики остановлен: потолком или мёртвым ключом С ЭТИМ ЖЕ отпечатком (другой ключ — пробуем снова). */
-export async function aiRetryStopped(base: string, keyFingerprint: string): Promise<boolean> {
-  const row = await prisma.processedMessage.findFirst({
-    where: { channel: LEDGER, messageId: { in: [capStop(base), keyStop(base, keyFingerprint)] } }, select: { id: true } });
-  return !!row;
+/** Повтор этой реплики остановлен: потолком, или мёртвым ключом не дольше KEY_STOP_MS назад, и после последнего нажатия кнопки. */
+export async function aiRetryStopped(base: string, now: Date = new Date()): Promise<boolean> {
+  const rows = await prisma.processedMessage.findMany({
+    where: { channel: LEDGER, OR: [
+      { messageId: capStop(base) },
+      { messageId: { startsWith: keyStopPrefix(base) }, createdAt: { gte: new Date(now.getTime() - KEY_STOP_MS) } },
+      { messageId: resetMark(conversationOf(base)) },
+    ] }, select: { messageId: true, createdAt: true } });
+  const reset = rows.find((r) => r.messageId === resetMark(conversationOf(base)))?.createdAt.getTime() ?? 0;
+  return rows.some((r) => r.messageId !== resetMark(conversationOf(base)) && r.createdAt.getTime() > reset);
 }
 
 /** +1 пустой повтор этой реплики; true — потолок достигнут (повтор пора остановить). */
@@ -57,14 +68,15 @@ export async function noteAiRetryNoReply(base: string): Promise<boolean> {
   return true;
 }
 
-/** Кнопка «Повторить зависшим»: снять остановки и счёт этих переписок (все их реплики). */
-export async function resetAiRetryCap(conversationIds: readonly string[]): Promise<number> {
+/** Кнопка «Повторить зависшим»: снять остановки и счёт этих переписок (все их реплики) и поставить метку сброса. */
+export async function resetAiRetryCap(conversationIds: readonly string[], now: Date = new Date()): Promise<number> {
   let removed = 0;
   for (let i = 0; i < conversationIds.length; i += 100) {
     const chunk = conversationIds.slice(i, i + 100);
     const { count } = await prisma.processedMessage.deleteMany({
       where: { channel: LEDGER, OR: chunk.map((id) => ({ messageId: { startsWith: `${id}:` } })) } });
     removed += count;
+    for (const id of chunk) await claim(resetMark(id), now);
   }
   return removed;
 }
@@ -76,12 +88,12 @@ export type AiRetryStop =
 /**
  * Остановить повтор реплики. Порядок устойчив к падению (ревью #423): сначала сигнал (одна дверь, один на эпизод
  * молчания — повтор вызова ничего не шлёт) и строка журнала (dedupKey на переписку), и только потом метка остановки.
- * Упали между ними — следующий повтор сделает то же самое, без второго сигнала.
+ * Упали между ними — следующий повтор сделает то же самое, без второго сигнала. Метка датируется НАЧАЛОМ задания
+ * (`startedAt`): нажатие кнопки посреди задания её перекрывает.
  * Сигнал — только при мёртвом ключе: бот ответ подготовил, а уйти он не может, это техсбой. Пустые повторы людям не
- * сообщаем: «клиент ждёт ответа» говорит сторож молчания со своими правилами (выключатель, «бот отвечает сам», спам,
- * звонок агента, намеренное молчание). Клиенту ничего не отправляется. Никогда не бросает.
+ * сообщаем: «клиент ждёт ответа» говорит сторож молчания со своими правилами. Клиенту ничего не отправляется. Не бросает.
  */
-export async function stopAiRetry(input: { conversationId: string; base: string; stop: AiRetryStop }): Promise<void> {
+export async function stopAiRetry(input: { conversationId: string; base: string; stop: AiRetryStop; startedAt: Date }): Promise<void> {
   try {
     const keyDead = input.stop.reason === "channel_key_dead";
     if (keyDead) {
@@ -92,9 +104,17 @@ export async function stopAiRetry(input: { conversationId: string; base: string;
         why: "ответ бота не ушёл, ключ канала не работает (руководство об этом знает)" });
     }
     await logSystemError("ai",
-      `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала не работает (повтор продолжится после переподключения аккаунта)" : `${AI_RETRY_NO_REPLY_CAP} пустых повтора`} — ИИ по этому сообщению больше не зовётся.`,
+      `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала не работает (через 2 часа повтор попробует снова)" : `${AI_RETRY_NO_REPLY_CAP} пустых повтора`} — ИИ по этому сообщению сейчас не зовётся.`,
       { dedupKey: `ai-retry-stop:${input.conversationId}`, quietPult: true });
-    await claim(input.stop.reason === "channel_key_dead" ? keyStop(input.base, input.stop.keyFingerprint) : capStop(input.base));
+    if (input.stop.reason === "channel_key_dead") {
+      // Тот же ключ снова мёртв после срока — срок продлевается (иначе устаревшая метка разрешала бы ход ИИ каждые 30 минут).
+      const messageId = `${keyStopPrefix(input.base)}${input.stop.keyFingerprint}`;
+      await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
+        VALUES (${randomUUID()},${LEDGER},${messageId},${input.startedAt},now())
+        ON CONFLICT ("channel","messageId") DO UPDATE SET "createdAt" = GREATEST("ProcessedMessage"."createdAt", EXCLUDED."createdAt")`;
+    } else {
+      await claim(capStop(input.base), input.startedAt);
+    }
   } catch (error) {
     console.error("[ai-retry-cap] остановка повтора:", error instanceof Error ? error.message : "UnknownError");
   }

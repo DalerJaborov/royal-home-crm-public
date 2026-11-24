@@ -16,10 +16,10 @@
   "paths": 774,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4134,
+  "conditions": 4135,
   "untranslatedUnique": 474,
   "untranslatedTotal": 609,
-  "partialUnique": 1112,
+  "partialUnique": 1113,
   "translatedShare": 85
  },
  "untranslated": [
@@ -249,7 +249,7 @@
   "buffer.subarray(0, 5).toString() !== \"%PDF-\"",
   "buffered[event.side] >= MAX_BUFFERED_SAMPLES",
   "buffers[side].length === 0",
-  "capBase && await aiRetryStopped(capBase, keyFingerprint)",
+  "capBase && await aiRetryStopped(capBase, startedAt)",
   "card.commentPhoneHoldUntil && card.commentPhoneHoldUntil.getTime() <= now.getTime()",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
   "channel && !bot.toggles.channels[channel]",
@@ -78164,36 +78164,11 @@
      "c": []
     },
     {
-     "t": "внутри этого шага",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: Meta канал",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если capBase && await aiRetryStopped(capBase, keyFingerprint)",
+     "t": "если capBase && await aiRetryStopped(capBase, startedAt)",
      "k": "if",
      "a": [],
      "c": [],
-     "raw": "capBase && await aiRetryStopped(capBase, keyFingerprint)"
+     "raw": "capBase && await aiRetryStopped(capBase, startedAt)"
     },
     {
      "t": "внутри этого шага",
@@ -78253,6 +78228,53 @@
         {
          "t": "поломка: «повтор не удался: ключ канала не принят (подробности в журнале ошибок»",
          "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть ключ dead",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если причина — «channel_key_dead»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе",
+           "k": "else",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
          "a": [],
          "c": []
         }

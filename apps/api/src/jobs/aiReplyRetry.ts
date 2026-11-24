@@ -3,7 +3,7 @@ import { prisma } from "../db.js";
 import { customerPropertyTurnTerminal } from "../lib/customerPropertyHistory.js";
 import { currentTurnHasCustomerOutbox } from "../lib/customerOutbox.js";
 import { logSystemError } from "../lib/systemError.js";
-import { channelKeyFingerprint, retryStuckConversation } from "../lib/stuckConversations.js";
+import { retryStuckConversation } from "../lib/stuckConversations.js";
 import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { OPERATOR_REPLY_PAUSE_MS } from "../lib/conversationDelivery.js";
@@ -118,9 +118,11 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
     // Потолок повтора на реплику клиента (aiReplyRetryCap.ts): остановленный повтор — сразу конец, без ИИ и без трассы.
     const capOn = await automationSwitchOn("botRetryCapEnabled");
     const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;
-    // Ключ, которым уйдёт ответ: остановка «ключ мёртв» действует только для него (переподключили — пробуем снова).
-    const keyFingerprint = capBase ? await channelKeyFingerprint(conversation.channel, conversation.accountId) : "none";
-    if (capBase && await aiRetryStopped(capBase, keyFingerprint)) return;
+    // Начало задания: метка остановки датируется им, и нажатие кнопки посреди задания её перекрывает.
+    const startedAt = new Date();
+    if (capBase && await aiRetryStopped(capBase, startedAt)) return;
+    // Вердикт «ключ канала мёртв» и отпечаток ТОГО ключа, которым шла отправка, — из ошибки транспорта (meta.ts::callGraph).
+    const observed: { channelKeyFingerprint?: string } = {};
 
     const outcome = await retryStuckConversation({
       id: conversation.id,
@@ -131,20 +133,21 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       lastText: last.content,
       lastMid: last.mid ?? null,
       lastMessageAt: conversation.lastMessageAt ?? new Date(),
-    }, "ai_retry", context ? context.attempt + 1 : undefined); // core: at most 3 runs (up to 4 paid calls each) per message
+    }, "ai_retry", context ? context.attempt + 1 : undefined, observed); // core: at most 3 runs (up to 4 paid calls each) per message
     // Модель всё ещё лежит или отправка не удалась — исключение отдаёт задание
     // очереди на следующую ступень лесенки (см. aiReplyRetryPolicy.ts).
     if (outcome === "ai-down") throw new Error("ИИ всё ещё недоступен");
     // Ключ канала мёртв: повтор бессмыслен, ИИ больше не зовём (рубильник выключен — прежняя лесенка, как обычный сбой).
     if (outcome === "channel-dead") {
       if (!capBase) throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
-      await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "channel_key_dead", keyFingerprint } });
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt,
+        stop: { reason: "channel_key_dead", keyFingerprint: observed.channelKeyFingerprint ?? "unknown" } });
       return;
     }
     if (outcome === "failed") throw new Error("повтор не удался (подробности в журнале ошибок)");
     // Пустой повтор (ответа нет по правилам) завершает задание, а крон через 30 минут поставит новое: считаем на реплике.
     if (outcome === "no-reply" && capBase && await noteAiRetryNoReply(capBase)) {
-      await stopAiRetry({ conversationId: conversation.id, base: capBase, stop: { reason: "retry_cap" } });
+      await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: "retry_cap" } });
     }
   },
   async onGiveUp(payload) {
