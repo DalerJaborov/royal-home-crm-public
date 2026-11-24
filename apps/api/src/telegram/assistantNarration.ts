@@ -280,7 +280,7 @@ export async function sendVoiceSamples(chatId: string, config: Awaited<ReturnTyp
   const ready = new Map((await readyVoiceSamples(config)).filter((s) => s.lang === lang).map((s) => [s.voiceId, s.storageKey]));
   const voices = config.voices.slice(0, MAX_CHOICES).filter((v) => ready.has(v.id) && (!onlyVoiceId || v.id === onlyVoiceId));
   if (!voices.length) return 0;
-  await sendMessage(chatId, intro);
+  if (intro) await sendMessage(chatId, intro);
   let sent = 0;
   for (const voice of voices) {
     const path = localVideoFilePath(ready.get(voice.id)!);

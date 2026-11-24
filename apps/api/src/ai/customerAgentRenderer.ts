@@ -34,6 +34,7 @@ import { detectOutsideCoverage } from "./coverageGuard.js";
 import { customerReplyLink } from "../lib/customerReplyLink.js";
 import { RUDAKI_ERA_SERVICE_AREA_LINES, serviceAreaBuyerOffer, serviceAreaIn } from "../lib/serviceArea.js";
 import { stripBannedWords } from "./bannedWordsGuard.js";
+import { stripCallTimePromise } from "./callTimePromiseGuard.js";
 import { customerPolicyTermAsked, customerRecentUserTexts } from "./customerAgentPolicyAsked.js";
 import { customerRecruitmentFollowUp, recruitmentFollowUpLine, recruitmentFollowUpFixedLines, RETIRED_TEMPLATE_LINES, AD_OPEN_QUESTION,
   customerAdOpening, customerGreetingLine, customerAlreadyGreeted, customerInputHasLink,
@@ -668,7 +669,7 @@ function renderDecisionCore(input: {
     // The grounded free phrase replaces the stock acknowledgement; a greeting still opens the message and the template question still closes it.
     // The model's own words pass the owner's banned-word guard too («лутфан», «мутахассис»): the same guard as the legacy bot.
     if (greeting) lines.push(greeting);
-    lines.push(stripBannedWords(sayText));
+    lines.push(stripCallTimePromise(stripBannedWords(sayText)));
   } else if (d.social === "greet") { if (greeting) lines.push(greeting); }
   else if (social[d.social][lang]) lines.push(social[d.social][lang]);
   if (followRequest) lines.push(lang === "tg" ? "Ман худам ба сайт ё аккаунт обуна шуда наметавонам." : "Я не могу сам подписаться на сайт или аккаунт.");
