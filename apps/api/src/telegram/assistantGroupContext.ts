@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { groupPropertyReferenceNumbers } from "./assistantGroupParticipation.js";
@@ -89,12 +90,6 @@ function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
 }
 
 /** Call only from a Telegram update received by the common poller/webhook dispatcher. */
-/** Рубильник автопамяти групп: по умолчанию ВКЛ, ASSISTANT_GROUP_AUTO_MEMORY=0 выключает. */
-export function groupAutoMemoryEnabled(): boolean {
-  const value = process.env.ASSISTANT_GROUP_AUTO_MEMORY?.trim().toLowerCase();
-  return value !== "0" && value !== "false" && value !== "off";
-}
-
 export async function captureAssistantTelegramContext(raw: unknown, updateId: number, now = new Date()): Promise<void> {
   const source = groupEvidenceSource(raw, updateId, now);
   if (!source) return;
@@ -111,10 +106,10 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
   });
   let enabledAt = registration?.contextEnabledAt;
   let includeUnlinked = registration?.contextIncludeUnlinked ?? false;
-  if (registration && !enabledAt && groupAutoMemoryEnabled()) {
+  if (registration && !enabledAt && await automationSwitchOn("shabnamGroupAutoMemoryEnabled")) {
     // 24.11.2026, жалоба владельца «в группе она как без памяти»: память включалась только руками в базе
     // (в коде её не включал никто), и в новой рабочей группе Шабнам не помнила разговор и не видела новичков.
-    // Подключённая группа теперь запоминает сама, начиная с первого сообщения; выключить — ASSISTANT_GROUP_AUTO_MEMORY=0.
+    // Подключённая группа теперь запоминает сама, начиная с первого сообщения; выключить — Настройки → Автоматика ИИ.
     const claimed = await prisma.assistantTelegramGroup.updateMany({
       where: { chatId: groupChatId, contextEnabledAt: null },
       data: { contextEnabledAt: occurredAt, contextIncludeUnlinked: true },
