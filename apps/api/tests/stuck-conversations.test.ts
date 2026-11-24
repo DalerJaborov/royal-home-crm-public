@@ -383,6 +383,33 @@ describe("retryAllStuckConversations — отправка только зави�
       { ...facebook.transport, subscriberId: conv.subscriberId });
   });
 
+  it("транспорт вынес «ключ канала мёртв» — channel-dead с его отпечатком, «не дошло», без строки «не удался»", async () => {
+    /**
+     * Разбор прода 24.11.2026: Instagram отвечал 401/190, повтор считал это обычным сбоем отправки («failed») и
+     * лесенка задания до 46 раз заново звала ИИ ради ответа, который не может уйти. Вердикт и отпечаток выносит
+     * транспорт (meta.ts::callGraph), повтор берёт их из ошибки (ревью #423).
+     */
+    const { MetaGraphCallError } = await import("../src/lib/metaSendBlock.js");
+    const graph = { status: 401, code: 190, subcode: null, type: "OAuthException", fbtraceId: null } as ConstructorParameters<typeof MetaGraphCallError>[1];
+    const conv = await makeConversation("key-dead");
+    sendMessage.mockRejectedValueOnce(new MetaGraphCallError("Graph API HTTP 401: {}", graph, { channelKeyDead: { fingerprint: "abc123abc123" } }));
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    const observed: { channelKeyFingerprint?: string } = {};
+    expect(await retryStuckConversation(snapshot, "ai_retry", undefined, observed)).toBe("channel-dead");
+    expect(observed.channelKeyFingerprint).toBe("abc123abc123");
+    expect(markLastReplyUndelivered).toHaveBeenCalledTimes(1);
+    expect(logSystemError).not.toHaveBeenCalled();
+  });
+
+  it("401 без вердикта транспорта (запасной ключ, чужой сервис) — обычный сбой, лесенка как раньше", async () => {
+    const { MetaGraphCallError } = await import("../src/lib/metaSendBlock.js");
+    const graph = { status: 401, code: 190, subcode: null, type: "OAuthException", fbtraceId: null } as ConstructorParameters<typeof MetaGraphCallError>[1];
+    const conv = await makeConversation("backup-key");
+    sendMessage.mockRejectedValueOnce(new MetaGraphCallError("Graph API HTTP 401: {}", graph));
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    expect(await retryStuckConversation(snapshot, "ai_retry")).toBe("failed");
+  });
+
   it("отправка удалась — отметку «не дошло» не ставим", async () => {
     await makeConversation("delivered");
 

@@ -7439,6 +7439,8 @@ model Settings {
   botSpamFilterEnabled                  Boolean @default(true)
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
+  /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
+  botRetryCapEnabled                    Boolean @default(true)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
