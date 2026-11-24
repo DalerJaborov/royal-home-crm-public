@@ -40,7 +40,6 @@ const SCREENS = [
   { url: "/health", ready: ".ry-control .tiles .tile" },
   { url: "/stuck-work", ready: ".ry-control .list > .row" },
   { url: "/backups", ready: ".ry-control .list > .row" },
-  { url: "/ai-learning?tab=rules", ready: ".ry-control .tiles .tile" },
 ];
 
 for (const screen of SCREENS) {
@@ -71,10 +70,10 @@ test("новый вид: последняя вкладка раздела вид
   test.setTimeout(90_000);
   await stub(page, true);
   await page.setViewportSize({ width: 1024, height: 800 });
-  for (const url of ["/health", "/oversight", "/ai-learning"]) {
+  for (const url of ["/health", "/oversight"]) {
     await page.goto(url);
     await expect(page.locator("html")).toHaveAttribute("data-ui-look", "royal", { timeout: 20_000 });
-    const tabs = page.locator(url === "/ai-learning" ? ".ry-control .hscroll .seg > button" : ".ry-control .seg-ai > a");
+    const tabs = page.locator(".ry-control .seg-ai > a");
     await expect(tabs.first()).toBeVisible({ timeout: 30_000 });
     const last = tabs.last();
     const reachable = await last.evaluate((el) => {

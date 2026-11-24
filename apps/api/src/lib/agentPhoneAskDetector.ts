@@ -19,6 +19,7 @@
  */
 
 import { prisma } from "../db.js";
+import { checkAgentOffCrmLead } from "./agentOffCrmLeadDetector.js";
 
 // ─── Паттерны ────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,12 @@ interface CheckParams {
  */
 export async function checkAgentPhoneAsk(params: CheckParams): Promise<void> {
   if (!params.clientId) return;
+  // «Пишите мне в личку / в ватсап» — соседняя проверка той же реплики (бывший
+  // сигнал ночного судьи диалогов, lib/agentOffCrmLeadDetector.ts). Только реплики
+  // клиенту: в заметке и в звонке такие слова может сказать и сам клиент.
+  if (params.channel === "text" || params.channel === "voice") {
+    await checkAgentOffCrmLead({ agentId: params.agentId, clientId: params.clientId, channel: params.channel, text: params.text });
+  }
   const matched = detectPhoneAsk(params.text);
   if (!matched) return;
   try {

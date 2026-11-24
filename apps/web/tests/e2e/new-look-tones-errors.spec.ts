@@ -55,19 +55,6 @@ for (const [label, width, height] of [["m390", 390, 844], ["d1440", 1440, 900]] 
     // Ни одной метки звонка с огнём: огонь — тревога, а не итог разговора.
     await expect(page.locator(".ry-call-flag svg[data-icon='flame'], .ry-call-flag .flame")).toHaveCount(0);
     await shot(page, `calls-${label}`);
-
-    await page.goto("/ai-learning");
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(4000);
-    const act = page.locator(".tr-acts .tr-act").first();
-    if (await act.count()) {
-      // «Верно» и «Неверно» — не залитые зелёная и красная кнопки.
-      for (const button of await page.locator(".tr-acts .tr-act").all()) {
-        const bg = await button.evaluate((el) => getComputedStyle(el).backgroundColor);
-        expect(bg, "кнопка «Верно/Неверно» не должна быть сплошной зелёной или красной").not.toMatch(/^rgb\((13|209|179|38|34), /);
-      }
-    }
-    await shot(page, `ai-learning-${label}`);
   });
 }
 

@@ -19,9 +19,6 @@ vi.mock("../src/messengers/appendMessages.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/messengers/appendMessages.js")>()),
   appendConversationMessages: vi.fn(async () => undefined),
 }));
-vi.mock("../src/lib/botLessons.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/botLessons.js")>()), recordLesson: vi.fn(async () => undefined),
-}));
 
 const { prisma } = await import("../src/db.js");
 const { isWhatsAppWindowFailure, windowClosedStaffText, isMessagingWindowOpen } = await import("../src/lib/messagingWindow.js");
