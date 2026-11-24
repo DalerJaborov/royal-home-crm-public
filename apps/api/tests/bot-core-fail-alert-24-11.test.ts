@@ -15,12 +15,18 @@ describe("сигнал агенту при падении хода бота", ()
 
   it("ядро зовёт сигнал «escalate» при customer_core_unavailable только через рубильник", () => {
     const src = readFileSync(new URL("../src/lib/customerDmAgentTurn.ts", import.meta.url), "utf8");
-    expect(src).toMatch(/reason === "customer_core_unavailable" && await automationSwitchOn\("botCoreFailAlertEnabled"\)/u);
+    expect(src).toMatch(/reason === "customer_core_unavailable" && !staleRace && await automationSwitchOn\("botCoreFailAlertEnabled"\)/u);
   });
 
   it("причина падения идёт в журнал ошибок с местом в коде, даже без своего кадра", () => {
     const src = readFileSync(new URL("../src/lib/customerDmAgentTurn.ts", import.meta.url), "utf8");
     expect(src).toMatch(/\?\? stackLines\[0\]/u);
     expect(src).toMatch(/logSystemError\("ai", `Ход бота клиента: \$\{heldCause\} в /u);
+  });
+
+  it("гонка «principal/fence stale» (прод 24.11, WhatsApp, ответ ушёл через 27 с) агента не будит", () => {
+    const src = readFileSync(new URL("../src/lib/customerDmAgentTurn.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/Customer delivery \(\?:principal\|fence\) stale/u);
+    expect(src).toMatch(/!staleRace && await automationSwitchOn\("botCoreFailAlertEnabled"\)/u);
   });
 });
