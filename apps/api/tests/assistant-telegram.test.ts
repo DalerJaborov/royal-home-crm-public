@@ -594,10 +594,12 @@ describe("группа: когда бот отвечает", () => {
     expect(runner).toHaveBeenCalledTimes(2);
   });
 
-  it("не привязанный сотрудник — «привяжите аккаунт», модель не зовётся", async () => {
+  // 24.11.2026: вместо «Привяжите аккаунт» — кнопка привязки по номеру в личку (telegram/assistantGroupNewcomer.ts).
+  const linkOffer = () => sendMessageWithButtons.mock.calls.find((call) => String(call[1]).includes("не привязан к CRM"));
+  it("не привязанный сотрудник — кнопка привязки по номеру, модель не зовётся", async () => {
     await handleTelegramUpdate(groupMsg(null, `@${BOT} снизь цену`));
     expect(runner).not.toHaveBeenCalled();
-    expect(sentTexts().join("\n")).toContain("Привяжите аккаунт");
+    expect((linkOffer()?.[2] as { url: string }[][])[0][0].url).toBe("https://t.me/rh_test_bot?start=staff");
   });
 
   it("анонимный админ (sender_chat) и бот-отправитель не опознаются", async () => {
@@ -609,7 +611,7 @@ describe("группа: когда бот отвечает", () => {
   it("неактивный сотрудник — как не привязанный", async () => {
     await handleTelegramUpdate(groupMsg("inactive", `@${BOT} привет`));
     expect(runner).not.toHaveBeenCalled();
-    expect(sentTexts().join("\n")).toContain("Привяжите аккаунт");
+    expect(linkOffer()).toBeDefined();
   });
 
   it("чтение в группе — без телефонов, финансов и отчётов; в тексте номера замаскированы", async () => {

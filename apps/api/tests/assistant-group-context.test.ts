@@ -333,6 +333,14 @@ describe("opted-in Telegram group evidence", () => {
     expect(rows.map(r => r.messageId).sort()).toEqual([21, 22]);
   });
 
+  it("память, выключенная директором (/assistant_memory off), автопамятью обратно не включается", async () => {
+    vi.stubEnv("ASSISTANT_GROUP_AUTO_MEMORY", "");
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null, contextOptOutAt: now } });
+    await captureAssistantTelegramContext(message(41), 41, now);
+    expect((await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId: String(chatId) } })).contextEnabledAt).toBeNull();
+    expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId), messageId: 41 } })).toBe(0);
+  });
+
   it("автопамять выключается рубильником ASSISTANT_GROUP_AUTO_MEMORY=0", async () => {
     await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null } });
     await captureAssistantTelegramContext(message(31), 31, now);

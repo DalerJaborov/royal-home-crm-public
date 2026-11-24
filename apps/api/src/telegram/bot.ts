@@ -7,7 +7,7 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, findAgentByTelegramChatId, askStaffContactForLink, tryLinkAgentByContact, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
@@ -515,9 +515,13 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     // Код не подошёл (истёк, чужой, уже использован) — это мог быть и клиент,
     // случайно написавший "/start что-то": не отвечаем здесь ничего, пусть
     // разберёт обычная клиентская логика ниже (return false).
+    // `/start staff` — кнопка Шабнам новичку в рабочей группе (24.11.2026): привязка по номеру.
+    if (startMatch[1] === STAFF_LINK_START_PAYLOAD && (await askStaffContactForLink(msg))) return true;
   }
 
   const agent = await findAgentByTelegramChatId(chatId);
+  // Свой контакт в окне после `/start staff` — привязка по номеру; вне окна контакт идёт клиентским путём.
+  if (!agent && msg.contact && (await tryLinkAgentByContact(msg))) return true;
   if (!agent) return false;
 
   // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)

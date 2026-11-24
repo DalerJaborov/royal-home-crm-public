@@ -15,7 +15,9 @@
  */
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
-import { getBotUsername, removeKeyboard } from "../telegram/api.js";
+import { getBotUsername, removeKeyboard, requestContact, type TelegramIncomingMessage } from "../telegram/api.js";
+import { ASSISTANT_LINK_ASK_CONTACT, ASSISTANT_LINK_RESULT, bothLanguages } from "../telegram/assistantGroupPhrases.js";
+import { findActiveStaffByPhone } from "./staffPhoneGuard.js";
 import { sendPushToAgent } from "../push.js";
 import { logAgentAudit } from "./audit.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
@@ -93,6 +95,113 @@ export async function tryLinkAgentByCode(chatId: string, code: string, telegramU
 }
 
 /**
+ * ПРИВЯЗКА ПО НОМЕРУ ТЕЛЕФОНА (24.11.2026, жалоба владельца «новички пишут в группе, Шабнам не
+ * отвечает»: их Telegram не привязан, а код из профиля CRM новичок не знает, где взять).
+ *
+ * Путь: Шабнам в группе один раз даёт новичку кнопку-ссылку t.me/<бот>?start=staff
+ * (telegram/assistantGroupNewcomer.ts) → в личке `/start staff` → бот просит номер нативной кнопкой
+ * Telegram и открывает окно на 30 минут → пришёл СВОЙ контакт (contact.user_id = отправитель: номер
+ * подтвердил сам Telegram) → номер ровно у одного действующего сотрудника → привязка.
+ *
+ * Почему это безопасно: доверие то же, что у входа в CRM по СМС на этот номер. Не привязываем:
+ * чужую визитку, номер, записанный у двоих, учётку, к которой уже привязан ДРУГОЙ Telegram (смена
+ * аккаунта только кодом из профиля), Telegram, уже привязанный к другому действующему сотруднику.
+ * След в журнале действий и пуш сотруднику — как у привязки кодом (noteTelegramLinked).
+ *
+ * Клиентский бот не задет: вне окна (никто не открывал ссылку) контакт идёт обычным путём клиента.
+ */
+export const STAFF_LINK_START_PAYLOAD = "staff";
+export const STAFF_CONTACT_WINDOW_MS = 30 * 60_000;
+
+/** Ссылка из группы в личку с ботом, которая начинает привязку по номеру. */
+export async function staffLinkDeepLink(): Promise<string | null> {
+  const username = await getBotUsername();
+  return username ? `https://t.me/${username}?start=${STAFF_LINK_START_PAYLOAD}` : null;
+}
+
+class LinkRefused extends Error {
+  constructor(readonly reason: "otherTelegram") {
+    super(reason);
+  }
+}
+
+/** `/start staff` в личке. true — разобрано здесь (клиентской логике сообщение не отдаём). */
+export async function askStaffContactForLink(msg: TelegramIncomingMessage): Promise<boolean> {
+  if (msg.chat.type !== "private" || !msg.from?.id || msg.from.is_bot) return false;
+  const chatId = String(msg.chat.id);
+  const telegramUserId = String(msg.from.id);
+  const known = (await findAgentByTelegramChatId(chatId)) ?? (await findAgentByTelegramUserId(telegramUserId));
+  if (known) {
+    await removeKeyboard(chatId, bothLanguages(ASSISTANT_LINK_RESULT.alreadyLinked)).catch(() => {});
+    return true;
+  }
+  const now = new Date();
+  await prisma.assistantTelegramLinkOffer.upsert({
+    where: { telegramUserId },
+    create: { telegramUserId, chatId, offeredAt: now, contactRequestedAt: now },
+    update: { contactRequestedAt: now },
+  });
+  await requestContact(chatId, bothLanguages(ASSISTANT_LINK_ASK_CONTACT));
+  return true;
+}
+
+/**
+ * Контакт в личке в окне после `/start staff`. true — разобрано здесь; false — окна нет, это
+ * обычный контакт (клиент делится номером), пусть идёт клиентским путём.
+ */
+export async function tryLinkAgentByContact(msg: TelegramIncomingMessage): Promise<boolean> {
+  if (msg.chat.type !== "private" || !msg.contact || !msg.from?.id || msg.from.is_bot) return false;
+  const chatId = String(msg.chat.id);
+  const telegramUserId = String(msg.from.id);
+  const pending = await prisma.assistantTelegramLinkOffer.findUnique({ where: { telegramUserId } });
+  const requestedAt = pending?.contactRequestedAt;
+  if (!requestedAt || Date.now() - requestedAt.getTime() > STAFF_CONTACT_WINDOW_MS) return false;
+  if (msg.contact.user_id == null || String(msg.contact.user_id) !== telegramUserId) {
+    // Окно не закрываем: человек может нажать правильную кнопку.
+    await requestContact(chatId, bothLanguages(ASSISTANT_LINK_RESULT.notOwnContact)).catch(() => {});
+    return true;
+  }
+  // Одна попытка на одно окно: дубль апдейта или вторая отправка не привяжут дважды.
+  const closed = await prisma.assistantTelegramLinkOffer.updateMany({
+    where: { telegramUserId, contactRequestedAt: requestedAt },
+    data: { contactRequestedAt: null },
+  });
+  if (closed.count !== 1) return true;
+  const answer = (lines: { ru: string; tg: string }) => removeKeyboard(chatId, bothLanguages(lines)).catch(() => {});
+  const matches = await findActiveStaffByPhone(msg.contact.phone_number ?? "");
+  if (matches.length === 0) { await answer(ASSISTANT_LINK_RESULT.notFound); return true; }
+  if (matches.length > 1) { await answer(ASSISTANT_LINK_RESULT.ambiguous); return true; }
+  const [{ agentId, fullName }] = matches;
+  const holder = (await findAgentByTelegramUserId(telegramUserId)) ?? (await findAgentByTelegramChatId(chatId));
+  if (holder) {
+    await answer(holder.id === agentId ? ASSISTANT_LINK_RESULT.alreadyLinked : ASSISTANT_LINK_RESULT.otherTelegram);
+    return true;
+  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Привязки уволенных к этому аккаунту и чату снимаем: поля уникальны (тот же довод, что выше).
+      await tx.agent.updateMany({ where: { telegramUserId, id: { not: agentId }, isActive: false }, data: { telegramUserId: null } });
+      await tx.agent.updateMany({ where: { telegramChatId: chatId, id: { not: agentId }, isActive: false }, data: { telegramChatId: null } });
+      const claim = await tx.agent.updateMany({
+        where: { id: agentId, isActive: true, OR: [{ telegramUserId: null }, { telegramUserId }] },
+        data: { telegramUserId, telegramChatId: chatId },
+      });
+      if (claim.count !== 1) throw new LinkRefused("otherTelegram");
+    });
+  } catch (err) {
+    if (err instanceof LinkRefused) { await answer(ASSISTANT_LINK_RESULT.otherTelegram); return true; }
+    void logSystemError("telegram", `Привязка Telegram по номеру не удалась: ${err instanceof Error ? err.message : String(err)}`, {
+      dedupKey: "telegram-link-by-phone",
+    });
+    await answer(ASSISTANT_LINK_RESULT.otherTelegram);
+    return true;
+  }
+  await answer(ASSISTANT_LINK_RESULT.linked(fullName));
+  await noteTelegramLinked(agentId, "telegram-phone");
+  return true;
+}
+
+/**
  * След и весть о привязке (аудит безопасности 17.11.2026, S2). Telegram — канал
  * кода входа: привязка чужого чата = чужой вход в учётку. Запись в журнале
  * действий и сообщение самому сотруднику в CRM (колокольчик всегда, пуш на
@@ -100,8 +209,8 @@ export async function tryLinkAgentByCode(chatId: string, code: string, telegramU
  * привязывал не он — он узнает сразу, а не когда заглянет в профиль.
  * Сбой сообщения привязку не отменяет, но попадает в «Здоровье системы».
  */
-async function noteTelegramLinked(agentId: string): Promise<void> {
-  logAgentAudit(agentId, "TELEGRAM_LINKED", "Agent", agentId, { source: "telegram" });
+async function noteTelegramLinked(agentId: string, source: "telegram" | "telegram-phone" = "telegram"): Promise<void> {
+  logAgentAudit(agentId, "TELEGRAM_LINKED", "Agent", agentId, { source });
   try {
     await sendPushToAgent(agentId, {
       kind: "security",

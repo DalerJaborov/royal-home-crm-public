@@ -34,6 +34,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botSpamFilterEnabled",
   "botCoreFailAlertEnabled",
   "shabnamSocialPublishEnabled",
+  "shabnamGroupUnaddressedEnabled",
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
@@ -143,6 +144,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 24.11.2026: «молчит, пока не напишешь "Шабнам"», новички пишут, она не отвечает.
+  shabnamGroupUnaddressedEnabled: {
+    title: "Шабнам отвечает в группах без обращения",
+    on: "В рабочей группе Шабнам сама отвечает на ясный рабочий вопрос (цена и статус объекта, «найдите варианты», как сделать что-то в CRM), не чаще раза в 12 секунд. На болтовню и разговор людей между собой не отвечает. «Шабнам, помолчи» выключает это на полчаса.",
+    off: "В группах Шабнам отвечает только тем, кто её позвал: по имени, через /ai или ответом на её сообщение.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -180,7 +187,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupUnaddressedEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
