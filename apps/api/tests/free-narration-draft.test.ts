@@ -14,18 +14,23 @@ const tg = vi.hoisted(() => ({
   sendDocumentFile: vi.fn(async () => ({ message_id: 3 })),
   editMessageText: vi.fn(async () => undefined),
   sendChatAction: vi.fn(async () => undefined),
+  sendAudioCard: vi.fn(async () => ({ message_id: 7, audio: { file_id: "fid-1" } })),
+  editAudioCard: vi.fn(async () => ({ message_id: 5, audio: { file_id: "fid-2" } })),
+  deletePrivateMessage: vi.fn(async () => true),
 }));
-const samples = vi.hoisted(() => ({ ready: true }));
+/** key: "none" — образца на диске нет (текстовая карточка); корректный ключ `uuid/uuid.mp3` — путь к образцу есть (карточка-плеер). */
+const samples = vi.hoisted(() => ({ ready: true, key: "none" }));
 const ad = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>>, next: [] as Array<Record<string, unknown>> }));
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage: tg.sendMessage, sendMessageWithButtons: tg.sendMessageWithButtons, answerCallbackQuery: tg.answerCallbackQuery,
   sendDocumentFile: tg.sendDocumentFile, editMessageText: tg.editMessageText, sendChatAction: tg.sendChatAction, isTelegramEnabled: () => true,
+  sendAudioCard: tg.sendAudioCard, editAudioCard: tg.editAudioCard, deletePrivateMessage: tg.deletePrivateMessage,
 }));
 vi.mock("../src/lib/narrationGeneration.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/lib/narrationGeneration.js")>();
   // Образцы голосов «готовы» (файла на диске нет, отправка образца пропускается): нужны, чтобы Шабнам выбрала режим «по одному».
-  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: "none" }))) : [] };
+  return { ...real, readyVoiceSamples: async (config: { voices: Array<{ id: string }> }) => samples.ready ? config.voices.flatMap((v) => (["ru", "tg"] as const).map((lang) => ({ voiceId: v.id, lang, storageKey: samples.key }))) : [] };
 });
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/assistant.js")>(), isAiAssistantEnabled: async () => true }));
 vi.mock("../src/ai/liveVoiceProvider.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/ai/liveVoiceProvider.js")>(), resolveElevenLabsKey: () => "test-key" }));
@@ -283,7 +288,14 @@ describe("голос по одному (24.11.2026)", () => {
   ];
   const callbacks = () => lastButtons().flat().map((b) => b.callback_data ?? "");
 
-  it("показан один голос с «Выбрать», «Назад/Дальше», «Муж./Жен./Все»; кнопки листают и фильтруют, деньги не тратятся", async () => {
+  const lastEdit = () => tg.editMessageText.mock.calls.at(-1) as unknown as [string, number, string, Array<Array<{ text: string; callback_data?: string }>> | null];
+  const mediaClick = (chat: number, data: string, id = `fd-${runId}-${randomUUID()}`) => ({ id, data, message: { chat: { id: chat, type: "private" }, message_id: 5, caption: "🎙 карточка с образцом" }, from: { id: chat } }) as any;
+  const SAMPLE_KEY = `${randomUUID()}/${randomUUID()}.mp3`;
+  type AudioCard = { caption: string; title: string; buttons: Array<Array<{ text: string; callback_data?: string }>> };
+  const sentCard = () => (tg.sendAudioCard.mock.calls.at(-1) as unknown as unknown[])[2] as AudioCard;
+  const editedCard = () => (tg.editAudioCard.mock.calls.at(-1) as unknown as unknown[])[3] as AudioCard;
+
+  it("без образца на диске: текстовая карточка; листание и фильтр правят её на месте, новых сообщений нет, деньги не тратятся", async () => {
     await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
     const user = await makeAgent();
     const fetcher = vi.fn();
@@ -292,23 +304,125 @@ describe("голос по одному (24.11.2026)", () => {
       const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, длинный текст для проверки выбора голоса.", kind: "TEXT" });
       if (created.status !== "CREATED") throw new Error(created.status);
       await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
-      expect(lastText()).toContain("Голос 1 из 4: Мадина");
+      expect(lastText()).toContain("Мадина");
+      expect(lastText()).toContain("1 из 4");
+      expect(lastText()).toContain("рекомендуем");
+      expect(lastText()).toContain("Ваш текст");
+      expect(lastText()).toContain("Слово в слово");
       const first = callbacks();
       expect(first.some((d) => d.startsWith("fnr:p:"))).toBe(true);
       expect(first).toContain(`fnr:v:${created.row.id}:1a`);
       expect(first).toContain(`fnr:v:${created.row.id}:0m`);
       expect(first.every((d) => Buffer.byteLength(d) <= 64)).toBe(true);
+      // Главная кнопка называет то, что делает: нажатие сразу запускает озвучку.
+      expect(lastButtons()[0]![0]!.text).toBe("🎙 Озвучить этим голосом");
+      tg.sendMessageWithButtons.mockClear();
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1a`));
-      await waitFor(() => lastText().includes("Голос 2 из 4: Анна"));
+      await waitFor(() => lastEdit()?.[2].includes("2 из 4") === true);
+      expect(lastEdit()[2]).toContain("Анна");
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:0m`));
-      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
+      await waitFor(() => lastEdit()[2].includes("Фаррух") && lastEdit()[2].includes("1 из 2"));
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:1m`));
-      await waitFor(() => lastText().includes("Голос 2 из 2: Рустам"));
+      await waitFor(() => lastEdit()[2].includes("Рустам") && lastEdit()[2].includes("2 из 2"));
       await handleFreeNarrationCallback(click(user.chat, `fnr:v:${created.row.id}:2m`)); // за краем: по кругу
-      await waitFor(() => lastText().includes("Голос 1 из 2: Фаррух"));
+      await waitFor(() => lastEdit()[2].includes("Фаррух") && lastEdit()[2].includes("1 из 2"));
+      // В чате не появилось ни одного нового сообщения и ничего не удалялось: всё правилось на месте.
+      expect(tg.sendMessageWithButtons).not.toHaveBeenCalled();
+      expect(tg.sendAudioCard).not.toHaveBeenCalled();
+      expect(tg.deletePrivateMessage).not.toHaveBeenCalled();
       expect(fetcher).not.toHaveBeenCalled();
       expect(await prisma.freeNarration.findUnique({ where: { id: created.row.id } })).toMatchObject({ status: "AWAITING_VOICE" });
     } finally { vi.unstubAllGlobals(); await setConfig(); }
+  });
+
+  it("с образцом: одна карточка-плеер, листание подменяет файл на месте (editAudioCard), второй файл не шлётся", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.key = SAMPLE_KEY;
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Привет, меня зовут Далер", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      expect(tg.sendAudioCard).toHaveBeenCalledTimes(1);
+      expect(tg.sendDocumentFile).not.toHaveBeenCalled(); // образец больше не уходит безымянным документом
+      const sent = sentCard();
+      expect(sent.title).toBe("Мадина");
+      expect(sent.caption).toContain("Женский голос · 1 из 4 · рекомендуем");
+      expect(sent.caption).toContain("Привет, меня зовут Далер");
+      expect(sent.caption).not.toContain("файлом выше");
+      expect(sent.buttons[0]![0]!.text).toBe("🎙 Озвучить этим голосом");
+      expect(sent.buttons.flat().map((b) => b.callback_data ?? "")).toContain(`fnr:v:${created.row.id}:1a`);
+
+      await handleFreeNarrationCallback(mediaClick(user.chat, `fnr:v:${created.row.id}:1a`));
+      await waitFor(() => tg.editAudioCard.mock.calls.length === 1);
+      expect((tg.editAudioCard.mock.calls[0] as unknown as [string, number])[1]).toBe(5); // то же сообщение
+      expect(editedCard().title).toBe("Анна");
+      expect(editedCard().caption).toContain("2 из 4");
+      // Второй файл не отправлялся, прежнее сообщение не удалялось: одно сообщение на экране.
+      expect(tg.sendAudioCard).toHaveBeenCalledTimes(1);
+      expect(tg.deletePrivateMessage).not.toHaveBeenCalled();
+    } finally { samples.key = "none"; await setConfig(); }
+  });
+
+  it("правка не прошла: новая карточка отправляется, и только потом прежняя удаляется; запоздавшее нажатие по ней молчит", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.key = SAMPLE_KEY;
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, проверка замены карточки.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      tg.sendAudioCard.mockClear();
+      tg.editAudioCard.mockRejectedValue(new Error("Bad Request: message can't be edited"));
+      const msgId = 9100 + Math.floor(Math.random() * 800);
+      const clickOnce = () => ({ ...mediaClick(user.chat, `fnr:v:${created.row.id}:1a`), message: { chat: { id: user.chat, type: "private" }, message_id: msgId, caption: "карточка" } });
+      await handleFreeNarrationCallback(clickOnce());
+      await waitFor(() => tg.deletePrivateMessage.mock.calls.some((c) => (c as unknown as [string, number])[1] === msgId));
+      expect(tg.sendAudioCard).toHaveBeenCalledTimes(1);
+      expect(tg.sendAudioCard.mock.invocationCallOrder[0]).toBeLessThan(tg.deletePrivateMessage.mock.invocationCallOrder[0]!); // сначала новая, потом удаление
+      // Нажатие по уже заменённой карточке (двойной тап) не плодит вторую.
+      await handleFreeNarrationCallback(clickOnce());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(tg.sendAudioCard).toHaveBeenCalledTimes(1);
+    } finally { tg.editAudioCard.mockReset(); tg.editAudioCard.mockResolvedValue({ message_id: 5, audio: { file_id: "fid-2" } }); samples.key = "none"; await setConfig(); }
+  });
+
+  it("отмена на карточке с образцом: карточка удалена, вместо неё «Отменено», черновик снят", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.key = SAMPLE_KEY;
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, проверка отмены.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      tg.sendMessageWithButtons.mockClear();
+      await handleFreeNarrationCallback(mediaClick(user.chat, `fnr:x:${created.row.id}`));
+      await waitFor(() => tg.deletePrivateMessage.mock.calls.length === 1);
+      expect((tg.deletePrivateMessage.mock.calls[0] as unknown as [string, number])[1]).toBe(5);
+      expect(lastText()).toBe("Отменено.");
+    } finally { samples.key = "none"; await setConfig(); }
+  });
+
+  it("«Озвучить этим голосом» на карточке с образцом: карточка заменена строкой «готовлю», файл пришёл, строка убрана", async () => {
+    await setConfig({ voices: four, defaultVoiceId: four[2]!.id });
+    samples.key = SAMPLE_KEY;
+    const fetcher = vi.fn(async () => new Response(new Uint8Array([0x49, 0x44, 0x33, 1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg", "request-id": "r1" } }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const user = await makeAgent();
+      const created = await createFreeNarrationDraft({ agentId: user.id, chatId: String(user.chat), text: "Слово в слово, проверка выбора голоса.", kind: "TEXT" });
+      if (created.status !== "CREATED") throw new Error(created.status);
+      await handleFreeNarrationCallback(click(user.chat, `fnr:o:${created.row.id}`));
+      const pick = sentCard().buttons[0]![0]!.callback_data!;
+      tg.sendMessageWithButtons.mockClear();
+      await handleFreeNarrationCallback(mediaClick(user.chat, pick));
+      await waitFor(() => tg.sendDocumentFile.mock.calls.length === 1);
+      expect(lastText()).toContain("Готовлю озвучку");
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      await waitFor(() => tg.deletePrivateMessage.mock.calls.length >= 2);
+      // Удалены карточка (5) и строка «готовлю» (2): в чате остался только файл.
+      expect(tg.deletePrivateMessage.mock.calls.map((c) => (c as unknown as [string, number])[1])).toEqual(expect.arrayContaining([5, 2]));
+    } finally { vi.unstubAllGlobals(); samples.key = "none"; await setConfig(); }
   });
 
   it("образцов голосов ещё нет: прежний список кнопок, а не восемь шагов вслепую", async () => {
