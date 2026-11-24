@@ -35,6 +35,7 @@ export function assistantGroupFixture() {
   const voice = vi.fn(async (..._args: unknown[]) => true);
   const reaction = vi.fn(async (..._args: unknown[]) => "sent" as "sent" | "unavailable" | "uncertain");
   const indicator = vi.fn(async (..._args: unknown[]) => {});
+  const liveChime = vi.fn(async (..._args: unknown[]) => {});
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
   const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену.", authorLabel: "Умед Примеров" }]);
@@ -138,6 +139,9 @@ export function assistantGroupFixture() {
     "./assistantMedia.js": { handleAssistantMedia: media },
     "../lib/systemError.js": { logSystemError: async () => {} },
     "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
+    // «Живая» беседа (25.11.2026) выключена: старые проверки группы её не касаются, свои тесты у assistant-group-live.
+    "../lib/automationSwitches.js": { automationSwitchOn: async () => false },
+    "./assistantGroupLive.js": { resolveGroupMode: () => "HELP", parseGroupModeWord: () => null, GROUP_MODE_CONFIRMATION: {}, runLiveChime: liveChime },
     "../lib/shutdownState.js": { trackBackgroundTask: <T>(promise: Promise<T>) => promise },
   };
   // This module is absent from the older comparison revision.
@@ -158,7 +162,7 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, presses, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, presses, plain, html, voice, reaction, indicator, buttons, confirm, run, liveChime, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

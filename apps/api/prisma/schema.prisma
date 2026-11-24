@@ -7439,6 +7439,8 @@ model Settings {
   botSpamFilterEnabled                  Boolean @default(true)
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
+  shabnamGroupLiveEnabled               Boolean @default(true)
+  shabnamGroupLiveShadowEnabled         Boolean @default(false)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -11479,6 +11481,11 @@ model AssistantTelegramGroup {
   /// Separate opt-in. A later opt-in starts a new evidence window.
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
+  /// LISTEN | HELP | LIVE; пусто = LIVE (telegram/assistantGroupLive.ts).
+  chatMode             String?
+  liveWindowStartAt    DateTime?
+  liveWindowCount      Int      @default(0)
+  lastLiveReplyAt      DateTime?
   context             AssistantTelegramContext[]
 }
 

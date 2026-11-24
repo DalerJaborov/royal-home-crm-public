@@ -38,6 +38,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "shabnamGroupLiveEnabled",
+  "shabnamGroupLiveShadowEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -49,7 +51,7 @@ export const AUTOMATION_SWITCH_DEFAULT = true;
  * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
  * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
  */
-export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled", "shabnamGroupLiveShadowEnabled"]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
@@ -143,6 +145,17 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 23–25.11.2026: «Шабнам должна работать всегда, как человек, и вступать в беседу».
+  shabnamGroupLiveEnabled: {
+    title: "Шабнам вступает в беседу в группах сама",
+    on: "В группах с режимом «живая» Шабнам сама иногда отвечает на приветствие, шутку, добрую новость или усталость коллеги: одна короткая реплика, не больше трёх в час, не ночью (с 22:00 до 08:00 по Душанбе). Молчит о деньгах, штрафах, жалобах, личном, ссорах. «Шабнам, помолчи» работает всегда.",
+    off: "Шабнам отвечает в группах только когда её позвали и на ясные рабочие вопросы, как раньше.",
+  },
+  shabnamGroupLiveShadowEnabled: {
+    title: "Живая беседа в пробном режиме (только запись)",
+    on: "Шабнам решает, вступать ли в беседу, но ничего не пишет в группу. Что сказала бы, видно в журнале помощника (telegram.live.chime). Удобно первую неделю, чтобы оценить тон.",
+    off: "Шабнам пишет в группу сама.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -180,7 +193,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

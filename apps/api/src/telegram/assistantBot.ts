@@ -52,6 +52,8 @@ import {
 } from "../lib/assistantActions.js";
 import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { GROUP_MODE_CONFIRMATION, parseGroupModeWord, resolveGroupMode, runLiveChime } from "./assistantGroupLive.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { claimCallback } from "../lib/telegramModeration.js";
 import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
@@ -356,6 +358,8 @@ interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
   forwardedEvidence?: boolean;
   readOnlyGroup?: boolean;
+  /** Группа в режиме «живая»: лёгкая беседа разрешена (ai/assistant.ts, LIVE_GROUP_CHAT_RULE). */
+  liveGroupChat?: boolean;
   onlyGroupConfirmation?: GroupConfirmationTool;
   allowPropertyCards?: boolean;
   agentId: string;
@@ -633,6 +637,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const typing = params.showWorking ? setInterval(params.showWorking, TYPING_REFRESH_MS) : null;
   const outcome = await runAssistantDetailed(withModelContext(params.history, params.modelContext), actor, {
     channel: "telegram",
+    liveGroupChat: params.liveGroupChat === true,
     turnKey: params.turnKey,
     moneyWallet: params.moneyWallet,
     confirmUi: !readOnly,
@@ -1518,7 +1523,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   let raw = (msg.text ?? "").trim();
   const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
   const forwardedText = isForwarded ? (msg.text ?? msg.caption ?? "").trim() : "";
-  const groupCommand = isForwarded ? null : new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
+  const groupCommand = isForwarded ? null : new RegExp(`^/assistant_(on|off|quiet|resume|mode)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
   const verb = groupCommand?.[1].toLowerCase();
   const onOff = verb === "on" || verb === "off" ? groupCommand : null;
   const participation = verb === "quiet" || verb === "resume" ? verb
@@ -1562,7 +1567,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) return false;
+    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) {
+      // Никто Шабнам не звал и ясного рабочего вопроса нет: в режиме «живая» она сама решает, вступать ли в беседу.
+      if (raw && !isForwarded && msg.from && !msg.sender_chat) {
+        void runLiveChime({
+          chatId, messageId: msg.message_id, threadId: msg.message_thread_id, text: raw,
+          fromTelegramId: msg.from.id, isBot: msg.from.is_bot === true, isForwarded, senderIsChat: Boolean(msg.sender_chat),
+        }, (replyText) => sendAssistantReply(chatId, replyText, {
+          scope: "group", mode: "text", replyTo: msg.message_id, messageThreadId: msg.message_thread_id, written: [],
+        }));
+      }
+      return false;
+    }
   }
   const reply = async (message: string) => {
     if (msg.message_thread_id === undefined) await sendMessage(chatId, message, msg.message_id);
@@ -1646,6 +1662,22 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     const now = new Date(groupClock());
     const registeredAt = registered.createdAt.getTime();
+    if (verb === "mode") {
+      // /assistant_mode слушает|помогает|живая: режим этой группы. Меняют только директор и администратор.
+      const access = sender ? await loadAgentAccess(sender.id) : null;
+      if (!access?.isActive || !GROUP_ADMIN_ROLES.has(access.role)) {
+        await reply("Режим группы меняет директор или администратор.");
+        return true;
+      }
+      const mode = parseGroupModeWord(raw.split(/\s+/u)[1] ?? "");
+      if (!mode) {
+        await reply("Выберите режим: /assistant_mode слушает, помогает или живая.");
+        return true;
+      }
+      await prisma.assistantTelegramGroup.updateMany({ where: { chatId }, data: { chatMode: mode } });
+      await reply(GROUP_MODE_CONFIRMATION[mode]);
+      return true;
+    }
     const validateQueueAudience = async () => {
       const [current, viewer] = await Promise.all([
         prisma.assistantTelegramGroup.findUnique({ where: { chatId } }),
@@ -1707,6 +1739,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    // Режим «слушает»: только запоминает, сама ни на что не отвечает; зовут по имени, /ai или ответом на её сообщение.
+    if (!addressed && !groupCommand && resolveGroupMode(registered.chatMode) === "LISTEN") return false;
     const showWorking = () => void (msg.message_thread_id === undefined
       ? sendChatAction(chatId)
       : sendChatAction(chatId, undefined, "typing", msg.message_thread_id));
@@ -2068,6 +2102,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         moneyWallet,
         scope: "group",
         groupChat: addressed ? { chatId, registeredAt } : undefined,
+        liveGroupChat: resolveGroupMode(registered.chatMode) === "LIVE" && await automationSwitchOn("shabnamGroupLiveEnabled"),
         allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
         readOnlyGroup: Boolean(continuationRef),
         validateQueueAudience, forwardedEvidence,
