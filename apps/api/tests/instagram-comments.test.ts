@@ -810,10 +810,13 @@ describe("обработка комментария", () => {
 
     it("повторный комментарий того же автора не заводит вторую карточку", async () => {
       const authorId = `author-card-dup-${runId}`;
-      decide.mockResolvedValue({ action: "reply", reply: "Салом!", dm: "не по адресу" });
+      // Разные тексты и ответы: одинаковые ушли бы в повтор публичного ответа (lib/commentReplyRepeat.ts,
+      // разбор суток 23.11.2026) — здесь проверяется карточка, а не повтор текста.
+      decide.mockResolvedValueOnce({ action: "reply", reply: "Салом!", dm: "не по адресу" });
       const first = await queueComment("card-dup-1", { authorId, parentId: `c-${runId}-dup-root` });
       expect(await handleComment(first)).toBe("replied");
-      const second = await queueComment("card-dup-2", { authorId, parentId: `c-${runId}-dup-root` });
+      decide.mockResolvedValueOnce({ action: "reply", reply: "Ин хона 58 000 $ аст.", dm: "не по адресу" });
+      const second = await queueComment("card-dup-2", { authorId, parentId: `c-${runId}-dup-root`, text: "Нархаш чанд?" });
       expect(await handleComment(second)).toBe("replied");
 
       const conversations = await prisma.botConversation.findMany({ where: { channel: "INSTAGRAM", subscriberId: authorId } });

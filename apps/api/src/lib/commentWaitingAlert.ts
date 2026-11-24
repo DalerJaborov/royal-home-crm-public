@@ -55,11 +55,14 @@ export function commentTag(commentId: string): string {
  */
 export type CommentNeed = "no" | "technical" | "human";
 /**
- * Технические отказы ядра — ОДИН список с самим ядром (customerPublicAgentFailure.ts, ревью 197-2), с одним
- * осознанным исключением: `unsupported_decision_evidence` — бот не смог подтвердить ответ данными, это вопрос
- * содержания, а не сбой, и человека зовём всегда (живой случай 14.11, ради которого сделан #195).
+ * Технические отказы ядра — ОДИН список с самим ядром (customerPublicAgentFailure.ts, ревью 197-2), с осознанными
+ * исключениями — это вопрос содержания, а не сбой, и человека зовём всегда:
+ *  - `unsupported_decision_evidence` — бот не смог подтвердить ответ данными (живой случай 14.11, ради которого сделан #195);
+ *  - `round_limit`, `tool_limit`, `output_limit` — бот запутался в вопросе и не уложился в шаги (разбор суток 23.11.2026,
+ *    K17–K18: «обьект 117» дважды упал по пределу шагов, человек не узнал — рубильник технических отказов их глушил).
  */
-const TECHNICAL_CORE_FAILURES: ReadonlySet<string> = new Set([...PUBLIC_AGENT_TECHNICAL_FAILURES].filter((r) => r !== "unsupported_decision_evidence"));
+const CONTENT_CORE_FAILURES: ReadonlySet<string> = new Set(["unsupported_decision_evidence", "round_limit", "tool_limit", "output_limit"]);
+const TECHNICAL_CORE_FAILURES: ReadonlySet<string> = new Set([...PUBLIC_AGENT_TECHNICAL_FAILURES].filter((r) => !CONTENT_CORE_FAILURES.has(r)));
 /** Застрял в очереди: ни ответа, ни финала дольше этого — бот уже не справился сам. */
 export const COMMENT_STUCK_MS = 30 * 60_000;
 export function commentNeed(status: string, note: string | null): CommentNeed {
@@ -74,6 +77,18 @@ export function commentNeed(status: string, note: string | null): CommentNeed {
   if (core) return TECHNICAL_CORE_FAILURES.has(core[1]!) ? "technical" : "human";
   return "human";
 }
+/**
+ * Вид сигнала для двери «Бот отвечает сам» (lib/botAnswersItself.ts). Бот не ответил комментатору НИЧЕГО, потому что сломался
+ * или запутался (FAILED), или не стал повторять тот же ответ (`duplicate_public_reply`), — это `unanswered`: человек узнаёт при
+ * любом положении настройки (разбор суток 23.11.2026: K17–K18 «умерли молча»). Бот сам решил позвать человека (ESCALATED по
+ * решению модели) или спорная модерация — `bot_choice`, как раньше (решение владельца 18.11 «Бот отвечает сам»).
+ */
+export function commentSignalKind(status: string, note: string | null, replyText: string | null): "unanswered" | "bot_choice" {
+  if (status === "FAILED") return "unanswered";
+  if (status === "ESCALATED" && !replyText?.trim() && (note ?? "").includes("duplicate_public_reply")) return "unanswered";
+  return "bot_choice";
+}
+
 /** «Звать ли» при включённом рубильнике технических отказов. */
 export function commentNeedsHuman(status: string, note: string | null): boolean {
   return commentNeed(status, note) !== "no";
@@ -88,6 +103,8 @@ export async function isCommentFailureWatchEnabled(): Promise<boolean> {
 /** Причина простыми словами — без служебных кодов. */
 export function plainCommentReason(status: string, note: string | null): string {
   if (note?.includes("moderation")) return "бот не уверен, скрывать ли комментарий — решите сами";
+  if (note?.includes("duplicate_public_reply")) return "бот ответил бы этому человеку то же, что уже писал под этим постом — ответьте по существу";
+  if (/^managed_core:failed:(?:round_limit|tool_limit|output_limit)/.test(note ?? "")) return "бот запутался в вопросе и ответа не подготовил";
   if (status === "PENDING" || status === "WORKING" || status === "ERROR") return "бот не ответил за полчаса (сбой ИИ или очереди)";
   if (note === "ai_down") return "ИИ был недоступен, бот так и не ответил";
   if (status === "FAILED" && commentNeed(status, note) === "technical") return "у бота сорвался ответ по технической причине";
@@ -112,8 +129,8 @@ export async function runCommentNeedsHumanSweep(now: Date = new Date()): Promise
   const queueRuns = technicalOn && (await loadBotCapabilities()).comments;
   // Финалы (ESCALATED/FAILED) — по времени финала; застрявшие в очереди (PENDING/WORKING/ERROR) —
   // по времени появления комментария: дольше COMMENT_STUCK_MS без ответа — бот уже не справился.
-  const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string | null; authorName: string | null; text: string }>>`
-    SELECT c."commentId", c."channel", c."status", c."note", c."authorName", c."text"
+  const rows = await prisma.$queryRaw<Array<{ commentId: string; channel: string; status: string; note: string | null; authorName: string | null; text: string; replyText: string | null }>>`
+    SELECT c."commentId", c."channel", c."status", c."note", c."authorName", c."text", c."replyText"
     FROM "InstagramComment" c
     WHERE (
         (c."status" IN ('ESCALATED','FAILED')
@@ -144,7 +161,7 @@ export async function runCommentNeedsHumanSweep(now: Date = new Date()): Promise
     const need = commentNeed(row.status, row.note);
     // Рубильник выключен: технический отказ не отмечаем — включат, и сводка уйдёт (в пределах суток).
     if (need === "technical" && !technicalOn) continue;
-    if (need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: "bot_choice" }))) {
+    if (need === "no" || (need === "human" && !staffSignalAllowed({ on: selfAnswer, kind: commentSignalKind(row.status, row.note, row.replyText) }))) {
       // Решено «человека не звать» — отмечаем, чтобы такие строки не занимали предел выборки каждый тик.
       await claim(row.commentId);
       continue;
