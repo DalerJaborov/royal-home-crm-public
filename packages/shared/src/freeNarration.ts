@@ -8,7 +8,7 @@ import type { NarrationConfig, NarrationLang } from "./propertyNarration.js";
  * словарь и дневной бюджет — те же, что у озвучки объектов (lib/narrationGeneration.ts);
  * здесь только пределы на человека и правила языка.
  */
-export const FREE_NARRATION_DEFAULTS = { perPersonDaily: 5, maxChars: 1500, budgetPercent: 30 } as const;
+export const FREE_NARRATION_DEFAULTS = { perPersonDaily: 0, maxChars: 1500, budgetPercent: 30 } as const;
 
 export function freeNarrationLimits(config: Pick<NarrationConfig, "freeNarrationPerPersonDaily" | "freeNarrationMaxChars" | "freeNarrationBudgetPercent">) {
   return {

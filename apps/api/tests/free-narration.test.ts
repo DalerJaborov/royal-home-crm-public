@@ -162,6 +162,14 @@ describe("дверь озвучки текста", () => {
     expect((await createFreeNarrationRequest({ agentId: b.id, source: "API", text: "Привет, это проверка ключа", requestKey })).status).toBe("NO_ACCESS");
   });
 
+  it("без потолка на человека (по умолчанию 0): шесть озвучек подряд проходят", async () => {
+    await setConfig({ freeNarrationPerPersonDaily: 0 });
+    const user = await makeAgent();
+    const fetcher = audioFetch();
+    for (let i = 0; i < 6; i++) expect((await runFreeNarration({ id: (await newRequest(user.id)).id, agentId: user.id, fetcher })).status).toBe("READY");
+    expect(fetcher).toHaveBeenCalledTimes(6);
+  });
+
   it("потолок на человека: сверх него ElevenLabs не зовётся; у другого человека свой счёт", async () => {
     await setConfig({ freeNarrationPerPersonDaily: 2 });
     const user = await makeAgent();
@@ -261,7 +269,7 @@ describe("REST /properties/narration-free", () => {
     expect(res.body).toMatchObject({ enabled: true, defaultVoiceId: voices[1].id, maxChars: 1500, perPersonDaily: 50 });
     expect(res.body.voices.map((v: { id: string }) => v.id)).toEqual(voices.map((v) => v.id));
     expect(res.body.remainingToday).toBeLessThanOrEqual(50);
-    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 5, maxChars: 1500, budgetPercent: 30 });
+    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 0, maxChars: 1500, budgetPercent: 30 });
   });
 
   it("плохое тело — 400; нет доступа — 403", async () => {
