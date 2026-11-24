@@ -111,9 +111,9 @@ export function NarrationSettingsPanel() {
         <Check checked={freeStepper ?? config.freeNarrationVoiceStepper !== false} onChange={setFreeStepper}>Шабнам даёт выбрать голос по одному: образец, кнопки «Выбрать», «Назад», «Дальше», «Муж.», «Жен.», «Все»</Check>
         <Check checked={freeOffer ?? config.freeNarrationOfferButton === true} onChange={setFreeOffer}>Под длинным присланным текстом Шабнам предлагает кнопку «Озвучить этот текст»</Check>
         <div className="grid gap-2 sm:grid-cols-3">
-          <label className="block text-sm">Озвучек на человека в сутки<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 5)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>
-          <label className="block text-sm">Символов в одном тексте<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeMax ?? String(config.freeNarrationMaxChars ?? 1500)} onChange={(e) => setLimitsText({ ...limitsText, freeMax: e.target.value })} /></label>
-          <label className="block text-sm">Доля от дневного предела, %<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeShare ?? String(config.freeNarrationBudgetPercent ?? 30)} onChange={(e) => setLimitsText({ ...limitsText, freeShare: e.target.value })} /></label>
+          <label className="block text-sm">Озвучек на человека в сутки (0 = без ограничения)<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freePerson ?? String(config.freeNarrationPerPersonDaily ?? 0)} onChange={(e) => setLimitsText({ ...limitsText, freePerson: e.target.value })} /></label>
+          <label className="block text-sm">Символов в одном тексте<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeMax ?? String(config.freeNarrationMaxChars ?? 5000)} onChange={(e) => setLimitsText({ ...limitsText, freeMax: e.target.value })} /></label>
+          <label className="block text-sm">Доля от дневного предела, %<input inputMode="numeric" className="mt-1 w-full rounded border p-2" value={limitsText.freeShare ?? String(config.freeNarrationBudgetPercent ?? 100)} onChange={(e) => setLimitsText({ ...limitsText, freeShare: e.target.value })} /></label>
         </div>
         <p className="text-sm text-[var(--muted)]">Доля нужна, чтобы чужие тексты не съели озвучку роликов: больше этой части дневного предела на них не тратится.</p>
       </fieldset>
@@ -201,9 +201,9 @@ export function NarrationSettingsPanel() {
           freeNarrationAdText: freeAd ?? config.freeNarrationAdText !== false,
           freeNarrationVoiceStepper: freeStepper ?? config.freeNarrationVoiceStepper !== false,
           freeNarrationOfferButton: freeOffer ?? config.freeNarrationOfferButton === true,
-          freeNarrationPerPersonDaily: Math.min(100, Math.max(1, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 5) ?? 5)),
-          freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 1500) ?? 1500)),
-          freeNarrationBudgetPercent: Math.min(100, Math.max(1, number(limitsText.freeShare, config.freeNarrationBudgetPercent ?? 30) ?? 30)),
+          freeNarrationPerPersonDaily: Math.min(100, Math.max(0, number(limitsText.freePerson, config.freeNarrationPerPersonDaily ?? 0) ?? 0)),
+          freeNarrationMaxChars: Math.min(5000, Math.max(50, number(limitsText.freeMax, config.freeNarrationMaxChars ?? 5000) ?? 5000)),
+          freeNarrationBudgetPercent: Math.min(100, Math.max(1, number(limitsText.freeShare, config.freeNarrationBudgetPercent ?? 100) ?? 100)),
           ...(templatesDraft ? { templates: templatesDraft } : {}), ...(endingsDraft ? { endings: endingsDraft } : {}) };
         const saved = await api<{ message?: string }>("/properties/narration-settings", { method: "PUT", body: patch });
         setRulesDraft(null); setTemplatesDraft(null); setEndingsDraft(null); setVoicesText(null); setLimitsText({}); setFreeEnabled(null); setFreeAd(null); setFreeOffer(null); setFreeStepper(null);
