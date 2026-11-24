@@ -33,7 +33,7 @@ import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback, isPro
 import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNarration.js";
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
-import { handleFreeNarrationCallback, handleFreeNarrationMessage, isBareNarrationAsk, looksLikeNarrationDictation, narrationDictationReply, startFreeNarrationFromAsk } from "./assistantFreeNarration.js";
+import { handleAdTextRequest, handleFreeNarrationCallback, handleFreeNarrationMessage, isBareNarrationAsk, looksLikeNarrationDictation, narrationBodyAfterCue, narrationDictationReply, offerNarrationButton, parseFreeNarrationTrigger, showVoiceNarrationDraft, startFreeNarrationFromAsk } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
 import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
@@ -1000,7 +1000,7 @@ export async function handleAssistantPrivate(
     // Голосовое в эти 15 минут — тоже новый текст озвучки: расшифровка той же дверью, что у обычного голосового.
     if (!isForwarded && await handleNarrationTextReply(msg, agent, (m) => transcribeVoice(m, agent.id, moneyWallet))) return;
     // «Озвучь текст» (16.11.2026): дословная озвучка текста сотрудника выбранным голосом — telegram/assistantFreeNarration.ts.
-    if (await handleFreeNarrationMessage(msg, agent, isForwarded)) return;
+    if (await handleFreeNarrationMessage(msg, agent, isForwarded, (m) => transcribeVoice(m, agent.id, moneyWallet), moneyWallet)) return;
     // Новая подпись поста без объекта (10 минут после «Изменить подпись») — telegram/staffSocialPost.ts.
     if (!isForwarded && await handleStaffSocialText(msg, agent)) return;
     // Ответ «к какому объекту ролик» (30 минут после вопроса) — telegram/staffClip.ts.
@@ -1083,21 +1083,36 @@ export async function handleAssistantPrivate(
       const language = assistantLanguage([{ role: "user", content: text }]);
       return language === "tg" || language === "mixed" ? "tg" : "ru";
     };
+    // Язык ответа следует просьбе (первая строка до двоеточия), а не языку присланных фактов (23.11.2026).
+    const requestLang = (): "ru" | "tg" => {
+      const language = assistantLanguage([{ role: "user", content: text.split(/[\n:]/u)[0].slice(0, 160) }]);
+      return language === "tg" || language === "mixed" ? "tg" : "ru";
+    };
     // «Удали всё, что прислала» (17.11.2026): свои сообщения этого личного чата, без модели.
     if (!forwardedEvidence && isDeleteSentRequest(text)) {
       if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
       await send(await deleteOwnPrivateMessages(chatId, agent.id, text, textLang()));
       return;
     }
-    // Длинный текст «для озвучки» мимо разбора «Озвучь текст:» — подсказка, а не ход модели (17.11.2026).
+    // «Сделай рекламный текст и озвучь» (23.11.2026): текст из присланных фактов, без выдумок, показ и «Озвучить».
+    // Раньше разбора диктовки: факты длинные и иначе попали бы в подсказку «пришлите через Озвучь текст».
+    if (!forwardedEvidence && !attachedFileText.trim() && await handleAdTextRequest(chatId, agent.id, text, requestLang(), moneyWallet)) return;
+    // Длинный текст «для озвучки» мимо разбора «Озвучь текст:». Набранный — подсказка, а не ход модели (17.11.2026).
+    // Голосом (23.11.2026) — расшифровка показывается текстом с кнопками «Озвучить как есть / Исправить / Отмена».
     if (!forwardedEvidence && looksLikeNarrationDictation(text)) {
-      await send(narrationDictationReply(textLang(), fromVoice));
-      if (fromVoice) await send(text.slice(0, 3500));
+      // «Озвучь вот это» + текст (23.11.2026): просьба снимается, принятый текст показан, деньги до выбора голоса не тратятся.
+      await showVoiceNarrationDraft(chatId, agent.id, narrationBodyAfterCue(text), requestLang(), fromVoice ? "VOICE" : "TEXT");
       return;
     }
     // Короткое «озвучь…» без текста (чаще голосом, 23.11.2026): ждём сам текст следующим сообщением,
     // а не отдаём просьбу модели — она отвечала «пришлите данные по объекту» (telegram/assistantFreeNarration.ts).
     if (!forwardedEvidence && !attachedFileText.trim() && !isVoiceReplayRequest(text) && isBareNarrationAsk(text)) {
+      // Голосом «озвучь, <текст>» (23.11.2026): текст уже сказан, второй раз его просить незачем: показываем расшифровку.
+      if (fromVoice) {
+        const parsed = parseFreeNarrationTrigger(text);
+        const body = parsed?.kind === "text" ? parsed.text : narrationBodyAfterCue(text);
+        if (body !== text && body.split(/\s+/u).filter(Boolean).length >= 6) { await showVoiceNarrationDraft(chatId, agent.id, body, requestLang()); return; }
+      }
       await send(await startFreeNarrationFromAsk(agent.id, chatId, textLang()));
       return;
     }
@@ -1161,6 +1176,10 @@ export async function handleAssistantPrivate(
       });
     }
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }], msg.message_id);
+    // Длинный набранный текст без «озвучь» (23.11.2026): после ответа предлагаем кнопку «Озвучить этот текст» (узкий признак, раз в 5 минут).
+    if (ownWords && !fromVoice && !msg.contact && !msg.photo?.length && !msg.document && msg.text) {
+      await offerNarrationButton(chatId, agent.id, msg.text, textLang()).catch(() => false);
+    }
   } catch (err) {
     await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
     await send("Не получилось ответить, попробуйте ещё раз.").catch(() => {});

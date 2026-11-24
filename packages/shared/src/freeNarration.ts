@@ -22,6 +22,16 @@ export function freeNarrationEnabled(config: Pick<NarrationConfig, "freeNarratio
   return config.freeNarrationEnabled !== false;
 }
 
+/** Рубильник «рекламный текст из фактов» (23.11.2026). Зависит от общего рубильника озвучки текста. */
+export function freeNarrationAdTextEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationAdText">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationAdText !== false;
+}
+
+/** Рубильник кнопки «Озвучить этот текст» под длинным сообщением (23.11.2026). По умолчанию ВЫКЛ (ревью: «редко беспокоить»): владелец включает в Настройках. */
+export function freeNarrationOfferEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationOfferButton">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationOfferButton === true;
+}
+
 /**
  * Язык текста по буквам: таджикские ғ ӣ қ ӯ ҳ ҷ дают «tg», иная кириллица — «ru»;
  * не определился (латиница, цифры) — null: язык-подсказку модели не передаём.
