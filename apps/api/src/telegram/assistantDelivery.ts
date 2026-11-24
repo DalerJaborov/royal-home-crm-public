@@ -81,10 +81,10 @@ export function assistantGroupClarification(text: string, requestLanguage?: Clie
 }
 
 const VOICE_LEAD_CHARS = ASSISTANT_VOICE_PART_CHARS;
-const VOICE_FAILED_NOTICE = { ru: "Голосом сейчас не вышло, пишу текстом.", tg: "Бо овоз нашуд, матнӣ менависам." } as const;
+const VOICE_FAILED_NOTICE = { ru: "Голосом сейчас не вышло, пишу текстом.", tg: "Ҳоло бо овоз нашуд, навишта мефиристам." } as const;
 const voiceNoticeLanguage = (request: ClientLanguage | undefined, plan: "ru" | "tg" | "text-only"): "ru" | "tg" =>
   request === "tg" || request === "mixed" || (request !== "ru" && plan === "tg") ? "tg" : "ru";
-const BULLET_LIST = /^\s*[-•▪*]\s/mu;
+const BULLET_LIST = /^\s*(?:[-•▪*]|\d+[.)])\s/mu;
 
 /**
  * Начало ответа для голоса: целые предложения до ~180 знаков (цифры уже словами). null — озвучивать нечего:
@@ -97,6 +97,8 @@ function voiceLead(plan: ReturnType<typeof prepareAssistantReply>): string | nul
   const cut = plan.speech.slice(0, VOICE_LEAD_CHARS);
   const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
   if (end >= 40) return cut.slice(0, end + 1);
+  // Цифры в тексте: резать посреди предложения нельзя, обрезанная сумма («сто двадцать пять тысяч…») — другая цена.
+  if (/\p{N}/u.test(plan.text)) return null;
   const space = cut.lastIndexOf(" ");
   return space >= 40 ? `${cut.slice(0, space).replace(/[,;:\s]+$/u, "")}…` : null;
 }
@@ -130,6 +132,10 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   const requestVoiceLanguage = ctx.requestLanguage === "mixed" ? undefined
     : ctx.requestLanguage === "ru" || ctx.requestLanguage === "tg" ? ctx.requestLanguage : ctx.voiceLanguage;
   const conversationLanguage = plan.language === "text-only" ? requestVoiceLanguage : plan.language;
+  // Голосовой вопрос в личке: ответ без языковых примет («Сегодня три показа.») озвучивается на языке вопроса, а при
+  // неясном языке по-русски (только кириллица, смешанный язык не трогаем): иначе голос терялся (24.11.2026).
+  const spokenAnswerLanguage = ctx.scope === "private" && ctx.fromVoice === true && ctx.mode !== "text" && !ctx.structured
+    ? requestVoiceLanguage ?? (ctx.requestLanguage === "mixed" ? undefined : "ru" as const) : undefined;
   let canSpeak = !clarification && !plan.ambiguousLanguage && voiceRequested && (ctx.mode === "voice" || !structured);
   const buttonPaths = new Set<string>();
   // Голосовой вопрос в личке получает голос, даже когда ответ длинный или с цифрами (владелец, 24.11.2026:
@@ -139,7 +145,7 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   let voiceNotice = "";
   const leadPlan = ctx.mode !== "voice" && ctx.scope === "private" && voiceRequested && structured
     && !ctx.structured && !ctx.written.length && !clarification
-    ? prepareAssistantVoicePart(plan.text, maskPhones, requestVoiceLanguage).part : null;
+    ? prepareAssistantVoicePart(plan.text, maskPhones, spokenAnswerLanguage).part : null;
   const lead = leadPlan ? voiceLead(leadPlan) : null;
   if (lead && leadPlan) {
     const fallback = leadPlan.language === "text-only" ? undefined : leadPlan.language;
@@ -150,7 +156,7 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   }
 
   for (const [i, textPart] of parts.entries()) {
-    const { part, fallbackLanguage } = prepareAssistantVoicePart(textPart, maskPhones, explicitConversation ? conversationLanguage : undefined);
+    const { part, fallbackLanguage } = prepareAssistantVoicePart(textPart, maskPhones, explicitConversation ? conversationLanguage : spokenAnswerLanguage);
     const written = i === parts.length - 1 ? ctx.written.map(entry => sanitizeAssistantReply(entry, maskPhones)) : [];
     // The topic is shared by all parts; only quote the request where it helps.
     const replyTo = i === 0 || (explicitConversation && ctx.scope === "group") ? ctx.replyTo : undefined;

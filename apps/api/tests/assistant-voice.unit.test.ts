@@ -5,7 +5,7 @@ let testCacheRoot: string;
 const audioFixture = Buffer.from("OggS0000000000000000000000000000OpusHead00000000");
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { logError } = vi.hoisted(() => ({ logError: vi.fn() }));
-vi.mock("../src/lib/systemError.js", () => ({ logSystemError: logError }));
+vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: logError }));
 const { query, settings, savedVoice, sendVoice, sendVoiceId, chatAction, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), chatAction: vi.fn(), fetchMock: vi.fn() }));
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
@@ -428,17 +428,18 @@ it.each(["synthesis", "telegram_delivery"] as const)("сбой озвучки (%
   if (stage === "synthesis") fetchMock.mockRejectedValue(privateError); else sendVoice.mockRejectedValue(privateError);
   vi.spyOn(console, "warn").mockImplementation(() => {});
   expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
-  expect(logError).toHaveBeenCalledWith("telegram", expect.stringContaining(stage), { dedupKey: `assistant-voice-${stage}` });
+  expect(logError).toHaveBeenCalledWith("telegram", expect.stringContaining(stage), { dedupKey: `assistant-voice-${stage}`, silent: true });
   expect(JSON.stringify(logError.mock.calls)).not.toContain(privateError.message);
 });
-it("голос не настроен или предел исчерпан — тоже в журнал, а не молча", async () => {
+it("голос не настроен — в журнал; исчерпанный предел — штатно, без записи об ошибке", async () => {
   logError.mockReset().mockResolvedValue(undefined);
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID", "");
   expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
-  expect(logError).toHaveBeenCalledWith("telegram", expect.stringContaining("не настроен"), { dedupKey: "assistant-voice-config-ru" });
+  expect(logError).toHaveBeenCalledWith("telegram", expect.stringContaining("не настроен"), { dedupKey: "assistant-voice-config-ru", silent: true });
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID", "test-voice");
   logError.mockClear();
   query.mockResolvedValue([]);
+  vi.spyOn(console, "info").mockImplementation(() => {});
   expect(await sendAssistantVoiceReply("test", "Нашла.")).toBe(false);
-  expect(logError).toHaveBeenCalledWith("telegram", expect.stringContaining("недоступна"), { dedupKey: "assistant-voice-unavailable" });
+  expect(logError).not.toHaveBeenCalled();
 });

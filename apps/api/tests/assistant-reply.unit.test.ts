@@ -29,6 +29,11 @@ describe("privacy and content", () => {
     expect(p.speech).not.toMatch(/\p{N}/u);
     expect(renderAssistantHtml(p.text, { maskPhones: true })).toContain(value);
   });
+  it.each(["Звоните 900-12-34-5.", "Дозвониться: 90-123-4-5-6."])("a short dashed number is never read aloud: %s", text => {
+    const p = prepareAssistantReply(text, false);
+    expect(p.speech).toBe("");
+    expect(p.needsText).toBe(true);
+  });
   it("Russian date stays text only: no voice with digits", () => {
     const p = prepareAssistantReply("Данные: 03-11-2026", true);
     expect(p.text).toContain("03-11-2026");
@@ -164,7 +169,7 @@ describe('delivery', () => {
   });
   it('successful HTML never falls back', async () => { await sendAssistantReply('test', 'Нашла.', { ...ctx, fromVoice: false }); expect(html).toHaveBeenCalledTimes(1); expect(plain).not.toHaveBeenCalled(); expect(voice).not.toHaveBeenCalled(); });
   it('short voice only', async () => { await sendAssistantReply('test', 'Готово.', ctx); expect(voice).toHaveBeenCalledWith('test', 'Готово.', undefined); expect(html).not.toHaveBeenCalled(); });
-  it.each(['Источник https://example.com', 'Нашла [Клиента](/clients/112)', 'Ответ ' + 'а'.repeat(334), 'Подробности пришлю текстом.', 'На сегодня 3 показа.'])('uses text for reference material: %s', async (text) => {
+  it.each(['Источник https://example.com', 'Нашла [Клиента](/clients/112)', 'Ответ ' + 'а'.repeat(334), 'Подробности пришлю текстом.'])('uses text for reference material: %s', async (text) => {
     await sendAssistantReply('test', text, ctx);
     expect(voice).not.toHaveBeenCalled();
     expect(html).toHaveBeenCalled();
@@ -325,7 +330,9 @@ describe("voice requests and false voice claims (14.11.2026)", () => {
   });
   it("data with numbers: the beginning is voiced, the figures stay written (24.11.2026)", async () => {
     await sendAssistantReply("test", "Нашла трёх клиентов.\n\nСамый новый пришёл 12 ноября.", ctx);
-    expect(html).toHaveBeenCalled();
+    expect(voice).toHaveBeenCalledTimes(1);
+    expect(voice.mock.calls[0][1]).toMatch(/^Нашла трёх клиентов\./u);
+    expect(voice.mock.calls[0][1]).not.toMatch(/\p{N}/u);
     expect(html.mock.calls[0][1]).toContain("12 ноября");
   });
   it("a group reply to an unaddressed voice note does not split paragraphs", async () => {

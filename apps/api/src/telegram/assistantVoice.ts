@@ -114,8 +114,8 @@ export async function sendAssistantVoiceReply(
   let stage: "configuration" | "synthesis" | "telegram_delivery" = "configuration";
   // Синтез не дал звука без исключения: пауза ElevenLabs после отказа, исчерпанный дневной предел знаков.
   const unavailable = () => {
-    void logSystemError("telegram", "Озвучка ответа помощника недоступна: пауза ElevenLabs или исчерпан дневной предел знаков",
-      { dedupKey: "assistant-voice-unavailable" });
+    // Штатное событие (пауза после отказа ElevenLabs, дневной предел знаков): не тревога и не пуш директорам.
+    console.info("[telegram:assistant:voice] voice unavailable: ElevenLabs pause or daily character limit");
     return false;
   };
   try {
@@ -129,7 +129,7 @@ export async function sendAssistantVoiceReply(
     const config = await resolveSpeechConfig(language);
     if (!config) {
       // Раньше молча: владелец видел только текст и не знал, что голос не настроен (24.11.2026).
-      void logSystemError("telegram", `Озвучка ответа помощника: голос (${language}) не настроен`, { dedupKey: `assistant-voice-config-${language}` });
+      void logSystemError("telegram", `Озвучка ответа помощника: голос (${language}) не настроен`, { dedupKey: `assistant-voice-config-${language}`, silent: true });
       return false;
     }
     const dictionary = pronunciationDictionary(language);
@@ -193,7 +193,7 @@ export async function sendAssistantVoiceReply(
     console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }) });
     // В журнал ошибок — только этап и код Telegram: текст исключения может нести ключ или адрес файла.
     void logSystemError("telegram", `Озвучка ответа помощника не вышла (этап ${stage}${code === undefined ? "" : `, код Telegram ${code}`})`,
-      { dedupKey: `assistant-voice-${stage}` });
+      { dedupKey: `assistant-voice-${stage}`, silent: true });
     return false;
   }
 }

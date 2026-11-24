@@ -924,6 +924,7 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
   const media = await handleAssistantMedia(msg, agentId, {
     allowGroup: msg.chat.type !== "private", wallet, language: () => stepUpLanguageOf(String(msg.chat.id), agentId),
+    fastTajikOk: standalone,
   });
   if (media.error) return { error: media.text };
   const text = media.extraction?.transcript;

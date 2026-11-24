@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const { html, plain, voice, buttons } = vi.hoisted(() => ({ html: vi.fn(), plain: vi.fn(), voice: vi.fn(), buttons: vi.fn() }));
-vi.mock("../src/telegram/api.js", () => ({ sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: buttons,
+vi.mock("../src/telegram/api.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/telegram/api.js")>()), sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: buttons,
   TelegramApiError: class extends Error {
     constructor(public errorCode: number, method: string, message: string) { super(`${method}: ${message}`); }
   },
 }));
-vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: voice, speechTextFromReply: (text: string) => text }));
+vi.mock("../src/telegram/assistantVoice.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/telegram/assistantVoice.js")>()), sendAssistantVoiceReply: voice, speechTextFromReply: (text: string) => text }));
 import { sendAssistantReply } from "../src/telegram/assistantDelivery.js";
 import { requestedAssistantReplyPreference } from "../src/telegram/assistantReply.js";
 
@@ -42,6 +42,13 @@ describe("просьба о голосе: обычные слова владел
     "Отправь голосовое клиенту",
     "Расскажи про голос клиента",
     "Овоз нафирист",
+    "Отправь клиенту голосом",
+    "Скажи Нозе голосом",
+    "Ответь клиенту голосом",
+    "Это голосовое?",
+    "Это аудио?",
+    "Голосовое?",
+    "Его голосовое?",
   ])("%s -> не просьба о голосе", phrase => {
     expect(requestedAssistantReplyPreference(phrase).mode).not.toBe("voice");
   });
@@ -79,6 +86,30 @@ describe("голосовой вопрос в личке получает гол�
     await sendAssistantReply("test", reply, { ...ctx, structured });
     expect(voice).not.toHaveBeenCalled();
     expect(html).toHaveBeenCalled();
+  });
+  it("в цене нельзя резать число: нет конца предложения в первых 180 знаках и есть цифры — голоса нет, текст полный", async () => {
+    const reply = "Цена этого объекта сегодня составляет 125 750 долларов, и это очень хорошая цена для такого района, потому что рядом есть школа, магазин, остановка и парк, а ещё тихий двор без машин и шума";
+    await sendAssistantReply("test", reply, { ...ctx, requestLanguage: "ru" });
+    expect(voice).not.toHaveBeenCalled();
+    expect(html.mock.calls[0][1]).toContain("125 750");
+  });
+  it("цена в целом первом предложении озвучивается словами и не режется", async () => {
+    const reply = "Цена 125 750 долларов. " + "Рядом школа, магазин, остановка и парк, а ещё тихий двор без машин и шума, и всё это очень удобно для семьи с детьми, которой нужен спокойный район.";
+    await sendAssistantReply("test", reply, { ...ctx, requestLanguage: "ru" });
+    expect(voice.mock.calls[0][1]).toMatch(/^Цена сто двадцать пять тысяч семьсот пятьдесят долларов\.?/u);
+    expect(voice.mock.calls[0][1]).not.toMatch(/\p{N}/u);
+  });
+  it("нумерованный список не озвучивается", async () => {
+    await sendAssistantReply("test", "Вот что нашла, смотрите:\n1. Первый вариант в центре\n2. Второй вариант у парка", { ...ctx, requestLanguage: "ru" });
+    expect(voice).not.toHaveBeenCalled();
+  });
+  it("короткий ответ без языковых примет на голосовой вопрос: язык неясен — всё равно голос по-русски, цифры словами", async () => {
+    await sendAssistantReply("test", "Сегодня три показа.", { ...ctx, requestLanguage: "unknown" });
+    expect(voice).toHaveBeenCalledTimes(1);
+    expect(voice.mock.calls[0][1]).toBe("Сегодня три показа.");
+    voice.mockClear();
+    await sendAssistantReply("test", "Сегодня три показа.", ctx);
+    expect(voice).toHaveBeenCalledTimes(1);
   });
   it("напечатанный вопрос остаётся текстом", async () => {
     await sendAssistantReply("test", longRu, { ...ctx, fromVoice: false });
@@ -118,7 +149,7 @@ describe("не вышло озвучить: честно текстом", () => 
   it("таджикский собеседник: строка по-таджикски", async () => {
     voice.mockResolvedValue(false);
     await sendAssistantReply("test", "Хуб, ман ёфтам.", { scope: "private", mode: "voice", requestLanguage: "tg", written: [] });
-    expect(html.mock.calls[0][1]).toMatch(/^Бо овоз нашуд, матнӣ менависам\.\n/u);
+    expect(html.mock.calls[0][1]).toMatch(/^Ҳоло бо овоз нашуд, навишта мефиристам\.\n/u);
   });
   it("ответ на голосовой без явной просьбы: просто текст, без извинений", async () => {
     voice.mockResolvedValue(false);
