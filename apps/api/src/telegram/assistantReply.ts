@@ -101,10 +101,12 @@ export type AssistantReplyMode = "auto" | "text" | "voice";
  * Язык голоса — язык самой просьбы. Последняя реплика сообщения важнее первых.
  * `\b`/`\w` по кириллице не работают, поэтому граница слова — пробел после нормализации.
  */
-const PREF_LEAD = /^(?:(?:пожалуйста|ну|а|нет|лучше|хотя|тогда|вс[её]-таки|давай(?:те)?|слушай(?:те)?|шабнам|мушовир|илтимос|лутфан|ҷон(?:ам)?|хайр|хуб|ҳа|ладно|окей|ок)\s+)+/u;
+const PREF_LEAD = /^(?:(?:пожалуйста|ну|а|нет|лучше|хотя|тогда|вс[её]-таки|давай(?:те)?|слушай(?:те)?|шабнам|сабнам|шабнум|шебнам|мушовир|илтимос|лутфан|ҷон(?:ам)?|хайр|хуб|ҳа|ладно|окей|ок)\s+)+/u;
 const PREF_TAIL = /(?:\s+(?:пожалуйста|мне|ба\s+ман|илтимос|лутфан|ҷон(?:ам)?|шабнам|мушовир|(?:бо|аз)\s+(?:ханда|табассум|шодӣ|меҳр)|хандакунон|хандида|с\s+улыбкой|со?\s+смехом|смеясь|весело|с\s+юмором|тепло|ласково))+$/u;
 const RU_SAY = String.raw`(?:ответь|скажи|расскажи|говори|пришли|отправь|запиши|скинь|кинь|наговори|продиктуй)(?:те)?`;
-const RU_VOICE = String.raw`(?:голосом|голосовым|голосовое(?:\s+сообщение)?|голосовуху|аудио|войсом|войс)`;
+// «Свой личный голос» (владелец, 24.11.2026: «Сабнам отправь свой личный голос» голосом не считалось): голос
+// без прилагательного — не просьба («расскажи про голос клиента»), поэтому только со «свой/личный/живой».
+const RU_VOICE = String.raw`(?:г[оа]л[оа]с(?:ом|овым|овое|овуху|овой)(?:\s+сообщени(?:ем|е))?|(?:(?:свой|твой|ваш|личный|живой|настоящий|реальный)\s+){1,3}голос|аудио(?:\s*сообщени(?:ем|е))?|войсом|войс)`;
 const RU_INF = String.raw`(?:ответить|сказать|рассказать|прислать|отправить|записать|скинуть|говорить)`;
 const VOICE_RU = new RegExp([
   String.raw`^(?:${RU_SAY}\s+)?(?:(?:мне|это|ответ|его|е[её])\s+){0,3}${RU_VOICE}$`,
@@ -113,17 +115,23 @@ const VOICE_RU = new RegExp([
   // (как ответить), не «голосовое» (что отправить): «отправь голосовое клиенту» — поручение.
   String.raw`^${RU_SAY}\s+(?:мне\s+)?голосом\s+\p{L}`,
   String.raw`^голосом\s+${RU_SAY}\s+\p{L}`,
+  // «Расскажи про район голосом», «скажи что-нибудь голосом»: без адресата («отправь клиенту голосом» — поручение).
+  String.raw`^${RU_SAY}\s+(?:мне\s+)?(?:(?:что-нибудь|что-то|всё|коротко|кратко|подробно)|(?:про|о|об|по|насчёт|насчет)(?:\s+[\p{L}-]+){1,3})\s+г[оа]л[оа]сом$`,
   String.raw`^озвучь(?:те)?(?:\s+(?:это|ответ|мне))*$`,
   String.raw`^(?:хочу|хотелось\s+бы)\s+(?:услышать|послушать)\s+(?:тво[йе]|ваш)\s+голос$`,
   String.raw`^(?:давай(?:те)?|можно)\s+голосом$`,
 ].join("|"), "u");
+// Повелительная фраза со знаком вопроса: только «свой/твой/ваш голос» или «ответь голосом». «Это голосовое?»,
+// «Голосовое?», «Это аудио?» — вопросы о записи, а не просьба.
+const VOICE_RU_ASK = new RegExp(String.raw`^${RU_SAY}\s+(?:мне\s+)?(?:(?:(?:свой|твой|ваш)\s+)(?:(?:личный|живой|настоящий|реальный)\s+)*голос|г[оа]л[оа]сом|голосовым\s+сообщением)$`, "u");
 const VOICE_RU_QUESTION = new RegExp(String.raw`^(?:(?:ты|вы)\s+)?(?:можешь|можете|можно|сможешь|сможете)\s+(?:мне\s+)?(?:${RU_INF}\s+(?:мне\s+)?${RU_VOICE}|${RU_VOICE}\s+${RU_INF}|озвучить)(?:\s+(?:это|ответ|мне))?$`, "u");
-const TG_VOICE = String.raw`(?:(?:паёми\s+)?овоз(?:ат|атон|и|ӣ|ам)?(?:ро)?|голосовой|войс(?:ро)?)`;
+const TG_VOICE = String.raw`(?:(?:паёми\s+)?овоз(?:ат|атон|и|ӣ|ам)?(?:ро)?(?:\s+(?:шахсӣ|шахсиат(?:ро)?|худат(?:ро)?|худатон(?:ро)?|зинда|аслӣ))?|голосовой|войс(?:ро)?)`;
 const TG_SEND = String.raw`(?:(?:равон|ирсол|сабт)\s+кун(?:ед|ӣ)?|(?:би)?фирист(?:ед|ӣ)?|парто(?:ед)?|(?:би)?деҳ(?:ед)?|(?:би)?диҳ(?:ед)?|(?:би)?шунавон(?:ед)?)`;
 const TG_SAY = String.raw`(?:ҷавоб\s+(?:би)?(?:деҳ|диҳ)(?:ед)?|(?:би)?гӯ(?:й|ед)?|гап\s+зан(?:ед)?|(?:би)?фирист(?:ед|ӣ)?|равон\s+кун(?:ед|ӣ)?)`;
 const VOICE_TG = new RegExp([
   String.raw`^(?:${TG_SAY}\s+)?бо\s+овоз(?:\s+${TG_SAY})?$`,
   String.raw`^бо\s+овоз\s+${TG_SAY}\s+\p{L}`,
+  String.raw`^бо\s+${TG_VOICE}(?:\s+${TG_SAY})?$`,
   String.raw`^${TG_VOICE}(?:\s+(?:ба\s+ман|як))?\s+${TG_SEND}$`,
   String.raw`^${TG_SEND}\s+${TG_VOICE}$`,
   String.raw`^${TG_VOICE}\s+(?:шунидан|шунавам)\s+мехоҳам$`,
@@ -158,6 +166,9 @@ export function requestedAssistantReplyPreference(text: string): {
     if (question) {
       if (VOICE_RU_QUESTION.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
       if (VOICE_TG_QUESTION.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
+      // Повелительная фраза со знаком вопроса («Отправь свой голос?») — тоже просьба; рассказ и жалоба сюда не подходят.
+      if (VOICE_TG.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
+      if (VOICE_RU_ASK.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
       continue;
     }
     if (VOICE_TG.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
@@ -292,6 +303,8 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   // eslint-disable-next-line no-control-regex
   return maskAssistantContacts(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
 }
+// Номер из цифр через дефисы или точки («900-12-34-5») вслух не читаем, даже если он короче полного телефона.
+const PHONE_LIKE_NUMBER = /(?<![\d-])\d{1,4}(?:[-.‑]\d{1,4}){3,}(?![\d-])/u;
 export const VOICE_MAX_CHARS = 320;
 export type AssistantSpeechLanguage = "ru" | "tg";
 export interface AssistantReplyPlan {
@@ -332,7 +345,7 @@ export function prepareAssistantReply(text: string, maskContacts = false, fallba
   const language = ambiguousLanguage ? "text-only" : tajik ? "tg" : russian ? "ru" : fallbackLanguage ?? "text-only";
   // Русский тоже без цифр (17.11.2026, владелец: «цифры всегда буквами, ИИ не справляется»);
   // не вышло (дата, дробь) — как и у таджикского, голос не отправляется, остаётся текст.
-  const expanded = language === "tg"
+  const expanded = PHONE_LIKE_NUMBER.test(cleaned) ? null : language === "tg"
     ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт").replace(DOLLAR_PREFIX, "$1 доллар"))
     : language === "ru" ? russianSpeechNumbers(cleaned.replace(DOLLAR_PREFIX, (_m, amount: string) => `${amount} ${ruPlural(Number(amount.replace(/[   ]/gu, "")), "доллар", "доллара", "долларов")}`)) : cleaned;
   const truncated = expanded !== null && expanded.length > VOICE_MAX_CHARS;
