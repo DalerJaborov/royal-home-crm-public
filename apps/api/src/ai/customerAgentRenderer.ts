@@ -746,8 +746,9 @@ function renderDecisionCore(input: {
       // is not about rent, the bargaining rule to an address question: a company term answers only the customer's own question
       // about it (audit 16.11.2026; one door customerPolicyTermAsked). A voice message counts by its transcript.
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
-      // Комментарии — тем же правилом (прод 23.11.2026, de960ea6: на «Воаллекум салом» ушло «Масъалаи савдоро агент… тахфиф»).
-      if ((input.surface === "dm" || input.surface === "public_comment") && input.inputText !== undefined &&
+      // Комментарии — тем же правилом для торга и юр. чистоты (прод 23.11.2026, de960ea6: на «Воаллекум салом» ушло правило о торге;
+      // находка 32: похвала получила «юридическую чистоту»). Комиссию и зону в комментариях не трогаем: там свой сторож повтора.
+      if ((input.surface === "dm" || (input.surface === "public_comment" && (item.value.topic === "legal" || item.value.topic === "negotiation"))) && input.inputText !== undefined &&
           !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"),
             customerRecentUserTexts(input.verifiedContext))) {
         unaskedPolicySkipped = true;
