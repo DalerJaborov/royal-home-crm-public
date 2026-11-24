@@ -310,10 +310,12 @@ describe("Шабнам в Telegram", () => {
       expect(await handleFreeNarrationMessage(msg(user.chat, "озвучь: Добро пожаловать в Royal Home"), user)).toBe(true);
       expect(fetcher).not.toHaveBeenCalled(); // до выбора голоса денег нет
       const buttons = lastButtons();
-      expect(buttons[0][0].text).toContain("Анна");
-      expect(buttons[0][0].text).toContain("по умолчанию");
-      expect(buttons[1][0].text).toContain("Мадина");
-      expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:s:"))).toBe(true);
+      // С 24.11.2026 голос по одному: первым идёт голос по умолчанию, под ним «Выбрать» и «Дальше».
+      const shown = (tg.sendMessageWithButtons.mock.calls.at(-1) as unknown as [string, string])[1];
+      expect(shown).toContain("Голос 1 из 2: Анна");
+      expect(shown).toContain("по умолчанию");
+      expect(buttons[0][0].callback_data).toMatch(/^fnr:p:/);
+      expect(buttons.flat().some((x) => x.callback_data?.startsWith("fnr:v:"))).toBe(true);
       const row = (await prisma.freeNarration.findFirst({ where: { agentId: user.id } }))!;
       expect(row).toMatchObject({ status: "AWAITING_VOICE", script: "Добро пожаловать в Royal Home" });
       expect(buttons.flat().every((x) => (x.callback_data ?? "").length <= 64)).toBe(true);

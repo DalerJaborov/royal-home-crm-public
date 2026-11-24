@@ -27,6 +27,11 @@ export function freeNarrationAdTextEnabled(config: Pick<NarrationConfig, "freeNa
   return freeNarrationEnabled(config) && config.freeNarrationAdText !== false;
 }
 
+/** Пошаговый выбор голоса с образцом (по умолчанию включён). */
+export function freeNarrationVoiceStepperEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationVoiceStepper">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationVoiceStepper !== false;
+}
+
 /** Рубильник кнопки «Озвучить этот текст» под длинным сообщением (23.11.2026). По умолчанию ВЫКЛ (ревью: «редко беспокоить»): владелец включает в Настройках. */
 export function freeNarrationOfferEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationOfferButton">): boolean {
   return freeNarrationEnabled(config) && config.freeNarrationOfferButton === true;
