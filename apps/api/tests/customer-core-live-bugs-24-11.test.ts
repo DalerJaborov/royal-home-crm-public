@@ -315,8 +315,7 @@ describe("п.11 вакансия (a4a672a5): клиент получает сп�
       const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
         evidence: [{ ref: "e0", value: catalog }], language, requestedFacts: [], surface: "dm", knownPhoneSource: "none", maxOutputChars: 4000,
         inputText: language === "tg" ? "Ҷойи кор ҳаст?" : "Вакансии есть?" })!;
-      const lines = text.split("
-");
+      const lines = text.split("\n");
       for (const p of positions) expect(lines, p.key).toContain(language === "tg" ? p.titleTg : p.titleRu);
     }
   });
