@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **774**. Развилок в самих путях: **2470**; вместе с задачами по расписанию и фоновыми заданиями — **4166**. Модулей: **86**.
+Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5961,6 +5961,9 @@
 
 - const rows = await findStuckConversations();
   · зовёт findStuckConversations()
+- если rows.length > 0
+  - await resetAiRetryCap(rows.map((row)
+    · зовёт resetAiRetryCap()
 - res.json({ queued: rows.length });
   · ответ 200
 - если rows.length === 0
@@ -18583,7 +18586,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "dm_lane_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18601,7 +18604,7 @@
             - const originalRouting = inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg));
               · зовёт inspectCustomerDmRouting()
             - если originalRouting && originalRouting.execution.lane !== "LEGACY"
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "dm_lane_core");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18724,7 +18727,7 @@
             - await sleep(typingDelayMs(result.reply));
               · зовёт sleep()
             - если result.customerReplyPrincipal && (await revalidateCustomerPrincipal(result.customerReplyPrincipal)).status !=…
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "principal_stale");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18748,17 +18751,17 @@
                 · дословно из кода
           - если сорвалось
             - если err instanceof CustomerReplyHeldError
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "reply_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
             - если isOutboundBlockedError(err)
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "outbound_shield");
                 · дословно из кода
               - console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);
                 · дословно из кода
             - если isMetaSendBlockError(err)
-              - traceOutcome("blocked");
+              - traceOutcome("blocked", "meta_send_block");
                 · дословно из кода
               - if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? de…
                 · дословно из кода
@@ -26787,11 +26790,23 @@
 - если !last || last.role !== "user" || !last.content
   - return;
     · дальше не идёт, ничего не меняя
+- const capOn = await automationSwitchOn("botRetryCapEnabled");
+  · зовёт automationSwitchOn()
+- const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;
+  · зовёт aiRetryLedgerBase()
+  - const message = channelCoreMessageKey(messages);
+    · зовёт channelCoreMessageKey()
+- если capBase && await aiRetryStopped(capBase, startedAt)
+  - return;
+    · дальше не идёт, ничего не меняя
 - const outcome = await retryStuckConversation({ id: conversation.id, channel: conversation.channel, subscriber…
   · зовёт retryStuckConversation()
   - return withBotTurnTrace({ channel: row.channel, peer: row.subscriberId, conversation: row.id, event: null, so…
     - если result === "failed" || result === "ai-down"
       - traceOutcome("failed");
+        · зовёт traceOutcome()
+    - иначе если result === "channel-dead"
+      - traceOutcome("blocked", "channel_key_dead");
         · зовёт traceOutcome()
     - иначе если result === "no-reply"
       - traceNoReply();
@@ -26799,9 +26814,31 @@
 - если outcome === "ai-down"
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
+- если outcome === "channel-dead"
+  - если !capBase
+    - throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
+      · ошибка Error — «повтор не удался: ключ канала не принят (подробности в журнале ошибок»
+  - await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: "channel_key_d…
+    · зовёт stopAiRetry()
+    - пробует
+      - если keyDead
+        - await alertClientWaiting({ conversationId: input.conversationId, trigger: "failed", why: "ответ бота не ушёл,…
+          · зовёт alertClientWaiting()
+      - await logSystemError("ai", `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? "ключ канала…
+        · запись в журнал ошибок
+      - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
+        · обращается к базе своим SQL
+    - если сорвалось
+      - console.error("[ai-retry-cap] остановка повтора:", error instanceof Error ? error.message : "UnknownError");
+        · пишет строку в журнал сервера
+  - return;
+    · дальше не идёт, ничего не меняя
 - если outcome === "failed"
   - throw new Error("повтор не удался (подробности в журнале ошибок)");
     · ошибка Error — «повтор не удался (подробности в журнале ошибок»
+- если outcome === "no-reply" && capBase && await noteAiRetryNoReply(capBase)
+  - await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: "retry_cap" } …
+    · зовёт stopAiRetry()
 - когда попытки кончились
   - const giveUps = await prisma.backgroundJob.count({ where: { type: "ai-reply-retry", status: "GIVEN_UP", updat…
     · считает в базе: backgroundJob

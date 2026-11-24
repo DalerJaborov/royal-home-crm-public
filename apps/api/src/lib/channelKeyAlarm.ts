@@ -24,20 +24,28 @@ export const ALERT_EVERY_MS = 12 * 60 * 60_000;
 const LOG_EVERY_MS = 60 * 60_000;
 export const CHANNEL_KEY_ALERT_TAG_PREFIX = "channel-key-dead:";
 
-/** Признаки «ключ не принят» в ответе Meta Graph (HTTP или тело). */
+/**
+ * Признаки «ключ не принят» в ответе Meta Graph (HTTP или тело). ОДНА ДВЕРЬ на вердикт «ключ»: тревога руководству,
+ * забыть маркер Страницы, остановка повтора ответа бота (messengers/meta.ts → MetaGraphCallError.channelKeyDead).
+ *
+ * Код 190/102 — только вместе с текстом про маркер или сессию (ревью #423): 190 бывает и не про ключ (например «окно
+ * ответа на комментарий истекло»), и такой отказ не должен поднимать тревогу «ключ канала перестал работать».
+ */
+const TOKEN_REFUSAL_TEXT = /access token|session|authoriz/i;
 export function isMetaAuthFailure(status: number | undefined, bodyText: string | undefined): boolean {
   if (status === 401) return true;
   const text = bodyText ?? "";
   try {
-    const parsed = JSON.parse(text) as { error?: { code?: number; type?: string } };
+    const parsed = JSON.parse(text) as { error?: { code?: number; type?: string; message?: string } };
     const code = parsed.error?.code;
-    if (code === 190 || code === 102) return true;
+    if (code === 190 || code === 102) return TOKEN_REFUSAL_TEXT.test(parsed.error?.message ?? "");
   } catch {
     // Не JSON — смотрим текстом ниже.
   }
   // Текстом — для мест, где от ответа Meta остался только `error.message` (публикация:
-  // socialPublish.ts::graphErrorMessage). Все фразы ниже — сообщения кода 190 (22.11.2026).
-  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)|session has been invalidated|Error validating access token|access token has expired|Invalid OAuth access token|Malformed access token|access token could not be decrypted/i.test(text);
+  // socialPublish.ts::graphErrorMessage). Все фразы ниже — сообщения кода 190 про маркер (22.11.2026).
+  if (/session has been invalidated|Error validating access token|access token has expired|Invalid OAuth access token|Malformed access token|access token could not be decrypted/i.test(text)) return true;
+  return /"code"\s*:\s*(190|102)\b|(code|код) (190|102)(?!\d)/i.test(text) && TOKEN_REFUSAL_TEXT.test(text);
 }
 
 /** То же по тексту ошибки, которую уже бросил транспорт («Graph API HTTP 401: …»). */

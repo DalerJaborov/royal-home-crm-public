@@ -33,6 +33,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botRepliesAfterLeadEnabled",
   "botSpamFilterEnabled",
   "botCoreFailAlertEnabled",
+  "botRetryCapEnabled",
   "shabnamSocialPublishEnabled",
   "shabnamGroupAutoMemoryEnabled",
   "instagramCompanyKeyEnabled",
@@ -126,6 +127,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Ход бота упал, клиенту ничего не ушло: ответственный (или руководство) получает сигнал сразу, а не через 30 минут. Клиенту текст не отправляется.",
     off: "Сигнал придёт только через 30 минут от сторожа «клиент молчит» (если он включён).",
   },
+  // 24.11.2026 (разбор прода): повтор «зависших» крутил одни и те же переписки по 31–35 раз без ответа и тратил ИИ.
+  botRetryCapEnabled: {
+    title: "Бот не может ответить: не повторять бесконечно",
+    on: "Если бот трижды подряд решил, что на сообщение отвечать не нужно, он больше не повторяет попытку 6 часов. Если ключ канала не работает, бот сразу останавливается на 2 часа и сообщает ответственному. О клиенте без ответа напомнит сторож «клиент ждёт ответа», если он включён. Кнопка «Повторить зависшим» снимает остановку сразу.",
+    off: "Бот повторяет попытку каждые полчаса, пока клиент не получит ответ: тратит ИИ, даже если ответ не может уйти.",
+  },
   // Владелец 20.11.2026: «таким спамерам как то не отвечать или как то сэкономить токены».
   botSpamFilterEnabled: {
     title: "Спам — без ответа",
@@ -196,7 +203,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "instagramCompanyKeyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

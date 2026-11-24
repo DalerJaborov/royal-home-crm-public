@@ -263,6 +263,35 @@ describe("Facebook Messenger: только известная Страница �
     expect((await eternal.routeMetaMessagingCall(`${GRAPH}/1129773893562843/messages`, "stand-wa-token", {})).route).toBe("unchanged");
   });
 
+  /** Ревью #423, третий круг: вердикт «ключ канала мёртв» и для Facebook учитывает настроенный путь Страницы. */
+  it("Страница на паузе, личный маркер Страницы не принят (401) — НЕ «ключ канала мёртв»; без пути Страницы — мёртв", async () => {
+    tagsToClean.push(`${CHANNEL_KEY_ALERT_TAG_PREFIX}page-route:${PAGE_ID}`);
+    meta.pageSend = () => json({ error: { code: 10, message: "Application does not have permission for this action" } }, 400);
+    const personalDead = json({ error: { code: 190, message: "Error validating access token: session has been invalidated" } }, 401);
+    fetchMock.mockImplementation(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const auth = authOf(init) ?? "";
+      if (url === `${GRAPH}/me/permissions`) return json({ data: ALL_SCOPES.map((permission) => ({ permission, status: "granted" })) });
+      if (url.startsWith(`${GRAPH}/${PAGE_ID}?fields=access_token`)) return json({ id: PAGE_ID, access_token: PAGE_TOKEN, name: "Royal Home Page" });
+      if (url.startsWith(`${GRAPH}/${PAGE_ID}/messages`)) {
+        return auth.includes(FB_PERSONAL) || url.includes(FB_PERSONAL) ? personalDead.clone() : meta.pageSend();
+      }
+      return json({ error: { message: `unexpected ${url}` } }, 404);
+    });
+    const send = () => callGraph(`${GRAPH}/${PAGE_ID}/messages`, FB_PERSONAL, { recipient: { id: "psid" }, message: { text: "x" } })
+      .catch((e: unknown) => e as { channelKeyDead: { fingerprint: string } | null });
+    // Первый: отказ Страницы → Страница на паузе → повтор личным (после отказа Страницы — не вердикт).
+    expect((await send() as { channelKeyDead: unknown }).channelKeyDead).toBeNull();
+    // Второй: Страница на паузе, сразу личным ключом — путь Страницы настроен, ключ канала жив.
+    expect((await eternal.routeMetaMessagingCall(`${GRAPH}/${PAGE_ID}/messages`, FB_PERSONAL, {})).route).toBe("unchanged");
+    expect((await send() as { channelKeyDead: unknown }).channelKeyDead).toBeNull();
+    expect(await eternal.companyPageRouteConfigured(FB_PERSONAL)).toBe(true);
+    // Путь Страницы не настроен (ключ компании не предпочтён) — единственный ключ мёртв.
+    await settings({ metaSystemTokenPreferred: false });
+    expect(await eternal.companyPageRouteConfigured(FB_PERSONAL)).toBe(false);
+    expect((await send() as { channelKeyDead: unknown }).channelKeyDead).not.toBeNull();
+  });
+
   it("без pages_messaging у ключа компании — личный маркер Страницы", async () => {
     meta.systemScopes = ALL_SCOPES.filter((s) => s !== "pages_messaging");
     expect((await eternal.routeMetaMessagingCall(`${GRAPH}/${PAGE_ID}/messages`, FB_PERSONAL, {})).route).toBe("unchanged");
@@ -372,12 +401,15 @@ describe("суточная проверка при вечном пути", () =>
 describe("сторож мёртвых ключей", () => {
   it("узнаёт 401, код 190/102 и текст «session has been invalidated»", () => {
     expect(isMetaAuthFailure(401, "")).toBe(true);
-    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "x" } }))).toBe(true);
+    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "Error validating access token" } }))).toBe(true);
+    // Ревью #423: 190 без слова про маркер или сессию — не ключ (например «окно ответа на комментарий истекло»).
+    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "The comment reply window has expired" } }))).toBe(false);
     expect(isMetaAuthFailure(400, "The session has been invalidated because the user changed their password")).toBe(true);
     expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 10, error_subcode: 2534022 } }))).toBe(false);
     expect(isMetaAuthFailure(500, "")).toBe(false);
-    expect(isMetaAuthFailureText("HTTP 400 (code 190): expired")).toBe(true);
-    expect(isMetaAuthFailureText("HTTP 400 код 102: x")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 (code 190): Session has expired")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 код 102: Session key invalid")).toBe(true);
+    expect(isMetaAuthFailureText("HTTP 400 (code 190): comment reply window has expired")).toBe(false);
     expect(isMetaAuthFailureText("HTTP 400 (code 1900): x")).toBe(false);
     // Только error.message от Meta, без кода и статуса (публикация, 22.11.2026): сообщения кода 190.
     expect(isMetaAuthFailureText("Invalid OAuth access token - Cannot parse access token")).toBe(true);
