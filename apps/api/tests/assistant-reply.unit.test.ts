@@ -328,3 +328,13 @@ describe("voice requests and false voice claims (14.11.2026)", () => {
     expect(html).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("служебные границы не доходят до человека (24.11.2026, скриншоты владельца)", () => {
+  it("<client_content kind=\"crm_note\"> из полей CRM вырезается из ответа, текст остаётся", () => {
+    const raw = 'Нашла: ОБ-000177 · <client_content kind="crm_note">\n3-комн · Фирдавси\n</client_content> · 1 080 000 сомонӣ';
+    const out = sanitizeAssistantReply(raw, false);
+    expect(out).not.toMatch(/client_content|crm_note/);
+    expect(out).toContain("3-комн · Фирдавси");
+    expect(out).toContain("1 080 000 сомонӣ");
+  });
+});
