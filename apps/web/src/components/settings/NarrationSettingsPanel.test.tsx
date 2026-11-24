@@ -72,7 +72,7 @@ describe("Настройки CRM: озвучка роликов", () => {
   it("озвучка текста в помощнике: тумблер и три числа с умолчаниями, из настроек подставляются свои", () => {
     const html = render(view());
     for (const part of ["Озвучка текста в помощнике", "Озвучек на человека в сутки", "Символов в одном тексте", "Доля от дневного предела, %"]) expect(html).toContain(part);
-    expect(html).toContain('value="0"'); expect(html).toContain('value="1500"'); expect(html).toContain('value="30"');
+    expect(html).toContain('value="0"'); expect(html).toContain('value="5000"'); expect(html).toContain('value="100"');
     const custom = render(view({ config: { ...view().config, freeNarrationPerPersonDaily: 7, freeNarrationMaxChars: 900, freeNarrationBudgetPercent: 15, freeNarrationEnabled: false } }));
     expect(custom).toContain('value="7"'); expect(custom).toContain('value="900"'); expect(custom).toContain('value="15"');
   });

@@ -266,10 +266,10 @@ describe("REST /properties/narration-free", () => {
   it("параметры: голоса, голос по умолчанию, потолки и остаток на сегодня", async () => {
     const res = await request(app).get("/properties/narration-free/options");
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ enabled: true, defaultVoiceId: voices[1].id, maxChars: 1500, perPersonDaily: 50 });
+    expect(res.body).toMatchObject({ enabled: true, defaultVoiceId: voices[1].id, maxChars: 5000, perPersonDaily: 50 });
     expect(res.body.voices.map((v: { id: string }) => v.id)).toEqual(voices.map((v) => v.id));
     expect(res.body.remainingToday).toBeLessThanOrEqual(50);
-    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 0, maxChars: 1500, budgetPercent: 30 });
+    expect(freeNarrationLimits({})).toEqual({ perPersonDaily: 0, maxChars: 5000, budgetPercent: 100 });
   });
 
   it("плохое тело — 400; нет доступа — 403", async () => {
@@ -413,8 +413,8 @@ describe("Шабнам в Telegram", () => {
     expect(await handleFreeNarrationMessage(msg(shareholder.chat, "озвучь: Привет всем"), shareholder)).toBe(true);
     expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("нет доступа");
     const user = await makeAgent();
-    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(400)}`), user);
-    expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("длиннее 1500 знаков");
+    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(1000)}`), user);
+    expect(String(tg.sendMessage.mock.calls.at(-1)?.[1])).toContain("длиннее 5000 знаков");
     expect(await prisma.freeNarration.count({ where: { agentId: { in: [shareholder.id, user.id] } } })).toBe(0);
   });
 
@@ -540,7 +540,7 @@ describe("правки после ревью (16.11.2026)", () => {
     const user = await makeAgent();
     const dialog = { chatId: String(user.chat), agentId: user.id, kind: "test", payload: { lang: "tg" }, expiresAt: new Date(Date.now() + 3_600_000) };
     await prisma.telegramDialogState.create({ data: dialog });
-    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(400)}`), user);
+    await handleFreeNarrationMessage(msg(user.chat, `озвучь: ${"слово ".repeat(1000)}`), user);
     const text = String(tg.sendMessage.mock.calls.at(-1)?.[1]);
     expect(text).toMatch(/шумо \d+ аломат навиштед/u);
     await prisma.telegramDialogState.deleteMany({ where: { chatId: String(user.chat) } });
