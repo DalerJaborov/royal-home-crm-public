@@ -80,6 +80,27 @@ export function assistantGroupClarification(text: string, requestLanguage?: Clie
   return objectCode ? `Что уточнить по ${objectCode}?` : "Что именно нужно уточнить?";
 }
 
+const VOICE_LEAD_CHARS = ASSISTANT_VOICE_PART_CHARS;
+const VOICE_FAILED_NOTICE = { ru: "Голосом сейчас не вышло, пишу текстом.", tg: "Бо овоз нашуд, матнӣ менависам." } as const;
+const voiceNoticeLanguage = (request: ClientLanguage | undefined, plan: "ru" | "tg" | "text-only"): "ru" | "tg" =>
+  request === "tg" || request === "mixed" || (request !== "ru" && plan === "tg") ? "tg" : "ru";
+const BULLET_LIST = /^\s*[-•▪*]\s/mu;
+
+/**
+ * Начало ответа для голоса: целые предложения до ~180 знаков (цифры уже словами). null — озвучивать нечего:
+ * ответ со ссылкой, контактом, обещанием «пришлю текстом», списком или неясным языком.
+ */
+function voiceLead(plan: ReturnType<typeof prepareAssistantReply>): string | null {
+  if (plan.ambiguousLanguage || plan.needsWrittenDetails || plan.language === "text-only"
+    || BULLET_LIST.test(plan.text) || plan.speech.length < 3) return null;
+  if (plan.speech.length <= VOICE_LEAD_CHARS) return plan.speech;
+  const cut = plan.speech.slice(0, VOICE_LEAD_CHARS);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (end >= 40) return cut.slice(0, end + 1);
+  const space = cut.lastIndexOf(" ");
+  return space >= 40 ? `${cut.slice(0, space).replace(/[,;:\s]+$/u, "")}…` : null;
+}
+
 /** Send the useful format first. Automatic audio is reserved for short conversation. */
 export async function sendAssistantReply(chatId: string, text: string, ctx: {
   scope: "private" | "group";
@@ -111,6 +132,22 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   const conversationLanguage = plan.language === "text-only" ? requestVoiceLanguage : plan.language;
   let canSpeak = !clarification && !plan.ambiguousLanguage && voiceRequested && (ctx.mode === "voice" || !structured);
   const buttonPaths = new Set<string>();
+  // Голосовой вопрос в личке получает голос, даже когда ответ длинный или с цифрами (владелец, 24.11.2026:
+  // «голосовые вообще не отправляет»): коротко озвучиваем начало, полный текст идёт следом. Группу так не
+  // озвучиваем (не спамим), как и ссылки, списки, итоги инструментов и всё, где слова нужно читать глазами.
+  let spokenAny = false;
+  let voiceNotice = "";
+  const leadPlan = ctx.mode !== "voice" && ctx.scope === "private" && voiceRequested && structured
+    && !ctx.structured && !ctx.written.length && !clarification
+    ? prepareAssistantVoicePart(plan.text, maskPhones, requestVoiceLanguage).part : null;
+  const lead = leadPlan ? voiceLead(leadPlan) : null;
+  if (lead && leadPlan) {
+    const fallback = leadPlan.language === "text-only" ? undefined : leadPlan.language;
+    spokenAny = ctx.messageThreadId !== undefined
+      ? await sendAssistantVoiceReply(chatId, lead, ctx.replyTo, fallback, ctx.messageThreadId)
+      : fallback ? await sendAssistantVoiceReply(chatId, lead, ctx.replyTo, fallback) : await sendAssistantVoiceReply(chatId, lead, ctx.replyTo);
+    canSpeak = false;
+  }
 
   for (const [i, textPart] of parts.entries()) {
     const { part, fallbackLanguage } = prepareAssistantVoicePart(textPart, maskPhones, explicitConversation ? conversationLanguage : undefined);
@@ -131,10 +168,17 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
         ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage, ctx.messageThreadId)
         : fallbackLanguage ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage)
           : await sendAssistantVoiceReply(chatId, part.speech, replyTo);
+      if (delivered) spokenAny = true;
       if (delivered && (explicitConversation || !structured) && !part.needsText && !buttons.length) continue;
-      if (!delivered) canSpeak = false;
+      if (!delivered) {
+        canSpeak = false;
+        // Явно просили голос, а он не ушёл: говорим об этом, а не молчим (текст всё равно приходит).
+        if (ctx.mode === "voice" && !spokenAny) voiceNotice = VOICE_FAILED_NOTICE[voiceNoticeLanguage(ctx.requestLanguage, plan.language)];
+      }
     }
-    const html = [renderAssistantHtml(part.text, { maskPhones }), ...written.map(escapeHtml)].filter(Boolean).join("\n");
+    const notice = voiceNotice;
+    voiceNotice = "";
+    const html = [notice ? escapeHtml(notice) : "", renderAssistantHtml(part.text, { maskPhones }), ...written.map(escapeHtml)].filter(Boolean).join("\n");
     if (html && html.length <= 3900) {
       try {
         if (ctx.messageThreadId !== undefined) await sendHtmlMessage(chatId, html, replyTo, buttons.length ? buttons : undefined, ctx.messageThreadId);
@@ -148,7 +192,7 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
         }
       }
     }
-    const plain = [renderAssistantForTelegram(part.text, { maskPhones }), ...written].filter(Boolean).join("\n") || "Готово.";
+    const plain = [notice, renderAssistantForTelegram(part.text, { maskPhones }), ...written].filter(Boolean).join("\n") || "Готово.";
     if (buttons.length) {
       if (ctx.messageThreadId !== undefined) await sendMessageWithButtons(chatId, plain, buttons, replyTo, ctx.messageThreadId);
       else await sendMessageWithButtons(chatId, plain, buttons, replyTo);

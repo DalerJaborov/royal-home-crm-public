@@ -1170,7 +1170,8 @@ export async function handleAssistantPrivate(
       await sendTurnResult(chatId, result, {
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
-        requestLanguage: preference?.mode === "voice" ? assistantLanguage([{ role: "user", content: text }]) : undefined,
+        // Голосовой вопрос тоже несёт язык: ответ без языковых примет всё равно озвучивается на нём (24.11.2026).
+        requestLanguage: preference?.mode === "voice" || fromVoice ? assistantLanguage([{ role: "user", content: text }]) : undefined,
         // Язык разговора, а не одного сообщения: «5000» или «ҳа» не сбивают на русский.
         cardLanguage: assistantLanguage(history.slice(-6)),
       });

@@ -310,7 +310,6 @@ describe("voice requests and false voice claims (14.11.2026)", () => {
     expect(html.mock.calls[0]?.[1]).toContain("Чӣ хизмат кунам");
   });
   it.each([
-    ["numbers", "Нашла трёх клиентов.\n\nСамый новый пришёл 12 ноября."],
     ["a list", "Вот что есть:\n\n- Алишер\n- Мадина"],
     ["a card link", "Нашла клиента.\n\n[Алишер](/clients/12)"],
   ])("still writes structured data with %s instead of voicing it", async (_kind, reply) => {
@@ -318,9 +317,16 @@ describe("voice requests and false voice claims (14.11.2026)", () => {
     expect(voice).not.toHaveBeenCalled();
     expect(html).toHaveBeenCalled();
   });
-  it("one long paragraph is still written, not voiced", async () => {
+  it("one long paragraph is written in full; only its beginning is voiced (24.11.2026)", async () => {
     await sendAssistantReply("test", "Салом! ".repeat(40).trim(), ctx);
-    expect(voice).not.toHaveBeenCalled();
+    expect(voice).toHaveBeenCalledTimes(1);
+    expect((voice.mock.calls[0][1] as string).length).toBeLessThanOrEqual(180);
+    expect(html).toHaveBeenCalled();
+  });
+  it("data with numbers: the beginning is voiced, the figures stay written (24.11.2026)", async () => {
+    await sendAssistantReply("test", "Нашла трёх клиентов.\n\nСамый новый пришёл 12 ноября.", ctx);
+    expect(html).toHaveBeenCalled();
+    expect(html.mock.calls[0][1]).toContain("12 ноября");
   });
   it("a group reply to an unaddressed voice note does not split paragraphs", async () => {
     await sendAssistantReply("test", "Салом!\n\nЧӣ хизмат кунам?", { ...ctx, scope: "group" });

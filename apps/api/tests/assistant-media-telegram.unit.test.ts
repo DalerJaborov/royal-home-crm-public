@@ -57,6 +57,20 @@ describe("employee Telegram file adapter", () => {
     expect(mocks.resolve).toHaveBeenCalledOnce();
     expect(mocks.runtime).not.toHaveBeenCalled();
   });
+  it.each([["tg", "Рут сиех. Голосовая гуш к охи"], ["ru", "Қарзи ҳамкорӣ"]] as const)("таджикская речь в группе (%s) идёт на сильную модель, не на быструю расшифровку", async (language, transcript) => {
+    mocks.scribe.mockResolvedValue({ transcript, language });
+    const result = await handleAssistantMedia({ chat: { id: 1, type: "group" }, voice: { file_id: "voice", duration: 4 } }, "employee", { allowGroup: true });
+    expect(mocks.scribe).toHaveBeenCalledOnce();
+    expect(mocks.extract).toHaveBeenCalledOnce();
+    expect(mocks.extract.mock.calls[0][0].runtime.model).toBe("gemini-3.1-pro-preview");
+    expect(result.extraction?.transcript).not.toBe(transcript);
+  });
+  it("русская речь в группе остаётся на быстрой расшифровке", async () => {
+    mocks.scribe.mockResolvedValue({ transcript: "Спасибо большое", language: "ru" });
+    const result = await handleAssistantMedia({ chat: { id: 1, type: "group" }, voice: { file_id: "voice", duration: 4 } }, "employee", { allowGroup: true });
+    expect(result.extraction?.transcript).toBe("Спасибо большое");
+    expect(mocks.extract).not.toHaveBeenCalled();
+  });
   it.each(["unavailable", "forwarded", "long"])("uses Gemini for %s group voice", async mode => {
     mocks.scribe.mockResolvedValue(null);
     const msg = { chat: { id: 1, type: "group" }, voice: { file_id: "voice", duration: mode === "long" ? 45 : 4 },

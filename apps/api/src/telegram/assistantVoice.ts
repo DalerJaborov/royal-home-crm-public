@@ -8,6 +8,7 @@ import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
 import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
+import { logSystemError } from "../lib/systemError.js";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
 
 /** ElevenLabs speech. Each language needs an explicitly configured voice.
@@ -111,6 +112,12 @@ export async function sendAssistantVoiceReply(
   chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage, messageThreadId?: number,
 ): Promise<boolean> {
   let stage: "configuration" | "synthesis" | "telegram_delivery" = "configuration";
+  // Синтез не дал звука без исключения: пауза ElevenLabs после отказа, исчерпанный дневной предел знаков.
+  const unavailable = () => {
+    void logSystemError("telegram", "Озвучка ответа помощника недоступна: пауза ElevenLabs или исчерпан дневной предел знаков",
+      { dedupKey: "assistant-voice-unavailable" });
+    return false;
+  };
   try {
     const plan = prepareAssistantReply(replyText, false, fallbackLanguage);
     if (plan.language === "text-only") return false;
@@ -120,7 +127,11 @@ export async function sendAssistantVoiceReply(
     const performance = directAssistantVoice(speech);
     if (!performance) return false;
     const config = await resolveSpeechConfig(language);
-    if (!config) return false;
+    if (!config) {
+      // Раньше молча: владелец видел только текст и не знал, что голос не настроен (24.11.2026).
+      void logSystemError("telegram", `Озвучка ответа помощника: голос (${language}) не настроен`, { dedupKey: `assistant-voice-config-${language}` });
+      return false;
+    }
     const dictionary = pronunciationDictionary(language);
     stage = "synthesis";
     const showVoiceAction = (action: "record_voice" | "upload_voice") => void (messageThreadId === undefined
@@ -142,7 +153,8 @@ export async function sendAssistantVoiceReply(
     };
     if (!cacheableAssistantSpeech(speech)) {
       const audio = await render();
-      if (!audio?.length) return false;
+      if (!audio?.length) return unavailable();
+      
       showVoiceAction("upload_voice");
       await postAudio(audio);
       return true;
@@ -155,7 +167,7 @@ export async function sendAssistantVoiceReply(
       ...(dictionary ? { dictionary } : {}),
     });
     const entry = await cachedAssistantAudio(key, render);
-    if (!entry) return false;
+    if (!entry) return unavailable();
     if (entry.fileId) {
       stage = "telegram_delivery";
       showVoiceAction("upload_voice");
@@ -179,6 +191,9 @@ export async function sendAssistantVoiceReply(
   } catch (err) {
     const code = err instanceof TelegramApiError ? err.errorCode : undefined;
     console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }) });
+    // В журнал ошибок — только этап и код Telegram: текст исключения может нести ключ или адрес файла.
+    void logSystemError("telegram", `Озвучка ответа помощника не вышла (этап ${stage}${code === undefined ? "" : `, код Telegram ${code}`})`,
+      { dedupKey: `assistant-voice-${stage}` });
     return false;
   }
 }
