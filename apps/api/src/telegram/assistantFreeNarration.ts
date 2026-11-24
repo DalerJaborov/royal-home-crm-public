@@ -30,8 +30,10 @@ import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { logSystemError } from "../lib/systemError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
-import { answerCallbackQuery, editMessageText, sendChatAction, sendDocumentFile, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton } from "./api.js";
+import { answerCallbackQuery, deletePrivateMessage, editMessageText, sendChatAction, sendDocumentFile, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton } from "./api.js";
 import { chatLang, sendVoiceSamples } from "./assistantNarration.js";
+import { closeVoiceCard, dropVoiceCard, presentVoiceCard, type PickerEdit } from "./voicePickerCard.js";
+import { localVideoFilePath } from "../lib/localVideoStorage.js";
 
 type Lang = "ru" | "tg";
 const MAX_VOICE_BUTTONS = 8;
@@ -153,7 +155,17 @@ const copy = {
     offerHead: (chars: number) => `Могу озвучить этот текст слово в слово (${chars} знаков).`,
     textHead: (chars: number) => `Принят текст (${chars} знаков), просьбу «озвучь» я убрала. Читается слово в слово. Если всё верно, нажмите «Озвучить как есть».`,
     heardNothing: "Не удалось расслышать текст. Пришлите его сообщением.",
-    step: { head: (n: number, total: number, name: string, marks: string) => `Голос ${n} из ${total}: ${name}${marks ? ` · ${marks}` : ""}`, sampleSent: "Образец ушёл файлом выше, слушайте и выбирайте.", noSample: "Образца этого голоса пока нет, но выбрать его можно.", choose: "✅ Выбрать", prev: "◀ Назад", next: "Дальше ▶", all: "Все", male: "Муж.", female: "Жен.", none: "Для этого фильтра голосов нет." },
+    step: {
+      performer: "Образец голоса",
+      card: (p: { name: string; gender?: "male" | "female"; n: number; total: number; recommended: boolean; last: boolean; chars: number; lang: string; preview: string; hasSample: boolean }) => [
+        `🎙 ${p.name}`,
+        [p.gender === "female" ? "Женский голос" : p.gender === "male" ? "Мужской голос" : "Голос", `${p.n} из ${p.total}`, p.recommended ? "рекомендуем" : "", p.last ? "вы выбирали его в прошлый раз" : ""].filter(Boolean).join(" · "),
+        "",
+        `Ваш текст (${p.chars} знаков, ${p.lang}): «${p.preview}»`,
+        p.hasSample ? "Нажмите ▶ и послушайте образец. Понравился — «Озвучить этим голосом»." : "Образца этого голоса пока нет, но выбрать его можно.",
+      ].join("\n"),
+      choose: "🎙 Озвучить этим голосом", prev: "◀ Предыдущий", next: "Следующий ▶", all: "Все голоса", male: "Мужские", female: "Женские", none: "Для этого фильтра голосов нет.",
+    },
     b2: { ok: "🎙 Озвучить", asIs: "🎙 Озвучить как есть", offer: "🎙 Озвучить этот текст", edit: "✏️ Править", fix: "✏️ Исправить (пришлю текстом)", rewrite: "🔄 Переписать" },
     cancelled: "Отменено.",
     head: (chars: number, lang: string) => `Текст принят: ${chars} знаков, язык: ${lang}. Выберите голос, он прочитает слово в слово.`,
@@ -191,7 +203,17 @@ const copy = {
     offerHead: (chars: number) => `Ин матнро калима ба калима овоз дода метавонам (${chars} аломат).`,
     textHead: (chars: number) => `Матн қабул шуд (${chars} аломат), хоҳиши «овоз кун»-ро хориҷ кардам. Калима ба калима хонда мешавад. Агар ҳама дуруст бошад, «Айнан овоз диҳед»-ро пахш кунед.`,
     heardNothing: "Матнро шунида натавонистам. Онро бо паём фиристед.",
-    step: { head: (n: number, total: number, name: string, marks: string) => `Овоз ${n} аз ${total}: ${name}${marks ? ` · ${marks}` : ""}`, sampleSent: "Намуна дар боло ҳамчун файл фиристода шуд, гӯш кунед ва интихоб кунед.", noSample: "Намунаи ин овоз ҳоло нест, аммо онро интихоб кардан мумкин аст.", choose: "✅ Интихоб", prev: "◀ Қаблӣ", next: "Баъдӣ ▶", all: "Ҳама", male: "Мард", female: "Зан", none: "Барои ин филтр овоз нест." },
+    step: {
+      performer: "Намунаи овоз",
+      card: (p: { name: string; gender?: "male" | "female"; n: number; total: number; recommended: boolean; last: boolean; chars: number; lang: string; preview: string; hasSample: boolean }) => [
+        `🎙 ${p.name}`,
+        [p.gender === "female" ? "Овози занона" : p.gender === "male" ? "Овози мардона" : "Овоз", `${p.n} аз ${p.total}`, p.recommended ? "тавсия мекунем" : "", p.last ? "бори охир интихоб кардед" : ""].filter(Boolean).join(" · "),
+        "",
+        `Матни шумо (${p.chars} аломат, ${p.lang}): «${p.preview}»`,
+        p.hasSample ? "Тугмаи ▶-ро пахш карда, намунаро гӯш кунед. Маъқул шуд — «Бо ин овоз овоз диҳед»." : "Намунаи ин овоз ҳоло нест, аммо онро интихоб кардан мумкин аст.",
+      ].join("\n"),
+      choose: "🎙 Бо ин овоз овоз диҳед", prev: "◀ Қаблӣ", next: "Баъдӣ ▶", all: "Ҳама овозҳо", male: "Мардона", female: "Занона", none: "Барои ин филтр овоз нест.",
+    },
     b2: { ok: "🎙 Овоз додан", asIs: "🎙 Айнан овоз диҳед", offer: "🎙 Ин матнро овоз диҳед", edit: "✏️ Ислоҳ", fix: "✏️ Ислоҳ (бо матн мефиристам)", rewrite: "🔄 Аз нав навиштан" },
     cancelled: "Бекор шуд.",
     head: (chars: number, lang: string) => `Матн қабул шуд: ${chars} аломат, забон: ${lang}. Овозро интихоб кунед, он айнан мехонад.`,
@@ -231,11 +253,20 @@ function voiceButtons(row: FreeNarrationRow, config: NarrationConfig, lang: Lang
   return rows;
 }
 
+/** Начало текста для карточки: человек видит, ЧТО именно будет озвучено, и не выбирает голос вслепую. */
+function scriptPreview(script: string): string {
+  const flat = script.replace(/\s+/gu, " ").trim();
+  return flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat;
+}
+
 /**
- * Голос по одному (рубильник freeNarrationVoiceStepper, по умолчанию включён): имя, пол, образец файлом и кнопки
- * «Выбрать / Назад / Дальше / Муж. / Жен. / Все / язык / Отмена». «Выбрать» — та же платная кнопка `fnr:p`, что и в списке.
+ * Голос по одному (рубильник freeNarrationVoiceStepper, по умолчанию включён). Одна карточка = одно сообщение:
+ * образец-плеер с именем голоса, под ним подпись (кто это, какой по счёту, ваш текст) и кнопки. Листание, пол и язык
+ * правят это же сообщение, прежние образцы в чате не копятся (telegram/voicePickerCard.ts).
+ * «Озвучить этим голосом» — та же платная кнопка `fnr:p`, что и в списке: нажатие сразу запускает озвучку, поэтому
+ * кнопка так и называется.
  */
-async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, config: NarrationConfig, lastVoiceId: string | undefined, want: { pos?: number; filter: VoiceFilter }, edit?: { messageId: number; text?: string }): Promise<void> {
+async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, config: NarrationConfig, lastVoiceId: string | undefined, want: { pos?: number; filter: VoiceFilter }, edit?: PickerEdit): Promise<void> {
   const c = copy[lang];
   let filter = want.filter;
   let list = stepperVoices(config, filter);
@@ -244,16 +275,19 @@ async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, 
   const pos = stepperWrap(want.pos ?? stepperStartPos(list, lastVoiceId), list.length);
   const voice = list[pos]!;
   const defaultId = pickNarrationVoice(config);
-  const marks = [voice.gender ? c.step[voice.gender] : "", voice.id === defaultId ? c.b.def : "", voice.id === lastVoiceId ? c.b.last : ""].filter(Boolean).join(" · ");
+  const stepLang = row.lang === "tg" ? "tg" : "ru";
+  const found = (await readyVoiceSamples(config).catch(() => [])).find((x) => x.voiceId === voice.id && x.lang === stepLang);
+  const samplePath = found ? localVideoFilePath(found.storageKey) : null;
+  const sample = found && samplePath ? { key: found.storageKey, path: samplePath } : null;
   const key = (p: number, f: VoiceFilter = filter) => `${stepperWrap(p, list.length)}${f}`;
   const both = stepperHasBothGenders(config);
   const rows: TelegramInlineButton[][] = [
     [{ text: c.step.choose, callback_data: `fnr:p:${row.id}:${voice.index}:${voiceHash(voice.id)}` }],
     ...(list.length > 1 ? [[{ text: c.step.prev, callback_data: `fnr:v:${row.id}:${key(pos - 1)}` }, { text: c.step.next, callback_data: `fnr:v:${row.id}:${key(pos + 1)}` }]] : []),
     ...(both ? [[
-      { text: `${filter === "m" ? "✓ " : ""}${c.step.male}`, callback_data: `fnr:v:${row.id}:0m` },
-      { text: `${filter === "f" ? "✓ " : ""}${c.step.female}`, callback_data: `fnr:v:${row.id}:0f` },
       { text: `${filter === "a" ? "✓ " : ""}${c.step.all}`, callback_data: `fnr:v:${row.id}:0a` },
+      { text: `${filter === "f" ? "✓ " : ""}${c.step.female}`, callback_data: `fnr:v:${row.id}:0f` },
+      { text: `${filter === "m" ? "✓ " : ""}${c.step.male}`, callback_data: `fnr:v:${row.id}:0m` },
     ]] : []),
     [
       { text: `${row.lang === "ru" ? "✓ " : ""}Русский`, callback_data: `fnr:l:${row.id}:ru` },
@@ -261,24 +295,17 @@ async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, 
     ],
     [{ text: c.b.cancel, callback_data: `fnr:x:${row.id}` }],
   ];
-  const head = c.step.head(pos + 1, list.length, voice.name, marks);
-  const sendStep = async () => {
-    // Образец идёт первым, чтобы кнопки остались под ним, в конце разговора.
-    const sent = await sendVoiceSamples(chatId, config, row.lang === "tg" ? "tg" : "ru", "", voice.id).catch(() => 0);
-    await sendMessageWithButtons(chatId, `${head}
-${sent ? c.step.sampleSent : c.step.noSample}`, rows);
-  };
-  if (!edit) { await sendStep(); return; }
-  // Нажатие: сначала у прежнего сообщения снимаются кнопки (двойное нажатие не плодит клавиатуры; «не изменено» значит, нажатие уже обработано),
-  // а загрузку образца (до минуты) уводим в фон: очередь входящих у бота одна на все чаты.
-  if (edit.text) {
-    const stripped = await editMessageText(chatId, edit.messageId, edit.text, null).then(() => true, (err) => !/not modified/iu.test(err instanceof Error ? err.message : String(err)));
-    if (!stripped) return;
-  }
-  void trackBackgroundTask(sendStep().catch((err) => { void logSystemError("telegram", `Голос по одному в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-voice-step" }); }));
+  const text = c.step.card({
+    name: voice.name, gender: voice.gender, n: pos + 1, total: list.length, recommended: voice.id === defaultId, last: voice.id === lastVoiceId,
+    chars: row.script.length, lang: langLabel(lang, row.lang), preview: scriptPreview(row.script), hasSample: Boolean(sample),
+  });
+  const present = presentVoiceCard({ chatId, edit, sample, filename: `sample-${voice.id.replace(/[^\w-]/gu, "").slice(0, 24) || "voice"}.mp3`, title: voice.name, performer: c.step.performer, text, buttons: rows });
+  if (!edit) { await present; return; }
+  // Нажатие: загрузка образца (до минуты) в фоне, очередь входящих у бота одна на все чаты. Порядок нажатий держит сама карточка.
+  void trackBackgroundTask(present.catch((err) => { void logSystemError("telegram", `Голос по одному в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-voice-step" }); }));
 }
 
-async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, edit?: { messageId: number; text?: string }): Promise<void> {
+async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, edit?: PickerEdit): Promise<void> {
   const { config } = await loadNarrationConfiguration();
   const last = await narrationLastChoiceFor(row.agentId, config);
   const stepLang = row.lang === "tg" ? "tg" : "ru";
@@ -286,8 +313,7 @@ async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, ed
   if (hasSamples) { await showVoiceStep(chatId, row, lang, config, last.voiceId, { filter: "a" }, edit); return; }
   const text = copy[lang].head(row.script.length, langLabel(lang, row.lang));
   const buttons = voiceButtons(row, config, lang, last.voiceId);
-  if (edit) await editMessageText(chatId, edit.messageId, text, buttons);
-  else await sendMessageWithButtons(chatId, text, buttons);
+  await presentVoiceCard({ chatId, edit, sample: null, filename: "", title: "", performer: "", text, buttons });
 }
 
 function failureText(outcome: FreeNarrationRunOutcome, lang: Lang): string | null {
@@ -526,6 +552,8 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
   const lang = await chatLang(chatId);
   const c = copy[lang];
   const messageId = query.message?.message_id;
+  // Карточка с образцом голоса — это аудио с подписью, у него нет `text`; текстовая карточка (список голосов) — с `text`.
+  const edit: PickerEdit | undefined = messageId ? { messageId, isMedia: query.message?.text === undefined } : undefined;
   const [, action, id, arg, hash] = match;
   try {
     const agent = await findAgentByTelegramChatId(chatId);
@@ -538,13 +566,14 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
       await answer();
       const { config } = await loadNarrationConfiguration();
       const last = await narrationLastChoiceFor(row.agentId, config);
-      await showVoiceStep(chatId, row, lang, config, last.voiceId, want, messageId ? { messageId, text: query.message?.text } : undefined);
+      await showVoiceStep(chatId, row, lang, config, last.voiceId, want, edit);
       return true;
     }
     if (action === "x") {
       await cancelFreeNarration(id, agent.id);
       await answer(c.cancelled);
-      if (messageId) await editMessageText(chatId, messageId, c.cancelled, null).catch(() => {});
+      // Карточка с образцом удаляется, вместо неё короткое «Отменено»: в чате не остаётся аудио с мёртвыми кнопками.
+      if (edit) await closeVoiceCard(chatId, edit, c.cancelled).catch(() => {});
       return true;
     }
     if (action === "l") {
@@ -552,7 +581,7 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
       if (!await setFreeNarrationLang(id, agent.id, arg)) { await answer(c.stale); return true; }
       await answer();
       const fresh = await prisma.freeNarration.findUnique({ where: { id } });
-      if (fresh && messageId) await showChoices(chatId, fresh, lang, { messageId, text: query.message?.text }).catch(() => {});
+      if (fresh && edit) await showChoices(chatId, fresh, lang, edit).catch(() => {});
       return true;
     }
     if (action === "s") {
@@ -567,20 +596,23 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
     if (!voice || voiceHash(voice.id) !== hash) { await answer(c.voiceChanged); return true; }
     const retryData = query.data ?? "";
     if (row.status === "READY" && row.voiceId && row.voiceId !== voice.id) { await answer(c.stale); return true; }
-    if (row.status === "READY") { await answer(); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
+    if (row.status === "READY") { await answer(); await dropVoiceCard(chatId, edit); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
     await answer(c.preparing);
     // Занять запись быстро, а вызов ElevenLabs и отправку файла (до двух минут) вынести из обработчика:
     // очередь входящих у бота одна на все чаты, долгий обработчик остановил бы их всех.
     const claimed = await claimFreeNarration({ id, agentId: agent.id, voiceId: voice.id });
-    if (claimed.status === "ALREADY_READY") { await deliver(chatId, claimed.row, voice.name, lang, undefined, retryData); return true; }
+    if (claimed.status === "ALREADY_READY") { await dropVoiceCard(chatId, edit); await deliver(chatId, claimed.row, voice.name, lang, undefined, retryData); return true; }
     if (claimed.status !== "CLAIMED") {
       const text = failureText(claimed, lang) ?? c.failed;
-      if (messageId && (claimed.status === "LIMIT_PERSON" || claimed.status === "BUDGET")) await editMessageText(chatId, messageId, text, null).catch(() => {});
+      if (edit && (claimed.status === "LIMIT_PERSON" || claimed.status === "BUDGET")) await closeVoiceCard(chatId, edit, text).catch(() => {});
       else await sendMessage(chatId, text);
       return true;
     }
-    if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${c.preparing}`, null).catch(() => {});
-    void trackBackgroundTask(finishFreeNarration(chatId, claimed.claim, lang, messageId, retryData));
+    // Карточка с образцом заменяется строкой «готовлю»; у текстовой карточки к её тексту дописывается «готовлю».
+    // Строка-статус карточки с образцом — отдельное сообщение: когда файл придёт, она удаляется.
+    const statusText = edit?.isMedia ? `${c.preparing} ${voice.name}` : `${query.message?.text ?? ""}\n\n${c.preparing}`;
+    const statusId = edit ? await closeVoiceCard(chatId, edit, statusText).catch(() => undefined) : undefined;
+    void trackBackgroundTask(finishFreeNarration(chatId, claimed.claim, lang, statusId, retryData, edit?.isMedia === true));
     return true;
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста, кнопка Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-callback" });
@@ -652,18 +684,23 @@ async function rewriteAd(id: string, agentId: string, chatId: string, messageId:
 }
 
 /** Фон: вызов ElevenLabs, отправка файла, итог в сообщении. Ошибки не уходят наружу: запись уже занята, итог должен дойти до человека. */
-async function finishFreeNarration(chatId: string, claim: FreeNarrationClaim, lang: Lang, messageId: number | undefined, retryData: string): Promise<void> {
+async function finishFreeNarration(chatId: string, claim: FreeNarrationClaim, lang: Lang, messageId: number | undefined, retryData: string, statusIsOwn = false): Promise<void> {
   const c = copy[lang];
+  // Строка «готовлю» отдельное сообщение (карточка с образцом уже убрана): когда файл пришёл или не пришёл, она не нужна.
+  const dropStatus = async () => { if (statusIsOwn && messageId) await deletePrivateMessage(chatId, messageId); };
   try {
     const outcome = await executeFreeNarration(claim);
     if (outcome.status === "READY") {
       await deliver(chatId, outcome.row, outcome.voiceName ?? claim.voiceName ?? "", lang, outcome.audio, retryData);
-      if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? claim.voiceName ?? "", outcome.row.chars)}`, null).catch(() => {});
+      if (statusIsOwn) await dropStatus();
+      else if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? claim.voiceName ?? "", outcome.row.chars)}`, null).catch(() => {});
       return;
     }
+    await dropStatus();
     await sendMessage(chatId, failureText(outcome, lang) ?? c.failed);
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста в Шабнам, фон: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-background" });
+    await dropStatus().catch(() => {});
     await sendMessage(chatId, c.failed).catch(() => {});
   }
 }

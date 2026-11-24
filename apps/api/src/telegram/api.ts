@@ -771,6 +771,118 @@ export async function sendDocumentFile(
   return result as TelegramSentDocument;
 }
 
+/**
+ * КАРТОЧКА-ОБРАЗЕЦ (24.11.2026, выбор голоса в Шабнам): аудио с названием в плеере (title/performer, а не
+ * имя файла), подписью и кнопками под ним — одно сообщение, а не файл, подпись и отдельное сообщение с кнопками.
+ * Листание голосов правит это же сообщение (`editAudioCard`): в чате не копятся прежние образцы.
+ */
+export interface TelegramAudioCard {
+  /** Имя файла при загрузке; в плеере не видно, нужно для расширения. Без путей и слэшей. */
+  filename: string;
+  title?: string;
+  performer?: string;
+  caption?: string;
+  buttons?: TelegramInlineButton[][];
+}
+export interface TelegramSentAudio extends TelegramSentMessage {
+  audio?: { file_id: string };
+}
+/** Что отправить: `fileId` (файл уже загружен в Telegram, уходит мгновенно), путь на диске или байты. */
+export type TelegramAudioSource = { fileId: string } | { path: string } | Buffer;
+
+/** Файл на общий том локального Bot API (как в sendLocalDocument): его читает сам сервер Bot API, в запросе только адрес. */
+async function withLocalStagedFile<T>(source: string, filename: string, run: (uri: string) => Promise<T>): Promise<T> {
+  const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
+  if (!root || !path.isAbsolute(root)) throw new Error("Не настроен общий том Telegram Bot API");
+  if (!filename || filename === "." || filename === ".." || /[\\/]/.test(filename)) throw new Error("Недопустимое имя файла Telegram");
+  const info = await fsp.stat(source);
+  if (!info.isFile() || info.size > TELEGRAM_BOT_SEND_LIMIT_BYTES) throw new Error("Файл не подходит для отправки в Telegram");
+  const dir = await fsp.mkdtemp(path.join(root, TELEGRAM_DOCUMENT_STAGING_PREFIX));
+  const staged = path.join(dir, filename);
+  let keepForTelegram = false;
+  try {
+    await fsp.copyFile(source, staged);
+    keepForTelegram = true;
+    const out = await run(pathToFileURL(staged).href);
+    keepForTelegram = false;
+    return out;
+  } catch (error) {
+    // Потерянный ответ мог оставить Telegram за чтением файла: уберёт уборщик тома. Явный отказ хранить не заставляет.
+    if (error instanceof TelegramApiError) keepForTelegram = false;
+    throw error;
+  } finally {
+    if (!keepForTelegram) {
+      await fsp.rm(staged, { force: true }).catch(() => {});
+      await fsp.rmdir(dir).catch(() => {});
+    }
+  }
+}
+
+function audioMeta(card: TelegramAudioCard): Record<string, string> {
+  const caption = card.caption && (card.caption.length > CAPTION_MAX_CHARS ? `${card.caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : card.caption);
+  return { ...(caption ? { caption } : {}), ...(card.title ? { title: card.title.slice(0, 120) } : {}), ...(card.performer ? { performer: card.performer.slice(0, 120) } : {}) };
+}
+
+export async function sendAudioCard(chatId: string, source: TelegramAudioSource, card: TelegramAudioCard, timeoutMs = 60_000): Promise<TelegramSentAudio> {
+  if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  const meta = audioMeta(card);
+  const markup = card.buttons ? { reply_markup: { inline_keyboard: card.buttons } } : {};
+  const viaJson = (audio: string) => call<TelegramSentAudio>("sendAudio", { chat_id: chatId, audio, ...meta, ...markup }, timeoutMs, undefined, undefined, true);
+  if (!Buffer.isBuffer(source) && "fileId" in source) return viaJson(source.fileId);
+  if (!Buffer.isBuffer(source) && "path" in source && IS_LOCAL_BOT_API) return withLocalStagedFile(source.path, card.filename, viaJson);
+  const upload = Buffer.isBuffer(source) ? new Blob([new Uint8Array(source)]) : await openAsBlob((source as { path: string }).path);
+  const result = await postMultipartWithRetry(
+    `${BASE_URL}/sendAudio`,
+    () => {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      for (const [k, v] of Object.entries(meta)) form.append(k, v);
+      if (card.buttons) form.append("reply_markup", JSON.stringify(markup.reply_markup));
+      form.append("audio", upload, card.filename);
+      return form;
+    },
+    timeoutMs,
+    "sendAudio (файлом)",
+    true,
+  );
+  return result as TelegramSentAudio;
+}
+
+/**
+ * Заменить аудио, подпись и кнопки в уже отправленной карточке (editMessageMedia). null — Telegram ответил
+ * «не изменено» (повторное нажатие той же кнопки): правка уже стоит, ошибкой это не считается.
+ */
+export async function editAudioCard(chatId: string, messageId: number, source: TelegramAudioSource, card: TelegramAudioCard, timeoutMs = 60_000): Promise<TelegramSentAudio | null> {
+  if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  const meta = audioMeta(card);
+  const markup = card.buttons ? { reply_markup: { inline_keyboard: card.buttons } } : { reply_markup: { inline_keyboard: [] } };
+  const viaJson = (media: string) => call<TelegramSentAudio>("editMessageMedia", { chat_id: chatId, message_id: messageId, media: { type: "audio", media, ...meta }, ...markup }, timeoutMs, undefined, undefined, true);
+  try {
+    if (!Buffer.isBuffer(source) && "fileId" in source) return await viaJson(source.fileId);
+    if (!Buffer.isBuffer(source) && "path" in source && IS_LOCAL_BOT_API) return await withLocalStagedFile(source.path, card.filename, viaJson);
+    const upload = Buffer.isBuffer(source) ? new Blob([new Uint8Array(source)]) : await openAsBlob((source as { path: string }).path);
+    const result = await postMultipartWithRetry(
+      `${BASE_URL}/editMessageMedia`,
+      () => {
+        const form = new FormData();
+        form.append("chat_id", chatId);
+        form.append("message_id", String(messageId));
+        form.append("media", JSON.stringify({ type: "audio", media: "attach://audio", ...meta }));
+        form.append("reply_markup", JSON.stringify(markup.reply_markup));
+        form.append("audio", upload, card.filename);
+        return form;
+      },
+      timeoutMs,
+      "editMessageMedia (файлом)",
+      true,
+    );
+    return result as TelegramSentAudio;
+  } catch (err) {
+    if (err instanceof Error && /message is not modified/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function sendHtmlMessage(
   chatId: string, html: string, replyToMessageId?: number, buttons?: TelegramInlineButton[][],
   messageThreadId?: number,
