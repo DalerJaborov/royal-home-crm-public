@@ -231,6 +231,18 @@ describe("п.14 петля a1af706a (11-13): на свежем main шаблон
       expect(render("Хонаи 3 хонага, 5 этаж, 80 кв, ремонт, 90 000$", "legal", surface) ?? "", surface).not.toMatch(/кафолат|ҳуқуқ/u);
     }
   });
+  it("находка 32: похвала «мутахасиси бехтарин» — по-таджикски спасибо, без «юридической чистоты»; на вопрос о документах — справка", () => {
+    expect(customerPublicLanguage("мутахасиси бехтарин")).toBe("tg");
+    const praise = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "thank", question: "none" },
+      evidence: [{ ref: "e0", value: policy("legal") }], language: customerPublicLanguage("мутахасиси бехтарин"), requestedFacts: [],
+      knownPhoneSource: "none", maxOutputChars: 4000, surface: "public_comment", knowledgeSourceHash: sourceHash, inputText: "мутахасиси бехтарин",
+      verifiedContext: customerAgentVerifiedContextSchema.parse({ surface: "public_comment", revisionId: "a".repeat(64), turns: [],
+        publicState: { language: "unknown", topic: "unknown", openQuestion: "none" } }) }) ?? "";
+    expect(praise).not.toMatch(/юридическ|ҳуқуқ|кафолат|Спасибо/u);
+    for (const surface of ["dm", "public_comment"] as const) {
+      expect(render("Ҳуҷҷатҳояш тоза аст? Документы чистые?", "legal", surface) ?? "", surface).toMatch(/кафолат|ҳуқуқ/u);
+    }
+  });
   it("комментарий «Воаллекум салом» — без правила о торге", () => {
     expect(render("@royal.home.tj Воаллекум салом", "negotiation", "public_comment") ?? "").not.toMatch(/савдо|тахфиф/u);
   });
