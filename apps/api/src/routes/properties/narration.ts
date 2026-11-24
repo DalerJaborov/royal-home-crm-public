@@ -79,7 +79,7 @@ narrationRouter.get("/narration-free/options", async (req, res) => {
   const used = await freeNarrationUsedToday(req.agent!.id);
   res.json({ enabled: freeNarrationEnabled(config), voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultVoiceId: pickNarrationVoice(config), lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
-    maxChars: limits.maxChars, perPersonDaily: limits.perPersonDaily, remainingToday: Math.max(0, limits.perPersonDaily - used) });
+    maxChars: limits.maxChars, perPersonDaily: limits.perPersonDaily, remainingToday: limits.perPersonDaily > 0 ? Math.max(0, limits.perPersonDaily - used) : null });
 });
 narrationRouter.post("/narration-free", async (req, res) => {
   const body = freeNarrationRequestSchema.safeParse(req.body);

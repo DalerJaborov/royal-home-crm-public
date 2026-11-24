@@ -7437,6 +7437,8 @@ model Settings {
   botRepliesAfterLeadEnabled            Boolean @default(true)
   /// «Спам — без ответа и без модели» (владелец 20.11.2026: «таким спамерам как то не отвечать… сэкономить токены»). ВКЛ.
   botSpamFilterEnabled                  Boolean @default(true)
+  /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
+  botCoreFailAlertEnabled               Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)

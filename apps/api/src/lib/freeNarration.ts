@@ -247,7 +247,7 @@ export async function claimFreeNarration(input: { id: string; agentId: string; v
   const claimed = await prisma.$transaction(async (tx) => {
     // budgetAllows берёт общий замок бюджета озвучки: две генерации разом не проскочат мимо потолков.
     if (!await budgetAllows(tx, script.length, config, now, limits.budgetPercent)) return "BUDGET" as const;
-    if (await freeNarrationUsedToday(input.agentId, now, tx) >= limits.perPersonDaily) return "LIMIT_PERSON" as const;
+    if (limits.perPersonDaily > 0 && await freeNarrationUsedToday(input.agentId, now, tx) >= limits.perPersonDaily) return "LIMIT_PERSON" as const;
     const moved = await tx.freeNarration.updateMany({ where: { id: row.id, agentId: input.agentId, status: "AWAITING_VOICE" },
       data: { status: "GENERATING", voiceId, lang, chars: script.length, generationStartedAt: now } });
     return moved.count ? "RUN" as const : "ALREADY" as const;

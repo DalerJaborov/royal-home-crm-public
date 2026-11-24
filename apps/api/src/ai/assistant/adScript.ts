@@ -123,6 +123,13 @@ export type AdScriptResult = { status: "OK"; script: string; lang: NarrationLang
  * Один сценарий из фактов. wallet — кошелёк расходов хода помощницы (потолок денег и попыток на день общий с
  * остальной Шабнам), новых ключей нет. variant > 0 — «Переписать»: просим другой вариант.
  */
+/**
+ * Потолок ответа модели: 2 048 → 8 192 (24.11.2026, прод: три отказа подряд «finishReason=MAX_TOKENS»). Модель думает
+ * токенами из того же потолка; таджикский текст на сильной модели съедал 2 048 на мысли и обрывался до ответа.
+ * 8 192 = предел помощницы (MAX_ASSISTANT_OUTPUT_TOKENS); по резерву это около 0,1 $ за вызов, конверт хода 1 $.
+ */
+export const AD_SCRIPT_MAX_OUTPUT_TOKENS = 8_192;
+
 export async function generateAdScript(input: { facts: string; wallet: AssistantMoneyWallet; maxChars: number; variant?: number; avoid?: string; template?: string }): Promise<AdScriptResult> {
   const facts = input.facts.trim().slice(0, AD_SCRIPT_MAX_FACT_CHARS);
   const lang = detectFreeNarrationLang(facts);
@@ -139,7 +146,7 @@ export async function generateAdScript(input: { facts: string; wallet: Assistant
   for (let round = 0; round < 2; round++) {
     const result = await callGeminiTools({
       apiKey: runtime.keys[0], runtime, timeoutMs: 30_000, deadlineAt: Date.now() + 40_000,
-      maxTokens: 2_048, requireLowThinking: true, requireCompleteTurn: true,
+      maxTokens: AD_SCRIPT_MAX_OUTPUT_TOKENS, requireLowThinking: true, requireCompleteTurn: true,
       beforeAttempt: async (metadata) => { await attempt(); await guard(metadata); },
       system: systemPrompt(lang, input.maxChars, input.template),
       contents: [{ role: "user", parts: [{ text: `${hint ? `${hint}\n\n` : ""}Факты от сотрудника:\n${wrapUntrusted("document", facts, AD_SCRIPT_MAX_FACT_CHARS + 200)}` }] }],
