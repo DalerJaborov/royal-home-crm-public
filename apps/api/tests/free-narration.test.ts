@@ -203,7 +203,7 @@ describe("дверь озвучки текста", () => {
     expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "ab" })).status).toBe("TOO_SHORT");
     expect(await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(101) })).toEqual({ status: "TOO_LONG", max: 100, length: 101 });
     await setConfig();
-    expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(1501) })).status).toBe("TOO_LONG");
+    expect((await createFreeNarrationRequest({ agentId: a.id, source: "API", text: "я".repeat(5001) })).status).toBe("TOO_LONG");
   });
 
   it("отказ провайдера: понятный исход, расход засчитан, сам не повторяется; «кредиты кончились» отличается", async () => {
