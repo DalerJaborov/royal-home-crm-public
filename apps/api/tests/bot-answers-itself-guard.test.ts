@@ -43,6 +43,7 @@ const ALWAYS: Record<string, string> = {
   "jobs/customerShowingNotify.ts": "запись на показ — заявка",
   "jobs/siteResync.ts": "техсбой синхронизации сайта",
   "lib/channelKeyAlarm.ts": "техсбой: ключ канала умер (401)",
+  "lib/channelVolumeWatch.ts": "техсбой: канал почти не приносит новых обращений (вебхук, подписка, токен), не ответ бота",
   "lib/clientDeleteRequest.ts": "работа с карточкой в CRM, не бот",
   "lib/clientLifecycle.ts": "работа с карточкой в CRM, не бот",
   "lib/clientMerge.ts": "работа с карточкой в CRM, не бот",
