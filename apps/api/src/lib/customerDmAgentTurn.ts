@@ -77,6 +77,7 @@ import { coreReplyRepeatBlocked } from "./outboundShield.js";
 import { customerHeldForChangedContext, customerSafetyCandidateLines, customerSafetyLine,
   customerSafetyLineAllowed, customerSafetyLineFits, customerSafetyMemory } from "./customerNoSilence.js";
 import { clientTalksBusiness } from "../messengers/sharedMedia.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 import { saveOperatorStateIsolatedTx, saveOperatorStateTx } from "../ai/operator/state.js";
 import type { OperatorStaffReason } from "../ai/operator/types.js";
 
@@ -125,6 +126,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       kind === "image" || kind === "audio" || kind === "video" || kind === "document"));
     // Safe diagnostic code of the failure (trace only; never part of the returned shape or customer text).
     let heldCause: string | undefined;
+    let staleRace = false;
     // A vacancy chat (the recruiter's path): the lead-only quiet rule of the staff-signal door does not apply to it.
     let jobTopicTurn = false;
     const outcome = await (async (): Promise<CustomerDmAgentTurnResult> => {
@@ -902,10 +904,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
+    // 24.11.2026 прод: «Customer delivery principal/fence stale» — чат сменился между началом хода и планом ответа; ход повторился и
+    // ответил через 27 с. Это гонка, а не поломка: сигнал агенту не нужен (сторож молчания на 30 минут остаётся).
+    staleRace = error instanceof Error && /^Customer delivery (?:principal|fence) stale$/u.test(error.message);
     // 17.11 и 20.11 ход падал «RangeError» без места: в журнал — первая строка стека из нашего кода (файл:строка, без слов
     // клиента), иначе причину не найти (разбор каналов 20.11.2026).
-    const frame = error instanceof Error ? (error.stack ?? "").split("\n")
-      .find(line => /apps[\\/]api[\\/](?:src|dist)|\/app\/(?:src|dist)\//u.test(line))?.trim().slice(0, 200) : undefined;
+    // Нет своего кадра (падение целиком внутри библиотеки) — первый кадр стека: «без места» причину не найти (24.11.2026).
+    const stackLines = error instanceof Error ? (error.stack ?? "").split("\n").filter(line => /^\s*at\s/u.test(line)) : [];
+    const frame = (stackLines.find(line => /apps[\\/]api[\\/](?:src|dist)|\/app\/(?:src|dist)\//u.test(line)) ?? stackLines[0])?.trim().slice(0, 200);
     if (frame) void logSystemError("ai", `Ход бота клиента: ${heldCause} в ${frame.replace(/^at\s+/u, "")}`, { dedupKey: `customer-core-frame:${heldCause}:${frame}`, quietPult: true });
     await releaseHeldClaim(claim, "customer_core_unavailable");
     return { status: "held", reason: "customer_core_unavailable" };
@@ -927,8 +933,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (outcome.status === "held") {
       const reason = outcome.reason;
       void import("./clientWaitingAlert.js")
-        .then(({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
-          STAFF_NEEDED_NOW_REASONS.has(reason) ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate", jobTopic: jobTopicTurn }) : undefined)
+        .then(async ({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
+          (STAFF_NEEDED_NOW_REASONS.has(reason) || (reason === "customer_core_unavailable" && !staleRace && await automationSwitchOn("botCoreFailAlertEnabled")))
+            ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate", jobTopic: jobTopicTurn }) : undefined)
         .catch(error => console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError"));
     }
     return outcome;
