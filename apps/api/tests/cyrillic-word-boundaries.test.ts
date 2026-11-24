@@ -12,7 +12,6 @@ import { detectAgencyPitch } from "../src/ai/agencyPitchGuard.js";
 import { detectServiceOffer } from "../src/ai/serviceOfferGuard.js";
 import { ASKED_FOR_NAME } from "../src/messengers/conversation.js";
 import { SHOWING_HINT_RE } from "../src/lib/operatorShowingDetector.js";
-import { isUsableClientQuestion } from "../src/ai/styleLearning.js";
 
 /**
  * МЁРТВЫЕ ПРАВИЛА СТРАЖЕЙ: КИРИЛЛИЦА И `\b` / `\w` (найдено 21.09.2026).
@@ -277,12 +276,4 @@ describe("границы слова в кириллице: второй захо
     expect(SHOWING_HINT_RE.test("Иванов 12")).toBe(false);
   });
 
-  it("«ok, а сколько стоит» — это вопрос клиента, а не вежливость", () => {
-    // Было `ok\W*` в списке вежливостей: `\W` — это вся кириллица, поэтому
-    // вопрос целиком признавался вежливостью и выпадал из обучения манере.
-    expect(isUsableClientQuestion("ok, а сколько стоит")).toBe(true);
-    // Голая вежливость по-прежнему отсеивается.
-    expect(isUsableClientQuestion("ok")).toBe(false);
-    expect(isUsableClientQuestion("рахмат!")).toBe(false);
-  });
 });

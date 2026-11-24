@@ -47,7 +47,6 @@ import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBad
 import { MessageQuote, quotedMessage } from "../components/MessageQuote";
 import { VoiceRecordButton } from "../components/VoiceRecordButton";
 import { ChatPropertySend } from "../components/ChatPropertySend";
-import { BotReplyFeedback } from "../components/BotReplyFeedback";
 import { ContactProfilePanel } from "../components/ContactProfilePanel";
 import { ConversationClientLink } from "../components/ConversationClientLink";
 import { relativeTime } from "../lib/format";
@@ -1009,11 +1008,6 @@ const ConversationMessageList = memo(function ConversationMessageList({
         // Ответ живого человека (агент из CRM или вручную из мессенджера) — тот
         // же пузырь `.me`, но без пунктира: пунктир в эталоне означает бота.
         const humanReply = m.role === "assistant" && (m.by?.kind === "agent" || m.by?.kind === "manual");
-        // Настоящий ответ бота — для кнопок оценки (BotReplyFeedback). Отсутствие
-        // `by` трактуется как бот (см. MessageSender в @royal-home/shared) — то
-        // же правило, что и у humanReply/сервера; «system» (служебная рассылка
-        // CRM) сюда не попадает: оценивать нечего, это не слова бота.
-        const isBotAnswer = m.role === "assistant" && (!m.by || m.by.kind === "bot");
         // Абсолютный индекс в ПОЛНОЙ истории — и для ключа (см. ниже), и для
         // ref (скролл поиска), и чтобы понять, это ли сообщение сейчас
         // активное совпадение (useConversationSearch).
@@ -1125,15 +1119,6 @@ const ConversationMessageList = memo(function ConversationMessageList({
             attachments={m.attachments}
             onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
           />
-          {/* Оценка ответа бота прямо в чате (17.09.2026) — см. BotReplyFeedback.tsx. */}
-          {isBotAnswer && !readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && (
-            <BotReplyFeedback
-              conversationId={m.sourceConversationId ?? conversationId}
-              message={m}
-              messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? absoluteIndex}`}
-              index={m.sourceMessageIndex ?? absoluteIndex}
-            />
-          )}
           {/* Время — часами ДУШАНБЕ, а не устройства: директор может смотреть из
               другой страны, и «в 14:30» обязано значить одно и то же для всех. */}
           <span className="tm" data-message-time-unknown={!m.at || undefined}>
@@ -1989,10 +1974,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <RoyalMessageInfo
             message={m}
             text={humanizeAttachmentTags(m.role === "user" ? stripBotHints(m.content) : m.content, { outgoing: m.role !== "user", hasAttachments: !!m.attachments?.length, channel: m.sourceChannel ?? conversation?.channel })}
-            conversationId={m.sourceConversationId ?? id}
-            messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? infoIndex}`}
-            index={m.sourceMessageIndex ?? infoIndex}
-            readOnly={readOnly}
             onClose={() => setInfoIndex(null)}
           />
         );

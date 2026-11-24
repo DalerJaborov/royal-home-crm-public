@@ -537,8 +537,6 @@
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows > div { display: grid; gap: 2px; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dt { font-size: var(--rh-fs-sm); font-weight: 600; color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rows dd { margin: 0; font-size: var(--rh-fs-md); color: var(--rh-ui-text); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate { margin-top: 16px; padding-top: 12px; box-shadow: inset 0 1px 0 var(--rh-ui-sep); }
-:root[data-ui-look="royal"] .rh2[data-ry-section="chats"] .ry-msg-info-rate .clean-bot-feedback button { min-height: 44px; font-size: var(--rh-fs-md); }
 
 /* ============================== телефон ============================== */
 
