@@ -7,7 +7,7 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId, askStaffContactForLink, tryLinkAgentByContact, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, findAgentByTelegramChatId, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
@@ -522,6 +522,8 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   const agent = await findAgentByTelegramChatId(chatId);
   // Свой контакт в окне после `/start staff` — привязка по номеру; вне окна контакт идёт клиентским путём.
   if (!agent && msg.contact && (await tryLinkAgentByContact(msg))) return true;
+  // Шесть цифр от того, кому после контакта ушёл код подтверждения (ревью 25.11.2026); остальным — мимо.
+  if (!agent && msg.text && (await tryConfirmStaffLinkCode(msg))) return true;
   if (!agent) return false;
 
   // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)

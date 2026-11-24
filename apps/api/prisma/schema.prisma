@@ -7442,6 +7442,10 @@ model Settings {
   /// «Шабнам отвечает в группах без обращения» (24.11.2026, жалоба владельца «молчит, пока не позовёшь»).
   /// ВКЛ. ВЫКЛ — в рабочих группах Шабнам отвечает только тем, кто её позвал. telegram/assistantBot.ts.
   shabnamGroupUnaddressedEnabled        Boolean @default(true)
+  /// «Привязка Telegram по номеру телефона» (ревью 25.11.2026). ВЫКЛ по умолчанию: контакт Telegram доказывает
+  /// только, что на номер когда-то завели аккаунт. Включена — номер ещё подтверждается кодом по СМС, директора и
+  /// администратора по номеру не привязываем никогда. lib/telegramAgentLink.ts.
+  telegramPhoneLinkEnabled              Boolean @default(false)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -11497,6 +11501,11 @@ model AssistantTelegramLinkOffer {
   chatId             String
   offeredAt          DateTime  @default(now())
   contactRequestedAt DateTime?
+  /// Учётка, на номер которой ушёл код подтверждения, и когда (привязка по номеру, шаг 2). Без кода не привязываем.
+  pendingAgentId     String?
+  codeSentAt         DateTime?
+
+  @@index([offeredAt])
 }
 
 /// Кто нажал /start или написал «меню» в ещё НЕ подключённой группе (23.11.2026). Когда группу

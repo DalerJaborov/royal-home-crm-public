@@ -19,10 +19,18 @@ vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   isAiAssistantEnabled: async () => true,
 }));
 const switchesOff = vi.hoisted(() => new Set<string>());
+const switchesOn = vi.hoisted(() => new Set<string>());
 vi.mock("../src/lib/automationSwitches.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/automationSwitches.js")>();
-  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) => (switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
+  return { ...actual, automationSwitchOn: async (...a: Parameters<typeof actual.automationSwitchOn>) =>
+    (switchesOn.has(a[0]) ? true : switchesOff.has(a[0]) ? false : actual.automationSwitchOn(...a)) };
 });
+// СМС с кодом подтверждения: ловим текст, провайдера нет.
+const sms = vi.hoisted(() => ({ texts: [] as { phone: string; text: string }[] }));
+vi.mock("../src/lib/sms/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/sms/index.js")>()),
+  sendSms: async (p: { phone: string; text: string }) => { sms.texts.push({ phone: p.phone, text: p.text }); return { ok: true, id: "t", parts: 1 }; },
+}));
 vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgent: async () => 1,
@@ -30,7 +38,8 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { offerTelegramLinkToNewcomer, resetNewcomerMemoryForTests } = await import("../src/telegram/assistantGroupNewcomer.js");
-const { askStaffContactForLink, tryLinkAgentByContact } = await import("../src/lib/telegramAgentLink.js");
+const { askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode } = await import("../src/lib/telegramAgentLink.js");
+const { cleanupTelegramLinkOffers, LINK_OFFER_RETENTION_MS } = await import("../src/telegram/assistantGroupNewcomer.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
 
@@ -58,8 +67,10 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  sent.buttons.length = 0; sent.contact.length = 0; sent.removed.length = 0;
+  sent.buttons.length = 0; sent.contact.length = 0; sent.removed.length = 0; sms.texts.length = 0;
   switchesOff.clear();
+  switchesOn.clear();
+  switchesOn.add("telegramPhoneLinkEnabled"); // сценарии привязки по номеру; выключенный — отдельным тестом
   resetNewcomerMemoryForTests();
   await prisma.assistantTelegramGroup.update({ where: { chatId }, data: { proactiveMutedUntil: null } });
 });
@@ -123,8 +134,46 @@ describe("предложение привязки новичку в группе
   });
 });
 
+describe("рубильник «Привязка Telegram по номеру» выключен (по умолчанию)", () => {
+  it("по умолчанию в базе выключен", async () => {
+    const { automationSwitchOn } = await vi.importActual<typeof import("../src/lib/automationSwitches.js")>("../src/lib/automationSwitches.js");
+    const row = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { telegramPhoneLinkEnabled: true } });
+    expect(row.telegramPhoneLinkEnabled).toBe(false);
+    expect(await automationSwitchOn("telegramPhoneLinkEnabled")).toBe(false);
+  });
+
+  it("новичку в группе — путь через профиль, без кнопки ?start=staff", async () => {
+    switchesOn.clear();
+    const id = newTelegramId();
+    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(true);
+    const [, text, buttons] = sent.buttons[0] as [string, string, { text: string; url: string }[][]];
+    expect(text).toContain("Профиль → Telegram");
+    expect(text).toContain("Ассалому алейкум");
+    expect(JSON.stringify(buttons)).not.toContain("start=staff");
+  });
+
+  it("/start staff в личке номер не просит, контакт в старом окне не привязывает", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Выключено ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never); // окно открыто при ВКЛ
+    switchesOn.clear();
+    expect(await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never)).toBe(true);
+    expect(sent.contact).toHaveLength(1);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Привязка по номеру сейчас выключена");
+    expect(await tryLinkAgentByContact(privateMsg(id, { contact: { phone_number: `992${tail}`, user_id: Number(id) } }) as never)).toBe(true);
+    expect(sms.texts).toHaveLength(0);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
+  });
+});
+
 describe("привязка по номеру в личке", () => {
-  it("свой контакт в окне после /start staff привязывает Telegram к сотруднику", async () => {
+  const contactOf = (id: string, phone: string) => privateMsg(id, { contact: { phone_number: phone, user_id: Number(id) } });
+  const lastCode = () => /(\d{6})/.exec(sms.texts.at(-1)?.text ?? "")?.[1] ?? "";
+
+  it("свой контакт → код в СМС на номер учётки → верный код привязывает", async () => {
     const id = newTelegramId();
     const agentId = await createTestAgent(`Новичок ${runId}-${seq}`);
     agentIds.push(agentId);
@@ -132,13 +181,130 @@ describe("привязка по номеру в личке", () => {
     await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
     expect(await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never)).toBe(true);
     expect(sent.contact).toHaveLength(1);
-    expect(await tryLinkAgentByContact(privateMsg(id, { contact: { phone_number: `992${tail}`, user_id: Number(id) } }) as never)).toBe(true);
+    expect(await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never)).toBe(true);
+    // Только контакт — ещё не привязка.
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
+    expect(sms.texts).toHaveLength(1);
+    expect(sms.texts[0].phone).toBe(`+992${tail}`);
+    expect(sms.texts[0].text).toContain("код привязки Telegram");
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Отправила код в СМС");
+    // Неверный код — не привязка, окно живо.
+    const wrong = lastCode() === "000000" ? "111111" : "000000";
+    expect(await tryConfirmStaffLinkCode(privateMsg(id, { text: wrong }) as never)).toBe(true);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Код не подошёл");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
+    expect(await tryConfirmStaffLinkCode(privateMsg(id, { text: lastCode() }) as never)).toBe(true);
     const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
     expect(agent.telegramUserId).toBe(id);
     expect(agent.telegramChatId).toBe(id);
     expect(String(sent.removed.at(-1)?.[1])).toContain("Готово");
-    // Окно закрыто: повтор того же контакта уже не привязка, а обычный путь.
-    expect(await tryLinkAgentByContact(privateMsg(id, { contact: { phone_number: `992${tail}`, user_id: Number(id) } }) as never)).toBe(false);
+    // Окно закрыто: тот же контакт и те же цифры идут обычным путём.
+    expect(await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never)).toBe(false);
+    expect(await tryConfirmStaffLinkCode(privateMsg(id, { text: lastCode() }) as never)).toBe(false);
+  });
+
+  it("шесть цифр без отправленного кода — не наше (клиент), false", async () => {
+    const id = newTelegramId();
+    expect(await tryConfirmStaffLinkCode(privateMsg(id, { text: "123456" }) as never)).toBe(false);
+  });
+
+  it("код просрочен — не привязывает, просит начать заново", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Просрочка ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    await tryLinkAgentByContact(contactOf(id, `+992${tail}`) as never);
+    await prisma.assistantTelegramLinkOffer.update({ where: { telegramUserId: id }, data: { codeSentAt: new Date(Date.now() - 6 * 60_000) } });
+    expect(await tryConfirmStaffLinkCode(privateMsg(id, { text: lastCode() }) as never)).toBe(true);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Код истёк");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
+  });
+
+  it("окно для контакта просрочено — контакт идёт клиентским путём, кода нет", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Окно ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    await prisma.assistantTelegramLinkOffer.update({ where: { telegramUserId: id }, data: { contactRequestedAt: new Date(Date.now() - 31 * 60_000) } });
+    expect(await tryLinkAgentByContact(contactOf(id, `+992${tail}`) as never)).toBe(false);
+    expect(sms.texts).toHaveLength(0);
+  });
+
+  it("контакт без user_id — не свой, кода нет", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Без user_id ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    expect(await tryLinkAgentByContact(privateMsg(id, { contact: { phone_number: `+992${tail}` } }) as never)).toBe(true);
+    expect(String(sent.contact.at(-1)?.[1])).toContain("собственный номер");
+    expect(sms.texts).toHaveLength(0);
+  });
+
+  it.each(["DIRECTOR", "ADMIN"] as const)("%s по номеру не привязывается никогда, код не уходит", async (role) => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Владелец ${role} ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}`, role } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    expect(await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never)).toBe(true);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Директора и администратора по номеру не привязываю");
+    expect(sms.texts).toHaveLength(0);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
+  });
+
+  it("иностранный номер с теми же девятью цифрами не находит таджикскую учётку", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Девять цифр ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    expect(await tryLinkAgentByContact(contactOf(id, `998${tail}`) as never)).toBe(true);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Не нашла этот номер");
+    expect(sms.texts).toHaveLength(0);
+  });
+
+  it("номер, записанный с нулём (0XXXXXXXXX), находится", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`С нулём ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `0${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    expect(await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never)).toBe(true);
+    expect(sms.texts).toHaveLength(1);
+  });
+
+  it("чат уже привязан к другой учётке — захват не перезаписывает чужой чат", async () => {
+    const id = newTelegramId();
+    const agentId = await createTestAgent(`Чужой чат ${runId}-${seq}`);
+    agentIds.push(agentId);
+    const tail = randomPhoneTail();
+    await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}` } });
+    await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
+    await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never);
+    // Пока код шёл, к учётке привязали другой чат (из профиля).
+    const otherChat = newTelegramId();
+    await prisma.agent.update({ where: { id: agentId }, data: { telegramChatId: otherChat } });
+    await tryConfirmStaffLinkCode(privateMsg(id, { text: lastCode() }) as never);
+    expect(String(sent.removed.at(-1)?.[1])).toContain("уже привязан другой Telegram");
+    const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
+    expect(agent.telegramChatId).toBe(otherChat);
+    expect(agent.telegramUserId).toBeNull();
+  });
+
+  it("отметки старше 90 дней убираются", async () => {
+    const id = newTelegramId();
+    await prisma.assistantTelegramLinkOffer.create({ data: { telegramUserId: id, chatId, offeredAt: new Date(Date.now() - LINK_OFFER_RETENTION_MS - 60_000) } });
+    await cleanupTelegramLinkOffers();
+    expect(await prisma.assistantTelegramLinkOffer.findUnique({ where: { telegramUserId: id } })).toBeNull();
   });
 
   it("без окна контакт идёт клиентским путём (false)", async () => {

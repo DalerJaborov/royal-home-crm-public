@@ -35,6 +35,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botCoreFailAlertEnabled",
   "shabnamSocialPublishEnabled",
   "shabnamGroupUnaddressedEnabled",
+  "telegramPhoneLinkEnabled",
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
@@ -50,7 +51,11 @@ export const AUTOMATION_SWITCH_DEFAULT = true;
  * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
  * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
  */
-export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>([
+  "clientRecordResultEnabled",
+  // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
+  "telegramPhoneLinkEnabled",
+]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
@@ -150,6 +155,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "В рабочей группе Шабнам сама отвечает на ясный рабочий вопрос (цена и статус объекта, «найдите варианты», как сделать что-то в CRM), не чаще раза в 12 секунд. На болтовню и разговор людей между собой не отвечает. «Шабнам, помолчи» выключает это на полчаса.",
     off: "В группах Шабнам отвечает только тем, кто её позвал: по имени, через /ai или ответом на её сообщение.",
   },
+  // Ревью 25.11.2026: в привязанный Telegram приходит код входа, поэтому по умолчанию выключено.
+  telegramPhoneLinkEnabled: {
+    title: "Привязка Telegram по номеру",
+    on: "Новичок в группе жмёт кнопку, делится номером в личке с ботом и вводит код из СМС на этот номер. Директора и администратора по номеру не привязывает: им только через профиль.",
+    off: "Telegram привязывают только в CRM: Профиль → Telegram. Шабнам новичку в группе подсказывает этот путь.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -187,7 +198,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupUnaddressedEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

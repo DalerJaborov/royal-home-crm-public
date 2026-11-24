@@ -5,7 +5,8 @@ import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { findAgentByTelegramUserId, staffLinkDeepLink } from "../lib/telegramAgentLink.js";
 import { sendMessageWithButtons, type TelegramIncomingMessage } from "./api.js";
-import { ASSISTANT_LINK_OFFER, ASSISTANT_LINK_OFFER_BUTTON, bothLanguages } from "./assistantGroupPhrases.js";
+import { publicAppUrl } from "../lib/crmPublicUrl.js";
+import { ASSISTANT_LINK_OFFER, ASSISTANT_LINK_OFFER_BUTTON, ASSISTANT_LINK_OFFER_PROFILE, ASSISTANT_LINK_PROFILE_BUTTON, bothLanguages } from "./assistantGroupPhrases.js";
 
 /**
  * НОВИЧОК В РАБОЧЕЙ ГРУППЕ, КОТОРОГО CRM НЕ УЗНАЁТ (24.11.2026, жалоба владельца: «новички пишут,
@@ -32,6 +33,18 @@ function remember(telegramUserId: string): void {
     const oldest = settled.values().next().value;
     if (oldest) settled.delete(oldest);
   }
+}
+
+/**
+ * Срок хранения отметок (ревью 25.11.2026): строка — Telegram id и время, держим 90 дней. После этого
+ * новичку, так и не привязавшемуся, Шабнам может предложить ещё раз — это не беда. Окна кода живут
+ * минуты (STAFF_CONTACT_WINDOW_MS, срок кода), брошенные убираются тем же сроком.
+ */
+export const LINK_OFFER_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+export async function cleanupTelegramLinkOffers(now = new Date()): Promise<number> {
+  const edge = new Date(now.getTime() - LINK_OFFER_RETENTION_MS);
+  return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;
 }
 
 /** Только для тестов: забыть память процесса между сценариями. */
@@ -63,8 +76,16 @@ export async function offerTelegramLinkToNewcomer(msg: TelegramIncomingMessage, 
     remember(telegramUserId);
     return false;
   }
-  const link = await staffLinkDeepLink();
-  if (!link) return false;
+  // «Привязка Telegram по номеру» выключена (по умолчанию, ревью 25.11.2026): без кнопки в личку, только
+  // путь через профиль CRM; кнопка — сама страница профиля, если у CRM настоящий https-адрес.
+  const byPhone = await automationSwitchOn("telegramPhoneLinkEnabled");
+  const link = byPhone ? await staffLinkDeepLink() : null;
+  if (byPhone && !link) return false;
+  const profileUrl = `${publicAppUrl().replace(/\/+$/, "")}/profile`;
+  const text = bothLanguages(byPhone ? ASSISTANT_LINK_OFFER : ASSISTANT_LINK_OFFER_PROFILE);
+  const buttons = link
+    ? [[{ text: ASSISTANT_LINK_OFFER_BUTTON, url: link }]]
+    : profileUrl.startsWith("https://") ? [[{ text: ASSISTANT_LINK_PROFILE_BUTTON, url: profileUrl }]] : [];
 
   // Один раз на аккаунт: победитель гонки один (первичный ключ), дубль апдейта второй раз не пишет.
   const claim = await prisma.assistantTelegramLinkOffer.createMany({
@@ -75,8 +96,7 @@ export async function offerTelegramLinkToNewcomer(msg: TelegramIncomingMessage, 
   if (claim.count !== 1 && mode !== "addressed") return false;
 
   try {
-    await sendMessageWithButtons(chatId, bothLanguages(ASSISTANT_LINK_OFFER), [[{ text: ASSISTANT_LINK_OFFER_BUTTON, url: link }]],
-      msg.message_id, msg.message_thread_id);
+    await sendMessageWithButtons(chatId, text, buttons, msg.message_id, msg.message_thread_id);
     return true;
   } catch (err) {
     // Не дошло — не считаем предложенным: следующая реплика попробует снова.

@@ -107,22 +107,6 @@ export async function findStaffPhone(
 }
 
 /**
- * ВСЕ действующие сотрудники с этим номером (24.11.2026, привязка Telegram по номеру —
- * lib/telegramAgentLink.ts). То же правило сравнения, что выше, но без «первого попавшегося»:
- * привязка по номеру, записанному у двоих, недопустима, вызывающему нужно знать, что их двое.
- */
-export async function findActiveStaffByPhone(phone: string, tx?: Tx): Promise<StaffPhoneMatch[]> {
-  if (!hasSearchableTail(phone)) return [];
-  const staff = await loadActiveStaffPhones(tx);
-  const found: StaffPhoneMatch[] = [];
-  for (const entry of staff) {
-    const hit = matchAgainstStaff([entry], [phone]);
-    if (hit) found.push(hit);
-  }
-  return found;
-}
-
-/**
  * Тот же список сотрудников, загруженный ОДИН раз, — для мест с массовой или
  * многократной проверкой в пределах одной операции (routes/import.ts,
  * services/leads/intake.ts). Возвращает чистую функцию сравнения в памяти,
