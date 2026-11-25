@@ -7449,6 +7449,8 @@ model Settings {
   /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
   botRetryCapEnabled                    Boolean @default(true)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
+  /// Копия голосового/видео клиента в формате, который играет любой браузер (25.11.2026, ВКЛ).
+  chatMediaTranscodeEnabled             Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -12112,6 +12114,9 @@ model ConstructionPropertyLink {
   distanceM   Int?
   reasons     String[]
   createdById String?
+  /// Когда событие «связали» обработано: время сообщения агенту про жёлтый или красный, либо начало эпохи, если сообщения не было.
+  /// Повторно не уведомляем; смену цвета позже ведёт ConstructionStatusChange.
+  notifiedAt  DateTime?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 
@@ -12136,4 +12141,21 @@ model ConstructionSyncRun {
   error          String?
 
   @@index([startedAt])
+}
+
+/// Файлы клиента, скачанные для сотрудника раньше, чем ядро записало саму реплику
+/// (lib/customerInputMedia.ts, 25.11.2026). Реплика забирает их в той же транзакции,
+/// в которой пишется (customerQualifierLedger.ts); ничьи старше двух суток убирает
+/// ночная уборка вместе с файлами.
+model CustomerPendingMedia {
+  id           String   @id @default(uuid())
+  channel      String
+  subscriberId String
+  mid          String
+  files        Json     @default("[]")
+  lost         Json     @default("[]")
+  createdAt    DateTime @default(now())
+
+  @@unique([channel, subscriberId, mid])
+  @@index([createdAt])
 }

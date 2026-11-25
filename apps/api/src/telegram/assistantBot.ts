@@ -188,8 +188,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_missed_calls",
   "get_team_load",
   "get_stuck_work",
-  // Реестр строек (21.11.2026, tools/registryReadTool.ts): только сотрудникам и только в личке.
-  "get_construction_registry",
+  // Реестр строек (tools/registryReadTool.ts) с 25.11.2026 НЕ здесь: данные публичные (memor.pro), объекты в группе и так
+  // видны через поиск, а знать о разрешении стройки должна вся команда (решение владельца 25.11.2026).
   // Разбор клиентской базы (17.11.2026, tools/clientBaseOverviewTool.ts): числа по агентам — только личка.
   "get_client_base_overview",
   // Сообщение коллеге от имени просящего (17.11.2026, tools/sendStaffMessageTool.ts): текст и получатель — только личка.
@@ -198,6 +198,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Привязка объекта к реестру строек словами (25.11.2026, tools/registryLinkTool.ts): запись уровня B без кнопки — только личка.
+  "link_property_to_registry",
   // Выход объекта из монтажа в продажу, «Готово» (17.11.2026): публикует на сайт и уведомляет агента — только в личке.
   "complete_property_editing",
   // Смена статуса объекта (17.11.2026): теперь меняется сразу (снять с продажи, продано) и закрывает показы и посты — только в личке.

@@ -365,10 +365,15 @@ describe("ревью #344: путь Страницы и запасной лич�
     expect(isMetaAuthFailure(400, windowBody)).toBe(false);
     expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "Error validating access token: Session has expired" } }))).toBe(true);
     expect(isMetaAuthFailure(401, "{}")).toBe(true);
+    // Тревога соседнего теста по этому же аккаунту может дописаться «в отрыве» (void) уже после его конца:
+    // дожидаемся тишины и убираем её ДО действия, иначе счёт ниже считает чужую запись (флак #344, 26.11.2026).
+    const accountAlarmTag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
+    await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: accountAlarmTag } }));
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: accountAlarmTag } });
     meta.personalSendError = { status: 400, code: 190, message: "The comment reply window has expired" };
     const err = await send().catch((e: unknown) => e) as { channelKeyDead: unknown };
     expect(err.channelKeyDead).toBeNull();
-    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}` } }));
+    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: accountAlarmTag } }));
     expect(alarm).toBe(0);
   });
 

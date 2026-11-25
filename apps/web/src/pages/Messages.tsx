@@ -94,6 +94,7 @@ import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
 import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
+import { UploadProgressLine } from "../components/UploadProgressLine";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -1056,7 +1057,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                     )}
                   </span>
                 )}
-                <MessageAttachments attachments={m.attachments} inBubble onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
+                <MessageAttachments attachments={m.attachments} inBubble channel={m.sourceChannel ?? defaultChannel} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
                     {m.at && <time dateTime={m.at}>{dushanbeTime(m.at)}</time>}
@@ -1117,6 +1118,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
               оставалась только пометка «[вложение: image]». */}
           <MessageAttachments
             attachments={m.attachments}
+            channel={m.sourceChannel ?? defaultChannel}
             onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
           />
           {/* Время — часами ДУШАНБЕ, а не устройства: директор может смотреть из
@@ -1169,6 +1171,16 @@ const ConversationMessageList = memo(function ConversationMessageList({
             )}
           </div>
           {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
+          {/* МБ из МБ, скорость, «ждём связь», «Отменить» — одна строка на все загрузки
+              (components/UploadProgressLine.tsx, 25.11.2026). */}
+          {u.status === "uploading" && u.live && (
+            <UploadProgressLine
+              live={u.live}
+              keepAwakeHint={u.kind === "video"}
+              onCancel={() => onCancelUpload(u.localId)}
+              style={{ marginTop: 6 }}
+            />
+          )}
           {u.status === "error" && (
             <div className="wrap" style={{ marginTop: 6 }}>
               <span className="txt" style={{ color: "var(--crit)" }}>
@@ -1268,6 +1280,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const pendingUploads = usePendingMediaUploads(replyTargetId);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
+  /** Несколько файлов вставкой или перетаскиванием — сначала показать, потом слать (ревью #428). */
+  const [pendingBatch, setPendingBatch] = useState<File[] | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   useEffect(() => {
     if (!pendingMedia?.type.startsWith("image/")) { setMediaPreview(null); return; }
@@ -1446,7 +1460,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   /** Файл выбран в скрытом `<input>` — проверяем размер СРАЗУ, до загрузки: канал
    *  диалога уже известен, дожидаться ответа сервера ради очевидного отказа незачем.
    *  У видео это больше не отказ по каналу (гибридный режим) — только 1 ГБ предохранитель. */
-  function handlePickMedia(files: ArrayLike<File> | null | undefined) {
+  function handlePickMedia(files: ArrayLike<File> | null | undefined, opts: { confirmBatch?: boolean } = {}) {
     if (!files?.length || readOnly || !replyTargetId) return;
     setMediaError(null);
     const plan = planOutgoingMediaPick(files, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
@@ -1458,7 +1472,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       setPendingMedia(plan.single);
       return;
     }
-    // Несколько файлов — сразу в отправку; подпись из поля уходит с первым.
+    // Вставка и перетаскивание: файлы могли попасть случайно — сначала полоска
+    // «N файлов — Отправить / Отменить», а не отправка клиенту сразу.
+    if (opts.confirmBatch) {
+      setPendingBatch(plan.batch);
+      return;
+    }
+    // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
     plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
     setText("");
   }
@@ -2047,6 +2067,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <span className="txt">{mediaError}</span>
         </div>
       )}
+      {pendingBatch && pendingBatch.length > 0 && (
+        <div className="suggest">
+          <Video className="i" />
+          <span className="txt">Файлов к отправке: {pendingBatch.length}</span>
+          <button type="button" className="lnk" onClick={() => setPendingBatch(null)}>
+            Отменить
+          </button>
+          <button
+            type="button"
+            className="pill sm"
+            onClick={() => {
+              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+              setPendingBatch(null);
+              setText("");
+            }}
+          >
+            Отправить
+          </button>
+        </div>
+      )}
       {pendingMedia && (
         <div className="suggest">
           {pendingMedia.type.startsWith("image/") ? (
@@ -2239,6 +2279,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.preventDefault();
               handleSend();
             }
+          }}
+          // Вставка (Ctrl+V) и перетаскивание фото/видео прямо в поле — как в
+          // мессенджерах на ПК (25.11.2026). Тот же путь, что у скрепки:
+          // проверки канала и размера в planOutgoingMediaPick.
+          onPaste={(e) => {
+            // Только текст — обычная вставка, не перехватываем. Файл из Finder/Проводника
+            // кладёт рядом и имя текстом — тогда это всё-таки файл (повторное ревью #428).
+            const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files, { confirmBatch: true });
+          }}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files, { confirmBatch: true });
           }}
           rows={1}
           placeholder={royal

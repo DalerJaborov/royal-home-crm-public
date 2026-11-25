@@ -319,25 +319,48 @@ describe("сессии частями: потолок, срок жизни, до
   const putPart = (token: string, sessionId: string, n: number, body: Buffer) =>
     auth(request(app).put(`/api/v1/upload-sessions/${sessionId}/parts/${n}`), token).set("Content-Type", "application/octet-stream").send(body);
 
-  it("у сотрудника не больше трёх открытых сессий: четвёртая вытесняет самую давно не двигавшуюся", async () => {
-    const { MAX_SESSIONS_PER_AGENT } = await core();
-    expect(MAX_SESSIONS_PER_AGENT).toBe(3);
+  it("потолок сессий: идущую не вытесняет (понятный отказ 429), стоящую дольше 10 минут — вытесняет", async () => {
+    const { MAX_SESSIONS_PER_AGENT, EVICTABLE_IDLE_MS } = await core();
+    const { readLocalUploadSessionMeta, writeLocalUploadSessionMeta } = await storage();
+    // Набираем идущие сессии до потолка (часть уже открыта тестами выше этим же сотрудником).
     const ids: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      ids.push((await start(otherToken)).sessionId);
-      await new Promise((r) => setTimeout(r, 5));
+    let refused: request.Response | undefined;
+    for (let i = 0; i <= MAX_SESSIONS_PER_AGENT; i++) {
+      const r = await startSession(otherToken, { purpose: "clip-video", filename: "a.mp4", sizeBytes: 4, contentType: "video/mp4" });
+      if (r.status === 429) {
+        refused = r;
+        break;
+      }
+      expect(r.status).toBe(201);
+      ids.push(r.body.sessionId as string);
     }
+    // Все идут — новая не убивает ни одну, а отвечает понятным отказом с «повторите позже».
+    expect(refused?.body).toMatchObject({ code: "TOO_MANY_UPLOADS", retryable: true });
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect((await status(otherToken, id)).status).toBe(200);
+    // Одна встала больше чем на 10 минут — её место можно занять.
+    const meta = (await readLocalUploadSessionMeta(ids[0]!)) as Record<string, unknown>;
+    const idle = new Date(Date.now() - EVICTABLE_IDLE_MS - 60_000).toISOString();
+    await writeLocalUploadSessionMeta(ids[0]!, { ...meta, createdAt: idle, touchedAt: idle });
+    expect((await start(otherToken)).sessionId).toBeTruthy();
     expect((await status(otherToken, ids[0]!)).status).toBe(404);
-    for (const id of ids.slice(1)) expect((await status(otherToken, id)).status).toBe(200);
   });
 
-  it("докачка: статус называет принятые части; чужой статус — 404", async () => {
+  it("докачка: статус называет принятые части, байты и состояние; чужой статус — 404", async () => {
     const big = Buffer.alloc(9 * 1024 * 1024, 5);
-    const { sessionId } = await start(agentToken, big.length);
-    expect((await putPart(agentToken, sessionId, 1, big.subarray(0, 8 * 1024 * 1024))).status).toBe(200);
+    const { sessionId, partSize, totalParts } = await start(agentToken, big.length);
+    expect((await putPart(agentToken, sessionId, 1, big.subarray(0, partSize))).status).toBe(200);
     const res = await status(agentToken, sessionId);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ sessionId, totalParts: 2, uploadedPartNumbers: [1], kind: "clip-video" });
+    expect(res.body).toMatchObject({
+      sessionId,
+      totalParts,
+      uploadedPartNumbers: [1],
+      kind: "clip-video",
+      state: "receiving",
+      receivedBytes: partSize,
+      sizeBytes: big.length,
+    });
     expect((await status(otherToken, sessionId)).status).toBe(404);
     // Сборка без второй части — 409 с машинным кодом и списком, по нему экран докачивает.
     const complete = await auth(request(app).post(`/api/v1/properties/${propertyIds[0]}/clip-video/upload-sessions/${sessionId}/complete`), agentToken).send({});
@@ -345,7 +368,7 @@ describe("сессии частями: потолок, срок жизни, до
     expect(complete.body).toMatchObject({ code: "PARTS_MISSING", uploadedPartNumbers: [1] });
   });
 
-  it("брошенная сессия (без новой части два часа) убирается уборкой; свежая — остаётся", async () => {
+  it("брошенная сессия (без новой части сутки) убирается уборкой; свежая — остаётся", async () => {
     const { sweepStaleChunkedUploads, SESSION_IDLE_TTL_MS } = await core();
     const { readLocalUploadSessionMeta, writeLocalUploadSessionMeta } = await storage();
     const stale = (await start(adminToken)).sessionId;
@@ -373,7 +396,7 @@ describe("сессии частями: потолок, срок жизни, до
   it("уборка зарегистрирована в кроне через scheduleTracked", () => {
     const src = fs.readFileSync(new URL("../src/cron.ts", import.meta.url), "utf8");
     expect(src).toMatch(/scheduleTracked\(\s*"chunked-uploads-cleanup",\s*"17 \* \* \* \*"/);
-    expect(src).toMatch(/sweepStaleChunkedUploads\(\)/);
+    expect(src).toMatch(/sweepStaleChunkedUploads\(/);
   });
 
   it("вторая одновременная сборка — 409 «уже собирается», а не второй файл", async () => {
@@ -390,13 +413,21 @@ describe("сессии частями: потолок, срок жизни, до
     const { localUploadSessionDir } = await storage();
     const { videoTmpDir } = await import("../src/upload.js");
     const big = Buffer.alloc(9 * 1024 * 1024, 9);
-    const { sessionId } = await start(agentToken, big.length);
-    expect((await putPart(agentToken, sessionId, 1, big.subarray(0, 8 * 1024 * 1024))).status).toBe(200);
-    // Вторая «часть» — папка: список частей полон, а прочитать её склейка не сможет.
-    fs.mkdirSync(`${localUploadSessionDir(sessionId)}/part-2`);
+    const { sessionId, partSize, totalParts } = await start(agentToken, big.length);
+    for (let n = 1; n <= totalParts; n++) {
+      expect((await putPart(agentToken, sessionId, n, big.subarray((n - 1) * partSize, n * partSize))).status).toBe(200);
+    }
+    // Сбой диска на последнем шаге склейки (переименование готового файла).
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const spy = vi.spyOn(fs.promises, "rename").mockImplementation(async (from, to) => {
+      if (String(from).includes(".partial-")) throw Object.assign(new Error("EIO"), { code: "EIO" });
+      return realRename(from, to);
+    });
     const before = new Set(fs.readdirSync(videoTmpDir));
     const res = await auth(request(app).post(`/api/v1/properties/${propertyIds[0]}/clip-video/upload-sessions/${sessionId}/complete`), agentToken).send({});
+    spy.mockRestore();
     expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(res.body).toMatchObject({ code: "STORAGE_FAILED", retryable: true });
     expect(fs.readdirSync(videoTmpDir).filter((f) => !before.has(f))).toEqual([]);
     expect(fs.existsSync(`${localUploadSessionDir(sessionId)}/assemble.lock`)).toBe(false);
     expect(fs.existsSync(`${localUploadSessionDir(sessionId)}/part-1`)).toBe(true);

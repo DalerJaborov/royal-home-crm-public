@@ -41,6 +41,9 @@ export function ChatPhotoViewer({
   // Все выданные blob-ссылки живут в реестре, а не в замкнутой карте state:
   // cleanup эффекта с [] видел бы только пустую начальную карту (WEB-PAGES04).
   const registry = useRef<BlobUrlRegistry | null>(null);
+  // Прямые ссылки, которые не открылись (устарели), — для них прежний путь.
+  const failedDirect = useRef<Set<string>>(new Set());
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     // Скачиваем сам кадр и по одному соседу в каждую сторону — снимает
@@ -51,6 +54,14 @@ export function ChatPhotoViewer({
       .filter((p): p is ChatPhotoEntry => !!p && !p.url && !p.expired && !!p.file);
 
     for (const p of wanted) {
+      // Прямая ссылка (25.11.2026): соседний кадр браузер подтягивает в свой кэш сам,
+      // без скачивания через заголовок и без blob-ссылок в памяти вкладки.
+      if (p.src && !failedDirect.current.has(p.src)) {
+        const img = new Image();
+        img.decoding = "async";
+        img.src = p.src;
+        continue;
+      }
       const file = p.file as string;
       if (requested.current.has(file)) continue;
       requested.current.add(file);
@@ -65,7 +76,7 @@ export function ChatPhotoViewer({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, photos]);
+  }, [index, photos, retry]);
 
   // Объект-ссылки не переживают размонтирование окна: без явного revoke они
   // остаются в памяти вкладки до перезагрузки страницы. Реестр создаётся в
@@ -82,6 +93,19 @@ export function ChatPhotoViewer({
     if (p.expired) return { key: p.key, url: null, failed: true, caption: p.caption };
     if (p.url) return { key: p.key, url: p.url, caption: p.caption };
     if (!p.file) return { key: p.key, url: null, failed: true, caption: p.caption };
+    if (p.src && !failedDirect.current.has(p.src)) {
+      const src = p.src;
+      return {
+        key: p.key, url: src, thumbUrl: p.thumb, caption: p.caption,
+        onError: () => {
+          // Ссылка устарела — этот кадр дальше прежним путём (скачать с заголовком).
+          failedDirect.current.add(src);
+          requested.current.delete(p.file as string);
+          setResolved((prev) => new Map(prev));
+          setRetry((n) => n + 1);
+        },
+      };
+    }
     const got = resolved.get(p.file);
     if (got === undefined) return { key: p.key, url: null, caption: p.caption }; // ещё грузится
     return { key: p.key, url: got, failed: got === null, caption: p.caption };

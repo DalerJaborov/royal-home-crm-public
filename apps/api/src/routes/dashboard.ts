@@ -38,7 +38,7 @@ import {
 import { loadHeatmapAdviceSettings } from "../lib/publishScheduleRules.js";
 import { logSystemError } from "../lib/systemError.js";
 import { visibleNewCandidatesWhere } from "../lib/vacancyVisibility.js";
-import { RATED_ROLES } from "@royal-home/shared";
+import { COMMISSION_COMPANY_PERCENT, RATED_ROLES } from "@royal-home/shared";
 import { UNASSIGNED_LEADS_LIMIT, UNASSIGNED_LEADS_WHERE } from "../lib/unassignedLeads.js";
 
 export const dashboardRouter = Router();
@@ -940,9 +940,8 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
   // Сумма теперь считается в БД (tjsExpr выше) — roundMoney остаётся защитой от
   // хвоста плавающей точки на границе Node/Postgres, как и раньше.
   const portfolioValue = roundMoney(portfolioTotal);
-  // 0,5% «за приём объекта» отменены 11.09.2026: доля, которую они отводили
-  // интейкеру, теперь всегда достаётся компании — прибавляем её к проценту компании.
-  const companyPercent = Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
+  // Доля компании — 1% (владелец 25.11.2026); приёма 0,5% нет, см. shared/commissionShares.ts.
+  const companyPercent = COMMISSION_COMPANY_PERCENT;
   const potentialCommission = roundMoney((portfolioValue * companyPercent) / 100);
   // Деньги компании — только с finance.view, а не dashboard.analytics (ночная
   // проверка 24.09.2026, №159/М4). Стоимость всего портфеля и комиссия с него —

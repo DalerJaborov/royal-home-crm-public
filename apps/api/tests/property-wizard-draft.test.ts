@@ -274,7 +274,7 @@ describe("7. Видео черновика по частям", () => {
     const started = await request(app)
       .post(`${PREFIX}/videos/sessions`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ uploadKey, filename: "obhod.mp4", sizeBytes, contentType: "video/mp4" });
+      .send({ uploadKey, filename: "obhod.mp4", sizeBytes, contentType: "video/mp4", partSize: PART_SIZE });
     expect(started.status).toBe(201);
     expect(started.body).toMatchObject({ status: "started", totalParts: 2, uploadedPartNumbers: [] });
     readyVideoMediaId = started.body.mediaId;
@@ -321,7 +321,7 @@ describe("7. Видео черновика по частям", () => {
     const started = await request(app)
       .post(`${PREFIX}/videos/sessions`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ uploadKey, filename: "obhod-2.mp4", sizeBytes, contentType: "video/mp4" });
+      .send({ uploadKey, filename: "obhod-2.mp4", sizeBytes, contentType: "video/mp4", partSize: PART_SIZE });
     expect(started.status).toBe(201);
     incompleteVideoMediaId = started.body.mediaId;
 
