@@ -20,6 +20,10 @@ export interface ChatPhotoEntry {
   /** Готовый адрес — только у фото объекта, которые отправил бот (см.
    *  MessageAttachment.url); тогда качать через /attachments не нужно. */
   url: string | null;
+  /** Подписанная прямая ссылка на полный файл (25.11.2026) — грузится тегом сам. */
+  src: string | null;
+  /** Уменьшенная копия — для ленты миниатюр просмотрщика. */
+  thumb: string | null;
   /** Файл убран уборкой по сроку хранения (lib/outgoingMediaCleanup.ts). */
   expired: boolean;
   /** «Фаррух, 10:14» / «Вы, 10:20» — подпись кадра в просмотрщике. */
@@ -39,6 +43,8 @@ export function buildChatPhotoList(messages: ConversationMessage[], clientName: 
         key: m.mid ? `${m.mid}:${ai}` : `msg-${mi}:${ai}`,
         file: a.file,
         url: a.url ?? null,
+        src: a.src ?? null,
+        thumb: a.thumb ?? null,
         expired: !!a.expiredAt,
         caption: when ? `${who}, ${when}` : who,
       });

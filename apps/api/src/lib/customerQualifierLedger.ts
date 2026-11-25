@@ -8,6 +8,7 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { assertCustomerFence, loadCustomerStateSnapshot, lockCustomerStateSnapshot } from "./customerState.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
+import { takePendingCustomerMedia } from "./customerInputMedia.js";
 import { publishMessageNew } from "./livePublish.js";
 import { traceWebsiteMessagesPersisted } from "./botTurnTrace.js";
 import type { ScopedCustomerQualifierLane } from "./customerQualifierContext.js";
@@ -42,9 +43,13 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
       if (!stored || stored.tombstonedAt || (stored.originalConversationId && stored.originalConversationId !== ticket.conversationId)) return false;
       if (stored.inputRecordedAt) return true;
       if (input.skipSaveIncoming) return false;
+      // Файлы клиента, скачанные для сотрудника раньше этой записи (lib/customerInputMedia.ts),
+      // ложатся в реплику здесь же, под тем же замком диалога (25.11.2026).
+      const pendingMedia = await takePendingCustomerMedia(tx, evidence.channel, evidence.peer, evidence.eventId);
       const msg: ChatMessage = { role: "user", content: evidence.inputText || BARE_ATTACHMENT_MARKER, mid: evidence.eventId,
         at: new Date(evidence.issuedAt).toISOString(),
-        customerPropertyAdmission: ticket, ...(input.replyToMessageId ? { replyToMid: input.replyToMessageId } : {}) };
+        customerPropertyAdmission: ticket, ...(input.replyToMessageId ? { replyToMid: input.replyToMessageId } : {}),
+        ...(pendingMedia as Partial<ChatMessage> | undefined) };
       const result = await appendConversationMessagesInTransaction(tx, ticket.conversationId, [msg]);
       if (result.affectedRows !== 1) throw new Error("Scoped input append unavailable");
       await tx.$executeRaw`UPDATE "BotConversation" SET "lastMessageAt"=now() WHERE "id"=${ticket.conversationId}`;
