@@ -77,7 +77,7 @@ export interface RegistryFieldProps {
 
 export function RegistryField({ point, address, title, description, isNewBuilding, propertyId, saved, pointChanged = false, choice, onChoice }: RegistryFieldProps) {
   const [expanded, setExpanded] = useState(false);
-  // Рубильник — отдельным запросом, а не из предпросмотра (ревью PR #441): без точки и при сбое предпросмотра его
+  // Рубильник — отдельным запросом, а не из предпросмотра (ревью PR 441): без точки и при сбое предпросмотра его
   // не узнать. Пока неизвестен, выключен или не загрузился (isError) — поля нет.
   const registry = useRegistryEnabled();
   const enabled = !registry.isError && registry.data?.enabled === true;
@@ -123,7 +123,7 @@ export function RegistryField({ point, address, title, description, isNewBuildin
   }
 
   const nearby = data ? [...(data.best ? [data.best] : []), ...data.alternatives] : [];
-  // «Нет в реестре» — только когда есть что отвергать: точка и проекты рядом или уже стоящая связь (ревью PR #441).
+  // «Нет в реестре» — только когда есть что отвергать: точка и проекты рядом или уже стоящая связь (ревью PR 441).
   // Без них сервер честно откажет, а здесь пункт просто не предлагается.
   const canMarkNone = point !== null && (nearby.length > 0 || savedLink !== null || state.kind === "none");
   return (

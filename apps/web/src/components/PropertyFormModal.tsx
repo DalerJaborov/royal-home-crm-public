@@ -334,7 +334,7 @@ export function PropertyFormModal({
    */
   const dirty =
     photoFiles.length > 0 ||
-    // Выбор «Застройщик и разрешение» — тоже работа агента: закрыть без вопроса значило бы потерять его (ревью PR #441).
+    // Выбор «Застройщик и разрешение» — тоже работа агента: закрыть без вопроса значило бы потерять его (ревью PR 441).
     registryChoice !== null ||
     (Object.keys(initialForm) as (keyof typeof initialForm)[]).some((k) => form[k] !== initialForm[k]);
   const requestClose = () => (dirty ? setConfirmClose(true) : onClose());

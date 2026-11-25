@@ -605,7 +605,7 @@ export function PropertyWizard({
       // Текст озвучки агента не принят (ревью 21.11): сказать честно, почему, и что будет дальше.
       const narrationRejected = narrationTextRejected(saved);
       if (narrationRejected) toast.error(narrationTextRejectedMessage(narrationRejected));
-      // Объект создан, а выбор «Застройщик и разрешение» не сохранился — сказать прямо (ревью PR #441).
+      // Объект создан, а выбор «Застройщик и разрешение» не сохранился — сказать прямо (ревью PR 441).
       const registryError = (saved as { registryError?: unknown }).registryError;
       if (typeof registryError === "string" && registryError) toast.error(registryError);
 

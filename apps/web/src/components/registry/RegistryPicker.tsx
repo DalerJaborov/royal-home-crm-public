@@ -88,7 +88,7 @@ export interface RegistryPickerProps {
   label?: string | null;
   /**
    * Показывать ли «Нет в реестре / не новостройка». Только когда есть что отвергать (точка и проекты рядом или связь):
-   * иначе сервер честно откажет, а решение сотрудника потерялось бы, когда геокодер позже поставит точку (ревью PR #441).
+   * иначе сервер честно откажет, а решение сотрудника потерялось бы, когда геокодер позже поставит точку (ревью PR 441).
    */
   canMarkNone?: boolean;
 }
@@ -167,7 +167,7 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
       return;
     }
     if (event.key === "Enter") {
-      // Поле живёт внутри формы правки: Enter здесь никогда не сохраняет всю форму (ревью PR #441).
+      // Поле живёт внутри формы правки: Enter здесь никогда не сохраняет всю форму (ревью PR 441).
       event.preventDefault();
       if (!open) return;
       if (active >= 0 && active < items.length) {
@@ -278,7 +278,7 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
               aria-label="Проекты реестра строек"
               data-testid="registry-pick-list"
               style={LIST_STYLE}
-              // Тянут полосу прокрутки списка — фокус остаётся в поле, иначе список закрылся бы на blur (ревью PR #441).
+              // Тянут полосу прокрутки списка — фокус остаётся в поле, иначе список закрылся бы на blur (ревью PR 441).
               onPointerDown={(e) => e.preventDefault()}
               onMouseDown={(e) => e.preventDefault()}
             >

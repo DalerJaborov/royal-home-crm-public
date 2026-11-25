@@ -188,7 +188,7 @@ describe("RegistryPicker", () => {
   });
 });
 
-describe("RegistryPicker: ревью PR #441", () => {
+describe("RegistryPicker: ревью PR 441", () => {
   it("Enter без подсветки берёт первый проект списка, форму не отправляет", () => {
     const submit = vi.fn();
     const { onPick } = picker({ kind: "empty" }, [A], { onSubmit: submit });
