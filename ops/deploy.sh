@@ -269,7 +269,17 @@ body_secs() { # «10s» / «5m» / «1h» → секунды; сложную з�
 live_rb="$(grep -oE '^[[:space:]]*read_body[[:space:]]+[0-9]+[smh]([[:space:]]|$)' /etc/caddy/Caddyfile 2>/dev/null | awk '{print $2}' | head -1 || true)"
 want_rb="$(grep -oE '^[[:space:]]*read_body[[:space:]]+[0-9]+[smh]([[:space:]]|$)' "$REPO_DIR/ops/Caddyfile.example" 2>/dev/null | awk '{print $2}' | head -1 || true)"
 if [ -n "$live_rb" ] && [ -n "$want_rb" ] && [ "$(body_secs "$live_rb")" -lt "$(body_secs "$want_rb")" ]; then
-  say "ВНИМАНИЕ: в /etc/caddy/Caddyfile read_body $live_rb короче шаблона ($want_rb) — загрузка роликов со слабой связи будет обрываться 502 (docs/journal/2026-11-25-video-upload-502.md)"
+  say "ВНИМАНИЕ: в /etc/caddy/Caddyfile read_body $live_rb короче шаблона ($want_rb) — загрузка роликов со слабой связи будет обрываться 502 (docs/journal/2026-11-25-video-upload-502.md; как применить — docs/upload-limits-chain.md, раздел «Как применить на проде»)"
+fi
+# Тот же класс (25.11.2026, цепочка Cloudflare → Caddy → nginx): `max_size 25MB` в живом файле режет
+# одиночные файлы 25–90 МБ HTML-страницей 413, а без `handle_errors` ошибки Caddy приходят HTML.
+if [ -f /etc/caddy/Caddyfile ]; then
+  if grep -qE '^[[:space:]]*max_size[[:space:]]+(25|[0-9])MB' /etc/caddy/Caddyfile 2>/dev/null && grep -q 'max_size 95MiB' "$REPO_DIR/ops/Caddyfile.example" 2>/dev/null; then
+    say "ВНИМАНИЕ: в /etc/caddy/Caddyfile max_size меньше шаблона (95MiB) — файлы 25–90 МБ получат 413 от Caddy (docs/upload-limits-chain.md)"
+  fi
+  if ! grep -q 'handle_errors' /etc/caddy/Caddyfile 2>/dev/null; then
+    say "ВНИМАНИЕ: в /etc/caddy/Caddyfile нет handle_errors — ошибки Caddy приходят HTML, а не JSON (docs/upload-limits-chain.md)"
+  fi
 fi
 
 say "миграции:"

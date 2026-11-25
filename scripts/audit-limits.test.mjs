@@ -15,6 +15,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   checkCaddyBodyTimeout,
+  checkCaddyMaxSize,
+  checkNginxPartLocation,
+  checkNodeTimeouts,
   checkServerSource,
   checkWebSource,
   collectConstants,
@@ -164,21 +167,25 @@ test("весь прогон: чисто — зелёный; внесли пол�
   assert.match(web.stderr, /apps\/web\/src\/lib\/send\.ts:3/);
 });
 
-test("правило 5: read_body у Caddy — потолок на всё тело; 10s режет часть ролика (25.11.2026)", () => {
+test("правило 5: read_body — потолок на всё тело; часть 8 МБ на 300 Кбит/с ×2 = 448 с (25.11.2026)", () => {
   const PART = 8 * MB;
   const site = (readBody, maxSize = "25MB") =>
     `{\n\tservers {\n\t\ttimeouts {\n\t\t\tread_body ${readBody}\n\t\t}\n\t}\n}\ncrm.example {\n\trequest_body {\n\t\tmax_size ${maxSize}\n\t}\n}\n`;
-  // Живой случай: 10s — красный, с номером строки.
+  // Живой случай 1: 10s — красный, с номером строки.
   const broken = checkCaddyBodyTimeout(site("10s"), { partBytes: PART });
   assert.equal(broken.length, 1);
   assert.equal(broken[0].line, 4);
-  assert.match(broken[0].problem, /read_body 10s короче 200 с/);
-  // 5m хватает на 25 МБ при 1 Мбит/с (200 с); 3m — нет.
-  assert.equal(checkCaddyBodyTimeout(site("5m"), { partBytes: PART }).length, 0);
-  assert.equal(checkCaddyBodyTimeout(site("3m"), { partBytes: PART }).length, 1);
-  // Без max_size мерилом служит часть загрузки: 8 МиБ ≈ 68 с.
-  assert.equal(checkCaddyBodyTimeout(`read_body 60s\n`, { partBytes: PART }).length, 1);
-  assert.equal(checkCaddyBodyTimeout(`read_body 70s\n`, { partBytes: PART }).length, 0);
+  assert.match(broken[0].problem, /read_body 10s короче 448 с/);
+  // Живой случай 2: 5m хватало на 1 Мбит/с, но не на 300 Кбит/с — теперь красный.
+  assert.equal(checkCaddyBodyTimeout(site("5m"), { partBytes: PART }).length, 1);
+  assert.equal(checkCaddyBodyTimeout(site("447s"), { partBytes: PART }).length, 1);
+  assert.equal(checkCaddyBodyTimeout(site("448s"), { partBytes: PART }).length, 0);
+  assert.equal(checkCaddyBodyTimeout(site("10m"), { partBytes: PART }).length, 0);
+  // Тяжёлое одиночное тело: 95 МиБ на 1 Мбит/с ≈ 797 с — 10m мало, 15m хватает.
+  assert.equal(checkCaddyBodyTimeout(site("10m", "95MiB"), { partBytes: PART }).length, 1);
+  assert.equal(checkCaddyBodyTimeout(site("15m", "95MiB"), { partBytes: PART }).length, 0);
+  // Без max_size мерилом служит часть.
+  assert.equal(checkCaddyBodyTimeout(`read_body 400s\n`, { partBytes: PART }).length, 1);
   // Строка в комментарии не считается; read_body не задан — потолка нет.
   assert.equal(checkCaddyBodyTimeout(`# read_body 1s\nmax_size 25MB\n`, { partBytes: PART }).length, 0);
   // Непонятная запись — красный, а не тихий пропуск.
@@ -189,12 +196,126 @@ test("правило 5: read_body у Caddy — потолок на всё тел
   assert.equal(parseCaddySize("8MiB"), PART);
 });
 
-test("правило 5 целиком: шаблон Caddy с read_body 10s валит прогон, 5m — проходит", () => {
+// Минимальный «хороший» шаблон Caddy и nginx для поведения целиком.
+const GOOD_CADDY = (rb = "15m", maxSize = "95MiB", errors = true) =>
+  `{\n\tservers {\n\t\ttimeouts {\n\t\t\tread_body ${rb}\n\t\t}\n\t}\n}\ncrm.example.tj {\n\trequest_body {\n\t\tmax_size ${maxSize}\n\t}\n` +
+  (errors ? `\thandle_errors {\n\t\theader Content-Type "application/json; charset=utf-8"\n\t\trespond \`{"code":"PROXY_{http.error.status_code}"}\` 502\n\t}\n` : "") +
+  `}\n`;
+const STUBS = (omit = "") =>
+  [408, 413, 502, 503, 504]
+    .filter((c) => String(c) !== omit)
+    .map(
+      (c) =>
+        `location @proxy_${c} {\n  default_type application/json;\n  return ${c} '{"code":"PROXY_${c}","message":"Текст","retryable":${c === 413 ? "false" : "true"}}';\n}\n`
+    )
+    .join("");
+const EP = [408, 413, 502, 503, 504].map((c) => `  error_page ${c} @proxy_${c};\n`).join("");
+const PARTS_LOC = (extra = {}) => {
+  const o = {
+    buffering: "  proxy_request_buffering off;\n",
+    http: "  proxy_http_version 1.1;\n",
+    size: "  client_max_body_size 10m;\n",
+    bodyTimeout: "  client_body_timeout 120s;\n",
+    timeouts: "  proxy_read_timeout 120s;\n  proxy_send_timeout 300s;\n",
+    ...extra,
+  };
+  return (
+    `location ~ "^/api/v1/(upload-sessions/[^/]+|properties/[^/]+/videos/upload-sessions/[^/]+|properties/drafts/current/videos/[^/]+)/parts/[0-9]+$" {\n  proxy_pass $api_upstream;\n` +
+    Object.values(o).join("") +
+    EP +
+    `}\n`
+  );
+};
+const GOOD_NGINX = (parts = PARTS_LOC(), stubs = STUBS(), apiSize = "100m") =>
+  `server {\n location /api/ {\n  proxy_pass $api_upstream;\n  client_max_body_size ${apiSize};\n${EP} }\n${parts}${stubs}}\n`;
+const PART = 8 * MB;
+
+test("правило 6: PUT частей — свой location без буферизации тела (25.11.2026)", () => {
+  assert.equal(checkNginxPartLocation(GOOD_NGINX(), { partBytes: PART }).length, 0);
+  const bad = (loc) => checkNginxPartLocation(GOOD_NGINX(loc), { partBytes: PART });
+  assert.match(bad(PARTS_LOC({ buffering: "" }))[0].problem, /proxy_request_buffering off/);
+  assert.match(bad(PARTS_LOC({ http: "" }))[0].problem, /proxy_http_version 1\.1/);
+  assert.match(bad(PARTS_LOC({ size: "  client_max_body_size 4m;\n" }))[0].problem, /меньше части 8 МБ/);
+  assert.match(bad(PARTS_LOC({ size: "  client_max_body_size 64m;\n" }))[0].problem, /express\.raw/);
+  assert.match(bad(PARTS_LOC({ size: "" }))[0].problem, /client_max_body_size/);
+  assert.match(bad(PARTS_LOC({ bodyTimeout: "" }))[0].problem, /client_body_timeout/);
+  assert.match(bad(PARTS_LOC({ timeouts: "" }))[0].problem, /proxy_read_timeout/);
+  // Части снова под общим /api/ — красный.
+  assert.match(checkNginxPartLocation(GOOD_NGINX(""), { partBytes: PART })[0].problem, /нет location для PUT частей/);
+  // Забыли одно из трёх семейств адресов — красный.
+  const noDraft = PARTS_LOC().replace("|properties/drafts/current/videos/[^/]+", "");
+  assert.match(checkNginxPartLocation(GOOD_NGINX(noDraft), { partBytes: PART })[0].problem, /drafts\/current\/videos/);
+  // Часть 4 МБ (волна B): запас 10m всё ещё проходит; часть 12 МБ — 10m мало? нет, 10m < 12 МБ → красный.
+  assert.equal(checkNginxPartLocation(GOOD_NGINX(), { partBytes: 4 * MB }).length, 0);
+  assert.equal(checkNginxPartLocation(GOOD_NGINX(), { partBytes: 12 * MB }).length, 1);
+});
+
+test("правило 7: Caddy max_size не ниже потолка одиночного запроса и не выше nginx (25.11.2026)", () => {
+  const ng = 100 * MB;
+  assert.equal(checkCaddyMaxSize(GOOD_CADDY(), { ceiling: CEILING, nginxApiLimit: ng }).length, 0);
+  const low = checkCaddyMaxSize(GOOD_CADDY("15m", "25MB"), { ceiling: CEILING, nginxApiLimit: ng });
+  assert.equal(low.length, 1);
+  assert.match(low[0].problem, /ниже потолка одиночного запроса 90 МБ/);
+  assert.equal(checkCaddyMaxSize(GOOD_CADDY("15m", "200MiB"), { ceiling: CEILING, nginxApiLimit: ng }).length, 1);
+  // Другой сайт (royalhome.tj, 10MB) правило не трогает.
+  const other = GOOD_CADDY() + `royalhome.tj {\n\trequest_body {\n\t\tmax_size 10MB\n\t}\n}\n`;
+  assert.equal(checkCaddyMaxSize(other, { ceiling: CEILING, nginxApiLimit: ng }).length, 0);
+});
+
+test("правило 8: ответы-заглушки в JSON у nginx и Caddy (25.11.2026)", () => {
+  // Нет handle_errors у Caddy.
+  const c = checkCaddyMaxSize(GOOD_CADDY("15m", "95MiB", false), { ceiling: CEILING });
+  assert.match(c[0].problem, /handle_errors/);
+  // Нет одной заглушки nginx.
+  assert.match(checkNginxPartLocation(GOOD_NGINX(PARTS_LOC(), STUBS("504")), { partBytes: PART })[0].problem, /@proxy_504/);
+  // Заглушка не JSON.
+  const html = STUBS().replaceAll("application/json", "text/html");
+  assert.ok(checkNginxPartLocation(GOOD_NGINX(PARTS_LOC(), html), { partBytes: PART }).length >= 5);
+  // 413 с retryable true — красный.
+  const wrong = STUBS().replace('"PROXY_413","message":"Текст","retryable":false', '"PROXY_413","message":"Текст","retryable":true');
+  assert.match(checkNginxPartLocation(GOOD_NGINX(PARTS_LOC(), wrong), { partBytes: PART })[0].problem, /retryable должен быть false/);
+  // Прокси-location /api/ без error_page — красный.
+  const noEp = GOOD_NGINX().replace(EP, "");
+  assert.ok(checkNginxPartLocation(noEp, { partBytes: PART }).some((p) => /error_page 502/.test(p.problem)));
+  // /uploads/ error_page не требует.
+  const withUploads = GOOD_NGINX() + `location /uploads/ {\n  proxy_pass $api_upstream;\n}\n`;
+  assert.equal(checkNginxPartLocation(withUploads, { partBytes: PART }).length, 0);
+});
+
+test("правило 9 (мягкое): таймауты Node проверяются, только если заданы явно", () => {
+  assert.equal(checkNodeTimeouts("const server = app.listen(4000);\n", { partBytes: PART }).length, 0);
+  assert.equal(checkNodeTimeouts("server.requestTimeout = 0;\n", { partBytes: PART }).length, 0);
+  assert.equal(checkNodeTimeouts("server.requestTimeout = 600_000;\nserver.headersTimeout = 65_000;\n", { partBytes: PART }).length, 0);
+  assert.match(checkNodeTimeouts("server.requestTimeout = 300_000;\n", { partBytes: PART })[0].problem, /короче 448000 мс/);
+  assert.match(checkNodeTimeouts("server.requestTimeout = 600000;\nserver.headersTimeout = 700000;\n", { partBytes: PART })[0].problem, /headersTimeout/);
+  assert.equal(checkNodeTimeouts("// server.requestTimeout = 1;\n", { partBytes: PART }).length, 0);
+});
+
+test("правила 5-9 целиком: нарушение в шаблоне валит прогон, исправление — проходит", () => {
   const limits = `${LIMITS}export const UPLOAD_PART_BYTES = 8 * MB;\n`;
-  const caddy = (rb) => `{\n\tservers {\n\t\ttimeouts {\n\t\t\tread_body ${rb}\n\t\t}\n\t}\n}\n`;
-  const ok = run(repo({ "packages/shared/src/uploadLimits.ts": limits, "ops/Caddyfile.example": caddy("5m") }));
+  const files = (over = {}) => ({
+    "packages/shared/src/uploadLimits.ts": limits,
+    "ops/Caddyfile.example": GOOD_CADDY(),
+    "apps/web/nginx.conf": GOOD_NGINX(),
+    ...over,
+  });
+  const ok = run(repo(files()));
   assert.equal(ok.status, 0, ok.stderr);
-  const bad = run(repo({ "packages/shared/src/uploadLimits.ts": limits, "ops/Caddyfile.example": caddy("10s") }));
-  assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /ops\/Caddyfile\.example:4 {2}read_body 10s/);
+  // read_body 5m — красный (правило 5).
+  const rb = run(repo(files({ "ops/Caddyfile.example": GOOD_CADDY("5m") })));
+  assert.equal(rb.status, 1);
+  assert.match(rb.stderr, /ops\/Caddyfile\.example:\d+ {2}read_body 5m/);
+  // max_size 25MB — красный (правило 7).
+  const mx = run(repo(files({ "ops/Caddyfile.example": GOOD_CADDY("15m", "25MB") })));
+  assert.equal(mx.status, 1);
+  assert.match(mx.stderr, /ниже потолка одиночного запроса/);
+  // части без отдельного location — красный (правило 6).
+  const np = run(repo(files({ "apps/web/nginx.conf": GOOD_NGINX("") })));
+  assert.equal(np.status, 1);
+  assert.match(np.stderr, /apps\/web\/nginx\.conf:\d+ {2}нет location для PUT частей/);
+  // index.ts без явных таймаутов — пропуск; с коротким requestTimeout — красный (правило 9).
+  assert.equal(run(repo(files({ "apps/api/src/index.ts": "const x = 1;\n" }))).status, 0);
+  const nt = run(repo(files({ "apps/api/src/index.ts": "server.requestTimeout = 120000;\n" })));
+  assert.equal(nt.status, 1);
+  assert.match(nt.stderr, /apps\/api\/src\/index\.ts/);
 });
