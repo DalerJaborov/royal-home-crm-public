@@ -1,3 +1,5 @@
+import { OUTGOING_MEDIA_SOURCE_MAX_BYTES } from "./outgoingMediaLimits.js";
+
 /**
  * ЕДИНЫЙ ПРЕДЕЛ ВИДЕО ПРИ ЗАГРУЗКЕ (решение владельца 07.10.2026: «лимит на
  * загрузку видео увеличить до максимума, чтобы таких проблем не было»).
@@ -143,12 +145,13 @@ export function singleRequestTooLargeMessage(sizeBytes?: number, fileCount = 1):
  * сервер по нему выбирает предел и допустимый тип, а сборку делает маршрут этого назначения.
  *
  * - `clip-video` — короткий ролик карточки объекта: 300 МБ до сжатия (обход квартиры телефоном).
- * - `conversation-media` — фото/видео сотрудника клиенту в переписку: 300 МБ (владелец
- *   18.08.2026: «ролик объекта 100-300 МБ»); прежние 1 ГБ на экране расходились с сервером.
+ * - `conversation-media` — фото/видео сотрудника клиенту в переписку: 1 ГБ с 25.11.2026
+ *   (владелец: «любые видео отправлять, без ограничений»; сервер сам сжимает под канал,
+ *   см. outgoingMediaLimits.ts). Было 300 МБ (18.08.2026: «ролик объекта 100-300 МБ»).
  */
 export const CHUNKED_UPLOAD_PURPOSES = {
   "clip-video": { maxBytes: 300 * MB, accepts: "video" },
-  "conversation-media": { maxBytes: 300 * MB, accepts: "image-or-video" },
+  "conversation-media": { maxBytes: OUTGOING_MEDIA_SOURCE_MAX_BYTES, accepts: "image-or-video" },
 } as const satisfies Record<string, { maxBytes: number; accepts: "video" | "image-or-video" }>;
 
 export type ChunkedUploadPurpose = keyof typeof CHUNKED_UPLOAD_PURPOSES;

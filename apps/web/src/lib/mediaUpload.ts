@@ -1,50 +1,43 @@
-import { CONVERSATION_MEDIA_MAX_BYTES } from "@royal-home/shared";
+import { CONVERSATION_MEDIA_MAX_BYTES, formatUploadLimit } from "@royal-home/shared";
+import { api } from "./api";
 import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
 import type { UploadLive } from "./upload/progressText";
 
 /**
- * Пределы ИСХОДЯЩЕГО ФОТО по каналу (18.08.2026) — зеркало OUTGOING_MEDIA_LIMITS
- * (поле image) в apps/api/src/lib/conversationDelivery.ts. Проверка здесь только
- * ради мгновенной подсказки до загрузки: последнее слово всё равно за сервером.
- *
- * ВИДЕО сюда больше не входит (гибридный режим, 18.08.2026 вечер): ролик больше
- * канального лимита не отклоняется — он уходит в R2 и клиенту ссылкой вместо
- * файла (см. deliverMediaToConversation). На фронте у видео остаётся только общий
- * предохранитель MAX_MEDIA_PICK_MB — случайно огромный файл, а не лимит Meta.
- *
- * Общий модуль (22.09.2026): раньше эти два числа и проверка жили только в
- * Messages.tsx (десктоп) — тот самый класс бага «desktop и mobile ship
- * together» из CLAUDE.md, копия логики моглa бы разойтись между экранами.
+ * Пределы фото по каналу экран больше НЕ проверяет (25.11.2026, владелец: «пусть наш сервер
+ * быстренько сожмёт и отправит, как WhatsApp»): сервер сам сжимает фото и видео под предел
+ * канала (apps/api/src/lib/outgoingMediaPrepare.ts, числа — packages/shared/src/outgoingMediaLimits.ts).
+ * Здесь остался только предел исходника — его делят экран и сервер (CONVERSATION_MEDIA_MAX_BYTES).
  */
-export const OUTGOING_IMAGE_LIMIT_MB: Record<string, number> = {
-  WHATSAPP: 5,
-  INSTAGRAM: 25,
-  FACEBOOK: 25,
-};
-
-/** Верхний предохранитель выбора файла — НЕ лимит Meta (тот выбирает файл/ссылку на
- *  бэкенде). До 17.11.2026 здесь стоял 1 ГБ, а сервер принимал 300 МБ: экран пропускал
- *  файл, который сервер всё равно отклонял. Теперь число одно — CONVERSATION_MEDIA_MAX_BYTES
- *  в packages/shared, им же сервер проверяет старт загрузки. */
 export const MAX_MEDIA_PICK_MB = Math.round(CONVERSATION_MEDIA_MAX_BYTES / (1024 * 1024));
 
-/** Проверяет выбранный файл фото/видео ДО загрузки — тот же расчёт, что раньше
- *  жил только в Messages.tsx (см. комментарий у OUTGOING_IMAGE_LIMIT_MB выше).
- *  Возвращает текст ошибки или null, если файл годится. */
-export function validateOutgoingMediaPick(file: File, channel: string | undefined): string | null {
-  const isImage = file.type.startsWith("image/");
-  const isVideo = file.type.startsWith("video/");
-  if (!isImage && !isVideo) {
+const EXT_MIME: Record<string, string> = {
+  heic: "image/heic", heif: "image/heif", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  gif: "image/gif", mov: "video/quicktime", mp4: "video/mp4", m4v: "video/mp4", "3gp": "video/3gpp", webm: "video/webm",
+  mkv: "video/x-matroska",
+};
+
+/** Тип файла: Chrome на Windows отдаёт HEIC с iPhone и часть MOV с ПУСТЫМ типом — берём по расширению. */
+export function outgoingMediaType(file: Pick<File, "type" | "name">): string {
+  if (file.type.startsWith("image/") || file.type.startsWith("video/")) return file.type;
+  const ext = ((file.name ?? "").split(".").pop() ?? "").toLowerCase();
+  return EXT_MIME[ext] ?? file.type;
+}
+
+/** Тот же файл, но с понятным типом: данные не копируются (File поверх тех же байтов). */
+function withOutgoingType(file: File): File {
+  const type = outgoingMediaType(file);
+  return type === file.type ? file : new File([file], file.name, { type, lastModified: file.lastModified });
+}
+
+/** Проверяет выбранный файл фото/видео ДО загрузки. Возвращает текст ошибки или null. */
+export function validateOutgoingMediaPick(file: File, _channel?: string | undefined): string | null {
+  const type = outgoingMediaType(file);
+  if (!type.startsWith("image/") && !type.startsWith("video/")) {
     return "Допустимы только изображения или видео";
   }
-  if (file.size > MAX_MEDIA_PICK_MB * 1024 * 1024) {
-    return `Файл слишком большой: предел ${MAX_MEDIA_PICK_MB} МБ`;
-  }
-  if (isImage && channel) {
-    const limitMb = OUTGOING_IMAGE_LIMIT_MB[channel];
-    if (limitMb && file.size > limitMb * 1024 * 1024) {
-      return `Файл слишком большой: для фото в этом канале предел ${limitMb} МБ`;
-    }
+  if (file.size > CONVERSATION_MEDIA_MAX_BYTES) {
+    return `Файл слишком большой: предел ${formatUploadLimit(CONVERSATION_MEDIA_MAX_BYTES)}`;
   }
   return null;
 }
@@ -64,8 +57,9 @@ export function planOutgoingMediaPick(
     const error = validateOutgoingMediaPick(file, channel);
     if (error) return { error: list.length > 1 ? `${file.name}: ${error}` : error, single: null, batch: [] };
   }
-  if (list.length === 1) return { error: null, single: list[0], batch: [] };
-  return { error: null, single: null, batch: list };
+  const typed = list.map(withOutgoingType);
+  if (typed.length === 1) return { error: null, single: typed[0], batch: [] };
+  return { error: null, single: null, batch: typed };
 }
 
 /**
@@ -103,6 +97,9 @@ function forget(localId: string) {
   inFlight.delete(localId);
 }
 
+/** Ответ сборки: сразу отправлено (рубильник сжатия выключен) или принято в очередь сервера. */
+export type ConversationMediaUploadResult = { ok: boolean; pausedUntil?: string; queued?: boolean; jobId?: string };
+
 export function uploadConversationMedia(
   conversationId: string,
   file: File,
@@ -114,11 +111,11 @@ export function uploadConversationMedia(
   localId?: string,
   /** МБ из МБ, «ждём связь», «повтор через N с» — для строки под пузырём (25.11.2026). */
   onLive?: (live: UploadLive) => void
-): Promise<{ ok: boolean; pausedUntil: string }> {
+): Promise<ConversationMediaUploadResult> {
   const previous = localId ? inFlight.get(localId) : undefined;
   const entry = { session: previous?.session ?? {}, controller: new AbortController() };
   if (localId) inFlight.set(localId, entry);
-  return uploadToPurpose<{ ok: boolean; pausedUntil: string }>("conversation-media", file, {
+  return uploadToPurpose<ConversationMediaUploadResult>("conversation-media", file, {
     // id сессии — в теле: ключ повтора привязан к адресу, а повтор открывает новую сессию.
     completeUrl: () => `/api/v1/conversations/${conversationId}/reply-media/upload-sessions/complete`,
     completeBody: (sessionId) => (caption ? { sessionId, caption } : { sessionId }),
@@ -134,4 +131,107 @@ export function uploadConversationMedia(
     if (localId) forget(localId);
     return result;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Очередь отправки на сервере (25.11.2026): файл уже загружен, сервер сжимает и шлёт
+// ---------------------------------------------------------------------------
+
+export type OutgoingMediaJobStatus = "QUEUED" | "PREPARING" | "SENDING" | "SENT" | "FAILED" | "CANCELLED";
+
+export interface OutgoingMediaJobView {
+  id: string;
+  status: OutgoingMediaJobStatus;
+  progress: number;
+  error: string | null;
+  note: string | null;
+  /** false — исход неизвестен (файл мог дойти): «Повторить» не предлагаем. */
+  retryable?: boolean;
+  kind?: "image" | "video";
+  caption?: string | null;
+}
+
+/** Незавершённые и упавшие за сутки отправки сотрудника в переписке — пузыри после перезагрузки вкладки. */
+export function fetchOutgoingMediaJobs(conversationId: string): Promise<{ jobs: OutgoingMediaJobView[] }> {
+  return api<{ jobs: OutgoingMediaJobView[] }>(`/conversations/${conversationId}/media-jobs`);
+}
+
+/** Номер пузыря, поднятого с сервера по заданию (а не созданного загрузкой в этой вкладке). */
+export function serverJobLocalId(jobId: string): string {
+  return `job-${jobId}`;
+}
+
+/**
+ * СВЕРКА ПУЗЫРЕЙ С СЕРВЕРОМ при открытии переписки (ревью 26.11.2026).
+ * `uploads` — пузыри в сторе, `followed` — задания, за которыми вкладка следит прямо сейчас.
+ *  - задание есть на сервере, пузыря и слежки нет → завести пузырь (вкладку закрывали или обновляли);
+ *  - пузырь с заданием есть, слежки нет, а сервер его уже не называет (список — только незавершённые и
+ *    упавшие за сутки) → задание ушло (SENT) или отменено, пока вкладка не следила (опрос сдался через
+ *    30 минут «проверьте позже»): пузырь убрать, иначе он висит вечно.
+ */
+export function reconcileJobBubbles(
+  jobs: readonly OutgoingMediaJobView[],
+  uploads: ReadonlyArray<{ localId: string; jobId?: string }>,
+  followed: ReadonlySet<string>
+): { add: OutgoingMediaJobView[]; removeLocalIds: string[] } {
+  const present = new Set(uploads.map((u) => u.jobId).filter((id): id is string => !!id));
+  const listed = new Set(jobs.map((j) => j.id));
+  return {
+    add: jobs.filter((j) => !present.has(j.id) && !followed.has(j.id)),
+    removeLocalIds: uploads.filter((u) => u.jobId && !listed.has(u.jobId) && !followed.has(u.jobId)).map((u) => u.localId),
+  };
+}
+
+/** Дольше этого не спрашиваем: сервер сам сдаётся раньше (12 минут сжатия), дальше — «проверьте позже». */
+export const OUTGOING_MEDIA_WAIT_MAX_MS = 30 * 60_000;
+
+export function fetchOutgoingMediaJob(conversationId: string, jobId: string): Promise<OutgoingMediaJobView> {
+  return api<OutgoingMediaJobView>(`/conversations/${conversationId}/media-jobs/${jobId}`);
+}
+
+export function requestOutgoingMediaRetry(conversationId: string, jobId: string): Promise<{ jobId: string }> {
+  return api<{ jobId: string }>(`/conversations/${conversationId}/media-jobs/${jobId}/retry`, { method: "POST" });
+}
+
+export function requestOutgoingMediaCancel(conversationId: string, jobId: string): Promise<unknown> {
+  return api(`/conversations/${conversationId}/media-jobs/${jobId}`, { method: "DELETE" });
+}
+
+/** Через сколько спрашивать снова: первые полминуты — раз в 1,5 с (фото уходит за секунды), дальше реже. */
+export function outgoingMediaPollDelayMs(elapsedMs: number): number {
+  return elapsedMs < 30_000 ? 1_500 : elapsedMs < 3 * 60_000 ? 3_000 : 6_000;
+}
+
+/**
+ * Ждать, пока сервер отправит файл. Сбой сети при опросе — не сбой отправки: спрашиваем
+ * дальше. Возвращает последнее состояние (SENT, FAILED или CANCELLED).
+ */
+export async function waitOutgoingMediaJob(
+  conversationId: string,
+  jobId: string,
+  onUpdate: (job: OutgoingMediaJobView) => void,
+  signal?: AbortSignal,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+): Promise<OutgoingMediaJobView> {
+  const started = Date.now();
+  for (;;) {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+    if (Date.now() - started > OUTGOING_MEDIA_WAIT_MAX_MS) {
+      return {
+        id: jobId, status: "FAILED", progress: 0, retryable: false, note: null,
+        error: "Сервер долго отправляет файл — проверьте переписку позже",
+      };
+    }
+    try {
+      const job = await fetchOutgoingMediaJob(conversationId, jobId);
+      onUpdate(job);
+      if (job.status === "SENT" || job.status === "FAILED" || job.status === "CANCELLED") return job;
+    } catch (err) {
+      // 404 — задания нет (убрано уборкой) — дальше спрашивать бессмысленно.
+      if ((err as { status?: number }).status === 404) {
+        return { id: jobId, status: "FAILED", progress: 0, error: "Отправка не найдена — обновите переписку", note: null };
+      }
+    }
+    await sleep(outgoingMediaPollDelayMs(Date.now() - started));
+  }
 }

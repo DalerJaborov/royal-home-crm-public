@@ -267,10 +267,13 @@ export async function assembleChunkedUpload(input: {
   kind: string;
   sessionId: string;
   agentId: string;
+  /** Куда склеить файл (по умолчанию videoTmpDir). Очередь отправки файлов клиенту берёт
+   *  общий том api и worker: из /tmp контейнера api worker файла не увидит. */
+  destDir?: string;
 }): Promise<{ tmpPath: string; originalName: string; sizeBytes: number; contentType: string | null }> {
   const meta = await ownSession(input.sessionId, input.agentId, input.kind);
   const ext = path.extname(meta.filename).toLowerCase().replace(/[^.a-z0-9]/g, "");
-  const tmpPath = path.join(videoTmpDir, `${randomUUID()}${ext}`);
+  const tmpPath = path.join(input.destDir ?? videoTmpDir, `${randomUUID()}${ext}`);
   try {
     await completeLocalUploadSessionToPath(input.sessionId, tmpPath, meta);
   } catch (err) {

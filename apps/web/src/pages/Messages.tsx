@@ -8,13 +8,11 @@ import { useCan, useIsReadOnly } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  AlertCircle,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   MessageSquare,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";
@@ -41,6 +39,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
 import { Pagination } from "../components/Pagination";
 import { MessageAttachments } from "../components/MessageAttachments";
+import { PendingMediaBubble } from "../components/PendingMediaBubble";
 import { DeliveryTicks } from "../components/DeliveryTicks";
 import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBadge";
@@ -94,7 +93,6 @@ import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
 import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
-import { UploadProgressLine } from "../components/UploadProgressLine";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -1141,60 +1139,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
           его не сбрасывает. Настоящая реплика придёт из истории после успеха —
           тогда этот пузырь убирается (см. useUploadConversationMediaWithProgress). */}
       {pendingUploads.map((u) => (
-        <div key={u.localId} className="bub me">
-          {/* Плитка эталона `.att-img` (180x120) — та же, которой приходит уже
-              доставленное фото (components/MessageAttachments.tsx): пузырь во
-              время отправки и после неё не должен менять размер и рамку. */}
-          <div className="att-img" style={{ position: "relative" }}>
-            {u.kind === "image" ? (
-              <img src={u.previewUrl} alt="Загружается" className="w-full h-full object-cover" />
-            ) : (
-              <video src={u.previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
-            )}
-            {u.status === "uploading" && (
-              <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1">
-                <RotateCw className="w-5 h-5 text-white animate-spin" />
-                <span className="text-[13px] font-semibold text-white tabular-nums">{u.progress}%</span>
-                <div className="w-[70%] h-1 rounded-full bg-white/30 overflow-hidden">
-                  <div className="h-full bg-white" style={{ width: `${u.progress}%` }} />
-                </div>
-              </div>
-            )}
-            {u.status === "error" && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1 px-2 text-center">
-                {/* Значок белый, а не красный: подложка тут всегда тёмная, и
-                    красный `--crit` на ней не добирает 4.5 контраста ни в одной
-                    из тем. Красным остаётся строка отказа под пузырём. */}
-                <AlertCircle className="w-5 h-5 text-white" />
-                <span className="text-[13px] font-semibold text-white">Не отправлено</span>
-              </div>
-            )}
-          </div>
-          {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
-          {/* МБ из МБ, скорость, «ждём связь», «Отменить» — одна строка на все загрузки
-              (components/UploadProgressLine.tsx, 25.11.2026). */}
-          {u.status === "uploading" && u.live && (
-            <UploadProgressLine
-              live={u.live}
-              keepAwakeHint={u.kind === "video"}
-              onCancel={() => onCancelUpload(u.localId)}
-              style={{ marginTop: 6 }}
-            />
-          )}
-          {u.status === "error" && (
-            <div className="wrap" style={{ marginTop: 6 }}>
-              <span className="txt" style={{ color: "var(--crit)" }}>
-                {u.error || "Не удалось отправить"}
-              </span>
-              <button type="button" className="lnk" onClick={() => onRetryUpload(u)}>
-                Повторить
-              </button>
-              <button type="button" className="lnk" onClick={() => onCancelUpload(u.localId)}>
-                Убрать
-              </button>
-            </div>
-          )}
-        </div>
+        <PendingMediaBubble key={u.localId} upload={u} onRetry={onRetryUpload} onCancel={onCancelUpload} />
       ))}
     </>
   );

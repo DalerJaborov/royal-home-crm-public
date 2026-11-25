@@ -49,6 +49,8 @@ vi.mock("../src/lib/conversationDelivery.js", async (importOriginal) => ({
       return { ok: true, pausedUntil: new Date().toISOString() };
     }
   ),
+  // Очередь отправки (рубильник ВКЛ) проверяет канал и окно до приёма — здесь канала нет, пропускаем.
+  mediaDeliveryPrecheck: vi.fn(async () => ({ ok: true, capturedTransport: null, metaChannel: "INSTAGRAM" })),
 }));
 
 const { app } = await import("../src/app.js");
@@ -265,6 +267,15 @@ describe("ролик карточки объекта частями (POST …/cl
 });
 
 describe("фото/видео в переписку частями (POST …/reply-media/upload-sessions/complete)", () => {
+  // Прежний путь — синхронная доставка без сжатия — живёт за рубильником «Фото и видео клиенту —
+  // как в WhatsApp» (выключен). Путь очереди (ВКЛ) — в отдельном блоке ниже и в outgoing-media-jobs.test.ts.
+  beforeAll(async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { outgoingMediaCompressEnabled: false } });
+  });
+  afterAll(async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { outgoingMediaCompressEnabled: true } });
+  });
+
   it("файл склеивается без потерь и уходит в ту же доставку с подписью; временный файл убран", async () => {
     delivered.length = 0;
     const file = Buffer.concat([Buffer.alloc(8 * 1024 * 1024, 3), Buffer.from("конец ролика")]);
@@ -296,6 +307,15 @@ describe("фото/видео в переписку частями (POST …/rep
     expect(delivered).toHaveLength(1);
   });
 
+  it("рубильник ВЫКЛ: HEIC отклоняется сразу (канал его не примет), до доставки", async () => {
+    delivered.length = 0;
+    const sessionId = await uploadParts(adminToken, "conversation-media", Buffer.from("heic"), "IMG_0001.HEIC", "image/heic");
+    const res = await auth(request(app).post(`/api/v1/conversations/${conversationIds[0]}/reply-media/upload-sessions/complete`), adminToken).send({ sessionId });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/HEIC/);
+    expect(delivered).toHaveLength(0);
+  });
+
   it("без id сессии — 400; чужая сессия — 404", async () => {
     const noSession = await auth(request(app).post(`/api/v1/conversations/${conversationIds[0]}/reply-media/upload-sessions/complete`), adminToken).send({});
     expect(noSession.status).toBe(400);
@@ -304,6 +324,48 @@ describe("фото/видео в переписку частями (POST …/rep
       sessionId: foreign,
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("рубильник ВКЛ: файл в очередь сжатия, ответ 202 сразу (25.11.2026)", () => {
+  afterAll(async () => {
+    await prisma.backgroundJob.deleteMany({ where: { type: "outgoing-media-send" } });
+    await prisma.outgoingMediaJob.deleteMany({ where: { conversationId: { in: conversationIds } } });
+  });
+
+  it("сборка частей → 202 и номер задания; состояние видно; отмена до начала работает; доставка внутри запроса не зовётся", async () => {
+    delivered.length = 0;
+    const key = `media-queue-${runId}`;
+    const send = async () => {
+      const sessionId = await uploadParts(adminToken, "conversation-media", Buffer.alloc(1024, 7), "IMG_0001.MOV", "video/quicktime");
+      return auth(request(app).post(`/api/v1/conversations/${conversationIds[0]}/reply-media/upload-sessions/complete`), adminToken)
+        .set("Idempotency-Key", key)
+        .send({ sessionId, caption: "Обход" });
+    };
+    const res = await send();
+    expect(res.status).toBe(202);
+    expect(res.body).toMatchObject({ ok: true, queued: true, status: "QUEUED" });
+    const jobId = res.body.jobId as string;
+    expect(delivered).toHaveLength(0);
+    // «Повторить» с тем же ключом не ставит второе задание.
+    const again = await send();
+    expect(again.status).toBe(202);
+    expect(again.body.jobId).toBe(jobId);
+    expect(await prisma.outgoingMediaJob.count({ where: { conversationId: conversationIds[0] } })).toBe(1);
+
+    const job = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } });
+    expect(job).toMatchObject({ mimeType: "video/quicktime", originalName: "IMG_0001.MOV", caption: "Обход", sizeBytes: 1024 });
+    const status = await auth(request(app).get(`/api/v1/conversations/${conversationIds[0]}/media-jobs/${jobId}`), adminToken);
+    expect(status.status).toBe(200);
+    expect(status.body.status).toBe("QUEUED");
+    // Чужому сотруднику задание не видно.
+    expect((await auth(request(app).get(`/api/v1/conversations/${conversationIds[0]}/media-jobs/${jobId}`), agentToken)).status).toBe(404);
+    const list = await auth(request(app).get(`/api/v1/conversations/${conversationIds[0]}/media-jobs`), adminToken);
+    expect(list.body.jobs.map((j: { id: string }) => j.id)).toContain(jobId);
+
+    const cancel = await auth(request(app).delete(`/api/v1/conversations/${conversationIds[0]}/media-jobs/${jobId}`), adminToken);
+    expect(cancel.status).toBe(200);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("CANCELLED");
   });
 });
 
