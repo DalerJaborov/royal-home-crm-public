@@ -92,6 +92,9 @@ import { RhAvatar } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
+
+/** Почему «Отправить объект» серый: отправка пишет показ объекта в карточку клиента. */
+const PROPERTY_SEND_NEEDS_CARD = "Сначала примите заявку: у этого диалога ещё нет карточки клиента";
 import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
@@ -1304,6 +1307,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const [moreView, setMoreView] = useState<"main" | "pause">("main");
   const attachMenu = useDismissableMenu<HTMLButtonElement>();
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
+  /** Пояснение у серой кнопки «Объект», когда у диалога нет карточки клиента. */
+  const [propertyHint, setPropertyHint] = useState(false);
+  const canSendProperty = !!(conversation?.clientId && conversation.clientShortId);
   // «Сведения о сообщении» — абсолютный индекс в allMessages; setState стабилен,
   // поэтому memo-ленте передаётся как есть и не перерисовывает её при печати.
   const [infoIndex, setInfoIndex] = useState<number | null>(null);
@@ -2109,11 +2115,27 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                 <button type="button" role="menuitem" onClick={() => mediaInputRef.current?.click()}>
                   <Video aria-hidden="true" />Фото или видео
                 </button>
-                {conversation?.clientId && conversation.clientShortId && (
-                  <button type="button" role="menuitem" onClick={() => setPropertyPickerOpen(true)}>
-                    <Building2 aria-hidden="true" />Объект из базы
-                  </button>
-                )}
+                {/* «Объект» виден ВСЕГДА (владелец 25.11.2026: «кнопки нет»): у диалога без
+                    карточки клиента пункт серый и говорит, почему, а не пропадает молча —
+                    отправка объекта пишет показ в карточку клиента, без неё некуда. */}
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-disabled={!canSendProperty || undefined}
+                  title={canSendProperty ? undefined : PROPERTY_SEND_NEEDS_CARD}
+                  onClick={(e) => {
+                    if (!canSendProperty) {
+                      e.stopPropagation();
+                      setPropertyHint(true);
+                      return;
+                    }
+                    setPropertyPickerOpen(true);
+                  }}
+                  style={canSendProperty ? undefined : { opacity: 0.55 }}
+                >
+                  <Building2 aria-hidden="true" />Объект из базы
+                </button>
+                {!canSendProperty && propertyHint && <span className="meta" role="note" style={{ padding: "4px 12px" }}>{PROPERTY_SEND_NEEDS_CARD}</span>}
                 {quickReplies.length > 0 && (
                   <div role="group" aria-label="Быстрые ответы" className="ry-menu-group">
                     <span className="ry-menu-cap">Быстрые ответы</span>
@@ -2160,6 +2182,20 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.target.value = "";
             }}
           />
+          {/* Объект — на виду, отдельной круглой кнопкой рядом со скрепкой. */}
+          <button
+            type="button"
+            className="ry-round ry-round-ghost"
+            data-testid="chat-send-property"
+            onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint((v) => !v))}
+            disabled={reply.isPending || !replyTargetId}
+            aria-disabled={!canSendProperty || undefined}
+            aria-label={canSendProperty ? "Отправить объект" : `Отправить объект: ${PROPERTY_SEND_NEEDS_CARD}`}
+            title={canSendProperty ? "Отправить объект" : PROPERTY_SEND_NEEDS_CARD}
+            style={canSendProperty ? undefined : { opacity: 0.55 }}
+          >
+            <Building2 aria-hidden="true" />
+          </button>
           {conversation?.clientId && conversation.clientShortId && (
             <ChatPropertySend
               clientId={conversation.clientId}
