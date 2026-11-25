@@ -55,7 +55,6 @@ import {
 } from "../lib/assistantActions.js";
 import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
-import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { GROUP_MODE_CONFIRMATION, parseGroupModeWord, resolveGroupMode, runLiveChime } from "./assistantGroupLive.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { claimCallback } from "../lib/telegramModeration.js";

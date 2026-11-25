@@ -81,6 +81,8 @@ export function liveTopicBlocked(text: string): boolean {
 /** Реплика-кандидат подходит для публикации: коротко, без ссылок, цифр-номеров и «—». */
 export function sanitizeLiveReply(raw: string): string | null {
   let text = (raw ?? "").replace(/\s*[—–]\s*/gu, ", ").replace(/\s+/gu, " ").trim();
+  // Контакт в реплике — отказ целиком: проверяем ДО маскирования (маска «@•••» уже не похожа на @имя).
+  if (/https?:\/\/|www\.|t\.me|@\w|`|\[|\]/iu.test(text)) return null;
   text = maskAssistantContacts(text).trim();
   if (!text || text.length > LIVE_REPLY_MAX_CHARS || /\d/u.test(text)) return null;
   if (/https?:\/\/|www\.|t\.me|@\w|`|\[|\]/iu.test(text) || rx("лутфан").test(text)) return null;

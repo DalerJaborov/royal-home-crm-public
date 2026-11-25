@@ -126,7 +126,7 @@ export function assistantGroupFixture() {
         deleteMany: async () => { registered = false; return { count: 1 }; } },
       assistantTelegramContext: { deleteMany: contextPurge } } },
     "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer },
-    "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
+    "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key === "shabnamGroupLiveEnabled" ? false : key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run, assistantErrorMessage: (code: string) => code },
@@ -153,7 +153,6 @@ export function assistantGroupFixture() {
     "../lib/systemError.js": { logSystemError: async () => {} },
     "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
     // «Живая» беседа (25.11.2026) выключена: старые проверки группы её не касаются, свои тесты у assistant-group-live.
-    "../lib/automationSwitches.js": { automationSwitchOn: async () => false },
     "./assistantGroupLive.js": { resolveGroupMode: () => "HELP", parseGroupModeWord: () => null, GROUP_MODE_CONFIRMATION: {}, runLiveChime: liveChime },
     "../lib/shutdownState.js": { trackBackgroundTask: <T>(promise: Promise<T>) => promise },
   };

@@ -109,7 +109,7 @@ describe("живая беседа в группе", () => {
     await prisma.assistantTelegramContext.create({ data: {
       groupChatId: chatId, messageId: 1, text: "Опять штраф за опоздание, надоело", occurredAt: new Date(noon.getTime() - 60_000),
       expiresAt: new Date(noon.getTime() + 86_400_000), authorTelegramId: "1", authorAgentId: null,
-      sourceVersion: noon, sourceUpdateId: BigInt(unique),
+      sourceVersion: noon, sourceUpdateId: BigInt(unique), propertyRefs: [],
     } });
     callGemini.mockResolvedValue({ join: true, reply: "Хорошего вечера!" });
     const outcome = await considerLiveChime(input("Всем хорошего вечера"), vi.fn(async () => true), noon);
