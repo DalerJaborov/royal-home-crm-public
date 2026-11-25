@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2509**; вместе с задачами по расписанию и фоновыми заданиями — **4280**. Модулей: **87**.
+Путей: **785**. Развилок в самих путях: **2509**; вместе с задачами по расписанию и фоновыми заданиями — **4282**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -29773,14 +29773,20 @@
   - если done
     - return;
       · дальше не идёт, ничего не меняя
-- const decision = storyJobDecision({ kind: payload.kind, remixPending: payload.kind === "PRICE_DROP" ? await n…
+- const decision = storyJobDecision({ kind: payload.kind, remixPending: priceDrop ? await narrationRemixPending…
   · зовёт storyJobDecision()
   - если input.kind !== "PRICE_DROP"
     - return "PUBLISH";
       · дословно из кода
 - если decision === "WAIT"
-  - throw new Error("озвучка ещё накладывается на ролик — историю выложим следом");
-    · ошибка Error — «озвучка ещё накладывается на ролик — историю выложим следом»
+  - throw new Error("озвучка с новой ценой ещё не легла в ролик — историю выложим следом");
+    · ошибка Error — «озвучка с новой ценой ещё не легла в ролик — историю выложим следом»
+- если payload.kind === "SOLD"
+  - const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, d…
+    · читает в базе: property
+  - если !fresh || fresh.deletedAt || fresh.status !== "SOLD"
+    - return;
+      · дальше не идёт, ничего не меняя
 - const summary = payload.kind === "PRICE_DROP" ? await publishPropertyPriceDropStory(payload.propertyId, paylo…
   · зовёт publishPropertyPriceDropStory()
 - если summary.pending

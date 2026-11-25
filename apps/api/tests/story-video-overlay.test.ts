@@ -69,3 +69,37 @@ describe("storyJobDecision — ждать озвучку или публиков
     expect(storyJobDecision({ kind: "SOLD", remixPending: true, attempt: 1, maxAttempts: 3 })).toBe("PUBLISH");
   });
 });
+
+describe("clipHasPriceInFrame — цена набрана в кадр старого ролика (ревью #445)", () => {
+  it("строка «Цена:» в фактах прошлой передачи — да; задание после 25.11 без цены — нет", async () => {
+    const { clipHasPriceInFrame, priceLineInFrame } = await import("../src/lib/clipPriceInFrame.js");
+    expect(clipHasPriceInFrame({ videoHandoffLastFactsText: "Объект №1\nЭтаж: 3\nЦена: 890 000 с." })).toBe(true);
+    expect(clipHasPriceInFrame({ videoHandoffLastFactsText: "Объект №1\nЭтаж: 3\nПлощадь: 50 м²" })).toBe(false);
+    // Фактов нет — передача до 20.09.2026, цена в кадре тогда была.
+    expect(clipHasPriceInFrame({ videoHandoffLastFactsText: null })).toBe(true);
+    // «Цена» не в начале строки (адрес, агент) — не признак.
+    expect(clipHasPriceInFrame({ videoHandoffLastFactsText: "Объект №1\nАдрес: Цена: шутка" })).toBe(false);
+    expect(priceLineInFrame("Объект №1\nЦена: 890 000 с.\nЭтаж: 3")).toBe("Цена: 890 000 с.");
+    expect(priceLineInFrame("Объект №1\nЭтаж: 3")).toBeNull();
+  });
+});
+
+describe("visibleChangeLines — цена в кадре делает её правку «правкой кадра»", () => {
+  it("новый ролик: цена не поле кадра; старый с ценой в кадре — поле кадра и видна монтажу", async () => {
+    const { visibleChangeLines } = await import("../src/lib/propertyEditNotify.js");
+    const changes = [{ field: "price", label: "Цена", was: "890000", becomes: "870000" }] as never;
+    const fresh = visibleChangeLines(changes, { before: "TJS", after: "TJS" }, { withPrice: false });
+    expect(fresh).toEqual({ lines: [], frameChanged: false });
+    const old = visibleChangeLines(changes, { before: "TJS", after: "TJS" }, { withPrice: false, priceInFrame: true });
+    expect(old.frameChanged).toBe(true);
+    expect(old.lines).toEqual(["Цена: 890000 TJS → 870000 TJS"]);
+  });
+});
+
+describe("storyJobDecision — озвучка новее звучащей в ролике", () => {
+  it("ждём, пока она не ляжет в ролик; на последней попытке публикуем (выйдет фото)", () => {
+    expect(storyJobDecision({ kind: "PRICE_DROP", remixPending: false, narrationNewerPending: true, attempt: 1, maxAttempts: 6 })).toBe("WAIT");
+    expect(storyJobDecision({ kind: "PRICE_DROP", remixPending: false, narrationNewerPending: true, attempt: 6, maxAttempts: 6 })).toBe("PUBLISH");
+    expect(storyJobDecision({ kind: "SOLD", remixPending: false, narrationNewerPending: true, attempt: 1, maxAttempts: 6 })).toBe("PUBLISH");
+  });
+});

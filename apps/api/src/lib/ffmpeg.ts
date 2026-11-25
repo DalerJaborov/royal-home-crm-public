@@ -426,8 +426,8 @@ export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, 
 /**
  * ИСТОРИЯ ИЗ ГОТОВОГО РОЛИКА С КАРТОЧКОЙ (25.11.2026): кладёт прозрачную карточку на первые секунды ролика и
  * режет до `maxDurationSec` (60 с — предел Instagram). Перекодирует, поэтому занимает десятки секунд на ролик
- * в минуту: звать только из фонового задания, не из запроса пользователя. false — ffmpeg не справился, вызывающий
- * публикует фото-карточку.
+ * в минуту: звать только из фонового задания, не из запроса пользователя. `ok: false` — ffmpeg не справился:
+ * `reason` (код выхода, таймаут, хвост stderr) вызывающий кладёт в журнал ошибок и публикует фото-карточку.
  */
 export async function overlayCardOnVideo(
   inputPath: string,
@@ -435,13 +435,21 @@ export async function overlayCardOnVideo(
   outputPath: string,
   opts: { showSec?: number; maxDurationSec?: number } = {},
   timeoutMs = 240_000
-): Promise<boolean> {
-  const result = await tryRunFfmpeg({
-    label: "карточка поверх ролика для истории",
-    timeoutMs,
-    args: buildOverlayCardArgs(inputPath, overlayPngPath, outputPath, opts),
-  });
-  return result !== null;
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    await runFfmpeg({
+      label: "карточка поверх ролика для истории",
+      timeoutMs,
+      args: buildOverlayCardArgs(inputPath, overlayPngPath, outputPath, opts),
+    });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof FfmpegError) {
+      const why = err.timedOut ? `таймаут ${Math.round(timeoutMs / 1000)} с` : `код ${err.code ?? "?"}${err.signal ? `, сигнал ${err.signal}` : ""}`;
+      return { ok: false, reason: `${why}; ${err.stderrTail.trim().slice(-600) || "stderr пуст"}` };
+    }
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Ширина/высота неподвижной картинки (обложка) — тот же ffprobe, без секции

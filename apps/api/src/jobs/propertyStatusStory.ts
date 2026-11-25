@@ -8,6 +8,7 @@ import { propertyPriceTjs } from "@royal-home/shared";
 import {
   PRICE_DROP_STORY_MAX_ATTEMPTS,
   PROPERTY_STATUS_STORY_JOB_TYPE,
+  priceDropVoiceCheck,
   publishPropertyPriceDropStory,
   publishPropertySoldStory,
 } from "../lib/instagramStories.js";
@@ -41,11 +42,13 @@ export function storyJobDecision(input: {
   remixPending: boolean;
   /** Идёт публикация нового ролика (после перемикса): история должна выйти ПОСЛЕ неё, а не раньше. */
   publishRunning?: boolean;
+  /** Есть озвучка новее той, что звучит в ролике (ждёт утверждения или наложения, instagramStories::priceDropVoiceCheck). */
+  narrationNewerPending?: boolean;
   attempt: number;
   maxAttempts: number;
 }): "WAIT" | "PUBLISH" {
   if (input.kind !== "PRICE_DROP") return "PUBLISH";
-  return (input.remixPending || input.publishRunning) && input.attempt < input.maxAttempts ? "WAIT" : "PUBLISH";
+  return (input.remixPending || input.publishRunning || input.narrationNewerPending) && input.attempt < input.maxAttempts ? "WAIT" : "PUBLISH";
 }
 
 export const propertyStatusStoryJob: JobHandler<Payload> = {
@@ -79,14 +82,23 @@ export const propertyStatusStoryJob: JobHandler<Payload> = {
     }
 
     const attempt = context?.attempt ?? 1;
+    const priceDrop = payload.kind === "PRICE_DROP";
     const decision = storyJobDecision({
       kind: payload.kind,
-      remixPending: payload.kind === "PRICE_DROP" ? await narrationRemixPending(payload.propertyId) : false,
-      publishRunning: payload.kind === "PRICE_DROP" ? await isHandoffPublishRunning(payload.propertyId) : false,
+      remixPending: priceDrop ? await narrationRemixPending(payload.propertyId) : false,
+      publishRunning: priceDrop ? await isHandoffPublishRunning(payload.propertyId) : false,
+      narrationNewerPending: priceDrop ? (await priceDropVoiceCheck(payload.propertyId)) === "WAIT_NEWER" : false,
       attempt,
       maxAttempts: PRICE_DROP_STORY_MAX_ATTEMPTS,
     });
-    if (decision === "WAIT") throw new Error("озвучка ещё накладывается на ролик — историю выложим следом");
+    if (decision === "WAIT") throw new Error("озвучка с новой ценой ещё не легла в ролик — историю выложим следом");
+
+    // «Продано» — статус перечитывается прямо перед публикацией (ревью #445): задание ждёт в очереди минуты,
+    // за это время продажу могли отменить, и печать «Продано» на живом объекте была бы враньём.
+    if (payload.kind === "SOLD") {
+      const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, deletedAt: true } });
+      if (!fresh || fresh.deletedAt || fresh.status !== "SOLD") return;
+    }
 
     const summary =
       payload.kind === "PRICE_DROP"

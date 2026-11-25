@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 785,
-  "forks": 4280,
+  "forks": 4282,
   "mounts": 87,
   "cron": 145,
   "jobs": 37,
@@ -135132,7 +135132,7 @@
     },
     {
      "k": "do",
-     "t": "const decision = storyJobDecision({ kind: payload.kind, remixPending: payload.kind === \"PRICE_DROP\" ? await n…",
+     "t": "const decision = storyJobDecision({ kind: payload.kind, remixPending: priceDrop ? await narrationRemixPending…",
      "a": [
       "зовёт storyJobDecision()"
      ],
@@ -135162,11 +135162,41 @@
      "c": [
       {
        "k": "do",
-       "t": "throw new Error(\"озвучка ещё накладывается на ролик — историю выложим следом\");",
+       "t": "throw new Error(\"озвучка с новой ценой ещё не легла в ролик — историю выложим следом\");",
        "a": [
-        "ошибка Error — «озвучка ещё накладывается на ролик — историю выложим следом»"
+        "ошибка Error — «озвучка с новой ценой ещё не легла в ролик — историю выложим следом»"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.kind === \"SOLD\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, d…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!fresh || fresh.deletedAt || fresh.status !== \"SOLD\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },

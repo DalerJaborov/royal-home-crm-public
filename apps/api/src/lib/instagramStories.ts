@@ -54,6 +54,8 @@ import { logSystemError } from "./systemError.js";
 import { generateStoryCard, generateStoryCardOverlay, pickStoryLanguage, type GenerateStoryCardOptions } from "./video/storyCard.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { describeError } from "./describeError.js";
+import { clipHasPriceInFrame } from "./clipPriceInFrame.js";
+import { narrationFactsCurrent } from "./propertyNarration.js";
 
 /** Meta принимает в историю ролик не длиннее 60 секунд. */
 const MAX_STORY_PART_SEC = 60;
@@ -517,6 +519,54 @@ export async function publishPropertyCardStory(
 
 type StoryPublisher = Extract<Awaited<ReturnType<typeof resolveInstagramPublisher>>, { ok: true }>;
 
+/**
+ * ГОЛОС В РОЛИКЕ НАЗЫВАЕТ ТЕКУЩУЮ ЦЕНУ? (26.11.2026, ревью #445, класс №214). История «цена снижена» роликом
+ * допустима, только если озвучка, которая РЕАЛЬНО звучит в готовом ролике, собрана по нынешним фактам (цена
+ * входит в факты озвучки с 11.11.2026). Иначе под плашкой «Цена снижена 870 000» голос скажет «890 000».
+ *
+ * Какая версия звучит: наложенная CRM (`videoMasterNarrationVersionId`), а если голос вклеивал монтажёр —
+ * последняя доставленная ему (`PropertyNarrationDelivery` SENT). Ролик уже вышел — новая озвучка без человека
+ * не утверждается (lib/narrationAutoFlow.ts, «одно утверждение»), поэтому одной «последней одобренной» мало.
+ *
+ * - `WAIT_NEWER` — есть более новая версия, ещё не легшая в ролик (готовится, ждёт утверждения или наложения),
+ *   или звучащую версию не установить, а версии у объекта есть: задание ждёт (jobs/propertyStatusStory.ts),
+ *   а при публикации сейчас — фото-карточка;
+ * - `STALE` — звучащая версия собрана по старым фактам: фото-карточка;
+ * - `OK` — голос с нынешней ценой, либо озвучки у объекта нет вовсе (или выбрано «Без озвучки»).
+ */
+export type PriceDropVoiceCheck = "OK" | "STALE" | "WAIT_NEWER";
+export async function priceDropVoiceCheck(propertyId: string): Promise<PriceDropVoiceCheck> {
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: {
+      type: true, rooms: true, areaSqm: true, floor: true, totalFloors: true, price: true, currency: true, landAreaSotka: true,
+      district: { select: { name: true } }, narrationOff: true, videoMasterNarrationVersionId: true,
+    },
+  });
+  if (!property) return "STALE";
+  if (property.narrationOff) return "OK";
+  const versionSelect = { id: true, revision: true, factsHash: true, factsSnapshot: true } as const;
+  let voice = property.videoMasterNarrationVersionId
+    ? await prisma.propertyNarrationVersion.findUnique({ where: { id: property.videoMasterNarrationVersionId }, select: versionSelect })
+    : null;
+  if (!voice) {
+    const delivered = await prisma.propertyNarrationDelivery.findFirst({
+      where: { propertyId, status: "SENT" },
+      orderBy: { createdAt: "desc" },
+      select: { version: { select: versionSelect } },
+    });
+    voice = delivered?.version ?? null;
+  }
+  const newer = await prisma.propertyNarrationVersion.findFirst({
+    where: { propertyId, status: { not: "FAILED" }, ...(voice ? { revision: { gt: voice.revision } } : {}) },
+    select: { id: true },
+  });
+  // Есть версия новее звучащей (или звучащую не установить, а версии есть) — она ещё может лечь в ролик: ждём.
+  if (newer) return "WAIT_NEWER";
+  if (!voice) return "OK"; // озвучек у объекта нет — голоса с ценой в ролике нет
+  return narrationFactsCurrent(voice, property) ? "OK" : "STALE";
+}
+
 /** Вертикальный кадр 9:16 с допуском: карточка рисуется под него, на горизонтальный ролик её не наложить. */
 export function isStoryAspect(width: number, height: number): boolean {
   return height > 0 && Math.abs(width / height - 9 / 16) < 0.03;
@@ -543,30 +593,24 @@ async function publishCardVideoStory(p: {
   const { propertyId, kind, label, cardOptions, publisher, facebookReady, creds } = p;
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { videoHandoffFinalPath: true, videoHandoffStatus: true, clipReviewStatus: true, videoMasterNarrationVersionId: true },
+    select: { videoHandoffFinalPath: true, videoHandoffStatus: true, clipReviewStatus: true, videoHandoffLastFactsText: true },
   });
   const clipPath = property?.videoHandoffFinalPath;
   if (!property || !clipPath || !clipPath.startsWith("/uploads/")) return null;
   if (property.videoHandoffStatus !== "RECEIVED" || property.clipReviewStatus === "PENDING") return null;
+  if (kind === PRICE_DROP_STORY_KIND) {
+    // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет — под «цена снижена» была бы
+    // видна прежняя сумма. Для «продано» цена в кадре не мешает.
+    if (clipHasPriceInFrame(property)) return null;
+    // Голос в ролике должен называть ТЕКУЩУЮ цену (класс №214): иначе — фото-карточка.
+    if ((await priceDropVoiceCheck(propertyId)) !== "OK") return null;
+  }
 
   const clipDisk = path.join(videoHandoffDir, path.basename(clipPath));
   const dims = await probeVideoDimensions(clipDisk);
   if (!dims || dims.durationSec <= 0 || !isStoryAspect(dims.width, dims.height)) return null;
   // Дольше минуты Instagram не берёт целиком, а резать ролик молча (потерять концовку с контактами) нельзя — фото-карточка.
   if (dims.durationSec > MAX_STORY_PART_SEC + 0.5) return null;
-  // «Цена снижена»: голос в ролике должен быть от ТЕКУЩЕЙ озвучки, иначе он назовёт старую цену под плашкой «цена снижена».
-  // Свежая одобренная озвучка, которой в ролике ещё нет (ни перемикс, ни вклейка монтажёром), — идём фото-карточкой.
-  if (kind === PRICE_DROP_STORY_KIND) {
-    const latest = await prisma.propertyNarrationVersion.findFirst({
-      where: { propertyId, status: "READY", approvedAt: { not: null } },
-      orderBy: { revision: "desc" },
-      select: { id: true },
-    });
-    if (latest && latest.id !== property.videoMasterNarrationVersionId) {
-      const delivered = await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, status: "SENT" }, select: { id: true } });
-      if (!delivered) return null;
-    }
-  }
 
   const overlay = await generateStoryCardOverlay(propertyId, cardOptions, { width: dims.width, height: dims.height });
   if (!overlay.ok || !overlay.image) return null;
@@ -576,11 +620,13 @@ async function publishCardVideoStory(p: {
   const fileName = `${propertyId}-${kind.toLowerCase()}-story-${stamp}.mp4`;
   const outPath = path.join(videoHandoffDir, fileName);
   let published = false;
+  // Контейнер истории ждёт обработки у Meta и ещё будет читать файл по адресу — не удалять, уберёт уборка по возрасту.
+  let keepFile = false;
   try {
     await fs.writeFile(pngPath, overlay.image);
     const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC });
-    if (!rendered) {
-      void logSystemError("meta", `История «${label}» (объект ${propertyId}): не удалось наложить карточку на ролик — выкладываем фото-карточкой`);
+    if (!rendered.ok) {
+      void logSystemError("meta", `История «${label}» (объект ${propertyId}): не удалось наложить карточку на ролик (${rendered.reason}) — выкладываем фото-карточкой`);
       return null;
     }
     const videoUrl = publicUploadUrl(`/uploads/handoff/${fileName}`);
@@ -593,6 +639,7 @@ async function publishCardVideoStory(p: {
       // pending — контейнер жив у Meta и сохранён на дозавершение: второй раз (фото) не публикуем. Отказ `media_publish`
       // тоже оставляет контейнер ждать (признака pending в ответе нет) — смотрим на сам контейнер.
       if (result.pending || (await hasPendingStoryContainer(propertyId, kind))) {
+        keepFile = true;
         return { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error };
       }
       void logSystemError("meta", `История-ролик «${label}» (объект ${propertyId}) не вышла: ${result.error ?? "Instagram отказал без объяснения"} — пробуем фото-карточкой`);
@@ -626,7 +673,7 @@ async function publishCardVideoStory(p: {
     return published ? { attempted: true, publishedParts: 1, totalParts: 1, error } : null;
   } finally {
     await fs.unlink(pngPath).catch(() => {});
-    await fs.unlink(outPath).catch(() => {});
+    if (!keepFile) await fs.unlink(outPath).catch(() => {});
   }
 }
 
@@ -674,7 +721,7 @@ async function publishCardStory(params: {
   // модуля выше и publishPropertyInstagramStories.
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { instagramStoriesEnabled: true, facebookStoriesEnabled: true },
+    select: { instagramStoriesEnabled: true, facebookStoriesEnabled: true, instagramStoryVideoEnabled: true },
   });
 
   if (!force) {
@@ -709,7 +756,8 @@ async function publishCardStory(params: {
     if (lastFb && Date.now() - lastFb.publishedAt.getTime() < cooldownMs) facebookReady = false;
   }
 
-  if (params.video) {
+  // Рубильник «История готовым роликом» (26.11.2026, по умолчанию включён): выключен — прежняя фото-карточка.
+  if (params.video && settings?.instagramStoryVideoEnabled !== false) {
     const videoOutcome = await publishCardVideoStory({ propertyId, kind, label, cardOptions, publisher, facebookReady, creds });
     if (videoOutcome) return videoOutcome;
     // null — ролика нет или он не подошёл, либо Instagram отказал, ничего не опубликовав: идём к фото-карточке.

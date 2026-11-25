@@ -305,11 +305,25 @@ describe("правка до публикации — кого предупред
   });
 
   it("ролик у монтажёра, поменялась ТОЛЬКО цена: монтажёру не пишем — цены в ролике нет (25.11.2026)", async () => {
-    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR" });
+    // Задание ушло уже без строки «Цена:» — так выглядят все задания после 25.11.2026.
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1\nЭтаж: 5" });
     await patch(p.id, agentToken, { price: 520000 }).expect(200);
     await waitForSettled(() => prisma.montajerMessage.count({ where: { propertyId: p.id, kind: "FACTS_CHANGED" } }));
     expect(montajerMessages()).toHaveLength(0);
     expect(await prisma.montajerMessage.count({ where: { propertyId: p.id, kind: "FACTS_CHANGED" } })).toBe(0);
+  });
+
+  it("старое задание с ценой в кадре (строка «Цена:» в фактах): правка цены монтажёру сообщается, признак не стирается (ревью #445)", async () => {
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1\nЭтаж: 5\nЦена: 450 000 с." });
+    await patch(p.id, agentToken, { price: 525000 }).expect(200);
+    await waitFor(() => montajerMessages().length > 0);
+    expect(String(montajerMessages()[0]![1])).toContain("Цена: 450000 TJS → 525000 TJS");
+    const fresh = await waitFor(async () => {
+      const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, select: { videoHandoffLastFactsText: true } });
+      return row.videoHandoffLastFactsText?.includes("Площадь") ? row : null;
+    });
+    // Факты обновились, а строка «Цена:» осталась: следующая правка цены этого ролика тоже дойдёт до монтажёра.
+    expect(fresh.videoHandoffLastFactsText).toMatch(/^Цена:/m);
   });
 
   it("монтажёр не привязан к Telegram: не молчим — журнал ошибок и директору", async () => {
@@ -337,12 +351,20 @@ describe("правка до публикации — кого предупред
   });
 
   it("ролик уже получен, поменялась ТОЛЬКО цена: модераторам «цифры могли устареть» не шлём — цены в ролике нет (25.11.2026)", async () => {
-    const p = await seed({ status: "EDITING", videoHandoffStatus: "RECEIVED", clipReviewStatus: "APPROVED" });
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "RECEIVED", clipReviewStatus: "APPROVED", videoHandoffLastFactsText: "Объект №1\nЭтаж: 5" });
     await patch(p.id, agentToken, { price: 540000 }).expect(200);
     await waitForSettled(async () => sendPushToAgents.mock.calls.length);
     expect(
       sendPushToAgents.mock.calls.find((c) => String((c[1] as { body?: string })?.body).includes("Цифры в ролике могут быть устаревшими"))
     ).toBeUndefined();
+  });
+
+  it("старый готовый ролик с ценой в кадре: правка цены — модераторам «цифры могли устареть» (ревью #445)", async () => {
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "RECEIVED", clipReviewStatus: "APPROVED", videoHandoffLastFactsText: "Объект №1\nЦена: 450 000 с." });
+    await patch(p.id, agentToken, { price: 545000 }).expect(200);
+    await waitFor(() =>
+      sendPushToAgents.mock.calls.find((c) => String((c[1] as { body?: string })?.body).includes("Цифры в ролике могут быть устаревшими"))
+    );
   });
 
   it("ролик уже получен и ждёт слота: правка цифр в кадре — модераторам «цифры могли устареть»", async () => {
