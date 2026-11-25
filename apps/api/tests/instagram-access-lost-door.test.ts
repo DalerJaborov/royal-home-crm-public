@@ -288,6 +288,83 @@ describe("ревью #432: ворота — только вызов Instagram, �
   });
 });
 
+describe("ревью #432, второй круг: проба, ложные отметки, соседний аккаунт", () => {
+  const igUrl = () => meta.instagramApiUrl(`/${meta.GRAPH_VERSION}/me/messages`);
+  const dm = { recipient: { id: `peer-probe-${run}` }, message: { text: "Проба" } };
+
+  it("проба получила 4xx «про получателя» (код 100) — ключ принят, отметка снята", async () => {
+    await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+    access.resetInstagramAccessProbes();
+    fetchMock.mockImplementation(async () => json({ error: { message: "No matching user found", type: "OAuthException", code: 100, error_subcode: 2018001 } }, 400));
+    await expect(meta.callGraph(igUrl(), dead.token, dm)).rejects.toThrow(/400/);
+    expect(await lostAt(dead.id)).toBeNull();
+  });
+
+  it("проба с 429 (лимит) или 400 с кодом 190 — отметка остаётся", async () => {
+    for (const [status, body] of [
+      [429, { error: { message: "Application request limit reached", code: 4 } }],
+      [400, { error: { message: "Unknown failure", type: "GraphMethodException", code: 190 } }],
+    ] as const) {
+      await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+      access.resetInstagramAccessProbes();
+      fetchMock.mockImplementation(async () => json(body, status));
+      await meta.callGraph(igUrl(), dead.token, dm).catch(() => undefined);
+      expect(await lostAt(dead.id), `статус ${status}`).not.toBeNull();
+    }
+    expect(access.isInstagramKeyAcceptedRefusal(400, "<html>Bad request</html>")).toBe(false);
+    expect(access.isInstagramKeyAcceptedRefusal(403, JSON.stringify({ error: { message: "Permissions error", code: 10 } }))).toBe(true);
+  });
+
+  it("429, 5xx и 400 с кодом 190 без текста про ключ живой аккаунт НЕ метят", async () => {
+    for (const [status, body] of [
+      [429, { error: { message: "Application request limit reached", code: 4 } }],
+      [500, { error: { message: "An unexpected error has occurred", code: 2 } }],
+      [503, { error: { message: "Service temporarily unavailable", code: 2 } }],
+      [400, { error: { message: "Unknown failure", type: "GraphMethodException", code: 190 } }],
+    ] as const) {
+      fetchMock.mockImplementation(async () => json(body, status));
+      await meta.callGraph(igUrl(), alive.token, dm).catch(() => undefined);
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await lostAt(alive.id)).toBeNull();
+  });
+
+  it("два аккаунта Instagram: отмечен один — отправка от второго идёт в Meta как обычно", async () => {
+    await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+    const before = callsWith(alive.token);
+    await expect(staffSend(alive.token)).resolves.toMatch(/^mid-/);
+    expect(callsWith(alive.token)).toBe(before + 1);
+    expect(await lostAt(alive.id)).toBeNull();
+    const deadErr = await staffSend(dead.token).catch((e: unknown) => e);
+    expect(access.isInstagramAccessLostError(deadErr)).toBe(true);
+  });
+
+  it("проба без входящих: работа по расписанию сама делает GET /me раз в 30 минут; ключ ожил — отметка снята", async () => {
+    const { stillLostAfterProbe } = await import("../src/lib/instagramAccessProbe.js");
+    await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+    // Сразу после отметки — проба ещё не положена: в Meta не ходим.
+    let before = callsWith(dead.token);
+    expect(await stillLostAfterProbe(dead.id)).toBe(true);
+    expect(callsWith(dead.token)).toBe(before);
+    // Прошло 30 минут, ключ всё ещё мёртв: одна проба, отметка стоит; повтор в те же полчаса — без запроса.
+    access.resetInstagramAccessProbes();
+    before = callsWith(dead.token);
+    expect(await stillLostAfterProbe(dead.id)).toBe(true);
+    expect(callsWith(dead.token)).toBe(before + 1);
+    expect(await stillLostAfterProbe(dead.id)).toBe(true);
+    expect(callsWith(dead.token)).toBe(before + 1);
+    // Ключ ожил — следующая проба снимает отметку.
+    revived.add(dead.token);
+    access.resetInstagramAccessProbes();
+    expect(await stillLostAfterProbe(dead.id)).toBe(false);
+    expect(await lostAt(dead.id)).toBeNull();
+    // Аккаунт без отметки — в Meta не ходим вовсе.
+    before = callsWith(alive.token);
+    expect(await stillLostAfterProbe(alive.id)).toBe(false);
+    expect(callsWith(alive.token)).toBe(before);
+  });
+});
+
 describe("ревью #432: очередь комментариев не забивается отложенными брошенного аккаунта", () => {
   const prefix = `stand-park-${run}`;
   afterAll(async () => {

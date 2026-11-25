@@ -58,7 +58,7 @@ import {
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
-import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
+import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyAcceptedRefusal, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
   noteInstagramBackupKeyDead, noteInstagramKeyRefused, noteInstagramProbeSucceeded } from "../lib/instagramAccountAccess.js";
 import { isProviderDefinitiveRejection } from "../lib/metaProviderRejection.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
@@ -2227,6 +2227,10 @@ export async function callGraph<T = unknown>(
       }
       // Проба аккаунта с отметкой не прошла: отметка уже стоит, писать нечего — тот же отказ, что без запроса.
       if (access?.probe && !durableCall && isInstagramKeyRefusal(res.status, text)) throw new InstagramAccessLostError(access.account.id, access.account.reason);
+      // Проба получила от Meta 4xx «про получателя/запрос» (окно закрыто, получатель недоступен, нет прав на объект) —
+      // значит, ключ ПРИНЯТ: отметка неправда и снимается (ревью #432). Не снимают: 401, 429 (лимит), коды ключа
+      // 190/102 и всё, что isInstagramKeyRefusal/isMetaAuthFailure считают отказом ключа.
+      if (access && isInstagramKeyAcceptedRefusal(res.status, text)) await noteInstagramProbeSucceeded(access.account.id);
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);

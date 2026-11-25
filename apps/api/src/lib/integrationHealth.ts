@@ -412,6 +412,9 @@ export async function checkInstagramAccountsHealth(
       try {
         const r = await graphIdReadable(route.pageId, token);
         if (r.ok) {
+          // Страница этим ключом отвечает — отметка «доступ потерян» неправда (ревью #432): у аккаунта «Войти через
+          // Facebook» другой пробы нет, без этого ложная отметка жила бы вечно.
+          if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "page_route_ok");
           out.push({ name, ok: true, detail: `через Страницу ${route.pageId}` });
         } else {
           await report("meta", `Ключ Страницы у Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${r.detail}. Войдите через Facebook заново в Настройках → Каналы.`);

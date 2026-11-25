@@ -21,6 +21,7 @@ import { sleep } from "../messengers/humanPacing.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
 import { isInstagramAccessLostError, lostInstagramAccount, noteInstagramWorkHeld } from "./instagramAccountAccess.js";
+import { stillLostAfterProbe } from "./instagramAccessProbe.js";
 
 /**
  * Вердикт «ключ канала мёртв» выносит ОДИН раз транспорт (messengers/meta.ts::callGraph → MetaGraphCallError.channelKeyDead,
@@ -261,7 +262,8 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * снимается, messengers/accounts.ts) крон health-automation поставит повтор, и ответ уйдёт — но только пока
      * переписка проходит stuckWhere (клиент писал сегодня по Душанбе, недоставленный ответ — до 24 часов).
      */
-    if (metaChannel === "INSTAGRAM" && row.accountId && await lostInstagramAccount({ accountId: row.accountId })) {
+    // Проба без входящих (ревью #432): раз в 30 минут на аккаунт — дешёвый GET /me; ключ ожил — отметка снята и повтор идёт.
+    if (metaChannel === "INSTAGRAM" && row.accountId && await stillLostAfterProbe(row.accountId)) {
       await noteInstagramWorkHeld(row.accountId, "повтор ответа бота");
       return "channel-paused";
     }

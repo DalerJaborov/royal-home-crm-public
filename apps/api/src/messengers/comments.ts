@@ -34,6 +34,8 @@ import {
   loadCredentials,
   sendPrivateReply,
 } from "./meta.js";
+import { isInstagramApiUrl } from "./metaGraph.js";
+import { stillLostAfterProbe } from "../lib/instagramAccessProbe.js";
 import type { MessengerChannel } from "./turnTypes.js";
 import { loadBotCapabilities } from "./botCapabilities.js";
 import {
@@ -692,7 +694,10 @@ async function fetchMedia(
     if (!res.ok) {
       const body = await res.text();
       // Отказ ключа Instagram — отметка через общую дверь, своя строка не нужна.
-      if (!facebook && (await noteInstagramKeyRefused({ token, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return null;
+      // Метит только отказ ВЫЗОВА Instagram (ревью #432): у аккаунта «Войти через Facebook» (ключ Страницы) запрос
+      // уходит на graph.facebook.com, и его отказ про личный ключ ничего не говорит — а снять такую отметку нечем.
+      if (!facebook && isInstagramApiUrl(req.url) &&
+          (await noteInstagramKeyRefused({ token, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return null;
       throw new Error(`Graph API HTTP ${res.status}: ${body.slice(0, 300)}`);
     }
     const media = (await res.json()) as {
@@ -2880,10 +2885,14 @@ async function finishModeration(
 export const ACCESS_LOST_MAX_WAIT_MS = 3 * 24 * 60 * 60 * 1000;
 
 export async function selectDueComments(now: Date = new Date()): Promise<QueuedComment[]> {
-  const lost = await prisma.messengerAccount.findMany({
+  const marked = await prisma.messengerAccount.findMany({
     where: { channel: "INSTAGRAM", accessLostAt: { not: null } },
-    select: { externalId: true, extraExternalIds: true },
-  }).catch(() => [] as { externalId: string; extraExternalIds: string[] }[]);
+    select: { id: true, externalId: true, extraExternalIds: true },
+  }).catch(() => [] as { id: string; externalId: string; extraExternalIds: string[] }[]);
+  // Проба без входящих (ревью #432): очередь крутится каждую минуту, поэтому здесь же — дешёвый GET /me не чаще раза в
+  // 30 минут на аккаунт. Ключ ожил — отметка снята, комментарии аккаунта разбираются в этом же проходе.
+  const lost: typeof marked = [];
+  for (const account of marked) if (await stillLostAfterProbe(account.id, now.getTime())) lost.push(account);
   const lostIds = [...new Set(lost.flatMap((a) => [a.externalId, ...a.extraExternalIds]).filter(Boolean))];
   if (lostIds.length) {
     const closed = await prisma.instagramComment.updateMany({

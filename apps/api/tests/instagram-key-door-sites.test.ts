@@ -21,6 +21,7 @@ const SITES: Record<string, string> = {
   "lib/instagramWebhookSubscription.ts": "дверь: сторож подписки (21.11, #352)",
   "lib/metaInboxReconcile.ts": "дверь: сверка переписок (21.11, #352)",
   "lib/integrationHealth.ts": "дверь: суточная проверка ключей",
+  "lib/instagramAccessProbe.ts": "дверь: проба GET /me аккаунта с отметкой (ревью #432), успех снимает отметку",
   "lib/socialPublish.ts": "дверь через lib/instagramPublisher.ts (отказ публикации → noteInstagramKeyRefused)",
   "lib/photoPosts.ts": "дверь через lib/instagramPublisher.ts",
   "lib/instagramPendingContainers.ts": "ключ берёт lib/instagramPublisher.ts; отказ проверки контейнера — ещё не через дверь (слепое пятно)",

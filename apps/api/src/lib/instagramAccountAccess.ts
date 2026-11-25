@@ -66,6 +66,21 @@ export function isInstagramKeyRefusal(status: number | undefined, text: string |
 }
 
 /**
+ * ОТКАЗ, КОТОРЫЙ ДОКАЗЫВАЕТ, ЧТО КЛЮЧ ПРИНЯТ (ревью #432). Meta разобрала запрос этим ключом и отказала «про
+ * получателя/запрос» (окно 24 ч закрыто, получатель недоступен, нет прав на объект, правила) — значит, ключ жив, и
+ * отметка «доступ потерян» на пробе снимается. Не доказывают: 401, 429 и лимиты (4/17/32/613), коды ключа 190/102,
+ * любой отказ ключа по isInstagramKeyRefusal/isMetaAuthFailure и ответ без кода Graph (прокси, HTML-страница).
+ */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
+export function isInstagramKeyAcceptedRefusal(status: number, text: string | undefined): boolean {
+  if (status < 400 || status >= 500 || status === 401 || status === 429) return false;
+  if (isInstagramKeyRefusal(status, text) || isMetaAuthFailure(status, text)) return false;
+  const code = graphErrorCode(text);
+  if (code === null || code === 190 || code === 102 || RATE_LIMIT_CODES.has(code)) return false;
+  return true;
+}
+
+/**
  * ПОКА ОТМЕТКА СТОИТ, В META ЭТИМ КЛЮЧОМ НЕ ХОДИМ (25.11.2026). Вызов, который знает ключ (или аккаунт), спрашивает здесь
  * до запроса: аккаунт с отметкой — «закрыто», запрос не делается, вызывающий молчит (журнал и тревогу дала отметка).
  *

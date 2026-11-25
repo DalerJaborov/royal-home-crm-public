@@ -2962,7 +2962,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // Клиент остался без ответа ПРЯМО СЕЙЧАС — не ждать, пока диалог доедет до
       // findStuckConversations (health-automation раз в 30 минут) или до утреннего
       // журнала (24.09.2026, ночная проверка, находка №108).
-      if (!providerAcceptedReply) void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId));
+      // Кроме потерянного доступа к аккаунту Instagram (ревью #432): пуш «Доставка ответа требует проверки» ушёл бы
+      // всем с messages.view по КАЖДОМУ клиенту, хотя руководству уже ушла одна тревога отметки. Ответ остаётся
+      // помеченным «не доставлен» (строка выше), и после «Заменить маркер» повтор зависших его отправит.
+      if (!providerAcceptedReply) void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId, err));
       // Замок дубля ставится ДО обработки (см. lib/webhookDedupe.ts). Раз она не
       // дошла до ответа — отметку снимаем, иначе повторная доставка от Meta молча
       // отступит перед «уже обработанным» сообщением, которое на деле осталось без
@@ -3022,7 +3025,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
  * Экспортирована для собственного теста (тот же приём, что у groupMetaBySender
  * ниже) — гонять ради неё весь вебхук с подписью Meta не нужно.
  */
-export async function notifyBotReplyNotDelivered(channel: string, subscriberId: string, transport?: CustomerTransportHint): Promise<void> {
+export async function notifyBotReplyNotDelivered(channel: string, subscriberId: string, transport?: CustomerTransportHint, cause?: unknown): Promise<void> {
+  // Доступ к аккаунту Instagram потерян (ревью #432): в Meta не ходили, руководству уже ушла одна тревога отметки.
+  // Пуш всем с messages.view по каждому клиенту был бы потоком; ответ помечен «не доставлен» и уйдёт повтором после
+  // «Заменить маркер».
+  if (isInstagramAccessLostError(cause)) return;
   try {
     const conv = transport ? await findScopedBotConversation(customerTransportInput(channel, subscriberId, transport)) : null;
     const recipients = await findAgentsWithPermission("messages.view");

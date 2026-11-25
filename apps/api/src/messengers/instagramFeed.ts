@@ -3,7 +3,7 @@ import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import { logSystemError } from "../lib/systemError.js";
 import { fetchWithRetry, instagramApiUrl, loadCredentials } from "./meta.js";
 import { instagramMediaRequest } from "../lib/metaEternalTokens.js";
-import { instagramQueryTokenRequest, isFacebookLoginToken } from "./metaGraph.js";
+import { instagramQueryTokenRequest, isFacebookLoginToken, isInstagramApiUrl } from "./metaGraph.js";
 import { describeError } from "../lib/describeError.js";
 import { noteInstagramKeyRefused } from "../lib/instagramAccountAccess.js";
 
@@ -210,7 +210,10 @@ export async function getAllOwnMedia(
           const detail = `Лента аккаунта Instagram: Graph API HTTP ${res.status} (${sanitizeFeedUrl(req.url)}): ${bodyText.slice(0, 300)}`;
           // «Meta закрыла доступ» — одна отметка и одна тревога через общую дверь; ключ просто мёртв —
           // одна строка на аккаунт в сутки, а не каждые 15 минут (прод 21.11: 66 строк за сутки).
-          const { locked } = await noteInstagramKeyRefused({ accountId, token, status: res.status, text: bodyText, detail: `HTTP ${res.status}: ${bodyText.slice(0, 200)}` });
+          // Метит только отказ вызова Instagram (ревью #432): лента через Страницу (graph.facebook.com) — не про личный ключ.
+          const { locked } = isInstagramApiUrl(req.url)
+            ? await noteInstagramKeyRefused({ accountId, token, status: res.status, text: bodyText, detail: `HTTP ${res.status}: ${bodyText.slice(0, 200)}` })
+            : { locked: false };
           if (!locked) {
             void logSystemError("meta", detail, { dedupKey: `ig-feed-failed:${accountId ?? "settings"}:${res.status}`, dedupWindowMs: 24 * 60 * 60_000 });
           }
