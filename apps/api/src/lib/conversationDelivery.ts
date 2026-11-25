@@ -30,7 +30,7 @@ import {
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
-import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, META_OUTGOING_MEDIA_LIMITS, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
@@ -930,12 +930,15 @@ export async function deliverBotVoiceReply(
  * «отправить файлом через Graph API или ссылкой на R2» (владелец 18.08.2026:
  * ролик объекта в исходном качестве может весить 100-300 МБ, а перекодирование
  * ради лимита Meta отклонено — теряет качество). См. deliverMediaToConversation.
+ *
+ * 25.11.2026 ВЛАДЕЛЕЦ ОТМЕНИЛ «НЕ ПЕРЕКОДИРУЕМ»: «пусть наш сервер быстренько сожмёт и
+ * отправит, прямо как сам WhatsApp». Сжатие под эти пределы делает очередь отправки
+ * (lib/outgoingMediaJobs.ts → lib/outgoingMediaPrepare.ts) ДО этой функции; здесь пределы
+ * остались последней проверкой. Числа — одно место на сервер и экран:
+ * packages/shared/src/outgoingMediaLimits.ts (фото Instagram/Messenger — 8 МБ по
+ * документации Meta, а не прежние 25).
  */
-const OUTGOING_MEDIA_LIMITS: Record<MetaChannel, { image: number; video: number }> = {
-  WHATSAPP: { image: 5 * 1024 * 1024, video: 16 * 1024 * 1024 },
-  INSTAGRAM: { image: 25 * 1024 * 1024, video: 25 * 1024 * 1024 },
-  FACEBOOK: { image: 25 * 1024 * 1024, video: 25 * 1024 * 1024 },
-};
+const OUTGOING_MEDIA_LIMITS: Record<MetaChannel, { image: number; video: number }> = META_OUTGOING_MEDIA_LIMITS;
 /**
  * Тот же лимит, что и у getFile (telegram/api.ts::TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
  * «сколько бот может скачать») — здесь Telegram точно так же сам скачивает файл
@@ -953,8 +956,58 @@ function humanMb(bytes: number): string {
 }
 
 export type MediaDeliveryResult =
-  | { ok: true; pausedUntil: Date }
+  /** sentAsLink — видео больше предела канала ушло клиенту ссылкой на просмотр, а не файлом. */
+  | { ok: true; pausedUntil: Date; sentAsLink: boolean }
   | { ok: false; status: number; error: string; code?: "window_closed" };
+
+type MediaPrecheckFail = { ok: false; status: number; error: string; code?: "window_closed" };
+
+/**
+ * Проверки ДО приёма файла в очередь и ДО самой отправки — одни и те же (25.11.2026):
+ * очередь сжатия (lib/outgoingMediaJobs.ts) зовёт их сразу, чтобы сотрудник узнал
+ * «окно закрыто» или «канал выключен» за секунду, а не после минуты сжатия; доставка —
+ * ещё раз перед отправкой, потому что за время сжатия окно могло закрыться.
+ */
+export async function mediaDeliveryPrecheck(
+  target: DeliveryTarget,
+  sender: MessageSender,
+  mimetype: string
+): Promise<{ ok: true; capturedTransport: CustomerTransportReference | null; metaChannel: MetaChannel | null } | MediaPrecheckFail> {
+  const isTelegram = target.kind === "telegram";
+  const capturedTransport = await captureDeliveryTransport(target);
+  if (!isTelegram && target.channel !== WEBSITE_CHANNEL && !capturedTransport) return TRANSPORT_CHANGED;
+  const isWebsite = !isTelegram && target.channel === WEBSITE_CHANNEL;
+  // Та же честная причина, что у голосовых выше: канал сайта работает, файлы
+  // в веб-чат просто пока не доставляются, ключи Meta тут ни при чём.
+  if (isWebsite) {
+    return { ok: false, status: 422, error: "Чат на сайте пока не умеет отправлять файлы и голосовые, отправьте текстом" };
+  }
+  const metaChannel = isTelegram ? null : asMetaChannel(target.channel);
+  if (isTelegram ? !isTelegramEnabled() : !metaChannel || !(await isMetaChannelEnabled(metaChannel))) {
+    return {
+      ok: false,
+      status: 503,
+      error: isTelegram
+        ? "Отправка не настроена (TELEGRAM_BOT_TOKEN)"
+        : `Ответ в ${target.channel} не отправить: канал выключен или не заданы ключи в Настройках → Meta.`,
+    };
+  }
+
+  const windowClosed = await windowClosedBeforeSend(target, sender);
+  if (windowClosed) return windowClosed;
+
+  if (!mimetype.startsWith("image/") && !mimetype.startsWith("video/")) {
+    return { ok: false, status: 400, error: "Допустимы только изображения или видео" };
+  }
+  // SVG — это исполняемый документ (скрипты внутри), а не фотография: заявленный
+  // клиентом Content-Type сохраняется как есть и отдаётся при раздаче через
+  // mediaProxy, то есть пропущенный svg открывался бы в браузере с исполнением.
+  // Фото из мессенджеров всегда растровые — честному сценарию запрет не мешает.
+  if (/svg/i.test(mimetype)) {
+    return { ok: false, status: 400, error: "SVG не поддерживается — отправьте фото (JPG/PNG/WebP)" };
+  }
+  return { ok: true, capturedTransport, metaChannel };
+}
 
 /**
  * Отправка ФОТО/ВИДЕО сотрудника клиенту (18.08.2026, тот же запрос владельца,
@@ -997,43 +1050,19 @@ export async function deliverMediaToConversation(
     pausedUntilOverride?: Date;
     sender: MessageSender;
     caption?: string;
+    /** Зовётся прямо перед сетевой отправкой клиенту (после паузы и загрузки в R2): очередь
+     *  отмечает «отправляется» — после сбоя процесса в этой точке файл не шлётся второй раз.
+     *  false — отправку отменили (сотрудник нажал «Отменить»): клиенту ничего не уходит,
+     *  пауза бота откатывается. */
+    beforeTransport?: () => Promise<boolean>;
   }
 ): Promise<MediaDeliveryResult> {
   const isTelegram = target.kind === "telegram";
-  const capturedTransport = await captureDeliveryTransport(target);
-  if (!isTelegram && target.channel !== WEBSITE_CHANNEL && !capturedTransport) return TRANSPORT_CHANGED;
-  const isWebsite = !isTelegram && target.channel === WEBSITE_CHANNEL;
-  // Та же честная причина, что у голосовых выше: канал сайта работает, файлы
-  // в веб-чат просто пока не доставляются, ключи Meta тут ни при чём.
-  if (isWebsite) {
-    return { ok: false, status: 422, error: "Чат на сайте пока не умеет отправлять файлы и голосовые, отправьте текстом" };
-  }
-  const metaChannel = isTelegram ? null : asMetaChannel(target.channel);
-  if (isTelegram ? !isTelegramEnabled() : !metaChannel || !(await isMetaChannelEnabled(metaChannel))) {
-    return {
-      ok: false,
-      status: 503,
-      error: isTelegram
-        ? "Отправка не настроена (TELEGRAM_BOT_TOKEN)"
-        : `Ответ в ${target.channel} не отправить: канал выключен или не заданы ключи в Настройках → Meta.`,
-    };
-  }
-
-  const windowClosed = await windowClosedBeforeSend(target, options.sender);
-  if (windowClosed) return windowClosed;
-
+  const pre = await mediaDeliveryPrecheck(target, options.sender, media.mimetype);
+  if (!pre.ok) return pre;
+  const { capturedTransport, metaChannel } = pre;
   const isImage = media.mimetype.startsWith("image/");
   const isVideo = media.mimetype.startsWith("video/");
-  if (!isImage && !isVideo) {
-    return { ok: false, status: 400, error: "Допустимы только изображения или видео" };
-  }
-  // SVG — это исполняемый документ (скрипты внутри), а не фотография: заявленный
-  // клиентом Content-Type сохраняется как есть и отдаётся при раздаче через
-  // mediaProxy, то есть пропущенный svg открывался бы в браузере с исполнением.
-  // Фото из мессенджеров всегда растровые — честному сценарию запрет не мешает.
-  if (/svg/i.test(media.mimetype)) {
-    return { ok: false, status: 400, error: "SVG не поддерживается — отправьте фото (JPG/PNG/WebP)" };
-  }
 
   const limit = isTelegram ? TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES : OUTGOING_MEDIA_LIMITS[metaChannel!][isImage ? "image" : "video"];
   const size = "buffer" in media ? media.buffer.length : media.size;
@@ -1105,6 +1134,11 @@ export async function deliverMediaToConversation(
 
   const { text: caption, masked: _masked } = options.caption ? maskPhones(options.caption) : { text: "", masked: false };
 
+  if (options.beforeTransport && !(await options.beforeTransport())) {
+    await rollbackDeliveryPause(pauseUndo);
+    return { ok: false, status: 409, error: "Отправка отменена" };
+  }
+
   let sentMid: string | null = null;
   let historyContent: string;
   try {
@@ -1164,7 +1198,7 @@ export async function deliverMediaToConversation(
   else await appendConversationMessages(target.id, message);
   void closeStaleNextActionsForTarget(target);
 
-  return { ok: true, pausedUntil };
+  return { ok: true, pausedUntil, sentAsLink: sendAsLink };
 }
 
 /**

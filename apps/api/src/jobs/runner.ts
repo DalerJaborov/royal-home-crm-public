@@ -5,6 +5,7 @@ import { Prisma, type BackgroundJob } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
 import { jobHandlerOf, PermanentJobError } from "./registry.js";
+import { signalBackgroundJobsStop } from "./stopSignal.js";
 import { pultModuleOfJob } from "./jobModules.js";
 import { isPultModuleEnabled } from "../lib/pultModules.js";
 import { notifyStuckWorkGivenUp } from "../lib/stuckWork.js";
@@ -29,9 +30,16 @@ export const CUSTOMER_JOB_LANES = {
   inbox: "customer-inbox-consume",
   outbox: "customer-outbox-dispatch",
   intake: "customer-contact-intake",
+  /**
+   * Фото и видео сотрудника клиенту (25.11.2026, jobs/outgoingMediaSend.ts): своя полоса,
+   * тик каждые 5 секунд — минутный общий тик делал бы «мгновенную» отправку минутной.
+   * Одна полоса = одно сжатие ffmpeg за раз на весь worker, и она не стоит в очереди за
+   * роликами соцсетей, а ответы клиентам — за ней.
+   */
+  media: "outgoing-media-send",
 } as const;
 type CustomerJobLane = keyof typeof CUSTOMER_JOB_LANES;
-const customerBusy: Record<CustomerJobLane, boolean> = { inbox: false, outbox: false, intake: false };
+const customerBusy: Record<CustomerJobLane, boolean> = { inbox: false, outbox: false, intake: false, media: false };
 const CUSTOMER_JOB_TYPES = Object.values(CUSTOMER_JOB_LANES);
 /**
  * ТЯЖЁЛЫЕ ТИПЫ — В ХВОСТ ПАРТИИ (аудит №4, 27.08).
@@ -309,6 +317,8 @@ export function isBackgroundJobRunning(): boolean {
 
 export function stopBackgroundJobs(): void {
   stopping = true;
+  // Долгие обработчики (сжатие видео, jobs/stopSignal.ts) обрывают работу и возвращают задание в очередь.
+  signalBackgroundJobsStop();
 }
 
 /** Same atomic claim/attempt ladder and handlers as the ordinary runner. No

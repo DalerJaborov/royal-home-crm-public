@@ -37,6 +37,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "shabnamSocialPublishEnabled",
   "shabnamGroupAutoMemoryEnabled",
   "chatMediaTranscodeEnabled",
+  "outgoingMediaCompressEnabled",
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
@@ -159,6 +160,11 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     off: "Новые подключённые группы ничего не запоминают, пока память не включена вручную. Уже запомненное остаётся до срока.",
   },
   // Владелец 25.11.2026: «фото, видео, голосовые клиентов не открываются в CRM».
+  outgoingMediaCompressEnabled: {
+    title: "Фото и видео клиенту — как в WhatsApp",
+    on: "CRM сама сжимает фото и видео под предел канала (WhatsApp 16 МБ, Instagram 25 МБ) и отправляет в фоне: клиент получает настоящее видео, а не ссылку. Очень длинное видео уходит ссылкой на просмотр. Геометка с фото удаляется.",
+    off: "Файл уходит как есть: видео больше предела канала — ссылкой, тяжёлое фото — отказом.",
+  },
   chatMediaTranscodeEnabled: {
     title: "Голосовые и видео клиентов открываются на любом телефоне",
     on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
@@ -210,7 +216,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

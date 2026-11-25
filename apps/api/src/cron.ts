@@ -113,6 +113,7 @@ import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
 import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
+import { sweepOutgoingMediaSpool } from "./lib/outgoingMediaJobs.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
 import { cleanupTelegramBotApiVolume } from "./lib/telegramBotApiCleanup.js";
@@ -1482,6 +1483,17 @@ export function startCronJobs() {
    *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
    *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
    *  старта загрузки. Каждый час, в 17 минут. */
+  /** Спул отправки фото/видео клиентам (lib/outgoingMediaJobs.ts): исходники упавших старше
+   *  суток, брошенные файлы, старые строки; ждущие дольше 20 минут — тревога в журнал. */
+  scheduleTracked("outgoing-media-sweep", "*/30 * * * *", async () => {
+    try {
+      const r = await sweepOutgoingMediaSpool();
+      if (r.removedFiles || r.removedRows) console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки спула отправки файлов", err);
+    }
+  });
+
   scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
     try {
       const removed = await sweepStaleChunkedUploads();
@@ -3420,6 +3432,11 @@ export function startCronJobs() {
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
   scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
     await runCustomerJobsTick("intake");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото и видео сотрудника клиенту (25.11.2026, lib/outgoingMediaJobs.ts): своя полоса — сжатие
+  // идёт минуты и не должно задерживать ответы клиентам, а агент ждёт отправку секунды, не минуту.
+  scheduleTracked("outgoing-media-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("media");
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
 
   // После выката ядро бота ждало кнопку «Обновить версию бота» (03–05.11.2026

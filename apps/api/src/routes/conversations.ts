@@ -30,6 +30,15 @@ import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
 import { listAccounts } from "../messengers/accounts.js";
 import { voiceMessageUpload, mediaMessageUpload } from "../upload.js";
 import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
+import {
+  cancelOutgoingMediaJob,
+  enqueueOutgoingMedia,
+  normalizeOutgoingMime,
+  outgoingMediaCompressOn,
+  outgoingMediaJobView,
+  outgoingMediaSpoolDir,
+  retryOutgoingMediaJob,
+} from "../lib/outgoingMediaJobs.js";
 import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
@@ -1680,7 +1689,9 @@ conversationsRouter.post("/:id/reply-media", requireAuth, anyParams(mediaMessage
   }
 
   const file = { path: req.file.path, size: req.file.size, mimetype: req.file.mimetype, originalname: req.file.originalname };
-  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  const outcome = (await outgoingMediaCompressOn())
+    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption })
+    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
   res.status(outcome.status).json(outcome.body);
 });
 
@@ -1700,9 +1711,16 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
+  // Сжатие включено — файл склеивается сразу в спул очереди отправки (общий том api и worker).
+  const queued = await outgoingMediaCompressOn();
   let assembled: { tmpPath: string; sizeBytes: number; originalName: string; contentType: string | null };
   try {
-    assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agentId: req.agent!.id });
+    assembled = await assembleChunkedUpload({
+      kind: "conversation-media",
+      sessionId: parsed.data.sessionId,
+      agentId: req.agent!.id,
+      ...(queued ? { destDir: outgoingMediaSpoolDir() } : {}),
+    });
   } catch (err) {
     if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
     throw err;
@@ -1710,10 +1728,55 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
   const file = {
     path: assembled.tmpPath,
     size: assembled.sizeBytes,
-    mimetype: assembled.contentType || "application/octet-stream",
+    mimetype: normalizeOutgoingMime(assembled.contentType, assembled.originalName),
     originalname: assembled.originalName,
   };
-  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  const outcome = queued
+    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption })
+    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  res.status(outcome.status).json(outcome.body);
+});
+
+/**
+ * Состояние отправки фото/видео (25.11.2026, lib/outgoingMediaJobs.ts): экран спрашивает раз в
+ * пару секунд, пока пузырь «Сжимаем… / Отправляем…». Своё задание видит отправивший сотрудник.
+ */
+conversationsRouter.get("/:id/media-jobs/:jobId", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });
+  if (!job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id) {
+    return res.status(404).json({ error: "Отправка не найдена" });
+  }
+  res.json(outgoingMediaJobView(job));
+});
+
+/** Незавершённые и упавшие за сутки отправки сотрудника в этой переписке — пузыри после перезагрузки вкладки. */
+conversationsRouter.get("/:id/media-jobs", requireAuth, async (req, res) => {
+  const jobs = await prisma.outgoingMediaJob.findMany({
+    where: {
+      conversationId: req.params.id,
+      agentId: req.agent!.id,
+      status: { in: ["QUEUED", "PREPARING", "SENDING", "FAILED"] },
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+  });
+  res.json({ jobs: jobs.map(outgoingMediaJobView) });
+});
+
+/** «Повторить» упавшую отправку — исходник ещё на сервере, загружать заново не нужно. */
+conversationsRouter.post("/:id/media-jobs/:jobId/retry", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { conversationId: true } });
+  if (!job || job.conversationId !== req.params.id) return res.status(404).json({ error: "Отправка не найдена" });
+  const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  res.status(outcome.status).json(outcome.body);
+});
+
+/** «Отменить» — пока файл не начал уходить клиенту. */
+conversationsRouter.delete("/:id/media-jobs/:jobId", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { conversationId: true } });
+  if (!job || job.conversationId !== req.params.id) return res.status(404).json({ error: "Отправка не найдена" });
+  const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
   res.status(outcome.status).json(outcome.body);
 });
 
