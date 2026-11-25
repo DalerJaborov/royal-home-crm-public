@@ -35,7 +35,7 @@ const DIRECTOR = new Set(["messages.view", "settings.manage"]);
 const h = vi.hoisted(() => ({
   readOnly: false, narrow: false, mutation: vi.fn(), pausedUntil: null as string | null, grouped: null as unknown,
   perms: new Set<string>(), replyTarget: undefined as string | null | undefined,
-  pauseIds: null as unknown, messages: null as unknown[] | null, api: vi.fn(), requests: [] as unknown[],
+  pauseIds: null as unknown, messages: null as unknown[] | null, api: vi.fn(), requests: [] as unknown[], noCard: false,
 }));
 vi.mock("../../lib/permissions", () => ({ useCan: () => (p: string) => h.perms.has(p), useIsReadOnly: () => h.readOnly }));
 vi.mock("../../store/auth", () => ({ useAuthStore: Object.assign((select: (state: unknown) => unknown) => select({ agent: { id: "actor", role: h.readOnly ? "SHAREHOLDER" : "MANAGER" }, sessionEpoch: 1 }), { getState: () => ({ agent: { id: "actor" }, sessionEpoch: 1 }), subscribe: () => () => {} }) }));
@@ -49,7 +49,7 @@ vi.mock("../../hooks/useConversations", async (importOriginal) => {
   return {
     ...original,
     useConversation: () => ({ data: {
-      id: conversationId, name: "Продавец ПР-000894", profileName: null, channel: "INSTAGRAM", clientId: "client", clientShortId: "7",
+      id: conversationId, name: "Продавец ПР-000894", profileName: null, channel: "INSTAGRAM", clientId: h.noCard ? null : "client", clientShortId: h.noCard ? null : "7",
       clientPhone: "+992900000099", firstContactAt: now, pausedUntil: h.pausedUntil, shieldPause: null, contact: null, subscriberId: "peer",
       messages: h.messages ?? [
         { role: "user", content: `Квартира ещё продаётся? Мой номер ${MESSAGE_PHONE_MASK}`, at: now },
@@ -103,7 +103,7 @@ function unmount() {
 afterEach(() => {
   unmount();
   h.readOnly = false; h.narrow = false; h.pausedUntil = null; h.grouped = null; h.perms = new Set(); h.mutation.mockReset();
-  h.pauseIds = null; h.messages = null; h.api.mockReset(); h.requests = [];
+  h.pauseIds = null; h.messages = null; h.api.mockReset(); h.requests = []; h.noCard = false;
 });
 const click = (el: Element | null | undefined) => { expect(el, "кнопка на месте").toBeTruthy(); act(() => (el as HTMLElement).click()); };
 const byLabel = (label: string) => document.querySelector(`[aria-label="${label}"]`);
@@ -229,6 +229,39 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(menuText()).toContain("Быстрые ответы");
   });
 
+  // «Отправить объект» — на виду (владелец 25.11.2026: «в переписке была кнопка, сейчас её нет»).
+  // Проверяется ВИДИМЫЙ триггер в отрисованной строке ввода, а не импорт компонента.
+  it("«Отправить объект» is a visible round button beside the paperclip and opens the same picker as the menu item", () => {
+    h.perms = AGENT;
+    mount();
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
+    expect(button, "кнопка-здание в строке ввода").toBeTruthy();
+    expect(button!.getAttribute("aria-label")).toBe("Отправить объект");
+    expect(button!.getAttribute("aria-disabled")).toBeNull();
+    expect(button!.closest("form")?.className).toContain("ry-chat-compose");
+    expect(document.body.textContent).not.toContain("Окно подбора");
+    click(button);
+    expect(document.body.textContent).toContain("Окно подбора");
+  });
+
+  it("no client card: the button and the menu item stay visible but grey, and say why (never vanish silently)", () => {
+    h.perms = AGENT; h.noCard = true;
+    mount();
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
+    expect(button, "кнопка не пропала").toBeTruthy();
+    expect(button!.getAttribute("aria-disabled")).toBe("true");
+    expect(button!.getAttribute("aria-label")).toContain("Отправить объект");
+    expect(button!.getAttribute("aria-label")).toContain("Сначала примите заявку");
+    click(button);
+    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
+    expect(document.body.textContent).not.toContain("Окно подбора");
+    click(byLabel("Прикрепить"));
+    const entry = item("menuitem", "Объект из базы");
+    expect(entry, "пункт в скрепке не пропал").toBeTruthy();
+    expect(entry!.getAttribute("aria-disabled")).toBe("true");
+    click(entry);
+    expect(document.body.textContent).not.toContain("Окно подбора");
+  });
   it("agent «⋯»: search, contact details, client card — and no bot control", () => {
     h.perms = AGENT;
     mount();

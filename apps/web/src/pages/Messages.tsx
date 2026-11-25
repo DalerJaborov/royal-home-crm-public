@@ -1268,6 +1268,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   /** Пояснение у серой кнопки «Объект», когда у диалога нет карточки клиента. */
   const [propertyHint, setPropertyHint] = useState(false);
   const canSendProperty = !!(conversation?.clientId && conversation.clientShortId);
+  useEffect(() => { setPropertyHint(false); }, [id]);
   // «Сведения о сообщении» — абсолютный индекс в allMessages; setState стабилен,
   // поэтому memo-ленте передаётся как есть и не перерисовывает её при печати.
   const [infoIndex, setInfoIndex] = useState<number | null>(null);
@@ -2070,6 +2071,14 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </div>
       )}
 
+      {/* Серая кнопка «Отправить объект» (нет карточки клиента): на телефоне подсказки
+          по наведению нет, поэтому причина по нажатию показывается строкой над полем. */}
+      {propertyHint && !canSendProperty && (
+        <div className="suggest" role="status" data-testid="chat-send-property-hint">
+          <span className="dot warn"></span>
+          <span className="txt">{PROPERTY_SEND_NEEDS_CARD}</span>
+        </div>
+      )}
       {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
       {royal ? (
         /* СТРОКА ВВОДА КАК В WHATSAPP (владелец 20.11.2026): скрепка, поле и одна
