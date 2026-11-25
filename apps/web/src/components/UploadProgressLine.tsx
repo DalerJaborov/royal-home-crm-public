@@ -74,7 +74,7 @@ export function UploadProgressLine({
               height: "100%",
               width: `${percent}%`,
               borderRadius: 999,
-              background: live.phase === "waiting-online" || live.phase === "waiting-retry" ? "var(--warn-dot, #d99a00)" : "var(--accent, currentColor)",
+              background: live.phase === "waiting-online" || live.phase === "waiting-retry" ? "var(--warn-dot, var(--warn, currentColor))" : "var(--accent, currentColor)",
               transition: "width .3s ease",
             }}
           />
@@ -86,7 +86,7 @@ export function UploadProgressLine({
             flex: "1 1 12em",
             minWidth: 0,
             fontVariantNumeric: "tabular-nums",
-            color: failed ? "var(--crit, #c0392b)" : "inherit",
+            color: failed ? "var(--crit, currentColor)" : "inherit",
             overflowWrap: "anywhere",
           }}
         >

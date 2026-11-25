@@ -16,6 +16,10 @@ vi.mock("../draftUploadStore", async (original) => ({ ...await original<typeof i
   putDraftFile: async () => {}, readAllDraftFiles: async () => [], deleteDraftFile: async () => {}, clearAllDraftFiles: async () => {},
 }));
 
+// Двенадцать заходов по сети-заглушке: на занятом раннере (сборка api + web параллельно)
+// пять секунд по умолчанию не хватало (precheck 25.11.2026) — запас, а не ожидание.
+vi.setConfig({ testTimeout: 30_000 });
+
 const PARTS = 12;
 const PART_SIZE = 8;
 const accepted = new Set<number>();
@@ -191,7 +195,7 @@ describe("очередь мастера: сборка ролика ждёт до
     (await import("../propertyDraftSession")).adoptPropertyDraftSession({ draft: view(), revision: 1 });
     const queue = await import("../draftUploads");
     queue.addDraftVideos([new File([new Uint8Array(PARTS * PART_SIZE)], "test-video.mov", { type: "video/quicktime" })]);
-    await vi.waitFor(() => expect(queue.getDraftMediaSnapshot()[0]?.status).toBe("ready"));
+    await vi.waitFor(() => expect(queue.getDraftMediaSnapshot()[0]?.status).toBe("ready"), { timeout: 10_000 });
     const complete = mocks.api.mock.calls.find(([path]) => String(path).endsWith("/complete"));
     expect(complete?.[1]).toMatchObject({ method: "POST", timeoutMs: 120_000 });
   });
@@ -203,5 +207,5 @@ async function roundSettled(queue: typeof import("../draftUploads")): Promise<vo
   await vi.waitFor(() => {
     expect(sends).toBeGreaterThan(before);
     expect(queue.getDraftMediaSnapshot()[0]?.status).not.toBe("uploading");
-  });
+  }, { timeout: 10_000 });
 }
