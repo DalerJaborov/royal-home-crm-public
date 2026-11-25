@@ -192,11 +192,19 @@ describe("настоящее сжатие", () => {
   it("отмена обрывает ffmpeg", async () => {
     const controller = new AbortController();
     const size = statSync(fx("long.mp4")).size;
-    const run = prepareOutgoingMedia({ path: fx("long.mp4"), mimetype: "video/mp4", size }, "WHATSAPP", {
-      workDir: dir, signal: controller.signal,
-    });
-    setTimeout(() => controller.abort(), 150);
-    await expect(run).rejects.toMatchObject({ code: "aborted" });
+    // Тесный предел заставляет настоящее сжатие (~секунда), иначе ролик влезает и «перекладка» кончается раньше отмены
+    // на быстрой машине (26.11.2026: без этого тест краснел на ПК, где ffmpeg успевает за 130 мс).
+    const saved = { ...META_OUTGOING_MEDIA_LIMITS.WHATSAPP };
+    try {
+      META_OUTGOING_MEDIA_LIMITS.WHATSAPP.video = 1024 * 1024;
+      const run = prepareOutgoingMedia({ path: fx("long.mp4"), mimetype: "video/mp4", size }, "WHATSAPP", {
+        workDir: dir, signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 100);
+      await expect(run).rejects.toMatchObject({ code: "aborted" });
+    } finally {
+      Object.assign(META_OUTGOING_MEDIA_LIMITS.WHATSAPP, saved);
+    }
   }, 60_000);
 });
 
@@ -302,7 +310,8 @@ describe("ревью 25.11: безопасность и «как раньше» 
     try {
       META_OUTGOING_MEDIA_LIMITS.WHATSAPP.video = 1024 * 1024;
       const out = await prepareOutgoingMedia({ path: fx("long.mp4"), mimetype: "video/mp4", size }, "WHATSAPP", {
-        workDir: dir, deadlineAt: Date.now() + 1_500,
+        // Меньше секунды до срока: boundedTimeout обрывает шаг сразу, независимо от скорости машины.
+        workDir: dir, deadlineAt: Date.now() + 900,
       });
       expect(out).toMatchObject({ action: "original", fallback: true, sendAsLink: true });
     } finally {
