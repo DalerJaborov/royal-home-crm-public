@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 775,
-  "forks": 4177,
+  "endpoints": 778,
+  "forks": 4185,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -18779,6 +18779,143 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/match-preview",
+   "mount": "/api/v1/construction-registry",
+   "full": "/api/v1/construction-registry/match-preview",
+   "file": "apps/api/src/routes/constructionRegistry.ts",
+   "router": "constructionRegistryRouter",
+   "top": "apps/api/src/routes/constructionRegistry.ts::constructionRegistryRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = previewBodySchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой previewBodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);",
+     "a": [
+      "зовёт previewRegistryMatch()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/projects",
+   "mount": "/api/v1/construction-registry",
+   "full": "/api/v1/construction-registry/projects",
+   "file": "apps/api/src/routes/constructionRegistry.ts",
+   "router": "constructionRegistryRouter",
+   "top": "apps/api/src/routes/constructionRegistry.ts::constructionRegistryRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = searchQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой searchQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);",
+     "a": [
+      "зовёт loadRegistrySettings()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!enabled || !updated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(body);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const hits = await searchRegistryProjects(parsed.data);",
+     "a": [
+      "зовёт searchRegistryProjects()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(body);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "DELETE",
    "path": "/property/:id/link",
    "mount": "/api/v1/construction-registry",
@@ -18945,6 +19082,85 @@
     {
      "k": "do",
      "t": "res.json(await buildPropertyResponse(toMatchInput(property), true));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/property/:id/none",
+   "mount": "/api/v1/construction-registry",
+   "full": "/api/v1/construction-registry/property/:id/none",
+   "file": "apps/api/src/routes/constructionRegistry.ts",
+   "router": "constructionRegistryRouter",
+   "top": "apps/api/src/routes/constructionRegistry.ts::constructionRegistryRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!property",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!canEditLink(req, property)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Менять привязку может ответственный агент или руководитель\" });",
+       "a": [
+        "ответ 403 — «Менять привязку может ответственный агент или руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const { enabled } = await loadRegistrySettings();",
+     "a": [
+      "зовёт loadRegistrySettings()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "enabled",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await markNotInRegistry(property.id, req.agent!.id);",
+       "a": [
+        "зовёт markNotInRegistry()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await buildPropertyResponse(toMatchInput(property), enabled));",
      "a": [
       "ответ 200"
      ],
@@ -56018,6 +56234,29 @@
     },
     {
      "k": "do",
+     "t": "const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой registryChoiceBodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!registryChoice.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: registryChoice.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
      "t": "const existing = await prisma.property.findUnique({ where: { id: req.params.id } });",
      "a": [
       "читает в базе: property"
@@ -56819,12 +57058,34 @@
      "c": []
     },
     {
-     "k": "do",
-     "t": "void autoLinkPropertyById(updated.id, req.agent!.id);",
-     "a": [
-      "зовёт autoLinkPropertyById()"
-     ],
-     "c": []
+     "k": "if",
+     "t": "registryChoice.data.registry",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);",
+       "a": [
+        "зовёт applyRegistryChoice()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void applyRegistryChoice(updated.id, undefined, req.agent!.id);",
+       "a": [
+        "зовёт applyRegistryChoice()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
