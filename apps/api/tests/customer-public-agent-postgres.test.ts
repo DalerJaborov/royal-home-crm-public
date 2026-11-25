@@ -357,13 +357,15 @@ it("public continuation reads only a genuine same-author ancestor with accepted 
   const stored = await prisma.instagramComment.findUniqueOrThrow({ where: { id: parent.ref.id } });
   const child = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: parent.row.authorId, parentId: stored.replyCommentId! });
   const w = wire(child, commission);
-  expect(await handle(child)).toBe("replied"); expect(w.modelBodies[0]).toContain("Какая комиссия?"); expect(w.modelBodies[0]).toContain("Комиссия для продавца");
+  // Тот же ответ о комиссии тому же автору под тем же постом второй раз не уходит — человеку (разбор 23.11, K14–K16);
+  // память ветки модель при этом прочитала.
+  expect(await handle(child)).toBe("escalated"); expect(w.posts).toEqual([]); expect(w.modelBodies[0]).toContain("Какая комиссия?"); expect(w.modelBodies[0]).toContain("Комиссия для продавца");
   const stranger = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: `${tag}-stranger`, parentId: stored.replyCommentId! });
   const otherWire = wire(stranger, commission); expect(await handle(stranger)).toBe("replied");
   expect(otherWire.modelBodies[0]).not.toContain("Какая комиссия?"); expect(otherWire.modelBodies[0]).not.toContain("Комиссия для продавца");
   await prisma.instagramComment.update({ where: { id: parent.ref.id }, data: { text: "Edited parent must not be memory" } });
   const edited = await fixture("Поясните", "INSTAGRAM", { ...parent, authorId: parent.row.authorId, parentId: stored.replyCommentId! });
-  const editedWire = wire(edited, commission); expect(await handle(edited)).toBe("replied");
+  const editedWire = wire(edited, commission); expect(await handle(edited)).toBe("escalated");
   expect(editedWire.modelBodies[0]).not.toContain("Edited parent must not be memory");
   expect(editedWire.modelBodies[0]).not.toContain("Какая комиссия?");
 });

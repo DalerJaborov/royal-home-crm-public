@@ -40,6 +40,7 @@ import { beginShutdown, drainBackgroundTasks } from "./lib/shutdownState.js";
 import { closeAllStreams } from "./lib/eventBus.js";
 import { resetIncompleteProcessedMessages } from "./lib/webhookDedupe.js";
 import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevisionStartCheck.js";
+import { applyHttpServerTimeouts } from "./lib/httpServerTimeouts.js";
 
 assertProductionEnv();
 
@@ -290,6 +291,8 @@ const server = app.listen(port, () => {
     console.log("[api] ENABLE_BACKGROUND=0 — кроны и Telegram живут в worker-контейнере");
   }
 });
+// Таймауты сервера под медленную загрузку частями — lib/httpServerTimeouts.ts.
+applyHttpServerTimeouts(server);
 
 /**
  * МЯГКАЯ СМЕРТЬ ПО SIGTERM (26.08.2026, совет архитектурного ревью).

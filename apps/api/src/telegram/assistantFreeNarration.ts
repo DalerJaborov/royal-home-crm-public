@@ -15,17 +15,25 @@ import { createHash } from "node:crypto";
 import { pickNarrationVoice, type NarrationConfig } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { claimCallback } from "../lib/telegramCallbackClaim.js";
+import { freeNarrationAdTextEnabled, freeNarrationLimits, freeNarrationOfferEnabled, freeNarrationVoiceStepperEnabled } from "@royal-home/shared";
+import { stepperHasBothGenders, stepperStartPos, stepperVoices, stepperWrap, voiceFilterOf, type VoiceFilter } from "../lib/narrationVoiceStepper.js";
+import { isAiAssistantEnabled } from "../ai/assistant.js";
+import { adFactsUsable, generateAdScript, parseAdTextRequest, type AdScriptResult } from "../ai/assistant/adScript.js";
+import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
-  cancelFreeNarration, claimFreeNarration, clearFreeNarrationTextWait, createFreeNarrationRequest, executeFreeNarration, freeNarrationFilePath, pendingFreeNarrationTextWait,
-  setFreeNarrationLang, startFreeNarrationTextWait, type FreeNarrationClaim, type FreeNarrationRow, type FreeNarrationRunOutcome,
+  cancelFreeNarration, claimFreeNarration, clearFreeNarrationTextWait, confirmFreeNarrationDraft, createFreeNarrationDraft, createFreeNarrationRequest, dropFreeNarrationDraft, executeFreeNarration,
+  freeNarrationFilePath, loadFreeNarrationDraft, pendingFreeNarrationTextWaitMode, lockAdRewrite, finishAdRewrite, setFreeNarrationLang, startFreeNarrationTextWait, canUseFreeNarration,
+  FREE_NARRATION_AD_REWRITES_MAX, type FreeNarrationClaim, type FreeNarrationDraftKind, type FreeNarrationRow, type FreeNarrationRunOutcome,
 } from "../lib/freeNarration.js";
-import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
+import { loadNarrationConfiguration, readyVoiceSamples } from "../lib/narrationGeneration.js";
 import { narrationLastChoiceFor } from "../lib/narrationLastChoice.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { logSystemError } from "../lib/systemError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
-import { answerCallbackQuery, editMessageText, sendDocumentFile, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton } from "./api.js";
+import { answerCallbackQuery, deletePrivateMessage, editMessageText, sendChatAction, sendDocumentFile, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage, type TelegramInlineButton } from "./api.js";
 import { chatLang, sendVoiceSamples } from "./assistantNarration.js";
+import { closeVoiceCard, dropVoiceCard, presentVoiceCard, type PickerEdit } from "./voicePickerCard.js";
+import { localVideoFilePath } from "../lib/localVideoStorage.js";
 
 type Lang = "ru" | "tg";
 const MAX_VOICE_BUTTONS = 8;
@@ -133,8 +141,32 @@ const copy = {
     notConfigured: "Озвучка пока не настроена: нет голосов или ключа. Напишите руководителю.",
     tooShort: "Текст слишком короткий.",
     tooLong: (max: number, len: number) => `Текст длиннее ${max} знаков (у вас ${len}). Сократите его или пришлите частями.`,
-    ask: "Хорошо. Пришлите текст одним сообщением, не голосом. Чтобы отменить, напишите «отмена».",
+    ask: "Хорошо. Пришлите текст одним сообщением (можно и голосом: я покажу, что расслышала, и вы поправите). Чтобы отменить, напишите «отмена».",
     voiceOnly: "Пришлите, пожалуйста, текст сообщением, а не голосом.",
+    adAsk: "Хорошо, напишу. Пришлите факты одним сообщением: название, район, цена, главные плюсы, контакты, если нужны. Я возьму только их, ничего не добавлю от себя. Чтобы отменить, напишите «отмена».",
+    adShort: "Фактов маловато для текста. Пришлите название, район, цену и главные плюсы одним сообщением.",
+    adWorking: "⏳ Пишу текст из ваших фактов…",
+    adHead: (chars: number) => `Вот текст (${chars} знаков), только из ваших фактов. Проверьте цифры и названия. Если всё верно, нажмите «Озвучить».`,
+    adUnsafe: "Не получилось написать текст так, чтобы в нём были только ваши факты. Пришлите факты чуть подробнее или готовый текст через «Озвучь текст:».",
+    adBusy: "Сейчас не получается написать текст: помощница недоступна или не ответила. Попробуйте через несколько минут или пришлите готовый текст через «Озвучь текст:».",
+    adRewriteLimit: "Текст уже переписывали несколько раз. Нажмите «Править» и пришлите свой вариант.",
+    voiceDraftHead: (chars: number) => `Я расслышала так (${chars} знаков). Озвучка читает слово в слово, поэтому проверьте текст. Если всё верно, нажмите «Озвучить как есть».`,
+    editAsk: "Хорошо. Пришлите исправленный текст одним сообщением, набранным. Чтобы отменить, напишите «отмена».",
+    offerHead: (chars: number) => `Могу озвучить этот текст слово в слово (${chars} знаков).`,
+    textHead: (chars: number) => `Принят текст (${chars} знаков), просьбу «озвучь» я убрала. Читается слово в слово. Если всё верно, нажмите «Озвучить как есть».`,
+    heardNothing: "Не удалось расслышать текст. Пришлите его сообщением.",
+    step: {
+      performer: "Образец голоса",
+      card: (p: { name: string; gender?: "male" | "female"; n: number; total: number; recommended: boolean; last: boolean; chars: number; lang: string; preview: string; hasSample: boolean }) => [
+        `🎙 ${p.name}`,
+        [p.gender === "female" ? "Женский голос" : p.gender === "male" ? "Мужской голос" : "Голос", `${p.n} из ${p.total}`, p.recommended ? "рекомендуем" : "", p.last ? "вы выбирали его в прошлый раз" : ""].filter(Boolean).join(" · "),
+        "",
+        `Ваш текст (${p.chars} знаков, ${p.lang}): «${p.preview}»`,
+        p.hasSample ? "Нажмите ▶ и послушайте образец. Понравился — «Озвучить этим голосом»." : "Образца этого голоса пока нет, но выбрать его можно.",
+      ].join("\n"),
+      choose: "🎙 Озвучить этим голосом", prev: "◀ Предыдущий", next: "Следующий ▶", all: "Все голоса", male: "Мужские", female: "Женские", none: "Для этого фильтра голосов нет.",
+    },
+    b2: { ok: "🎙 Озвучить", asIs: "🎙 Озвучить как есть", offer: "🎙 Озвучить этот текст", edit: "✏️ Править", fix: "✏️ Исправить (пришлю текстом)", rewrite: "🔄 Переписать" },
     cancelled: "Отменено.",
     head: (chars: number, lang: string) => `Текст принят: ${chars} знаков, язык: ${lang}. Выберите голос, он прочитает слово в слово.`,
     langName: { ru: "русский", tg: "таджикский", none: "не определён, читаю как есть" },
@@ -157,8 +189,32 @@ const copy = {
     notConfigured: "Овозонӣ ҳоло танзим нашудааст: овоз ё калид нест. Ба роҳбар нависед.",
     tooShort: "Матн хеле кӯтоҳ аст.",
     tooLong: (max: number, len: number) => `Матн аз ${max} аломат дарозтар аст, шумо ${len} аломат навиштед. Онро кӯтоҳ кунед ё қисм-қисм фиристед.`,
-    ask: "Хуб. Матнро бо як паём фиристед, на бо овоз. Барои бекор кардан «бекор» нависед.",
+    ask: "Хуб. Матнро бо як паём фиристед (бо овоз ҳам мешавад: ман он чи шунидамро нишон медиҳам, шумо ислоҳ мекунед). Барои бекор кардан «бекор» нависед.",
     voiceOnly: "Матнро, лутфан, бо паём фиристед, на бо овоз.",
+    adAsk: "Хуб, менависам. Далелҳоро бо як паём фиристед: ном, маҳалла, нарх, афзалиятҳои асосӣ ва, агар лозим бошад, тамос. Ман танҳо ҳамонҳоро мегирам, аз худам чизе илова намекунам. Барои бекор кардан «бекор» нависед.",
+    adShort: "Барои матн далелҳо кам аст. Ном, маҳалла, нарх ва афзалиятҳои асосиро бо як паём фиристед.",
+    adWorking: "⏳ Аз далелҳои шумо матн менависам…",
+    adHead: (chars: number) => `Ин матн (${chars} аломат), танҳо аз далелҳои шумо. Рақамҳо ва номҳоро санҷед. Агар ҳама дуруст бошад, «Овоз додан»-ро пахш кунед.`,
+    adUnsafe: "Матнро чунин навишта натавонистам, ки танҳо далелҳои шумо дар он бошанд. Далелҳоро муфассалтар фиристед ё матни тайёрро бо «Матнро овоз кун:» диҳед.",
+    adBusy: "Ҳоло навиштани матн намешавад: ёрдамчӣ дастрас нест ё ҷавоб надод. Баъди чанд дақиқа кӯшиш кунед ё матни тайёрро бо «Матнро овоз кун:» фиристед.",
+    adRewriteLimit: "Матн якчанд бор аз нав навишта шуд. «Ислоҳ»-ро пахш кунед ва варианти худро фиристед.",
+    voiceDraftHead: (chars: number) => `Ман чунин шунидам (${chars} аломат). Овозонӣ калима ба калима мехонад, барои ҳамин матнро санҷед. Агар ҳама дуруст бошад, «Айнан овоз диҳед»-ро пахш кунед.`,
+    editAsk: "Хуб. Матни ислоҳшударо бо як паём, навишта фиристед. Барои бекор кардан «бекор» нависед.",
+    offerHead: (chars: number) => `Ин матнро калима ба калима овоз дода метавонам (${chars} аломат).`,
+    textHead: (chars: number) => `Матн қабул шуд (${chars} аломат), хоҳиши «овоз кун»-ро хориҷ кардам. Калима ба калима хонда мешавад. Агар ҳама дуруст бошад, «Айнан овоз диҳед»-ро пахш кунед.`,
+    heardNothing: "Матнро шунида натавонистам. Онро бо паём фиристед.",
+    step: {
+      performer: "Намунаи овоз",
+      card: (p: { name: string; gender?: "male" | "female"; n: number; total: number; recommended: boolean; last: boolean; chars: number; lang: string; preview: string; hasSample: boolean }) => [
+        `🎙 ${p.name}`,
+        [p.gender === "female" ? "Овози занона" : p.gender === "male" ? "Овози мардона" : "Овоз", `${p.n} аз ${p.total}`, p.recommended ? "тавсия мекунем" : "", p.last ? "бори охир интихоб кардед" : ""].filter(Boolean).join(" · "),
+        "",
+        `Матни шумо (${p.chars} аломат, ${p.lang}): «${p.preview}»`,
+        p.hasSample ? "Тугмаи ▶-ро пахш карда, намунаро гӯш кунед. Маъқул шуд — «Бо ин овоз овоз диҳед»." : "Намунаи ин овоз ҳоло нест, аммо онро интихоб кардан мумкин аст.",
+      ].join("\n"),
+      choose: "🎙 Бо ин овоз овоз диҳед", prev: "◀ Қаблӣ", next: "Баъдӣ ▶", all: "Ҳама овозҳо", male: "Мардона", female: "Занона", none: "Барои ин филтр овоз нест.",
+    },
+    b2: { ok: "🎙 Овоз додан", asIs: "🎙 Айнан овоз диҳед", offer: "🎙 Ин матнро овоз диҳед", edit: "✏️ Ислоҳ", fix: "✏️ Ислоҳ (бо матн мефиристам)", rewrite: "🔄 Аз нав навиштан" },
     cancelled: "Бекор шуд.",
     head: (chars: number, lang: string) => `Матн қабул шуд: ${chars} аломат, забон: ${lang}. Овозро интихоб кунед, он айнан мехонад.`,
     langName: { ru: "русӣ", tg: "тоҷикӣ", none: "муайян нашуд, ҳамон тавр мехонам" },
@@ -197,13 +253,67 @@ function voiceButtons(row: FreeNarrationRow, config: NarrationConfig, lang: Lang
   return rows;
 }
 
-async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, edit?: { messageId: number }): Promise<void> {
+/** Начало текста для карточки: человек видит, ЧТО именно будет озвучено, и не выбирает голос вслепую. */
+function scriptPreview(script: string): string {
+  const flat = script.replace(/\s+/gu, " ").trim();
+  return flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat;
+}
+
+/**
+ * Голос по одному (рубильник freeNarrationVoiceStepper, по умолчанию включён). Одна карточка = одно сообщение:
+ * образец-плеер с именем голоса, под ним подпись (кто это, какой по счёту, ваш текст) и кнопки. Листание, пол и язык
+ * правят это же сообщение, прежние образцы в чате не копятся (telegram/voicePickerCard.ts).
+ * «Озвучить этим голосом» — та же платная кнопка `fnr:p`, что и в списке: нажатие сразу запускает озвучку, поэтому
+ * кнопка так и называется.
+ */
+async function showVoiceStep(chatId: string, row: FreeNarrationRow, lang: Lang, config: NarrationConfig, lastVoiceId: string | undefined, want: { pos?: number; filter: VoiceFilter }, edit?: PickerEdit): Promise<void> {
+  const c = copy[lang];
+  let filter = want.filter;
+  let list = stepperVoices(config, filter);
+  if (!list.length) { filter = "a"; list = stepperVoices(config, "a"); }
+  if (!list.length) { await sendMessage(chatId, c.step.none); return; }
+  const pos = stepperWrap(want.pos ?? stepperStartPos(list, lastVoiceId), list.length);
+  const voice = list[pos]!;
+  const defaultId = pickNarrationVoice(config);
+  const stepLang = row.lang === "tg" ? "tg" : "ru";
+  const found = (await readyVoiceSamples(config).catch(() => [])).find((x) => x.voiceId === voice.id && x.lang === stepLang);
+  const samplePath = found ? localVideoFilePath(found.storageKey) : null;
+  const sample = found && samplePath ? { key: found.storageKey, path: samplePath } : null;
+  const key = (p: number, f: VoiceFilter = filter) => `${stepperWrap(p, list.length)}${f}`;
+  const both = stepperHasBothGenders(config);
+  const rows: TelegramInlineButton[][] = [
+    [{ text: c.step.choose, callback_data: `fnr:p:${row.id}:${voice.index}:${voiceHash(voice.id)}` }],
+    ...(list.length > 1 ? [[{ text: c.step.prev, callback_data: `fnr:v:${row.id}:${key(pos - 1)}` }, { text: c.step.next, callback_data: `fnr:v:${row.id}:${key(pos + 1)}` }]] : []),
+    ...(both ? [[
+      { text: `${filter === "a" ? "✓ " : ""}${c.step.all}`, callback_data: `fnr:v:${row.id}:0a` },
+      { text: `${filter === "f" ? "✓ " : ""}${c.step.female}`, callback_data: `fnr:v:${row.id}:0f` },
+      { text: `${filter === "m" ? "✓ " : ""}${c.step.male}`, callback_data: `fnr:v:${row.id}:0m` },
+    ]] : []),
+    [
+      { text: `${row.lang === "ru" ? "✓ " : ""}Русский`, callback_data: `fnr:l:${row.id}:ru` },
+      { text: `${row.lang === "tg" ? "✓ " : ""}Тоҷикӣ`, callback_data: `fnr:l:${row.id}:tg` },
+    ],
+    [{ text: c.b.cancel, callback_data: `fnr:x:${row.id}` }],
+  ];
+  const text = c.step.card({
+    name: voice.name, gender: voice.gender, n: pos + 1, total: list.length, recommended: voice.id === defaultId, last: voice.id === lastVoiceId,
+    chars: row.script.length, lang: langLabel(lang, row.lang), preview: scriptPreview(row.script), hasSample: Boolean(sample),
+  });
+  const present = presentVoiceCard({ chatId, edit, sample, filename: `sample-${voice.id.replace(/[^\w-]/gu, "").slice(0, 24) || "voice"}.mp3`, title: voice.name, performer: c.step.performer, text, buttons: rows });
+  if (!edit) { await present; return; }
+  // Нажатие: загрузка образца (до минуты) в фоне, очередь входящих у бота одна на все чаты. Порядок нажатий держит сама карточка.
+  void trackBackgroundTask(present.catch((err) => { void logSystemError("telegram", `Голос по одному в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-voice-step" }); }));
+}
+
+async function showChoices(chatId: string, row: FreeNarrationRow, lang: Lang, edit?: PickerEdit): Promise<void> {
   const { config } = await loadNarrationConfiguration();
   const last = await narrationLastChoiceFor(row.agentId, config);
+  const stepLang = row.lang === "tg" ? "tg" : "ru";
+  const hasSamples = freeNarrationVoiceStepperEnabled(config) && config.voices.length > 0 && (await readyVoiceSamples(config).catch(() => [])).some((x) => x.lang === stepLang);
+  if (hasSamples) { await showVoiceStep(chatId, row, lang, config, last.voiceId, { filter: "a" }, edit); return; }
   const text = copy[lang].head(row.script.length, langLabel(lang, row.lang));
   const buttons = voiceButtons(row, config, lang, last.voiceId);
-  if (edit) await editMessageText(chatId, edit.messageId, text, buttons);
-  else await sendMessageWithButtons(chatId, text, buttons);
+  await presentVoiceCard({ chatId, edit, sample: null, filename: "", title: "", performer: "", text, buttons });
 }
 
 function failureText(outcome: FreeNarrationRunOutcome, lang: Lang): string | null {
@@ -229,23 +339,183 @@ async function createAndShow(chatId: string, agentId: string, text: string, lang
     : outcome.status === "TOO_SHORT" ? c.tooShort : outcome.status === "TOO_LONG" ? c.tooLong(outcome.max, outcome.length) : c.failed);
 }
 
+const DRAFT_PREVIEW_MAX = 3500;
+
+function draftButtons(rowId: string, kind: FreeNarrationDraftKind, lang: Lang): TelegramInlineButton[][] {
+  const c = copy[lang];
+  if (kind === "OFFER") return [[{ text: c.b2.offer, callback_data: `fnr:o:${rowId}` }, { text: c.b.cancel, callback_data: `fnr:x:${rowId}` }]];
+  if (kind === "AD") {
+    return [
+      [{ text: c.b2.ok, callback_data: `fnr:o:${rowId}` }, { text: c.b2.edit, callback_data: `fnr:e:${rowId}` }],
+      [{ text: c.b2.rewrite, callback_data: `fnr:r:${rowId}` }, { text: c.b.cancel, callback_data: `fnr:x:${rowId}` }],
+    ];
+  }
+  return [[{ text: c.b2.asIs, callback_data: `fnr:o:${rowId}` }], [{ text: c.b2.fix, callback_data: `fnr:e:${rowId}` }, { text: c.b.cancel, callback_data: `fnr:x:${rowId}` }]];
+}
+
+function draftText(row: FreeNarrationRow, kind: FreeNarrationDraftKind, lang: Lang): string {
+  const c = copy[lang];
+  if (kind === "OFFER") return c.offerHead(row.script.length);
+  return `${kind === "AD" ? c.adHead(row.script.length) : kind === "TEXT" ? c.textHead(row.script.length) : c.voiceDraftHead(row.script.length)}\n\n${row.script}`;
+}
+
+/** Черновик целиком (текст длиннее лимита Telegram идёт частями, кнопки под последней: человек подтверждает всё, что видел). */
+async function sendDraft(chatId: string, row: FreeNarrationRow, kind: FreeNarrationDraftKind, lang: Lang): Promise<void> {
+  const buttons = draftButtons(row.id, kind, lang);
+  const text = draftText(row, kind, lang);
+  if (text.length <= DRAFT_PREVIEW_MAX) { await sendMessageWithButtons(chatId, text, buttons); return; }
+  const parts = text.match(/[\s\S]{1,3500}/gu) ?? [text];
+  for (const part of parts.slice(0, -1)) await sendMessage(chatId, part);
+  await sendMessageWithButtons(chatId, parts[parts.length - 1], buttons);
+}
+
+/** Черновик текста со своим набором кнопок. Деньги ElevenLabs до «Озвучить» не тратятся. */
+async function createDraftAndShow(chatId: string, agentId: string, text: string, kind: FreeNarrationDraftKind, lang: Lang, facts?: string): Promise<boolean> {
+  const c = copy[lang];
+  const outcome = await createFreeNarrationDraft({ agentId, chatId, text, kind, facts });
+  if (outcome.status === "CREATED") { await sendDraft(chatId, outcome.row, kind, lang); return true; }
+  if (kind === "OFFER") return false;
+  await sendMessage(chatId, outcome.status === "NO_ACCESS" ? c.noAccess : outcome.status === "OFF" ? c.off : outcome.status === "NOT_CONFIGURED" ? c.notConfigured
+    : outcome.status === "TOO_SHORT" ? c.tooShort : outcome.status === "TOO_LONG" ? c.tooLong(outcome.max, outcome.length) : c.failed);
+  return false;
+}
+
+/** Расшифровка голосового как текст озвучки: показать и спросить, деньги не тратятся (23.11.2026). */
+export async function showVoiceNarrationDraft(chatId: string, agentId: string, heardText: string, lang: Lang, kind: "VOICE" | "TEXT" = "VOICE"): Promise<void> {
+  await createDraftAndShow(chatId, agentId, heardText, kind, lang);
+}
+
+/** Текст после слова-просьбы в расшифровке длинной диктовки («озвучь, …текст…»); без просьбы в начале — как есть. */
+export function narrationBodyAfterCue(text: string): string {
+  const cue = DICTATION_CUE.exec(text);
+  if (!cue || cue.index > 80) return text.trim();
+  // «озвучь вот это: …», «озвучь этот текст …»: слова-указатели тоже часть просьбы.
+  return text.slice(cue.index + cue[0].length).replace(/^[\s,:;.!?—–-]+/u, "").replace(/^(?:(?:вот\s+это|вот\s+так|вот|это|этот\s+текст|текст)(?![\p{L}\p{N}])[\s,:;.!?—–-]*)+/iu, "").trim();
+}
+
+function adFailureText(result: Exclude<AdScriptResult, { status: "OK" }>, lang: Lang): string {
+  return result.status === "UNAVAILABLE" ? copy[lang].adBusy : copy[lang].adUnsafe;
+}
+
+/** Модель пишет сценарий из фактов. Денежный предел или обрыв — понятный отказ, а не молчание. */
+async function writeAd(facts: string, wallet: AssistantMoneyWallet, maxChars: number, extra?: { variant: number; avoid: string }): Promise<AdScriptResult> {
+  try {
+    return await generateAdScript({ facts, wallet, maxChars, variant: extra?.variant, avoid: extra?.avoid });
+  } catch (err) {
+    void logSystemError("telegram", `Рекламный текст для озвучки не написан: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-ad-script" });
+    return { status: "UNAVAILABLE" };
+  }
+}
+
+async function adAllowed(agentId: string): Promise<"OK" | "NO_ACCESS" | "OFF" | "NOT_CONFIGURED"> {
+  if (!await canUseFreeNarration(agentId)) return "NO_ACCESS";
+  // Выключенная помощница не зовёт Gemini и для рекламного текста.
+  if (!await isAiAssistantEnabled()) return "OFF";
+  const { config, key } = await loadNarrationConfiguration();
+  if (!freeNarrationAdTextEnabled(config)) return "OFF";
+  return key ? "OK" : "NOT_CONFIGURED";
+}
+
+/** Факты у нас: пишем текст и показываем черновик (деньги ElevenLabs не тратятся). */
+async function writeAdAndShow(chatId: string, agentId: string, facts: string, lang: Lang, wallet: AssistantMoneyWallet): Promise<void> {
+  const c = copy[lang];
+  if (!adFactsUsable(facts)) { await sendMessage(chatId, c.adShort); return; }
+  // Права, рубильники и ключ проверяются ДО Gemini (ожидание фактов могло пережить смену настроек).
+  const allowed = await adAllowed(agentId);
+  if (allowed !== "OK") { await sendMessage(chatId, allowed === "NO_ACCESS" ? c.noAccess : allowed === "OFF" ? c.off : c.notConfigured); return; }
+  await sendMessage(chatId, c.adWorking);
+  void sendChatAction(chatId).catch(() => {});
+  const { config } = await loadNarrationConfiguration();
+  const result = await writeAd(facts, wallet, freeNarrationLimits(config).maxChars);
+  if (result.status !== "OK") { await sendMessage(chatId, adFailureText(result, lang)); return; }
+  await createDraftAndShow(chatId, agentId, result.script, "AD", lang, facts);
+}
+
+/**
+ * «Сделай рекламный текст и озвучь» (23.11.2026): true — сообщение наше. Факты в самой просьбе: пишем сразу;
+ * без фактов: ждём их следующим сообщением (метка AD). Рубильник «рекламный текст» выключен: false, и просьба идёт дальше как раньше.
+ */
+export async function handleAdTextRequest(chatId: string, agentId: string, text: string, lang: Lang, wallet: AssistantMoneyWallet = createAssistantMoneyWallet()): Promise<boolean> {
+  const request = parseAdTextRequest(text);
+  if (!request) return false;
+  const allowed = await adAllowed(agentId);
+  const c = copy[lang];
+  if (allowed === "OFF") return false;
+  if (allowed !== "OK") { await sendMessage(chatId, allowed === "NO_ACCESS" ? c.noAccess : c.notConfigured); return true; }
+  try {
+    if (!request.facts) {
+      const started = await startFreeNarrationTextWait(agentId, chatId, "AD");
+      await sendMessage(chatId, started === "OK" ? c.adAsk : started === "OFF" ? c.off : started === "NOT_CONFIGURED" ? c.notConfigured : c.noAccess);
+      return true;
+    }
+    await writeAdAndShow(chatId, agentId, request.facts, lang, wallet);
+  } catch (err) {
+    void logSystemError("telegram", `Рекламный текст в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-ad-message" });
+    await sendMessage(chatId, c.failed).catch(() => {});
+  }
+  return true;
+}
+
+/**
+ * КНОПКА «ОЗВУЧИТЬ ЭТОТ ТЕКСТ» ПОД ДЛИННЫМ СООБЩЕНИЕМ БЕЗ «озвучь» (23.11.2026). Вызывается после ответа помощницы
+ * на набранное (не голос, не пересланное, не файл) сообщение, не взятое другими обработчиками. Показываем только на
+ * сообщение, похожее на готовый текст: от 30 слов, без вопроса, не начинается с команды помощнице; не чаще раза в пять минут.
+ * Сам текст не пересылается: кнопка держит черновик (OFFER) в базе, нажатие ведёт к обычному выбору голоса.
+ */
+export const OFFER_MIN_WORDS = 30;
+const COMMAND_START = /^\s*(?:шабнам[\s,:!-]*)?(?:пожалуйста[\s,]*)?(?:найди|покажи|внеси|добавь|создай|запиши|измени|поменяй|удали|поставь|сделай|напиши|отправь|скажи|ответь|проверь|подскажи|помоги|посчитай|объясни|расскажи|сколько|как|что|где|когда|почему|зачем|можно|можешь|а\s|и\s|нишон\s+деҳ|навис|ҷавоб\s+деҳ|санҷ|кумак\s+кун|бигӯ|чанд|чӣ|чӣ\s+хел|кай|куҷо|чаро)(?![\p{L}\p{N}])/iu;
+export function looksLikeOfferableText(text: string): boolean {
+  const t = text.trim();
+  if (t.startsWith("/") || /[?？]/u.test(t) || COMMAND_START.test(t)) return false;
+  return t.split(/\s+/u).filter(Boolean).length >= OFFER_MIN_WORDS;
+}
+
+export async function offerNarrationButton(chatId: string, agentId: string, text: string, lang: Lang): Promise<boolean> {
+  if (!looksLikeOfferableText(text)) return false;
+  if (!await canUseFreeNarration(agentId)) return false;
+  const { config, key } = await loadNarrationConfiguration();
+  if (!freeNarrationOfferEnabled(config) || !key || text.trim().length > freeNarrationLimits(config).maxChars) return false;
+  // Не чаще раза в 15 минут и никогда поверх чужого открытого черновика или ожидания текста.
+  const busy = await prisma.freeNarration.findFirst({ where: { chatId, status: { in: ["DRAFT", "AWAITING_TEXT"] }, createdAt: { gte: new Date(Date.now() - 15 * 60_000) } }, select: { id: true } });
+  if (busy) return false;
+  return createDraftAndShow(chatId, agentId, text.trim(), "OFFER", lang);
+}
+
+export type FreeNarrationTranscriber = (msg: TelegramIncomingMessage) => Promise<{ text: string } | { error: string }>;
+
 /**
  * Личный чат: true — сообщение наше (просьба «озвучь» или текст после неё). false — обычное сообщение,
  * дальше работает помощник. Пересланное сообщение принимается только как текст, которого мы уже ждём.
+ * Голос в ожидании текста (23.11.2026) расшифровывается и показывается черновиком: озвучка читает слово в слово,
+ * а расшифровка ошибается, поэтому деньги не тратятся, пока человек не подтвердил текст.
  */
-export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, agent: { id: string }, forwarded = false): Promise<boolean> {
+export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, agent: { id: string }, forwarded = false, transcribe?: FreeNarrationTranscriber, wallet?: AssistantMoneyWallet): Promise<boolean> {
   if (msg.chat.type !== "private") return false;
   const chatId = String(msg.chat.id);
   const text = (forwarded ? msg.text ?? msg.caption ?? "" : msg.text ?? "").trim();
   const trigger = !forwarded && text ? parseFreeNarrationTrigger(text) : null;
-  const waiting = await pendingFreeNarrationTextWait(agent.id, chatId);
+  const waitMode = await pendingFreeNarrationTextWaitMode(agent.id, chatId);
+  const waiting = waitMode !== null;
   const lang = await chatLang(chatId);
   const c = copy[lang];
   try {
     if (waiting && !trigger) {
-      if (!text) { if (msg.voice || msg.audio) { await sendMessage(chatId, c.voiceOnly); return true; } return false; }
+      if (!text) {
+        if (!(msg.voice || msg.audio)) return false;
+        if (!transcribe) { await sendMessage(chatId, c.voiceOnly); return true; }
+        const heard = await transcribe(msg).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
+        const heardText = "text" in heard ? heard.text.trim() : "";
+        if (!heardText) { await sendMessage(chatId, ("error" in heard && heard.error) || c.heardNothing); return true; }
+        if (CANCEL_WORDS.test(heardText)) { await clearFreeNarrationTextWait(chatId); await sendMessage(chatId, c.cancelled); return true; }
+        if (waitMode === "AD") await writeAdAndShow(chatId, agent.id, heardText, lang, wallet ?? createAssistantMoneyWallet());
+        else await showVoiceNarrationDraft(chatId, agent.id, heardText, lang);
+        return true;
+      }
       if (text.startsWith("/")) { await clearFreeNarrationTextWait(chatId); return false; }
       if (CANCEL_WORDS.test(text)) { await clearFreeNarrationTextWait(chatId); await sendMessage(chatId, c.cancelled); return true; }
+      // Ожидание фактов не забирает обычные вопросы и команды помощнице: они идут дальше как всегда.
+      if (waitMode === "AD" && (COMMAND_START.test(text) || /[?？]\s*$/u.test(text))) { await clearFreeNarrationTextWait(chatId); return false; }
+      if (waitMode === "AD") { await writeAdAndShow(chatId, agent.id, text, lang, wallet ?? createAssistantMoneyWallet()); return true; }
       await createAndShow(chatId, agent.id, text, lang);
       return true;
     }
@@ -267,7 +537,7 @@ export async function handleFreeNarrationMessage(msg: TelegramIncomingMessage, a
   }
 }
 
-const CALLBACK = /^fnr:(p|l|x|s):([\da-f-]{36})(?::([a-z\d]{1,4}))?(?::([\da-f]{4}))?$/u;
+const CALLBACK = /^fnr:(p|l|x|s|o|e|r|v):([\da-f-]{36})(?::([a-z\d]{1,4}))?(?::([\da-f]{4}))?$/u;
 
 /** `fnr:p|l|x|s:<запрос>…`. true — это наша кнопка. */
 export async function handleFreeNarrationCallback(query: TelegramCallbackQuery): Promise<boolean> {
@@ -282,15 +552,28 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
   const lang = await chatLang(chatId);
   const c = copy[lang];
   const messageId = query.message?.message_id;
+  // Карточка с образцом голоса — это аудио с подписью, у него нет `text`; текстовая карточка (список голосов) — с `text`.
+  const edit: PickerEdit | undefined = messageId ? { messageId, isMedia: query.message?.text === undefined } : undefined;
   const [, action, id, arg, hash] = match;
   try {
     const agent = await findAgentByTelegramChatId(chatId);
     const row = await prisma.freeNarration.findUnique({ where: { id } });
     if (!agent || !row || row.agentId !== agent.id) { await answer(c.stale); return true; }
+    if (action === "o" || action === "e" || action === "r") { await handleDraftAction(action, id, agent.id, chatId, messageId, query.message?.text ?? "", lang, answer); return true; }
+    if (action === "v") {
+      const want = voiceFilterOf(arg);
+      if (!want || row.status !== "AWAITING_VOICE") { await answer(c.stale); return true; }
+      await answer();
+      const { config } = await loadNarrationConfiguration();
+      const last = await narrationLastChoiceFor(row.agentId, config);
+      await showVoiceStep(chatId, row, lang, config, last.voiceId, want, edit);
+      return true;
+    }
     if (action === "x") {
       await cancelFreeNarration(id, agent.id);
       await answer(c.cancelled);
-      if (messageId) await editMessageText(chatId, messageId, c.cancelled, null).catch(() => {});
+      // Карточка с образцом удаляется, вместо неё короткое «Отменено»: в чате не остаётся аудио с мёртвыми кнопками.
+      if (edit) await closeVoiceCard(chatId, edit, c.cancelled).catch(() => {});
       return true;
     }
     if (action === "l") {
@@ -298,7 +581,7 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
       if (!await setFreeNarrationLang(id, agent.id, arg)) { await answer(c.stale); return true; }
       await answer();
       const fresh = await prisma.freeNarration.findUnique({ where: { id } });
-      if (fresh && messageId) await showChoices(chatId, fresh, lang, { messageId }).catch(() => {});
+      if (fresh && edit) await showChoices(chatId, fresh, lang, edit).catch(() => {});
       return true;
     }
     if (action === "s") {
@@ -312,20 +595,24 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
     const voice = config.voices[Number(arg)];
     if (!voice || voiceHash(voice.id) !== hash) { await answer(c.voiceChanged); return true; }
     const retryData = query.data ?? "";
-    if (row.status === "READY") { await answer(); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
+    if (row.status === "READY" && row.voiceId && row.voiceId !== voice.id) { await answer(c.stale); return true; }
+    if (row.status === "READY") { await answer(); await dropVoiceCard(chatId, edit); await deliver(chatId, row, voice.name, lang, undefined, retryData); return true; }
     await answer(c.preparing);
     // Занять запись быстро, а вызов ElevenLabs и отправку файла (до двух минут) вынести из обработчика:
     // очередь входящих у бота одна на все чаты, долгий обработчик остановил бы их всех.
     const claimed = await claimFreeNarration({ id, agentId: agent.id, voiceId: voice.id });
-    if (claimed.status === "ALREADY_READY") { await deliver(chatId, claimed.row, voice.name, lang, undefined, retryData); return true; }
+    if (claimed.status === "ALREADY_READY") { await dropVoiceCard(chatId, edit); await deliver(chatId, claimed.row, voice.name, lang, undefined, retryData); return true; }
     if (claimed.status !== "CLAIMED") {
       const text = failureText(claimed, lang) ?? c.failed;
-      if (messageId && (claimed.status === "LIMIT_PERSON" || claimed.status === "BUDGET")) await editMessageText(chatId, messageId, text, null).catch(() => {});
+      if (edit && (claimed.status === "LIMIT_PERSON" || claimed.status === "BUDGET")) await closeVoiceCard(chatId, edit, text).catch(() => {});
       else await sendMessage(chatId, text);
       return true;
     }
-    if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${c.preparing}`, null).catch(() => {});
-    void trackBackgroundTask(finishFreeNarration(chatId, claimed.claim, lang, messageId, retryData));
+    // Карточка с образцом заменяется строкой «готовлю»; у текстовой карточки к её тексту дописывается «готовлю».
+    // Строка-статус карточки с образцом — отдельное сообщение: когда файл придёт, она удаляется.
+    const statusText = edit?.isMedia ? `${c.preparing} ${voice.name}` : `${query.message?.text ?? ""}\n\n${c.preparing}`;
+    const statusId = edit ? await closeVoiceCard(chatId, edit, statusText).catch(() => undefined) : undefined;
+    void trackBackgroundTask(finishFreeNarration(chatId, claimed.claim, lang, statusId, retryData, edit?.isMedia === true));
     return true;
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста, кнопка Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-callback" });
@@ -334,19 +621,86 @@ export async function handleFreeNarrationCallback(query: TelegramCallbackQuery):
   return true;
 }
 
-/** Фон: вызов ElevenLabs, отправка файла, итог в сообщении. Ошибки не уходят наружу: запись уже занята, итог должен дойти до человека. */
-async function finishFreeNarration(chatId: string, claim: FreeNarrationClaim, lang: Lang, messageId: number | undefined, retryData: string): Promise<void> {
+/**
+ * Кнопки черновика: o — «Озвучить» (черновик становится заявкой, дальше выбор голоса), e — «Править / Исправить»
+ * (ждём исправленный текст набранным), r — «Переписать» (только рекламный текст; Gemini в фоне, чтобы не держать общую очередь).
+ */
+async function handleDraftAction(action: "o" | "e" | "r", id: string, agentId: string, chatId: string, messageId: number | undefined, shownText: string, lang: Lang, answer: (text?: string) => Promise<unknown>): Promise<void> {
   const c = copy[lang];
+  const draft = await loadFreeNarrationDraft(id, agentId);
+  if (!draft) { await answer(c.stale); return; }
+  if (action === "o") {
+    if (draft.busy) { await answer(c.adWorking); return; }
+    const row = await confirmFreeNarrationDraft(id, agentId);
+    if (!row) { await answer(c.stale); return; }
+    await answer();
+    // Текст черновика остаётся в чате (он нужен для проверки), с него только снимаются кнопки.
+    if (messageId && shownText) await editMessageText(chatId, messageId, `${shownText}\n\n✓`, null).catch(() => {});
+    await showChoices(chatId, row, lang);
+    return;
+  }
+  if (action === "e") {
+    await dropFreeNarrationDraft(id, agentId);
+    const started = await startFreeNarrationTextWait(agentId, chatId);
+    await answer();
+    if (messageId && shownText) await editMessageText(chatId, messageId, shownText, null).catch(() => {});
+    await sendMessage(chatId, started === "OK" ? c.editAsk : started === "OFF" ? c.off : started === "NOT_CONFIGURED" ? c.notConfigured : c.noAccess);
+    return;
+  }
+  // r: «Переписать».
+  if (draft.kind !== "AD" || !draft.facts) { await answer(c.stale); return; }
+  if (draft.busy) { await answer(c.adWorking); return; }
+  if (draft.row.chars >= FREE_NARRATION_AD_REWRITES_MAX) { await answer(c.adRewriteLimit); return; }
+  // Занять черновик: два нажатия подряд дают одну генерацию, «Озвучить» ждёт нового текста.
+  if (!await lockAdRewrite(id, agentId)) { await answer(c.adWorking); return; }
+  await answer(c.adWorking);
+  void trackBackgroundTask(rewriteAd(id, agentId, chatId, messageId, draft.row.script, draft.facts, draft.row.chars + 1, lang));
+}
+
+async function rewriteAd(id: string, agentId: string, chatId: string, messageId: number | undefined, previous: string, facts: string, variant: number, lang: Lang): Promise<void> {
+  const c = copy[lang];
+  // Черновик занят (lockAdRewrite): любой исход обязан его освободить, иначе «Озвучить» не пройдёт до уборки.
+  let finished = false;
+  try {
+    const { config } = await loadNarrationConfiguration();
+    const result = await writeAd(facts, createAssistantMoneyWallet(), freeNarrationLimits(config).maxChars, { variant, avoid: previous });
+    if (result.status !== "OK") { await finishAdRewrite(id, agentId); finished = true; await sendMessage(chatId, adFailureText(result, lang)); return; }
+    if (!await finishAdRewrite(id, agentId, result.script)) { finished = true; await sendMessage(chatId, c.stale); return; }
+    finished = true;
+    const fresh = await loadFreeNarrationDraft(id, agentId);
+    if (!fresh) { await sendMessage(chatId, c.stale); return; }
+    const text = draftText(fresh.row, "AD", lang);
+    // Новый текст показывается целиком, кнопки под ним; старое сообщение теряет кнопки, чтобы не подтвердили не то.
+    if (messageId) await editMessageText(chatId, messageId, `${previous.slice(0, 3000)}
+
+↻`, null).catch(() => {});
+    if (text.length <= DRAFT_PREVIEW_MAX && messageId) await sendMessageWithButtons(chatId, text, draftButtons(id, "AD", lang));
+    else await sendDraft(chatId, fresh.row, "AD", lang);
+  } catch (err) {
+    if (!finished) await finishAdRewrite(id, agentId).catch(() => false);
+    void logSystemError("telegram", `Рекламный текст, «Переписать» в Шабнам: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-ad-rewrite" });
+    await sendMessage(chatId, c.failed).catch(() => {});
+  }
+}
+
+/** Фон: вызов ElevenLabs, отправка файла, итог в сообщении. Ошибки не уходят наружу: запись уже занята, итог должен дойти до человека. */
+async function finishFreeNarration(chatId: string, claim: FreeNarrationClaim, lang: Lang, messageId: number | undefined, retryData: string, statusIsOwn = false): Promise<void> {
+  const c = copy[lang];
+  // Строка «готовлю» отдельное сообщение (карточка с образцом уже убрана): когда файл пришёл или не пришёл, она не нужна.
+  const dropStatus = async () => { if (statusIsOwn && messageId) await deletePrivateMessage(chatId, messageId); };
   try {
     const outcome = await executeFreeNarration(claim);
     if (outcome.status === "READY") {
       await deliver(chatId, outcome.row, outcome.voiceName ?? claim.voiceName ?? "", lang, outcome.audio, retryData);
-      if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? claim.voiceName ?? "", outcome.row.chars)}`, null).catch(() => {});
+      if (statusIsOwn) await dropStatus();
+      else if (messageId) await editMessageText(chatId, messageId, `✅ ${c.caption(outcome.voiceName ?? claim.voiceName ?? "", outcome.row.chars)}`, null).catch(() => {});
       return;
     }
+    await dropStatus();
     await sendMessage(chatId, failureText(outcome, lang) ?? c.failed);
   } catch (err) {
     void logSystemError("telegram", `Озвучка текста в Шабнам, фон: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "free-narration-background" });
+    await dropStatus().catch(() => {});
     await sendMessage(chatId, c.failed).catch(() => {});
   }
 }

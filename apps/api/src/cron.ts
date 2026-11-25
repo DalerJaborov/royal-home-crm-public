@@ -19,6 +19,7 @@ import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
 import { runClipOwnerAutoPublishTick } from "./lib/clipReview.js";
 import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
+import { cleanupTelegramLinkOffers } from "./telegram/assistantGroupNewcomer.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
@@ -86,10 +87,7 @@ import { checkBackupFreshness } from "./lib/backupFreshness.js";
 import { runBalanceWatch } from "./lib/balanceWatch.js";
 import { alertOnIntegrationBreakage, runIntegrationHealthChecks } from "./lib/integrationHealth.js";
 import { followUpLimit, isClosingMessage, isFollowUpDue } from "./lib/botFollowUps.js";
-import { distillLessons, EMPTY_LESSON } from "./lib/botLessons.js";
-import { runBotAudit } from "./ai/botAudit.js";
 import { runDealStalePipeline } from "./lib/dealStalePipeline.js";
-import { analyzeLostConversations, buildWeeklyLostDigest } from "./lib/lostConversations.js";
 import { runReactivationCampaignTick } from "./lib/reactivationCampaign.js";
 import { sendBotMessageWithMid } from "./messengers/sendBotMessage.js";
 import { askCandidatePhone } from "./lib/askCandidatePhone.js";
@@ -111,10 +109,14 @@ import { syncPropertyWhispers } from "./lib/telephony/propertyWhisper.js";
 import { pruneWhisperClips } from "./lib/telephony/whisperClips.js";
 import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js";
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
+import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
+import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
-import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
+import { cleanupOrphanUploadDirs, cleanupStaleVideoUploadSessions, notifyAbandonedChunkedUpload } from "./lib/videoUploadCleanup.js";
+import { flushUploadPartStats } from "./lib/uploadHttp.js";
 import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
+import { sweepOutgoingMediaSpool } from "./lib/outgoingMediaJobs.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
 import { cleanupTelegramBotApiVolume } from "./lib/telegramBotApiCleanup.js";
@@ -562,34 +564,6 @@ export async function sendDirectorDigest(): Promise<number> {
     )
   );
   return directors.length;
-}
-
-/** Пуш директорам о готовой недельной сводке. Без него сводка тихо лежала бы в
- *  Настройках, и о ней вспоминали бы раз в квартал — а предложения из неё
- *  действуют только после того, как владелец их отметил. */
-async function notifyDirectorsAboutLostDigest(lostCount: number, proposals: number): Promise<void> {
-  const directors = await prisma.agent.findMany({
-    where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true },
-    select: { id: true },
-  });
-  const body =
-    `${lostCount} ${pluralizeRu(lostCount, ["переписка оборвалась", "переписки оборвались", "переписок оборвались"])} без заявки. ` +
-    (proposals > 0
-      ? `Бот предлагает ${proposals} ${pluralizeRu(proposals, ["правило", "правила", "правил"])} — отметьте дельное.`
-      : "Предложений нет, но видно, на каком шаге теряются люди.");
-  await Promise.all(
-    directors.map((d) =>
-      sendPushToAgent(d.id, {
-        title: "🗂️ Куда уходят клиенты",
-        body,
-        url: "/settings?tab=bot",
-        tag: "lost-clients-digest",
-        // Сводка остаётся в Настройках независимо от пуша (решение владельца
-        // 24.08.2026) — тот же "oversight", что и у разбора проблемных мест.
-        kind: "oversight",
-      })
-    )
-  );
 }
 
 export function startCronJobs() {
@@ -1194,6 +1168,8 @@ export function startCronJobs() {
   );
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
+    // Отметки «новичку уже предлагали привязку» и брошенные окна кода (ревью 25.11.2026): не дольше 90 дней.
+    await cleanupTelegramLinkOffers();
   }, { timezone: "Asia/Dushanbe" });
   /**
    * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — ночная сверка всех карточек
@@ -1270,16 +1246,11 @@ export function startCronJobs() {
         // который директор/админ видят, но убрать могут только по одному —
         // «Разобрать все» решает видимость, чистка — накопление). Тот же срок,
         // что у AiLog/ErrorLog выше; НЕРАЗОБРАННЫЕ записи не трогаем никогда —
-        // это тот же принцип, что и у ErrorLog/BotAuditFinding в этом задании.
+        // это тот же принцип, что и у ErrorLog в этом задании.
         const siteNotifications = await prisma.siteEditNotification.deleteMany({
           where: { resolvedAt: { not: null, lt: cutoff } },
         });
         if (siteNotifications.count) console.log(`[cron] Уборка изменений с сайта: -${siteNotifications.count}`);
-
-        const botAuditFindings = await prisma.botAuditFinding.deleteMany({
-          where: { resolvedAt: { not: null, lt: cutoff } },
-        });
-        if (botAuditFindings.count) console.log(`[cron] Уборка находок аудита диалогов: -${botAuditFindings.count}`);
 
         // PendingDirectorAlert хранит "processedAt" по смыслу заявки, но поле в
         // схеме называется sentAt (см. prisma/schema.prisma) — не выдумываем
@@ -1288,41 +1259,6 @@ export function startCronJobs() {
           where: { sentAt: { not: null, lt: cutoff } },
         });
         if (directorAlerts.count) console.log(`[cron] Уборка алармов директору: -${directorAlerts.count}`);
-        // ЭКРАН «ОБУЧЕНИЕ ИИ» (14.09.2026, жалоба владельца: бесконечный список,
-        // копится мусор). Срок жизни неразобранного — 30 дней, решение владельца.
-        //
-        // ВАЖНО: удаляется только НЕРАЗОБРАННОЕ СЫРЬЁ, а не рабочее содержимое
-        // промта. Готовые правила (BotLesson.lesson — не null и не EMPTY_LESSON,
-        // см. lib/botLessons.ts) и StyleExample (примеры манеры) не трогаем
-        // ВООБЩЕ — задание прямо это требует, это не мусор, а промт бота.
-        // Признак «разобрано» — поле `lesson`: null значит случай ещё не дошёл до
-        // ночного разбора, EMPTY_LESSON («—») значит разбор прошёл и правила не
-        // вывел. Оба состояния — сырьё, которое не стало правилом.
-        const learningCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        const staleLessons = await prisma.botLesson.deleteMany({
-          where: {
-            investigationOnly: false,
-            OR: [{ lesson: null }, { lesson: EMPTY_LESSON }],
-            createdAt: { lt: learningCutoff },
-          },
-        });
-        if (staleLessons.count) console.log(`[cron] Уборка неразобранных случаев обучения: -${staleLessons.count}`);
-
-        const staleLostConversations = await prisma.lostConversation.deleteMany({
-          where: { createdAt: { lt: learningCutoff } },
-        });
-        if (staleLostConversations.count) {
-          console.log(`[cron] Уборка старых разборов «куда уходят клиенты»: -${staleLostConversations.count}`);
-        }
-
-        // digestId у BotLesson (SetNull) переживёт удаление сводки — предложение,
-        // которое владелец уже включил, работающим правилом и останется.
-        const staleLostDigests = await prisma.lostClientDigest.deleteMany({
-          where: { periodEnd: { lt: learningCutoff } },
-        });
-        if (staleLostDigests.count) {
-          console.log(`[cron] Уборка старых недельных сводок «куда уходят клиенты»: -${staleLostDigests.count}`);
-        }
       } catch (err) {
         reportCronTickError("Ошибка уборки журналов", err);
       }
@@ -1439,6 +1375,13 @@ export function startCronJobs() {
               (capped ? ", потолок за проход исчерпан — остаток уйдёт следующей ночью" : "")
           );
         }
+        // Копии (миниатюры, версии для браузера) живут, пока жив оригинал —
+        // поэтому их уборка идёт сразу после уборки оригиналов (25.11.2026).
+        const derived = cleanupDerivedChatMedia();
+        if (derived.deleted) console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
+        // Файлы клиента, так и не дождавшиеся своей реплики (lib/customerInputMedia.ts).
+        const stale = await cleanupStalePendingCustomerMedia();
+        if (stale.deleted) console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки вложений", err);
       }
@@ -1534,6 +1477,12 @@ export function startCronJobs() {
         if (sessions) {
           console.log(`[cron] Уборка брошенных загрузок видео: сессий ${sessions}` + (failed ? `, не удалось ${failed}` : ""));
         }
+        // Папки частей без строки в базе и старые итоги сборки (lib/videoUploadCleanup.ts).
+        const orphans = await cleanupOrphanUploadDirs();
+        if (orphans) console.log(`[cron] Уборка сирот загрузки частями: папок ${orphans}`);
+        // Сводка частей за сутки: доля неудач > 5 % — запись в «Здоровье системы» (lib/uploadHttp.ts).
+        const parts = flushUploadPartStats();
+        if (parts.ok + parts.failed) console.log(`[cron] Части загрузки за сутки: принято ${parts.ok}, отказов ${parts.failed}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки брошенных загрузок видео", err);
       }
@@ -1542,12 +1491,24 @@ export function startCronJobs() {
   );
 
   /** Брошенные загрузки частями без записи в базе (общие сессии — ролик карточки, файл в
-   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
-   *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
+   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части сутки
+   *  (до 25.11.2026 — два часа; автору теперь уходит пуш) или итог сборки старше суток
+   *  — брошена: части лежат на диске, и без уборки копились бы до следующего
    *  старта загрузки. Каждый час, в 17 минут. */
+  /** Спул отправки фото/видео клиентам (lib/outgoingMediaJobs.ts): исходники упавших старше
+   *  суток, брошенные файлы, старые строки; ждущие дольше 20 минут — тревога в журнал. */
+  scheduleTracked("outgoing-media-sweep", "*/30 * * * *", async () => {
+    try {
+      const r = await sweepOutgoingMediaSpool();
+      if (r.removedFiles || r.removedRows) console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки спула отправки файлов", err);
+    }
+  });
+
   scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
     try {
-      const removed = await sweepStaleChunkedUploads();
+      const removed = await sweepStaleChunkedUploads(Date.now(), notifyAbandonedChunkedUpload);
       if (removed) console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
     } catch (err) {
       reportCronTickError("Ошибка уборки брошенных загрузок частями", err);
@@ -1756,113 +1717,6 @@ export function startCronJobs() {
     },
     { timezone: "Asia/Dushanbe" },
     { module: "aiClientScoring" }
-  );
-
-  /**
-   * Разбор ошибок бота: сырые случаи (вместо бота ответил человек / клиент
-   * переспросил) превращаются в короткие правила и подмешиваются в промт.
-   *
-   * КАЖДЫЕ ДВА ЧАСА, А НЕ РАЗ В НОЧЬ (требование владельца 16.08.2026: «главное,
-   * чтобы свои ошибки для будущих клиентов быстро исправлял»). Ночной разбор означал,
-   * что ошибка, сделанная в 9 утра, повторялась со всеми клиентами до следующего
-   * утра — под рекламой это сотни человек за день. Теперь между промахом и правилом
-   * проходит не сутки, а часа два.
-   *
-   * В 30 минут каждого чётного часа: в 2:30 совпадает с прежним временем и по-прежнему
-   * идёт после скоринга, чтобы две задачи с вызовами ИИ не начинались одновременно.
-   * Расход невелик — разбираются только новые случаи, а их за два часа единицы.
-   */
-  scheduleTracked(
-    "bot-lessons",
-    "30 */2 * * *",
-    async () => {
-      try {
-        const { learned } = await distillLessons();
-        if (learned > 0) console.log(`[cron] Бот вывел новых правил из своих ошибок: ${learned}`);
-      } catch (err) {
-        reportCronTickError("Ошибка разбора обучения бота", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
-  );
-
-  /**
-   * СУДЬЯ ДИАЛОГОВ — ПО РАСПИСАНИЮ, А НЕ ПО КНОПКЕ (совет экспертов 26.08, п. 8).
-   *
-   * runBotAudit сверяет вчерашние переписки с правилами промта и складывает
-   * нарушения в BotAuditFinding — но запускался ТОЛЬКО кнопкой в Настройках,
-   * то есть тогда, когда кто-то вспомнит. Промт в тысячу с лишним строк при
-   * этом правится вслепую: правку выкатывают и надеются. Ночной прогон делает
-   * качество бота измеряемым само по себе — утром видно, что он вчера нарушил.
-   *
-   * В 3:15, после уроков бота (2:30) и разбора потерянных (2:45): три задачи с
-   * вызовами ИИ не должны начинаться одновременно — общий ключ у них один.
-   * Окно — месяц, диалоги из него берутся случайные и только не судимые ранее
-   * (30.08.2026): прежние «сутки с прошлого прогона» означали, что диалог, чья
-   * ночь пропущена — из-за отказа модели, выходных, простоя, — не проверялся уже
-   * никогда, а после простоя выборка выходила пустой.
-   */
-  let isBotAuditRunning = false;
-  scheduleTracked(
-    "bot-audit",
-    "15 3 * * *",
-    async () => {
-      if (isBotAuditRunning) return;
-      isBotAuditRunning = true;
-      try {
-        const { conversationsChecked, findingsCreated } = await runBotAudit();
-        if (conversationsChecked > 0) {
-          console.log(`[cron] Судья диалогов: проверено ${conversationsChecked}, нарушений найдено ${findingsCreated}`);
-        }
-      } catch (err) {
-        reportCronTickError("Ошибка ночного аудита бота", err);
-      } finally {
-        isBotAuditRunning = false;
-      }
-    },
-    { timezone: "Asia/Dushanbe" },
-    { module: "aiBotAudit" }
-  );
-
-  /** Разбор переписок, кончившихся ничем (заявки нет, человек не вернулся) — в 2:45,
-   *  третьей в ночной очереди вызовов ИИ, после скоринга и разбора ошибок бота.
-   *
-   *  Почему ночью, а не раз в неделю всей кучей: расход на ИИ размазан и ограничен
-   *  потолком на проход (см. lostConversations.ts), а переписка ещё свежая. Выводы
-   *  отсюда в промт НЕ идут — они копятся до недельной сводки владельцу. */
-  scheduleTracked(
-    "lost-conversations",
-    "45 2 * * *",
-    async () => {
-      try {
-        const analyzed = await analyzeLostConversations();
-        if (analyzed > 0) console.log(`[cron] Разобрано оборванных переписок: ${analyzed}`);
-      } catch (err) {
-        reportCronTickError("Ошибка разбора оборванных переписок", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" },
-    { module: "aiLostConversations" }
-  );
-
-  /** Недельная сводка «куда уходят клиенты» — понедельник, 09:00 по Душанбе, за
-   *  семь прошедших суток. Утро понедельника: владелец получает один список на
-   *  неделю в начале рабочей недели, а не ежедневный шум «вчера ушли двое».
-   *  Повторный запуск за ту же неделю ничего не дублирует (periodStart уникален). */
-  scheduleTracked(
-    "weekly-lost-digest",
-    "0 9 * * 1",
-    async () => {
-      try {
-        const { created, lostCount, proposals } = await buildWeeklyLostDigest();
-        if (!created) return;
-        console.log(`[cron] Сводка по оборванным перепискам: ${lostCount} шт., предложений ${proposals}`);
-        await notifyDirectorsAboutLostDigest(lostCount, proposals);
-      } catch (err) {
-        reportCronTickError("Ошибка недельной сводки по потерям", err);
-      }
-    },
-    { timezone: "Asia/Dushanbe" }
   );
 
   /**
@@ -2142,7 +1996,7 @@ export function startCronJobs() {
    * НЕДЕЛЬНАЯ СВОДКА СБ — понедельник, 09:20 по Душанбе (план 03.09.2026, §E,
    * п. 2-3). «43 отказа за неделю, 5 со сделкой на стороне, из них 3 у
    * Фарруха — у остальных агентов 0-1» — пуш руководству, тем же приёмом, что
-   * у weekly-lost-digest/weekly-problem-report выше. Десять минут после
+   * у weekly-problem-report выше. Десять минут после
    * недельного разбора проблемных мест (09:10) — не складывать тяжёлые
    * сборки в одну минуту, та же причина, что и у него самого относительно
    * сводки по перепискам (09:00).
@@ -2158,7 +2012,7 @@ export function startCronJobs() {
    * откроет руками.
    *
    * Пустая неделя (случаев СБ не было) — пуш не уходит вовсе, тот же приём,
-   * что у weekly-lost-digest: «сводка пуста» раз в неделю — шум, из-за
+   * что была у недельной сводки по перепискам (удалена 13.11.2026): «сводка пуста» раз в неделю — шум, из-за
    * которого перестают открывать даже непустые сводки.
    *
    * ДЕДУП — Notification.tag несёт дату начала недели: повторный тик в ту же
@@ -3601,6 +3455,15 @@ export function startCronJobs() {
   scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
     await runCustomerJobsTick("intake");
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото и видео сотрудника клиенту (25.11.2026, lib/outgoingMediaJobs.ts): своя полоса — сжатие
+  // идёт минуты и не должно задерживать ответы клиентам, а агент ждёт отправку секунды, не минуту.
+  scheduleTracked("outgoing-media-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("media");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото — своя полоса и тик каждые 2 секунды: фото готовится за секунду и не ждёт видео.
+  scheduleTracked("outgoing-media-photo-jobs", "*/2 * * * * *", async () => {
+    await runCustomerJobsTick("mediaPhoto");
+  }, undefined, undefined, { timeoutMs: 5 * 60_000 });
 
   // После выката ядро бота ждало кнопку «Обновить версию бота» (03–05.11.2026
   // двое суток без ответов). Обычный выкат, где поменялся только код, ядро

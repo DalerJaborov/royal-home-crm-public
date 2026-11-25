@@ -2,7 +2,6 @@ import { messageTimeText } from "../../lib/messageTime";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertCircle,
   ArrowUp,
   Bot,
   ChevronDown,
@@ -10,7 +9,6 @@ import {
   ChevronUp,
   MoreHorizontal,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";
@@ -60,7 +58,6 @@ import { relativeTime } from "../../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../../lib/botMessages";
 import { TranslatableMessageText } from "../MessageTranslateToggle";
-import { BotReplyFeedback } from "../BotReplyFeedback";
 import { PAUSE_OPTIONS, pausedUntilIso } from "../../lib/botPauseOptions";
 import { conversationBotState } from "../../lib/conversationBotState";
 import { useCan, useIsReadOnly } from "../../lib/permissions";
@@ -73,6 +70,7 @@ import { ChannelIcon } from "../ChannelIcon";
 import { RH2_SCR_BARE } from "../rh2/Rh2Scope";
 import { planOutgoingMediaPick } from "../../lib/mediaUpload";
 import { usePendingMediaUploads, type PendingMediaUpload } from "../../store/mediaUploads";
+import { PendingMediaBubble } from "../PendingMediaBubble";
 import { useSellerObject } from "../../hooks/useSellerObject";
 import { SellerObjectStrip } from "../chat/SellerObjectStrip";
 import { callbackRequestConversationIds, CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
@@ -215,9 +213,6 @@ const MobileMessageList = memo(function MobileMessageList({
         // Ответ живого человека (агент из CRM или вручную из мессенджера) — тот же
         // пузырь `.me`, но без пунктира: пунктир в эталоне означает бота.
         const humanReply = m.role === "assistant" && (m.by?.kind === "agent" || m.by?.kind === "manual");
-        // Настоящий ответ бота — для кнопок оценки (BotReplyFeedback), тот же
-        // признак, что и в десктопном инбоксе (Messages.tsx).
-        const isBotAnswer = m.role === "assistant" && (!m.by || m.by.kind === "bot");
         // Абсолютный индекс в ПОЛНОЙ истории — для ключа (ниже), для ref
         // (скролл поиска) и чтобы понять, активное ли это совпадение.
         const absoluteIndex = hiddenCount + i;
@@ -275,16 +270,6 @@ const MobileMessageList = memo(function MobileMessageList({
                 attachments={m.attachments}
                 onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
               />
-              {/* Оценка ответа бота прямо в чате (17.09.2026) — тот же компонент,
-                  что и в десктопном инбоксе (Messages.tsx), не копия. */}
-              {isBotAnswer && !readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && (
-                <BotReplyFeedback
-                  conversationId={m.sourceConversationId ?? conversationId}
-                  message={m}
-                  messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? absoluteIndex}`}
-                  index={m.sourceMessageIndex ?? absoluteIndex}
-                />
-              )}
               <span className="tm" data-message-time-unknown={!m.at || undefined}>
                   {/* Бот помечен иконкой у времени, а не пунктирной рамкой на
                       весь пузырь (10.09.2026): рамка читалась как «черновик».
@@ -303,44 +288,7 @@ const MobileMessageList = memo(function MobileMessageList({
           store/mediaUploads.ts на уровне conversationId и переживает
           переключение диалогов. */}
       {pendingUploads.map((u) => (
-        <div key={u.localId} className="bub me">
-          <div className="att-img" style={{ position: "relative" }}>
-            {u.kind === "image" ? (
-              <img src={u.previewUrl} alt="Загружается" className="w-full h-full object-cover" />
-            ) : (
-              <video src={u.previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
-            )}
-            {u.status === "uploading" && (
-              <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1">
-                <RotateCw className="w-5 h-5 text-white animate-spin" />
-                <span className="text-[13px] font-semibold text-white tabular-nums">{u.progress}%</span>
-                <div className="w-[70%] h-1 rounded-full bg-white/30 overflow-hidden">
-                  <div className="h-full bg-white" style={{ width: `${u.progress}%` }} />
-                </div>
-              </div>
-            )}
-            {u.status === "error" && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1 px-2 text-center">
-                <AlertCircle className="w-5 h-5 text-white" />
-                <span className="text-[13px] font-semibold text-white">Не отправлено</span>
-              </div>
-            )}
-          </div>
-          {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
-          {u.status === "error" && (
-            <div className="wrap" style={{ marginTop: 6 }}>
-              <span className="txt" style={{ color: "var(--crit)" }}>
-                {u.error || "Не удалось отправить"}
-              </span>
-              <button type="button" className="lnk" onClick={() => onRetryUpload(u)}>
-                Повторить
-              </button>
-              <button type="button" className="lnk" onClick={() => onCancelUpload(u.localId)}>
-                Убрать
-              </button>
-            </div>
-          )}
-        </div>
+        <PendingMediaBubble key={u.localId} upload={u} onRetry={onRetryUpload} onCancel={onCancelUpload} />
       ))}
     </>
   );

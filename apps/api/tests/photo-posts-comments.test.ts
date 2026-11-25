@@ -122,14 +122,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function queueComment(suffix: string, text = "Салом! Нархаш чанд?"): Promise<QueuedComment> {
+async function queueComment(suffix: string, text = "Салом! Нархаш чанд?", authorId = `author-pp-${runId}`): Promise<QueuedComment> {
   await prisma.instagramComment.deleteMany({ where: { commentId: `c-pp-${runId}-${suffix}` } });
   return (await prisma.instagramComment.create({
     data: {
       commentId: `c-pp-${runId}-${suffix}`,
-      accountExternalId: instagram.turnInput(`author-pp-${runId}`).accountExternalId,
+      accountExternalId: instagram.turnInput(authorId).accountExternalId,
       mediaId: MEDIA_ID,
-      authorId: `author-pp-${runId}`,
+      authorId,
       authorName: "sardor",
       text,
       replyDueAt: new Date(),
@@ -159,12 +159,15 @@ describe("loadMediaContext находит фото-пост, без правки
 
   it("интерес под постом записан на пару (канал, автор) — директ того же человека потом пойдёт агенту объекта", async () => {
     decide.mockResolvedValue({ action: "reply", reply: "Салом! Ин хона 58 000 $ аст." });
-    const row = await queueComment("exposure");
+    // Свой автор: тот же текст тому же автору под тем же постом ушёл бы в предыдущем «it» —
+    // сторож повторного публичного ответа (commentReplyRepeat.ts) справедливо не дал бы повторить.
+    const exposureAuthorId = `author-pp-${runId}-exposure`;
+    const row = await queueComment("exposure", undefined, exposureAuthorId);
     expect(await handleComment(row)).toBe("replied");
     const exposure = await waitFor(
       () =>
         prisma.propertyExposure.findFirst({
-          where: { channel: "INSTAGRAM", recipientId: `author-pp-${runId}`, propertyId, kind: "CLIENT_SHARED" },
+          where: { channel: "INSTAGRAM", recipientId: exposureAuthorId, propertyId, kind: "CLIENT_SHARED" },
         }),
       { label: "экспозиция из комментария" }
     );

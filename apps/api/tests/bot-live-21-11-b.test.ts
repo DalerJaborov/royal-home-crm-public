@@ -141,10 +141,10 @@ describe("2. язык: таджикский разговор не переход
 describe("3. вопрос, на который знает только агент (ипотека, рассрочка, документы): ответ, а не просьба номера", () => {
   it("da83282b без роли: сначала вопрос о роли (без «расскажет агент» без пути к агенту), фраза про агента — вместе с номером", () => {
     const turns = dialog(ctx(), ["Асалом мехостем фахмем ,ки ширкати шумо хам хонахои бо таьмир ипотека медихад ё на", "Харидан мехохам", "Сино, 2 хучра"]);
-    expect(turns[0]!.keys).toEqual(["greet_assalom", "ask_role"]);
+    // 24.11.2026: про ипотеку ответ знаем сами — «сейчас нет» (владелец 22.11.2026), сразу и без отложенного «расскажет агент».
+    expect(turns[0]!.keys).toEqual(["greet_assalom", "no_installment", "ask_role"]);
     expect(turns[0]!.keys.some(PHONE_ASK)).toBe(false);
-    expect(turns[2]!.keys).toEqual(["topic_by_agent", "ask_phone"]);
-    expect(turns[2]!.text).toMatch(/^Дар ин бора агенти мо ҳамаи тафсилотро ба шумо мегӯяд\./u);
+    expect(turns[2]!.keys).toEqual(["ask_phone"]);
   });
   it("тот же вопрос, когда модель назвала покупателя: ответ и предложение звонка, номер — не в этом ходе", () => {
     const answer = { role: "buyer", roleQuote: "хонахои бо таьмир", question: "other", aboutThisProperty: false, rooms: "", district: "", budget: "", area: "",
@@ -154,7 +154,7 @@ describe("3. вопрос, на который знает только аген�
     const got = understandingFromModel(answer, { current: text }, initialOperatorState(), ctx())!;
     const d = decide(initialOperatorState(), got.understanding, ctx());
     const keys = d.steps.map(step => step.key);
-    expect(keys).toEqual(["greet_assalom", "topic_by_agent", "offer_call"]);
+    expect(keys).toEqual(["greet_assalom", "no_installment", "offer_call"]);
     // WhatsApp: заявку по номеру тоже не заводим на первый вопрос — сначала ответ и предложение.
     const wa = ctx({ channel: "WHATSAPP", phoneKnown: true });
     expect(decide(initialOperatorState(), understandingFromModel(answer, { current: text }, initialOperatorState(), wa)!.understanding, wa).actions
@@ -183,7 +183,8 @@ describe("3. вопрос, на который знает только аген�
       expect(t!.keys, text).toContain("ask_role");
       expect(t!.keys.some(PHONE_ASK), text).toBe(false);
       const buyer = dialog(ctx(), ["Хочу купить квартиру", "Сино", text]);
-      expect(buyer[2]!.keys, text).toContain("topic_by_agent");
+      // Ипотека и рассрочка — ответ знаем: сейчас нет (владелец 22.11.2026); документы — по-прежнему у агента.
+      expect(buyer[2]!.keys, text).toContain(/документ|хуччат/iu.test(text) ? "topic_by_agent" : "no_installment");
     });
   it.each(["Салом, хонахои бо таъмир ипотека медихад ё на", "Ипотека есть?", "Кредит чанд сол?"])(
     "реклама ИЗВЕСТНОГО объекта: «%s» — ответ про ипотеку и предложение звонка, без просьбы номера", text => {
@@ -191,7 +192,8 @@ describe("3. вопрос, на который знает только аген�
       for (const c of [ctx({ ad: { topic: "property", propertyId: focus.propertyId }, focus }),
         ctx({ channel: "WHATSAPP", phoneKnown: true, ad: { topic: "property", propertyId: focus.propertyId }, focus })]) {
         const [t] = dialog(c, [text]);
-        expect(t!.keys, `${c.channel}: ${text}`).toContain("topic_by_agent");
+        // Ипотеки сейчас нет — честный ответ кодом (владелец 22.11.2026), а не «расскажет агент».
+        expect(t!.keys, `${c.channel}: ${text}`).toContain("no_installment");
         expect(t!.keys, `${c.channel}: ${text}`).toContain("offer_call");
         expect(t!.keys.some(PHONE_ASK), `${c.channel}: ${text}`).toBe(false);
         expect(t!.d.actions.filter(action => action.type === "accept_lead"), `${c.channel}: ${text}`).toEqual([]);

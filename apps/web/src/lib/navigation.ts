@@ -11,7 +11,6 @@ import {
   Filter,
   Gauge,
   Globe,
-  GraduationCap,
   Grip,
   HeartPulse,
   Home,
@@ -42,7 +41,6 @@ import { useCounters } from "../hooks/useCounters";
 import { useSiteNotifications } from "../hooks/useSiteNotifications";
 import { useOversightSummary } from "../hooks/useOversight";
 import { useMarketingSummary, useEditorsLoad } from "../hooks/useMarketing";
-import { useSettings } from "../hooks/useSettings";
 import { useDeleteRequests, usePropertyDeleteRequests } from "../hooks/useDeleteRequests";
 import { BrainCircuit } from "lucide-react";
 
@@ -130,7 +128,6 @@ export interface NavInputs {
   editorsLoad?: { sharedQueue: { inEditing: number; overdue: number } };
   deleteRequests?: { items: unknown[] };
   propertyDeleteRequests?: { items: unknown[] };
-  settings?: { botTrainingScreenEnabled?: boolean };
 }
 
 export function useNavigation(): Navigation {
@@ -148,9 +145,6 @@ export function useNavigation(): Navigation {
   // То же самое для объектов (31.08.2026) — отдельный счётчик, суммируется в
   // один значок «Архива» ниже: обе очереди живут на одной странице.
   const { data: propertyDeleteRequests } = usePropertyDeleteRequests(can("archive.view") && can("properties.delete"));
-  // Экран «Тренировка» читает свой же рубильник из общих настроек — запрос уже
-  // закэширован (staleTime 60с), другие потребители Настроек его не заметят.
-  const { data: settings } = useSettings();
 
   const inputs: NavInputs = {
     role,
@@ -162,7 +156,6 @@ export function useNavigation(): Navigation {
     editorsLoad,
     deleteRequests,
     propertyDeleteRequests,
-    settings,
   };
 
   return buildNavigation(inputs);
@@ -180,7 +173,7 @@ function canSeeMarketing(inputs: Pick<NavInputs, "role" | "can">): boolean {
  * вопрос владельцу §5.3) — раздел не строится без права на сервере.
  */
 function buildNavigation(inputs: NavInputs): Navigation {
-  const { role, can, counters, siteNotifications, oversightSummary, marketingSummary, editorsLoad, deleteRequests, propertyDeleteRequests, settings } =
+  const { role, can, counters, siteNotifications, oversightSummary, marketingSummary, editorsLoad, deleteRequests, propertyDeleteRequests } =
     inputs;
 
   const isSalesRole = role !== "MARKETING" && role !== "EDITOR";
@@ -335,11 +328,6 @@ function buildNavigation(inputs: NavInputs): Navigation {
     // «Что не доехало» (владелец 21.09.2026) — задания фоновой очереди,
     // исчерпавшие попытки или зависшие, см. pages/StuckWork.tsx.
     can("auditLog.view") && { to: "/stuck-work", icon: TimerReset, label: "Что не доехало", group: "system" },
-    // «Тренировка» перестала быть отдельным пунктом меню (слияние экранов
-    // 15.09.2026): это теперь вкладка «Манера» на /ai-learning, тот же
-    // рубильник settings?.botTrainingScreenEnabled решает видимость самой
-    // вкладки внутри экрана, а не строки меню.
-    can("settings.view") && { to: "/ai-learning", icon: GraduationCap, label: "Обучение бота", group: "system" },
     can("archive.view") && {
       to: "/archive",
       icon: ArchiveIcon,
@@ -429,7 +417,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
       { key: "team", title: "Команда", icon: UsersRound, items: teamItems },
       { key: "money", title: "Деньги", icon: Wallet, items: moneyItems },
       { key: "ads", title: "Реклама и публикации", icon: Megaphone, items: adsItems },
-      // Пункты «Настройки CRM», «Здоровье», «Обучение бота»… рисуются хвостом меню
+      // Пункты «Настройки CRM», «Здоровье»… рисуются хвостом меню
       // (поле `system` ниже) — отдельной складкой «Настройки» они шли ВТОРОЙ РАЗ
       // (кадр владельца 11.09: одно и то же дважды на экране).
     ] as NavGroup[]

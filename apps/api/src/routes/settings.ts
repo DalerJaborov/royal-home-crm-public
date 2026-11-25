@@ -7,6 +7,7 @@ import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
 import { settingsMetaEternalRouter } from "./settingsMetaEternal.js";
 import { settingsSomonRouter } from "./settingsSomon.js";
+import { loadBotGuardStats } from "../lib/botGuardStats.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -660,12 +661,9 @@ const settingsUpdateSchema = z.object({
   /** Кто участвует в случайном выборе — список целиком, как у geminiFallbackModels. */
   coverTemplateEnabledIds: z.array(z.string().max(64)).max(50).optional(),
   monthlyCommissionPlan: z.number().positive().optional(),
-  /** Структура комиссии сделки, % от цены объекта: риелтор + компания. 0,5% «за
-   * приём объекта» отменены 11.09.2026 — Settings.commissionIntakePercent
-   * остаётся в схеме БД как история старых сделок, но больше не редактируется
-   * (доля, которую оно отводило, теперь всегда уходит компании). */
-  commissionRealtorPercent: z.number().min(0).max(10).optional(),
-  commissionCompanyPercent: z.number().min(0).max(10).optional(),
+  // Проценты комиссии из Настроек убраны 25.11.2026: 1% компании и 1% агенту зашиты в
+  // packages/shared/src/commissionShares.ts, поля commission*Percent в БД — только история.
+  // Старая вкладка сайта может прислать их — схема не строгая, лишние ключи отбрасываются.
   // anthropicApiKey УБРАН из схемы (26.08.2026): потребителя в apps/api нет
   // (был только отдельный router.js в корне, убран 28.09.2026), а поле
   // не выдёргивалось из ...rest перед prisma.update — присланный ключ записался
@@ -843,10 +841,6 @@ const settingsUpdateSchema = z.object({
    *  которому они нужны. Выключено — промт собирается как раньше, побайтово. */
   botPromptIntentEconomy: z.boolean().optional(),
   contactLinkSweepEnabled: z.boolean().optional(),
-  /** Экран «Тренировка» (23.08.2026): доступен владельцу, только пока включено.
-   *  Не влияет на то, участвуют ли уже накопленные StyleExample в промте бота —
-   *  это решает поле `enabled` у самого примера. */
-  botTrainingScreenEnabled: z.boolean().optional(),
   /** Глобальный рубильник входа по отпечатку/лицу — false отключает вход и
    *  привязку новых устройств на сервере для всех сотрудников сразу. */
   passkeyLoginEnabled: z.boolean().optional(),
@@ -2628,6 +2622,15 @@ settingsRouter.post(
  * на месте. Теперь состояние называется своим именем и просит перезалить.
  */
 const STATION_AUDIO_EXT = "wav";
+
+/**
+ * Счётчики фильтров ответа бота за 14 дней и доли отброшенного у нового помощника
+ * (Настройки → «Бот» → «Проверка бота»). Переехали с удалённого экрана «Обучение
+ * бота» 23.11.2026; право то же, что было у /bot-training/guard-stats.
+ */
+settingsRouter.get("/bot-guard-stats", requireAuth, requirePermission("settings.view"), async (_req, res) => {
+  res.json(await loadBotGuardStats());
+});
 
 settingsRouter.get("/telephony-audio", requireAuth, requirePermission("settings.manage"), async (_req, res) => {
   const dir = path.join(uploadsDir, "telephony");

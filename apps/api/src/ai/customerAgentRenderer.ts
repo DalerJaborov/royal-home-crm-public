@@ -6,7 +6,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitmentLanguagePermissionQuestion,
   customerRecruitmentLanguagePermissionRequested, customerFollowRequest, customerStandaloneFurnitureQuestion,
   customerFurnitureQuestionRequested, customerMessengerChannelQuestion, isCustomerPublicAppreciation,
-  customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
+  customerPublicReaction, customerPublicReactionText, customerPublicSellerOffer, customerPublicSellerOfferText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
 import { buyerNeedsKnown, buyerNextQuestion, overlayBuyerNeeds, type BuyerNeedKey } from "./customerBuyerNeeds.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
@@ -648,6 +648,12 @@ function renderDecisionCore(input: {
     return text.length <= input.maxOutputChars ? text : null;
   }
   if (input.surface === "public_comment" && evidence.some(e => e?.value.kind === "receipt" || e?.value.kind === "proposal")) return null;
+  // Продавец пишет в комментарии о СВОЁМ жилье: про наш объект №… ему не рассказываем (прод 23.11.2026, 17b273e4, 464ca263),
+  // а зовём в личные сообщения или к телефону агентства. Решает код, а не выбор модели (запрет в промпте — не гарантия).
+  if (input.surface === "public_comment" && d.kind !== "propose" && customerPublicSellerOffer(input.inputText ?? "")) {
+    const text = customerPublicSellerOfferText(lang, PUBLIC_AGENCY_CONTACT.phone);
+    return text.length <= input.maxOutputChars ? text : null;
+  }
   const reaction = input.surface === "public_comment" && !input.requestedFacts.length && customerPublicReaction(input.inputText ?? "");
   if (reaction && d.kind !== "propose") {
     const text = customerPublicReactionText(reaction, lang);
@@ -735,7 +741,9 @@ function renderDecisionCore(input: {
       // is not about rent, the bargaining rule to an address question: a company term answers only the customer's own question
       // about it (audit 16.11.2026; one door customerPolicyTermAsked). A voice message counts by its transcript.
       // Only against the customer's actual words: a render without input (the memory allow-list) keeps every line.
-      if (input.surface === "dm" && input.inputText !== undefined &&
+      // Комментарии — тем же правилом для торга и юр. чистоты (прод 23.11.2026, de960ea6: на «Воаллекум салом» ушло правило о торге;
+      // находка 32: похвала получила «юридическую чистоту»). Комиссию и зону в комментариях не трогаем: там свой сторож повтора.
+      if ((input.surface === "dm" || (input.surface === "public_comment" && (item.value.topic === "legal" || item.value.topic === "negotiation"))) && input.inputText !== undefined &&
           !customerPolicyTermAsked(item.value.topic, [input.inputText, perception?.success ? perception.data.transcript : ""].filter(Boolean).join("\n"),
             customerRecentUserTexts(input.verifiedContext))) {
         unaskedPolicySkipped = true;
@@ -806,6 +814,8 @@ function renderDecisionCore(input: {
           mediaText: perception?.success ? [perception.data.transcript, perception.data.readableText].join("\n") : "",
           knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns });
         lines.push(lang === "tg" ? matched ? "Ҷойи кори кушода:" : "Ҷойҳои кори кушода:" : matched ? "Открыта вакансия:" : "Сейчас открыты вакансии:");
+        // Название — отдельной строкой, как есть: память разговора узнаёт список по точному совпадению строки (vacancyListSentBefore).
+        // «Склейка без точки» в находке 11 — это сборщик сторожа (collect.mjs::clip сжимает переносы в пробел), не сообщение клиенту.
         for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(lang === "tg" ? position.titleTg : position.titleRu);
         if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа.`
           : `И ещё ${item.value.positions.length - 12} позиций.`);

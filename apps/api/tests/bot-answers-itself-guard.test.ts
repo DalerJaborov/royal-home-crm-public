@@ -33,7 +33,6 @@ function asksBotAnswersItselfDoor(src: string): boolean {
 
 /** Сигнал остаётся всегда — и почему (таблица в шапке lib/botAnswersItself.ts). */
 const ALWAYS: Record<string, string> = {
-  "ai/botAudit.ts": "автоаудитор качества бота — сотрудникам о боте, не о клиенте",
   "ai/callAnalysis.ts": "разбор звонков агентов, не клиентский бот",
   "jobs/aiReplyRetry.ts": "техсбой: ИИ не ответил после всех повторов",
   "jobs/telegramReplyRetry.ts": "техсбой: ИИ не ответил после всех повторов (Telegram)",

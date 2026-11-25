@@ -30,6 +30,7 @@
  */
 
 import { maskPhonesForReader, type ConversationMessage, type MessageAttachment } from "@royal-home/shared";
+import { chatAttachmentLinks } from "./chatAttachmentLinks.js";
 
 /**
  * Виды вложений, которые уходят наружу.
@@ -50,14 +51,22 @@ type AttachmentKind = MessageAttachment["kind"];
 export type PresentedAttachment = MessageAttachment;
 export type PresentedMessage = ConversationMessage;
 
-function presentAttachments(raw: unknown, allowed: boolean): PresentedAttachment[] | undefined {
+const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed", "too_many"]);
+
+function presentAttachments(raw: unknown, allowed: boolean, signedFor: string | null): PresentedAttachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const items: PresentedAttachment[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
-    const { kind, file, mime, url } = entry as { kind?: unknown; file?: unknown; mime?: unknown; url?: unknown };
+    const { kind, file, mime, url, lost } = entry as { kind?: unknown; file?: unknown; mime?: unknown; url?: unknown; lost?: unknown };
     if (typeof kind !== "string" || !KINDS.has(kind)) continue;
     const presentedMime = typeof mime === "string" ? mime : "application/octet-stream";
+    // Клиент прислал, а сохранить не вышло (25.11.2026): пометка на месте
+    // вложения видна всем, кто видит переписку, — файла за ней нет, открывать нечего.
+    if (typeof lost === "string" && LOST_REASONS.has(lost)) {
+      items.push({ kind: kind as AttachmentKind, mime: presentedMime, file: null, lost: lost as PresentedAttachment["lost"] });
+      continue;
+    }
     // Фотография объекта (из `/uploads`) или фото/видео, отправленное сотрудником
     // клиенту через R2 (`/media/chat/...`, см. routes/mediaProxy.ts) — у обоих вместо
     // имени в закрытом хранилище готовый путь. Показываем всем, кто видит переписку, —
@@ -72,13 +81,28 @@ function presentAttachments(raw: unknown, allowed: boolean): PresentedAttachment
       continue;
     }
     if (typeof file !== "string" || !file) continue;
+    // Подписанная ссылка — только вместе с правом И подтверждённым владением
+    // (signedFor считает вызывающий через attachmentLinkSigner).
+    const links = allowed && signedFor ? chatAttachmentLinks(file, kind as AttachmentKind, presentedMime, signedFor) : null;
     items.push({
       kind: kind as AttachmentKind,
       mime: presentedMime,
       file: allowed ? file : null,
+      ...(links ?? {}),
     });
   }
   return items.length > 0 ? items : undefined;
+}
+
+function withLost(items: PresentedAttachment[] | undefined, raw: unknown): PresentedAttachment[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return items;
+  const lost = presentAttachments(
+    raw.map((l) => (l && typeof l === "object" ? { kind: (l as { kind?: unknown }).kind, lost: (l as { reason?: unknown }).reason, mime: "" } : null)),
+    false,
+    null
+  );
+  if (!lost) return items;
+  return [...(items ?? []), ...lost];
 }
 
 /**
@@ -100,15 +124,22 @@ export function presentMessages(
    *  обязаны о нём знать и не должны молча начать что-то прятать. Маскируют
    *  только те два маршрута, что реально отдают переписку сотруднику: /clients/:id
    *  и /conversations/:id (см. их вызовы presentMessages). */
-  phonesAllowed = true
+  phonesAllowed = true,
+  /** Кому класть во вложения подписанные ссылки (`src`/`thumb`/`play`) — id
+   *  сотрудника. Только там, где вызывающий проверил владение клиентом тем же
+   *  правилом, что у маршрута выдачи файла, — `attachmentLinkSigner(req, …)`.
+   *  По умолчанию null: забытая проверка оставляет прежний путь, а не открывает
+   *  файл. */
+  signedFor: string | null = null
 ): PresentedMessage[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { role, content, attachments, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu, feedback } = entry as {
+    const { role, content, attachments, attachmentsLost, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu } = entry as {
       role?: unknown;
       content?: unknown;
       attachments?: unknown;
+      attachmentsLost?: unknown;
       by?: unknown;
       at?: unknown;
       mid?: unknown;
@@ -116,7 +147,6 @@ export function presentMessages(
       replyToMid?: unknown;
       deliveryStatus?: unknown;
       translatedRu?: unknown;
-      feedback?: unknown;
     };
     const DELIVERY_STATUSES = ["sent", "delivered", "read", "failed"];
     if (role !== "user" && role !== "assistant") return [];
@@ -132,7 +162,8 @@ export function presentMessages(
         // (wa.me/992…, tel:+992…) — для исходящих это решение владельца, для
         // читателя без права на номер это открытый номер (ACCESS-02).
         content: phonesAllowed ? text : maskPhonesForReader(text).text,
-        attachments: presentAttachments(attachments, attachmentsAllowed),
+        // Не сохранённые файлы (lib/customerInputMedia.ts) — пометками рядом с сохранёнными.
+        attachments: withLost(presentAttachments(attachments, attachmentsAllowed, signedFor), attachmentsLost),
         // Только у role="assistant" и только тем же простым разбором, что и
         // остальные поля колонки: доверять форме jsonb нельзя. Отсутствует или
         // разобрать не удалось — интерфейс покажет это как ответ бота (см.
@@ -162,38 +193,9 @@ export function presentMessages(
               ? translatedRu
               : maskPhonesForReader(translatedRu).text
             : undefined,
-        // Оценка ответа бота (17.09.2026, POST /conversations/:id/reply-feedback) —
-        // тот же белый список: без явного разбора здесь кнопки «Верно»/«Неверно»
-        // не увидят состояние после перезагрузки страницы (см. комментарий класса
-        // выше про `at` и вложения «video»/«file»).
-        feedback: presentFeedback(feedback, phonesAllowed),
       },
     ];
   });
-}
-
-function presentFeedback(raw: unknown, phonesAllowed: boolean): PresentedMessage["feedback"] {
-  if (!raw || typeof raw !== "object") return undefined;
-  const { verdict, note, by, at, lessonId, styleExampleId } = raw as {
-    verdict?: unknown;
-    note?: unknown;
-    by?: unknown;
-    at?: unknown;
-    lessonId?: unknown;
-    styleExampleId?: unknown;
-  };
-  if (verdict !== "good" && verdict !== "bad") return undefined;
-  if (typeof by !== "string" || typeof at !== "string") return undefined;
-  return {
-    verdict,
-    // Заметку правки пишет руководитель, и клиентский номер в ней — тот же номер
-    // в свободном тексте: без права на него читателю он закрыт (ACCESS-02).
-    note: typeof note === "string" ? (phonesAllowed ? note : maskPhonesForReader(note).text) : undefined,
-    by,
-    at,
-    lessonId: typeof lessonId === "string" ? lessonId : undefined,
-    styleExampleId: typeof styleExampleId === "string" ? styleExampleId : undefined,
-  };
 }
 
 /**

@@ -335,6 +335,48 @@ describe("ревью #344: путь Страницы и запасной лич�
     expect(await access.noteInstagramAccountLocked(accountId, `HTTP 401: ${LOCKED_TEXT}`)).toEqual({ marked: false, backupOnly: true });
   });
 
+  /**
+   * Вердикт «ключ канала мёртв» для повтора ответа бота (ревью #423, второй круг): выносит callGraph, про ТОТ ключ, которым
+   * шла отправка, и только если он не запасной. Иначе минутная пауза Страницы глушила бы переписку на весь день.
+   */
+  it("запасной ключ мёртв, Страница на паузе: отправка личным, 401 — НЕ «ключ канала мёртв»", async () => {
+    await routed();
+    meta.pageSendError = { status: 400, code: 613, subcode: 2534040 };
+    await send();
+    expect(pageSends).toHaveLength(1);
+    // Страница на паузе: следующая отправка сразу личным ключом (не повтор после отказа Страницы), и он мёртв.
+    meta.personalSendError = { status: 401, code: 190, message: "Error validating access token: session has been invalidated" };
+    const err = await send().catch((e: unknown) => e);
+    expect(pageSends).toHaveLength(1);
+    expect(err).toBeInstanceOf((await import("../src/lib/metaSendBlock.js")).MetaGraphCallError);
+    expect((err as { channelKeyDead: unknown }).channelKeyDead).toBeNull();
+  });
+
+  it("без пути Страницы единственный ключ отвечает 401 — «ключ канала мёртв» с отпечатком именно этого ключа", async () => {
+    meta.personalSendError = { status: 401, code: 190, message: "Error validating access token: session has been invalidated" };
+    const err = await send().catch((e: unknown) => e) as { channelKeyDead: { fingerprint: string } | null };
+    const { createHash } = await import("node:crypto");
+    expect(err.channelKeyDead).toEqual({ fingerprint: createHash("sha256").update(PERSONAL).digest("hex").slice(0, 12) });
+  });
+
+  it("код 190 не про ключ («окно ответа истекло») — ни «ключ мёртв», ни тревоги о ключе руководству", async () => {
+    const { isMetaAuthFailure } = await import("../src/lib/channelKeyAlarm.js");
+    const windowBody = JSON.stringify({ error: { code: 190, message: "The comment reply window has expired" } });
+    expect(isMetaAuthFailure(400, windowBody)).toBe(false);
+    expect(isMetaAuthFailure(400, JSON.stringify({ error: { code: 190, message: "Error validating access token: Session has expired" } }))).toBe(true);
+    expect(isMetaAuthFailure(401, "{}")).toBe(true);
+    // Тревога соседнего теста по этому же аккаунту может дописаться «в отрыве» (void) уже после его конца:
+    // дожидаемся тишины и убираем её ДО действия, иначе счёт ниже считает чужую запись (флак #344, 26.11.2026).
+    const accountAlarmTag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
+    await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: accountAlarmTag } }));
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: accountAlarmTag } });
+    meta.personalSendError = { status: 400, code: 190, message: "The comment reply window has expired" };
+    const err = await send().catch((e: unknown) => e) as { channelKeyDead: unknown };
+    expect(err.channelKeyDead).toBeNull();
+    const alarm = await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: accountAlarmTag } }));
+    expect(alarm).toBe(0);
+  });
+
   it("200 без подкода (нет App Review) — отказ пути: повтор личным, Страница на скамейке, тревога", async () => {
     await routed();
     meta.pageSendError = { status: 400, code: 200 };

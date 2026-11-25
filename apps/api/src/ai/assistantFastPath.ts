@@ -7,6 +7,7 @@ import { trashActorOf } from "./assistant/actor.js";
 import { trashedPropertyNoteFor } from "./assistant/tools/propertyPresenter.js";
 import { propertyIdsByInstagramLink } from "../lib/propertyRefLookup.js";
 import { instagramLinkCodes } from "../lib/instagramPostLead.js";
+import { PROPERTY_OBJECT_STEM } from "./propertyObjectWord.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -50,7 +51,8 @@ export interface AssistantFastPathResult {
 /** Слова-«глаголы» перед номером: «покажи ОБ-88», «найди клиента ПК-5». */
 const LEADING_FILLER = /^(?:(?:покажи|показать|найди|найти|открой|открыть|дай|дайте|что\s+за|кто\s+такой|кто\s+это|инфо(?:рмация)?\s+по|карточка|карточку|show|open|find)\s+)+/i;
 
-const PROPERTY_WORDS = "(?:объект|обьект|ob)";
+// Варианты слова «объект» — один список на сервер (ai/propertyObjectWord.ts); «ob» — латиница кода «ob-88».
+const PROPERTY_WORDS = `(?:${PROPERTY_OBJECT_STEM}|ob)`;
 const PROPERTY_PREFIX = "(?:об|ob)";
 const CLIENT_WORDS = "(?:клиент(?:а)?|покупател[ья]|продав(?:ец|ца))";
 const CLIENT_PREFIX = "(?:пк|пр|по|кл|pk|pr|po|kl)";

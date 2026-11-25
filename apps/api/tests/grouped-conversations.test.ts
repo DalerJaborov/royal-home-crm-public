@@ -20,6 +20,10 @@ const directIds: string[] = [];
 let districtId = "";
 let propertyId = "";
 let propertyClientId = "";
+// Rows left by test files that ran earlier in the same database (shared CI
+// machine) must not change our exact totals: count them before seeding.
+let baselineTotal = 0;
+const expectedTotal = () => baselineTotal + 26;
 
 const get = (token: string, path: string) => request(app).get(`/api/v1${path}`).set("Authorization", `Bearer ${token}`);
 
@@ -34,6 +38,7 @@ beforeAll(async () => {
   foreignAgentId = foreignAgent.id;
   adminToken = signAccessToken({ sub: adminId, role: "ADMIN" });
   agentToken = signAccessToken({ sub: agentId, role: "AGENT" });
+  baselineTotal = Number((await get(adminToken, "/conversations?grouped=1")).body.total ?? 0);
 
   const clients = await Promise.all(Array.from({ length: 25 }, (_, index) => prisma.client.create({
     data: {
@@ -203,13 +208,13 @@ describe("grouped conversation inbox", () => {
     const second = await get(adminToken, "/conversations?grouped=1&page=2");
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(first.body.total).toBe(26);
-    expect(second.body.total).toBe(26);
+    expect(first.body.total).toBe(expectedTotal());
+    expect(second.body.total).toBe(expectedTotal());
     expect(first.body.items).toHaveLength(20);
-    expect(second.body.items).toHaveLength(6);
+    expect(second.body.items).toHaveLength(Math.min(20, expectedTotal() - 20));
     const firstIds = first.body.items.map((item: { id: string }) => item.id);
     const secondIds = second.body.items.map((item: { id: string }) => item.id);
-    expect(new Set([...firstIds, ...secondIds]).size).toBe(26);
+    expect(new Set([...firstIds, ...secondIds]).size).toBe(Math.min(40, expectedTotal()));
     expect(first.body.items.find((item: { id: string }) => item.id === `client:${clientIds[0]}`).sourceConversationIds)
       .toEqual([botIds[0], `tg_${telegramIds[0]}`, `td_${directIds[0]}`]);
   });
@@ -218,12 +223,12 @@ describe("grouped conversation inbox", () => {
     const needsHuman = await get(adminToken, "/conversations?grouped=1&needsHuman=1");
     expect(needsHuman.status).toBe(200);
     expect(needsHuman.body.total).toBe(3);
-    expect(needsHuman.body.counts.all).toBe(26);
+    expect(needsHuman.body.counts.all).toBe(expectedTotal());
     expect(needsHuman.body.counts.needsHuman).toBe(3);
     const mine = await get(adminToken, "/conversations?grouped=1&mine=1");
     expect(mine.status).toBe(200);
     expect(mine.body.total).toBe(0);
-    expect(mine.body.counts.all).toBe(26);
+    expect(mine.body.counts.all).toBe(expectedTotal());
   });
 
   it("sums unread tails across sources and marks Telegram Direct as read-only", async () => {

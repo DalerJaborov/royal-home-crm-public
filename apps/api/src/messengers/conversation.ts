@@ -10,6 +10,7 @@ import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFl
 import { loadCustomerQualifierLane } from "../lib/customerQualifierContext.js";
 import { processScopedCustomerQualifierTurn } from "./customerQualifierTurn.js";
 import { recordScopedCustomerInput } from "../lib/customerQualifierLedger.js";
+import { keepIncomingMediaForStaff } from "../lib/customerInputMedia.js";
 import type { MessengerChannel, MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 export type { MessengerChannel, MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 import { boundedCustomerPropertyBatch, customerPropertyPromptHistory, customerPropertyTurnTerminal } from "../lib/customerPropertyHistory.js";
@@ -145,7 +146,6 @@ import { propertyChatLeadPropertyId } from "../lib/ownBotConversationScope.js";
 import { firstTouchAdPatch, persistFirstTouchAdAttribution } from "../lib/adAttribution.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
-import { isConfusedMessage, recordLesson } from "../lib/botLessons.js";
 import { resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../lib/clientPhones.js";
 import { maskClientPhone, maskPhonesInFreeText } from "../lib/clientPhone.js";
@@ -1764,7 +1764,12 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       input = { ...input, customerTransport };
       if (!input.fromStaff && ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(input.channel)) {
         const original = await readCustomerDmSubjectExecution(prisma, customerTransport, input.subscriberId);
-        if (original && original.lane !== "LEGACY") return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
+        if (original && original.lane !== "LEGACY") {
+          // Ядро запишет реплику позже, в своей очереди, и файл качает только ради
+          // модели: сохраняем его для сотрудника сейчас, пока ссылка Meta жива (25.11.2026).
+          keepIncomingMediaForStaff(input);
+          traceNoReply("dm_lane_core"); return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
+        }
       }
       if (!input.fromStaff && await customerPropertyTurnAlreadyManaged(input)) return { reply: "", ready: false, accepted: false, shouldReply: false };
       // Staff/echo history is not a new customer intent or property generation.
@@ -1775,7 +1780,12 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       }
       const lane = await loadCustomerQualifierLane({ ...input, customerPropertyAdmission: admission });
       if (lane.mode === "held") {
-        if (admission?.status === "admitted") await recordScopedCustomerInput(input, input.customerAuthenticatedInput, admission.ticket);
+        if (admission?.status === "admitted" && await recordScopedCustomerInput(input, input.customerAuthenticatedInput, admission.ticket)) {
+          // Переписку ведёт сотрудник — бот молчит, но фото/видео/голосовое клиента
+          // ему нужны в CRM больше всего (жалоба владельца 25.11.2026).
+          keepIncomingMediaForStaff(input);
+        }
+        traceNoReply("dm_lane_held");
         return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
       }
       const preparedInput = { ...input, customerPropertyAdmission: admission, customerPropertyBatch: prepared.batch };
@@ -2840,22 +2850,6 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       .catch(() => {});
   }
 
-  // Клиент переспросил — значит бот выразился непонятно. Записываем случай на разбор.
-  // Только когда бот вёл диалог сам: на паузе последнюю реплику писал оператор
-  // (она хранится как assistant), и его ответ в вину боту ставить нельзя.
-  if (!isPaused && text && isConfusedMessage(text)) {
-    const lastBot = [...history].reverse().find((m) => m.role === "assistant");
-    if (lastBot?.content) {
-      void recordLesson({
-        kind: "client_confused",
-        channel,
-        conversationId: conversation.id,
-        botMessage: lastBot.content,
-        humanMessage: text,
-      });
-    }
-  }
-
   // Оператор вручную взял диалог на себя (кнопка в CRM) — ИИ молчит, чтобы не
   // дублировать живого агента; бот-платформа не отправит ничего клиенту (shouldReply:false).
   // Сообщение всё равно сохраняем в историю — пригодится ИИ, когда бота вернут.
@@ -3901,7 +3895,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
       }
     } else if (result.callbackRequest && !result.jobApplication) {
       // Просьбы не было вовсе — модель придумала. Ничего не теряем: разговор и так
-      // оформится обычной заявкой агенту, а счётчик на экране «Обучение бота»
+      // оформится обычной заявкой агенту, а счётчик в Настройках → «Бот» → «Проверка бота»
       // покажет, как часто это случается.
       guardFired("callback_not_asked");
     }

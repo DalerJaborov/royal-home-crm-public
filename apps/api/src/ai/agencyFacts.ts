@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { daysOffSentenceRu, isDayOff, normalizeDaysOff, startOfWorkingDayAtOrAfter, type DaysOffCalendar } from "@royal-home/shared";
+import { COMMISSION_TOTAL_PERCENT, daysOffSentenceRu, isDayOff, normalizeDaysOff, startOfWorkingDayAtOrAfter, type DaysOffCalendar } from "@royal-home/shared";
 import {
   dushanbeDateString,
   dushanbeNextOccurrence,
@@ -37,7 +37,6 @@ import { SERVICE_AREA_COMPANY_LINE } from "../lib/serviceArea.js";
  *  - обещание звонка агента: callbackPromise() — ОДНО решение «сегодня / завтра /
  *    в понедельник» для чата, голоса и задачи агенту;
  *  - BOT_NAMES_ASSIGNED_AGENT — флаг «называть ли клиенту имя агента».
- * Сверка выученных правил с этими фактами — agencyFactsLessons.ts.
  */
 
 export const AGENCY_FACTS = {
@@ -54,7 +53,7 @@ export const AGENCY_FACTS = {
    *  станет правдой — поменять здесь, и сторож правил перестанет их гасить. */
   installments: false,
   mortgage: false,
-  commission: { sellerPercent: 2, buyerPercent: 0 },
+  commission: { sellerPercent: COMMISSION_TOTAL_PERCENT, buyerPercent: 0 },
   /** Торг ведёт агент с собственником; размер скидки бот не называет никогда. */
   botNamesDiscount: false,
   /** Юр. справка: «всё чисто» не гарантируем — проверяют нотариус и МБТИ. */

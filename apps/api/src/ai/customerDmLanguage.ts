@@ -3,7 +3,7 @@ import { clientLanguageScores as baseClientLanguageScores, detectClientLanguage 
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
-import { adTemplateLanguage, isAdTemplateOpener } from "./adTemplatePhrase.js";
+import { adTemplateLanguage, adTemplatePhraseCut, isAdTemplateOpener, SALAAM_WORDS } from "./adTemplatePhrase.js";
 
 /**
  * CUSTOMER-CORE WORD LISTS (audit 16.11.2026; review #206 С2: only this path, the legacy bot and the voice keep theirs).
@@ -147,7 +147,7 @@ export function customerColloquialTajikLanguage(input: string): boolean {
 /** Words that carry no language evidence of their own (greeting, thanks, ok/yes/no), folded alphabet. */
 const NEUTRAL_WORDS = new Set(["привет", "здравствуйте", "здравствуй", "добрый", "доброе", "день", "вечер", "утро", "спасибо",
   "благодарю", "ок", "окей", "ok", "okay", "хорошо", "ладно", "да", "нет", "ага", "угу", "понятно", "ясно", "отлично", "супер",
-  "салом", "асалом", "ассалом", "ассалому", "алейкум", "алайкум", "ассаломуалейкум", "асаломалейкум", "саломалейкум", "рахмат",
+  ...SALAAM_WORDS, "рахмат",
   "ташаккур", "хуб", "майлаш", "бале", "ха", "salom", "rahmat", "tashakkur", "hi", "hello", "yes", "no", "thanks"]);
 
 /** Up to two neutral words, or nothing readable at all (a bare link, @handle, emoji): no reason to switch the dialogue language. */
@@ -179,7 +179,7 @@ function decisiveLanguage(text: string): "ru" | "tg" | null {
  */
 export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly string[] = [],
   storedLanguage?: "ru" | "tg" | "mixed" | "unknown"): "ru" | "tg" {
-  text = customerHistoryOwnWords(text);
+  text = customerLanguageWords(text);
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
   // The ad button text («Привет! Можно узнать об этом подробнее?») is not the customer's words (audit 16.11.2026:
@@ -203,6 +203,17 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
 }
 
 /**
+ * Слова клиента для выбора ЯЗЫКА: без готовой фразы рекламы Meta рядом с ними (живая находка 34, 25.11.2026: «Какие услуги вы
+ * предлагаете?» и дальше «нарх / хона / сурога» — язык решала русская кнопка). Только шаблон — как есть: его ловит
+ * isAdTemplateOpener и язык берётся прежним путём (история, потом язык кнопки).
+ */
+function customerLanguageWords(raw: string): string {
+  const text = customerHistoryOwnWords(raw);
+  const cut = adTemplatePhraseCut(text);
+  return cut.cut && cut.rest ? cut.rest : text;
+}
+
+/**
  * ЯЗЫК, ЗА КОТОРЫЙ КОД РУЧАЕТСЯ (20.11.2026, оператор приёма заявок). Детектор выше по умолчанию считает таджикским любой
  * латинский текст без английских слов («Skolko stoit kvartira?» — русский транслит), поэтому перекрывать им ответ модели
  * можно не всегда. Код ручается, только когда у него есть настоящее основание: явная просьба о языке или текст кириллицей
@@ -211,7 +222,7 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
  * «телефон номера нависед» модель назвала русским, а у кода тут маркер «нависед»).
  */
 export function groundedCustomerDmLanguage(input: string): "ru" | "tg" | null {
-  const text = customerHistoryOwnWords(input);
+  const text = customerLanguageWords(input);
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
   if (!text || isAdTemplateOpener(text) || isNeutralShortReply(text)) return null;
@@ -237,7 +248,7 @@ export function customerDmDialogueLanguage(userTextsOldestFirst: readonly string
     if (requested) return requested;
   }
   for (const raw of [...userTextsOldestFirst].reverse()) {
-    const text = customerHistoryOwnWords(raw);
+    const text = customerLanguageWords(raw);
     if (!text || isAdTemplateOpener(text)) continue;
     const decided = decisiveLanguage(text);
     if (decided) return decided;

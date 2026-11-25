@@ -24,7 +24,7 @@
  * тот же двухуровневый. При сохранении объекта создаются строки PropertyPhoto и
  * PropertyVideo с уже готовыми путями, а строки черновика удаляются.
  */
-import express, { Router, type ErrorRequestHandler } from "express";
+import { Router, type ErrorRequestHandler } from "express";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -44,12 +44,16 @@ import { discardDraft, removePhotoFiles } from "./draftAttach.js";
 import { isHeic, sharpFromUpload } from "../../lib/heicInput.js";
 import { memoryUploadBudget } from "../../lib/memoryUploadBudget.js";
 import { DRAFT_INCLUDE, DraftConflictError, assertActiveDraft, checkDraftReference, closeDraftRows, draftExpiry, withDraftLock } from "./draftLifecycle.js";
+import { logUploadPart, partBodySource, sendUploadError } from "../../lib/uploadHttp.js";
+import { runUploadCompletion } from "../../lib/uploadCompletion.js";
 // Ролики черновика и черновик из карточки продавца — одна дверь для мастера CRM
 // и мастера в Telegram (lib/propertyDraftMedia.ts, 10.11.2026).
 import {
   MAX_DRAFT_PHOTOS,
   MAX_UPLOAD_PARTS,
-  completeDraftVideo,
+  completeDraftVideoLocked,
+  draftVideoOwner,
+  draftVideoStatus,
   deleteDraftMedia,
   draftFromClientBodySchema,
   ensureDraft,
@@ -288,30 +292,68 @@ const partParamsSchema = z.object({
   partNumber: z.coerce.number().int().min(1).max(MAX_UPLOAD_PARTS),
 });
 
-draftsRouter.put(
-  "/drafts/current/videos/:mediaId/parts/:partNumber",
-  requireAuth,
-  // Часть приходит сырыми байтами, а не формой: multipart вокруг восьми мегабайт —
-  // лишняя обёртка и лишняя копия в памяти. Тот же приём, что у видео объекта.
-  (req, res, next) => {
-    req.headers["content-type"] = "application/octet-stream";
-    next();
-  },
-  express.raw({ type: () => true, limit: "32mb" }),
-  async (req, res) => {
-    const parsedParams = partParamsSchema.safeParse(req.params);
-    if (!parsedParams.success) return res.status(400).json({ error: "Неверные данные" });
-    const { mediaId, partNumber } = parsedParams.data;
-    const written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber, req.body as Buffer);
-    res.status(written.status).json(written.body);
+/**
+ * Часть приходит сырыми байтами и пишется на диск ПОТОКОМ (lib/uploadHttp.ts::partBodySource),
+ * без копии части в памяти и вне транзакции черновика (lib/propertyDraftMedia.ts).
+ */
+draftsRouter.put("/drafts/current/videos/:mediaId/parts/:partNumber", requireAuth, async (req, res) => {
+  const parsedParams = partParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ error: "Неверные данные" });
+  const { mediaId, partNumber } = parsedParams.data;
+  const startedAt = Date.now();
+  let written;
+  try {
+    written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber, partBodySource(req));
+  } catch (err) {
+    if (sendUploadError(res, err, "ролик черновика: часть")) return;
+    throw err;
   }
-);
+  const code = written.status >= 300 ? String((written.body as { code?: unknown } | null)?.code ?? written.status) : undefined;
+  logUploadPart(req, { kind: "draft-video", sessionId: mediaId, partNumber, startedAt, code });
+  res.status(written.status).json(written.body);
+});
 
+/** Состояние загрузки ролика: принятые части и байты, состояние сборки и итог (докачка, асинхронная сборка). */
+draftsRouter.get("/drafts/current/videos/:mediaId", requireAuth, async (req, res) => {
+  const parsedId = z.guid().safeParse(req.params.mediaId);
+  if (!parsedId.success) return res.status(400).json({ error: "Неверные данные" });
+  const status = await draftVideoStatus(req.agent!.id, parsedId.data);
+  res.status(status.status).json(status.body);
+});
+
+/**
+ * Сборка — общий порядок (lib/uploadCompletion.ts): замок, части убираются только после
+ * отметки «готово» в базе, повтор отдаёт тот же итог, `X-Upload-Async: 1` — ответ 202 сразу.
+ */
 draftsRouter.post("/drafts/current/videos/:mediaId/complete", requireAuth, async (req, res) => {
   const parsedId = z.guid().safeParse(req.params.mediaId);
   if (!parsedId.success) return res.status(400).json({ error: "Неверные данные" });
-  const completed = await completeDraftVideo(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
-  res.status(completed.status).json(completed.body);
+  const agentId = req.agent!.id;
+  const mediaId = parsedId.data;
+  const draftHeaderId = req.get("X-Property-Draft-Id");
+  // Уже собран или загрузки нет — отвечаем без замка (папки частей у собранного ролика нет).
+  const media = await prisma.propertyDraftMedia.findUnique({ where: { id: mediaId }, select: { status: true } });
+  if (!media || media.status === "READY") {
+    const completed = await completeDraftVideoLocked(agentId, draftHeaderId, mediaId);
+    return res.status(completed.status).json(completed.body);
+  }
+  try {
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId: mediaId,
+      owner: draftVideoOwner(agentId),
+      what: "ролик черновика",
+      work: async () => {
+        const completed = await completeDraftVideoLocked(agentId, draftHeaderId, mediaId);
+        // Части убираются только после «готово» в базе; отказ — части остаются для повтора.
+        return { status: completed.status, body: completed.body, finalize: completed.status === 200 };
+      },
+    });
+  } catch (err) {
+    if (sendUploadError(res, err, "ролик черновика: сборка")) return;
+    throw err;
+  }
 });
 
 /** Отмена загрузки и удаление файла черновика — одной кнопкой на плитке. */

@@ -598,7 +598,6 @@ export function PultClean() {
       <CleanBlock name="pult.control" title="Контроль руководителя">{() => <CleanControlTiles control={system?.control} allowed={hasRoute("/oversight")} />}</CleanBlock>
       <CleanBlock name="pult.extras" title="Инструменты пульта">
         <CleanPultExtras key={agent?.id}
-          canTrainer={can("settings.manage")}
           canVacancies={can("vacancies.view") && hasRoute("/vacancies")}
           canSettings={can("settings.manage") && hasRoute("/settings")}
           newApplications={system?.newApplications}
@@ -607,7 +606,7 @@ export function PultClean() {
       <CleanBlock name="pult.system" title="Система и ИИ">
         <CleanSystemBotDetails
           system={system} bot={bot} canHealth={hasRoute("/health")}
-          canMessages={hasRoute("/messages")} canBotLearning={hasRoute("/ai-learning")}
+          canMessages={hasRoute("/messages")}
           canSeeMoney={!!data?.seesMoney && can("finance.view")}
         />
       </CleanBlock>

@@ -31,6 +31,9 @@ import type { AssistantReadToolPlugin } from "./types.js";
  */
 const argsSchema = z.object({
   landmark: z.string().trim().max(200).optional(),
+  landmarkFrom: z.string().trim().max(200).optional(),
+  landmarkTo: z.string().trim().max(200).optional(),
+  corridorWidthM: z.coerce.number().min(200).max(3000).optional(),
   radiusM: z.coerce.number().min(100).max(10_000).optional(),
   text: z.string().trim().max(200).optional(),
   districtName: z.string().trim().max(100).optional(),
@@ -58,6 +61,11 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     "Основной поиск объектов по ОРИЕНТИРУ, адресу и признакам. Зови всегда, когда в вопросе есть «около/возле/рядом с/в стороне/у …», " +
     "название места (Ашан, Воданасос, 82 мкр, базар), «коробка», этаж, площадь или цена в сомони/долларах. " +
     "landmark — место СЛОВАМИ ЧЕЛОВЕКА, как сказано («у Ашана», «в стороне Воданасоса»): район и точку на карте определяет сам инструмент, не угадывай. " +
+    "«ОТ А ДО Б» («от цирка до автоцентра», «тарафи цирк то автоцентра», «между X и Y»): передай ДВА ориентира в landmarkFrom и landmarkTo — " +
+    "инструмент ищет в полосе вокруг линии между ними (corridorWidthM, по умолчанию 800 м) и ставит выше тех, кто ближе к линии. Не складывай оба названия в landmark и не зови инструмент отдельно по каждому. " +
+    "Если в searched.corridor.missing есть ориентир, значит его НЕТ на карте: скажи это прямо («ориентира … нет на карте, добавьте в справочнике ориентиров»), " +
+    "назови похожие из corridor.suggestions и не выдавай поиск вокруг одного ориентира за полосу. " +
+    "Тип, площадь, комнаты, цену из той же просьбы передай этим же вызовом. " +
     "Радиус расширяется сам; можно задать radiusM. Тип: APARTMENT/HOUSE (хавли, дом)/COMMERCIAL/LAND. shell=true — «коробка» (без ремонта). " +
     "Цена: minPrice/maxPrice + currency (TJS или USD; «2,5 млн» без слова — сомони, а малая сумма без валюты — спроси валюту). " +
     "scope: live — живые, trash — удалённые (Корзина), both — оба; по умолчанию both. Корзина объектов — справка для всех сотрудников. " +
@@ -70,6 +78,9 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     type: "object",
     properties: {
       landmark: { type: "string", description: "Ориентир словами человека: «Ашан», «в стороне Воданасоса», «82 мкр»" },
+      landmarkFrom: { type: "string", description: "«От А»: первый ориентир полосы, например «цирк»" },
+      landmarkTo: { type: "string", description: "«До Б»: второй ориентир полосы, например «автоцентр»" },
+      corridorWidthM: { type: "number", description: "Ширина полосы «от А до Б» в метрах в каждую сторону (200–3000), по умолчанию 800" },
       radiusM: { type: "number", description: "Радиус в метрах (100–10000). Обычно не нужен." },
       text: { type: "string", description: "Слова из адреса, названия или описания" },
       districtName: { type: "string", description: "Район, например Сино" },
@@ -108,7 +119,12 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
       scope,
       hideOwnPendingDeleteFor: canDelete ? undefined : actor.id,
     });
-    if (result.error) return { error: result.error };
+    if (result.error) {
+      // Нет ориентира «от А до Б» — ответ с причиной и похожими названиями, а не голая ошибка.
+      return result.corridor
+        ? { error: result.error, searched: { corridor: result.corridor, placeResolved: false } }
+        : { error: result.error };
+    }
 
     const money = await loadMoneyContext();
     // Собственник — по правилу карточки объекта (stripOwnerContact): имя и ссылка только тому,
@@ -192,6 +208,7 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
         placeResolved: result.placeResolved,
         radiusM: result.radiusM,
         radiusWidened: result.widened,
+        ...(result.corridor ? { corridor: result.corridor } : {}),
         ...(result.zoneOnly ? { zoneOnly: result.zoneOnly } : {}),
         ...(result.districtIgnored ? { districtIgnored: result.districtIgnored } : {}),
         ...(result.placeOutsideDistrict ? { placeOutsideDistrict: result.placeOutsideDistrict } : {}),

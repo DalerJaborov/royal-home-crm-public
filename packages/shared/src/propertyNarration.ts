@@ -95,12 +95,18 @@ const narrationConfigBase = z.object({
   ownerReportPreviewEnabled: z.boolean().optional(),
   /** Рубильник «Озвучка текста в помощнике» (16.11.2026). Не задан или true: включено для всех активных сотрудников. */
   freeNarrationEnabled: z.boolean().optional(),
+  /** Рубильник «Шабнам пишет рекламный текст из присланных фактов» (23.11.2026). Не задан или true: включено. */
+  freeNarrationAdText: z.boolean().optional(),
+  /** Шабнам выбирает голос по одному с образцом (Выбрать/Следующий/Муж/Жен/Все). По умолчанию ВКЛ; выключено — прежний список кнопок. */
+  freeNarrationVoiceStepper: z.boolean().optional(),
+  /** Рубильник «кнопка «Озвучить этот текст» под длинным сообщением» (23.11.2026). Не задан или false: выключено. */
+  freeNarrationOfferButton: z.boolean().optional(),
   /** Рубильник «живые слова озвучки» (22.11.2026): новые слова шаблона ({объект}, {сколько_комнат}, {метраж}, участок дома
    *  в {сотки}, «ва ним» у половины сотки) работают. По умолчанию ВЫКЛЮЧЕН: пока владелец не утвердил тексты, озвучка
    *  звучит как раньше. Миграция новых текстов (prisma/migrations/*_narration_templates_live, 23.11.2026) включает его сама, вместе с заменой текстов. */
   liveWords: z.boolean().optional(),
-  /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); по умолчанию FREE_NARRATION_DEFAULTS. */
-  freeNarrationPerPersonDaily: z.number().int().min(1).max(100).optional(),
+  /** Потолок озвучек свободного текста на человека в сутки (по Душанбе); 0 = без ограничения (по умолчанию, 24.11.2026: рабочим не нужен потолок). */
+  freeNarrationPerPersonDaily: z.number().int().min(0).max(100).optional(),
   /** Предел знаков одного свободного текста; по умолчанию FREE_NARRATION_DEFAULTS. */
   freeNarrationMaxChars: z.number().int().min(50).max(5000).optional(),
   /** Доля дневного предела озвучки (знаки и озвучки), которую могут выбрать свободные тексты, %; по умолчанию FREE_NARRATION_DEFAULTS. */
@@ -874,6 +880,8 @@ export type PropertyNarrationView = {
   facts?: NarrationFacts;
   /** У объекта выбрано «Без озвучки» (12.11.2026). */
   off?: boolean;
+  /** Номер объекта (ОБ-№) — для имени скачанного файла озвучки (25.11.2026). */
+  propertyCode?: number;
   lastChoice?: { voiceId?: string; templateId?: string; endingId?: string; usedTemplateId?: string; usedEndingId?: string };
   configured: boolean; canApprove: boolean; canConfigure?: boolean; canDraft?: boolean; sendsEnabled: boolean;
   /** Агент объекта одобряет готовое аудио (автоозвучка), маркетинг — по-прежнему черновой текст. */

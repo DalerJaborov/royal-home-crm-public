@@ -1,49 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredDraftFile } from "../draftUploadStore";
+import { createFakeIndexedDb, type FakeIdb } from "./fakeIndexedDb";
 
-const records = new Map<string, StoredDraftFile>();
-function request<T>(action: () => T, transaction?: { pending: number; oncomplete?: (() => void) | null }) {
-  const result = { result: undefined as T | undefined, onsuccess: null as (() => void) | null, onerror: null };
-  if (transaction) transaction.pending++;
-  queueMicrotask(() => {
-    result.result = action(); result.onsuccess?.();
-    if (transaction) {
-      transaction.pending--;
-      queueMicrotask(() => { if (!transaction.pending) transaction.oncomplete?.(); });
-    }
-  });
-  return result;
-}
+const DB = "royal-home-draft-media";
+/** Записи прежней версии (файл внутри записи) — до первого открытия базы; после — то, что в базе. */
+const seedRows = new Map<string, StoredDraftFile>();
+let fake: FakeIdb;
+let opened = false;
+const records = {
+  set: (key: string, rec: StoredDraftFile) => seedRows.set(key, rec),
+  get: (key: string) => (opened ? (fake.dump(DB, "files").get(key) as StoredDraftFile | undefined) : seedRows.get(key)),
+  keys: () => (opened ? (fake.dump(DB, "files").keys() as IterableIterator<string>) : seedRows.keys()),
+};
 beforeEach(() => {
-  vi.resetModules(); records.clear();
-  const db = {
-    objectStoreNames: { contains: () => true },
-    transaction: () => {
-      const transaction = { pending: 0, oncomplete: null as (() => void) | null, objectStore: () => ({
-        getAll: () => request(() => [...records.values()], transaction),
-        put: (rec: StoredDraftFile) => request(() => { records.set(rec.uploadKey, rec); return rec.uploadKey; }, transaction),
-        delete: (key: string) => request(() => { records.delete(key); }, transaction),
-        clear: () => request(() => { records.clear(); }, transaction),
-        openCursor: () => {
-          const keys = [...records.keys()];
-          let index = 0;
-          const cursorRequest = { result: null as unknown, onsuccess: null as (() => void) | null, onerror: null };
-          const next = () => queueMicrotask(() => {
-            const key = keys[index++];
-            cursorRequest.result = key ? { value: records.get(key),
-              delete: () => request(() => { records.delete(key); }), continue: next,
-            } : null;
-            cursorRequest.onsuccess?.();
-            if (!key) queueMicrotask(() => transaction.oncomplete?.());
-          });
-          next();
-          return cursorRequest;
-        },
-      }) };
-      return transaction;
+  vi.resetModules(); seedRows.clear(); opened = false;
+  fake = createFakeIndexedDb();
+  vi.stubGlobal("indexedDB", {
+    open: (name: string, version?: number) => {
+      // Первое открытие: база версии 1 с записями прежней сборки — проверяем и перенос.
+      if (!opened) fake.seed(DB, 1, { files: { keyPath: "uploadKey", rows: [...seedRows.entries()] } });
+      opened = true;
+      return fake.indexedDB.open(name, version);
     },
-  };
-  vi.stubGlobal("indexedDB", { open: () => request(() => db) });
+  });
 });
 afterEach(() => vi.unstubAllGlobals());
 const add = (uploadKey: string, agentId: string, draftId?: string | null) => records.set(uploadKey, {
@@ -106,5 +85,45 @@ describe("срок локальных файлов считается от по�
     expect(records.get("mine")?.savedAt).toBe(now);
     expect(records.get("other-draft")?.savedAt).toBe(now - 5 * HOUR);
     expect(records.get("other-agent")?.savedAt).toBe(now - 5 * HOUR);
+  });
+});
+
+/**
+ * Находка 2 (25.11.2026): каждое продление срока перекладывало запись ВМЕСТЕ с файлом, а
+ * Chromium на каждую запись блоба копирует его заново (ролик 271 МБ — на каждую отметку).
+ * Версия 2: файл кладётся один раз, отметки правят только метаданные; запись версии 1
+ * переезжает при первой правке, без потери.
+ */
+describe("склад мастера v2: файл кладётся один раз, отметки — без перекладки файла", () => {
+  it("новый файл: три продления срока — файл записан один раз", async () => {
+    const store = await import("../draftUploadStore");
+    await store.putDraftFile({ uploadKey: "v1", agentId: "A", draftId: "d", kind: "video", name: "v.mov", size: 5, blob: new Blob(["video"]) });
+    for (let i = 0; i < 3; i++) await store.touchDraftFiles("A", "d", Date.now() + i);
+    await store.updateDraftFileMeta("v1", { draftId: "d" });
+    expect(fake.putCount.get("blobs")).toBe(1);
+    expect((records.get("v1") as unknown as { blob?: Blob }).blob).toBeUndefined();
+    const live = await store.readAllDraftFiles("A");
+    expect(live).toHaveLength(1);
+    expect(await live[0].blob.text()).toBe("video");
+  });
+
+  it("запись версии 1 (файл внутри) переезжает при первой правке и читается дальше", async () => {
+    add("legacy-v1", "A", "d");
+    const store = await import("../draftUploadStore");
+    await store.touchDraftFiles("A", "d", Date.now());
+    expect((records.get("legacy-v1") as unknown as { blob?: Blob }).blob).toBeUndefined();
+    expect(fake.dump(DB, "blobs").has("legacy-v1")).toBe(true);
+    await store.touchDraftFiles("A", "d", Date.now() + 1);
+    expect(fake.putCount.get("blobs")).toBe(1); // второй раз файл не перекладывается
+    const live = await store.readAllDraftFiles("A");
+    expect(await live[0].blob.text()).toBe("image");
+  });
+
+  it("удаление убирает и метаданные, и файл", async () => {
+    const store = await import("../draftUploadStore");
+    await store.putDraftFile({ uploadKey: "x", agentId: "A", draftId: "d", kind: "photo", name: "p.jpg", size: 1, blob: new Blob(["p"]) });
+    await store.deleteDraftFile("x");
+    expect(fake.dump(DB, "files").has("x")).toBe(false);
+    expect(fake.dump(DB, "blobs").has("x")).toBe(false);
   });
 });

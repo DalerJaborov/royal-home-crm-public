@@ -652,7 +652,7 @@ function PropertyViewCard({
       />
     ) : (
       <div className="card">
-        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} showOwner={!royal} />
+        <PropertyOwnerCard property={property} showOwner={!royal} />
         {canInlineEdit && <InlineEditLink label="Изменить" onClick={() => setEditingFields(true)} />}
       </div>
     );
@@ -866,7 +866,12 @@ function PropertyViewCard({
     </div>
   );
   const promotionBlock = <>
-    {!isTrashed && <ConstructionPermitCard propertyId={property.shortId} />}
+    {!isTrashed && (
+      <ConstructionPermitCard
+        propertyId={property.shortId}
+        point={property.lat != null && property.lng != null ? { lat: Number(property.lat), lng: Number(property.lng) } : null}
+      />
+    )}
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
     {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}
@@ -1982,7 +1987,6 @@ function AgentFieldsCard({
     <div className="card">
       <PropertyOwnerCard
         property={property}
-        showIntakeShare={can("finance.view")}
         ownerPhoneInField={can("properties.viewOwners") && !isTrashed}
       />
 

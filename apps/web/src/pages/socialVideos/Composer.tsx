@@ -51,6 +51,7 @@ import { SchedulePicker } from "../../components/socialVideos/SchedulePicker";
 import { ChannelBadge } from "../../components/socialVideos/ChannelBadge";
 import { ComposerSummary } from "./ComposerSummary";
 import { PhotoPicker } from "./PhotoPicker";
+import type { UploadLive } from "../../lib/upload/progressText";
 import {
   earliestScheduleMs,
   errorText,
@@ -156,6 +157,8 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
   const [file, setFile] = useState<File | null>(null);
   const [browserFacts, setBrowserFacts] = useState<SocialVideoFacts | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  /** МБ из МБ, скорость, осталось, «ждём связь» — строка под полосой (25.11.2026). */
+  const [uploadLive, setUploadLive] = useState<UploadLive | null>(null);
   /** Все байты ушли, сервер обрабатывает файл. */
   const [processing, setProcessing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -271,6 +274,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
           channels: channelsOfDestinations(cur.destinations),
           destinations: cur.destinations,
           onProgress: setProgress,
+          onLive: setUploadLive,
           onUploaded: () => setProcessing(true),
         });
         hydrated.current = item.id;
@@ -283,6 +287,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
         setUploadError(errorText(err, Array.isArray(f) ? "Не удалось загрузить фото" : "Не удалось загрузить ролик"));
       } finally {
         setProgress(null);
+        setUploadLive(null);
         setProcessing(false);
       }
     },
@@ -586,6 +591,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
                   local={photos}
                   existing={draft?.imagePaths ?? []}
                   uploadProgress={progress}
+                  uploadLive={uploadLive}
                   processing={processing}
                   disabled={uploading}
                   onPick={onPickPhotos}
@@ -613,6 +619,7 @@ export function Composer({ editId, onClose, onPublished, onOpenVideo, initialKin
                 existing={draft ? { videoPath: draft.videoPath, originalName: draft.originalName, sizeBytes: draft.sizeBytes } : null}
                 facts={facts}
                 uploadProgress={progress}
+                uploadLive={uploadLive}
                 processing={processing}
                 disabled={uploading}
                 onPick={onPick}

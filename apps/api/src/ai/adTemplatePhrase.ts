@@ -16,13 +16,20 @@ import { clientOwnWords } from "./untrustedContent.js";
  * Русский, таджикский (кириллица и латиница) и английский — те три языка, на
  * которых Meta подставляет шаблон в наших кампаниях.
  */
+/**
+ * «Ассалому алейкум» во всех живых написаниях — ОДИН список на сервер (разбор суток 23.11.2026, C2: «Салом алекум» после
+ * заявки не узнавалось приветствием, бот ответил «Ба агент расондам» как на новое сообщение по делу). Его же берут
+ * ai/customerDmLanguage.ts (слово без языка) и ai/clientLanguage.ts (таджикское приветствие). Сложенный алфавит, без «ъ».
+ */
+export const SALAAM_WORDS: readonly string[] = [
+  "салом", "салам", "асалом", "ассалом", "асалам", "ассалам", "ассалому", "асалому", "ассаламу", "салому",
+  "алейкум", "алайкум", "алекум", "алейком", "алайком", "аллейкум", "алейкюм", "алейкм", "алеким",
+  "ассаломуалейкум", "ассаломуалайкум", "асаломалейкум", "асаломуалейкум", "саломалейкум", "саломалайкум", "саломалекум",
+  "ваалейкум", "ваалайкум", "валейкум", "assalomu", "assalom", "salom", "alaykum", "alaikum", "aleykum", "alekum",
+];
+
 const GREETING_WORDS = [
-  "assalomu",
-  "alaykum",
-  "alaikum",
-  "aleykum",
-  "ассаломуалейкум",
-  "саломалейкум",
+  ...SALAAM_WORDS,
   "привет",
   "приветствую",
   "здравствуйте",
@@ -180,4 +187,41 @@ export function isAdTemplateOpener(text: string | null | undefined): boolean {
 export function adTemplateLanguage(text: string | null | undefined): "ru" | "tg" {
   const rest = stripGreetings(normalize(clientOwnWords(text ?? "")));
   return /[ҳҷӣӯқғ]|маълумот|бештар|донам/u.test(rest) ? "tg" : "ru";
+}
+
+/**
+ * Готовые вопросы рекламы Meta, которые клиент не набирал сам (кнопки быстрых ответов): на них бот отвечает по сути (ai/operator,
+ * «Какие услуги?» — услуги), но ЯЗЫКА они не решают (живая находка 34, 25.11.2026: «Какие услуги вы предлагаете?» первой строкой,
+ * дальше «нарх / хона / сурога» по-таджикски — ответ ушёл по-русски). Поэтому они не в TEMPLATE_OPENERS (там — «ничего своего»).
+ */
+const AD_QUESTION_TEMPLATES = [
+  "какие услуги вы предлагаете",
+];
+
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+let templatePhrasePattern: RegExp | null = null;
+
+/**
+ * Слова клиента без готовых фраз рекламы (шаблоны кнопок и быстрые вопросы Meta) — для выбора ЯЗЫКА, не для смысла. Фраза ищется
+ * целиком, с любыми знаками и пробелами между словами. `cut` — явный признак «шаблон нашёлся и вырезан» (ревью #425); ничего не
+ * вырезано — текст как есть. Осталось одно приветствие или пусто — rest "" (обычно это «только шаблон»: язык прежним путём).
+ */
+export function adTemplatePhraseCut(text: string | null | undefined): { rest: string; cut: boolean } {
+  const own = clientOwnWords(text ?? "");
+  if (!templatePhrasePattern) {
+    const words = [...TEMPLATE_OPENERS, ...AD_QUESTION_TEMPLATES].map(normalize).filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .map(template => template.split(" ").map(word => escapeRe(word).replace(/е/gu, "[её]")).join("[^\\p{L}\\p{N}]+"));
+    templatePhrasePattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.join("|")})(?![\\p{L}\\p{N}])[^\\p{L}\\p{N}\\n]*`, "giu");
+  }
+  let cut = false;
+  const replaced = own.replace(templatePhrasePattern, () => { cut = true; return " "; });
+  if (!cut) return { rest: own, cut: false };
+  const rest = replaced.replace(/[ \t]+/gu, " ").replace(/\s*\n\s*/gu, "\n").trim();
+  return { rest: stripGreetings(normalize(rest)) ? rest : "", cut: true };
+}
+
+/** Слова клиента без готовых фраз рекламы; ничего не вырезано — текст как есть; остался один шаблон — "". */
+export function withoutAdTemplatePhrases(text: string | null | undefined): string {
+  return adTemplatePhraseCut(text).rest;
 }

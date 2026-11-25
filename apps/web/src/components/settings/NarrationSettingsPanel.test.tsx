@@ -66,13 +66,13 @@ describe("Настройки CRM: озвучка роликов", () => {
     // Отмечено только то, что сохранено: у «Квартира 1» одна галочка типа, у «Кӯтоҳ» «только вручную», у концовки А две; плюс три общих рубильника
     // (третий — «Озвучка текста в помощнике» из #214, по умолчанию включён) и четвёртый — «Новую озвучку сначала
     // слушает агент» (по умолчанию включён). «CRM сама убирает старый голос» (#219) убран 18.11.2026.
-    expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1 + 1 + 2 + 4);
+    expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1 + 1 + 2 + 4 + 1 + 1); // +1 голос по одному (24.11.2026, по умолчанию включён); +1: «Шабнам пишет рекламный текст из фактов» (23.11.2026, по умолчанию включён; кнопка «Озвучить этот текст» выключена)
     expect(html).toContain("Ба мо дар Директ нависед ё занг занед.");
   });
   it("озвучка текста в помощнике: тумблер и три числа с умолчаниями, из настроек подставляются свои", () => {
     const html = render(view());
     for (const part of ["Озвучка текста в помощнике", "Озвучек на человека в сутки", "Символов в одном тексте", "Доля от дневного предела, %"]) expect(html).toContain(part);
-    expect(html).toContain('value="5"'); expect(html).toContain('value="1500"'); expect(html).toContain('value="30"');
+    expect(html).toContain('value="0"'); expect(html).toContain('value="5000"'); expect(html).toContain('value="100"');
     const custom = render(view({ config: { ...view().config, freeNarrationPerPersonDaily: 7, freeNarrationMaxChars: 900, freeNarrationBudgetPercent: 15, freeNarrationEnabled: false } }));
     expect(custom).toContain('value="7"'); expect(custom).toContain('value="900"'); expect(custom).toContain('value="15"');
   });

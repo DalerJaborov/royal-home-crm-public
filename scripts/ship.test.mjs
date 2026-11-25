@@ -771,3 +771,27 @@ test("holdProcessUntilSettled: после итога exit не трогает к
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /оборвался/);
 });
+
+// 24.11.2026: Wi-Fi переподключился (ENOTFOUND) и запись замка не дошла до соединения
+// (UND_ERR_CONNECT_TIMEOUT) — оба раза ship падал без повтора.
+test("ENOTFOUND — отказ связи: чтение повторяется, а не падает сырым TypeError", async () => {
+  let n = 0;
+  const gh = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { if (++n === 1) throw netError("ENOTFOUND"); return ok({ x: 1 }); } });
+  assert.deepEqual(await gh.call("GET", "/{repo}/pulls/7"), { x: 1 });
+  assert.equal(n, 2);
+});
+
+test("запись, не дошедшая до соединения, повторяется; оборванная после — нет", async () => {
+  let n = 0;
+  const pre = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { if (++n < 3) throw netError("UND_ERR_CONNECT_TIMEOUT"); return ok({ done: true }); } });
+  assert.deepEqual(await pre.call("POST", "/{repo}/git/refs", { ref: "refs/ship/lock", sha: "s" }), { done: true });
+  assert.equal(n, 3);
+
+  let m = 0;
+  const post = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { m += 1; throw netError("ECONNRESET"); } });
+  await assert.rejects(() => post.call("PUT", "/{repo}/pulls/7/merge", {}), (err) => err.network === "ECONNRESET");
+  assert.equal(m, 1, "обрыв после отправки не повторяем: вливание могло уже случиться");
+});

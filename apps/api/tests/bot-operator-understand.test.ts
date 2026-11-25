@@ -42,7 +42,8 @@ describe("запасные правила на живых фразах SPEC.md",
   });
 
   it("«С 11 до 2.30 удобно» → «с 11:00 до 14:30»; таджикский вид «аз … то …»", () => {
-    expect(fb("С 11 до 2.30 удобно").callback.when).toBe("с 11:00 до 14:30");
+    // Часы не досчитываем (ревью #425): разобранное кодом время — словами клиента; operatorCallbackRange выше — прежний разбор.
+    expect(fb("С 11 до 2.30 удобно").callback.when).toBe("с 11 до 2:30");
     expect(operatorCallbackRange("аз 9 то 13 занг занед", "tg")).toBe("аз 09:00 то 13:00");
     expect(operatorCallbackRange("звоните с 18 до 9", "ru")).toBeNull();
   });
@@ -60,6 +61,12 @@ describe("запасные правила на живых фразах SPEC.md",
     expect(fb("Асалом, услугатон чихелияй?")).toMatchObject({ greeting: "assalom", greetingOnly: false, role: null });
     expect(fb("Бале")).toMatchObject({ ackOnly: true, thanksOnly: false, language: null });
     expect(fb("Рахмат")).toMatchObject({ ackOnly: true, thanksOnly: true, language: null });
+  });
+
+  it("«Салом» + русский вопрос без предлогов — русский, не таджикский (разбор 23.11.2026, Б1)", () => {
+    expect(fb("Салом, цена квартиры?")).toMatchObject({ greeting: "salom", language: "ru" });
+    expect(fb("Салом, квартира ещё актуальна?")).toMatchObject({ greeting: "salom", language: "ru" });
+    expect(fb("Салом. 3 комнатная квартира Сино цена?")).toMatchObject({ greeting: "salom", language: "ru" });
   });
 
   it("кнопка рекламы «Привет! Можно узнать об этом подробнее?» — не «этот объект» и язык не решает", () => {
@@ -125,9 +132,12 @@ describe("ответ модели проверяет код", () => {
     expect(check("Хона дар Сино", answer({ outsidePlace: "Вахдат" }))!.understanding.outsidePlace).toBeNull();
     const when = check("Позвоните после обеда", answer({ callbackWhen: "завтра в 10:00", callbackQuote: "завтра в 10" }))!;
     expect(when.rejected).toContain("callbackWhen");
-    expect(when.understanding.callback.when).toBeNull();
+    // Слова модели без цитаты отброшены; остаётся то, что код сам прочёл в словах клиента (25.11.2026, operatorCallbackTime).
+    expect(when.understanding.callback.when).toBe("после обеда");
+    expect(when.understanding.callback.time).toMatchObject({ day: null, part: "afternoon", clock: null, confident: true });
     const ok = check("С 11 до 2.30 удобно", answer({ callbackWhen: "с 11:00 до 14:30", callbackQuote: "С 11 до 2.30" }))!;
-    expect(ok.understanding.callback.when).toBe("с 11:00 до 14:30");
+    // Часы не досчитываем (ревью #425): в заявку — время словами клиента, разобранное кодом.
+    expect(ok.understanding.callback.when).toBe("с 11 до 2:30");
     // Р7: модель ответила «времени нет» — запасные правила её не перебивают.
     expect(check("С 11 до 2.30 удобно", answer())!.understanding.callback.when).toBeNull();
   });
@@ -176,7 +186,7 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const seller = await runOperatorTurn({ storedState: { ...serializeOperatorState({ ...initialOperatorState(), role: "seller" }) },
       input: { current: "Вы кто? Это не Фаррух?" }, ctx: broken, model });
     expect(seller.actions.map(a => a.type)).toEqual(["accept_lead"]);
-    expect(seller.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер в ближайшее время.");
+    expect(seller.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер WhatsApp.");
   });
 
   it("случай 3 через одну дверь: память переходит между ходами через jsonb, заявка одна, текст и шаги для compose", async () => {
@@ -191,18 +201,16 @@ describe("understandTurn и одна дверь runOperatorTurn", () => {
     const now = new Date("2026-11-19T10:00:00.000Z");
     const c = ctx({ ad: { topic: "seller", propertyId: null } });
     const first = await runOperatorTurn({ storedState: null, input: { current: "Хочу продать квартиру" }, ctx: c, now, model });
-    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
-      "а пока можете рассказать о квартире: район, сколько комнат и цену.");
-    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "lead_and_details_seller"]);
-    expect(first.facts).toMatchObject({ percent: 2, when: "в ближайшее время" });
-    // П1 приёмки 19.11: номер известен — заявка в этот же ход, клиент без ответа о деталях не пропадает.
-    expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
+    // Владелец 22.11.2026: голая роль — сначала вопрос по сути, без заявки и без срока звонка.
+    expect(first.text).toBe("Поможем продать, комиссия агентства 2%. Напишите, пожалуйста, что продаёте и в каком районе, и расскажем подробнее.");
+    expect(first.steps.map(step => step.key)).toEqual(["seller_intro", "role_details_seller"]);
+    expect(first.facts).toMatchObject({ percent: 2 });
+    expect(first.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
     const second = await runOperatorTurn({ storedState: JSON.parse(JSON.stringify(first.stored)),
       input: { current: "Сино, 3 комнаты, 80 кв, 5 этаж, ремонт, 90 000$", recent: [{ role: "user", text: "Хочу продать квартиру" }, { role: "assistant", text: first.text! }] },
-      ctx: { ...c, leadPending: true }, now, model });
-    expect(second.text).toBe("Передал агенту.");
-    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(0);
-    expect(second.actions[0]).toMatchObject({ type: "append_note" });
+      ctx: c, now, model });
+    expect(second.text).toBe("Спасибо, передаю агенту, он позвонит вам на этот номер WhatsApp.");
+    expect(second.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
     const third = await runOperatorTurn({ storedState: second.stored, input: { current: "ок" }, ctx: { ...c, leadPending: true }, now, model });
     expect(third.text).toBeNull();
     expect(third.actions).toEqual([]);

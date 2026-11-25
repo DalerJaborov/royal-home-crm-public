@@ -23,6 +23,7 @@ import { leadOnlyWhen } from "./leadOnlySettings.js";
 import { leadOnlyCardAgentActive } from "./leadOnlyHandover.js";
 import { contactWhenWithoutAgent } from "./handoffPromise.js";
 import { isReviewerConversation } from "./botReviewers.js";
+import { contactPromiseUnkept } from "./contactPromiseUnkept.js";
 
 
 const AD_TOPICS = new Set(["property", "seller", "job"]);
@@ -42,8 +43,10 @@ async function focusOf(propertyId: string | null, channel: string): Promise<Oper
   if (!propertyId) return null;
   const facts = await readCustomerPropertyFacts(propertyId, channel).catch(() => null);
   if (!facts) return null;
+  const sold = facts.availability === "SOLD";
+  // Характеристики карточки — для «конкретней / сколько комнат?»; адрес — только район и город (district_city_only).
   return { propertyId, shortId: facts.shortId, priceText: facts.price ? operatorPriceText(facts.price, facts.currency) : null,
-    sold: facts.availability === "SOLD", place: facts.availability === "SOLD" ? null : facts.publicAddress ?? null };
+    sold, place: sold ? null : facts.publicAddress ?? null, characteristics: sold ? null : facts.characteristics ?? null };
 }
 
 /** Открытые вакансии и включён ли приём вакансий (Настройки: botCanHandleVacancies → путь рекрутёра). */
@@ -102,7 +105,8 @@ export async function loadOperatorTurnSetup(input: {
 }): Promise<OperatorTurnSetup> {
   const now = input.now ?? new Date();
   const row = await prisma.botConversation.findUnique({ where: { id: input.conversationId }, select: {
-    clientId: true, leadOnlyPending: true, adPropertyId: true, adTopic: true, account: { select: { brandName: true } } } });
+    clientId: true, leadOnlyPending: true, adPropertyId: true, adTopic: true, account: { select: { brandName: true } },
+    messages: true, client: { select: { lastAgentAttemptAt: true } } } });
   const state = readOperatorState(row?.leadOnlyPending ?? null, now);
   // Объект разговора: этого хода, иначе тот, о котором уже говорили, иначе объект рекламы.
   const propertyId = input.focusPropertyId ?? state.propertyId ?? row?.adPropertyId ?? null;
@@ -142,6 +146,9 @@ export async function loadOperatorTurnSetup(input: {
     workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
     reviewer,
     staffThread,
+    // Только у клиента с карточкой: обещание связаться уже звучало, звонка и ответа сотрудника после него не было.
+    ...(clientId && contactPromiseUnkept(row?.messages, row?.client?.lastAgentAttemptAt ?? null, now,
+      { start: input.config.workHoursStart, end: input.config.workHoursEnd }) ? { promiseUnkept: true } : {}),
   };
   return { ctx, stored: row?.leadOnlyPending ?? null, state, clientId };
 }

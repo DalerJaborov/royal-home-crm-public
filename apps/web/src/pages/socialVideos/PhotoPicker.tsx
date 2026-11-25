@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { ImagePlus } from "lucide-react";
 import { SOCIAL_PHOTO_POST_MAX_IMAGES } from "@royal-home/shared";
 import { mediaSrc } from "./helpers";
+import { UploadProgressLine } from "../../components/UploadProgressLine";
+import type { UploadLive } from "../../lib/upload/progressText";
 
 /**
  * Выбор фото для фото-поста (16.11.2026). Пока черновика нет — показывает выбранные
@@ -12,6 +14,7 @@ export function PhotoPicker({
   local,
   existing,
   uploadProgress,
+  uploadLive = null,
   processing,
   disabled,
   onPick,
@@ -19,6 +22,8 @@ export function PhotoPicker({
   local: File[];
   existing: string[];
   uploadProgress: number | null;
+  /** МБ из МБ, скорость, осталось — общая строка прогресса (25.11.2026). */
+  uploadLive?: UploadLive | null;
   processing: boolean;
   disabled: boolean;
   onPick: (files: File[]) => void;
@@ -60,9 +65,13 @@ export function PhotoPicker({
         </div>
       )}
       {uploadProgress !== null ? (
-        <p className="state" role="status">
-          {processing ? "Готовим фото на сервере…" : `Загружаем фото: ${uploadProgress}%`}
-        </p>
+        uploadLive && !processing ? (
+          <UploadProgressLine live={uploadLive} />
+        ) : (
+          <p className="state" role="status">
+            {processing ? "Готовим фото на сервере…" : `Загружаем фото: ${uploadProgress}%`}
+          </p>
+        )
       ) : (
         <button className="pill" type="button" disabled={disabled} onClick={() => input.current?.click()}>
           <ImagePlus className="i" aria-hidden />

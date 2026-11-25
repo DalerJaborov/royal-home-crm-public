@@ -24,7 +24,6 @@ function inputs(role: Role): NavInputs {
     editorsLoad: { sharedQueue: { inEditing: 3, overdue: 1 } },
     deleteRequests: { items: [] },
     propertyDeleteRequests: { items: [] },
-    settings: { botTrainingScreenEnabled: true },
   };
 }
 

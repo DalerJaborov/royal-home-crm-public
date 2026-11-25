@@ -52,15 +52,10 @@
     },
     {
       "path": "/ai-learning",
-      "component": "AiLearning",
-      "file": "apps/web/src/pages/AiLearning.tsx",
-      "redirect": null,
-      "nav": {
-        "to": "/ai-learning",
-        "label": "Обучение бота",
-        "group": "system",
-        "gate": ""
-      }
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/settings?tab=bot&task=learning",
+      "nav": null
     },
     {
       "path": "/archive",
@@ -90,7 +85,7 @@
       "path": "/bot-training",
       "component": "Navigate",
       "file": "",
-      "redirect": "/ai-learning?tab=manner",
+      "redirect": "/settings?tab=bot&task=learning",
       "nav": null
     },
     {
@@ -859,12 +854,6 @@
       "gate": ""
     },
     {
-      "to": "/ai-learning",
-      "label": "Обучение бота",
-      "group": "system",
-      "gate": ""
-    },
-    {
       "to": "/archive",
       "label": "Архив",
       "group": "system",
@@ -942,7 +931,7 @@
       "mount": "/api/v1/agents",
       "router": "agentsRouter",
       "file": "apps/api/src/routes/agents.ts",
-      "endpoints": 19,
+      "endpoints": 20,
       "label": "Сотрудники: карточки, права, аватары",
       "usedBy": 9
     },
@@ -990,7 +979,7 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 140,
+      "endpoints": 142,
       "label": "Объекты: список, карточка, фото, видео, публикация",
       "usedBy": 37
     },
@@ -998,7 +987,7 @@
       "mount": "/api/v1/construction-registry",
       "router": "constructionRegistryRouter",
       "file": "apps/api/src/routes/constructionRegistry.ts",
-      "endpoints": 7,
+      "endpoints": 10,
       "label": null,
       "usedBy": 1
     },
@@ -1160,15 +1149,15 @@
       "file": "apps/api/src/routes/settingsRestorePoints.ts",
       "endpoints": 2,
       "label": "Точки возврата настроек",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/settings",
       "router": "settingsRouter",
       "file": "apps/api/src/routes/settings.ts",
-      "endpoints": 61,
+      "endpoints": 62,
       "label": "Настройки CRM и точки возврата",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/ui-shell",
@@ -1406,9 +1395,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 14,
+      "endpoints": 17,
       "label": "Переписка по всем каналам",
-      "usedBy": 4
+      "usedBy": 5
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1459,30 +1448,6 @@
       "usedBy": 0
     },
     {
-      "mount": "/api/v1/bot-audit",
-      "router": "botAuditRouter",
-      "file": "apps/api/src/routes/botAudit.ts",
-      "endpoints": 6,
-      "label": "Находки ночного судьи диалогов",
-      "usedBy": 2
-    },
-    {
-      "mount": "/api/v1/bot-learning",
-      "router": "botLearningRouter",
-      "file": "apps/api/src/routes/botLearning.ts",
-      "endpoints": 8,
-      "label": "Уроки, извлечённые из ошибок бота",
-      "usedBy": 2
-    },
-    {
-      "mount": "/api/v1/bot-trainer",
-      "router": "botTrainerRouter",
-      "file": "apps/api/src/routes/botTrainer.ts",
-      "endpoints": 3,
-      "label": "Ручная тренировка бота",
-      "usedBy": 1
-    },
-    {
       "mount": "/api/v1/bot-scenarios",
       "router": "botScenariosRouter",
       "file": "apps/api/src/routes/botScenarios.ts",
@@ -1491,12 +1456,12 @@
       "usedBy": 1
     },
     {
-      "mount": "/api/v1/bot-training",
-      "router": "botTrainingRouter",
-      "file": "apps/api/src/routes/botTraining.ts",
-      "endpoints": 6,
-      "label": "Экран «Манера» — закрыт тумблером",
-      "usedBy": 1
+      "mount": "/api/v1/attachments/s",
+      "router": "signedAttachmentsRouter",
+      "file": "apps/api/src/routes/attachments.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/attachments",
@@ -1663,16 +1628,6 @@
       "id": "balance-watch",
       "expr": "20 9 * * *",
       "label": null
-    },
-    {
-      "id": "bot-audit",
-      "expr": "15 3 * * *",
-      "label": "Ночной судья диалогов: сверяет переписки с правилами и копит нарушения"
-    },
-    {
-      "id": "bot-lessons",
-      "expr": "30 */2 * * *",
-      "label": "Превращает ошибки бота в короткие правила и подмешивает их в его инструкцию"
     },
     {
       "id": "bot-pause-watch",
@@ -1925,11 +1880,6 @@
       "label": "Ночная уборка технических журналов и уведомлений"
     },
     {
-      "id": "lost-conversations",
-      "expr": "45 2 * * *",
-      "label": "Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди"
-    },
-    {
       "id": "market-buyer-alerts",
       "expr": "12,27,42,57 * * * *",
       "label": null
@@ -2023,6 +1973,21 @@
       "id": "outgoing-media-cleanup",
       "expr": "58 3 * * *",
       "label": "Удаляет исходящие фото и видео оператора старше недели"
+    },
+    {
+      "id": "outgoing-media-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "outgoing-media-photo-jobs",
+      "expr": "*/2 * * * * *",
+      "label": null
+    },
+    {
+      "id": "outgoing-media-sweep",
+      "expr": "*/30 * * * *",
+      "label": null
     },
     {
       "id": "owner-exposure-verification-preview",
@@ -2253,11 +2218,6 @@
       "id": "webhook-dedupe-cleanup",
       "expr": "40 3 * * *",
       "label": "Чистит отметки обработанных входящих сообщений"
-    },
-    {
-      "id": "weekly-lost-digest",
-      "expr": "0 9 * * 1",
-      "label": "Понедельничная сводка «куда уходят клиенты»"
     },
     {
       "id": "weekly-marketing-insights",

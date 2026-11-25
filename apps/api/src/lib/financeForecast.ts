@@ -1,4 +1,6 @@
 import {
+  COMMISSION_COMPANY_PERCENT,
+  COMMISSION_REALTOR_PERCENT,
   DEAL_STAGE_LABELS,
   OPEN_DEAL_STAGES,
   resolveStageWinProbability,
@@ -113,9 +115,6 @@ export async function buildCommissionForecast(
       where: { id: "singleton" },
       select: {
         monthlyCommissionPlan: true,
-        commissionCompanyPercent: true,
-        commissionIntakePercent: true,
-        commissionRealtorPercent: true,
         dealStageWinProbability: true,
       },
     }),
@@ -144,9 +143,8 @@ export async function buildCommissionForecast(
   ]);
 
   const planTjs = Number(settings?.monthlyCommissionPlan ?? 8000);
-  const companyPercent =
-    Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
-  const realtorPercent = Number(settings?.commissionRealtorPercent ?? 0.5);
+  const companyPercent = COMMISSION_COMPANY_PERCENT;
+  const realtorPercent = COMMISSION_REALTOR_PERCENT;
   const totalPercent = companyPercent + realtorPercent;
   const probability = resolveStageWinProbability(settings?.dealStageWinProbability ?? null);
 

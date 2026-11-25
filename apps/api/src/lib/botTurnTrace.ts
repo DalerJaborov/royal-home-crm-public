@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, traceLegacyShadowSchema, type TraceLegacyShadow, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceStage } from "@royal-home/shared";
+import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, traceLegacyShadowSchema, type TraceLegacyShadow, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceOutcomeReason, type TraceStage } from "@royal-home/shared";
 import { boundedTracePayload, projectTraceModel, sanitizeTraceText, tracePseudonym } from "./botTurnTracePrivacy.js";
 
 type Channel = BotTurnTracePayload["channel"];
@@ -93,14 +93,24 @@ export async function withBotTurnTrace<T>(input: TraceStart, run: () => Promise<
 }
 /** Only an already-existing business background task; does not wait or start work. */
 export function traceDeferUntil(task: Promise<unknown>): void { observe((ctx) => { ctx.deferred = ctx.deferred ? Promise.allSettled([ctx.deferred, task]) : task; }); }
-export function traceNoReply(): void { observe((ctx) => { if (ctx.payload.outcome === "incomplete") ctx.payload.outcome = "no_reply"; }); }
+/** `reason` — closed code only (traceOutcomeReasonSchema). The most specific (first) reason wins: an inner path that already
+ *  named it keeps it; an outer caller only fills a `no_reply` that has none yet. */
+export function traceNoReply(reason?: TraceOutcomeReason): void { observe((ctx) => {
+  if (ctx.payload.outcome === "incomplete") { ctx.payload.outcome = "no_reply"; setReason(ctx, "no_reply", reason); }
+  else if (ctx.payload.outcome === "no_reply" && reason && !ctx.payload.outcomeReason) ctx.payload.outcomeReason = reason;
+}); }
 export function traceFinishCustomerTurn(): void { observe((ctx) => { if (ctx.payload.outcome === "incomplete" && ctx.payload.outgoing.length === 0 && ctx.payload.omittedCounts.outgoing === 0) ctx.payload.outcome = "no_reply"; }); }
 export function traceEchoReason(reason: NonNullable<BotTurnTracePayload["input"]["echoReason"]>): void { observe((ctx) => { ctx.payload.input.echoReason = reason; ctx.payload.outcome = reason === "manual" ? "manual" : "echo"; }); }
 export function traceDeliveryStatus(mid: string, status: "sent" | "delivered" | "read" | "failed"): void { observe((ctx) => append(ctx, "outgoing", {
   ordinal: 0, kind: "other", origin: "bot", requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
   providerOutcome: status === "sent" ? "accepted" : status, midKey: key(ctx, "mid", mid), stampOutcome: "not_attempted", text: { present: false, chars: 0 },
 }, 12)); }
-export function traceOutcome(outcome: TraceOutcome): void { observe((ctx) => { ctx.payload.outcome = outcome; }); }
+/** `reason` is kept only for `blocked` / `no_reply`; a later outcome without a reason clears the stale one. */
+export function traceOutcome(outcome: TraceOutcome, reason?: TraceOutcomeReason): void { observe((ctx) => { ctx.payload.outcome = outcome; setReason(ctx, outcome, reason); }); }
+function setReason(ctx: Context, outcome: TraceOutcome, reason: TraceOutcomeReason | undefined): void {
+  if (reason && (outcome === "blocked" || outcome === "no_reply")) ctx.payload.outcomeReason = reason;
+  else delete ctx.payload.outcomeReason;
+}
 export function traceBindConversation(id: string, language?: string): void { observe((ctx) => { ctx.payload.conversationKey = key(ctx, "conversation", id); if (language === "ru" || language === "tg") ctx.payload.input.language = language; }); }
 export function traceBindAccount(account: string | undefined, conversation: string): void { observe((ctx) => { if (ctx.account || !account) return; ctx.account = account; ctx.payload.accountKey = key(ctx, "account", account); ctx.payload.conversationKey = key(ctx, "conversation", conversation); }); }
 export function traceMediaKinds(kinds: readonly BotTurnTracePayload["input"]["mimeKinds"][number][]): void { observe((ctx) => { ctx.payload.input.mimeKinds = [...new Set(kinds)].slice(0, 4); }); }

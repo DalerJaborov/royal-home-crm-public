@@ -196,7 +196,9 @@ beforeAll(async () => {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: null } });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Тесты этого файла берут одни и те же message_id: отметки «ответ ушёл» (lib/assistantTurnReplied.ts) между ними не нужны.
+  await prisma.processedMessage.deleteMany({ where: { channel: "ASSISTANT_TURN_REPLY" } });
   sendStaffCard.mockReset().mockResolvedValue("sent");
   for (const m of [sendMessage, removeKeyboard, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction]) {
     m.mockReset();
@@ -594,10 +596,14 @@ describe("группа: когда бот отвечает", () => {
     expect(runner).toHaveBeenCalledTimes(2);
   });
 
-  it("не привязанный сотрудник — «привяжите аккаунт», модель не зовётся", async () => {
+  // 24.11.2026: вместо «Привяжите аккаунт» — предложение привязки (telegram/assistantGroupNewcomer.ts). Привязка по
+  // номеру по умолчанию выключена (ревью 25.11.2026): путь через профиль, без кнопки ?start=staff.
+  const linkOffer = () => sendMessageWithButtons.mock.calls.find((call) => String(call[1]).includes("не привязан к CRM"));
+  it("не привязанный сотрудник — путь привязки через профиль, модель не зовётся", async () => {
     await handleTelegramUpdate(groupMsg(null, `@${BOT} снизь цену`));
     expect(runner).not.toHaveBeenCalled();
-    expect(sentTexts().join("\n")).toContain("Привяжите аккаунт");
+    expect(String(linkOffer()?.[1])).toContain("Профиль → Telegram");
+    expect(JSON.stringify(linkOffer()?.[2])).not.toContain("start=staff");
   });
 
   it("анонимный админ (sender_chat) и бот-отправитель не опознаются", async () => {
@@ -609,7 +615,7 @@ describe("группа: когда бот отвечает", () => {
   it("неактивный сотрудник — как не привязанный", async () => {
     await handleTelegramUpdate(groupMsg("inactive", `@${BOT} привет`));
     expect(runner).not.toHaveBeenCalled();
-    expect(sentTexts().join("\n")).toContain("Привяжите аккаунт");
+    expect(linkOffer()).toBeDefined();
   });
 
   it("чтение в группе — без телефонов, финансов и отчётов; в тексте номера замаскированы", async () => {
@@ -1416,7 +1422,8 @@ describe("новая доставка ответа помощника", () => {
     }));
     const [history, , options] = runner.mock.calls[0];
     expect(history.at(-1).content).toContain(`<client_content kind="document">\n${transcript}\n</client_content>`);
-    expect(history.at(-1).content).toContain("бо search_properties ҷустуҷӯ кун");
+    expect(history.at(-1).content).toContain("find_properties_by_place");
+    expect(history.at(-1).content).toContain("search_properties");
     expect(history.at(-1).content).toContain("withVideo");
     expect(history.at(-1).content).not.toContain("Кори дигаре дар CRM накун");
     expect(options).toMatchObject({ confirmUi: false, readOnly: true });

@@ -5,7 +5,7 @@ import { AssistantAttemptLimitError } from "./attemptLimit.js";
 
 /** Global call cap, NOT a monetary budget. Includes retries and grounded search. */
 export async function reserveAssistantGeminiAttempt(): Promise<boolean> {
-  const limit = Number(process.env.ASSISTANT_GEMINI_DAILY_ATTEMPTS ?? "300");
+  const limit = Number(process.env.ASSISTANT_GEMINI_DAILY_ATTEMPTS ?? "1000000");
   // Кривая настройка — не «дневной предел исчерпан, руководителю сообщено», а поломка настройки.
   if (!Number.isSafeInteger(limit) || limit <= 0) {
     throw new AssistantAttemptLimitError("policy_expired", "Некорректный ASSISTANT_GEMINI_DAILY_ATTEMPTS");

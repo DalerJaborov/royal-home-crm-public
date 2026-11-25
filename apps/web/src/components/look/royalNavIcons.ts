@@ -38,7 +38,6 @@ const BY_PATH: Record<string, RoyalIconName> = {
   "/integrations": "plug",
   "/backups": "key",
   "/stuck-work": "hourglass",
-  "/ai-learning": "bot",
   "/archive": "archive",
   "/notifications": "bell",
   "/more": "layout-dashboard",

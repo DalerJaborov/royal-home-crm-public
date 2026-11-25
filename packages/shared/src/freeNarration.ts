@@ -8,7 +8,7 @@ import type { NarrationConfig, NarrationLang } from "./propertyNarration.js";
  * словарь и дневной бюджет — те же, что у озвучки объектов (lib/narrationGeneration.ts);
  * здесь только пределы на человека и правила языка.
  */
-export const FREE_NARRATION_DEFAULTS = { perPersonDaily: 5, maxChars: 1500, budgetPercent: 30 } as const;
+export const FREE_NARRATION_DEFAULTS = { perPersonDaily: 0, maxChars: 5000, budgetPercent: 100 } as const;
 
 export function freeNarrationLimits(config: Pick<NarrationConfig, "freeNarrationPerPersonDaily" | "freeNarrationMaxChars" | "freeNarrationBudgetPercent">) {
   return {
@@ -20,6 +20,21 @@ export function freeNarrationLimits(config: Pick<NarrationConfig, "freeNarration
 
 export function freeNarrationEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled">): boolean {
   return config.freeNarrationEnabled !== false;
+}
+
+/** Рубильник «рекламный текст из фактов» (23.11.2026). Зависит от общего рубильника озвучки текста. */
+export function freeNarrationAdTextEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationAdText">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationAdText !== false;
+}
+
+/** Пошаговый выбор голоса с образцом (по умолчанию включён). */
+export function freeNarrationVoiceStepperEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationVoiceStepper">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationVoiceStepper !== false;
+}
+
+/** Рубильник кнопки «Озвучить этот текст» под длинным сообщением (23.11.2026). По умолчанию ВЫКЛ (ревью: «редко беспокоить»): владелец включает в Настройках. */
+export function freeNarrationOfferEnabled(config: Pick<NarrationConfig, "freeNarrationEnabled" | "freeNarrationOfferButton">): boolean {
+  return freeNarrationEnabled(config) && config.freeNarrationOfferButton === true;
 }
 
 /**

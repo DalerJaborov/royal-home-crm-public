@@ -60,7 +60,7 @@ function snapshot(over: { commission?: Record<string, unknown> | null; seesMoney
       profit: null, leadsToday: { count: 10, deltaVsYesterday: 3 }, firstResponse: { medianMinYesterday: 12, noneCountYesterday: 0 },
       missedCallsToday: 3, dealsInPipeline: { count: 9, byStage: [] },
     },
-    bot: { ai: {}, guardHitsToday: 0, outboundShieldToday: 0, unresolvedFindings: null,
+    bot: { ai: {}, guardHitsToday: 0, outboundShieldToday: 0,
       attention: { silent: { count: 0, items: [], reason: null }, waitingHuman: { count: 0, items: [], reason: null }, liveCount: 0, items: [] } },
     team: { agents: over.agents ?? [], day: over.day, workdayStartAt: over.workdayStartAt },
     marketing: { funnel: [{ source: "site", label: "Сайт", leadsMonth: 4, dealsClosedMonth: 1 }] },

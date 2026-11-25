@@ -525,7 +525,7 @@ const propertyBaseSchema = z.object({
    * чтобы перенести таймер «Итог объекта» с клиента (заведён в момент исхода звонка
    * «Объект принят в работу») на карточку объекта, не сбрасывая 36-часовой отсчёт. */
   clientId: z.guid().optional(),
-  /** Агент-интейкер (принял заявку продавца и отработал) — получает 0.5% со сделки.
+  /** Агент-интейкер (принял заявку продавца и отработал). Доли за приём нет: деньги делятся вручную при закрытии сделки.
    * Обязателен: для роли AGENT сервер молча подставляет самого создателя объекта,
    * для руководителя (ADMIN/DIRECTOR/MANAGER) должен быть выбран явно в форме —
    * см. проверку в apps/api/src/routes/properties.ts. Optional здесь только потому,
@@ -957,21 +957,6 @@ export const clientAssignSchema = z.object({
  *  боту. pausedUntil=null — снять паузу (бот снова отвечает сам). */
 export const botPauseSchema = z.object({
   pausedUntil: z.string().datetime().nullable(),
-});
-
-/**
- * Оценка ответа бота прямо в чате (17.09.2026): руководитель нажимает «Верно»/
- * «Неверно» под пузырём ответа — и правило уходит в промт сразу, без отдельного
- * экрана «Обучение бота».
- *
- * `messageKey` — `mid` реплики, если он есть, иначе `"idx:<index>"` (индекс
- * реплики в массиве `messages`) — так помечают старые записи без `mid` (см.
- * ConversationMessage в conversationMessage.ts).
- */
-export const replyFeedbackSchema = z.object({
-  messageKey: z.string().trim().min(1),
-  verdict: z.enum(["good", "bad"]),
-  note: z.string().trim().max(300).optional(),
 });
 
 /**

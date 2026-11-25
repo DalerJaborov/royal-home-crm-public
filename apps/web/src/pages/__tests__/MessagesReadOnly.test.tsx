@@ -29,7 +29,6 @@ vi.mock("../../hooks/useConversations", async importOriginal => {
 vi.mock("../../components/CallClientButton", () => ({ CallClientButton: () => createElement("button", null, "Позвонить") }));
 vi.mock("../../components/VoiceRecordButton", () => ({ VoiceRecordButton: () => createElement("button", null, "Голосовое") }));
 vi.mock("../../components/ChatPropertySend", () => ({ ChatPropertySend: ({ disabled, conversationId }: { disabled?: boolean; conversationId?: string }) => createElement("button", { disabled, "data-conversation-id": conversationId ?? "" }, "Отправить объект") }));
-vi.mock("../../components/BotReplyFeedback", () => ({ BotReplyFeedback: () => createElement("button", null, "Обучить бота") }));
 vi.mock("../../hooks/useContactProfile", () => ({ useSetContactCategory: () => ({ mutate: h.mutation, isPending: false, isError: false }) }));
 vi.mock("../../hooks/useClients", () => ({ useSendClientMessage: () => ({ isPending: false, isError: false, mutate: h.mutation }), useSendClientVoiceMessage: () => ({ mutateAsync: h.mutation }), downloadClientConversation: h.mutation }));
 vi.mock("../../hooks/useMobileUx", () => ({ useMobileUx: () => h.narrow }));
@@ -74,12 +73,10 @@ describe("read-only chat actors", () => {
         expect(html).toContain("Режим просмотра");
         expect(html).not.toContain("<textarea");
         expect(html).not.toContain("Голосовое");
-        expect(html).not.toContain("Обучить бота");
         expect(html).not.toContain("Показать перевод на русский");
       } else {
         expect(html).toContain("<textarea");
         expect(html).toContain("Голосовое");
-        expect(html).toContain("Обучить бота");
         expect(html).toContain("Показать перевод на русский");
       }
       expect(h.mutation).not.toHaveBeenCalled();

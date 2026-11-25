@@ -79,7 +79,7 @@ narrationRouter.get("/narration-free/options", async (req, res) => {
   const used = await freeNarrationUsedToday(req.agent!.id);
   res.json({ enabled: freeNarrationEnabled(config), voices: config.voices.map((v) => ({ id: v.id, name: v.name, ...(v.gender ? { gender: v.gender } : {}) })),
     defaultVoiceId: pickNarrationVoice(config), lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
-    maxChars: limits.maxChars, perPersonDaily: limits.perPersonDaily, remainingToday: Math.max(0, limits.perPersonDaily - used) });
+    maxChars: limits.maxChars, perPersonDaily: limits.perPersonDaily, remainingToday: limits.perPersonDaily > 0 ? Math.max(0, limits.perPersonDaily - used) : null });
 });
 narrationRouter.post("/narration-free", async (req, res) => {
   const body = freeNarrationRequestSchema.safeParse(req.body);
@@ -298,7 +298,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
     // Те же права, что у самого утверждения (narrationAccessForAgent, ревью 18.11): «только просмотр» кнопки не видит.
     canApproveAudio: await canApproveAudioFor(req.agent!.id, req.agent!.role, p.id, versions[0]?.source ?? null), autoGenerate: narrationAutoEnabled(config),
-    off: p.narrationOff,
+    off: p.narrationOff, propertyCode: p.shortId,
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),

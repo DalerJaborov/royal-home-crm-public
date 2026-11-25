@@ -58,7 +58,7 @@ import {
 import { describeError } from "../../lib/describeError.js";
 import { completeEditing } from "../../lib/propertyCompleteEditing.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
-import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
+import { propertyRemovalSchema, narrationWizardChoiceSchema, registryChoiceSchema, type PermissionId } from "@royal-home/shared";
 import {
   propertyStatusChangeBlock,
   recordStatusRemovalInTx,
@@ -83,7 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
-import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
+import { applyRegistryChoice, registryChoiceError } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -159,7 +159,12 @@ const createFromDraftSchema = z.object({
   coverUploadKey: z.string().min(8).max(128).optional(),
   /** Выбор агента в конце мастера (CRM и Шабнам): текст, шаблон и голос озвучки. */
   narration: narrationWizardChoiceSchema.optional(),
+  /** Поле «Застройщик и разрешение» мастера (25.11.2026): выбор сотрудника; нет поля — решает автосвязь. */
+  registry: registryChoiceSchema.optional(),
 });
+
+/** Тот же выбор при правке объекта (форма правки): свойство запроса, не поле карточки. */
+const registryChoiceBodySchema = z.object({ registry: registryChoiceSchema.optional() });
 
 class PropertySellerAccessError extends Error {}
 
@@ -752,6 +757,18 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     intakeAgentId: property.intakeAgentId,
   });
 
+  // Реестр строек — СРАЗУ после создания, до любых веток ответа (25.11.2026): раньше вызов стоял в самом конце, после
+  // раннего выхода «объект в конвейере», и новый объект почти никогда не сверялся с реестром при создании.
+  // Выбор сотрудника в поле «Застройщик и разрешение» — той же дверью (25.11.2026); без выбора — автосвязь.
+  // Явный выбор ждём: карточка, которую мастер откроет сразу, должна его уже показать. Без выбора — фоном, как раньше.
+  const registryActor = { agentId: req.agent.id, can: (permission: PermissionId) => can({ agent: req.agent }, permission) };
+  const registryError = parsedDraftRef.data.registry
+    ? registryChoiceError(await applyRegistryChoice(property.id, parsedDraftRef.data.registry, registryActor))
+    : null;
+  if (!parsedDraftRef.data.registry) void applyRegistryChoice(property.id, undefined, registryActor);
+  // Выбор не сохранился — объект создан, а сотрудник видит «повторите» (ревью PR #441): поле в ответе создания.
+  const registryNote = registryError ? { registryError } : {};
+
   /**
    * ФАЙЛЫ ЧЕРНОВИКА ПЕРЕЕЗЖАЮТ В КАРТОЧКУ (11.09.2026). Снимки и ролики агент
    * отдал ещё на первом шаге мастера, пока заполнял остальные, — они уже лежат на
@@ -883,7 +900,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
   // это не значит «готов к публикации», это значит «публикации не будет вовсе».
   if (isPipelineStatus(property.status) || property.offSite) {
     publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
+    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote, ...registryNote });
   }
 
   // Автопубликация сразу при создании — по решению директора. Best-effort и молча:
@@ -900,9 +917,8 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
-  void autoLinkPropertyById(property.id);
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
+  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote, ...registryNote });
 }
 
 crudRouter.post("/", requireAuth, async (req, res) => {
@@ -917,6 +933,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
+  const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
+  if (!registryChoice.success) return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
   const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.deletedAt) return res.status(404).json({ error: "Объект не найден" });
   if (!canManageProperty(req, existing)) {
@@ -1485,6 +1503,14 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     actorId: req.agent!.id,
   });
 
+  // Реестр строек: пересчёт связи до ветки автопубликации (25.11.2026), иначе правка «Готово» уходила мимо сверки.
+  // Выбор сотрудника в поле «Застройщик и разрешение» формы правки — той же дверью; без выбора — автосвязь.
+  const patchRegistryActor = { agentId: req.agent!.id, can: (permission: PermissionId) => can(req, permission) };
+  const registryError = registryChoice.data.registry
+    ? registryChoiceError(await applyRegistryChoice(updated.id, registryChoice.data.registry, patchRegistryActor))
+    : null;
+  if (!registryChoice.data.registry) void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
+
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
   // ручная кнопка «Готово»: сырое видео из R2, аудит, синхронизация с сайтом.
   if (willAutoPublish) {
@@ -1496,14 +1522,15 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       console.error("[video-handoff] закрытие хендоффа при автопубликации:", err)
     );
     publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.status, actorId: req.agent!.id });
-    if (siteSyncError) {
-      return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+    if (siteSyncError || registryError) {
+      return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {}), ...(registryError ? { registryError } : {}) });
     }
     return res.json(presentProperty(published, req));
   }
 
-  void autoLinkPropertyById(updated.id);
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
+  // Карточка сохранена, а выбор застройщика нет — 207 и текст, как у siteSyncError (ревью PR #441).
+  if (registryError) return res.status(207).json({ ...presentProperty(updated, req), registryError });
   res.json(presentProperty(updated, req));
 });
 

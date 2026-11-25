@@ -33,6 +33,7 @@ import { logAudit } from "../lib/audit.js";
 import { loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { TG_PREFIX } from "./conversations.js";
 import { presentMessages } from "../lib/messageAttachments.js";
+import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { can } from "../auth/middleware.js";
 import { normalizeCandidatePhone } from "../lib/candidatePhone.js";
 import { jobMissingFacts, jobPriority, jobPriorityReason, jobRejectReasons } from "../ai/jobApplication.js";
@@ -612,11 +613,15 @@ vacanciesRouter.get("/:id/conversation", requireAuth, requirePermission("vacanci
   const clientIds = [...new Set([raw.clientId, application.clientId].filter((v): v is string => !!v))];
   const clientCards =
     clientIds.length > 0
-      ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { kind: true } })
+      ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, kind: true, assignedAgentId: true, deletedAt: true } })
       : [];
   const isRealClient = clientCards.some((c) => c.kind !== "OTHER");
   const phonesAllowed = !isRealClient || can(req, "clients.viewPhone");
-  const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed).slice(
+  // Прямые ссылки на файлы — тем же правилом, что маршрут выдачи файла: по
+  // клиенту САМОГО диалога (raw.clientId); диалог без клиента — только clients.viewAll.
+  const conversationOwner = clientCards.find((c) => c.id === raw.clientId && !c.deletedAt);
+  const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefined);
+  const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLinks).slice(
     -CONVERSATION_TAIL
   );
 

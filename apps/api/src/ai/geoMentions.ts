@@ -180,6 +180,22 @@ export function resetGeoMentionIndex(): void {
   indexCache = null;
 }
 
+/**
+ * Похожие названия из справочника — когда названного места нет (поиск «от А до Б»): общее начало
+ * не короче четырёх букв хотя бы у одного слова. Не угадывает место, только подсказывает, что есть.
+ */
+export async function similarPlaceNames(text: string, limit = 3): Promise<string[]> {
+  const stems = geoMatchKey(text).split(" ").filter((w) => w.length >= 4 && !/\d/.test(w)).map((w) => w.slice(0, 4));
+  if (stems.length === 0) return [];
+  const out: string[] = [];
+  for (const place of await loadIndex()) {
+    if (place.rank === 0 || out.includes(place.name)) continue;
+    if (place.needles.some((n) => n.split(" ").some((w) => stems.some((s) => w.startsWith(s))))) out.push(place.name);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Одно слово с точностью до падежного окончания: «фабрики» — «фабрика»,
  *  «Гулдаста» — «Гулдаст». Общее начало обязано покрыть всё короткое слово,
  *  кроме двух последних букв. Короткое слово («парк», «бог») — только плюс одна

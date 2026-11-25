@@ -199,8 +199,12 @@ describe("роль только по словам; после заявки «Е�
     expect(words.d.actions.some(action => action.type === "append_note")).toBe(true);
   });
   it("«И продать, и купить» — заявка продавца с обеими целями в заметке; роль сменилась — заметка «роль изменилась»", () => {
-    const both = turn("Хочу продать свою квартиру и купить побольше", ctx({ channel: "WHATSAPP", phoneKnown: true }));
-    const lead = both.d.actions.find(action => action.type === "accept_lead");
+    const wa = ctx({ channel: "WHATSAPP", phoneKnown: true });
+    const both = turn("Хочу продать свою квартиру и купить побольше", wa);
+    // Голая роль (владелец 22.11.2026): сначала вопрос по сути, заявка — на ответ.
+    expect(both.d.actions.find(action => action.type === "accept_lead")).toBeUndefined();
+    const answered = turn("Сино, 3 комнаты", wa, both.d.state);
+    const lead = answered.d.actions.find(action => action.type === "accept_lead");
     expect(lead).toMatchObject({ role: "seller" });
     expect(lead && "note" in lead ? lead.note : "").toMatch(/и продать своё, и купить/u);
     const first = turn("Хочу купить квартиру", ctx());

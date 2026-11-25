@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { channelCoreMessageKey } from "./customerMessageKey.js";
 import { customerAgentVerifiedContextSchema, type CustomerAgentLegacyChannel, type CustomerAgentToolCall,
   type CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -133,17 +134,8 @@ export const CHANNEL_CORE_MAX_ATTEMPTS = 3;
  */
 const CORE_RUN_LEDGER = "channel-core-run";
 
-/** Pure: the stored customer message a run answers — its time (or position) and a digest of its words; null = none. */
-export function channelCoreMessageKey(messages: unknown): string | null {
-  if (!Array.isArray(messages)) return null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const item = messages[i] as { role?: unknown; content?: unknown; at?: unknown } | null;
-    if (!item || item.role !== "user") continue;
-    const digest = createHash("sha256").update(typeof item.content === "string" ? item.content : "").digest("hex").slice(0, 16);
-    return typeof item.at === "string" && item.at ? `a${item.at}:${digest}` : `i${i}:${digest}`;
-  }
-  return null;
-}
+/** Pure: the stored customer message a run answers — one function for the core run count and the retry cap. */
+export { channelCoreMessageKey };
 
 /** Which run of the customer's last stored message this is (1…MAX), MAX + 1 when the runs are used up, null = unknown. */
 export async function claimChannelCoreRun(turn: Pick<ChannelCoreTurn, "channel" | "conversationId">): Promise<number | null> {

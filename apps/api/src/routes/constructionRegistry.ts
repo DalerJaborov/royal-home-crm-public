@@ -7,19 +7,31 @@
  *  - POST /property/:id/link   связать вручную { projectId }
  *  - POST /property/:id/reject отвергнуть предложение { projectId }
  *  - DELETE /property/:id/link отвязать
+ *  - POST /property/:id/none   «нет в реестре / не новостройка» (25.11.2026)
+ *  - GET  /projects?q=&lat=&lng=  поиск по всему жилому реестру для поля выбора (25.11.2026)
+ *  - POST /match-preview       лучший проект у точки ДО создания объекта, ничего не пишет (25.11.2026)
  *  - GET  /map                 метки реестра и цвета наших объектов для слоя карты
  *  - GET  /status              состояние забора для Настроек
  *  - POST /sync                забрать сейчас (право settings.manage)
  */
 import { Router } from "express";
 import { z } from "zod";
-import { decisionYearFromQaror, rateDeveloper, type RegistryColor, type RegistryMapResponse } from "@royal-home/shared";
+import {
+  decisionYearFromQaror,
+  rateDeveloper,
+  type RegistryColor,
+  type RegistryMapResponse,
+  type RegistryMatchPreviewResponse,
+  type RegistryProjectSearchResponse,
+} from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
-import { propertyOwnerAgentId } from "../lib/propertyOwner.js";
+import { canEditRegistryLinkAs } from "../lib/constructionRegistry/access.js";
 import { loadRegistrySettings, runConstructionRegistrySync } from "../lib/constructionRegistry/sync.js";
 import { buildPropertyResponse, lastRegistryUpdate } from "../lib/constructionRegistry/view.js";
-import { linkPropertyManually, rejectSuggestion, toMatchInput, unlinkProperty } from "../lib/constructionRegistry/link.js";
+import { linkPropertyManually, markNotInRegistry, rejectSuggestion, toMatchInput, unlinkProperty } from "../lib/constructionRegistry/link.js";
+import { previewRegistryMatch, searchRegistryProjects, SEARCH_LIMIT_MAX } from "../lib/constructionRegistry/search.js";
+import { REGISTRY_NOTHING_TO_REJECT } from "../lib/constructionRegistry/autoLinkOnSave.js";
 
 export const constructionRegistryRouter = Router();
 
@@ -28,6 +40,30 @@ const COLOR_OUT: Record<"GREEN" | "YELLOW" | "RED", RegistryColor> = { GREEN: "g
 const MAP_CAP = 3000;
 
 const projectBodySchema = z.object({ projectId: z.string().uuid() });
+
+const latSchema = z.coerce.number().min(-90).max(90);
+const lngSchema = z.coerce.number().min(-180).max(180);
+
+/** Поиск по реестру: точка необязательна, но приходит парой. */
+const searchQuerySchema = z
+  .object({
+    q: z.string().trim().max(120).optional(),
+    lat: latSchema.optional(),
+    lng: lngSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(SEARCH_LIMIT_MAX).optional(),
+  })
+  .refine((v) => (v.lat === undefined) === (v.lng === undefined), { message: "Точка задаётся парой lat и lng" });
+
+/** Предпросмотр до сохранения объекта: точка и то, по чему сопоставляем. */
+const previewBodySchema = z.object({
+  propertyId: z.string().uuid().optional(),
+  lat: latSchema.nullable(),
+  lng: lngSchema.nullable(),
+  address: z.string().trim().max(500).nullable().optional(),
+  title: z.string().trim().max(300).nullable().optional(),
+  description: z.string().max(5000).nullable().optional(),
+  isNewBuilding: z.boolean().optional(),
+});
 
 /** Объект по uuid или по короткому номеру из адресной строки (/properties/1042). */
 async function findProperty(idOrShort: string) {
@@ -50,9 +86,9 @@ async function findProperty(idOrShort: string) {
   });
 }
 
-/** Менять связь может хозяин объекта или тот, кто правит чужие объекты (то же правило, что у карточки объекта). */
+/** Менять связь может тот, кто вправе править карточку объекта: одно правило с формой и Шабнам (lib/constructionRegistry/access.ts). */
 function canEditLink(req: Parameters<typeof can>[0], property: { intakeAgentId: string | null; assignedAgentId: string | null; createdById: string | null }): boolean {
-  return can(req, "properties.editForeign") || propertyOwnerAgentId(property) === req.agent!.id;
+  return canEditRegistryLinkAs({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, property);
 }
 
 constructionRegistryRouter.get("/property/:id", requireAuth, async (req, res) => {
@@ -92,6 +128,39 @@ constructionRegistryRouter.delete("/property/:id/link", requireAuth, async (req,
   if (!canEditLink(req, property)) return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
   await unlinkProperty(property.id, req.agent!.id);
   res.json(await buildPropertyResponse(toMatchInput(property), true));
+});
+
+/** «Нет в реестре / не новостройка»: связь снимается, проекты рядом больше не предлагаются. */
+constructionRegistryRouter.post("/property/:id/none", requireAuth, async (req, res) => {
+  const property = await findProperty(String(req.params.id));
+  if (!property) return res.status(404).json({ error: "Объект не найден" });
+  if (!canEditLink(req, property)) return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+  const { enabled } = await loadRegistrySettings();
+  if (!enabled) return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+  // Отвергать нечего (нет точки, рядом нет проектов и связи нет) — честный отказ, а не «200 и ничего» (ревью PR #441):
+  // иначе геокодер позже поставит точку, автосвязь привяжет проект, и решение сотрудника потеряется молча.
+  if ((await markNotInRegistry(property.id, req.agent!.id)) === 0) return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
+  res.json(await buildPropertyResponse(toMatchInput(property), enabled));
+});
+
+/** Поиск по всему жилому списку реестра для поля выбора (до 20 штук; с точкой — ближние выше). */
+constructionRegistryRouter.get("/projects", requireAuth, async (req, res) => {
+  const parsed = searchQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  const body: RegistryProjectSearchResponse = { enabled, updatedAt: updated?.toISOString() ?? null, notLoaded: updated === null, items: [] };
+  if (!enabled || !updated) return res.json(body);
+  const hits = await searchRegistryProjects(parsed.data);
+  body.items = hits.map(({ score: _score, ...option }) => option);
+  res.json(body);
+});
+
+/** До создания объекта: лучший проект реестра у точки, уровень уверенности и до трёх запасных. Ничего не пишет. */
+constructionRegistryRouter.post("/match-preview", requireAuth, async (req, res) => {
+  const parsed = previewBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);
+  res.json(body);
 });
 
 constructionRegistryRouter.get("/map", requireAuth, async (_req, res) => {
