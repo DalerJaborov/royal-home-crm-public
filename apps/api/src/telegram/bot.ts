@@ -7,13 +7,13 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId, handleTelegramRelinkCallback } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, findAgentByTelegramChatId, handleTelegramRelinkCallback, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
-import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
+import { handleMontajerNarration, parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
@@ -518,9 +518,15 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     // Код не подошёл (истёк, чужой, уже использован) — это мог быть и клиент,
     // случайно написавший "/start что-то": не отвечаем здесь ничего, пусть
     // разберёт обычная клиентская логика ниже (return false).
+    // `/start staff` — кнопка Шабнам новичку в рабочей группе (24.11.2026): привязка по номеру.
+    if (startMatch[1] === STAFF_LINK_START_PAYLOAD && (await askStaffContactForLink(msg))) return true;
   }
 
   const agent = await findAgentByTelegramChatId(chatId);
+  // Свой контакт в окне после `/start staff` — привязка по номеру; вне окна контакт идёт клиентским путём.
+  if (!agent && msg.contact && (await tryLinkAgentByContact(msg))) return true;
+  // Шесть цифр от того, кому после контакта ушёл код подтверждения (ревью 25.11.2026); остальным — мимо.
+  if (!agent && msg.text && (await tryConfirmStaffLinkCode(msg))) return true;
   if (!agent) return false;
 
   // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)
@@ -541,6 +547,10 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     startAssistantPrivate(msg, agent);
     return true;
   }
+
+  // «Озвучь текст» (25.11.2026): озвучка своего текста из чата монтажёра, до меню очереди и приёма вложений —
+  // иначе любое слово, кроме команд, превращалось в статус очереди (telegram/montajerBot.ts).
+  if (await handleMontajerNarration(msg, agent)) return true;
 
   /**
    * ОБЛОЖКА ОТ МОНТАЖЁРА БОЛЬШЕ НЕ ПРИНИМАЕТСЯ (владелец, 21.09.2026: «обложки

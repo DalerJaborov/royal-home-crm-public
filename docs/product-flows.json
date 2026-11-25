@@ -87190,6 +87190,24 @@
       }
      ],
      "from": "cleanupAssistantTelegramContext() — apps/api/src/telegram/assistantGroupContext.ts"
+    },
+    {
+     "k": "do",
+     "t": "await cleanupTelegramLinkOffers();",
+     "a": [
+      "зовёт cleanupTelegramLinkOffers()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;",
+       "a": [
+        "удаляет в базе: assistantTelegramLinkOffer"
+       ],
+       "c": []
+      }
+     ],
+     "from": "cleanupTelegramLinkOffers() — apps/api/src/telegram/assistantGroupNewcomer.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
