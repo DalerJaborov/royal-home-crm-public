@@ -65,3 +65,24 @@ describe("чат на ПК и на телефоне", () => {
     });
   }
 });
+
+/**
+ * ВИДИМЫЙ ТРИГГЕР, А НЕ ИМПОРТ (25.11.2026, владелец: «кнопки „Отправить объект“
+ * нет»). Импорт ChatPropertySend стоял, сторож выше был зелёный, а пункт в
+ * скрепке рисовался только у диалога с карточкой клиента — у «Продавца из
+ * WhatsApp» без карточки он молча пропадал. Теперь в строке ввода нового вида
+ * есть круглая кнопка `chat-send-property`, а пункт меню не завёрнут в условие
+ * наличия карточки (без неё — серый с пояснением).
+ */
+describe("«Отправить объект» видно всегда", () => {
+  const desktop = fs.readFileSync(DESKTOP_CHAT, "utf8");
+  it("в строке ввода есть кнопка-здание, а не только скрытый триггер", () => {
+    expect(desktop).toContain('data-testid="chat-send-property"');
+  });
+  it("пункт «Объект из базы» не прячется условием карточки клиента", () => {
+    const at = desktop.indexOf("Объект из базы");
+    expect(at).toBeGreaterThan(0);
+    const before = desktop.slice(Math.max(0, at - 900), at);
+    expect(before).not.toMatch(/\{conversation\?\.clientId && conversation\.clientShortId && \(\s*<button[^>]*role="menuitem"/);
+  });
+});
