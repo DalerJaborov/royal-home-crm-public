@@ -17,3 +17,8 @@
 @media (max-width: 480px) {
   .rh2 .scr .lgn .login-code-card { padding: 28px 20px 20px; }
 }
+
+/* Подсказки и «Прислать в Telegram» на входе по коду (25.11.2026): не мельче 13px, на всю ширину карточки. */
+.rh2 .scr .lgn .login-code-hint { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); text-align: center; }
+.rh2 .scr .lgn .login-code-tg { display: flex; width: 100%; justify-content: center; align-items: center; min-height: 46px; margin-top: 14px; font-size: 14px; font-weight: 600; }
+.rh2 .scr .lgn .login-code-tg:disabled { opacity: .55; cursor: default; }

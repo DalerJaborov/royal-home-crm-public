@@ -113,6 +113,16 @@ function phoneCandidates(raw: string): string[] {
   return staffPhoneLookupForms(raw);
 }
 
+/**
+ * Тело 503 «слишком много кодов за час»: когда блок снимется (`retryAt`, ISO, до минуты вверх) —
+ * экран входа показывает время по Душанбе. Поля
+ * добавочные: старые клиенты читают только `error`.
+ */
+function blockedBody(blockedUntilMs: number | undefined): Record<string, unknown> {
+  if (blockedUntilMs === undefined) return {};
+  return { retryAt: new Date(blockedUntilMs).toISOString() };
+}
+
 authRouter.post("/login/code", async (req, res) => {
   const parsed = loginCodeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Введите номер телефона" });
@@ -142,7 +152,7 @@ authRouter.post("/login/code", async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
   }
   res.json({
     pendingToken: signPending2faToken(agent.id, "sms"),
@@ -436,7 +446,7 @@ authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
   }
   res.json({
     channel: issued.channel,

@@ -2,7 +2,7 @@ import { RuTimeField } from "../../components/look/fields/RuFields";
 import { useMemo, useRef, useState } from "react";
 import { useServerSyncedFields, useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
-import { Pencil, Plus, ShieldOff, Trash2, ShieldCheck, UserX, MoreHorizontal, X } from "lucide-react";
+import { KeyRound, Pencil, Plus, ShieldOff, Trash2, ShieldCheck, UserX, MoreHorizontal, X } from "lucide-react";
 import { useAuthStore } from "../../store/auth";
 import {
   useAgents,
@@ -12,6 +12,7 @@ import {
   useFreeExtensions,
   useUploadAgentAvatar,
   useReset2fa,
+  useResetLoginCodeBlock,
 } from "../../hooks/useAgents";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
@@ -117,6 +118,7 @@ export function AgentsSection() {
   const deleteAgent = useDeleteAgent();
   const uploadAvatar = useUploadAgentAvatar();
   const reset2fa = useReset2fa();
+  const resetCodeBlock = useResetLoginCodeBlock();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ fullName: "", phone: "", role: "AGENT" });
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +131,7 @@ export function AgentsSection() {
    * шли одним нажатием иконки: промах по соседней кнопке выкидывал сотрудника
    * из системы и необратимо снимал его с дежурств в настройках.
    */
-  const [confirmRow, setConfirmRow] = useState<{ kind: "deactivate" | "reset2fa"; id: string; name: string } | null>(
+  const [confirmRow, setConfirmRow] = useState<{ kind: "deactivate" | "reset2fa" | "resetCodeBlock"; id: string; name: string } | null>(
     null
   );
   const [avatarUploadingId, setAvatarUploadingId] = useState<string | null>(null);
@@ -790,6 +792,17 @@ export function AgentsSection() {
                       <ShieldCheck className="i" aria-hidden="true" />
                     </button>
                   )}
+                  {iAmDirector && a.role !== "DIRECTOR" && (
+                    <button
+                      className="pill ghost sm icon"
+                      type="button"
+                      onClick={() => setConfirmRow({ kind: "resetCodeBlock", id: a.id, name: a.fullName })}
+                      title="Сбросить блок входа по коду («Слишком много кодов за час»)"
+                      aria-label={`Сбросить блок входа по коду: ${a.fullName}`}
+                    >
+                      <KeyRound className="i" aria-hidden="true" />
+                    </button>
+                  )}
                   {can("agents.reset2fa") && (
                     <button
                       className="pill ghost sm icon"
@@ -868,6 +881,26 @@ export function AgentsSection() {
               { onSettled: () => setConfirmRow(null) }
             )
           }
+        />
+      )}
+      {confirmRow?.kind === "resetCodeBlock" && (
+        <ConfirmDialog
+          title={`Сбросить блок входа по коду у ${confirmRow.name}?`}
+          description="Счётчик «5 кодов за час» обнулится, сотрудник сразу сможет запросить новый код. Действие запишется в журнал."
+          confirmLabel={resetCodeBlock.isPending ? "Сбрасываем…" : "Сбросить блок"}
+          confirmDisabled={resetCodeBlock.isPending}
+          onCancel={() => setConfirmRow(null)}
+          onConfirm={async () => {
+            const id = confirmRow.id;
+            try {
+              await resetCodeBlock.mutateAsync(id);
+              setTwoFaError(null);
+            } catch (err) {
+              setTwoFaError(err instanceof Error ? err.message : "Не удалось сбросить блок входа");
+            } finally {
+              setConfirmRow(null);
+            }
+          }}
         />
       )}
       {confirmRow?.kind === "reset2fa" && (
