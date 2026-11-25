@@ -6,6 +6,7 @@ import { EMPTY_TOPIC_STATE } from "../ai/topicLock.js";
 import { aiDailyBudgetOf, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { refreshCustomerQualifierProjection, type ScopedCustomerQualifierLane } from "../lib/customerQualifierContext.js";
 import { recordScopedCustomerInput, appendScopedCustomerReply } from "../lib/customerQualifierLedger.js";
+import { keepIncomingMediaForStaff } from "../lib/customerInputMedia.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
 import { finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreReply } from "./replyChain.js";
 import type { MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
@@ -25,6 +26,8 @@ export async function processScopedCustomerQualifierTurn(input: MessengerTurnInp
 }
 async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial: ScopedCustomerQualifierLane): Promise<MessengerTurnResult> {
   if (!await recordScopedCustomerInput(input, initial.authenticatedInput, initial.ticket)) return { ...HELD };
+  // Файл клиента — сотруднику в CRM, независимо от того, ответит ли квалификатор (25.11.2026).
+  keepIncomingMediaForStaff(input);
   if (input.silent || input.fromStaff) return { ...HELD };
   const pinned = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey: initial.ticket.eventKey },
     select: { intakeAgentRevisionId: true } });

@@ -36,12 +36,19 @@ export function serviceMarkerKind(text: string | null | undefined): ServiceMarke
  */
 export function describeServiceMarker(
   text: string | null | undefined,
-  opts: { hasAttachments?: boolean; channel?: string | null } = {},
+  opts: {
+    hasAttachments?: boolean;
+    channel?: string | null;
+    /** Вложения реплики здесь не видны (список чатов, превью): файл мог сохраниться
+     *  позже (lib/customerInputMedia.ts на сервере), утверждать «не сохранился» нельзя. */
+    attachmentsUnknown?: boolean;
+  } = {},
 ): string | null {
   const kind = serviceMarkerKind(text);
   if (!kind) return null;
   if (kind === "message") return "Сообщение без текста (реакция или место)";
   if (opts.hasAttachments) return "";
+  if (opts.attachmentsUnknown) return "Клиент прислал файл";
   return `Клиент прислал файл — в CRM он не сохранился, посмотрите ${whereToLook(opts.channel)}`;
 }
 

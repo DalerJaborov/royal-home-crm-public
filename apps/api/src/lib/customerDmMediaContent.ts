@@ -139,8 +139,11 @@ export async function loadCustomerDmMediaContent(input: {
   for (const [kind, count] of reserved) { await check(); await spendAiFiles(conversationId, budget.dayKey, kind, count); }
   if (!input.preserveAttachments) return { parts, incomplete, publicationFound };
   await check();
-  const storedAttachments = await storeFetchedAttachments({ images: fetched.flatMap(row => row.fetched.images),
-    audios: fetched.flatMap(row => row.fetched.audios), medias: fetched.flatMap(row => row.fetched.medias) });
+  const toStore = { images: fetched.flatMap(row => row.fetched.images),
+    audios: fetched.flatMap(row => row.fetched.audios), medias: fetched.flatMap(row => row.fetched.medias), hadUnsupported: false };
+  const storedAttachments = await storeFetchedAttachments(toStore);
+  // Файл скачан, но не записан (диск) — тоже «не всё дошло», а не тишина (25.11.2026).
+  incomplete ||= toStore.hadUnsupported;
   await check();
   return { parts, incomplete, storedAttachments, publicationFound };
 }

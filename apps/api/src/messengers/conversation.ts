@@ -10,6 +10,7 @@ import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFl
 import { loadCustomerQualifierLane } from "../lib/customerQualifierContext.js";
 import { processScopedCustomerQualifierTurn } from "./customerQualifierTurn.js";
 import { recordScopedCustomerInput } from "../lib/customerQualifierLedger.js";
+import { keepIncomingMediaForStaff } from "../lib/customerInputMedia.js";
 import type { MessengerChannel, MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 export type { MessengerChannel, MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 import { boundedCustomerPropertyBatch, customerPropertyPromptHistory, customerPropertyTurnTerminal } from "../lib/customerPropertyHistory.js";
@@ -1763,7 +1764,12 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       input = { ...input, customerTransport };
       if (!input.fromStaff && ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(input.channel)) {
         const original = await readCustomerDmSubjectExecution(prisma, customerTransport, input.subscriberId);
-        if (original && original.lane !== "LEGACY") { traceNoReply("dm_lane_core"); return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" }; }
+        if (original && original.lane !== "LEGACY") {
+          // Ядро запишет реплику позже, в своей очереди, и файл качает только ради
+          // модели: сохраняем его для сотрудника сейчас, пока ссылка Meta жива (25.11.2026).
+          keepIncomingMediaForStaff(input);
+          traceNoReply("dm_lane_core"); return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
+        }
       }
       if (!input.fromStaff && await customerPropertyTurnAlreadyManaged(input)) return { reply: "", ready: false, accepted: false, shouldReply: false };
       // Staff/echo history is not a new customer intent or property generation.
@@ -1774,7 +1780,11 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       }
       const lane = await loadCustomerQualifierLane({ ...input, customerPropertyAdmission: admission });
       if (lane.mode === "held") {
-        if (admission?.status === "admitted") await recordScopedCustomerInput(input, input.customerAuthenticatedInput, admission.ticket);
+        if (admission?.status === "admitted" && await recordScopedCustomerInput(input, input.customerAuthenticatedInput, admission.ticket)) {
+          // Переписку ведёт сотрудник — бот молчит, но фото/видео/голосовое клиента
+          // ему нужны в CRM больше всего (жалоба владельца 25.11.2026).
+          keepIncomingMediaForStaff(input);
+        }
         traceNoReply("dm_lane_held");
         return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
       }

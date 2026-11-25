@@ -36,6 +36,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botRetryCapEnabled",
   "shabnamSocialPublishEnabled",
   "shabnamGroupAutoMemoryEnabled",
+  "chatMediaTranscodeEnabled",
   "shabnamGroupUnaddressedEnabled",
   "telegramPhoneLinkEnabled",
   "instagramCompanyKeyEnabled",
@@ -175,6 +176,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Подключённая группа сама начинает помнить последние сообщения (7 дней, без ссылок и контактов), включая тех, кто ещё не привязан к CRM. Без этого Шабнам не отвечает на вопросы без обращения и не знает, о чём говорили.",
     off: "Новые подключённые группы ничего не запоминают, пока память не включена вручную. Уже запомненное остаётся до срока.",
   },
+  // Владелец 25.11.2026: «фото, видео, голосовые клиентов не открываются в CRM».
+  chatMediaTranscodeEnabled: {
+    title: "Голосовые и видео клиентов открываются на любом телефоне",
+    on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
+    off: "Копии не делаются: такой файл можно только скачать и открыть другим приложением.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -221,7 +228,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
