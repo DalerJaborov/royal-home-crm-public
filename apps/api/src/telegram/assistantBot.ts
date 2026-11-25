@@ -1581,7 +1581,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) {
       // Никто Шабнам не звал и ясного рабочего вопроса нет: в режиме «живая» она сама решает, вступать ли в беседу.
-      if (raw && !isForwarded && msg.from && !msg.sender_chat) {
+      if (raw && !isForwarded && msg.from && !msg.sender_chat && msg.message_id) {
         void runLiveChime({
           chatId, messageId: msg.message_id, threadId: msg.message_thread_id, text: raw,
           fromTelegramId: msg.from.id, isBot: msg.from.is_bot === true, isForwarded, senderIsChat: Boolean(msg.sender_chat),
