@@ -862,10 +862,7 @@ export function PropertyFormModal({
             <div className="fld wide">
               <span className="lab">
                 Кто принял объект *:{" "}
-                <span className="pf-lab-note">
-                  {/* Размер доли — финансовая информация, менеджеру не показываем. */}
-                  агент, принявший продавца{can("finance.view") ? "; получит 0.5% со сделки" : ""}
-                </span>
+                <span className="pf-lab-note">агент, принявший продавца</span>
               </span>
               <SearchableSelect
                 value={form.intakeAgentId}
