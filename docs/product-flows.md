@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2483**; вместе с задачами по расписанию и фоновыми заданиями — **4186**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4177**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4283,39 +4283,6 @@
 - res.json(body);
   · ответ 200
 
-### POST /api/v1/construction-registry/match-preview
-
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- const parsed = previewBodySchema.safeParse(req.body ?? {});
-  · проверяет данные схемой previewBodySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);
-  · зовёт previewRegistryMatch()
-- res.json(body);
-  · ответ 200
-
-### GET /api/v1/construction-registry/projects
-
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- const parsed = searchQuerySchema.safeParse(req.query);
-  · проверяет данные схемой searchQuerySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
-  · зовёт loadRegistrySettings()
-- если !enabled || !updated
-  - return res.json(body);
-    · ответ 200
-- const hits = await searchRegistryProjects(parsed.data);
-  · зовёт searchRegistryProjects()
-- res.json(body);
-  · ответ 200
-
 ### DELETE /api/v1/construction-registry/property/:id/link
 
 `apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -4354,24 +4321,6 @@
 - await linkPropertyManually(property.id, project.id, req.agent!.id);
   · зовёт linkPropertyManually()
 - res.json(await buildPropertyResponse(toMatchInput(property), true));
-  · ответ 200
-
-### POST /api/v1/construction-registry/property/:id/none
-
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !property
-  - return res.status(404).json({ error: "Объект не найден" });
-    · ответ 404 — «Объект не найден»
-- если !canEditLink(req, property)
-  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
-    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
-- const { enabled } = await loadRegistrySettings();
-  · зовёт loadRegistrySettings()
-- если enabled
-  - await markNotInRegistry(property.id, req.agent!.id);
-    · зовёт markNotInRegistry()
-- res.json(await buildPropertyResponse(toMatchInput(property), enabled));
   · ответ 200
 
 ### POST /api/v1/construction-registry/property/:id/reject
@@ -5533,7 +5482,7 @@
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
     - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
@@ -5599,7 +5548,6 @@
       · меняет в базе: property
       · меняет в базе: client
       · считает в базе: deal
-      · создаёт или меняет в базе: settings
       · читает в базе: deal
       · меняет в базе: deal
       - если isCompleting
@@ -5653,8 +5601,6 @@
         - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
           · зовёт scaleClosedCommissionShares()
       - иначе если isCompleting || isRepricingClosed
-        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-          · создаёт или меняет в базе: settings
         - если baseCents > 0 && totalP > 0
           - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
             · зовёт splitCents()
@@ -5834,7 +5780,7 @@
     - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
@@ -5863,14 +5809,10 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
-      · читает в базе: settings
-      · создаёт или меняет в базе: settings
-    - если settings
-      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
-        · дословно из кода
-      - commissionAmount = commissionOf(property.price, commissionPercent);
-        · дословно из кода
+    - commissionPercent = COMMISSION_TOTAL_PERCENT;
+      · дословно из кода
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -6450,10 +6392,9 @@
 
 - const from = dushanbeMonthStart(monthsBack - 1);
   · зовёт dushanbeMonthStart()
-- const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
+- const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLETED", clos…
   · читает в базе: deal
   · читает в базе: expense
-  · создаёт или меняет в базе: settings
 - если truncated
   - void logSystemError( "api", `Выгрузка бухгалтерии за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE…
     · запись в журнал ошибок
@@ -12693,11 +12634,6 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
-  · проверяет данные схемой registryChoiceBodySchema
-- если !registryChoice.success
-  - return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
-    · ответ 400 — «Неверные данные»
 - const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
 - если !existing || existing.deletedAt
@@ -12869,12 +12805,8 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
-- если registryChoice.data.registry
-  - await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);
-    · зовёт applyRegistryChoice()
-- иначе
-  - void applyRegistryChoice(updated.id, undefined, req.agent!.id);
-    · зовёт applyRegistryChoice()
+- void autoLinkPropertyById(updated.id, req.agent!.id);
+  · зовёт autoLinkPropertyById()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()

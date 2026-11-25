@@ -2,7 +2,7 @@ import { prisma } from "../db.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { isDealSalaryExpense } from "./companyProfit.js";
 import { adSpendToTjsCents, centsToTjs, fromCents, loadMoneyContext, roundMoney, splitCents, toCents, toTjs } from "./money.js";
-import { AI_ESTIMATE_VENDORS, splitAiEstimate } from "@royal-home/shared";
+import { AI_ESTIMATE_VENDORS, COMMISSION_COMPANY_PERCENT, COMMISSION_REALTOR_PERCENT, splitAiEstimate } from "@royal-home/shared";
 import { dushanbeDateString, dushanbeMonthRange } from "./dushanbeTime.js";
 import { SYNCED_AD_PLATFORMS } from "./ads/adExpenseSync.js";
 import { monthKey } from "./expenseQueries.js";
@@ -166,16 +166,10 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
   const money = await loadMoneyContext();
   const earliest = bounds("year").prevFrom;
   // Проценты деления комиссии — ими считается доля компании у СТАРЫХ сделок,
-  // закрытых до появления снапшота долей (см. sumIncome ниже). 0,5% «за приём
-  // объекта» отменены 11.09.2026: Settings.commissionIntakePercent остаётся в
-  // схеме как история, но доля, которую оно отводило, теперь всегда прибавляется
-  // к доле компании.
-  const settings = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: { commissionIntakePercent: true, commissionRealtorPercent: true, commissionCompanyPercent: true },
-  });
-  const pRealtor = Number(settings?.commissionRealtorPercent ?? 0.5);
-  const pCompany = Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
+  // закрытых до появления снапшота долей (см. sumIncome ниже). Доли — 1% агенту и
+  // 1% компании (shared/commissionShares.ts, владелец 25.11.2026); приёма 0,5% нет.
+  const pRealtor = COMMISSION_REALTOR_PERCENT;
+  const pCompany = COMMISSION_COMPANY_PERCENT;
 
   // Две выборки на всё: расходы и закрытые сделки от начала прошлого года.
   // Дальше режем по периодам в памяти — строк за два года сотни, не миллионы.
@@ -244,7 +238,7 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
     const companyShareOf = (d: (typeof deals)[number]) => {
       if (d.commissionCompanyAmount !== null) return toTjs(d.commissionCompanyAmount, d.currency, money);
       const baseCents = toCents(toTjs(d.commissionAmount ?? 0, d.currency, money));
-      return fromCents(splitCents(baseCents, [pCompany, pRealtor])[0]);
+      return fromCents(splitCents(baseCents, [pRealtor, pCompany])[1]);
     };
 
     const sumIncome = (a: Date, b: Date) =>

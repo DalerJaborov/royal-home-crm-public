@@ -661,12 +661,9 @@ const settingsUpdateSchema = z.object({
   /** Кто участвует в случайном выборе — список целиком, как у geminiFallbackModels. */
   coverTemplateEnabledIds: z.array(z.string().max(64)).max(50).optional(),
   monthlyCommissionPlan: z.number().positive().optional(),
-  /** Структура комиссии сделки, % от цены объекта: риелтор + компания. 0,5% «за
-   * приём объекта» отменены 11.09.2026 — Settings.commissionIntakePercent
-   * остаётся в схеме БД как история старых сделок, но больше не редактируется
-   * (доля, которую оно отводило, теперь всегда уходит компании). */
-  commissionRealtorPercent: z.number().min(0).max(10).optional(),
-  commissionCompanyPercent: z.number().min(0).max(10).optional(),
+  // Проценты комиссии из Настроек убраны 25.11.2026: 1% компании и 1% агенту зашиты в
+  // packages/shared/src/commissionShares.ts, поля commission*Percent в БД — только история.
+  // Старая вкладка сайта может прислать их — схема не строгая, лишние ключи отбрасываются.
   // anthropicApiKey УБРАН из схемы (26.08.2026): потребителя в apps/api нет
   // (был только отдельный router.js в корне, убран 28.09.2026), а поле
   // не выдёргивалось из ...rest перед prisma.update — присланный ключ записался
