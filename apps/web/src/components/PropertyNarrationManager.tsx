@@ -239,6 +239,38 @@ export function NarrationPlayer({ load, knownSec, primary, disabled, prefetch, l
   );
 }
 
+/**
+ * «СКАЧАТЬ ОЗВУЧКУ» (25.11.2026, объект №231): сотрудник отдал ролик монтажёру мимо CRM, озвучка осталась в CRM, а
+ * достать файл было нельзя — только послушать. Файл тот же, что слушает плеер (GET …/narration/<версия>/audio), имя —
+ * «ozvuchka-ob231.mp3». Запись берётся тем же запросом через api(), чтобы шла авторизация (простая ссылка её не несёт).
+ */
+export function NarrationDownloadButton({ load, fileName, disabled }: { load: () => Promise<string>; fileName: string; disabled?: boolean }) {
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  async function download() {
+    setState("loading");
+    try {
+      const url = await load();
+      const a = document.createElement("a");
+      a.href = url; a.download = fileName; a.rel = "noopener";
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setState("idle");
+    } catch { setState("error"); }
+  }
+  return (
+    <div className="space-y-1">
+      <button type="button" className="pill ghost min-h-12! text-base!" disabled={disabled || state === "loading"} onClick={() => void download()}>
+        {state === "loading" ? "Скачиваем…" : "Скачать озвучку (mp3)"}
+      </button>
+      {state === "error" && <p className="text-base text-[var(--muted)]" role="status">Не получилось скачать. Проверьте связь и нажмите ещё раз.</p>}
+    </div>
+  );
+}
+/** Имя файла: номер объекта, если сервер его прислал; иначе просто «ozvuchka». */
+export function narrationFileName(code: number | undefined | null): string {
+  return code ? `ozvuchka-ob${code}.mp3` : "ozvuchka.mp3";
+}
+
 /** Общий запрос блока: строка-напоминание наверху и сам блок берут его из одного кэша, второго запроса нет. */
 function useNarrationView(propertyId: string, enabled = true) {
   return useQuery({
@@ -487,6 +519,7 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
       {/* ПОСЛУШАТЬ И ОДОБРИТЬ — одно действие, кнопка сразу под плеером (20.11.2026). */}
       {awaiting && latest && !composerOpen && <div className="space-y-3">
         <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} primary={!data.canApproveAudio} disabled={busy} prefetch />
+        <NarrationDownloadButton load={loadAudio(latest.id)} fileName={narrationFileName(data.propertyCode)} disabled={busy} />
         {length && <p className={`rounded-xl px-3 py-2 text-base font-semibold ${length.fits ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--crit-bg)] text-[var(--crit)]"}`}>
           {length.fits ? "✓ " : ""}{narrationLengthLine(length)}</p>}
         {data.canApproveAudio
@@ -501,7 +534,10 @@ export function PropertyNarrationManager({ propertyId, placement = "media", fact
 
       {/* Утверждённая озвучка — послушать ещё раз второстепенной кнопкой. */}
       {(state === "approved" || state === "mixFailed" || state === "marketingReview" || state === "done" || state === "scheduled") && latest?.hasAudio && !composerOpen && (
-        <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} disabled={busy} />
+        <div className="space-y-2">
+          <NarrationPlayer key={latest.id} load={loadAudio(latest.id)} knownSec={latest.audioSec} disabled={busy} />
+          <NarrationDownloadButton load={loadAudio(latest.id)} fileName={narrationFileName(data.propertyCode)} disabled={busy} />
+        </div>
       )}
 
       {state === "mixFailed" && data.mix?.canRetry && canEdit && !composerOpen && (

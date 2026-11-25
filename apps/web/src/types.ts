@@ -1,5 +1,6 @@
 import type {
   NotificationLevel,
+  RegistryBrief,
   PropertyType,
   PropertyCondition,
   PropertyStatus,
@@ -82,6 +83,8 @@ export interface AgentRef {
 
 export interface Property {
   id: string;
+  /** Реестр разрешённых строек: короткий статус. Только в ответе списка GET /properties (сотрудникам); null — нет данных. */
+  registry?: RegistryBrief | null;
   /** Короткий числовой ID для URL (/properties/1042) — id остаётся настоящим для API-вызовов. */
   shortId: number;
   title: string;
@@ -133,7 +136,7 @@ export interface Property {
   sellerClient?: { id: string; shortId: number; fullName: string; canOpen: boolean } | null;
   assignedAgentId: string | null;
   assignedAgent: AgentRef | null;
-  /** Агент-интейкер (принял заявку продавца и отработал) — получает 0.5% со сделки. */
+  /** Агент-интейкер (принял заявку продавца и отработал). Доли за приём нет: деньги делятся вручную при закрытии сделки. */
   intakeAgentId?: string | null;
   intakeAgent?: AgentRef | null;
   /** Передача объекта другому агенту (24.09.2026): пока handoverPendingSince не

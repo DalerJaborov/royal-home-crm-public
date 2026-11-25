@@ -15,7 +15,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Новая оболочка CRM" },
   ],
   money: [
-    { title: "Структура комиссии сделки" }, { title: "Курс доллара к сомони" },
+    { title: "План комиссии" }, { title: "Курс доллара к сомони" },
     { title: "Сроки и лимиты по заявкам" }, { title: "Сроки подготовки объекта, дни" },
     { title: "Резерв объекта на сделке" }, { title: "Пауза «не принимаю заявки»", aliases: ["Дисциплина"] },
     { title: "Застой сделки" }, { title: "Светофор неактивных клиентов" },
