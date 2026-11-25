@@ -50,11 +50,13 @@ describe("Факты о вакансии — одно место для чата
     expect(VACANCY_FACTS.pay).toMatchObject({
       commissionTotalPct: 2,
       agentPct: 1,
-      splitPct: 0.5,
       newbieFromUsd: 500,
       experiencedFromUsd: 1000,
     });
-    expect(SCENARIO_JOB).toContain("делится пополам, по 0,5%");
+    // Владелец 25.11.2026: агент берёт 1% целиком, дележа и «0,5%» в тексте вакансии нет.
+    expect(SCENARIO_JOB).toContain("1% агенту, 1% компании");
+    expect(SCENARIO_JOB).not.toContain("пополам");
+    expect(SCENARIO_JOB).not.toMatch(/0[,.]5s?%/);
   });
 
   it("ни чат, ни робот не обещают само трудоустройство", () => {
