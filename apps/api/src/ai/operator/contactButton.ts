@@ -137,6 +137,8 @@ export function planOperatorContactButton(input: {
   /** В этом ходе принята заявка (действие accept_lead). */
   leadAcceptedNow: boolean;
   closed: boolean;
+  /** Клиент просил не звонить («пишите, не звоните»): кнопки звонка нет. */
+  noCall?: boolean;
   /** Аккаунт своего бренда (не Арван): только ему ссылка на наш WhatsApp. */
   mainBrand: boolean;
   policy: ContactButtonPolicy;
@@ -150,7 +152,7 @@ export function planOperatorContactButton(input: {
   const sent = input.sentBotTexts ?? [];
   if (input.channel === "WHATSAPP") {
     const p = input.policy;
-    if (!p.waCallButton || !p.waCallReady || !p.withinHours || !(input.contactAsk || input.leadAcceptedNow)) return null;
+    if (!p.waCallButton || !p.waCallReady || !p.withinHours || input.noCall || !(input.contactAsk || input.leadAcceptedNow)) return null;
     const body = `${text} ${lineFor(OPERATOR_CONTACT_BUTTON_TEXTS.callLine[input.language], sent)}`;
     if ([...body].length > WA_BODY_MAX) return null;
     return { text: body, button: { type: "voice_call", displayText: OPERATOR_CONTACT_BUTTON_TEXTS.callTitle[input.language],

@@ -52,6 +52,7 @@ describe("когда кнопка уходит", () => {
     expect(planOperatorContactButton({ ...base, channel: "WHATSAPP", contactAsk: false })).toBeNull();
     expect(planOperatorContactButton({ ...base, channel: "WHATSAPP", text: null })).toBeNull();
     expect(planOperatorContactButton({ ...base, channel: "WHATSAPP", closed: true })).toBeNull();
+    expect(planOperatorContactButton({ ...base, channel: "WHATSAPP", contactAsk: false, leadAcceptedNow: true, noCall: true })).toBeNull();
   });
   it("Instagram: просьба номера — кнопка wa.me на наш номер с приветствием и кодом в предзаполненном тексте", () => {
     const plan = planOperatorContactButton({ ...base, channel: "INSTAGRAM", language: "tg" });

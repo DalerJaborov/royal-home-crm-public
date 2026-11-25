@@ -278,7 +278,10 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
       preparedCode = await prepareWhatsappContinuationCode({ conversationId: input.conversationId, channel: linkChannel, now }).catch(() => undefined);
     }
     const planned = planOperatorContactButton({ channel: ctx.channel, language: operator.language, text,
-      contactAsk, leadAcceptedNow, closed: operator.state.closed, mainBrand, policy, code: preparedCode?.code ?? null, sentBotTexts });
+      contactAsk, leadAcceptedNow, closed: operator.state.closed, mainBrand, policy, code: preparedCode?.code ?? null, sentBotTexts,
+      // «Не звоните, пишите» — кнопку звонка не предлагаем.
+      noCall: operator.state.noCall || operator.state.callback.textOnly ||
+        operator.actions.some(action => action.type === "accept_lead" && (action.noCall || action.textOnly)) });
     if (planned) { text = planned.text; button = planned.button; }
     else preparedCode = undefined;
   }
