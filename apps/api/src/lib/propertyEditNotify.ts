@@ -36,8 +36,10 @@ const EXTERNAL_CALL_TIMEOUT_MS = 20_000;
 /** Поля, о правке которых стоит сообщать: цена и всё, что стоит в подписи ролика. */
 const VISIBLE_FIELDS: ReadonlySet<string> = new Set(["price", "currency", ...CAPTION_FACT_FIELDS]);
 
-/** Поля, которые видны ВНУТРИ готового ролика (монтажёр набирает их в кадр). */
-const FRAME_FIELDS: ReadonlySet<string> = new Set(["price", "currency", "areaSqm", "rooms", "floor", "totalFloors"]);
+/** Поля, которые видны ВНУТРИ готового ролика (монтажёр набирает их в кадр).
+ *  Цены здесь нет с 25.11.2026 (владелец: «все наши ролики будут без цены») —
+ *  её правка ролик не устаревает и монтажёра с модератором за готовым роликом не тревожит. */
+const FRAME_FIELDS: ReadonlySet<string> = new Set(["areaSqm", "rooms", "floor", "totalFloors"]);
 
 /** Статусы очереди монтажа, при которых готовый ролик уже у нас. */
 function clipAlreadyReceived(p: { videoHandoffStatus: string; clipReviewStatus: string }): boolean {
@@ -76,12 +78,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Строки «Цена: 50000 USD → 55000 USD; Этаж: 3 → 4» — только видимые поля. Пусто — сообщать нечего. */
+/** Строки «Цена: 50000 USD → 55000 USD; Этаж: 3 → 4» — только видимые поля. Пусто — сообщать нечего.
+ *  `withPrice: false` — для монтажа: цены в ролике нет, правка цены его не касается (модератору она нужна). */
 export function visibleChangeLines(
   changes: PropertyFieldChange[],
-  currencies: { before: string; after: string }
+  currencies: { before: string; after: string },
+  options: { withPrice?: boolean } = {}
 ): { lines: string[]; frameChanged: boolean } {
-  const visible = changes.filter((c) => VISIBLE_FIELDS.has(c.field));
+  const withPrice = options.withPrice ?? true;
+  const visible = changes.filter((c) => VISIBLE_FIELDS.has(c.field) && (withPrice || (c.field !== "price" && c.field !== "currency")));
   const priceChanged = visible.some((c) => c.field === "price");
   const lines: string[] = [];
   for (const c of visible) {
@@ -162,7 +167,9 @@ export async function notifyPropertyEditedBeforePublish(input: PropertyEditNotif
     if (before.status !== after.status) return;
     if (before.status !== "PENDING_REVIEW" && before.status !== "EDITING") return;
 
-    const { lines, frameChanged } = visibleChangeLines(input.changes, { before: before.currency, after: after.currency });
+    // На проверке модератору важна и цена; на монтаже её нет (в ролике цены нет, 25.11.2026).
+    const { lines, frameChanged } = visibleChangeLines(input.changes, { before: before.currency, after: after.currency },
+      { withPrice: before.status === "PENDING_REVIEW" });
     if (lines.length === 0) return;
     const summary = lines.join("; ");
     const code = formatShortCode("ОБ", before.shortId);
