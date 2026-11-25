@@ -1,23 +1,26 @@
 import express, { Router } from "express";
 import { z } from "zod";
-import { CHUNKED_UPLOAD_PURPOSES, formatUploadLimit, type ChunkedUploadPurpose } from "@royal-home/shared";
-import { requireAuth } from "../auth/middleware.js";
 import {
-  ChunkedUploadError,
-  chunkedUploadErrorBody,
-  chunkedUploadKind,
-  chunkedUploadStatus,
-  startChunkedUpload,
-  writeChunkedUploadPart,
-} from "../lib/chunkedUploadSessions.js";
+  CHUNKED_UPLOAD_PURPOSES,
+  UPLOAD_PART_MAX_BYTES,
+  UPLOAD_PART_MIN_BYTES,
+  formatUploadLimit,
+  type ChunkedUploadPurpose,
+} from "@royal-home/shared";
+import { requireAuth } from "../auth/middleware.js";
+import { chunkedUploadKind, chunkedUploadStatus, startChunkedUpload, writeChunkedUploadPart } from "../lib/chunkedUploadSessions.js";
+import { UploadError } from "../lib/uploadErrors.js";
+import { logUploadPart, partBodySource, sendUploadError } from "../lib/uploadHttp.js";
 
 /**
  * ОБЩИЕ СЕССИИ ЗАГРУЗКИ ЧАСТЯМИ (17.11.2026, класс «большой файл одним запросом → 413»).
  *
  *   POST /api/v1/upload-sessions                         { purpose, filename, sizeBytes, contentType }
- *   PUT  /api/v1/upload-sessions/:sessionId/parts/:n     сырые байты части (не больше 32 МБ)
- *   GET  /api/v1/upload-sessions/:sessionId              план и принятые части — для докачки
- *                                                        после обрыва (любая своя сессия, и соцролика)
+ *   PUT  /api/v1/upload-sessions/:sessionId/parts/:n     сырые байты части (не больше UPLOAD_PART_MAX_BYTES,
+ *                                                        пишутся на диск потоком, без копии в памяти)
+ *   GET  /api/v1/upload-sessions/:sessionId              план, принятые части и байты, состояние сборки
+ *                                                        (`state`, итог `result`) — для докачки после обрыва
+ *                                                        и для асинхронной сборки (X-Upload-Async: 1)
  *
  * Сборку делает маршрут назначения — он же проверяет права на объект или переписку:
  *   POST /api/v1/properties/:id/clip-video/upload-sessions/:sessionId/complete
@@ -37,6 +40,8 @@ const startSchema = z.object({
   filename: z.string().trim().min(1).max(255),
   sizeBytes: z.number().int().positive(),
   contentType: z.string().trim().max(100).optional().default(""),
+  /** Необязательно: размер части, который удобен клиенту (медленный канал — меньше). */
+  partSize: z.number().int().min(UPLOAD_PART_MIN_BYTES).max(UPLOAD_PART_MAX_BYTES).optional(),
 });
 
 function acceptsType(purpose: ChunkedUploadPurpose, contentType: string): boolean {
@@ -46,10 +51,7 @@ function acceptsType(purpose: ChunkedUploadPurpose, contentType: string): boolea
 }
 
 function sendError(res: express.Response, err: unknown, next: express.NextFunction) {
-  if (err instanceof ChunkedUploadError) {
-    res.status(err.status).json(chunkedUploadErrorBody(err));
-    return;
-  }
+  if (sendUploadError(res, err, "общая загрузка частями")) return;
   next(err);
 }
 
@@ -59,7 +61,7 @@ uploadSessionsRouter.post("/", async (req, res, next) => {
     res.status(400).json({ error: "Неверные данные файла" });
     return;
   }
-  const { purpose, filename, sizeBytes, contentType } = parsed.data;
+  const { purpose, filename, sizeBytes, contentType, partSize } = parsed.data;
   if (!acceptsType(purpose, contentType)) {
     const what = CHUNKED_UPLOAD_PURPOSES[purpose].accepts === "video" ? "видео" : "фото или видео";
     res.status(400).json({ error: `Допустимо только ${what}` });
@@ -74,6 +76,7 @@ uploadSessionsRouter.post("/", async (req, res, next) => {
       sizeBytes,
       contentType,
       maxBytes,
+      partSize,
       tooLargeMessage: `Файл «${filename}» больше предела ${formatUploadLimit(maxBytes)} — сожмите его и отправьте снова`,
     });
     res.status(201).json(session);
@@ -82,38 +85,24 @@ uploadSessionsRouter.post("/", async (req, res, next) => {
   }
 });
 
-uploadSessionsRouter.put(
-  "/:sessionId/parts/:partNumber",
-  express.raw({ type: () => true, limit: "32mb" }),
-  async (req, res, next) => {
-    const body: unknown = req.body;
-    if (!Buffer.isBuffer(body)) {
-      res.status(400).json({ error: "Пустая часть" });
-      return;
-    }
-    const sessionId = String(req.params.sessionId);
-    try {
-      const kind = await chunkedUploadKind(sessionId);
-      // Свободные ролики идут своими адресами: здесь только назначения из общего реестра.
-      if (!kind || !(kind in CHUNKED_UPLOAD_PURPOSES)) {
-        res.status(404).json({ error: "Загрузка не найдена — выберите файл ещё раз" });
-        return;
-      }
-      await writeChunkedUploadPart({
-        kind,
-        sessionId,
-        agentId: req.agent!.id,
-        partNumber: Number(req.params.partNumber),
-        body,
-      });
-      res.json({ ok: true });
-    } catch (err) {
-      sendError(res, err, next);
-    }
+uploadSessionsRouter.put("/:sessionId/parts/:partNumber", async (req, res, next) => {
+  const sessionId = String(req.params.sessionId);
+  const partNumber = Number(req.params.partNumber);
+  const startedAt = Date.now();
+  try {
+    const kind = await chunkedUploadKind(sessionId);
+    // Свободные ролики идут своими адресами: здесь только назначения из общего реестра.
+    if (!kind || !(kind in CHUNKED_UPLOAD_PURPOSES)) throw new UploadError("SESSION_NOT_FOUND");
+    const bytes = await writeChunkedUploadPart({ kind, sessionId, agentId: req.agent!.id, partNumber, body: partBodySource(req) });
+    logUploadPart(req, { kind, sessionId, partNumber, bytes, startedAt });
+    res.json({ ok: true, partNumber });
+  } catch (err) {
+    if (err instanceof UploadError) logUploadPart(req, { kind: "chunked", sessionId, partNumber, startedAt, code: err.code });
+    sendError(res, err, next);
   }
-);
+});
 
-/** Докачка: какие части уже на сервере. Своя сессия любого назначения, чужая — 404. */
+/** Докачка и асинхронная сборка: принятые части и байты, состояние. Своя сессия любого назначения, чужая — 404. */
 uploadSessionsRouter.get("/:sessionId", async (req, res, next) => {
   try {
     res.json(await chunkedUploadStatus(String(req.params.sessionId), req.agent!.id));

@@ -1136,7 +1136,7 @@ describe("загрузка ролика частями (17.11.2026, 413 на 87 
       .send({ filename: "promo.mp4", sizeBytes: bytes.length });
     expect(started.status).toBe(201);
     const { sessionId, partSize, totalParts } = started.body as { sessionId: string; partSize: number; totalParts: number };
-    expect(partSize).toBe(8 * 1024 * 1024);
+    expect(partSize).toBe((await import("@royal-home/shared")).UPLOAD_PART_BYTES);
     expect(totalParts).toBe(1);
 
     // Сборка до частей — 409, а не пустой черновик.

@@ -1,5 +1,11 @@
 import { prisma } from "../db.js";
-import { abortLocalUploadSession } from "./localVideoStorage.js";
+import {
+  abortLocalUploadSession,
+  listLocalUploadParts,
+  listLocalUploadSessionDirs,
+  readLocalUploadSessionState,
+} from "./localVideoStorage.js";
+import type { ChunkedUploadMeta } from "./chunkedUploadSessions.js";
 import { logSystemError } from "./systemError.js";
 import { sendPushToAgent } from "../push.js";
 
@@ -90,4 +96,51 @@ export async function cleanupStaleVideoUploadSessions(): Promise<VideoUploadClea
   }
 
   return result;
+}
+
+/**
+ * СИРОТЫ НА ДИСКЕ (25.11.2026). Уборка выше ходит только по строкам VideoUploadSession, а
+ * папка частей бывает без строки: сервер упал между созданием папки и записью в базу,
+ * строку удалили, а папку — нет, план (meta.json) общего ядра обрезан сбоем. Такая папка
+ * держала до 2 ГБ без единой ссылки на себя (комментарий «подберёт уборка» в
+ * routes/properties/videos.ts был неправдой).
+ *
+ * Правило: папка без meta.json (не общее ядро — у того своя уборка) и без строки ни в
+ * VideoUploadSession, ни в PropertyDraftMedia, не менявшаяся ORPHAN_DIR_HOURS, — удаляется.
+ * Папка, где остался только итог сборки (state.json без частей), живёт сутки и удаляется
+ * независимо от строки — итог уже никому не нужен.
+ */
+const ORPHAN_DIR_HOURS = 48;
+const FINISHED_DIR_HOURS = 24;
+
+export async function cleanupOrphanUploadDirs(now = Date.now()): Promise<number> {
+  const dirs = await listLocalUploadSessionDirs();
+  const candidates = dirs.filter((d) => !d.hasMeta && now - d.mtimeMs > FINISHED_DIR_HOURS * 60 * 60 * 1000);
+  if (candidates.length === 0) return 0;
+  const ids = candidates.map((d) => d.id);
+  const [sessions, media] = await Promise.all([
+    prisma.videoUploadSession.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+    prisma.propertyDraftMedia.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  ]);
+  const referenced = new Set([...sessions.map((s) => s.id), ...media.map((m) => m.id)]);
+  let removed = 0;
+  for (const d of candidates) {
+    const onlyResult = (await listLocalUploadParts(d.id)).length === 0 && (await readLocalUploadSessionState(d.id)) !== null;
+    const orphan = !referenced.has(d.id) && now - d.mtimeMs > ORPHAN_DIR_HOURS * 60 * 60 * 1000;
+    if ((onlyResult || orphan) && (await abortLocalUploadSession(d.id))) removed++;
+  }
+  return removed;
+}
+
+/**
+ * Брошенные загрузки общего ядра (ролик карточки, файл в переписку, свободный ролик): та же
+ * уборка, что раньше (lib/chunkedUploadSessions.ts::sweepStaleChunkedUploads), но автор
+ * теперь получает пуш, как у видео объекта: загрузка пропала не молча.
+ */
+export async function notifyAbandonedChunkedUpload(s: { id: string; meta: ChunkedUploadMeta }): Promise<void> {
+  await sendPushToAgent(s.meta.agentId, {
+    title: "⚠️ Загрузка отменена",
+    body: `Загрузка «${s.meta.filename}» не была завершена за сутки — выберите файл заново`,
+    tag: `chunked-upload-cancelled-${s.id}`,
+  }).catch((err) => console.error("[uploadCleanup] пуш автору:", err instanceof Error ? err.message : err));
 }

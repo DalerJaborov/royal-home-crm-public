@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PROPERTY_DETAIL_KEYS } from "./enums.js";
 import { propertyDetailShown, propertyFieldShown, propertyHasMarket } from "./propertyTypeFields.js";
+import { UPLOAD_PART_MAX_BYTES, UPLOAD_PART_MIN_BYTES } from "./uploadLimits.js";
 
 /** "Не указано" в поле характеристики мастера. */
 export const DETAIL_NOT_SET = "__not_set__";
@@ -132,6 +133,8 @@ export const propertyDraftVideoSessionSchema = z.object({
   filename: z.string().min(1).max(255),
   sizeBytes: z.number().int().positive(),
   contentType: z.string().min(1).max(128),
+  /** Необязательно (25.11.2026): размер части, удобный клиенту (медленный канал — меньше). */
+  partSize: z.number().int().min(UPLOAD_PART_MIN_BYTES).max(UPLOAD_PART_MAX_BYTES).optional(),
 });
 
 export interface PropertyDraftMediaView {
