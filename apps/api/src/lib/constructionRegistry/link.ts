@@ -213,6 +213,30 @@ export async function unlinkProperty(propertyId: string, agentId: string): Promi
   return res.count;
 }
 
+/**
+ * «Нет в реестре / не новостройка» (поле выбора, 25.11.2026): связь снимается, и ВСЕ проекты, которые сейчас ложатся
+ * рядом с точкой объекта, отмечаются отвергнутыми (тот же механизм REJECTED, что у «Отвязать»). Автосвязь и догадки их
+ * больше не вернут; проект, который появится в реестре позже или окажется у новой точки, предложится как обычно.
+ * Две записи на любое число проектов (updateMany + createMany), без цикла запросов.
+ */
+export async function markNotInRegistry(propertyId: string, agentId: string): Promise<number> {
+  const row = await prisma.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: MATCH_PROPERTY_SELECT });
+  if (!row) return 0;
+  const candidates = await rankCandidates(toMatchInput(row));
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`construction-link:${propertyId}`}))`;
+    const linked = await tx.constructionPropertyLink.findMany({ where: { propertyId, state: "LINKED" }, select: { projectId: true } });
+    const ids = [...new Set([...linked.map((l) => l.projectId), ...candidates.map((c) => c.project.id)])];
+    if (ids.length === 0) return 0;
+    await tx.constructionPropertyLink.updateMany({ where: { propertyId, projectId: { in: ids } }, data: { state: "REJECTED", createdById: agentId } });
+    await tx.constructionPropertyLink.createMany({
+      data: ids.map((projectId) => ({ propertyId, projectId, state: "REJECTED" as const, method: "MANUAL" as const, confidence: 0, reasons: [], createdById: agentId })),
+      skipDuplicates: true,
+    });
+    return ids.length;
+  });
+}
+
 /** Отвергнуть предложение (проект рядом, но это не наш объект). */
 export async function rejectSuggestion(propertyId: string, projectId: string, agentId: string): Promise<void> {
   await prisma.constructionPropertyLink.upsert({

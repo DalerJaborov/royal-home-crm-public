@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **776**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4192**. Модулей: **87**.
+Путей: **779**. Развилок в самих путях: **2491**; вместе с задачами по расписанию и фоновыми заданиями — **4202**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4356,6 +4356,39 @@
 - res.json(body);
   · ответ 200
 
+### POST /api/v1/construction-registry/match-preview
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = previewBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой previewBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);
+  · зовёт previewRegistryMatch()
+- res.json(body);
+  · ответ 200
+
+### GET /api/v1/construction-registry/projects
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = searchQuerySchema.safeParse(req.query);
+  · проверяет данные схемой searchQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  · зовёт loadRegistrySettings()
+- если !enabled || !updated
+  - return res.json(body);
+    · ответ 200
+- const hits = await searchRegistryProjects(parsed.data);
+  · зовёт searchRegistryProjects()
+- res.json(body);
+  · ответ 200
+
 ### DELETE /api/v1/construction-registry/property/:id/link
 
 `apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -4394,6 +4427,27 @@
 - await linkPropertyManually(property.id, project.id, req.agent!.id);
   · зовёт linkPropertyManually()
 - res.json(await buildPropertyResponse(toMatchInput(property), true));
+  · ответ 200
+
+### POST /api/v1/construction-registry/property/:id/none
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- const { enabled } = await loadRegistrySettings();
+  · зовёт loadRegistrySettings()
+- если !enabled
+  - return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+    · ответ 409 — «Реестр строек выключен в Настройках»
+- если (await markNotInRegistry(property.id, req.agent!.id)) === 0
+  - return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
+    · ответ 409
+- res.json(await buildPropertyResponse(toMatchInput(property), enabled));
   · ответ 200
 
 ### POST /api/v1/construction-registry/property/:id/reject
@@ -12713,6 +12767,11 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой registryChoiceBodySchema
+- если !registryChoice.success
+  - return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
+    · ответ 400 — «Неверные данные»
 - const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
 - если !existing || existing.deletedAt
@@ -12884,8 +12943,11 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
-- void autoLinkPropertyById(updated.id, req.agent!.id);
-  · зовёт autoLinkPropertyById()
+- const registryError = registryChoice.data.registry ? registryChoiceError(await applyRegistryChoice(updated.id…
+  · зовёт registryChoiceError()
+- если !registryChoice.data.registry
+  - void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
+    · зовёт applyRegistryChoice()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12893,13 +12955,16 @@
     · зовёт skipVideoHandoffOnManualPublish()
   - publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…
     · зовёт publishPropertyUpdated()
-  - если siteSyncError
-    - return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+  - если siteSyncError || registryError
+    - return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {})…
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
+- если registryError
+  - return res.status(207).json({ ...presentProperty(updated, req), registryError });
+    · ответ 207
 - res.json(presentProperty(updated, req));
   · ответ 200
 
