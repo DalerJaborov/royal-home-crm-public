@@ -19,6 +19,7 @@ import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
 import { runClipOwnerAutoPublishTick } from "./lib/clipReview.js";
 import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
+import { cleanupTelegramLinkOffers } from "./telegram/assistantGroupNewcomer.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
@@ -1165,6 +1166,8 @@ export function startCronJobs() {
   );
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
+    // Отметки «новичку уже предлагали привязку» и брошенные окна кода (ревью 25.11.2026): не дольше 90 дней.
+    await cleanupTelegramLinkOffers();
   }, { timezone: "Asia/Dushanbe" });
   /**
    * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — ночная сверка всех карточек

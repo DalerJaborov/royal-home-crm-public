@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import {
   captureAssistantTelegramContext,
@@ -343,5 +343,14 @@ describe("opted-in Telegram group evidence", () => {
     await captureAssistantTelegramContext(message(31), 31, now);
     expect((await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId: String(chatId) } })).contextEnabledAt).toBeNull();
     expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId), messageId: 31 } })).toBe(0);
+  });
+
+  it("память, выключенная директором (/assistant_memory off), автопамятью при ВКЛ рубильнике обратно не включается", async () => {
+    await setAutoMemory(true);
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null, contextOptOutAt: now } });
+    await captureAssistantTelegramContext(message(41), 41, now);
+    expect((await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId: String(chatId) } })).contextEnabledAt).toBeNull();
+    expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId), messageId: 41 } })).toBe(0);
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextOptOutAt: null } });
   });
 });

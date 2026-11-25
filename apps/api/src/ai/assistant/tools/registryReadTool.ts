@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { REGISTRY_COLOR_LABEL, registrySourceCaption } from "@royal-home/shared";
+import { decisionYearFromQaror, REGISTRY_COLOR_LABEL, registrySourceCaption } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
 import { loadRegistrySettings } from "../../../lib/constructionRegistry/sync.js";
 import { buildPropertyResponse, loadDeveloperDtos, projectDto } from "../../../lib/constructionRegistry/view.js";
@@ -8,7 +8,8 @@ import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 /**
- * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК ДЛЯ ШАБНАМ (21.11.2026). Только сотрудникам, только в личке (имя в GROUP_HIDDEN_TOOLS).
+ * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК ДЛЯ ШАБНАМ (21.11.2026). Только сотрудникам: в личке и в рабочих группах (с 25.11.2026, решение
+ * владельца: данные публичные — memor.pro, объекты в группе и так видны через поиск). Клиентам и на сайт не уходит.
  * Та же логика, что у карточки объекта (lib/constructionRegistry/view.ts): второй реализации нет. Ничего не пишет.
  * Клиенту это не отдаётся: сотрудник пересказывает своими словами и называет дату обновления реестра.
  */
@@ -34,9 +35,10 @@ export const getConstructionRegistryTool: AssistantReadToolPlugin = {
       query: { type: "string", description: "Название комплекса или застройщика" },
     },
   },
-  allowed: (actor) => actor.surface !== "telegram-group",
   async run(raw, { actor }) {
-    if (actor.surface === "telegram-group") return { error: "Это — только в личном чате с Шабнам" };
+    // В рабочей группе без буквы и балла оценки застройщика: это наша оценка, не данные memor.pro (ревью 25.11.2026).
+    // Вместо неё факты реестра: документы, год решения, число проектов застройщика по цветам.
+    const inGroup = actor.surface === "telegram-group";
     const parsed = args.safeParse(raw ?? {});
     if (!parsed.success || (!parsed.data.property && !parsed.data.query)) return { error: "Нужен номер объекта или название комплекса/застройщика" };
     const { enabled } = await loadRegistrySettings();
@@ -60,9 +62,22 @@ export const getConstructionRegistryTool: AssistantReadToolPlugin = {
           warning: label.warning ?? null,
           project: safeField(r.link.project.title, 160),
           developer: safeField(r.link.developer.name, 120),
-          rating: r.link.developer.rating.letter,
-          ratingScore: r.link.developer.rating.score,
-          ratingReasons: r.link.developer.rating.reasons.slice(0, 4).map((x) => safeField(x, 160)),
+          ...(inGroup
+            ? {
+                documents: r.link.project.documents.slice(0, 8).map((d) => ({ name: safeField(d.name, 120), ready: d.ready })),
+                decisionYear: decisionYearFromQaror(r.link.project.qaror),
+                developerProjects: {
+                  total: r.link.developer.rating.total,
+                  green: r.link.developer.rating.green,
+                  yellow: r.link.developer.rating.yellow,
+                  red: r.link.developer.rating.red,
+                },
+              }
+            : {
+                rating: r.link.developer.rating.letter,
+                ratingScore: r.link.developer.rating.score,
+                ratingReasons: r.link.developer.rating.reasons.slice(0, 4).map((x) => safeField(x, 160)),
+              }),
           blocks: r.link.project.blocks.slice(0, 10),
           floors: r.link.project.floors,
           updatedCaption,
@@ -106,7 +121,9 @@ export const getConstructionRegistryTool: AssistantReadToolPlugin = {
           developer: safeField(d.customer, 120),
           status: REGISTRY_COLOR_LABEL[d.color].title,
           warning: REGISTRY_COLOR_LABEL[d.color].warning ?? null,
-          rating: dev?.rating.letter ?? null,
+          ...(inGroup
+            ? { developerProjects: dev ? { total: dev.rating.total, green: dev.rating.green, yellow: dev.rating.yellow, red: dev.rating.red } : null }
+            : { rating: dev?.rating.letter ?? null }),
         };
       }),
       updatedCaption: registrySourceCaption((await prisma.constructionSyncRun.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { finishedAt: true } }))?.finishedAt?.toISOString() ?? null),

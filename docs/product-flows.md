@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **779**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4215**. Модулей: **87**.
+Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4177**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -869,6 +869,28 @@
 - res.json(live);
   · ответ 200
 
+### POST /api/v1/agents/:id/login-code/reset
+
+`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+- const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);
+  · зовёт resetStaffLoginCodeBlock()
+  - если actor.role !== "DIRECTOR"
+    - return fail(403, "Снять блок входа по коду может только директор");
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } …
+    · читает в базе: agent
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - const removed = await resetLoginCodeBlock(target.id);
+    · зовёт resetLoginCodeBlock()
+  - logAgentAudit(actor.id, "LOGIN_CODE_BLOCK_RESET", "Agent", target.id, { targetName: target.fullName, removedC…
+    · зовёт logAgentAudit()
+
 ### GET /api/v1/agents/:id/overview
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
@@ -1519,7 +1541,7 @@
     · зовёт findAttachmentOwnerClientId()
   - const owner = ownerClientId ? await prisma.client.findUnique({ where: { id: ownerClientId }, select: { assign…
     · читает в базе: client
-  - если !owner || !canOpenChatAttachments(req, owner.assignedAgentId)
+  - если !owner || !canAccessAssignedAgent(req, owner.assignedAgentId)
     - return res.status(403).json({ error: "Нет доступа к этому вложению" });
       · ответ 403 — «Нет доступа к этому вложению»
 - res.setHeader("Content-Type", privateMimeType(parsed.data.name));
@@ -1543,77 +1565,6 @@
   - иначе
     - res.status(500).json({ error: "Не удалось прочитать файл" });
       · ответ 500 — «Не удалось прочитать файл»
-
-## /api/v1/attachments/s
-
-### GET /api/v1/attachments/s/:name
-
-`apps/api/src/routes/attachments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
-
-- const params = paramsSchema.safeParse(req.params);
-  · проверяет данные схемой paramsSchema
-- const query = signedQuerySchema.safeParse(req.query);
-  · проверяет данные схемой signedQuerySchema
-- если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…
-  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
-    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
-- const access = await loadAgentAccess(query.data.a).catch(()
-  · зовёт loadAgentAccess()
-- если !access?.isActive || !access.permissions.has("messages.viewAttachments")
-  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
-    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
-- const fullPath = privateFilePath(params.data.name);
-  · зовёт privateFilePath()
-- если !fullPath
-  - return res.status(404).json({ error: "Файл не найден" });
-    · ответ 404 — «Файл не найден»
-- let mime = privateMimeType(params.data.name);
-  · зовёт privateMimeType()
-- если query.data.v
-  - пробует
-    - servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play", hint);
-      · зовёт ensureDerived()
-    - mime = derivedMime(servePath);
-      · зовёт derivedMime()
-  - если сорвалось
-    - если err instanceof DerivedMediaUnavailable && query.data.v === "t"
-      - servePath = fullPath;
-        · дословно из кода
-    - иначе
-      - если reason === "preparing"
-        - res.setHeader("Retry-After", "5");
-          · ставит заголовок ответа
-        - res.setHeader("Cache-Control", "no-store");
-          · ставит заголовок ответа
-        - return res.status(503).json({ error: "Готовим файл для браузера", reason });
-          · ответ 503 — «Готовим файл для браузера»
-      - return res.status(reason === "disabled" ? 404 : 422).json({ error: reason === "disabled" ? "Копия для браузер…
-        · ответ (код зависит от условия)
-- res.setHeader("Content-Type", mime);
-  · ставит заголовок ответа
-- res.setHeader("X-Content-Type-Options", "nosniff");
-  · ставит заголовок ответа
-- res.setHeader("Content-Disposition", "inline");
-  · ставит заголовок ответа
-- res.setHeader("Referrer-Policy", "no-referrer");
-  · ставит заголовок ответа
-- res.setHeader("Cross-Origin-Resource-Policy", "same-site");
-  · ставит заголовок ответа
-- res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
-  · ставит заголовок ответа
-- res.sendFile(path.basename(servePath), { root: path.dirname(servePath), cacheControl: false, dotfiles: "deny"…
-  · ответ 500 — «Не удалось прочитать файл»
-  - если !err
-    - return;
-      · дальше не идёт, ничего не меняя
-  - если (err as NodeJS.ErrnoException).code === "ECONNABORTED" || res.headersSent
-    - если !res.writableEnded
-      - res.end();
-        · ответ 200
-    - return;
-      · дальше не идёт, ничего не меняя
-  - res.status(500).json({ error: "Не удалось прочитать файл" });
-    · ответ 500 — «Не удалось прочитать файл»
 
 ## /api/v1/audit-log
 
@@ -1693,7 +1644,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error });
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
     · ответ 503
 - res.json({ pendingToken: signPending2faToken(agent.id, "sms"), channel: issued.channel, phoneHint: maskPhoneF…
   · ответ 200
@@ -1943,7 +1894,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error });
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
     · ответ 503
 - res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: issued.resendAf…
   · ответ 200
@@ -3727,8 +3678,6 @@
   - если сорвалось
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
-- const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);
-  · зовёт attachmentLinkSigner()
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
   - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
     · читает в базе: property
@@ -4554,55 +4503,6 @@
     - return res.status(err.status).json({ error: err.message });
       · ответ (код зависит от условия)
 
-### POST /api/v1/conversations/:id/media-jobs/:jobId/retry
-
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
-
-- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
-  · читает в базе: outgoingMediaJob
-- если !job || job.conversationId !== req.params.id
-  - return res.status(404).json({ error: "Отправка не найдена" });
-    · ответ 404 — «Отправка не найдена»
-- const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
-  · зовёт retryOutgoingMediaJob()
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
-
-### DELETE /api/v1/conversations/:id/media-jobs/:jobId
-
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
-
-- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
-  · читает в базе: outgoingMediaJob
-- если !job || job.conversationId !== req.params.id
-  - return res.status(404).json({ error: "Отправка не найдена" });
-    · ответ 404 — «Отправка не найдена»
-- const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
-  · зовёт cancelOutgoingMediaJob()
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
-
-### GET /api/v1/conversations/:id/media-jobs/:jobId
-
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
-
-- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });
-  · читает в базе: outgoingMediaJob
-- если !job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id
-  - return res.status(404).json({ error: "Отправка не найдена" });
-    · ответ 404 — «Отправка не найдена»
-- res.json(outgoingMediaJobView(job));
-  · ответ 200
-
-### GET /api/v1/conversations/:id/media-jobs
-
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
-
-- const jobs = await prisma.outgoingMediaJob.findMany({ where: { conversationId: req.params.id, agentId: req.ag…
-  · читает в базе: outgoingMediaJob
-- res.json({ jobs: jobs.map(outgoingMediaJobView) });
-  · ответ 200
-
 ### POST /api/v1/conversations/:id/pause
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
@@ -4629,8 +4529,6 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const queued = await outgoingMediaCompressOn();
-  · зовёт outgoingMediaCompressOn()
 - пробует
   - assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agent…
     · зовёт assembleChunkedUpload()
@@ -4640,10 +4538,6 @@
       · ответ (код зависит от условия)
   - throw err;
     · пробрасывает ошибку дальше
-- const file = { path: assembled.tmpPath, size: assembled.sizeBytes, mimetype: normalizeOutgoingMime(assembled.…
-  · зовёт normalizeOutgoingMime()
-- const outcome = queued ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, …
-  · зовёт enqueueOutgoingMedia()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
@@ -4659,8 +4553,6 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const outcome = (await outgoingMediaCompressOn()) ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conv…
-  · зовёт outgoingMediaCompressOn()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
@@ -4785,10 +4677,6 @@
 - если !conversation
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
-- const owner = conversationClientId && !can(req, "clients.viewAll") ? await prisma.client.findUnique({ where: …
-  · читает в базе: client
-- const signedLinks = can(req, "clients.viewAll") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…
-  · зовёт attachmentLinkSigner()
 - const shown = withHiddenConversationOrigin( { channel: conversation.channel, name: conversation.client?.fullN…
   · зовёт withHiddenConversationOrigin()
 - const shieldTransport = await loadCustomerTransportForConversation(conversation.id);
@@ -4855,14 +4743,12 @@
       · меняет в базе: telegramDirectConversation
   - void publishConversationUpdated(source.kind, source.id);
     · зовёт publishConversationUpdated()
-- const signedLinks = attachmentLinkSigner(req, ownerAgentId);
-  · зовёт attachmentLinkSigner()
 - для каждого: const [sourceOrder, source] of sources.entries()
   - если !Array.isArray(source.messages)
     - continue;
       · переходит к следующему
   - для каждого: const [sourceMessageIndex, rawMessage] of source.messages.entries()
-    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);
+    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
       · зовёт presentMessages()
     - если !message
       - continue;
@@ -5596,7 +5482,7 @@
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
     - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
@@ -5662,7 +5548,6 @@
       · меняет в базе: property
       · меняет в базе: client
       · считает в базе: deal
-      · создаёт или меняет в базе: settings
       · читает в базе: deal
       · меняет в базе: deal
       - если isCompleting
@@ -5716,8 +5601,6 @@
         - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
           · зовёт scaleClosedCommissionShares()
       - иначе если isCompleting || isRepricingClosed
-        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-          · создаёт или меняет в базе: settings
         - если baseCents > 0 && totalP > 0
           - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
             · зовёт splitCents()
@@ -5897,7 +5780,7 @@
     - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
@@ -5926,14 +5809,10 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
-      · читает в базе: settings
-      · создаёт или меняет в базе: settings
-    - если settings
-      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
-        · дословно из кода
-      - commissionAmount = commissionOf(property.price, commissionPercent);
-        · дословно из кода
+    - commissionPercent = COMMISSION_TOTAL_PERCENT;
+      · дословно из кода
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -6513,10 +6392,9 @@
 
 - const from = dushanbeMonthStart(monthsBack - 1);
   · зовёт dushanbeMonthStart()
-- const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
+- const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLETED", clos…
   · читает в базе: deal
   · читает в базе: expense
-  · создаёт или меняет в базе: settings
 - если truncated
   - void logSystemError( "api", `Выгрузка бухгалтерии за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE…
     · запись в журнал ошибок
@@ -11481,8 +11359,11 @@
       - если guessedAddress
         - data.canonicalAddress = normalizePropertyAddress(guessedAddress);
           · зовёт normalizePropertyAddress()
-    - await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …
+    - const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…
       · меняет в базе: property
+    - если written.count > 0
+      - void autoLinkPropertyById(property.id, req.agent?.id ?? null);
+        · зовёт autoLinkPropertyById()
   - если сорвалось
     - void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.…
       · запись в журнал ошибок
@@ -12924,6 +12805,8 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
+- void autoLinkPropertyById(updated.id, req.agent!.id);
+  · зовёт autoLinkPropertyById()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12936,8 +12819,6 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
-- void autoLinkPropertyById(updated.id);
-  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -14023,9 +13904,11 @@
     - [items, total] = await Promise.all([ prisma.property.findMany({ where: fuzzyWhere, orderBy: [{ createdAt: "de…
       · читает в базе: property
       · считает в базе: property
-- const result = await presentPropertyListItems(items, req);
-  · зовёт presentPropertyListItems()
-- res.json({ items: result, total, page: pageNum, pageSize });
+- const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…
+  · запись в журнал ошибок
+  - void logSystemError("api", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…
+    · запись в журнал ошибок
+- res.json({ items: result.map((p)
   · ответ 200
 
 ### POST /api/v1/properties
@@ -18017,9 +17900,7 @@
     · ответ 200
 - const clientCards = clientIds.length > 0 ? await prisma.client.findMany({ where: { id: { in: clientIds } }, s…
   · читает в базе: client
-- const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…
-  · зовёт attachmentLinkSigner()
-- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLin…
+- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed).slice( -C…
   · зовёт presentMessages()
 - res.json({ inboxId: inboxIdOf(application.channel, conversationId), messages, files: messages.filter((m)
   · ответ 200
@@ -18724,7 +18605,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
+              - traceOutcome("blocked", "dm_lane_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18767,6 +18648,17 @@
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
+                · дословно из кода
+            - если DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")
+              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…
+                · дословно из кода
+            - если (msg.attachmentType === "share" || msg.attachmentType === "ig_post") && msg.channel !== "WHATSAPP" && isMetaC…
+              - attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
+                · дословно из кода
+            - для каждого: const extra of msg.extraAttachments ?? []
+              - if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
+                · дословно из кода
+              - if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
                 · дословно из кода
             - если msg.replyToStoryUrl
               - attachments.push({ url: msg.replyToStoryUrl });
@@ -19167,6 +19059,8 @@
     · меняет в базе: property
     - const p = await tx.property.update({ where: { id: raced.id }, data: updateData });
       · меняет в базе: property
+- void autoLinkPropertyById(property.id);
+  · зовёт autoLinkPropertyById()
 - res.status(created ? 201 : 200).json({ ok: true, propertyId: property.id, created });
   · ответ (код зависит от условия)
 
@@ -19737,6 +19631,10 @@
       · дословно из кода
   - return (await prisma.assistantTelegramContext.deleteMany({ where: { ...stale, id: { in: batch.map(row
     · удаляет в базе: assistantTelegramContext
+- await cleanupTelegramLinkOffers();
+  · зовёт cleanupTelegramLinkOffers()
+  - return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;
+    · удаляет в базе: assistantTelegramLinkOffer
 
 ### background-jobs — * * * * *
 
@@ -23508,68 +23406,6 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### outgoing-media-jobs — */5 * * * * *
-
-- await runCustomerJobsTick("media");
-  · зовёт runCustomerJobsTick()
-  - если stopping || customerBusy[lane]
-    - return 0;
-      · дословно из кода
-  - пробует
-    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
-      · обращается к базе своим SQL
-    - если !job
-      - return 0;
-        · дословно из кода
-    - если stopping
-      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
-        · меняет в базе: backgroundJob
-  - в любом случае
-    - customerBusy[lane] = false;
-      · дословно из кода
-
-### outgoing-media-sweep — */30 * * * *
-
-- пробует
-  - const r = await sweepOutgoingMediaSpool();
-    · зовёт sweepOutgoingMediaSpool()
-    - const spool = outgoingMediaSpoolDir();
-      · зовёт outgoingMediaSpoolDir()
-    - const rows = await prisma.outgoingMediaJob.findMany({ where: { status: { in: ["QUEUED", "PREPARING", "SENDING…
-      · читает в базе: outgoingMediaJob
-    - для каждого: const row of rows
-      - если row.status === "FAILED"
-        - если now - (row.finishedAt ?? row.updatedAt).getTime() > FAILED_KEEP_MS
-          - continue;
-            · переходит к следующему
-      - иначе если now - row.updatedAt.getTime() > STUCK_ALERT_MS
-        - stuck++;
-          · дословно из кода
-    - для каждого: const name of await fs.promises.readdir(spool).catch(() => [] as string[])
-      - если live.has(name)
-        - continue;
-          · переходит к следующему
-      - если st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS
-        - await fs.promises.rm(full, { force: true }).catch(() => {});
-          · дословно из кода
-        - removedFiles++;
-          · дословно из кода
-    - const removedRows = ( await prisma.outgoingMediaJob.deleteMany({ where: { status: { in: ["SENT", "CANCELLED",…
-      · удаляет в базе: outgoingMediaJob
-    - если stuck
-      - void logSystemError("background-jobs", `Очередь отправки файлов клиентам: ${stuck} шт. ждут или сжимаются дол…
-        · запись в журнал ошибок
-  - если r.removedFiles || r.removedRows
-    - console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
-      · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка уборки спула отправки файлов", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
 ### owner-exposure-verification-preview — 15 * * * *
 
 - await runExposureOwnerPreviewTick();
@@ -23958,56 +23794,6 @@
           · пишет строку в журнал сервера
   - если deleted || failed
     - console.log( `[cron] Уборка вложений переписки: удалено ${deleted}, оставлено ${kept}` + (failed ? `, не удал…
-      · пишет строку в журнал сервера
-  - const derived = cleanupDerivedChatMedia();
-    · зовёт cleanupDerivedChatMedia()
-    - пробует
-    - если сорвалось
-      - return result;
-        · дословно из кода
-    - const olderThanDay = (full: string)
-      - пробует
-      - если сорвалось
-        - return false;
-          · дословно из кода
-    - для каждого: const entry of entries
-      - если result.deleted >= cap
-        - break;
-          · прекращает перебор
-      - если !entry.isFile()
-        - continue;
-          · переходит к следующему
-      - если path.dirname(path.resolve(full)) !== path.resolve(dir)
-        - continue;
-          · переходит к следующему
-      - если entry.name.startsWith(".tmp-")
-        - remove = olderThanDay(full);
-          · дословно из кода
-      - иначе
-        - если !m
-          - continue;
-            · переходит к следующему
-        - remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));
-          · зовёт privateFilePath()
-      - если !remove
-        - continue;
-          · переходит к следующему
-      - пробует
-      - если сорвалось
-        - result.kept++;
-          · дословно из кода
-  - если derived.deleted
-    - console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
-      · пишет строку в журнал сервера
-  - const stale = await cleanupStalePendingCustomerMedia();
-    · зовёт cleanupStalePendingCustomerMedia()
-    - const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM "CustomerPendingMedia" WHERE "id" IN (…
-      · обращается к базе своим SQL
-    - для каждого: const row of rows
-      - dropFiles(fileNames(row.files));
-        · дословно из кода
-  - если stale.deleted
-    - console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки вложений", err);
@@ -27368,6 +27154,9 @@
       - смотря что в: pre.kind
         - вариант case "PRICE_CHANGE"
         - вариант case "CARD_DATA"
+          - если claim.write && !claim.write.priceChanged
+            - void autoLinkPropertyById(property.id, actorId);
+              · зовёт autoLinkPropertyById()
           - break;
             · прекращает перебор
         - вариант case "REMAKE_VIDEO"
@@ -29146,6 +28935,17 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await autoLinkPropertyById(payload.propertyId);
+    · зовёт autoLinkPropertyById()
+    - пробует
+      - если !(await loadRegistrySettings()).enabled
+        - return null;
+          · дословно из кода
+      - return await autoLinkProperty(propertyId, { actorId, notify: true });
+        · зовёт autoLinkProperty()
+    - если сорвалось
+      - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+        · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя
 - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, deletedAt: null, address:…
@@ -29158,16 +28958,20 @@
       · ошибка Error — «Адрес объекта ${payload.propertyId} сменился во время геокодирования —»
   - return;
     · дальше не идёт, ничего не меняя
+- await autoLinkPropertyById(payload.propertyId);
+  · зовёт autoLinkPropertyById()
+  - пробует
+    - если !(await loadRegistrySettings()).enabled
+      - return null;
+        · дословно из кода
+    - return await autoLinkProperty(propertyId, { actorId, notify: true });
+      · зовёт autoLinkProperty()
+  - если сорвалось
+    - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+      · запись в журнал ошибок
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()
-    - для каждого: const d of districts
-      - если !d.boundary
-        - continue;
-          · переходит к следующему
-      - если ring && isPointInPolygon(lng, lat, ring)
-        - return { id: d.id, name: d.name, source: "point" };
-          · дословно из кода
   - если district
     - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, districtId: null, address…
       · меняет в базе: property
@@ -29211,97 +29015,6 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
-
-### outgoingMediaSendJob
-
-`apps/api/src/jobs/outgoingMediaSend.ts`
-
-- await runOutgoingMediaJob(payload.mediaJobId, backgroundJobsStopSignal);
-  · зовёт runOutgoingMediaJob()
-  - const job = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId } });
-    · читает в базе: outgoingMediaJob
-  - если !job || TERMINAL.has(job.status)
-    - return;
-      · дальше не идёт, ничего не меняя
-  - const spool = outgoingMediaSpoolDir();
-    · зовёт outgoingMediaSpoolDir()
-  - если job.status === "SENDING"
-    - void logSystemError("background-jobs", `Отправка файла клиенту прервана в момент передачи (задание ${job.id})…
-      · запись в журнал ошибок
-    - return;
-      · дальше не идёт, ничего не меняя
-  - const claimed = await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: { in: ["QUEUED", "PRE…
-    · меняет в базе: outgoingMediaJob
-  - если !claimed.count
-    - return;
-      · дальше не идёт, ничего не меняя
-  - const watcher = setInterval(()
-    · читает в базе: outgoingMediaJob
-    - void prisma.outgoingMediaJob .findUnique({ where: { id: job.id }, select: { status: true } }) .then((row)
-      · читает в базе: outgoingMediaJob
-      - если row?.status === "CANCELLED"
-        - cancelled = true;
-          · дословно из кода
-        - controller.abort();
-          · дословно из кода
-  - const onProgress = (percent: number)
-    · меняет в базе: outgoingMediaJob
-    - если now - lastProgressWrite < 2_000
-      - return;
-        · дальше не идёт, ничего не меняя
-    - void prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { progress: perce…
-      · меняет в базе: outgoingMediaJob
-  - пробует
-    - const target = await resolveMediaTarget(job.conversationId);
-      · зовёт resolveMediaTarget()
-    - если !target
-      - return;
-        · дальше не идёт, ничего не меняя
-    - если !fs.existsSync(inputPath)
-      - return;
-        · дальше не идёт, ничего не меняя
-    - const channel = outgoingMediaChannelOf(target);
-      · зовёт outgoingMediaChannelOf()
-    - prepared = channel && (await outgoingMediaCompressOn()) ? await prepareOutgoingMedia({ path: inputPath, mimet…
-      · зовёт outgoingMediaCompressOn()
-    - если controller.signal.aborted
-      - throw new JobInterrupted();
-        · ошибка JobInterrupted
-    - const delivery = await deliverMediaToConversation( target, { path: prepared.path, size: prepared.size, mimety…
-      · меняет в базе: outgoingMediaJob
-    - если delivery.ok
-      - return;
-        · дальше не идёт, ничего не меняя
-    - const nowRow = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } });
-      · читает в базе: outgoingMediaJob
-    - если nowRow?.status === "CANCELLED"
-      - return;
-        · дальше не идёт, ничего не меняя
-  - если сорвалось
-    - если cancelled || (await isCancelled(job.id))
-      - return;
-        · дальше не идёт, ничего не меняя
-    - если stopSignal?.aborted
-      - await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { status: "QUEUE…
-        · меняет в базе: outgoingMediaJob
-      - throw new Error("worker выходит — сжатие продолжится в новом процессе");
-        · ошибка Error — «worker выходит — сжатие продолжится в новом процессе»
-    - если err instanceof PrepareError || err instanceof JobInterrupted
-      - void logSystemError("storage", `Файл для клиента не подготовлен (${job.mimeType}, ${formatUploadLimit(job.siz…
-        · запись в журнал ошибок
-      - return;
-        · дальше не идёт, ничего не меняя
-    - void logSystemError("background-jobs", `Отправка файла клиенту упала: ${describeError(err)}`, { dedupKey: "ou…
-      · запись в журнал ошибок
-  - в любом случае
-    - если prepared?.owned
-      - await fs.promises.rm(prepared.path, { force: true }).catch(() => {});
-        · дословно из кода
-- когда попытки кончились
-  - await giveUpOutgoingMediaJob(payload.mediaJobId);
-    · зовёт giveUpOutgoingMediaJob()
-    - await prisma.outgoingMediaJob.updateMany({ where: { id: mediaJobId, status: { in: ["QUEUED", "PREPARING"] } }…
-      · меняет в базе: outgoingMediaJob
 
 ### photoPostPublishJob
 

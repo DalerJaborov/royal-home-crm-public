@@ -36,13 +36,45 @@ const ALLOWED = new Set([
   "apps/api/src/app.ts", // подключение маршрута сотрудников
   "apps/api/src/routes/properties/crud.ts", // автосвязь при создании и правке объекта (фон, только внутри CRM)
   "apps/api/src/cron.ts", // еженедельный забор
-  "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники, только личка)
+  "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники: личка и рабочие группы)
+  "apps/api/src/ai/assistant/tools/registryBrief.ts", // строка реестра в ответах Шабнам про объекты (25.11.2026)
+  "apps/api/src/ai/assistant/runtime.ts", // рубильник реестра в кэше настроек помощника сотрудников (раздел подсказки)
+  "apps/api/src/routes/properties/list.ts", // значок реестра в списке объектов сотрудникам (25.11.2026)
+  // Дверь автосвязи (только запись связи, наружу ничего не отдаёт) — из путей создания объекта и смены точки (25.11.2026).
+  "apps/api/src/jobs/geocode.ts",
+  "apps/api/src/routes/properties/photos.ts",
+  "apps/api/src/routes/properties/changeRequestExecutor.ts",
+  "apps/api/src/routes/siteNotifications.ts",
+  "apps/api/src/routes/webhooks.ts",
   "packages/shared/src/constructionRegistry.ts",
   "packages/shared/src/index.ts",
 ]);
 
-/** Внутренний помощник сотрудников (Шабнам): единственное место в ai/, которому реестр разрешён. */
-const INTERNAL_ASSISTANT_TOOL = "apps/api/src/ai/assistant/tools/registryReadTool.ts";
+/** Внутренний помощник сотрудников (Шабнам): единственные места в ai/, которым реестр разрешён. */
+const INTERNAL_ASSISTANT_FILES = new Set([
+  "apps/api/src/ai/assistant/tools/registryReadTool.ts",
+  "apps/api/src/ai/assistant/tools/registryBrief.ts",
+  // Снимок настроек помощника сотрудников: знает только булев рубильник constructionRegistryEnabled для раздела подсказки, данных реестра нет.
+  "apps/api/src/ai/assistant/runtime.ts",
+]);
+
+/**
+ * Дверь автосвязи (lib/constructionRegistry/autoLinkOnSave.ts) пишет связь и ничего не отдаёт наружу: её можно звать из
+ * вебхука сайта и принятой правки с сайта. Всё остальное про реестр в этих файлах — утечка.
+ */
+const AUTOLINK_DOOR = /import \{ autoLinkPropertyById \} from "[./]*lib\/constructionRegistry\/autoLinkOnSave\.js";/g;
+
+/** Кто вправе звать строку реестра для ответов (registryBrief.ts): только помощник сотрудников. */
+const BRIEF_REFERENCE = /registryBrief.js|registryNotesFor|registryNoteAfterCreate|loadRegistryBriefs/;
+const BRIEF_ALLOWED = new Set([
+  "apps/api/src/ai/assistant/tools/registryBrief.ts",
+  "apps/api/src/ai/assistant.ts", // search_properties Шабнам
+  "apps/api/src/ai/assistant/tools/findProperty.ts",
+  "apps/api/src/ai/assistant/tools/getPropertyCard.ts",
+  "apps/api/src/telegram/assistantPropertyDraft.ts", // сообщение сотруднику после создания объекта
+  "apps/api/src/lib/constructionRegistry/view.ts",
+  "apps/api/src/routes/properties/list.ts",
+]);
 
 /** Всё, что выдаёт реестр: таблицы Prisma, модуль, имена общих типов. */
 const REGISTRY_REFERENCE =
@@ -68,7 +100,7 @@ describe("реестр строек: охрана от утечки (стати�
   it("публичные и клиентские слои реестра не касаются вовсе (сайт, бот, реклама, каталог, публичные маршруты)", () => {
     const outward = files.filter((f) => {
       const r = rel(f);
-      if (r === INTERNAL_ASSISTANT_TOOL) return false;
+      if (INTERNAL_ASSISTANT_FILES.has(r)) return false;
       return (
         /apps\/api\/src\/(ai|messengers|telegram)\//.test(r) ||
         /apps\/api\/src\/lib\/(site|customer|public|ads|meta|social|publication|propertyPublic)/i.test(r) ||
@@ -77,16 +109,24 @@ describe("реестр строек: охрана от утечки (стати�
       );
     });
     expect(outward.length).toBeGreaterThan(30); // сторож не должен «молча» опустеть из-за смены папок
-    const leaking = outward.filter((f) => REGISTRY_REFERENCE.test(readFileSync(f, "utf8"))).map(rel);
+    const leaking = outward.filter((f) => REGISTRY_REFERENCE.test(readFileSync(f, "utf8").replace(AUTOLINK_DOOR, ""))).map(rel);
     expect(leaking).toEqual([]);
   });
 
-  it("инструмент Шабнам скрыт в общей группе Telegram и недоступен вне личного чата", () => {
+  it("строку реестра для ответов зовёт только помощник сотрудников (не клиентский бот, не голосовой робот, не сайт)", () => {
+    const callers = walk(SRC).filter((f) => BRIEF_REFERENCE.test(readFileSync(f, "utf8"))).map(rel);
+    expect(callers.length).toBeGreaterThanOrEqual(5);
+    expect(callers.filter((r) => !BRIEF_ALLOWED.has(r))).toEqual([]);
+  });
+
+  it("инструмент Шабнам открыт в рабочих группах (25.11.2026), но клиентский бот и голосовой робот его не знают", () => {
     const bot = readFileSync(path.resolve(SRC, "telegram/assistantBot.ts"), "utf8");
     const hidden = /GROUP_HIDDEN_TOOLS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(bot)?.[1] ?? "";
-    expect(hidden).toContain('"get_construction_registry"');
-    const tool = readFileSync(path.resolve(SRC, "ai/assistant/tools/registryReadTool.ts"), "utf8");
-    expect(tool).toContain('"telegram-group"');
+    expect(hidden.length).toBeGreaterThan(100);
+    expect(hidden).not.toContain('"get_construction_registry"');
+    const customerFacing = files.filter((f) => /apps\/api\/src\/(messengers\/|lib\/telephony\/)/.test(rel(f)));
+    expect(customerFacing.length).toBeGreaterThan(10);
+    expect(customerFacing.filter((f) => /get_construction_registry/.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
   });
 
   it("ни одно поле реестра не добавлено в модель Property (публичные выборки собирают поля именно с неё)", () => {

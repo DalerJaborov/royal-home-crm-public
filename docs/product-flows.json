@@ -1,11 +1,11 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 779,
-  "forks": 4215,
-  "mounts": 87,
-  "cron": 144,
-  "jobs": 35,
+  "endpoints": 775,
+  "forks": 4177,
+  "mounts": 86,
+  "cron": 142,
+  "jobs": 34,
   "hidden": 0
  },
  "hidden": [],
@@ -3545,6 +3545,105 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/login-code/reset",
+   "mount": "/api/v1/agents",
+   "full": "/api/v1/agents/:id/login-code/reset",
+   "file": "apps/api/src/routes/agents.ts",
+   "router": "agentsRouter",
+   "top": "apps/api/src/routes/agents.ts::agentsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: agents.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный сотрудник\" });",
+       "a": [
+        "ответ 400 — «Неверный сотрудник»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);",
+     "a": [
+      "зовёт resetStaffLoginCodeBlock()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "actor.role !== \"DIRECTOR\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, \"Снять блок входа по коду может только директор\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } …",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!target",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(404, \"Сотрудник не найден\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const removed = await resetLoginCodeBlock(target.id);",
+       "a": [
+        "зовёт resetLoginCodeBlock()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAgentAudit(actor.id, \"LOGIN_CODE_BLOCK_RESET\", \"Agent\", target.id, { targetName: target.fullName, removedC…",
+       "a": [
+        "зовёт logAgentAudit()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "resetStaffLoginCodeBlock() — apps/api/src/lib/staffAdmin.ts"
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/:id/overview",
    "mount": "/api/v1/agents",
@@ -6684,7 +6783,7 @@
       },
       {
        "k": "if",
-       "t": "!owner || !canOpenChatAttachments(req, owner.assignedAgentId)",
+       "t": "!owner || !canAccessAssignedAgent(req, owner.assignedAgentId)",
        "a": [],
        "c": [
         {
@@ -6790,317 +6889,6 @@
          "c": []
         }
        ]
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/:name",
-   "mount": "/api/v1/attachments/s",
-   "full": "/api/v1/attachments/s/:name",
-   "file": "apps/api/src/routes/attachments.ts",
-   "router": "signedAttachmentsRouter",
-   "top": "apps/api/src/routes/attachments.ts::signedAttachmentsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "предел частоты запросов"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const params = paramsSchema.safeParse(req.params);",
-     "a": [
-      "проверяет данные схемой paramsSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const query = signedQuerySchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой signedQuerySchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Ссылка на вложение устарела — обновите переписку\" });",
-       "a": [
-        "ответ 403 — «Ссылка на вложение устарела — обновите переписку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const access = await loadAgentAccess(query.data.a).catch(()",
-     "a": [
-      "зовёт loadAgentAccess()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!access?.isActive || !access.permissions.has(\"messages.viewAttachments\")",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Ссылка на вложение устарела — обновите переписку\" });",
-       "a": [
-        "ответ 403 — «Ссылка на вложение устарела — обновите переписку»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const fullPath = privateFilePath(params.data.name);",
-     "a": [
-      "зовёт privateFilePath()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!fullPath",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Файл не найден\" });",
-       "a": [
-        "ответ 404 — «Файл не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "let mime = privateMimeType(params.data.name);",
-     "a": [
-      "зовёт privateMimeType()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "query.data.v",
-     "a": [],
-     "c": [
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "servePath = await ensureDerived(params.data.name, query.data.v === \"t\" ? \"thumb\" : \"play\", hint);",
-         "a": [
-          "зовёт ensureDerived()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "mime = derivedMime(servePath);",
-         "a": [
-          "зовёт derivedMime()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "err instanceof DerivedMediaUnavailable && query.data.v === \"t\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "servePath = fullPath;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "else",
-         "t": "иначе",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "reason === \"preparing\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "res.setHeader(\"Retry-After\", \"5\");",
-             "a": [
-              "ставит заголовок ответа"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "res.setHeader(\"Cache-Control\", \"no-store\");",
-             "a": [
-              "ставит заголовок ответа"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "return res.status(503).json({ error: \"Готовим файл для браузера\", reason });",
-             "a": [
-              "ответ 503 — «Готовим файл для браузера»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "return res.status(reason === \"disabled\" ? 404 : 422).json({ error: reason === \"disabled\" ? \"Копия для браузер…",
-           "a": [
-            "ответ (код зависит от условия)"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Content-Type\", mime);",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"X-Content-Type-Options\", \"nosniff\");",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Content-Disposition\", \"inline\");",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Referrer-Policy\", \"no-referrer\");",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Cross-Origin-Resource-Policy\", \"same-site\");",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.setHeader(\"Cache-Control\", `private, max-age=${privateMaxAge(query.data.e)}`);",
-     "a": [
-      "ставит заголовок ответа"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.sendFile(path.basename(servePath), { root: path.dirname(servePath), cacheControl: false, dotfiles: \"deny\"…",
-     "a": [
-      "ответ 500 — «Не удалось прочитать файл»"
-     ],
-     "c": [
-      {
-       "k": "if",
-       "t": "!err",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return;",
-         "a": [
-          "дальше не идёт, ничего не меняя"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "(err as NodeJS.ErrnoException).code === \"ECONNABORTED\" || res.headersSent",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "!res.writableEnded",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "res.end();",
-           "a": [
-            "ответ 200"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "return;",
-         "a": [
-          "дальше не идёт, ничего не меняя"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "res.status(500).json({ error: \"Не удалось прочитать файл\" });",
-       "a": [
-        "ответ 500 — «Не удалось прочитать файл»"
-       ],
-       "c": []
       }
      ]
     }
@@ -7437,7 +7225,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error });",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],
@@ -8541,7 +8329,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error });",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],
@@ -16344,14 +16132,6 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);",
-     "a": [
-      "зовёт attachmentLinkSigner()"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
      "t": "!client.acceptedAt && client.assignReason === \"own_property_match\" && client.matchedPropertyId",
      "a": [],
@@ -19926,215 +19706,6 @@
   },
   {
    "method": "POST",
-   "path": "/:id/media-jobs/:jobId/retry",
-   "mount": "/api/v1/conversations",
-   "full": "/api/v1/conversations/:id/media-jobs/:jobId/retry",
-   "file": "apps/api/src/routes/conversations.ts",
-   "router": "conversationsRouter",
-   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
-    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…",
-     "a": [
-      "читает в базе: outgoingMediaJob"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!job || job.conversationId !== req.params.id",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Отправка не найдена\" });",
-       "a": [
-        "ответ 404 — «Отправка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);",
-     "a": [
-      "зовёт retryOutgoingMediaJob()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
-     "a": [
-      "ответ (код зависит от условия)"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "DELETE",
-   "path": "/:id/media-jobs/:jobId",
-   "mount": "/api/v1/conversations",
-   "full": "/api/v1/conversations/:id/media-jobs/:jobId",
-   "file": "apps/api/src/routes/conversations.ts",
-   "router": "conversationsRouter",
-   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
-    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…",
-     "a": [
-      "читает в базе: outgoingMediaJob"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!job || job.conversationId !== req.params.id",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Отправка не найдена\" });",
-       "a": [
-        "ответ 404 — «Отправка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);",
-     "a": [
-      "зовёт cancelOutgoingMediaJob()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(outcome.status).json(outcome.body);",
-     "a": [
-      "ответ (код зависит от условия)"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/:id/media-jobs/:jobId",
-   "mount": "/api/v1/conversations",
-   "full": "/api/v1/conversations/:id/media-jobs/:jobId",
-   "file": "apps/api/src/routes/conversations.ts",
-   "router": "conversationsRouter",
-   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
-    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });",
-     "a": [
-      "читает в базе: outgoingMediaJob"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Отправка не найдена\" });",
-       "a": [
-        "ответ 404 — «Отправка не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json(outgoingMediaJobView(job));",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/:id/media-jobs",
-   "mount": "/api/v1/conversations",
-   "full": "/api/v1/conversations/:id/media-jobs",
-   "file": "apps/api/src/routes/conversations.ts",
-   "router": "conversationsRouter",
-   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен",
-    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
-    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const jobs = await prisma.outgoingMediaJob.findMany({ where: { conversationId: req.params.id, agentId: req.ag…",
-     "a": [
-      "читает в базе: outgoingMediaJob"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ jobs: jobs.map(outgoingMediaJobView) });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "POST",
    "path": "/:id/pause",
    "mount": "/api/v1/conversations",
    "full": "/api/v1/conversations/:id/pause",
@@ -20252,14 +19823,6 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const queued = await outgoingMediaCompressOn();",
-     "a": [
-      "зовёт outgoingMediaCompressOn()"
-     ],
-     "c": []
-    },
-    {
      "k": "try",
      "t": "пробует",
      "a": [],
@@ -20303,22 +19866,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const file = { path: assembled.tmpPath, size: assembled.sizeBytes, mimetype: normalizeOutgoingMime(assembled.…",
-     "a": [
-      "зовёт normalizeOutgoingMime()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const outcome = queued ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, …",
-     "a": [
-      "зовёт enqueueOutgoingMedia()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -20387,14 +19934,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const outcome = (await outgoingMediaCompressOn()) ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conv…",
-     "a": [
-      "зовёт outgoingMediaCompressOn()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -20957,22 +20496,6 @@
     },
     {
      "k": "do",
-     "t": "const owner = conversationClientId && !can(req, \"clients.viewAll\") ? await prisma.client.findUnique({ where: …",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const signedLinks = can(req, \"clients.viewAll\") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…",
-     "a": [
-      "зовёт attachmentLinkSigner()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "const shown = withHiddenConversationOrigin( { channel: conversation.channel, name: conversation.client?.fullN…",
      "a": [
       "зовёт withHiddenConversationOrigin()"
@@ -21265,14 +20788,6 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const signedLinks = attachmentLinkSigner(req, ownerAgentId);",
-     "a": [
-      "зовёт attachmentLinkSigner()"
-     ],
-     "c": []
-    },
-    {
      "k": "loop",
      "t": "для каждого: const [sourceOrder, source] of sources.entries()",
      "a": [],
@@ -21299,7 +20814,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);",
+         "t": "const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);",
          "a": [
           "зовёт presentMessages()"
          ],
@@ -24452,7 +23967,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -24759,7 +24274,6 @@
           "меняет в базе: property",
           "меняет в базе: client",
           "считает в базе: deal",
-          "создаёт или меняет в базе: settings",
           "читает в базе: deal",
           "меняет в базе: deal"
          ],
@@ -25010,14 +24524,6 @@
            "t": "isCompleting || isRepricingClosed",
            "a": [],
            "c": [
-            {
-             "k": "do",
-             "t": "const settings = await tx.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"singleton\"…",
-             "a": [
-              "создаёт или меняет в базе: settings"
-             ],
-             "c": []
-            },
             {
              "k": "if",
              "t": "baseCents > 0 && totalP > 0",
@@ -25856,7 +25362,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -25993,35 +25499,19 @@
        "c": [
         {
          "k": "do",
-         "t": "const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: \"singleton\" } }) : await prism…",
+         "t": "commissionPercent = COMMISSION_TOTAL_PERCENT;",
          "a": [
-          "читает в базе: settings",
-          "создаёт или меняет в базе: settings"
+          "дословно из кода"
          ],
          "c": []
         },
         {
-         "k": "if",
-         "t": "settings",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
         }
        ]
       },
@@ -28666,11 +28156,10 @@
     },
     {
      "k": "do",
-     "t": "const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLE…",
+     "t": "const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLETED\", clos…",
      "a": [
       "читает в базе: deal",
-      "читает в базе: expense",
-      "создаёт или меняет в базе: settings"
+      "читает в базе: expense"
      ],
      "c": []
     },
@@ -50877,11 +50366,26 @@
         },
         {
          "k": "do",
-         "t": "await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …",
+         "t": "const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…",
          "a": [
           "меняет в базе: property"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "written.count > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void autoLinkPropertyById(property.id, req.agent?.id ?? null);",
+           "a": [
+            "зовёт autoLinkPropertyById()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -57315,6 +56819,14 @@
      "c": []
     },
     {
+     "k": "do",
+     "t": "void autoLinkPropertyById(updated.id, req.agent!.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "willAutoPublish",
      "a": [],
@@ -57367,14 +56879,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "void autoLinkPropertyById(updated.id);",
-     "a": [
-      "зовёт autoLinkPropertyById()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -62176,15 +61680,24 @@
     },
     {
      "k": "do",
-     "t": "const result = await presentPropertyListItems(items, req);",
+     "t": "const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…",
      "a": [
-      "зовёт presentPropertyListItems()"
+      "запись в журнал ошибок"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"api\", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
-     "t": "res.json({ items: result, total, page: pageNum, pageSize });",
+     "t": "res.json({ items: result.map((p)",
      "a": [
       "ответ 200"
      ],
@@ -79660,15 +79173,7 @@
     },
     {
      "k": "do",
-     "t": "const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…",
-     "a": [
-      "зовёт attachmentLinkSigner()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const messages = presentMessages(raw.messages, can(req, \"messages.viewAttachments\"), phonesAllowed, signedLin…",
+     "t": "const messages = presentMessages(raw.messages, can(req, \"messages.viewAttachments\"), phonesAllowed).slice( -C…",
      "a": [
       "зовёт presentMessages()"
      ],
@@ -82804,7 +82309,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…",
+                   "t": "traceOutcome(\"blocked\", \"dm_lane_held\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82991,6 +82496,59 @@
                   {
                    "k": "do",
                    "t": "if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? \"\")",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "if",
+                 "t": "(msg.attachmentType === \"share\" || msg.attachmentType === \"ig_post\") && msg.channel !== \"WHATSAPP\" && isMetaC…",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "attachments.push({ url: msg.attachmentUrl!, declaredKind: \"image\" });",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "loop",
+                 "t": "для каждого: const extra of msg.extraAttachments ?? []",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? \"\")) continue;",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  },
+                  {
+                   "k": "do",
+                   "t": "if (extra.type === \"ig_reel\" && isInstagramLink(extra.url)) continue;",
                    "a": [
                     "дословно из кода"
                    ],
@@ -84773,6 +84331,14 @@
        ]
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "void autoLinkPropertyById(property.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -87384,6 +86950,24 @@
       }
      ],
      "from": "cleanupAssistantTelegramContext() — apps/api/src/telegram/assistantGroupContext.ts"
+    },
+    {
+     "k": "do",
+     "t": "await cleanupTelegramLinkOffers();",
+     "a": [
+      "зовёт cleanupTelegramLinkOffers()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;",
+       "a": [
+        "удаляет в базе: assistantTelegramLinkOffer"
+       ],
+       "c": []
+      }
+     ],
+     "from": "cleanupTelegramLinkOffers() — apps/api/src/telegram/assistantGroupNewcomer.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -105077,298 +104661,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "outgoing-media-jobs",
-   "when": "*/5 * * * * *",
-   "tree": [
-    {
-     "k": "do",
-     "t": "await runCustomerJobsTick(\"media\");",
-     "a": [
-      "зовёт runCustomerJobsTick()"
-     ],
-     "c": [
-      {
-       "k": "if",
-       "t": "stopping || customerBusy[lane]",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return 0;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM \"Backgrou…",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!job",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "stopping",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await prisma.backgroundJob.updateMany({ where: { id: job.id, status: \"RUNNING\" }, data: { status: \"PENDING\", …",
-           "a": [
-            "меняет в базе: backgroundJob"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "finally",
-       "t": "в любом случае",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "customerBusy[lane] = false;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ],
-     "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
-   "id": "outgoing-media-sweep",
-   "when": "*/30 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const r = await sweepOutgoingMediaSpool();",
-       "a": [
-        "зовёт sweepOutgoingMediaSpool()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const spool = outgoingMediaSpoolDir();",
-         "a": [
-          "зовёт outgoingMediaSpoolDir()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const rows = await prisma.outgoingMediaJob.findMany({ where: { status: { in: [\"QUEUED\", \"PREPARING\", \"SENDING…",
-         "a": [
-          "читает в базе: outgoingMediaJob"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of rows",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "row.status === \"FAILED\"",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "now - (row.finishedAt ?? row.updatedAt).getTime() > FAILED_KEEP_MS",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "elseif",
-           "t": "now - row.updatedAt.getTime() > STUCK_ALERT_MS",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "stuck++;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const name of await fs.promises.readdir(spool).catch(() => [] as string[])",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "live.has(name)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await fs.promises.rm(full, { force: true }).catch(() => {});",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "removedFiles++;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const removedRows = ( await prisma.outgoingMediaJob.deleteMany({ where: { status: { in: [\"SENT\", \"CANCELLED\",…",
-         "a": [
-          "удаляет в базе: outgoingMediaJob"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "stuck",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"background-jobs\", `Очередь отправки файлов клиентам: ${stuck} шт. ждут или сжимаются дол…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "sweepOutgoingMediaSpool() — apps/api/src/lib/outgoingMediaJobs.ts"
-      },
-      {
-       "k": "if",
-       "t": "r.removedFiles || r.removedRows",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка уборки спула отправки файлов\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "owner-exposure-verification-preview",
    "when": "15 * * * *",
    "tree": [
@@ -107146,261 +106438,6 @@
         {
          "k": "do",
          "t": "console.log( `[cron] Уборка вложений переписки: удалено ${deleted}, оставлено ${kept}` + (failed ? `, не удал…",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const derived = cleanupDerivedChatMedia();",
-       "a": [
-        "зовёт cleanupDerivedChatMedia()"
-       ],
-       "c": [
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": []
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return result;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const olderThanDay = (full: string)",
-         "a": [],
-         "c": [
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": []
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return false;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const entry of entries",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "result.deleted >= cap",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "break;",
-             "a": [
-              "прекращает перебор"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "!entry.isFile()",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "path.dirname(path.resolve(full)) !== path.resolve(dir)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "entry.name.startsWith(\".tmp-\")",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "remove = olderThanDay(full);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "else",
-           "t": "иначе",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!m",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "continue;",
-               "a": [
-                "переходит к следующему"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));",
-             "a": [
-              "зовёт privateFilePath()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "!remove",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": []
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "result.kept++;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "cleanupDerivedChatMedia() — apps/api/src/lib/chatMediaDerived.ts"
-      },
-      {
-       "k": "if",
-       "t": "derived.deleted",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const stale = await cleanupStalePendingCustomerMedia();",
-       "a": [
-        "зовёт cleanupStalePendingCustomerMedia()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM \"CustomerPendingMedia\" WHERE \"id\" IN (…",
-         "a": [
-          "обращается к базе своим SQL"
-         ],
-         "c": []
-        },
-        {
-         "k": "loop",
-         "t": "для каждого: const row of rows",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "dropFiles(fileNames(row.files));",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "cleanupStalePendingCustomerMedia() — apps/api/src/lib/customerInputMedia.ts"
-      },
-      {
-       "k": "if",
-       "t": "stale.deleted",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
@@ -123171,6 +122208,21 @@
              "a": [],
              "c": [
               {
+               "k": "if",
+               "t": "claim.write && !claim.write.priceChanged",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void autoLinkPropertyById(property.id, actorId);",
+                 "a": [
+                  "зовёт autoLinkPropertyById()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
                "k": "do",
                "t": "break;",
                "a": [
@@ -131445,6 +130497,61 @@
       },
       {
        "k": "do",
+       "t": "await autoLinkPropertyById(payload.propertyId);",
+       "a": [
+        "зовёт autoLinkPropertyById()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await loadRegistrySettings()).enabled",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+           "a": [
+            "зовёт autoLinkProperty()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+      },
+      {
+       "k": "do",
        "t": "return;",
        "a": [
         "дальше не идёт, ничего не меняя"
@@ -131500,6 +130607,61 @@
      ]
     },
     {
+     "k": "do",
+     "t": "await autoLinkPropertyById(payload.propertyId);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await loadRegistrySettings()).enabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+         "a": [
+          "зовёт autoLinkProperty()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+    },
+    {
      "k": "if",
      "t": "!property.districtId",
      "a": [],
@@ -131510,46 +130672,7 @@
        "a": [
         "зовёт districtByPoint()"
        ],
-       "c": [
-        {
-         "k": "loop",
-         "t": "для каждого: const d of districts",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!d.boundary",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "ring && isPointInPolygon(lng, lat, ring)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { id: d.id, name: d.name, source: \"point\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "districtByPoint() — apps/api/src/lib/propertyDistrict.ts"
+       "c": []
       },
       {
        "k": "if",
@@ -131761,417 +130884,6 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "kind": "outgoingMediaSendJob",
-   "file": "apps/api/src/jobs/outgoingMediaSend.ts",
-   "tree": [
-    {
-     "k": "do",
-     "t": "await runOutgoingMediaJob(payload.mediaJobId, backgroundJobsStopSignal);",
-     "a": [
-      "зовёт runOutgoingMediaJob()"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "const job = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId } });",
-       "a": [
-        "читает в базе: outgoingMediaJob"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!job || TERMINAL.has(job.status)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return;",
-         "a": [
-          "дальше не идёт, ничего не меняя"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const spool = outgoingMediaSpoolDir();",
-       "a": [
-        "зовёт outgoingMediaSpoolDir()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "job.status === \"SENDING\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"background-jobs\", `Отправка файла клиенту прервана в момент передачи (задание ${job.id})…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return;",
-         "a": [
-          "дальше не идёт, ничего не меняя"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const claimed = await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: { in: [\"QUEUED\", \"PRE…",
-       "a": [
-        "меняет в базе: outgoingMediaJob"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!claimed.count",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return;",
-         "a": [
-          "дальше не идёт, ничего не меняя"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const watcher = setInterval(()",
-       "a": [
-        "читает в базе: outgoingMediaJob"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "void prisma.outgoingMediaJob .findUnique({ where: { id: job.id }, select: { status: true } }) .then((row)",
-         "a": [
-          "читает в базе: outgoingMediaJob"
-         ],
-         "c": [
-          {
-           "k": "if",
-           "t": "row?.status === \"CANCELLED\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "cancelled = true;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "controller.abort();",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const onProgress = (percent: number)",
-       "a": [
-        "меняет в базе: outgoingMediaJob"
-       ],
-       "c": [
-        {
-         "k": "if",
-         "t": "now - lastProgressWrite < 2_000",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "void prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: \"PREPARING\" }, data: { progress: perce…",
-         "a": [
-          "меняет в базе: outgoingMediaJob"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const target = await resolveMediaTarget(job.conversationId);",
-         "a": [
-          "зовёт resolveMediaTarget()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!target",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!fs.existsSync(inputPath)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const channel = outgoingMediaChannelOf(target);",
-         "a": [
-          "зовёт outgoingMediaChannelOf()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "prepared = channel && (await outgoingMediaCompressOn()) ? await prepareOutgoingMedia({ path: inputPath, mimet…",
-         "a": [
-          "зовёт outgoingMediaCompressOn()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "controller.signal.aborted",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new JobInterrupted();",
-           "a": [
-            "ошибка JobInterrupted"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const delivery = await deliverMediaToConversation( target, { path: prepared.path, size: prepared.size, mimety…",
-         "a": [
-          "меняет в базе: outgoingMediaJob"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "delivery.ok",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const nowRow = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } });",
-         "a": [
-          "читает в базе: outgoingMediaJob"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "nowRow?.status === \"CANCELLED\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "cancelled || (await isCancelled(job.id))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "stopSignal?.aborted",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: \"PREPARING\" }, data: { status: \"QUEUE…",
-           "a": [
-            "меняет в базе: outgoingMediaJob"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "throw new Error(\"worker выходит — сжатие продолжится в новом процессе\");",
-           "a": [
-            "ошибка Error — «worker выходит — сжатие продолжится в новом процессе»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "err instanceof PrepareError || err instanceof JobInterrupted",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"storage\", `Файл для клиента не подготовлен (${job.mimeType}, ${formatUploadLimit(job.siz…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "return;",
-           "a": [
-            "дальше не идёт, ничего не меняя"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"background-jobs\", `Отправка файла клиенту упала: ${describeError(err)}`, { dedupKey: \"ou…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "finally",
-       "t": "в любом случае",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "prepared?.owned",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await fs.promises.rm(prepared.path, { force: true }).catch(() => {});",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "from": "runOutgoingMediaJob() — apps/api/src/lib/outgoingMediaJobs.ts"
-    },
-    {
-     "k": "catch",
-     "t": "когда попытки кончились",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await giveUpOutgoingMediaJob(payload.mediaJobId);",
-       "a": [
-        "зовёт giveUpOutgoingMediaJob()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "await prisma.outgoingMediaJob.updateMany({ where: { id: mediaJobId, status: { in: [\"QUEUED\", \"PREPARING\"] } }…",
-         "a": [
-          "меняет в базе: outgoingMediaJob"
-         ],
-         "c": []
-        }
-       ],
-       "from": "giveUpOutgoingMediaJob() — apps/api/src/lib/outgoingMediaJobs.ts"
       }
      ]
     }

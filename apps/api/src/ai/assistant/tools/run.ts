@@ -6,6 +6,7 @@ import {
   type AssistantActionView,
 } from "../../../lib/assistantActions.js";
 import { describeError } from "../../../lib/describeError.js";
+import { stepUpExemptRole } from "../../../lib/stepUp.js";
 import { logSystemError } from "../../../lib/systemError.js";
 import { wrapUntrusted } from "../../untrustedContent.js";
 import type { AssistantActor } from "../actor.js";
@@ -18,6 +19,9 @@ export function actionActorFrom(actor: AssistantActor, channel: AssistantActionA
     channel,
     telegramPrivate: actor.surface === "telegram-private",
     ...(actor.surface === "telegram-private" && actor.telegramChatId ? { telegramChatId: actor.telegramChatId } : {}),
+    // Директор/админ кода Authenticator не вводят (stepUpExemptRole, 23.11.2026): карточку готовит
+    // именно эта функция, без флага assertStepUpPossible отказывал до показа «Подтвердить».
+    ...(stepUpExemptRole(actor.role) ? { stepUpExempt: true } : {}),
     can: (permission) => actor.permissions?.has(permission) ?? false,
   };
 }

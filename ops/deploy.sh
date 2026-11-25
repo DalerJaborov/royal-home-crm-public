@@ -255,6 +255,23 @@ done
 clients_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${HEALTH_URL%/health}/clients" || echo 000)"
 [ "$clients_code" = "401" ] || say "ВНИМАНИЕ: /clients ответил $clients_code (ожидался 401) — проверь базу"
 
+# Потолок Caddy на тело запроса (25.11.2026). `read_body` — время на ВСЁ тело, и при 10s
+# части роликов со слабого мобильного канала обрывались, а телефон получал 502. Число в
+# шаблоне ops/Caddyfile.example держит сторож scripts/audit-limits.mjs; живой файл сервера
+# правят руками, поэтому здесь лишь предупреждаем, если он короче шаблона. Выкат не валим.
+body_secs() { # «10s» / «5m» / «1h» → секунды; сложную запись не разбираем (пусто)
+  case "$1" in
+    *[0-9]s) echo "${1%s}" ;;
+    *[0-9]m) echo $(( ${1%m} * 60 )) ;;
+    *[0-9]h) echo $(( ${1%h} * 3600 )) ;;
+  esac
+}
+live_rb="$(grep -oE '^[[:space:]]*read_body[[:space:]]+[0-9]+[smh]([[:space:]]|$)' /etc/caddy/Caddyfile 2>/dev/null | awk '{print $2}' | head -1 || true)"
+want_rb="$(grep -oE '^[[:space:]]*read_body[[:space:]]+[0-9]+[smh]([[:space:]]|$)' "$REPO_DIR/ops/Caddyfile.example" 2>/dev/null | awk '{print $2}' | head -1 || true)"
+if [ -n "$live_rb" ] && [ -n "$want_rb" ] && [ "$(body_secs "$live_rb")" -lt "$(body_secs "$want_rb")" ]; then
+  say "ВНИМАНИЕ: в /etc/caddy/Caddyfile read_body $live_rb короче шаблона ($want_rb) — загрузка роликов со слабой связи будет обрываться 502 (docs/journal/2026-11-25-video-upload-502.md)"
+fi
+
 say "миграции:"
 $COMPOSE exec -T api npx prisma migrate status 2>&1 | grep -aE "up to date|pending|failed" || true
 

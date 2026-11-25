@@ -298,7 +298,7 @@ narrationRouter.get("/:id/narration", async (req, res) => {
     // Озвучку разового прохода по очереди монтажа одобряет владелец (12.11.2026).
     // Те же права, что у самого утверждения (narrationAccessForAgent, ревью 18.11): «только просмотр» кнопки не видит.
     canApproveAudio: await canApproveAudioFor(req.agent!.id, req.agent!.role, p.id, versions[0]?.source ?? null), autoGenerate: narrationAutoEnabled(config),
-    off: p.narrationOff,
+    off: p.narrationOff, propertyCode: p.shortId,
     lastChoice: await narrationLastChoiceFor(req.agent!.id, config),
     budget: manager(req.agent) ? { ...await narrationBudgetUsage(), dailyChars: narrationLimits(config).dailyChars, dailyGenerations: narrationLimits(config).dailyGenerations } : undefined,
     samples: (await readyVoiceSamples(config)).map(({ voiceId, lang }) => ({ voiceId, lang })),

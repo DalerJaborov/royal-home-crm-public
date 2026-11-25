@@ -15,6 +15,7 @@ import { useAuthStore } from "../store/auth";
 import { registerWork } from "./workGuard";
 import { setDraftReminder } from "./draftReminder";
 import { ensurePropertyDraftSession, getPropertyDraftSession, isPropertyDraftSessionCurrent, propertyDraftSessionToken } from "./propertyDraftSession";
+import { MAX_RETRY_ATTEMPTS, planServerRetry } from "./uploadRetry";
 
 /**
  * ФАЙЛЫ МАСТЕРА УХОДЯТ СРАЗУ, А НЕ ПОСЛЕ «СОХРАНИТЬ» (владелец 11.09.2026:
@@ -50,13 +51,15 @@ import { ensurePropertyDraftSession, getPropertyDraftSession, isPropertyDraftSes
  */
 
 const API_PREFIX = "/api/v1/properties/drafts/current";
-/** Пауза перед повтором отказа сервера (5xx/429) — растёт с числом попыток. */
-const RETRY_BASE_MS = 4_000;
-/** Потолок паузы — и она же периодичность «пробного» повтора при обрыве связи. */
+/** Периодичность «пробного» повтора при обрыве связи (status 0). */
 const RETRY_MAX_MS = 60_000;
-/** Отказов подряд от СЕРВЕРА (не обрыва связи — см. ниже), после которых
- *  перестаём пробовать сами и ждём кнопку «Повторить». */
-const MAX_SERVER_ATTEMPTS = 6;
+/**
+ * Отказов СЕРВЕРА подряд без продвижения (не обрыва связи — см. ниже), после
+ * которых перестаём пробовать сами и ждём кнопку «Повторить». Паузы и потолок —
+ * общие с очередью карточки (lib/uploadRetry.ts, 25.11.2026): прежние 6 попыток
+ * за ~2 минуты сдавались на ролике, у которого части уходили через раз.
+ */
+const MAX_SERVER_ATTEMPTS = MAX_RETRY_ATTEMPTS;
 
 export type DraftMediaKind = "photo" | "video";
 /**
@@ -999,7 +1002,7 @@ async function run(): Promise<void> {
         next.item.status = "queued";
         next.item.error = result.error;
         next.item.errorKind = "net";
-        next.nextAttemptAt = now + RETRY_MAX_MS;
+        next.nextAttemptAt = Date.now() + RETRY_MAX_MS;
         publish();
         next.connectivityFails++;
         // D2 — телеметрия начиная со 2-го подряд обрыва связи на этом файле
@@ -1012,12 +1015,17 @@ async function run(): Promise<void> {
       next.connectivityFails = 0;
 
       if (result.retryable) {
-        next.attempts++;
-        if (next.attempts < MAX_SERVER_ATTEMPTS) {
+        // Части ролика, принятые за этот заход, обнуляют счёт: считаем отказы
+        // подряд без продвижения (lib/uploadRetry.ts::planServerRetry).
+        const plan = planServerRetry(next.attempts, result.progressed === true);
+        next.attempts = plan.attempts;
+        if (plan.delayMs !== null) {
           next.item.status = "queued";
           next.item.error = result.error;
           next.item.errorKind = "server";
-          next.nextAttemptAt = now + Math.min(RETRY_BASE_MS * 2 ** (next.attempts - 1), RETRY_MAX_MS);
+          // От момента отказа, а не от начала захода: отдача ролика идёт минутами,
+          // и `now + пауза` к этому времени уже в прошлом — повтор шёл без паузы.
+          next.nextAttemptAt = Date.now() + plan.delayMs;
           publish();
           // D2 — начиная со 2-й попытки сервера.
           if (next.attempts >= 2) {
@@ -1074,6 +1082,9 @@ interface SendOutcome {
   /** Настоящий статус ответа — 0 у обрыва связи, отдельного от отказа
    *  сервера (см. разбор в run()). */
   status: number;
+  /** Сервер принял хоть одну часть ролика за этот заход — счёт попыток
+   *  начинается заново (lib/uploadRetry.ts::planServerRetry). */
+  progressed?: boolean;
 }
 
 function outcomeFromStatus(status: number, error: string | null): SendOutcome {
@@ -1246,6 +1257,8 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
   entry.partsTotal = totalParts;
 
   const done = new Set(session.uploadedPartNumbers ?? []);
+  /** Частей, принятых сервером за ЭТОТ заход (не за прошлые). */
+  let acceptedThisRound = 0;
   let sentBytes = done.size * partSize;
   entry.partsDone = done.size;
   entry.item.loaded = Math.min(sentBytes, file.size);
@@ -1288,8 +1301,9 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
       } else {
         lastZeroProgressPart.delete(entry.item.uploadKey);
       }
-      return outcomeFromStatus(res.status, res.error);
+      return { ...outcomeFromStatus(res.status, res.error), progressed: acceptedThisRound > 0 };
     }
+    acceptedThisRound++;
     sentBytes = Math.min(base + chunk.size, file.size);
     entry.item.loaded = sentBytes;
     entry.partsDone = (entry.partsDone ?? 0) + 1;
@@ -1310,7 +1324,10 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
     const status = (err as { status?: number }).status ?? 0;
     // 409 на сборке — часть до сервера всё же не дошла: повторяем круг, а не
     // объявляем файл испорченным.
-    return outcomeFromStatus(status === 409 ? 0 : status, (err as { message?: string }).message ?? null);
+    return {
+      ...outcomeFromStatus(status === 409 ? 0 : status, (err as { message?: string }).message ?? null),
+      progressed: acceptedThisRound > 0,
+    };
   }
   return { ok: true, error: null, retryable: false, status: 201 };
 }
