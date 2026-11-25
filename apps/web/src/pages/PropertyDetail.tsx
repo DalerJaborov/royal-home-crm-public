@@ -652,7 +652,7 @@ function PropertyViewCard({
       />
     ) : (
       <div className="card">
-        <PropertyOwnerCard property={property} showIntakeShare={can("finance.view")} showOwner={!royal} />
+        <PropertyOwnerCard property={property} showOwner={!royal} />
         {canInlineEdit && <InlineEditLink label="Изменить" onClick={() => setEditingFields(true)} />}
       </div>
     );
@@ -1982,7 +1982,6 @@ function AgentFieldsCard({
     <div className="card">
       <PropertyOwnerCard
         property={property}
-        showIntakeShare={can("finance.view")}
         ownerPhoneInField={can("properties.viewOwners") && !isTrashed}
       />
 
