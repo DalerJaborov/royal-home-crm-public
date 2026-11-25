@@ -13,7 +13,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { checkServerSource, checkWebSource, collectConstants, evalBytes, parseLimit } from "./audit-limits.mjs";
+import {
+  checkCaddyBodyTimeout,
+  checkServerSource,
+  checkWebSource,
+  collectConstants,
+  evalBytes,
+  parseCaddySize,
+  parseDurationSeconds,
+  parseLimit,
+} from "./audit-limits.mjs";
 
 const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
 const MB = 1024 * 1024;
@@ -153,4 +162,39 @@ test("весь прогон: чисто — зелёный; внесли пол�
   const web = run(repo({ "apps/web/src/lib/send.ts": `const f = new FormData();\nconst x = new XMLHttpRequest();\nx.send(f);\n` }));
   assert.equal(web.status, 1);
   assert.match(web.stderr, /apps\/web\/src\/lib\/send\.ts:3/);
+});
+
+test("правило 5: read_body у Caddy — потолок на всё тело; 10s режет часть ролика (25.11.2026)", () => {
+  const PART = 8 * MB;
+  const site = (readBody, maxSize = "25MB") =>
+    `{\n\tservers {\n\t\ttimeouts {\n\t\t\tread_body ${readBody}\n\t\t}\n\t}\n}\ncrm.example {\n\trequest_body {\n\t\tmax_size ${maxSize}\n\t}\n}\n`;
+  // Живой случай: 10s — красный, с номером строки.
+  const broken = checkCaddyBodyTimeout(site("10s"), { partBytes: PART });
+  assert.equal(broken.length, 1);
+  assert.equal(broken[0].line, 4);
+  assert.match(broken[0].problem, /read_body 10s короче 200 с/);
+  // 5m хватает на 25 МБ при 1 Мбит/с (200 с); 3m — нет.
+  assert.equal(checkCaddyBodyTimeout(site("5m"), { partBytes: PART }).length, 0);
+  assert.equal(checkCaddyBodyTimeout(site("3m"), { partBytes: PART }).length, 1);
+  // Без max_size мерилом служит часть загрузки: 8 МиБ ≈ 68 с.
+  assert.equal(checkCaddyBodyTimeout(`read_body 60s\n`, { partBytes: PART }).length, 1);
+  assert.equal(checkCaddyBodyTimeout(`read_body 70s\n`, { partBytes: PART }).length, 0);
+  // Строка в комментарии не считается; read_body не задан — потолка нет.
+  assert.equal(checkCaddyBodyTimeout(`# read_body 1s\nmax_size 25MB\n`, { partBytes: PART }).length, 0);
+  // Непонятная запись — красный, а не тихий пропуск.
+  assert.equal(checkCaddyBodyTimeout(`read_body {$X}\n`, { partBytes: PART }).length, 1);
+  assert.equal(parseDurationSeconds("1m30s"), 90);
+  assert.equal(parseDurationSeconds("500ms"), 0.5);
+  assert.equal(parseCaddySize("25MB"), 25_000_000);
+  assert.equal(parseCaddySize("8MiB"), PART);
+});
+
+test("правило 5 целиком: шаблон Caddy с read_body 10s валит прогон, 5m — проходит", () => {
+  const limits = `${LIMITS}export const UPLOAD_PART_BYTES = 8 * MB;\n`;
+  const caddy = (rb) => `{\n\tservers {\n\t\ttimeouts {\n\t\t\tread_body ${rb}\n\t\t}\n\t}\n}\n`;
+  const ok = run(repo({ "packages/shared/src/uploadLimits.ts": limits, "ops/Caddyfile.example": caddy("5m") }));
+  assert.equal(ok.status, 0, ok.stderr);
+  const bad = run(repo({ "packages/shared/src/uploadLimits.ts": limits, "ops/Caddyfile.example": caddy("10s") }));
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /ops\/Caddyfile\.example:4 {2}read_body 10s/);
 });
