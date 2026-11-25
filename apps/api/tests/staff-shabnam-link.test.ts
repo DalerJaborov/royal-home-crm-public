@@ -38,7 +38,7 @@ const { prisma } = await import("../src/db.js");
 const { app } = await import("../src/app.js");
 const { signAccessToken } = await import("../src/auth/jwt.js");
 const { grantElevation, revokeElevation } = await import("../src/lib/stepUp.js");
-const { linkAgentByCode, handleTelegramRelinkCallback, createTelegramLinkCode, RELINK_CONFIRM_TTL_MS } = await import(
+const { linkAgentByCode, handleTelegramRelinkCallback, createTelegramLinkCode, isExpiredLinkCode } = await import(
   "../src/lib/telegramAgentLink.js"
 );
 const { invalidateAgentAccess } = await import("../src/auth/middleware.js");
@@ -173,8 +173,8 @@ describe("код привязки и «не в тот аккаунт»", () => {
     const r = await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } });
     expect(r.telegramLinkCode).toBe(code);
     expect(r.telegramChatId).toBeNull();
-    // Код живёт не дольше окна ответа.
-    expect(r.telegramLinkCodeExpiresAt!.getTime()).toBeLessThanOrEqual(Date.now() + RELINK_CONFIRM_TTL_MS + 1000);
+    // Срок самого кода вопрос не режет: после «Нет» ссылка ещё нужна из другого Telegram (ревью 25.11).
+    expect(r.telegramLinkCodeExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * 3600_000);
     expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })).telegramChatId).toBe(tgId(5));
 
     const press = (data: string, from: string, id: string) =>
@@ -199,7 +199,41 @@ describe("код привязки и «не в тот аккаунт»", () => {
 
     // Повтор той же доставки «Да» — второй раз не исполняется (код уже съеден, кнопка гасится).
     expect(await press(`tl:y:${code}`, tgId(5), `cb-yes-${runId}`)).toBe(true);
+    // Второе быстрое «Да» с ДРУГИМ id: привязка не слетает и «Перепривязано» не затирается словами «устарела».
+    editMessageText.mockClear();
+    expect(await press(`tl:y:${code}`, tgId(5), `cb-yes2-${runId}`)).toBe(true);
+    expect(editMessageText).not.toHaveBeenCalled();
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramChatId).toBe(tgId(5));
     await prisma.agent.update({ where: { id: rop.id }, data: { telegramChatId: null, telegramUserId: null } });
+  });
+
+  it("устаревший вопрос: «Да» через 20 минут ничего не меняет, код цел и привязывает из другого Telegram", async () => {
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: tgId(7), telegramUserId: tgId(7) } });
+    const { code } = await createTelegramLinkCode(rop.id);
+    expect(await linkAgentByCode(tgId(7), code, tgId(7))).toBe("asked");
+    const oldDate = Math.floor((Date.now() - 20 * 60_000) / 1000);
+    expect(
+      await handleTelegramRelinkCallback({
+        id: `cb-stale-${runId}`, data: `tl:y:${code}`, from: { id: Number(tgId(7)) },
+        message: { chat: { id: Number(tgId(7)) }, message_id: 11, date: oldDate },
+      })
+    ).toBe(true);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })).telegramChatId).toBe(tgId(7));
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramLinkCode).toBe(code);
+    // Та же ссылка из второго Telegram (после «Нет» и паузы) работает.
+    expect(await linkAgentByCode(tgId(8), code, tgId(8))).toBe("linked");
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramChatId).toBe(tgId(8));
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramChatId: null, telegramUserId: null } });
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: null, telegramUserId: null } });
+  });
+
+  it("isExpiredLinkCode: просроченный код — да, живой и несуществующий — нет", async () => {
+    const { code } = await createTelegramLinkCode(rop.id);
+    expect(await isExpiredLinkCode(code)).toBe(false);
+    expect(await isExpiredLinkCode(`nope-${runId}`)).toBe(false);
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCodeExpiresAt: new Date(Date.now() - 60_000) } });
+    expect(await isExpiredLinkCode(code)).toBe(true);
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCode: null, telegramLinkCodeExpiresAt: null } });
   });
 
   it("чужие кнопки (не tl:) не трогает", async () => {

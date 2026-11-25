@@ -1273,7 +1273,7 @@ export interface TelegramCallbackQuery {
   data?: string;
   /** message_id — чтобы модерация (lib/telegramModeration) правила именно то
    *  сообщение, под которым нажали кнопку. */
-  message?: { chat: { id: number; type?: string }; message_id?: number; text?: string; caption?: string };
+  message?: { chat: { id: number; type?: string }; message_id?: number; date?: number; text?: string; caption?: string };
   from?: { id: number; username?: string; first_name?: string };
 }
 

@@ -7,7 +7,7 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId, handleTelegramRelinkCallback, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, isExpiredLinkCode, RELINK_TEXTS, findAgentByTelegramChatId, handleTelegramRelinkCallback, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
@@ -520,6 +520,11 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     // разберёт обычная клиентская логика ниже (return false).
     // `/start staff` — кнопка Шабнам новичку в рабочей группе (24.11.2026): привязка по номеру.
     if (startMatch[1] === STAFF_LINK_START_PAYLOAD && (await askStaffContactForLink(msg))) return true;
+    // Код есть, но устарел: это сотрудник с давней ссылкой, а не клиент (ревью 25.11) — скажем прямо.
+    if (startMatch[1] !== STAFF_LINK_START_PAYLOAD && (await isExpiredLinkCode(startMatch[1]))) {
+      await sendMessage(chatId, RELINK_TEXTS.expired).catch(() => {});
+      return true;
+    }
   }
 
   const agent = await findAgentByTelegramChatId(chatId);

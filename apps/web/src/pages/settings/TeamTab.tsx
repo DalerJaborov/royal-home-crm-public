@@ -1026,7 +1026,7 @@ export function AgentsSection() {
       {confirmRow?.kind === "unlinkShabnam" && (
         <ConfirmDialog
           title={`Отключить Шабнам у ${confirmRow.name}?`}
-          description="Telegram сотрудника отвяжется от CRM: Шабнам перестанет его узнавать, а код входа в Telegram приходить не будет. Подключить снова можно новой ссылкой."
+          description="Telegram сотрудника отвяжется от CRM: Шабнам перестанет его узнавать, а код входа в Telegram приходить не будет. Подключить снова можно новой ссылкой. Если Telegram у человека единственный рабочий вход (например, у монтажёра), задания и сообщения перестанут до него доходить."
           confirmLabel={unlinkShabnam.isPending ? "Отключаем…" : "Отключить"}
           confirmDisabled={unlinkShabnam.isPending}
           onCancel={() => setConfirmRow(null)}

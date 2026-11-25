@@ -104,7 +104,7 @@ export async function linkAgentByCode(
   if (!agent) return "unknown";
   // НЕ В ТОТ АККАУНТ (25.11.2026, живой случай: у одной сотрудницы две учётки и два Telegram).
   // Раньше чат молча снимался с другой ДЕЙСТВУЮЩЕЙ учётки: открыла ссылку не из того Telegram —
-  // и первая учётка тихо осталась без Шабнам. Теперь спрашиваем; код живёт ещё RELINK_CONFIRM_TTL_MS.
+  // и первая учётка тихо осталась без Шабнам. Теперь спрашиваем; код не съедается, вопрос живёт RELINK_CONFIRM_TTL_MS.
   // Отключённая прежняя учётка (увольнение и новый найм, G16) — без вопроса, как раньше.
   if (!opts.confirmRelink) {
     const holders = await otherActiveHolders(agent.id, chatId, telegramUserId);
@@ -401,6 +401,15 @@ async function noteTelegramLinked(agentId: string, source: "telegram" | "telegra
   }
 }
 
+/** Код есть в базе, но срок вышел (или учётка отключена): сотруднику надо сказать «ссылка устарела»,
+ *  а не отдавать его клиентской логике как случайный текст (ревью 25.11). Несуществующий код — false. */
+export async function isExpiredLinkCode(code: string): Promise<boolean> {
+  const row = await prisma.agent.findFirst({ where: { telegramLinkCode: code }, select: { id: true } });
+  if (!row) return false;
+  const live = await prisma.agent.findFirst({ where: { telegramLinkCode: code, isActive: true, ...liveCodeWhere(new Date()) }, select: { id: true } });
+  return !live;
+}
+
 /** Чат уже привязан к какому-то агенту? Основной способ отличить сообщение
  *  СОТРУДНИКА от сообщения клиента в общем потоке апдейтов бота.
  *
@@ -461,20 +470,19 @@ export const RELINK_TEXTS = {
     `Хорошо, ничего не меняю: этот Telegram остаётся у «${from}».\nХуб, ҳеҷ чиз тағйир намеёбад: ин Telegram дар «${from}» мемонад.`,
   expired:
     "Ссылка устарела. Попросите новую в профиле CRM или у администратора.\nИстинод кӯҳна шуд. Истиноди навро дар профили CRM ё аз маъмур гиред.",
+  stale:
+    "Вопрос устарел. Откройте ссылку ещё раз.\nСавол кӯҳна шуд. Истинодро аз нав кушоед.",
   notYours: "Эта кнопка не для вас.",
 } as const;
 
-/** Задать вопрос и укоротить жизнь кода до RELINK_CONFIRM_TTL_MS (если он и так короче — не продлеваем). */
+/** Задать вопрос. Срок самого кода НЕ режем (ревью 25.11): после «Нет» ссылка ещё нужна из другого Telegram.
+ *  Давность вопроса проверяется на нажатии «Да» по дате сообщения (RELINK_CONFIRM_TTL_MS). */
 async function askRelinkConfirmation(
   chatId: string,
   code: string,
   agent: { id: string; fullName: string },
   holders: Array<{ id: string; fullName: string }>
 ): Promise<void> {
-  const current = await prisma.agent.findUnique({ where: { id: agent.id }, select: { telegramLinkCodeExpiresAt: true } });
-  const cap = new Date(Date.now() + RELINK_CONFIRM_TTL_MS);
-  const expiresAt = current?.telegramLinkCodeExpiresAt && current.telegramLinkCodeExpiresAt < cap ? current.telegramLinkCodeExpiresAt : cap;
-  await prisma.agent.updateMany({ where: { id: agent.id, telegramLinkCode: code }, data: { telegramLinkCodeExpiresAt: expiresAt } });
   const from = holders.map((h) => h.fullName).join(", ");
   try {
     await sendMessageWithButtons(chatId, RELINK_TEXTS.question(from, agent.fullName), [
@@ -532,8 +540,17 @@ export async function handleTelegramRelinkCallback(query: TelegramCallbackQuery)
     await reply(RELINK_TEXTS.kept(holders.map((h) => h.fullName).join(", ") || "прежней учётки"));
     return true;
   }
+  // Вопросу больше RELINK_CONFIRM_TTL_MS — «Да» ничего не меняет, код цел: ссылку можно открыть заново.
+  const askedAt = query.message?.date ? query.message.date * 1000 : null;
+  if (askedAt && Date.now() - askedAt > RELINK_CONFIRM_TTL_MS) {
+    await reply(RELINK_TEXTS.stale);
+    return true;
+  }
   const outcome = await linkAgentByCode(chatId, code!, fromId, { confirmRelink: true });
-  if (outcome === "unknown") await reply(RELINK_TEXTS.expired);
-  else if (messageId) await editMessageText(chatId, messageId, "✅ Перепривязано.").catch(() => {});
+  if (outcome === "unknown") {
+    // Второе быстрое «Да» (другой query.id): код съеден первым нажатием, чат уже привязан —
+    // не затираем «Перепривязано» словами «ссылка устарела».
+    if (!(await findAgentByTelegramChatId(chatId))) await reply(RELINK_TEXTS.expired);
+  } else if (messageId) await editMessageText(chatId, messageId, "✅ Перепривязано.").catch(() => {});
   return true;
 }
