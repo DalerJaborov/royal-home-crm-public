@@ -26,11 +26,12 @@ import {
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
-import { propertyOwnerAgentId } from "../lib/propertyOwner.js";
+import { canEditRegistryLinkAs } from "../lib/constructionRegistry/access.js";
 import { loadRegistrySettings, runConstructionRegistrySync } from "../lib/constructionRegistry/sync.js";
 import { buildPropertyResponse, lastRegistryUpdate } from "../lib/constructionRegistry/view.js";
 import { linkPropertyManually, markNotInRegistry, rejectSuggestion, toMatchInput, unlinkProperty } from "../lib/constructionRegistry/link.js";
 import { previewRegistryMatch, searchRegistryProjects, SEARCH_LIMIT_MAX } from "../lib/constructionRegistry/search.js";
+import { REGISTRY_NOTHING_TO_REJECT } from "../lib/constructionRegistry/autoLinkOnSave.js";
 
 export const constructionRegistryRouter = Router();
 
@@ -85,9 +86,9 @@ async function findProperty(idOrShort: string) {
   });
 }
 
-/** Менять связь может хозяин объекта или тот, кто правит чужие объекты (то же правило, что у карточки объекта). */
+/** Менять связь может тот, кто вправе править карточку объекта: одно правило с формой и Шабнам (lib/constructionRegistry/access.ts). */
 function canEditLink(req: Parameters<typeof can>[0], property: { intakeAgentId: string | null; assignedAgentId: string | null; createdById: string | null }): boolean {
-  return can(req, "properties.editForeign") || propertyOwnerAgentId(property) === req.agent!.id;
+  return canEditRegistryLinkAs({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, property);
 }
 
 constructionRegistryRouter.get("/property/:id", requireAuth, async (req, res) => {
@@ -135,7 +136,10 @@ constructionRegistryRouter.post("/property/:id/none", requireAuth, async (req, r
   if (!property) return res.status(404).json({ error: "Объект не найден" });
   if (!canEditLink(req, property)) return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
   const { enabled } = await loadRegistrySettings();
-  if (enabled) await markNotInRegistry(property.id, req.agent!.id);
+  if (!enabled) return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+  // Отвергать нечего (нет точки, рядом нет проектов и связи нет) — честный отказ, а не «200 и ничего» (ревью PR #441):
+  // иначе геокодер позже поставит точку, автосвязь привяжет проект, и решение сотрудника потеряется молча.
+  if ((await markNotInRegistry(property.id, req.agent!.id)) === 0) return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
   res.json(await buildPropertyResponse(toMatchInput(property), enabled));
 });
 

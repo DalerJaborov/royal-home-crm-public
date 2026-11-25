@@ -58,7 +58,7 @@ import {
 import { describeError } from "../../lib/describeError.js";
 import { completeEditing } from "../../lib/propertyCompleteEditing.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
-import { propertyRemovalSchema, narrationWizardChoiceSchema, registryChoiceSchema } from "@royal-home/shared";
+import { propertyRemovalSchema, narrationWizardChoiceSchema, registryChoiceSchema, type PermissionId } from "@royal-home/shared";
 import {
   propertyStatusChangeBlock,
   recordStatusRemovalInTx,
@@ -83,7 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
-import { applyRegistryChoice } from "../../lib/constructionRegistry/autoLinkOnSave.js";
+import { applyRegistryChoice, registryChoiceError } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -761,8 +761,13 @@ async function createPropertyImpl(req: PropertyCreateInput) {
   // раннего выхода «объект в конвейере», и новый объект почти никогда не сверялся с реестром при создании.
   // Выбор сотрудника в поле «Застройщик и разрешение» — той же дверью (25.11.2026); без выбора — автосвязь.
   // Явный выбор ждём: карточка, которую мастер откроет сразу, должна его уже показать. Без выбора — фоном, как раньше.
-  if (parsedDraftRef.data.registry) await applyRegistryChoice(property.id, parsedDraftRef.data.registry, req.agent.id);
-  else void applyRegistryChoice(property.id, undefined, req.agent.id);
+  const registryActor = { agentId: req.agent.id, can: (permission: PermissionId) => can({ agent: req.agent }, permission) };
+  const registryError = parsedDraftRef.data.registry
+    ? registryChoiceError(await applyRegistryChoice(property.id, parsedDraftRef.data.registry, registryActor))
+    : null;
+  if (!parsedDraftRef.data.registry) void applyRegistryChoice(property.id, undefined, registryActor);
+  // Выбор не сохранился — объект создан, а сотрудник видит «повторите» (ревью PR #441): поле в ответе создания.
+  const registryNote = registryError ? { registryError } : {};
 
   /**
    * ФАЙЛЫ ЧЕРНОВИКА ПЕРЕЕЗЖАЮТ В КАРТОЧКУ (11.09.2026). Снимки и ролики агент
@@ -895,7 +900,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
   // это не значит «готов к публикации», это значит «публикации не будет вовсе».
   if (isPipelineStatus(property.status) || property.offSite) {
     publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
+    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote, ...registryNote });
   }
 
   // Автопубликация сразу при создании — по решению директора. Best-effort и молча:
@@ -913,7 +918,7 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
-  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
+  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote, ...registryNote });
 }
 
 crudRouter.post("/", requireAuth, async (req, res) => {
@@ -1500,8 +1505,11 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
 
   // Реестр строек: пересчёт связи до ветки автопубликации (25.11.2026), иначе правка «Готово» уходила мимо сверки.
   // Выбор сотрудника в поле «Застройщик и разрешение» формы правки — той же дверью; без выбора — автосвязь.
-  if (registryChoice.data.registry) await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);
-  else void applyRegistryChoice(updated.id, undefined, req.agent!.id);
+  const patchRegistryActor = { agentId: req.agent!.id, can: (permission: PermissionId) => can(req, permission) };
+  const registryError = registryChoice.data.registry
+    ? registryChoiceError(await applyRegistryChoice(updated.id, registryChoice.data.registry, patchRegistryActor))
+    : null;
+  if (!registryChoice.data.registry) void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
   // ручная кнопка «Готово»: сырое видео из R2, аудит, синхронизация с сайтом.
@@ -1514,13 +1522,15 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       console.error("[video-handoff] закрытие хендоффа при автопубликации:", err)
     );
     publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.status, actorId: req.agent!.id });
-    if (siteSyncError) {
-      return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+    if (siteSyncError || registryError) {
+      return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {}), ...(registryError ? { registryError } : {}) });
     }
     return res.json(presentProperty(published, req));
   }
 
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
+  // Карточка сохранена, а выбор застройщика нет — 207 и текст, как у siteSyncError (ревью PR #441).
+  if (registryError) return res.status(207).json({ ...presentProperty(updated, req), registryError });
   res.json(presentProperty(updated, req));
 });
 

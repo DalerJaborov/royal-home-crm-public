@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 778,
-  "forks": 4185,
+  "forks": 4187,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -19145,14 +19145,29 @@
     },
     {
      "k": "if",
-     "t": "enabled",
+     "t": "!enabled",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "await markNotInRegistry(property.id, req.agent!.id);",
+       "t": "return res.status(409).json({ error: \"Реестр строек выключен в Настройках\" });",
        "a": [
-        "зовёт markNotInRegistry()"
+        "ответ 409 — «Реестр строек выключен в Настройках»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(await markNotInRegistry(property.id, req.agent!.id)) === 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });",
+       "a": [
+        "ответ 409"
        ],
        "c": []
       }
@@ -57058,28 +57073,21 @@
      "c": []
     },
     {
-     "k": "if",
-     "t": "registryChoice.data.registry",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);",
-       "a": [
-        "зовёт applyRegistryChoice()"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const registryError = registryChoice.data.registry ? registryChoiceError(await applyRegistryChoice(updated.id…",
+     "a": [
+      "зовёт registryChoiceError()"
+     ],
+     "c": []
     },
     {
-     "k": "else",
-     "t": "иначе",
+     "k": "if",
+     "t": "!registryChoice.data.registry",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "void applyRegistryChoice(updated.id, undefined, req.agent!.id);",
+       "t": "void applyRegistryChoice(updated.id, undefined, patchRegistryActor);",
        "a": [
         "зовёт applyRegistryChoice()"
        ],
@@ -57118,12 +57126,12 @@
       },
       {
        "k": "if",
-       "t": "siteSyncError",
+       "t": "siteSyncError || registryError",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(207).json({ ...presentProperty(published, req), siteSyncError });",
+         "t": "return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {})…",
          "a": [
           "ответ 207"
          ],
@@ -57148,6 +57156,21 @@
       "зовёт publishPropertyUpdated()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "registryError",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(207).json({ ...presentProperty(updated, req), registryError });",
+       "a": [
+        "ответ 207"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",

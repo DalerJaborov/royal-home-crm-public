@@ -116,7 +116,22 @@ export interface RegistryPreviewInput {
   lng: number | null;
   address?: string | null;
   title?: string | null;
+  description?: string | null;
   isNewBuilding: boolean;
+}
+
+/**
+ * Включён ли реестр (рубильник в Настройках) — для поля «Застройщик и разрешение». Отдельно от предпросмотра: без
+ * точки предпросмотр не идёт, а поле при выключенном реестре не должно мелькать. Тот же ключ, что у экрана Настроек.
+ */
+export function useRegistryEnabled() {
+  return useQuery({
+    queryKey: ["construction-registry", "status"],
+    queryFn: () => api<RegistryStatus>("/construction-registry/status"),
+    staleTime: 5 * 60_000,
+    retry: false,
+    select: (s) => ({ enabled: s.enabled }),
+  });
 }
 
 /** Лучший проект реестра у точки ДО сохранения объекта (мастер, форма правки). Ничего не пишет. */
@@ -125,7 +140,7 @@ export function useRegistryMatchPreview(input: RegistryPreviewInput, enabled: bo
   const lng = roundCoord(input.lng);
   const address = (input.address ?? "").trim();
   return useQuery({
-    queryKey: ["construction-registry", "preview", input.propertyId ?? "", lat, lng, address, input.isNewBuilding],
+    queryKey: ["construction-registry", "preview", input.propertyId ?? "", lat, lng, address, input.title ?? "", input.description ?? "", input.isNewBuilding],
     queryFn: () =>
       api<RegistryMatchPreviewResponse>("/construction-registry/match-preview", {
         method: "POST",
@@ -135,6 +150,7 @@ export function useRegistryMatchPreview(input: RegistryPreviewInput, enabled: bo
           lng,
           address: address || null,
           title: input.title ?? null,
+          description: input.description ?? null,
           isNewBuilding: input.isNewBuilding,
         },
       }),

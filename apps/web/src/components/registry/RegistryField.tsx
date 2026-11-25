@@ -1,7 +1,13 @@
 import { useState } from "react";
-import type { RegistryChoice, RegistryProjectDto, RegistryProjectOption, RegistryPropertyResponse } from "@royal-home/shared";
+import type {
+  PropertyWizardRegistryPick,
+  RegistryChoice,
+  RegistryProjectDto,
+  RegistryProjectOption,
+  RegistryPropertyResponse,
+} from "@royal-home/shared";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
-import { useRegistryMatchPreview } from "../../hooks/useConstructionRegistry";
+import { useRegistryEnabled, useRegistryMatchPreview } from "../../hooks/useConstructionRegistry";
 import { RegistryPicker, type RegistryFieldState } from "./RegistryPicker";
 
 /**
@@ -35,9 +41,29 @@ export function optionFromProject(project: RegistryProjectDto, developer: string
   };
 }
 
+/** Выбор из черновика мастера → выбор поля (в черновике лишь то, что нужно показать). */
+export function choiceFromPick(pick: PropertyWizardRegistryPick | null | undefined): RegistryUserChoice | null {
+  if (!pick) return null;
+  if (pick.kind === "none") return { kind: "none" };
+  return {
+    kind: "project",
+    option: { id: pick.projectId, title: pick.title, developer: pick.developer, color: pick.color, address: null, qaror: "", distanceM: null, sourceUrl: "" },
+  };
+}
+
+/** Выбор поля → запись в черновик мастера. */
+export function pickFromChoice(choice: RegistryUserChoice | null): PropertyWizardRegistryPick | null {
+  if (!choice) return null;
+  if (choice.kind === "none") return { kind: "none" };
+  return { kind: "project", projectId: choice.option.id, title: choice.option.title, developer: choice.option.developer, color: choice.option.color };
+}
+
 export interface RegistryFieldProps {
   point: { lat: number; lng: number } | null;
   address: string;
+  /** Название и описание: автосвязь ищет в них имя застройщика — без них экран и итог сохранения расходились бы. */
+  title?: string | null;
+  description?: string | null;
   isNewBuilding: boolean;
   /** Форма правки: объект уже есть, его отвергнутые проекты не предлагаем. */
   propertyId?: string;
@@ -49,20 +75,25 @@ export interface RegistryFieldProps {
   onChoice: (choice: RegistryUserChoice | null) => void;
 }
 
-export function RegistryField({ point, address, isNewBuilding, propertyId, saved, pointChanged = false, choice, onChoice }: RegistryFieldProps) {
+export function RegistryField({ point, address, title, description, isNewBuilding, propertyId, saved, pointChanged = false, choice, onChoice }: RegistryFieldProps) {
   const [expanded, setExpanded] = useState(false);
+  // Рубильник — отдельным запросом, а не из предпросмотра (ревью PR #441): без точки и при сбое предпросмотра его
+  // не узнать. Пока неизвестен, выключен или не загрузился (isError) — поля нет.
+  const registry = useRegistryEnabled();
+  const enabled = !registry.isError && registry.data?.enabled === true;
   // Адрес печатают по букве: ждём паузу, чтобы не спрашивать сервер на каждую.
   const debouncedAddress = useDebouncedValue(address, 600);
   const savedLink = saved?.link ?? null;
   const keepSaved = savedLink !== null && (savedLink.method === "MANUAL" || !pointChanged);
   const preview = useRegistryMatchPreview(
-    { propertyId, lat: point?.lat ?? null, lng: point?.lng ?? null, address: debouncedAddress, isNewBuilding },
-    point !== null && !keepSaved,
+    { propertyId, lat: point?.lat ?? null, lng: point?.lng ?? null, address: debouncedAddress, title, description, isNewBuilding },
+    enabled && point !== null && !keepSaved,
   );
   const data = preview.data;
+  if (!enabled) return null;
   if (saved && !saved.enabled) return null;
   if (data && (!data.enabled || data.notLoaded)) return null;
-  // Первый ответ по точке ещё в пути: не мигаем пустым полем (и полем, которого при выключенном реестре не будет).
+  // Первый ответ по точке ещё в пути: не мигаем пустым полем.
   if (point && !keepSaved && !choice && !data && preview.isFetching) return null;
 
   let state: RegistryFieldState = { kind: "empty" };
@@ -92,6 +123,9 @@ export function RegistryField({ point, address, isNewBuilding, propertyId, saved
   }
 
   const nearby = data ? [...(data.best ? [data.best] : []), ...data.alternatives] : [];
+  // «Нет в реестре» — только когда есть что отвергать: точка и проекты рядом или уже стоящая связь (ревью PR #441).
+  // Без них сервер честно откажет, а здесь пункт просто не предлагается.
+  const canMarkNone = point !== null && (nearby.length > 0 || savedLink !== null || state.kind === "none");
   return (
     <>
       {preview.isError && !data && (
@@ -100,12 +134,13 @@ export function RegistryField({ point, address, isNewBuilding, propertyId, saved
         </p>
       )}
       <RegistryPicker
-      state={state}
-      updatedAt={data?.updatedAt ?? saved?.updatedAt ?? null}
-      point={point}
-      nearby={nearby}
-      onPick={(option) => onChoice({ kind: "project", option })}
-      onNone={() => onChoice({ kind: "none" })}
+        state={state}
+        updatedAt={data?.updatedAt ?? saved?.updatedAt ?? null}
+        point={point}
+        nearby={nearby}
+        canMarkNone={canMarkNone}
+        onPick={(option) => onChoice({ kind: "project", option })}
+        onNone={() => onChoice({ kind: "none" })}
       />
     </>
   );

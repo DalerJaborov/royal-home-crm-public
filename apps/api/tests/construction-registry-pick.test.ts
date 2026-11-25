@@ -27,6 +27,8 @@ let ownerId = "";
 let strangerId = "";
 let ownerToken = "";
 let strangerToken = "";
+let leadId = "";
+let leadToken = "";
 let developerId = "";
 let syncRunId = "";
 const projectIds: Record<string, string> = {};
@@ -59,7 +61,7 @@ async function project(key: string, data: { title: string; address?: string; lat
   return p.id;
 }
 
-async function property(data: { address: string; lat?: number | null; lng?: number | null; condition?: string }) {
+async function property(data: { address: string; lat?: number | null; lng?: number | null; condition?: string; assignedAgentId?: string }) {
   const p = await prisma.property.create({
     data: {
       title: `Объект ${tag}`,
@@ -73,7 +75,7 @@ async function property(data: { address: string; lat?: number | null; lng?: numb
       status: "AVAILABLE",
       intakeAgentId: ownerId,
       createdById: ownerId,
-      assignedAgentId: ownerId,
+      assignedAgentId: data.assignedAgentId ?? ownerId,
       lat: data.lat === undefined ? BASE.lat : data.lat,
       lng: data.lng === undefined ? BASE.lng : data.lng,
     },
@@ -81,6 +83,8 @@ async function property(data: { address: string; lat?: number | null; lng?: numb
   propertyIds.push(p.id);
   return p;
 }
+
+const asActor = (agentId: string) => ({ agentId, can: () => false });
 
 const linkOf = (propertyId: string) =>
   prisma.constructionPropertyLink.findFirst({ where: { propertyId, state: "LINKED" }, select: { projectId: true, method: true } });
@@ -92,8 +96,11 @@ beforeAll(async () => {
   const strangerPhone = `+992962${String(runId).slice(-6)}`;
   ownerId = (await prisma.agent.create({ data: { fullName: "Агент поля реестра", phone: ownerPhone, role: "AGENT", passwordHash: hash } })).id;
   strangerId = (await prisma.agent.create({ data: { fullName: "Чужой агент", phone: strangerPhone, role: "AGENT", passwordHash: hash } })).id;
+  const leadPhone = `+992963${String(runId).slice(-6)}`;
+  leadId = (await prisma.agent.create({ data: { fullName: "Ведущий агент", phone: leadPhone, role: "AGENT", passwordHash: hash } })).id;
   ownerToken = await login(ownerPhone);
   strangerToken = await login(strangerPhone);
+  leadToken = await login(leadPhone);
   syncRunId = (await prisma.constructionSyncRun.create({ data: { trigger: "manual", ok: true, finishedAt: new Date() } })).id;
   developerId = (await prisma.constructionDeveloper.create({ data: { nameNormalized: `ширкати ${tag}`, displayName: `Ширкати ${tag}` } })).id;
   // Ҷ в названии: ищется и по «Ч», и по «Дж».
@@ -110,7 +117,7 @@ afterAll(async () => {
   await prisma.constructionProject.deleteMany({ where: { developerId } });
   await prisma.constructionDeveloper.deleteMany({ where: { id: developerId } });
   await prisma.constructionSyncRun.deleteMany({ where: { id: syncRunId } });
-  await prisma.agent.deleteMany({ where: { id: { in: [ownerId, strangerId] } } });
+  await prisma.agent.deleteMany({ where: { id: { in: [ownerId, strangerId, leadId] } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
 });
 
@@ -215,7 +222,7 @@ describe("выбор сотрудника вместе с объектом", () 
   it("«нет в реестре»: связь снимается, проекты рядом отвергаются, автосвязь их не возвращает", async () => {
     const p = await property({ address: "кӯчаи Айнӣ 101" });
     expect(await autoLinkProperty(p.id, { notify: false })).toBe("linked");
-    expect(await applyRegistryChoice(p.id, { kind: "none" }, ownerId)).toBe("not-in-registry");
+    expect(await applyRegistryChoice(p.id, { kind: "none" }, asActor(ownerId))).toBe("not-in-registry");
     expect(await linkOf(p.id)).toBeNull();
     const rejected = await prisma.constructionPropertyLink.findMany({ where: { propertyId: p.id, state: "REJECTED" }, select: { projectId: true } });
     expect(rejected.map((r) => r.projectId).sort()).toEqual([projectIds.jamol, projectIds.near2].sort());
@@ -224,7 +231,7 @@ describe("выбор сотрудника вместе с объектом", () 
 
   it("без выбора — та же автосвязь, что раньше", async () => {
     const p = await property({ address: "кӯчаи Айнӣ 101" });
-    expect(await applyRegistryChoice(p.id, undefined, ownerId)).toBe("linked");
+    expect(await applyRegistryChoice(p.id, undefined, asActor(ownerId))).toBe("linked");
     expect(await linkOf(p.id)).toMatchObject({ projectId: projectIds.jamol, method: "AUTO" });
   });
 
@@ -238,6 +245,53 @@ describe("выбор сотрудника вместе с объектом", () 
     expect(ok.status).toBe(200);
     expect(ok.body.link).toBeNull();
     expect(ok.body.suggestions).toEqual([]);
+  });
+});
+
+describe("ревью PR #441: права, «нет в реестре», PATCH, удалённые проекты", () => {
+  it("права одни везде: ведущий агент (не принявший) меняет связь в карточке; чужой — нет", async () => {
+    const p = await property({ address: "без улицы", assignedAgentId: leadId });
+    const ok = await request(app)
+      .post(`/api/v1/construction-registry/property/${p.id}/link`)
+      .set("Authorization", `Bearer ${leadToken}`)
+      .send({ projectId: projectIds.far });
+    expect(ok.status).toBe(200);
+    expect(await applyRegistryChoice(p.id, { kind: "project", projectId: projectIds.near2 }, asActor(strangerId))).toBe("forbidden");
+    expect(await linkOf(p.id)).toMatchObject({ projectId: projectIds.far });
+  });
+
+  it("PATCH с полем registry: ручная связь сразу, ответ 200", async () => {
+    const p = await property({ address: "без улицы", assignedAgentId: leadId });
+    const res = await request(app)
+      .patch(`/api/v1/properties/${p.id}`)
+      .set("Authorization", `Bearer ${leadToken}`)
+      .send({ registry: { kind: "project", projectId: projectIds.near2 } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.registryError).toBeUndefined();
+    expect(await linkOf(p.id)).toMatchObject({ projectId: projectIds.near2, method: "MANUAL" });
+  });
+
+  it("PATCH с пропавшим из реестра проектом — 207 и понятный текст, связь не ставится", async () => {
+    const p = await property({ address: "без улицы", lat: metersNorth(3000) });
+    const res = await request(app)
+      .patch(`/api/v1/properties/${p.id}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ registry: { kind: "project", projectId: projectIds.gone } });
+    expect(res.status).toBe(207);
+    expect(res.body.registryError).toMatch(/уже нет в реестре/);
+    expect(await linkOf(p.id)).toBeNull();
+    expect(await applyRegistryChoice(p.id, { kind: "project", projectId: projectIds.school }, asActor(ownerId))).toBe("unknown-project");
+  });
+
+  it("«нет в реестре» без точки: сервер отказывает 409, выбор при сохранении возвращает registryError", async () => {
+    const p = await property({ address: "без улицы", lat: null, lng: null });
+    const res = await request(app).post(`/api/v1/construction-registry/property/${p.id}/none`).set("Authorization", `Bearer ${ownerToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/отмечать нечего/);
+    expect(await applyRegistryChoice(p.id, { kind: "none" }, asActor(ownerId))).toBe("nothing-to-reject");
+    const patch = await request(app).patch(`/api/v1/properties/${p.id}`).set("Authorization", `Bearer ${ownerToken}`).send({ registry: { kind: "none" } });
+    expect(patch.status).toBe(207);
+    expect(patch.body.registryError).toMatch(/отмечать нечего/);
   });
 });
 
@@ -264,19 +318,64 @@ describe("Шабнам: link_property_to_registry", () => {
 
   it("несколько совпадений — отказ со списком вариантов, ничего не пишет", async () => {
     const p = await property({ address: "без улицы" });
-    await expect(run(ownerId, { ref: String(p.shortId), project: `ЖК ${tag}` })).rejects.toMatchObject({ status: 409, code: "AMBIGUOUS_PROJECT" });
-    try {
-      await run(ownerId, { ref: String(p.shortId), project: `ЖК ${tag}` });
-    } catch (err) {
-      const candidates = (err as { extra: { candidates: { projectId: string }[] } }).extra.candidates;
-      expect(candidates.length).toBe(3);
-    }
+    await expect(run(ownerId, { ref: String(p.shortId), project: `ЖК ${tag}` })).rejects.toMatchObject({
+      status: 409,
+      code: "AMBIGUOUS_PROJECT",
+      extra: { candidates: expect.arrayContaining([expect.objectContaining({ projectId: projectIds.jamol })]) },
+    });
+    expect(await linkOf(p.id)).toBeNull();
+  });
+
+  it("«привяжи к Айни»: единственное совпадение только по адресу — не привязывает, а показывает вариант (ревью PR #441)", async () => {
+    const p = await property({ address: "без улицы" });
+    await expect(run(ownerId, { ref: String(p.shortId), project: `Айни ${tag}` })).rejects.toMatchObject({
+      status: 409,
+      code: "AMBIGUOUS_PROJECT",
+      extra: { candidates: [expect.objectContaining({ projectId: projectIds.jamol })] },
+    });
+    expect(await linkOf(p.id)).toBeNull();
+  });
+
+  it("ведущий агент, не принявший объект, привязывает так же, как в карточке и форме (одно правило прав)", async () => {
+    const p = await property({ address: "без улицы", assignedAgentId: leadId });
+    await run(leadId, { ref: String(p.shortId), project: `Далёкий ${tag}` });
+    expect(await linkOf(p.id)).toMatchObject({ projectId: projectIds.far, method: "MANUAL" });
+  });
+
+  it("нежилой проект по projectId не привязывается", async () => {
+    const p = await property({ address: "без улицы" });
+    await expect(run(ownerId, { ref: String(p.shortId), projectId: projectIds.school })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("в общей группе исполнитель отказывает сам, даже без hiddenTools (вторая стена)", async () => {
+    const { createPendingAssistantAction, getAssistantActionExecutor } = await import("../src/lib/assistantActions.js");
+    expect(getAssistantActionExecutor("link_property_to_registry")?.privateTelegram).toBe(true);
+    const p = await property({ address: "без улицы" });
+    await expect(
+      createPendingAssistantAction({ agentId: ownerId, channel: "telegram", telegramPrivate: false, can: () => false }, "link_property_to_registry", {
+        ref: String(p.shortId),
+        project: `Далёкий ${tag}`,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
     expect(await linkOf(p.id)).toBeNull();
   });
 
   it("чужой объект без права править чужие — 403", async () => {
     const p = await property({ address: "без улицы" });
     await expect(run(strangerId, { ref: String(p.shortId), project: `Далёкий ${tag}` })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("строка после создания попадает в историю разговора помощницы (иначе «привяжи» не знает объекта)", async () => {
+    const { rememberCreatedProperty } = await import("../src/telegram/assistantPropertyDraft.js");
+    const chatId = `pick-${runId}`;
+    try {
+      expect(await rememberCreatedProperty(chatId, ownerId, "ОБ-000777: Объект создан. Назовите застройщика или комплекс, привяжу.")).toBe(true);
+      const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+      const messages = (row?.payload as { messages?: { role: string; content: string }[] }).messages ?? [];
+      expect(messages.at(-1)).toEqual({ role: "assistant", content: expect.stringContaining("ОБ-000777") });
+    } finally {
+      await prisma.telegramDialogState.deleteMany({ where: { chatId } });
+    }
   });
 
   it("строка после создания подсказывает, как исправить словами", async () => {

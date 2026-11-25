@@ -45,6 +45,7 @@ import { useSheetMode, useSwipeToDismiss } from "./BottomSheet";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { LocationPicker } from "./LocationPicker";
 import { RegistryField, registryChoicePayload, type RegistryUserChoice } from "./registry/RegistryField";
+import { toast } from "../store/toast";
 import { usePropertyRegistry } from "../hooks/useConstructionRegistry";
 import { usePointLandmarks } from "./property-wizard/usePointLandmarks";
 import { SearchableSelect } from "./SearchableSelect";
@@ -333,6 +334,8 @@ export function PropertyFormModal({
    */
   const dirty =
     photoFiles.length > 0 ||
+    // Выбор «Застройщик и разрешение» — тоже работа агента: закрыть без вопроса значило бы потерять его (ревью PR #441).
+    registryChoice !== null ||
     (Object.keys(initialForm) as (keyof typeof initialForm)[]).some((k) => form[k] !== initialForm[k]);
   const requestClose = () => (dirty ? setConfirmClose(true) : onClose());
   const swipe = useSwipeToDismiss(sheetMode && layout !== "page", requestClose);
@@ -640,6 +643,9 @@ export function PropertyFormModal({
                 : {}),
             }),
       });
+      // Объект сохранён, а выбор «Застройщик и разрешение» — нет (ответ 207 с registryError): сказать прямо.
+      const registryError = (saved as { registryError?: unknown }).registryError;
+      if (typeof registryError === "string" && registryError) toast.error(registryError);
       if (photoFiles.length > 0) {
         const targetId = isEdit ? property!.id : saved.id;
         /**
@@ -1125,6 +1131,8 @@ export function PropertyFormModal({
               <RegistryField
                 point={coords}
                 address={form.address}
+                title={property?.title ?? null}
+                description={property?.description ?? null}
                 isNewBuilding={form.condition === "NEW_BUILDING"}
                 propertyId={isEdit ? property!.id : undefined}
                 // Связь не загрузилась (isError) — поле работает как у нового объекта: догадка по точке и поиск.

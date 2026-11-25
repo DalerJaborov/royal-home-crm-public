@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { decisionYearFromQaror, REGISTRY_COLOR_LABEL, registrySourceCaption } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
-import { loadRegistrySettings } from "../../../lib/constructionRegistry/sync.js";
+import { loadAssistantSettings } from "../runtime.js";
 import { buildPropertyResponse, loadDeveloperDtos, projectDto } from "../../../lib/constructionRegistry/view.js";
 import { toMatchInput } from "../../../lib/constructionRegistry/link.js";
 import { safeField } from "./safeField.js";
@@ -41,7 +41,8 @@ export const getConstructionRegistryTool: AssistantReadToolPlugin = {
     const inGroup = actor.surface === "telegram-group";
     const parsed = args.safeParse(raw ?? {});
     if (!parsed.success || (!parsed.data.property && !parsed.data.query)) return { error: "Нужен номер объекта или название комплекса/застройщика" };
-    const { enabled } = await loadRegistrySettings();
+    // Рубильник — из кэша настроек помощника: отдельного чтения Settings на ход нет (ai-assistant-speed-core 1.3).
+    const enabled = (await loadAssistantSettings()).registryEnabled;
     if (!enabled) return { error: "Реестр строек выключен в Настройках" };
 
     if (parsed.data.property) {

@@ -205,6 +205,28 @@ describe("1.3 — настройки помощника: одно чтение �
       spy.mockRestore();
     }
   });
+
+  it("диалог с инструментом реестра строек — тоже не больше двух чтений Settings (рубильник из кэша, ревью PR #441)", async () => {
+    resetAssistantRuntimeCache();
+    const args = { query: "Дурахшон" };
+    callGeminiTools
+      .mockReset()
+      .mockResolvedValueOnce({
+        text: "",
+        calls: [{ name: "get_construction_registry", args }],
+        modelParts: [{ functionCall: { name: "get_construction_registry", args } }],
+        tokens: 1,
+      })
+      .mockResolvedValueOnce(textTurn("По реестру проверила."));
+    const spy = vi.spyOn(prisma.settings, "findUnique");
+    try {
+      const reply = await runAssistant([{ role: "user", content: "Есть разрешение у Дурахшон?" }], actor);
+      expect(reply).toBe("По реестру проверила.");
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("1.4 — инструменты чтения одного раунда параллельно", () => {

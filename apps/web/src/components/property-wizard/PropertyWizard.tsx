@@ -51,7 +51,7 @@ import { DraftGate, type OfferedDraft } from "./DraftGate";
 import { StepMedia } from "./StepMedia";
 import { StepMain } from "./StepMain";
 import { StepPlace } from "./StepPlace";
-import { RegistryField, registryChoicePayload, type RegistryUserChoice } from "../registry/RegistryField";
+import { RegistryField, choiceFromPick, pickFromChoice } from "../registry/RegistryField";
 import { StepSeller } from "./StepSeller";
 import { StepReview } from "./StepReview";
 import { runRestartDraft } from "./restartDraft";
@@ -143,8 +143,7 @@ export function PropertyWizard({
   const createKey = useRetryKey();
   const create = useCreateProperty(createKey);
   const pendingCreateBody = useRef<Record<string, unknown> | null>(null);
-  // Поле «Застройщик и разрешение» на шаге «Где» (25.11.2026): только выбор человека; догадку считает сервер по точке.
-  const [registryChoice, setRegistryChoice] = useState<RegistryUserChoice | null>(null);
+
   // Руководитель обязан указать интейкера явно; рядовому агенту сервер
   // подставляет его самого (routes/properties/crud.ts).
   const requireIntakeAgent = can("properties.editForeign");
@@ -591,9 +590,7 @@ export function PropertyWizard({
       // Озвучка ролика: шаблон, голос и правка текста из конца мастера (NarrationChoice).
       const narrationChoice = narrationChoiceForCreate(narration);
       if (!pendingCreateBody.current && narrationChoice) body.narration = narrationChoice;
-      // «Застройщик и разрешение»: выбор сотрудника уходит вместе с объектом; не трогал поле — решит автосвязь на сервере.
-      const registry = registryChoicePayload(registryChoice);
-      if (!pendingCreateBody.current && registry) body.registry = registry;
+
       pendingCreateBody.current = body;
       const completedDraftId = typeof body.draftId === "string" ? body.draftId : null;
       const saved = await create.mutateAsync(body);
@@ -608,6 +605,9 @@ export function PropertyWizard({
       // Текст озвучки агента не принят (ревью 21.11): сказать честно, почему, и что будет дальше.
       const narrationRejected = narrationTextRejected(saved);
       if (narrationRejected) toast.error(narrationTextRejectedMessage(narrationRejected));
+      // Объект создан, а выбор «Застройщик и разрешение» не сохранился — сказать прямо (ревью PR #441).
+      const registryError = (saved as { registryError?: unknown }).registryError;
+      if (typeof registryError === "string" && registryError) toast.error(registryError);
 
       // Черновик сервер удалил сам вместе с переносом файлов; здесь убираем
       // только запасную копию в браузере и плитки текущего мастера.
@@ -1121,8 +1121,9 @@ export function PropertyWizard({
               point={values.lat !== null && values.lng !== null ? { lat: values.lat, lng: values.lng } : null}
               address={values.address}
               isNewBuilding={values.condition === "NEW_BUILDING"}
-              choice={registryChoice}
-              onChoice={setRegistryChoice}
+              // Выбор живёт в values.registryPick: переживает черновик и уходит в создание через buildCreateBody.
+              choice={choiceFromPick(values.registryPick)}
+              onChoice={(choice) => patch({ registryPick: pickFromChoice(choice) })}
             />
           }
           warnings={stepWarnings}

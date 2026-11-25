@@ -12,11 +12,13 @@ import type { RegistryMatchPreviewResponse, RegistryProjectOption } from "@royal
 const hooks = vi.hoisted(() => ({
   search: vi.fn(),
   preview: vi.fn(),
+  enabled: vi.fn(),
 }));
 vi.mock("../../hooks/useConstructionRegistry", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../hooks/useConstructionRegistry")>()),
   useRegistryProjectSearch: (...args: unknown[]) => hooks.search(...args),
   useRegistryMatchPreview: (...args: unknown[]) => hooks.preview(...args),
+  useRegistryEnabled: () => hooks.enabled(),
 }));
 vi.mock("../../hooks/useDebouncedValue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../hooks/useDebouncedValue")>()),
@@ -68,7 +70,8 @@ const fireEvent = {
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }),
 };
-import { RegistryField, registryChoicePayload, type RegistryUserChoice } from "./RegistryField";
+import { RegistryField, choiceFromPick, pickFromChoice, registryChoicePayload, type RegistryUserChoice } from "./RegistryField";
+import { buildCreateBody } from "@royal-home/shared";
 
 const opt = (id: string, title: string, over: Partial<RegistryProjectOption> = {}): RegistryProjectOption => ({
   id,
@@ -87,16 +90,30 @@ const B = opt("b", "ЖК Сомон", { color: "red", distanceM: 900 });
 beforeEach(() => {
   hooks.search.mockReturnValue({ data: { enabled: true, updatedAt: null, notLoaded: false, items: [B] }, isFetching: false, isError: false });
   hooks.preview.mockReturnValue({ data: undefined });
+  hooks.enabled.mockReturnValue({ data: { enabled: true }, isError: false });
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
-function picker(state: RegistryFieldState, nearby: RegistryProjectOption[] = []) {
+function picker(state: RegistryFieldState, nearby: RegistryProjectOption[] = [], extra: { canMarkNone?: boolean; onSubmit?: () => void } = {}) {
   const onPick = vi.fn();
   const onNone = vi.fn();
-  render(<RegistryPicker state={state} updatedAt="2026-11-24T10:00:00.000Z" point={{ lat: 38.5, lng: 68.7 }} nearby={nearby} onPick={onPick} onNone={onNone} />);
+  const field = (
+    <RegistryPicker state={state} updatedAt="2026-11-24T10:00:00.000Z" point={{ lat: 38.5, lng: 68.7 }} nearby={nearby} onPick={onPick} onNone={onNone} canMarkNone={extra.canMarkNone} />
+  );
+  // Поле живёт внутри формы правки объекта: проверяем, что Enter её не отправляет.
+  render(
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        extra.onSubmit?.();
+      }}
+    >
+      {field}
+    </form>,
+  );
   return { onPick, onNone };
 }
 
@@ -171,6 +188,50 @@ describe("RegistryPicker", () => {
   });
 });
 
+describe("RegistryPicker: ревью PR #441", () => {
+  it("Enter без подсветки берёт первый проект списка, форму не отправляет", () => {
+    const submit = vi.fn();
+    const { onPick } = picker({ kind: "empty" }, [A], { onSubmit: submit });
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    let notPrevented = true;
+    act(() => {
+      notPrevented = input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(notPrevented).toBe(false);
+    expect(onPick).toHaveBeenCalledWith(A);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("Enter при закрытом списке тоже не отправляет форму", () => {
+    const submit = vi.fn();
+    picker({ kind: "empty" }, [], { onSubmit: submit });
+    const input = screen.getByRole("combobox");
+    let notPrevented = true;
+    act(() => {
+      notPrevented = input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(notPrevented).toBe(false);
+  });
+
+  it("«Нет в реестре» не предлагается, когда отвергать нечего", () => {
+    picker({ kind: "empty" }, [], { canMarkNone: false });
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).not.toContain("Нет в реестре / не новостройка");
+  });
+
+  it("нажатие на сам список (полосу прокрутки) не уводит фокус из поля", () => {
+    picker({ kind: "empty" }, [A]);
+    fireEvent.focus(screen.getByRole("combobox"));
+    const list = screen.getByTestId("registry-pick-list");
+    let notPrevented = true;
+    act(() => {
+      notPrevented = list.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(notPrevented).toBe(false);
+  });
+});
+
 describe("RegistryField: подстановка по уровню уверенности", () => {
   const preview = (over: Partial<RegistryMatchPreviewResponse>): RegistryMatchPreviewResponse => ({
     enabled: true,
@@ -227,6 +288,34 @@ describe("RegistryField: подстановка по уровню уверенн
     hooks.preview.mockReturnValue({ data: preview({ enabled: false }) });
     field();
     expect(screen.queryByTestId("registry-pick")).toBeNull();
+  });
+
+  it("рубильник берётся отдельно: неизвестен, выключен или не загрузился — поля нет, даже когда предпросмотр ответил", () => {
+    hooks.preview.mockReturnValue({ data: preview({ level: "auto", best: { ...A, confidence: 90, reasons: [] } }) });
+    for (const state of [{ data: undefined, isError: false }, { data: { enabled: false }, isError: false }, { data: undefined, isError: true }]) {
+      hooks.enabled.mockReturnValue(state);
+      field();
+      expect(screen.queryByTestId("registry-pick")).toBeNull();
+      cleanup();
+    }
+    // Рубильник выключен — предпросмотр даже не запрашивается.
+    expect(hooks.preview.mock.calls.every((call) => call[1] === false)).toBe(true);
+  });
+
+  it("предпросмотр получает название и описание (автосвязь ищет в них застройщика)", () => {
+    const onChoice = vi.fn();
+    render(<RegistryField point={{ lat: 38.5, lng: 68.7 }} address="" title="ЖК Ҷамол" description="Застройщик Ҷамол" isNewBuilding choice={null} onChoice={onChoice} />);
+    expect(hooks.preview.mock.calls.at(-1)?.[0]).toMatchObject({ title: "ЖК Ҷамол", description: "Застройщик Ҷамол" });
+  });
+
+  it("выбор мастера живёт в черновике и уходит в создание объекта", () => {
+    const pick = pickFromChoice({ kind: "project", option: B });
+    expect(pick).toEqual({ kind: "project", projectId: "b", title: "ЖК Сомон", developer: "Застройщик b", color: "red" });
+    expect(choiceFromPick(pick)).toMatchObject({ kind: "project", option: { id: "b", title: "ЖК Сомон" } });
+    expect(choiceFromPick(pickFromChoice({ kind: "none" }))).toEqual({ kind: "none" });
+    expect(buildCreateBody({ type: "APARTMENT", registryPick: pick }).registry).toEqual({ kind: "project", projectId: "b" });
+    expect(buildCreateBody({ type: "APARTMENT", registryPick: { kind: "none" } }).registry).toEqual({ kind: "none" });
+    expect(buildCreateBody({ type: "APARTMENT" })).not.toHaveProperty("registry");
   });
 
   it("выбор уходит в запрос сохранения: проект — ручная связь, «нет» — none, ничего — автосвязь", () => {

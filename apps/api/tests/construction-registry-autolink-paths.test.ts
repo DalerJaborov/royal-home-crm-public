@@ -69,7 +69,7 @@ describe("реестр строек: все пути создания и сме�
 
   it("при создании дверь зовётся ДО раннего выхода «объект в конвейере»", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("applyRegistryChoice(property.id, parsedDraftRef.data.registry, req.agent.id)");
+    const call = crud.indexOf("applyRegistryChoice(property.id, parsedDraftRef.data.registry, registryActor)");
     const earlyReturn = crud.indexOf("if (isPipelineStatus(property.status) || property.offSite)");
     expect(call).toBeGreaterThan(0);
     expect(earlyReturn).toBeGreaterThan(0);
@@ -78,7 +78,7 @@ describe("реестр строек: все пути создания и сме�
 
   it("при правке дверь зовётся ДО ветки автопубликации", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id)");
+    const call = crud.indexOf("applyRegistryChoice(updated.id, registryChoice.data.registry, patchRegistryActor)");
     const autoPublish = crud.indexOf("if (willAutoPublish) {");
     expect(call).toBeGreaterThan(0);
     expect(call).toBeLessThan(autoPublish);

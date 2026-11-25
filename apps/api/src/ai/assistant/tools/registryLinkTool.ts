@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { REGISTRY_COLOR_LABEL, formatPropertyCode, registrySearchKey } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
-import { AssistantActionError, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
-import { propertyOwnerAgentId } from "../../../lib/propertyOwner.js";
+import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
+import { canEditRegistryLinkAs } from "../../../lib/constructionRegistry/access.js";
 import { linkPropertyManually } from "../../../lib/constructionRegistry/link.js";
 import { searchRegistryProjects, type RegistrySearchHit } from "../../../lib/constructionRegistry/search.js";
-import { loadRegistrySettings } from "../../../lib/constructionRegistry/settings.js";
+import { loadAssistantSettings } from "../runtime.js";
 import { resolveRefOrThrow } from "./propertyToolSupport.js";
 import { plainField } from "./safeField.js";
 import { asPluginExecutor, loadToolActor } from "./showingToolSupport.js";
@@ -49,31 +49,39 @@ interface LinkResult {
   href: string;
 }
 
-async function loadProperty(ref: string, agentId: string, can: (p: "properties.editForeign") => boolean) {
+async function loadProperty(ref: string, agentId: string, can: AssistantActionActor["can"]) {
   const { id } = await resolveRefOrThrow(ref);
   const property = await prisma.property.findFirst({
     where: { id, deletedAt: null },
     select: { id: true, shortId: true, title: true, address: true, lat: true, lng: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
   });
   if (!property) throw new AssistantActionError(404, "NOT_FOUND", "Объект не найден");
-  if (!can("properties.editForeign") && propertyOwnerAgentId(property) !== agentId) {
+  if (!canEditRegistryLinkAs({ agentId, can }, property)) {
     throw new AssistantActionError(403, "FORBIDDEN", "Менять привязку может ответственный агент или руководитель");
   }
   return property;
 }
 
-/** Ровно один уверенный проект: единственный найденный или единственный с названием/застройщиком «точь-в-точь». */
-function pickUnique(query: string, hits: RegistrySearchHit[]): RegistrySearchHit | null {
-  if (hits.length === 1) return hits[0]!;
+/** Не ниже этой оценки (registryQueryScore) совпадение считается уверенным: название или номер решения, а не адрес. */
+export const LINK_CONFIDENT_SCORE = 80;
+
+/**
+ * Ровно один уверенный проект, иначе null (тогда — список кандидатов, даже если найден один). Уверенно: единственное
+ * совпадение названия или застройщика «точь-в-точь», либо единственный с оценкой от 80 (название, номер решения).
+ * Совпадение только по адресу или по части имени застройщика («привяжи к Айни») — не уверенно (ревью PR #441).
+ */
+export function pickUnique(query: string, hits: readonly RegistrySearchHit[]): RegistrySearchHit | null {
   const key = registrySearchKey(query);
   const exact = hits.filter((h) => registrySearchKey(h.title) === key || registrySearchKey(h.developer) === key);
   if (exact.length === 1) return exact[0]!;
-  return null;
+  if (exact.length > 1) return null;
+  const confident = hits.filter((h) => h.score >= LINK_CONFIDENT_SCORE);
+  return confident.length === 1 ? confident[0]! : null;
 }
 
 async function resolveProject(args: Args, point: { lat: number | null; lng: number | null }): Promise<{ id: string }> {
   if (args.projectId) {
-    const found = await prisma.constructionProject.findFirst({ where: { id: args.projectId, removedAt: null }, select: { id: true } });
+    const found = await prisma.constructionProject.findFirst({ where: { id: args.projectId, removedAt: null, category: "residential" }, select: { id: true } });
     if (!found) throw new AssistantActionError(404, "PROJECT_NOT_FOUND", "Такого проекта в реестре нет");
     return found;
   }
@@ -104,6 +112,8 @@ const toNumber = (v: unknown): number | null => {
 export const linkPropertyRegistryExecutor: AssistantActionExecutor<Args> = {
   tool: "link_property_to_registry",
   channels: ["crm", "telegram"],
+  // Запись без кнопки — только в личке: вторая стена к GROUP_HIDDEN_TOOLS (как change_property_status).
+  privateTelegram: true,
   parseArgs(raw) {
     const parsed = argsSchema.safeParse(raw);
     if (!parsed.success) throw new AssistantActionError(400, "BAD_ARGS", "Укажите номер объекта и название комплекса или застройщика");
@@ -112,7 +122,8 @@ export const linkPropertyRegistryExecutor: AssistantActionExecutor<Args> = {
 
   async snapshot(args, actionActor) {
     await loadToolActor(actionActor);
-    if (!(await loadRegistrySettings()).enabled) throw new AssistantActionError(409, "REGISTRY_OFF", "Реестр строек выключен в Настройках");
+    // Рубильник — из кэша настроек помощника (ai/assistant/runtime.ts): без лишнего чтения Settings на ход.
+    if (!(await loadAssistantSettings()).registryEnabled) throw new AssistantActionError(409, "REGISTRY_OFF", "Реестр строек выключен в Настройках");
     const property = await loadProperty(args.ref, actionActor.agentId, actionActor.can);
     const project = await resolveProject(args, { lat: toNumber(property.lat), lng: toNumber(property.lng) });
     const current = await prisma.constructionPropertyLink.findFirst({

@@ -16,10 +16,10 @@
   "paths": 778,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4146,
-  "untranslatedUnique": 475,
-  "untranslatedTotal": 611,
-  "partialUnique": 1114,
+  "conditions": 4148,
+  "untranslatedUnique": 476,
+  "untranslatedTotal": 612,
+  "partialUnique": 1116,
   "translatedShare": 85
  },
  "untranslated": [
@@ -168,6 +168,7 @@
   "\"defaultRopAgentId\" in parsed.data.config && parsed.data.config.defaultRopAgentId",
   "\"optedOutAt\" in conv && conv.optedOutAt",
   "\"reason\" in pick",
+  "(await markNotInRegistry(property.id, req.agent!.id)) === 0",
   "(await prisma.deal.count({ where: { propertyId: existing.id } })) > 0",
   "(await syncAgentMobileFallback(agent.id, creds)) === \"station_unreachable\"",
   "(current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision",
@@ -20892,10 +20893,31 @@
      ]
     },
     {
-     "t": "если есть включено",
+     "t": "если нет: включено",
      "k": "if",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "отказ: такое уже есть: «Реестр строек выключен в Настройках»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если (await markNotInRegistry(property.id, req.agent!.id)) === 0",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "(await markNotInRegistry(property.id, req.agent!.id)) === 0"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -45383,14 +45405,8 @@
      "c": []
     },
     {
-     "t": "если есть registry",
+     "t": "если нет: registry",
      "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "иначе",
-     "k": "else",
      "a": [],
      "c": []
     },
@@ -45400,7 +45416,7 @@
      "a": [],
      "c": [
       {
-       "t": "если есть сайт сверка с сайтом ошибка",
+       "t": "если есть сайт сверка с сайтом ошибка или есть registry ошибка",
        "k": "if",
        "a": [],
        "c": [
@@ -45414,6 +45430,19 @@
       },
       {
        "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть registry ошибка",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "ответ 207",
        "k": "do",
        "a": [],
        "c": []

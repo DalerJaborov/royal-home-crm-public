@@ -5,6 +5,7 @@ import { autoLinkPropertyById } from "../../../lib/constructionRegistry/autoLink
 import { loadRegistryBriefs } from "../../../lib/constructionRegistry/view.js";
 import { previewRegistryMatch } from "../../../lib/constructionRegistry/search.js";
 import { plainField } from "./safeField.js";
+import { loadAssistantSettings } from "../runtime.js";
 
 /**
  * СТРОКА РЕЕСТРА СТРОЕК В ОТВЕТАХ ШАБНАМ ПРО ОБЪЕКТЫ (25.11.2026): find_property, search_properties, get_property_card и
@@ -92,7 +93,7 @@ export async function howToFixLine(
       title: row?.title ?? null,
       description: row?.description ?? null,
       isNewBuilding: row?.condition === "NEW_BUILDING",
-    });
+    }, (await loadAssistantSettings()).registryEnabled);
     if (preview.best) guess = { title: plainField(preview.best.title, 120) ?? "", developer: plainField(preview.best.developer, 120) ?? "" };
   } catch {
     // Догадка лишь помогает: без неё остаётся просьба назвать застройщика.

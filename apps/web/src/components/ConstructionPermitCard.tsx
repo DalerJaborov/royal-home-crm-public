@@ -161,6 +161,8 @@ export function ConstructionPermitView({ data, busy = false, point = null, onPic
         nearby={nearby}
         busy={busy}
         label={null}
+        // «Нет в реестре» — только когда есть что отвергать: точка и проекты рядом или связь (ревью PR #441).
+        canMarkNone={!data.noPoint && (data.suggestions.length > 0 || link !== null)}
         onPick={(option) => onPick?.(option.id)}
         onNone={() => onNone?.()}
       />

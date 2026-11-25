@@ -126,8 +126,14 @@ async function toOptions(candidates: readonly ScoredCandidate[]): Promise<Map<st
 }
 
 /** Предпросмотр совпадения до сохранения объекта. Ничего не пишет. */
-export async function previewRegistryMatch(input: RegistryPreviewInput): Promise<RegistryMatchPreviewResponse> {
-  const [settings, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+/**
+ * `knownEnabled` — рубильник уже известен вызывающему (Шабнам берёт его из своего кэша настроек): Settings не читаем.
+ */
+export async function previewRegistryMatch(input: RegistryPreviewInput, knownEnabled?: boolean): Promise<RegistryMatchPreviewResponse> {
+  const [settings, updated] = await Promise.all([
+    knownEnabled === undefined ? loadRegistrySettings() : Promise.resolve({ enabled: knownEnabled }),
+    lastRegistryUpdate(),
+  ]);
   const noPoint = input.lat === null || input.lng === null;
   const base: RegistryMatchPreviewResponse = {
     enabled: settings.enabled,

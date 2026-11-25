@@ -86,6 +86,11 @@ export interface RegistryPickerProps {
   onNone: () => void;
   /** Подпись над полем; в карточке объекта у блока свой заголовок. */
   label?: string | null;
+  /**
+   * Показывать ли «Нет в реестре / не новостройка». Только когда есть что отвергать (точка и проекты рядом или связь):
+   * иначе сервер честно откажет, а решение сотрудника потерялось бы, когда геокодер позже поставит точку (ревью PR #441).
+   */
+  canMarkNone?: boolean;
 }
 
 function distanceText(option: RegistryProjectOption): string {
@@ -102,7 +107,7 @@ function StatusChip({ color }: { color: RegistryColor }) {
   );
 }
 
-export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = false, onPick, onNone, label = "Застройщик и разрешение" }: RegistryPickerProps) {
+export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = false, onPick, onNone, label = "Застройщик и разрешение", canMarkNone = true }: RegistryPickerProps) {
   const id = useId();
   const inputId = `${id}-input`;
   const listId = `${id}-list`;
@@ -130,9 +135,9 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
     };
     if (!debounced) nearby.forEach((o, i) => push(o, i === 0 && state.kind === "guess" ? "похоже" : undefined));
     for (const o of search.data?.items ?? []) push(o);
-    out.push({ type: "none" });
+    if (canMarkNone) out.push({ type: "none" });
     return out;
-  }, [debounced, nearby, search.data, state.kind]);
+  }, [debounced, nearby, search.data, state.kind, canMarkNone]);
 
   const close = () => {
     setOpen(false);
@@ -162,10 +167,16 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
       return;
     }
     if (event.key === "Enter") {
-      if (open && active >= 0 && active < items.length) {
-        event.preventDefault();
+      // Поле живёт внутри формы правки: Enter здесь никогда не сохраняет всю форму (ревью PR #441).
+      event.preventDefault();
+      if (!open) return;
+      if (active >= 0 && active < items.length) {
         choose(items[active]!);
+        return;
       }
+      // Ничего не подсвечено — берём первый проект списка (если он есть), «Нет в реестре» так не выбирается.
+      const first = items.find((item) => item.type === "project");
+      if (first) choose(first);
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || (open && (event.key === "Home" || event.key === "End"))) {
@@ -261,7 +272,16 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
             onKeyDown={onKeyDown}
           />
           {open && (
-            <div id={listId} role="listbox" aria-label="Проекты реестра строек" data-testid="registry-pick-list" style={LIST_STYLE}>
+            <div
+              id={listId}
+              role="listbox"
+              aria-label="Проекты реестра строек"
+              data-testid="registry-pick-list"
+              style={LIST_STYLE}
+              // Тянут полосу прокрутки списка — фокус остаётся в поле, иначе список закрылся бы на blur (ревью PR #441).
+              onPointerDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
+            >
               {items.map((item, index) => (
                 <button
                   key={item.type === "none" ? "none" : item.option.id}

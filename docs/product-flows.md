@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **778**. Развилок в самих путях: **2482**; вместе с задачами по расписанию и фоновыми заданиями — **4185**. Модулей: **86**.
+Путей: **778**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4187**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4368,9 +4368,12 @@
     · ответ 403 — «Менять привязку может ответственный агент или руководитель»
 - const { enabled } = await loadRegistrySettings();
   · зовёт loadRegistrySettings()
-- если enabled
-  - await markNotInRegistry(property.id, req.agent!.id);
-    · зовёт markNotInRegistry()
+- если !enabled
+  - return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+    · ответ 409 — «Реестр строек выключен в Настройках»
+- если (await markNotInRegistry(property.id, req.agent!.id)) === 0
+  - return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
+    · ответ 409
 - res.json(await buildPropertyResponse(toMatchInput(property), enabled));
   · ответ 200
 
@@ -12861,11 +12864,10 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
-- если registryChoice.data.registry
-  - await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);
-    · зовёт applyRegistryChoice()
-- иначе
-  - void applyRegistryChoice(updated.id, undefined, req.agent!.id);
+- const registryError = registryChoice.data.registry ? registryChoiceError(await applyRegistryChoice(updated.id…
+  · зовёт registryChoiceError()
+- если !registryChoice.data.registry
+  - void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
     · зовёт applyRegistryChoice()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
@@ -12874,13 +12876,16 @@
     · зовёт skipVideoHandoffOnManualPublish()
   - publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…
     · зовёт publishPropertyUpdated()
-  - если siteSyncError
-    - return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+  - если siteSyncError || registryError
+    - return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {})…
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
+- если registryError
+  - return res.status(207).json({ ...presentProperty(updated, req), registryError });
+    · ответ 207
 - res.json(presentProperty(updated, req));
   · ответ 200
 
