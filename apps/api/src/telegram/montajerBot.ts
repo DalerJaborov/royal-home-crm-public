@@ -40,6 +40,17 @@ import {
   montajerTakeNow,
 } from "../lib/montajerQueueControl.js";
 import type { MontajerQueueMove } from "../lib/montajerQueueButtons.js";
+import { chatLang } from "./assistantNarration.js";
+import {
+  handleFreeNarrationMessage,
+  isBareNarrationAsk,
+  looksLikeNarrationDictation,
+  narrationBodyAfterCue,
+  showVoiceNarrationDraft,
+  startFreeNarrationFromAsk,
+} from "./assistantFreeNarration.js";
+import { pendingFreeNarrationTextWait } from "../lib/freeNarration.js";
+import { sendMessage, type TelegramIncomingMessage } from "./api.js";
 
 /** Полные правила передачи — по слову «помощь», а не в каждом сообщении с роликом
  *  (владелец 19.09.2026: компактный текст при передаче). */
@@ -73,6 +84,7 @@ export const MONTAJER_MENU_TEXT = [
   "• «где 108» — в каких сетях вышел ролик, со ссылками.",
   "• «файлы» — дослать исходники объекта в работе, которые до вас не дошли.",
   "• «сдал» — последние сданные ролики. «сроки» — сколько что ждёт.",
+  "• «озвучь» — озвучка любого вашего текста: напишите «Озвучь текст:» и сам текст (можно и просто «озвучь» — я спрошу текст), выберите голос и получите mp3.",
   "• «помощь» — правила передачи готового ролика.",
   "",
   "Надпись на ролике берите только из «объект <номер>» — там ровно то, что в карточке, и ничего придуманного.",
@@ -89,8 +101,9 @@ export const MONTAJER_MENU_BUTTONS: TelegramInlineButton[][] = [
   ],
   [
     { text: "📥 Дослать файлы", callback_data: "mj:files" },
-    { text: "❓ Помощь", callback_data: "mj:help" },
+    { text: "🎙 Озвучить текст", callback_data: "mj:nar" },
   ],
+  [{ text: "❓ Помощь", callback_data: "mj:help" }],
 ];
 
 export type MontajerCommand =
@@ -104,6 +117,7 @@ export type MontajerCommand =
   | { kind: "queuedDone"; shortId: number; willSend: boolean }
   | { kind: "cancelControl" }
   | { kind: "menu" }
+  | { kind: "narration" }
   | { kind: "help" }
   | { kind: "queue" }
   | { kind: "holderCard" }
@@ -155,6 +169,7 @@ export function parseMontajerCallback(data: string): MontajerCommand | null {
   const simple: Record<string, MontajerCommand> = {
     "mj:menu": { kind: "menu" },
     "mj:help": { kind: "help" },
+    "mj:nar": { kind: "narration" },
     "mj:queue": { kind: "queue" },
     "mj:card": { kind: "holderCard" },
     "mj:files": { kind: "resendMissing" },
@@ -252,6 +267,9 @@ export async function runMontajerCommand(chatId: string, cmd: MontajerCommand, a
         : MONTAJER_MENU_TEXT;
       return reply(chatId, { text, buttons: MONTAJER_MENU_BUTTONS });
     }
+    case "narration":
+      // Кнопка «🎙 Озвучить текст»: права, рубильник и настройка проверяются до просьбы прислать текст.
+      return reply(chatId, { text: await startFreeNarrationFromAsk(agentId, chatId, await chatLang(chatId)) });
     case "help":
       return reply(chatId, { text: MONTAJER_HELP_TEXT });
     case "queue":
@@ -327,6 +345,42 @@ export async function runMontajerCommand(chatId: string, cmd: MontajerCommand, a
     case "status":
       // Ничего не узнали — статус очереди плюс одна строка о том, что бот умеет
       // больше: иначе меню существует, но о нём никто не знает.
-      return reply(chatId, { text: `${await queueStatusForMontajer()}\n\nНапишите «меню» — что ещё умеет бот.` });
+      return reply(chatId, { text: `${await queueStatusForMontajer()}\n\nНапишите «меню» — что ещё умеет бот (в том числе озвучка вашего текста).` });
   }
+}
+
+/**
+ * ОЗВУЧКА ТЕКСТА В БОТЕ МОНТАЖЁРА (25.11.2026). Монтажёр писал «Озвучь вот этот текст "…"» и
+ * получал «В работе у вас: объект №228»: его чат целиком уходил в меню очереди, а разбор
+ * озвучки жил только у помощницы (telegram/assistantBot.ts), куда монтажёр не попадает. Здесь
+ * та же дверь, что у помощницы (telegram/assistantFreeNarration.ts, lib/freeNarration.ts): права,
+ * потолки, голоса и деньги не копируются. Монтажёр, в отличие от помощницы, не может спросить
+ * модель, поэтому любой текст со словом «озвучь» в начале читается как текст для озвучки.
+ * true — сообщение наше; false — обычное, дальше работает меню очереди.
+ */
+export async function handleMontajerNarration(msg: TelegramIncomingMessage, agent: { id: string }): Promise<boolean> {
+  if (msg.chat.type !== "private") return false;
+  const chatId = String(msg.chat.id);
+  const forwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const text = (msg.text ?? "").trim();
+  // Пока ждём текст озвучки, короткая команда меню остаётся командой («очередь», «меню»), а длинное — текст:
+  // начавшийся со слова «срок» текст объявления не должен уйти в сроки.
+  if (text && !forwarded && (await pendingFreeNarrationTextWait(agent.id, chatId))) {
+    const words = text.split(/\s+/u).length;
+    if (words <= 2 && parseMontajerText(text).kind !== "status") return false;
+  }
+  if (await handleFreeNarrationMessage(msg, agent, forwarded)) return true;
+  if (forwarded || !text) return false;
+  const lang = await chatLang(chatId);
+  if (looksLikeNarrationDictation(text)) {
+    // Текст часто приходит в кавычках («Озвучь вот этот текст "…"»): кавычки вокруг не читаются.
+    const body = narrationBodyAfterCue(text).replace(/^["«“„']+\s*/u, "").replace(/\s*["»”']+$/u, "").trim();
+    await showVoiceNarrationDraft(chatId, agent.id, body, lang, "TEXT");
+    return true;
+  }
+  if (isBareNarrationAsk(text)) {
+    await sendMessage(chatId, await startFreeNarrationFromAsk(agent.id, chatId, lang));
+    return true;
+  }
+  return false;
 }
