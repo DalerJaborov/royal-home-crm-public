@@ -17,6 +17,7 @@ import {
 } from "@royal-home/shared";
 import type { ConstructionProject, Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
+import { loadRegistrySettings } from "./settings.js";
 
 const COLOR_OUT: Record<"GREEN" | "YELLOW" | "RED", RegistryColor> = { GREEN: "green", YELLOW: "yellow", RED: "red" };
 export const COLOR_DB: Record<RegistryColor, "GREEN" | "YELLOW" | "RED"> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
@@ -148,7 +149,6 @@ export async function loadRegistryBriefs(
 ): Promise<{ briefs: Map<string, RegistryBrief>; updatedAt: Date | null }> {
   const briefs = new Map<string, RegistryBrief>();
   if (properties.length === 0) return { briefs, updatedAt: null };
-  const { loadRegistrySettings } = await import("./sync.js");
   const [settings, updatedAt] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
   if (!settings.enabled || !updatedAt) return { briefs, updatedAt };
   const ids = [...new Set(properties.map((p) => p.id))];

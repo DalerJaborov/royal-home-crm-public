@@ -1,6 +1,6 @@
 import { logSystemError } from "../systemError.js";
 import { autoLinkProperty, type AutoLinkOutcome } from "./link.js";
-import { loadRegistrySettings } from "./sync.js";
+import { loadRegistrySettings } from "./settings.js";
 
 /**
  * ОДНА ДВЕРЬ «ОБЪЕКТ ПОЯВИЛСЯ ИЛИ СМЕНИЛ АДРЕС/ТОЧКУ → СВЕРИТЬ С РЕЕСТРОМ» (21.11.2026, расширено 25.11.2026).

@@ -18,6 +18,7 @@ import { notifyFeedOnly } from "../notifications.js";
 import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { autoLinkAllProperties, LINK_NOTIFY_COOLDOWN_MS } from "./link.js";
 import { COLOR_DB } from "./view.js";
+import { loadRegistrySettings } from "./settings.js";
 import { parseRegistryList, parseRegistryProjectPage, registryProjectUrl, REGISTRY_LIST_URL, type ParsedList, type ParsedProjectPage } from "./parse.js";
 
 export const REGISTRY_USER_AGENT = "RoyalHomeCRM-registry-sync/1.0 (internal use; weekly)";
@@ -72,17 +73,7 @@ export const liveRegistrySource: RegistrySource = {
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 
-export async function loadRegistrySettings(): Promise<{ enabled: boolean; notify: boolean }> {
-  try {
-    const row = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { constructionRegistryEnabled: true, constructionRegistryNotify: true },
-    });
-    return { enabled: row?.constructionRegistryEnabled !== false, notify: row?.constructionRegistryNotify !== false };
-  } catch {
-    return { enabled: true, notify: true };
-  }
-}
+export { loadRegistrySettings };
 
 export interface RegistrySyncResult {
   ok: boolean;

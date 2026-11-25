@@ -3,6 +3,7 @@ import { prisma } from "../../../db.js";
 import { ASSISTANT_REGISTRY_GUIDE } from "../promptSections.js";
 import { autoLinkPropertyById } from "../../../lib/constructionRegistry/autoLinkOnSave.js";
 import { loadRegistryBriefs } from "../../../lib/constructionRegistry/view.js";
+import { loadRegistrySettings } from "../../../lib/constructionRegistry/settings.js";
 
 /**
  * СТРОКА РЕЕСТРА СТРОЕК В ОТВЕТАХ ШАБНАМ ПРО ОБЪЕКТЫ (25.11.2026): find_property, search_properties, get_property_card и
@@ -29,7 +30,6 @@ const withoutLetterIn = (ctx: RegistryNoteContext) => ctx.surface === "telegram-
 /** Раздел промта про реестр, только при включённом рубильнике. Сбой чтения настроек: без раздела. */
 export async function registryPromptGuide(): Promise<string> {
   try {
-    const { loadRegistrySettings } = await import("../../../lib/constructionRegistry/sync.js");
     return (await loadRegistrySettings()).enabled ? ASSISTANT_REGISTRY_GUIDE : "";
   } catch {
     return "";

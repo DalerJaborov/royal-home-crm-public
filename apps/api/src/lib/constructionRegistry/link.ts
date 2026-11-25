@@ -21,6 +21,7 @@ import { notifyFeedOnly } from "../notifications.js";
 import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { logSystemError } from "../systemError.js";
 import { rankCandidates, type PropertyForMatch, type ScoredCandidate } from "./view.js";
+import { loadRegistrySettings } from "./settings.js";
 
 /** Не чаще одного сообщения в сутки про одну связь, из какого бы пути оно ни шло (связали, сменился цвет). */
 export const LINK_NOTIFY_COOLDOWN_MS = 24 * 3_600_000;
@@ -230,7 +231,6 @@ const COLOR_OUT: Record<"GREEN" | "YELLOW" | "RED", RegistryColor> = { GREEN: "g
  */
 export async function notifyRiskyLink(linkId: string, actorId: string | null): Promise<boolean> {
   try {
-    const { loadRegistrySettings } = await import("./sync.js");
     if (!(await loadRegistrySettings()).notify) return false;
     const link = await prisma.constructionPropertyLink.findUnique({
       where: { id: linkId },
