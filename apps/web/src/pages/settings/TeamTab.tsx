@@ -491,7 +491,7 @@ export function AgentsSection() {
         <div className="quiet" role="status" style={{ flexWrap: "wrap", gap: 8, marginBottom: "var(--s3)" }}>
           <span className="dot ok" />
           <span className="txt" style={{ flex: "1 1 240px", whiteSpace: "normal" }}>
-            {justCreated.name} добавлен(а). Подключить к Шабнам? Получите ссылку и перешлите её сотруднику.
+            Сотрудник «{justCreated.name}» заведён. Подключить его к Шабнам? Получите ссылку и перешлите её сотруднику.
           </span>
           <button
             className="pill sm"
