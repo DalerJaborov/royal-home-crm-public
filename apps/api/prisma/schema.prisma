@@ -12109,3 +12109,20 @@ model ConstructionSyncRun {
 
   @@index([startedAt])
 }
+
+/// Файлы клиента, скачанные для сотрудника раньше, чем ядро записало саму реплику
+/// (lib/customerInputMedia.ts, 25.11.2026). Реплика забирает их в той же транзакции,
+/// в которой пишется (customerQualifierLedger.ts); ничьи старше двух суток убирает
+/// ночная уборка вместе с файлами.
+model CustomerPendingMedia {
+  id           String   @id @default(uuid())
+  channel      String
+  subscriberId String
+  mid          String
+  files        Json     @default("[]")
+  lost         Json     @default("[]")
+  createdAt    DateTime @default(now())
+
+  @@unique([channel, subscriberId, mid])
+  @@index([createdAt])
+}

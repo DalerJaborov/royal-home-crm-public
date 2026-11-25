@@ -35,10 +35,11 @@ import type { Request } from "express";
  * двенадцати.
  */
 
-const WINDOW_SEC = 6 * 60 * 60;
+/** Окно 2 часа: адрес неизменен 2 ч, действует от 2 до 4 ч (ревью #428: подпись — пропуск без входа, короче лучше). */
+const WINDOW_SEC = 2 * 60 * 60;
 /** Длина подписи в символах base64url: 22 символа = 132 бита, перебором не подобрать. */
 const SIG_CHARS = 22;
-const DOMAIN = "chat-attachment-link-v1";
+const DOMAIN = "chat-attachment-link-v2";
 
 export const SIGNED_ATTACHMENT_PREFIX = "/api/v1/attachments/s/";
 
@@ -47,8 +48,8 @@ function secret(): string | null {
   return s && s.length >= 16 ? s : null;
 }
 
-function signature(name: string, exp: number, key: string): string {
-  return createHmac("sha256", key).update(JSON.stringify([DOMAIN, name, exp])).digest("base64url").slice(0, SIG_CHARS);
+function signature(name: string, agentId: string, exp: number, key: string): string {
+  return createHmac("sha256", key).update(JSON.stringify([DOMAIN, name, agentId, exp])).digest("base64url").slice(0, SIG_CHARS);
 }
 
 /** Срок действия ссылки, выданной в момент `nowMs` (секунды эпохи). */
@@ -74,15 +75,19 @@ export function chatAttachmentLinks(
   name: string,
   kind: "image" | "audio" | "video" | "file",
   mime: string,
+  /** Кому выдана ссылка: на отдаче проверяется, что учётка ещё активна. */
+  agentId: string,
   nowMs: number = Date.now()
 ): ChatAttachmentLinks | null {
   const key = secret();
-  if (!key) return null;
+  if (!key || !agentId) return null;
   const exp = attachmentLinkExpiry(nowMs);
-  const base = `${SIGNED_ATTACHMENT_PREFIX}${encodeURIComponent(name)}?e=${exp}&k=${signature(name, exp, key)}`;
+  const base = `${SIGNED_ATTACHMENT_PREFIX}${encodeURIComponent(name)}?a=${encodeURIComponent(agentId)}&e=${exp}&k=${signature(name, agentId, exp, key)}`;
   const links: ChatAttachmentLinks = { src: base };
   if (kind === "image") links.thumb = `${base}&v=t`;
-  if (kind === "video" || (kind === "audio" && needsAudioTranscode(mime))) links.play = `${base}&v=p`;
+  // Вид (a/v) — подсказка для перекодировки: webm бывает и голосом, и видео.
+  if (kind === "video") links.play = `${base}&v=p&m=v`;
+  else if (kind === "audio" && needsAudioTranscode(mime)) links.play = `${base}&v=p&m=a`;
   return links;
 }
 
@@ -93,13 +98,13 @@ export function needsAudioTranscode(mime: string): boolean {
 }
 
 /** Подпись верна и не просрочена. Сравнение — за постоянное время. */
-export function verifyAttachmentLink(name: string, exp: number, sig: string, nowMs: number = Date.now()): boolean {
+export function verifyAttachmentLink(name: string, agentId: string, exp: number, sig: string, nowMs: number = Date.now()): boolean {
   const key = secret();
-  if (!key) return false;
+  if (!key || !agentId) return false;
   if (!Number.isInteger(exp) || exp * 1000 <= nowMs) return false;
   // Срок дальше двух окон вперёд не выдаётся никогда — значит, подделан.
   if (exp > attachmentLinkExpiry(nowMs)) return false;
-  const expected = Buffer.from(signature(name, exp, key));
+  const expected = Buffer.from(signature(name, agentId, exp, key));
   const given = Buffer.from(sig);
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
@@ -122,4 +127,15 @@ export function canOpenChatAttachments(
   if (!perms?.has("messages.viewAttachments")) return false;
   if (perms.has("clients.viewAll")) return true;
   return !!clientAssignedAgentId && clientAssignedAgentId === req.agent?.id;
+}
+
+/**
+ * Кому выдавать подписанные ссылки на вложения этого клиента: id сотрудника или
+ * null. Одна дверь для всех мест, где переписка уходит наружу (presentMessages).
+ */
+export function attachmentLinkSigner(
+  req: Pick<Request, "agent">,
+  clientAssignedAgentId: string | null | undefined
+): string | null {
+  return canOpenChatAttachments(req, clientAssignedAgentId) ? req.agent?.id ?? null : null;
 }

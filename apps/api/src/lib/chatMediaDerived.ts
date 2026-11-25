@@ -22,9 +22,17 @@ import { privateDirRoot, privateFilePath, privateMimeType } from "./privateFiles
  *
  * Имя копии: `<имя оригинала>.<вид>.<расширение>` (`…uuid….ogg.p.m4a`) — по нему
  * уборка восстанавливает имя оригинала, не заглядывая в базу.
+ *
+ * ОЧЕРЕДИ (ревью #428). Миниатюры (sharp, миллисекунды) и перекодировка
+ * (ffmpeg, до минут) идут РАЗНЫМИ очередями: долгое видео не держит фото ленты.
+ * ffmpeg — строго по одному. Запрос не ждёт перекодировку дольше
+ * prepareWaitMs(): дальше маршрут отвечает 503 + Retry-After, а работа идёт в
+ * фоне (nginx и Cloudflare рвут запрос через 100–130 с). Неудача помечается
+ * файлом `.fail` на сутки: битый ролик не перекодируется при каждом открытии.
  */
 
 export type DerivedVariant = "thumb" | "play";
+export type MediaKindHint = "audio" | "video";
 
 const DERIVED_SUBDIR = "derived";
 /** Ширина миниатюры: плитка в переписке 180–240 px, ×2 на экранах высокой чёткости. */
@@ -35,14 +43,22 @@ const AUDIO_TIMEOUT_MS = 60_000;
 const VIDEO_TIMEOUT_MS = 240_000;
 /** Предел пикселей для sharp — та же защита от «бомбы» в заголовке, что в heicInput.ts. */
 const MAX_INPUT_PIXELS = 50_000_000;
+/** Сколько помним неудачу перекодировки. */
+const FAIL_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Сколько запрос ждёт готовую копию, прежде чем ответить «готовится». Голос успевает. */
+function prepareWaitMs(): number {
+  const fromEnv = Number(process.env.CHAT_MEDIA_PREPARE_WAIT_MS);
+  return process.env.CHAT_MEDIA_PREPARE_WAIT_MS !== undefined && Number.isFinite(fromEnv) && fromEnv >= 0 ? fromEnv : 8_000;
+}
 
 function derivedDir(): string {
   return path.join(privateDirRoot(), DERIVED_SUBDIR);
 }
 
-const DERIVED_NAME_RE = /^([0-9a-f-]{36}\.[a-z0-9]{2,4})\.(t|p)\.(webp|m4a|mp4)$/i;
+const DERIVED_NAME_RE = /^([0-9a-f-]{36}\.[a-z0-9]{2,4})\.(t|p)\.(webp|m4a|mp4|fail)$/i;
 
-export function derivedName(source: string, variant: DerivedVariant, kind: "image" | "audio" | "video"): string {
+export function derivedName(source: string, variant: DerivedVariant, kind: "image" | MediaKindHint): string {
   if (variant === "thumb") return `${source}.t.webp`;
   return `${source}.p.${kind === "audio" ? "m4a" : "mp4"}`;
 }
@@ -53,7 +69,13 @@ export function derivedMime(name: string): string {
   return "video/mp4";
 }
 
-function kindOfSource(source: string): "image" | "audio" | "video" | "file" {
+/**
+ * Вид оригинала. По расширению — кроме webm: им бывает и голосовое, и видео
+ * (privateMimeType отдаёт для .webm audio/webm). Для него решает подсказка из
+ * самого вложения (`m=a|v` в ссылке, её кладёт сервер по kind реплики).
+ */
+function kindOfSource(source: string, hint?: MediaKindHint): "image" | "audio" | "video" | "file" {
+  if (source.toLowerCase().endsWith(".webm") && hint) return hint;
   const mime = privateMimeType(source);
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("audio/")) return "audio";
@@ -61,104 +83,138 @@ function kindOfSource(source: string): "image" | "audio" | "video" | "file" {
   return "file";
 }
 
-/**
- * Очередь тяжёлой работы — по одной за раз. API живёт в одном процессе с
- * переписками, телефонией и живыми событиями; две перекодировки видео разом на
- * сервере с несколькими ядрами заметно тормозили бы всех. Одинаковые запросы
- * (браузер на iPhone шлёт по видео два-три запроса подряд) ждут одно и то же
- * задание, а не ставят своё.
- */
-let chain: Promise<unknown> = Promise.resolve();
-const inFlight = new Map<string, Promise<string | null>>();
-
-function enqueue(key: string, job: () => Promise<string | null>): Promise<string | null> {
-  const existing = inFlight.get(key);
-  if (existing) return existing;
-  const run = chain.then(job, job);
-  const tracked = run.finally(() => inFlight.delete(key));
-  inFlight.set(key, tracked);
-  chain = run.catch(() => undefined);
-  return tracked;
+/** Простая очередь с потолком одновременных задач. */
+function makeQueue(concurrency: number) {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async function run<T>(job: () => Promise<T>): Promise<T> {
+    if (active >= concurrency) await new Promise<void>((resolve) => waiting.push(resolve));
+    active++;
+    try {
+      return await job();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
 }
 
-/** Готовая копия на диске или null, если её ещё нет. */
+const thumbQueue = makeQueue(2);
+const transcodeQueue = makeQueue(1);
+const inFlight = new Map<string, Promise<string | null>>();
+
 function existingDerived(name: string): string | null {
   const full = path.join(derivedDir(), name);
   return fs.existsSync(full) ? full : null;
 }
 
+export function derivedFailMarker(name: string): string {
+  return path.join(derivedDir(), name.replace(/\.(webp|m4a|mp4)$/i, ".fail"));
+}
+
+function recentlyFailed(name: string): boolean {
+  try {
+    return Date.now() - fs.statSync(derivedFailMarker(name)).mtimeMs < FAIL_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
 export class DerivedMediaUnavailable extends Error {
-  constructor(readonly reason: "disabled" | "unsupported" | "too_big" | "failed") {
+  constructor(readonly reason: "disabled" | "unsupported" | "too_big" | "failed" | "preparing") {
     super(reason);
   }
 }
 
+async function build(sourcePath: string, name: string, variant: DerivedVariant, kind: "image" | MediaKindHint): Promise<string | null> {
+  const again = existingDerived(name);
+  if (again) return again;
+  await fs.promises.mkdir(derivedDir(), { recursive: true });
+  const target = path.join(derivedDir(), name);
+  // Пишем во временный файл и переименовываем: обрыв на середине не оставит
+  // полупустую копию, которую следующий запрос принял бы за готовую.
+  const tmp = path.join(derivedDir(), `.tmp-${randomUUID()}${path.extname(name)}`);
+  try {
+    if (variant === "thumb") {
+      await sharp(sourcePath, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
+        .rotate()
+        .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+        .webp({ quality: 72 })
+        .toFile(tmp);
+    } else if (kind === "audio") {
+      await runFfmpeg({
+        label: "голосовое для браузера",
+        timeoutMs: AUDIO_TIMEOUT_MS,
+        args: ["-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-i", sourcePath,
+          "-vn", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", "-f", "mp4", tmp],
+      });
+    } else {
+      await runFfmpeg({
+        label: "видео для браузера",
+        timeoutMs: VIDEO_TIMEOUT_MS,
+        args: ["-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-i", sourcePath,
+          "-map", "0:v:0", "-map", "0:a:0?",
+          "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-f", "mp4", tmp],
+      });
+    }
+    await fs.promises.rename(tmp, target);
+    return target;
+  } catch (err) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
+    if (variant === "play") await fs.promises.writeFile(derivedFailMarker(name), "").catch(() => {});
+    // Имя файла — наш uuid, не данные клиента; подписанной ссылки здесь нет.
+    void logSystemError("api", `Копия вложения переписки не сделана (${variant}, ${kind}): ${describeError(err)}`, {
+      dedupKey: `chat-media-derived:${variant}:${kind}`,
+    });
+    return null;
+  }
+}
+
 /**
- * Путь к производной копии; делает её, если ещё нет. Бросает
- * DerivedMediaUnavailable, когда копии не будет (выключено, не тот вид файла,
- * слишком большой, ffmpeg/sharp не справились) — маршрут отвечает понятным
- * кодом, а интерфейс показывает пометку и кнопку «Скачать».
+ * Путь к производной копии; ставит её в работу, если ещё нет. Бросает
+ * DerivedMediaUnavailable, когда отдать нечего: выключено, не тот вид файла,
+ * слишком большой, не вышло (помечено на сутки) или ещё готовится (`preparing` —
+ * маршрут отвечает 503 + Retry-After, работа идёт дальше в фоне).
  */
-export async function ensureDerived(source: string, variant: DerivedVariant): Promise<string> {
+export async function ensureDerived(source: string, variant: DerivedVariant, hint?: MediaKindHint): Promise<string> {
   const sourcePath = privateFilePath(source);
   if (!sourcePath) throw new DerivedMediaUnavailable("unsupported");
-  const kind = kindOfSource(source);
+  const kind = kindOfSource(source, hint);
   if (variant === "thumb" ? kind !== "image" : kind !== "audio" && kind !== "video") {
     throw new DerivedMediaUnavailable("unsupported");
   }
-  const name = derivedName(source, variant, kind as "image" | "audio" | "video");
+  const name = derivedName(source, variant, kind as "image" | MediaKindHint);
   const ready = existingDerived(name);
   if (ready) return ready;
 
-  if (variant === "play" && !(await automationSwitchOn("chatMediaTranscodeEnabled"))) {
-    throw new DerivedMediaUnavailable("disabled");
+  if (variant === "play") {
+    if (recentlyFailed(name)) throw new DerivedMediaUnavailable("failed");
+    if (!(await automationSwitchOn("chatMediaTranscodeEnabled"))) throw new DerivedMediaUnavailable("disabled");
+    const size = (await fs.promises.stat(sourcePath)).size;
+    if (size > MAX_TRANSCODE_SOURCE_BYTES) throw new DerivedMediaUnavailable("too_big");
   }
-  const size = (await fs.promises.stat(sourcePath)).size;
-  if (variant === "play" && size > MAX_TRANSCODE_SOURCE_BYTES) throw new DerivedMediaUnavailable("too_big");
 
-  const made = await enqueue(name, async () => {
-    const again = existingDerived(name);
-    if (again) return again;
-    await fs.promises.mkdir(derivedDir(), { recursive: true });
-    const target = path.join(derivedDir(), name);
-    // Пишем во временный файл и переименовываем: обрыв на середине не оставит
-    // полупустую копию, которую следующий запрос принял бы за готовую.
-    const tmp = path.join(derivedDir(), `.tmp-${randomUUID()}${path.extname(name)}`);
-    try {
-      if (variant === "thumb") {
-        await sharp(sourcePath, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
-          .rotate()
-          .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-          .webp({ quality: 72 })
-          .toFile(tmp);
-      } else if (kind === "audio") {
-        await runFfmpeg({
-          label: "голосовое для браузера",
-          timeoutMs: AUDIO_TIMEOUT_MS,
-          args: ["-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-i", sourcePath,
-            "-vn", "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", "-f", "mp4", tmp],
-        });
-      } else {
-        await runFfmpeg({
-          label: "видео для браузера",
-          timeoutMs: VIDEO_TIMEOUT_MS,
-          args: ["-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-i", sourcePath,
-            "-map", "0:v:0", "-map", "0:a:0?",
-            "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-f", "mp4", tmp],
-        });
-      }
-      await fs.promises.rename(tmp, target);
-      return target;
-    } catch (err) {
-      await fs.promises.rm(tmp, { force: true }).catch(() => {});
-      // Имя файла — наш uuid, не данные клиента; подписанной ссылки здесь нет.
-      void logSystemError("api", `Копия вложения переписки не сделана (${variant}, ${kind}): ${describeError(err)}`, {
-        dedupKey: `chat-media-derived:${variant}:${kind}`,
-      });
-      return null;
-    }
-  });
+  let job = inFlight.get(name);
+  if (!job) {
+    const queue = variant === "thumb" ? thumbQueue : transcodeQueue;
+    job = queue(() => build(sourcePath, name, variant, kind as "image" | MediaKindHint)).finally(() => inFlight.delete(name));
+    inFlight.set(name, job);
+  }
+  if (variant === "thumb") {
+    const made = await job;
+    if (!made) throw new DerivedMediaUnavailable("failed");
+    return made;
+  }
+  const waitMs = prepareWaitMs();
+  let timer: NodeJS.Timeout | undefined;
+  const made = await Promise.race([
+    job,
+    new Promise<"waiting">((r) => {
+      timer = setTimeout(() => r("waiting"), waitMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+  if (made === "waiting") throw new DerivedMediaUnavailable("preparing");
   if (!made) throw new DerivedMediaUnavailable("failed");
   return made;
 }
@@ -169,8 +225,8 @@ export interface DerivedCleanupResult {
 }
 
 /**
- * Уборка копий: копия удаляется, когда оригинала больше нет (его стёрла уборка
- * по сроку или удалили руками), и брошенные временные файлы старше суток.
+ * Уборка копий: копия и отметка неудачи удаляются, когда оригинала больше нет;
+ * отметки неудачи и брошенные временные файлы — ещё и через сутки.
  * Только подкаталог `derived/`, только обычные файлы, только наши имена.
  */
 export function cleanupDerivedChatMedia(options?: { maxDeletions?: number }): DerivedCleanupResult {
@@ -183,7 +239,14 @@ export function cleanupDerivedChatMedia(options?: { maxDeletions?: number }): De
   } catch {
     return result; // каталога ещё нет — убирать нечего
   }
-  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const dayAgo = Date.now() - FAIL_TTL_MS;
+  const olderThanDay = (full: string) => {
+    try {
+      return fs.lstatSync(full).mtimeMs < dayAgo;
+    } catch {
+      return false;
+    }
+  };
   for (const entry of entries) {
     if (result.deleted >= cap) break;
     if (!entry.isFile()) {
@@ -197,18 +260,14 @@ export function cleanupDerivedChatMedia(options?: { maxDeletions?: number }): De
     }
     let remove = false;
     if (entry.name.startsWith(".tmp-")) {
-      try {
-        remove = fs.lstatSync(full).mtimeMs < dayAgo;
-      } catch {
-        remove = false;
-      }
+      remove = olderThanDay(full);
     } else {
       const m = DERIVED_NAME_RE.exec(entry.name);
       if (!m) {
         result.kept++;
         continue;
       }
-      remove = !privateFilePath(m[1]);
+      remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === "fail" && olderThanDay(full));
     }
     if (!remove) {
       result.kept++;

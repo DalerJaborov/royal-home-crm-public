@@ -44,18 +44,44 @@ describe("MessageAttachments: прямые ссылки", () => {
     await vi.waitFor(() => expect(apiCalls).toEqual(["/attachments/a.jpg"]));
   });
 
-  it("видео: preload=metadata по прямой ссылке; ошибка оригинала — версия для браузера", () => {
-    const { container } = render(
-      <MessageAttachments attachments={[{ kind: "video", mime: "video/quicktime", file: "v.mov", src: SRC, play: `${SRC}&v=p` }]} />
-    );
-    const video = container.querySelector("video")!;
-    expect(video.getAttribute("src")).toBe(SRC);
-    expect(video.getAttribute("preload")).toBe("metadata");
-    fireEvent.error(video);
-    expect(container.querySelector("video")!.getAttribute("src")).toBe(`${SRC}&v=p`);
-    fireEvent.error(container.querySelector("video")!);
-    expect(screen.getByText(/Видео не воспроизводится/)).toBeTruthy();
-    expect(apiCalls).toEqual([]);
+  it("видео: preload=metadata; ошибка оригинала — «готовим», 503 повторяется, потом версия для браузера", async () => {
+    const statuses = [503, 200];
+    const fetchMock = vi.fn(async () => {
+      const status = statuses.shift() ?? 200;
+      return { ok: status === 200, status, headers: new Headers({ "Retry-After": "2" }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = render(
+        <MessageAttachments attachments={[{ kind: "video", mime: "video/quicktime", file: "v.mov", src: SRC, play: `${SRC}&v=p` }]} />
+      );
+      const video = container.querySelector("video")!;
+      expect(video.getAttribute("src")).toBe(SRC);
+      expect(video.getAttribute("preload")).toBe("metadata");
+      fireEvent.error(video);
+      await vi.waitFor(() => expect(screen.getByText(/Готовим видео/)).toBeTruthy());
+      await vi.advanceTimersByTimeAsync(2500);
+      await vi.waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe(`${SRC}&v=p`));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      fireEvent.error(container.querySelector("video")!);
+      expect(screen.getByText(/Видео не воспроизводится/)).toBeTruthy();
+      expect(apiCalls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("новая подпись той же ссылки не перезапускает идущее видео; новый файл — с начала", () => {
+    const one = { kind: "video" as const, mime: "video/mp4", file: "v.mp4", src: `${SRC}&n=1` };
+    const { container, rerender } = render(<MessageAttachments attachments={[one]} />);
+    const first = container.querySelector("video")!;
+    rerender(<MessageAttachments attachments={[{ ...one, src: `${SRC}&n=2` }]} />);
+    expect(container.querySelector("video")).toBe(first);
+    expect(first.getAttribute("src")).toBe(`${SRC}&n=1`);
+    rerender(<MessageAttachments attachments={[{ ...one, file: "w.mp4", src: `${SRC}&n=3` }]} />);
+    expect(container.querySelector("video")!.getAttribute("src")).toBe(`${SRC}&n=3`);
   });
 
   it("без src (нет права на прямую ссылку) — прежний путь, как раньше", async () => {

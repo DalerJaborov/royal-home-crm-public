@@ -14,8 +14,9 @@ import type { FetchedAttachments } from "../src/messengers/attachments.js";
  * квалификатор — все три писали в историю только текст или метку
  * «[вложение без текста]», а файл не качался вовсе.
  *
- * Скачивание подменено: проверяем сохранение, привязку к реплике по mid, ожидание
- * реплики, которую ядро пишет позже, пометку с причиной и отсутствие дублей.
+ * Ревью #428: ожидание реплики больше не живёт в памяти. Реплики нет — файлы ждут
+ * в CustomerPendingMedia, и ledger забирает их в своей транзакции. Проверяем оба
+ * порядка, повтор вебхука и уборку ничьих.
  */
 
 const fetched = vi.hoisted(() => ({ value: null as unknown }));
@@ -24,7 +25,9 @@ vi.mock("../src/messengers/attachments.js", async (importOriginal) => {
   return { ...actual, fetchAttachments: vi.fn(async () => fetched.value) };
 });
 
-const { keepCustomerInputMedia, KEEP_MAX_FILES } = await import("../src/lib/customerInputMedia.js");
+const { keepCustomerInputMedia, takePendingCustomerMedia, cleanupStalePendingCustomerMedia, KEEP_MAX_FILES } = await import(
+  "../src/lib/customerInputMedia.js"
+);
 
 const runId = Date.now().toString(36);
 const createdConversationIds: string[] = [];
@@ -47,6 +50,14 @@ async function entry(conversationId: string, mid: string) {
   return (row.messages as Array<Record<string, unknown>>).find((m) => m.mid === mid)!;
 }
 
+async function pendingRows(channel: string, sub: string, mid: string) {
+  return prisma.customerPendingMedia.findMany({ where: { channel, subscriberId: sub, mid } });
+}
+
+function filesOf(raw: unknown): string[] {
+  return (raw as Array<{ file: string }>).map((f) => f.file);
+}
+
 beforeEach(async () => {
   fetched.value = {
     images: [{ kind: "image", mediaType: "image/jpeg", data: await jpegBase64() }],
@@ -58,6 +69,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await prisma.customerPendingMedia.deleteMany({ where: { subscriberId: { contains: runId } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: createdConversationIds } } });
   for (const f of savedFiles) {
     const full = privateFilePath(f);
@@ -67,7 +79,7 @@ afterAll(async () => {
 
 describe("Файл клиента — сотруднику, в любом пути записи реплики", () => {
   for (const channel of ["WHATSAPP", "INSTAGRAM", "FACEBOOK"]) {
-    it(`${channel}: реплика-метка получает файл и пометку о несохранённом видео`, async () => {
+    it(`${channel}: реплика уже записана (ход удержан) — файл и пометка ложатся в неё сразу`, async () => {
       const sub = `keep-${channel}-${runId}`;
       const mid = `mid-${channel}-${runId}`;
       const id = await conversationWith(channel, sub, [
@@ -77,32 +89,46 @@ describe("Файл клиента — сотруднику, в любом пут
       const result = await keepCustomerInputMedia({ channel, subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }, { url: "https://cdn.example/b.mp4" }] });
       expect(result).toBe("attached");
       const e = await entry(id, mid);
-      const atts = e.attachments as Array<{ kind: string; file: string }>;
-      expect(atts).toHaveLength(1);
-      expect(atts[0].kind).toBe("image");
-      savedFiles.push(atts[0].file);
-      expect(privateFilePath(atts[0].file)).toBeTruthy();
+      const names = filesOf(e.attachments);
+      expect(names).toHaveLength(1);
+      savedFiles.push(...names);
+      expect(privateFilePath(names[0])).toBeTruthy();
       expect(e.attachmentsLost).toEqual([{ kind: "video", reason: "too_big" }]);
-
-      // Экран: фото есть, на месте видео — пометка с причиной; метка «без текста» скрывается (hasAttachments).
+      expect(await pendingRows(channel, sub, mid)).toHaveLength(0);
       const [shown] = presentMessages([e], true, true);
       expect(shown.attachments?.map((a) => a.lost ?? a.kind)).toEqual(["image", "too_big"]);
     });
   }
 
-  it("реплику ядро пишет позже — файл ждёт её и прикрепляется", async () => {
-    const sub = `keep-late-${runId}`;
-    const mid = `mid-late-${runId}`;
-    const id = await conversationWith("WHATSAPP", sub, [{ role: "user", content: "до", mid: `other-${runId}` }]);
-    const pending = keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] });
-    await new Promise((r) => setTimeout(r, 400));
-    const row = await prisma.botConversation.findUniqueOrThrow({ where: { id }, select: { messages: true } });
-    await prisma.botConversation.update({ where: { id }, data: { messages: [...(row.messages as unknown[]), { role: "user", content: "[вложение без текста]", mid }] as never } });
-    expect(await pending).toBe("attached");
-    const atts = (await entry(id, mid)).attachments as Array<{ file: string }>;
-    savedFiles.push(atts[0].file);
-    expect(atts).toHaveLength(1);
-  }, 20_000);
+  it("ядро (dm_lane_core): реплики ещё нет — файл ждёт в базе, ledger забирает его в своей транзакции", async () => {
+    const sub = `keep-core-${runId}`;
+    const mid = `mid-core-${runId}`;
+    await conversationWith("WHATSAPP", sub, [{ role: "user", content: "до", mid: `other-${runId}` }]);
+    expect(await keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    const [row] = await pendingRows("WHATSAPP", sub, mid);
+    const [file] = filesOf(row.files);
+    savedFiles.push(file);
+    // Перезапуск API здесь ничего не меняет: ждут строка в базе и файл на диске.
+    expect(privateFilePath(file)).toBeTruthy();
+    const taken = await prisma.$transaction((tx) => takePendingCustomerMedia(tx, "WHATSAPP", sub, mid));
+    expect(taken?.attachments?.[0].file).toBe(file);
+    expect(taken?.attachmentsLost).toEqual([{ kind: "video", reason: "too_big" }]);
+    expect(await pendingRows("WHATSAPP", sub, mid)).toHaveLength(0);
+  });
+
+  it("повтор вебхука до записи реплики: строка ожидания одна, лишние копии удалены", async () => {
+    const sub = `keep-dup-pending-${runId}`;
+    const mid = `mid-dup-pending-${runId}`;
+    await conversationWith("INSTAGRAM", sub, []);
+    expect(await keepCustomerInputMedia({ channel: "INSTAGRAM", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    const [first] = filesOf((await pendingRows("INSTAGRAM", sub, mid))[0].files);
+    savedFiles.push(first);
+    const dir = path.dirname(privateFilePath(first)!);
+    const before = fs.readdirSync(dir).length;
+    expect(await keepCustomerInputMedia({ channel: "INSTAGRAM", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    expect(await pendingRows("INSTAGRAM", sub, mid)).toHaveLength(1);
+    expect(fs.readdirSync(dir).length).toBe(before);
+  });
 
   it("старый путь уже сохранил вложения — не перезаписываем и не копим дубль на диске", async () => {
     const sub = `keep-dup-${runId}`;
@@ -110,30 +136,53 @@ describe("Файл клиента — сотруднику, в любом пут
     const id = await conversationWith("INSTAGRAM", sub, [
       { role: "user", content: "[📷]", mid, attachments: [{ kind: "image", file: "00000000-0000-0000-0000-000000000000.jpg", mime: "image/jpeg" }] },
     ]);
-    const before = fs.readdirSync(path.dirname(privateFilePath(savedFiles[0])!)).length;
+    const dir = path.dirname(privateFilePath(savedFiles[0])!);
+    const before = fs.readdirSync(dir).length;
     expect(await keepCustomerInputMedia({ channel: "INSTAGRAM", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("already");
-    expect(fs.readdirSync(path.dirname(privateFilePath(savedFiles[0])!)).length).toBe(before);
+    expect(fs.readdirSync(dir).length).toBe(before);
     expect(((await entry(id, mid)).attachments as unknown[]).length).toBe(1);
+    expect(await pendingRows("INSTAGRAM", sub, mid)).toHaveLength(0);
   });
 
-  it("потолок сохранения — десять файлов, а не три, как у модели", () => {
+  it("ничья строка ожидания старше двух суток убирается вместе с файлом", async () => {
+    const sub = `keep-stale-${runId}`;
+    const mid = `mid-stale-${runId}`;
+    await conversationWith("WHATSAPP", sub, []);
+    expect(await keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    const [row] = await pendingRows("WHATSAPP", sub, mid);
+    const [file] = filesOf(row.files);
+    await prisma.customerPendingMedia.update({ where: { id: row.id }, data: { createdAt: new Date(Date.now() - 3 * 24 * 3600 * 1000) } });
+    const { deleted } = await cleanupStalePendingCustomerMedia();
+    expect(deleted).toBeGreaterThanOrEqual(1);
+    expect(await pendingRows("WHATSAPP", sub, mid)).toHaveLength(0);
+    expect(privateFilePath(file)).toBeNull();
+  });
+
+  it("потолок сохранения — десять файлов, а не три, как у модели; лишние — «слишком много за раз»", async () => {
     expect(KEEP_MAX_FILES).toBe(10);
+    const sub = `keep-many-${runId}`;
+    const mid = `mid-many-${runId}`;
+    const id = await conversationWith("INSTAGRAM", sub, [{ role: "user", content: "", mid }]);
+    const sources = Array.from({ length: 12 }, (_, i) => ({ url: `https://cdn.example/${i}.jpg` }));
+    expect(await keepCustomerInputMedia({ channel: "INSTAGRAM", subscriberId: sub, mid, sources })).toBe("attached");
+    const e = await entry(id, mid);
+    savedFiles.push(...filesOf(e.attachments));
+    expect((e.attachmentsLost as Array<{ reason: string }>).filter((l) => l.reason === "too_many")).toHaveLength(2);
   });
 });
 
 describe("Сторож класса: каждая запись входящего мимо старого цикла сохраняет файл", () => {
-  it("рядом с каждым recordScopedCustomerInput стоит keepIncomingMediaForStaff (кроме ядра — там файл сохраняется на входе)", () => {
+  it("рядом с каждым recordScopedCustomerInput стоит keepIncomingMediaForStaff, а ledger забирает ждущие файлы", () => {
     const src = path.resolve(__dirname, "../src");
-    const files = ["messengers/conversation.ts", "messengers/customerQualifierTurn.ts"];
-    for (const f of files) {
+    for (const f of ["messengers/conversation.ts", "messengers/customerQualifierTurn.ts"]) {
       const text = fs.readFileSync(path.join(src, f), "utf8");
       const calls = text.split("await recordScopedCustomerInput(").length - 1;
       const keeps = text.split("keepIncomingMediaForStaff(input)").length - 1;
       expect({ f, keeps: keeps >= calls }).toEqual({ f, keeps: true });
     }
-    // Ядро (lib/customerDmCoreContext.ts) записывает реплику позже; его файл сохраняется
-    // в conversation.ts на ветке dm_lane_core — там же, где ход отдаётся ядру.
     const conv = fs.readFileSync(path.join(src, "messengers/conversation.ts"), "utf8");
     expect(conv).toMatch(/keepIncomingMediaForStaff\(input\);\s*\n\s*traceNoReply\("dm_lane_core"\)/);
+    const ledger = fs.readFileSync(path.join(src, "lib/customerQualifierLedger.ts"), "utf8");
+    expect(ledger).toMatch(/await takePendingCustomerMedia\(tx, evidence\.channel, evidence\.peer, evidence\.eventId\)/);
   });
 });

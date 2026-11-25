@@ -33,7 +33,7 @@ import { logAudit } from "../lib/audit.js";
 import { loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { TG_PREFIX } from "./conversations.js";
 import { presentMessages } from "../lib/messageAttachments.js";
-import { canOpenChatAttachments } from "../lib/chatAttachmentLinks.js";
+import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { can } from "../auth/middleware.js";
 import { normalizeCandidatePhone } from "../lib/candidatePhone.js";
 import { jobMissingFacts, jobPriority, jobPriorityReason, jobRejectReasons } from "../ai/jobApplication.js";
@@ -620,7 +620,7 @@ vacanciesRouter.get("/:id/conversation", requireAuth, requirePermission("vacanci
   // Прямые ссылки на файлы — тем же правилом, что маршрут выдачи файла: по
   // клиенту САМОГО диалога (raw.clientId); диалог без клиента — только clients.viewAll.
   const conversationOwner = clientCards.find((c) => c.id === raw.clientId && !c.deletedAt);
-  const signedLinks = canOpenChatAttachments(req, conversationOwner ? conversationOwner.assignedAgentId : undefined);
+  const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefined);
   const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLinks).slice(
     -CONVERSATION_TAIL
   );

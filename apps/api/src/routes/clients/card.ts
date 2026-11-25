@@ -42,7 +42,7 @@ import { cardWhereFromParam } from "../../lib/cardIdParam.js";
 import { conductedShowingWhere } from "../../lib/conductedShowing.js";
 import { loadClientAnchorFacts } from "../../lib/sellerPropertyAnchor.js";
 import { presentMessages, type PresentedMessage } from "../../lib/messageAttachments.js";
-import { canOpenChatAttachments } from "../../lib/chatAttachmentLinks.js";
+import { attachmentLinkSigner } from "../../lib/chatAttachmentLinks.js";
 import type { MessageSender } from "@royal-home/shared";
 import { presentInteractions, transcriptAccess } from "../../lib/callTranscripts.js";
 import { incomingInteractionIds } from "../../lib/telephony/incomingInteractions.js";
@@ -342,7 +342,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   const phonesAllowed = can(req, "clients.viewPhone");
   // Прямые подписанные ссылки на фото/видео/голосовые (25.11.2026) — тем же
   // правилом, что у маршрута выдачи файла: право + свой клиент или clients.viewAll.
-  const signedLinks = canOpenChatAttachments(req, client.assignedAgentId);
+  const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);
 
   // ЯВНОЕ ПРЕДЛОЖЕНИЕ «ПОЛУЧИТЬ КАК 7-ГО КЛИЕНТА» (Путь покупателя, п.5.2):
   // процент совпадения не хранится на клиенте (только текстом в хронологии,

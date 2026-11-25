@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Clock, FileText, ImageOff, Lock, Mic, X } from "lucide-react";
 import { whereToLook } from "@royal-home/shared";
-import { browserPlays, useAttachmentUrl } from "../lib/attachmentUrl";
+import { browserPlays, useAttachmentUrl, usePlayableUrl } from "../lib/attachmentUrl";
 import type { MessageAttachment } from "../types";
 import { RhAudioPlayer } from "./look/RhAudioPlayer";
 
@@ -85,6 +85,7 @@ const LOST_WHAT: Record<string, string> = { image: "фото", audio: "голо�
 const LOST_WHY: Record<string, string> = {
   unsupported: "формат CRM не открывает",
   failed: "не скачалось",
+  too_many: "слишком много файлов за раз",
 };
 const LOST_LIMIT: Record<string, string> = {
   image: "больше 5 МБ",
@@ -125,19 +126,43 @@ function AttachmentItem({
    * Прямая ссылка не сработала (устарела, сеть) — один раз прежним путём:
    * скачать с заголовком Authorization.
    */
-  const direct = !attachment.url && !!attachment.src;
-  const [directBroken, setDirectBroken] = useState(false);
-  const useDirect = direct && !directBroken;
+  /**
+   * УСТОЙЧИВЫЕ ССЫЛКИ (ревью #428). Переписка опрашивается, и раз в два часа сервер
+   * выдаёт ту же ссылку с новой подписью. Менять `src` у идущего видео нельзя — оно
+   * начнётся сначала. Поэтому держим первую выданную ссылку на ЭТОТ файл и берём
+   * новую только когда старая не открылась (подпись истекла). Новый файл (другое
+   * вложение на том же месте) — всё с начала: и ссылки, и состояние видео.
+   */
+  const fileKey = attachment.file ?? attachment.url ?? "";
+  const [links, setLinks] = useState({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+  const [videoStep, setVideoStep] = useState<"original" | "play" | "broken">("original");
+  if (links.key !== fileKey) {
+    setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+    setVideoStep("original");
+  }
+  /** Прямая ссылка не открылась: есть свежая подпись — берём её, иначе прежний путь. */
+  const onDirectError = () => {
+    if (attachment.src && attachment.src !== links.src) {
+      setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+    } else {
+      setLinks((l) => ({ ...l, broken: true }));
+    }
+  };
+  const direct = !attachment.url && !!links.src;
+  const useDirect = direct && !links.broken;
   // Фотография объекта, которую отправил бот, лежит в открытой папке /uploads и
   // подставляется в <img> напрямую — качать её через маршрут с правом не нужно.
   const stored = useAttachmentUrl(attachment.url || useDirect || attachment.lost ? null : attachment.file);
   const isImage = attachment.kind === "image";
-  const fullUrl = attachment.url ?? (useDirect ? attachment.src ?? null : stored.url);
-  const url = attachment.url ?? (useDirect ? (isImage ? attachment.thumb ?? attachment.src ?? null : attachment.src ?? null) : stored.url);
+  const fullUrl = attachment.url ?? (useDirect ? links.src ?? null : stored.url);
+  const url = attachment.url ?? (useDirect ? (isImage ? links.thumb ?? links.src ?? null : links.src ?? null) : stored.url);
   const failed = attachment.url || useDirect ? false : stored.failed;
   const [zoomed, setZoomed] = useState(false);
-  // Видео: сперва оригинал, не сыгралось (MOV/HEVC на ПК) — версия для браузера.
-  const [videoStep, setVideoStep] = useState<"original" | "play" | "broken">("original");
+  // Голосовое ogg/opus, которое этот браузер не играет, — сразу версия m4a.
+  const audioNeedsPlay = attachment.kind === "audio" && useDirect && !!links.play && !browserPlays(attachment.mime);
+  // Версия для браузера готовится на сервере (503 + Retry-After) — ждём её, а не
+  // подсовываем плееру адрес, который пока отвечает ошибкой.
+  const playable = usePlayableUrl(links.play ?? null, (attachment.kind === "video" && videoStep === "play") || audioNeedsPlay);
 
   // Клиент прислал, а сохранить не вышло — честная причина, а не пустота.
   if (attachment.lost) {
@@ -203,7 +228,7 @@ function AttachmentItem({
             loading="lazy"
             decoding="async"
             onError={() => {
-              if (useDirect) setDirectBroken(true);
+              if (useDirect) onDirectError();
             }}
           />
         </button>
@@ -232,10 +257,24 @@ function AttachmentItem({
         </Note>
       );
     }
-    const videoSrc = videoStep === "play" && attachment.play ? attachment.play : url;
+    if (videoStep === "play" && playable.state !== "ready") {
+      if (playable.state === "failed") {
+        return (
+          <Note icon={ImageOff} rh2={rh2}>
+            Видео не воспроизводится в браузере.{" "}
+            <a href={fullUrl} download style={{ textDecoration: "underline" }}>
+              Скачать
+            </a>
+          </Note>
+        );
+      }
+      return <Note icon={Clock} rh2={rh2}>Готовим видео для браузера…</Note>;
+    }
+    const videoSrc = videoStep === "play" && links.play ? links.play : url;
     return (
       <video
-        key={videoSrc}
+        // Ключ — файл и шаг, а не адрес: новая подпись той же ссылки не перезапускает ролик.
+        key={`${fileKey}:${videoStep}`}
         src={videoSrc}
         controls
         // metadata, а не none: по прямой ссылке браузер берёт только заголовок
@@ -244,7 +283,7 @@ function AttachmentItem({
         preload={useDirect ? "metadata" : "none"}
         playsInline
         onError={() => {
-          if (videoStep === "original" && useDirect && attachment.play) setVideoStep("play");
+          if (videoStep === "original" && useDirect && links.play) setVideoStep("play");
           else if (useDirect) setVideoStep("broken");
         }}
         className={rh2 ? undefined : "rounded-lg border border-line max-w-[240px] w-full"}
@@ -285,8 +324,20 @@ function AttachmentItem({
   // Голосовое WhatsApp/Telegram — ogg/opus; Safari старше iOS 18.4 его не играет.
   // Браузер честно говорит это заранее (canPlayType) — тогда сразу версия m4a,
   // иначе оригинал, а m4a — запасной путь на ошибку плеера.
-  const audioSrc = useDirect && attachment.play && !browserPlays(attachment.mime) ? attachment.play : url;
-  const audioFallback = useDirect && attachment.play && audioSrc !== attachment.play ? attachment.play : undefined;
+  if (audioNeedsPlay && playable.state !== "ready") {
+    return playable.state === "failed" ? (
+      <Note icon={ImageOff} rh2={rh2}>
+        Голосовое не воспроизводится в этом браузере.{" "}
+        <a href={fullUrl} download style={{ textDecoration: "underline" }}>
+          Скачать
+        </a>
+      </Note>
+    ) : (
+      <Note icon={Clock} rh2={rh2}>Готовим голосовое…</Note>
+    );
+  }
+  const audioSrc = audioNeedsPlay && links.play ? links.play : url;
+  const audioFallback = useDirect && links.play && audioSrc !== links.play ? links.play : undefined;
   return (
     /**
      * ГОЛОСОВОЕ ДОЛЖНО БЫТЬ ЯВНО СЛЫШНО, А НЕ ТОЛЬКО ПРОЧИТАНО (16.08.2026, по

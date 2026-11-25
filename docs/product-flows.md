@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4187**. Модулей: **87**.
+Путей: **775**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4190**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1554,7 +1554,12 @@
   · проверяет данные схемой paramsSchema
 - const query = signedQuerySchema.safeParse(req.query);
   · проверяет данные схемой signedQuerySchema
-- если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.e, query.data.k)
+- если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…
+  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- const access = await loadAgentAccess(query.data.a).catch(()
+  · зовёт loadAgentAccess()
+- если !access?.isActive || !access.permissions.has("messages.viewAttachments")
   - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
     · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
 - const fullPath = privateFilePath(params.data.name);
@@ -1566,7 +1571,7 @@
   · зовёт privateMimeType()
 - если query.data.v
   - пробует
-    - servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play");
+    - servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play", hint);
       · зовёт ensureDerived()
     - mime = derivedMime(servePath);
       · зовёт derivedMime()
@@ -1575,6 +1580,13 @@
       - servePath = fullPath;
         · дословно из кода
     - иначе
+      - если reason === "preparing"
+        - res.setHeader("Retry-After", "5");
+          · ставит заголовок ответа
+        - res.setHeader("Cache-Control", "no-store");
+          · ставит заголовок ответа
+        - return res.status(503).json({ error: "Готовим файл для браузера", reason });
+          · ответ 503 — «Готовим файл для браузера»
       - return res.status(reason === "disabled" ? 404 : 422).json({ error: reason === "disabled" ? "Копия для браузер…
         · ответ (код зависит от условия)
 - res.setHeader("Content-Type", mime);
@@ -3715,8 +3727,8 @@
   - если сорвалось
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
-- const signedLinks = canOpenChatAttachments(req, client.assignedAgentId);
-  · зовёт canOpenChatAttachments()
+- const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);
+  · зовёт attachmentLinkSigner()
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
   - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
     · читает в базе: property
@@ -4718,8 +4730,8 @@
     · ответ 404 — «Диалог не найден»
 - const owner = conversationClientId && !can(req, "clients.viewAll") ? await prisma.client.findUnique({ where: …
   · читает в базе: client
-- const signedLinks = can(req, "clients.viewAll") ? canOpenChatAttachments(req, null) : canOpenChatAttachments(…
-  · зовёт canOpenChatAttachments()
+- const signedLinks = can(req, "clients.viewAll") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…
+  · зовёт attachmentLinkSigner()
 - const shown = withHiddenConversationOrigin( { channel: conversation.channel, name: conversation.client?.fullN…
   · зовёт withHiddenConversationOrigin()
 - const shieldTransport = await loadCustomerTransportForConversation(conversation.id);
@@ -4786,8 +4798,8 @@
       · меняет в базе: telegramDirectConversation
   - void publishConversationUpdated(source.kind, source.id);
     · зовёт publishConversationUpdated()
-- const signedLinks = canOpenChatAttachments(req, ownerAgentId);
-  · зовёт canOpenChatAttachments()
+- const signedLinks = attachmentLinkSigner(req, ownerAgentId);
+  · зовёт attachmentLinkSigner()
 - для каждого: const [sourceOrder, source] of sources.entries()
   - если !Array.isArray(source.messages)
     - continue;
@@ -17948,8 +17960,8 @@
     · ответ 200
 - const clientCards = clientIds.length > 0 ? await prisma.client.findMany({ where: { id: { in: clientIds } }, s…
   · читает в базе: client
-- const signedLinks = canOpenChatAttachments(req, conversationOwner ? conversationOwner.assignedAgentId : undef…
-  · зовёт canOpenChatAttachments()
+- const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…
+  · зовёт attachmentLinkSigner()
 - const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLin…
   · зовёт presentMessages()
 - res.json({ inboxId: inboxIdOf(application.channel, conversationId), messages, files: messages.filter((m)
@@ -23845,6 +23857,11 @@
     - если сорвалось
       - return result;
         · дословно из кода
+    - const olderThanDay = (full: string)
+      - пробует
+      - если сорвалось
+        - return false;
+          · дословно из кода
     - для каждого: const entry of entries
       - если result.deleted >= cap
         - break;
@@ -23856,15 +23873,13 @@
         - continue;
           · переходит к следующему
       - если entry.name.startsWith(".tmp-")
-        - пробует
-        - если сорвалось
-          - remove = false;
-            · дословно из кода
+        - remove = olderThanDay(full);
+          · дословно из кода
       - иначе
         - если !m
           - continue;
             · переходит к следующему
-        - remove = !privateFilePath(m[1]);
+        - remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === "fail" && olderThanDay(full));
           · зовёт privateFilePath()
       - если !remove
         - continue;
@@ -23875,6 +23890,16 @@
           · дословно из кода
   - если derived.deleted
     - console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
+      · пишет строку в журнал сервера
+  - const stale = await cleanupStalePendingCustomerMedia();
+    · зовёт cleanupStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM "CustomerPendingMedia" WHERE "id" IN (…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - dropFiles(fileNames(row.files));
+        · дословно из кода
+  - если stale.deleted
+    - console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки вложений", err);
