@@ -47,9 +47,13 @@ const MAX_INPUT_PIXELS = 50_000_000;
 const FAIL_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Сколько запрос ждёт готовую копию, прежде чем ответить «готовится». Голос успевает. */
+let prepareWaitOverrideMs: number | null = null;
+/** Только для тестов: сколько ждать готовую копию (null — вернуть 8 с). Не окружение: имя из env не доходит до контейнера. */
+export function setPrepareWaitMsForTests(ms: number | null): void {
+  prepareWaitOverrideMs = ms;
+}
 function prepareWaitMs(): number {
-  const fromEnv = Number(process.env.CHAT_MEDIA_PREPARE_WAIT_MS);
-  return process.env.CHAT_MEDIA_PREPARE_WAIT_MS !== undefined && Number.isFinite(fromEnv) && fromEnv >= 0 ? fromEnv : 8_000;
+  return prepareWaitOverrideMs ?? 8_000;
 }
 
 function derivedDir(): string {
