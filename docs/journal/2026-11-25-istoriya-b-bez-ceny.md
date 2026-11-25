@@ -78,3 +78,16 @@
 - Осознанно не сделано: печать «Продано» на весь ролик (сейчас 5 секунд, решение продукта); постоянные отказы (нет фото,
   Instagram не подключён) повторяются до 6 раз — отдельная правка.
 
+## 26.11 — сведение со свежим `main` и прогон с базой
+
+- **Свод:** ветка сведена с `origin/main` 9b5933549 (#428, #434, #435, #437–#444). Текстовых конфликтов в коде нет,
+  только `docs/product-*` (взята версия `main`, `npm run map` заново, `map:check` чисто). Файлы, задетые обеими
+  сторонами (`jobs/handlers.ts`, `jobs/runner.ts`, `lib/ffmpeg.ts`, `lib/stuckWork.ts`, `changeRequestExecutor.ts`,
+  `routes/properties/videos.ts`, `PropertyVideoFixCard.tsx`), просмотрены: правки соседние, логика не пересекается.
+  Новых миграций у ветки нет.
+- **Чем проверено:** окружение worktree — свой `npm ci` вместо ссылки на общее дерево; `build:shared`, `prisma:generate`,
+  `build:api`, `build --workspace=apps/web` — код 0; база — portable Postgres, отдельная база, все миграции накатились.
+  С базой зелёные `property-edit-lifecycle`, `instagram-price-drop-story`, `published-listing-sync`, `story-card`,
+  `story-card-svg`, `story-video-overlay` (127 тестов). Итог по `property-change-requests`, `test:web` и `precheck` —
+  в описании PR.
+
