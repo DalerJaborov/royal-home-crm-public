@@ -1727,7 +1727,7 @@ async function createFromPreview(ctx: Context, id: string, messageId?: number): 
     : t(lang).created;
   const withVideoNote = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
   // Реестр строек — строкой в том же сообщении (25.11.2026): новостройку сверяем сразу, а не ждём недельного забора.
-  const registryNote = await registryNoteAfterCreate(created.id, lang);
+  const registryNote = await registryNoteAfterCreate(created.id, lang, ctx.agentId);
   const createdText = registryNote ? `${withVideoNote}\n\n${registryNote}` : withVideoNote;
   if (messageId) {
     try { await editMessageText(chatId, messageId, createdText, buttons); }

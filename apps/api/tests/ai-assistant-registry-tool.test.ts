@@ -56,6 +56,13 @@ describe("get_construction_registry", () => {
     expect(plugin.allowed?.(actor("telegram-group")) ?? true).toBe(true);
     expect(groupHiddenToolsForTests().has("get_construction_registry")).toBe(false);
   });
+  it("в группе нет буквы оценки застройщика (наша оценка, не данные реестра): только число проектов по цветам", async () => {
+    const group = await call({ query: `Тестовый ${runId}` }, "telegram-group");
+    expect(group.items[0]).not.toHaveProperty("rating");
+    expect(group.items[0].developerProjects).toMatchObject({ total: 1, green: 1 });
+    const personal = await call({ query: `Тестовый ${runId}` }, "telegram-private");
+    expect(personal.items[0]).toHaveProperty("rating");
+  });
   it("без аргументов — просьба уточнить", async () => {
     expect((await call({})).error).toBeTruthy();
   });

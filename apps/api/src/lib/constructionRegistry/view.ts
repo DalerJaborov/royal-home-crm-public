@@ -5,6 +5,7 @@
  */
 import {
   decisionYearFromQaror,
+  isInsideDushanbe,
   rateDeveloper,
   scoreRegistryMatch,
   type RegistryDeveloperDto,
@@ -139,8 +140,8 @@ export async function rankCandidates(property: PropertyForMatch, projects?: Cons
 /**
  * КОРОТКИЙ СТАТУС ДЛЯ СПИСКОВ (25.11.2026): список объектов CRM и ответы Шабнам про объекты. Только сотрудникам.
  * Пакетом, без N+1: связи — одним запросом, рейтинги — одним (loadDeveloperDtos). Рубильник выключен или реестр ещё не
- * загружался — пустая карта (значок не рисуется, Шабнам молчит). Новостройка без связи — status "none" («проверьте вручную»);
- * у вторички без связи записи нет: её отсутствие в реестре ничего не значит.
+ * загружался — пустая карта (значок не рисуется, Шабнам молчит). Новостройка Душанбе без связи — status "none" («проверьте
+ * вручную»); у вторички и у объектов вне Душанбе без связи записи нет: их отсутствие в реестре ничего не значит.
  */
 export async function loadRegistryBriefs(
   properties: readonly { id: string; condition: string }[],
@@ -160,8 +161,23 @@ export async function loadRegistryBriefs(
   for (const l of links) {
     briefs.set(l.propertyId, { status: COLOR_OUT[l.project.colorStatus], letter: devs.get(l.project.developerId)?.rating.letter ?? null });
   }
-  for (const p of properties) {
-    if (!briefs.has(p.id) && p.condition === "NEW_BUILDING") briefs.set(p.id, { status: "none", letter: null });
+  // «Проверьте вручную» только у новостроек Душанбе: реестр душанбинский, у объекта в Вахдате его отсутствие ничего не значит.
+  const unlinkedNew = properties.filter((p) => !briefs.has(p.id) && p.condition === "NEW_BUILDING").map((p) => p.id);
+  if (unlinkedNew.length > 0) {
+    const places = await prisma.property.findMany({
+      where: { id: { in: unlinkedNew } },
+      select: { id: true, lat: true, lng: true, district: { select: { city: true } } },
+      take: unlinkedNew.length,
+    });
+    for (const p of places) {
+      const lat = p.lat === null ? null : Number(p.lat);
+      const lng = p.lng === null ? null : Number(p.lng);
+      const inDushanbe =
+        lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)
+          ? isInsideDushanbe(lat, lng)
+          : /душанбе/i.test(p.district?.city ?? "");
+      if (inDushanbe) briefs.set(p.id, { status: "none", letter: null });
+    }
   }
   return { briefs, updatedAt };
 }

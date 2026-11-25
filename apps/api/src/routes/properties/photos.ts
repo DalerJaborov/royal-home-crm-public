@@ -340,7 +340,7 @@ photosRouter.post("/:id/photos", requireAuth, anyParams(memoryUploadBudget), any
         data,
       });
       // Точка из снимка — сверить с реестром строек (25.11.2026), как после геокодера.
-      if (written.count > 0) void autoLinkPropertyById(property.id);
+      if (written.count > 0) void autoLinkPropertyById(property.id, req.agent?.id ?? null);
     } catch (err) {
       void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.message : String(err)}`);
     }

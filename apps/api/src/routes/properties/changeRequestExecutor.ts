@@ -315,7 +315,7 @@ export async function approvePropertyChangeRequest(input: {
           error = await executeFieldsChange({ pre, claim: claim.write, pricePlan, cardPlan, result, actorId });
           // Адрес, состояние или описание поменялись заявкой — сверка с реестром та же, что у правки карточки (25.11.2026).
           // Сменился адрес у точки геокодера — точка стёрта, и сверку позже сделает геокодер.
-          if (claim.write && !claim.write.priceChanged) void autoLinkPropertyById(property.id);
+          if (claim.write && !claim.write.priceChanged) void autoLinkPropertyById(property.id, actorId);
           break;
         case "REMAKE_VIDEO": {
           const body = remakeVideoPayloadSchema.safeParse(pre.payload);

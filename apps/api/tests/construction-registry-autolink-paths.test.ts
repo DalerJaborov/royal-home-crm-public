@@ -56,9 +56,19 @@ describe("реестр строек: все пути создания и сме�
     expect(missing).toEqual([]);
   });
 
+  it("геокодер зовёт дверь и когда точку нашёл, и когда адрес не нашёлся (снять старую связь)", () => {
+    const geocode = readFileSync(path.join(SRC, "jobs/geocode.ts"), "utf8");
+    expect(geocode.match(/autoLinkPropertyById\(/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    const notFound = geocode.indexOf("не найден ни в справочнике домов");
+    const firstCall = geocode.indexOf("autoLinkPropertyById(", notFound);
+    const nextReturn = geocode.indexOf("return;", notFound);
+    expect(firstCall).toBeGreaterThan(notFound);
+    expect(firstCall).toBeLessThan(nextReturn);
+  });
+
   it("при создании дверь зовётся ДО раннего выхода «объект в конвейере»", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("void autoLinkPropertyById(property.id)");
+    const call = crud.indexOf("void autoLinkPropertyById(property.id, req.agent.id)");
     const earlyReturn = crud.indexOf("if (isPipelineStatus(property.status) || property.offSite)");
     expect(call).toBeGreaterThan(0);
     expect(earlyReturn).toBeGreaterThan(0);
@@ -67,7 +77,7 @@ describe("реестр строек: все пути создания и сме�
 
   it("при правке дверь зовётся ДО ветки автопубликации", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("void autoLinkPropertyById(updated.id)");
+    const call = crud.indexOf("void autoLinkPropertyById(updated.id, req.agent!.id)");
     const autoPublish = crud.indexOf("if (willAutoPublish) {");
     expect(call).toBeGreaterThan(0);
     expect(call).toBeLessThan(autoPublish);

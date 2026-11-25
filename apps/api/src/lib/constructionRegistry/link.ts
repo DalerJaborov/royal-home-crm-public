@@ -22,6 +22,16 @@ import { propertyOwnerAgentId } from "../propertyOwner.js";
 import { logSystemError } from "../systemError.js";
 import { rankCandidates, type PropertyForMatch, type ScoredCandidate } from "./view.js";
 
+/** Не чаще одного сообщения в сутки про одну связь, из какого бы пути оно ни шло (связали, сменился цвет). */
+export const LINK_NOTIFY_COOLDOWN_MS = 24 * 3_600_000;
+
+/**
+ * notifiedAt = начало эпохи: событие «связали» обработано, но сообщения НЕ было (пакетный пересчёт, старые связи в миграции).
+ * Не путать с настоящим временем отправки: сутки тишины отсчитываются только от реального сообщения, поэтому смена цвета
+ * у тихо связанного объекта всё равно дойдёт до агента.
+ */
+export const SILENTLY_PROCESSED = new Date(0);
+
 /** Сколько объектов за раз берём в разбор; потолок защищает от выборки на весь рост базы. */
 const CHUNK = 500;
 const MAX_PROPERTIES = 20_000;
@@ -66,52 +76,78 @@ export function pickAutoCandidate(candidates: readonly ScoredCandidate[]): Score
 
 export type AutoLinkOutcome = "linked" | "moved" | "kept" | "dropped" | "manual" | "none";
 
+export interface AutoLinkOptions {
+  /** Кто сохранил объект: ему про жёлтый/красный в ленту не пишем, он видит это сам (строка в Telegram, карточка). */
+  actorId?: string | null;
+  /**
+   * false — пакетный пересчёт после забора: связь ставится, событие отмечается обработанным БЕЗ сообщения. Иначе первый
+   * забор по новым правилам разослал бы сообщения про давно заведённые объекты (ревью 25.11.2026).
+   */
+  notify?: boolean;
+}
+
 /**
  * Автосвязь одного объекта с пересчётом. Ручную связь не трогает. Возвращает, что сделано.
- * Два одновременных вызова для одного объекта (создание и геокодер) не наезжают друг на друга: замок на объект в транзакции.
+ * Всё — под замком на объект: объект, его точка и кандидаты читаются ВНУТРИ замка, поэтому из двух одновременных вызовов
+ * (сохранение и геокодер) последний видит последние данные. У объекта нет точки — его AUTO-связи снимаются: адрес сменили,
+ * старую точку стёрли, и прежний вывод больше ничем не подтверждён.
  */
-export async function autoLinkProperty(property: PropertyForMatch): Promise<AutoLinkOutcome> {
-  const candidates = await rankCandidates(property);
-  const target = pickAutoCandidate(candidates);
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`construction-link:${property.id}`}))`;
-    const existing = await tx.constructionPropertyLink.findFirst({
-      where: { propertyId: property.id, state: "LINKED" },
-      select: { id: true, projectId: true, method: true },
-    });
-    if (existing?.method === "MANUAL") return { outcome: "manual" as const, linkId: null };
-    if (existing && target && target.project.id === existing.projectId) {
-      await tx.constructionPropertyLink.update({
-        where: { id: existing.id },
-        data: { confidence: target.confidence, distanceM: target.distanceM, reasons: target.reasons },
+export async function autoLinkProperty(propertyId: string, options: AutoLinkOptions = {}): Promise<AutoLinkOutcome> {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`construction-link:${propertyId}`}))`;
+      const row = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: MATCH_PROPERTY_SELECT });
+      if (!row) return { outcome: "none" as const, linkId: null };
+      const property = toMatchInput(row);
+      const existing = await tx.constructionPropertyLink.findFirst({
+        where: { propertyId, state: "LINKED" },
+        select: { id: true, projectId: true, method: true },
       });
-      return { outcome: "kept" as const, linkId: null };
-    }
-    if (existing) await tx.constructionPropertyLink.deleteMany({ where: { id: existing.id, method: "AUTO", state: "LINKED" } });
-    if (!target) return { outcome: existing ? ("dropped" as const) : ("none" as const), linkId: null };
-    const link = await tx.constructionPropertyLink.upsert({
-      where: { propertyId_projectId: { propertyId: property.id, projectId: target.project.id } },
-      create: {
-        propertyId: property.id,
-        projectId: target.project.id,
-        state: "LINKED",
-        method: "AUTO",
-        confidence: target.confidence,
-        distanceM: target.distanceM,
-        reasons: target.reasons,
-      },
-      update: { state: "LINKED", method: "AUTO", confidence: target.confidence, distanceM: target.distanceM, reasons: target.reasons },
-      select: { id: true },
-    });
-    return { outcome: existing ? ("moved" as const) : ("linked" as const), linkId: link.id };
-  });
-  if (result.linkId) await notifyRiskyLink(result.linkId, null);
+      if (existing?.method === "MANUAL") return { outcome: "manual" as const, linkId: null };
+      const target = property.lat === null || property.lng === null ? null : pickAutoCandidate(await rankCandidates(property));
+      if (existing && target && target.project.id === existing.projectId) {
+        await tx.constructionPropertyLink.update({
+          where: { id: existing.id },
+          data: { confidence: target.confidence, distanceM: target.distanceM, reasons: target.reasons },
+        });
+        return { outcome: "kept" as const, linkId: null };
+      }
+      if (existing) await tx.constructionPropertyLink.deleteMany({ where: { id: existing.id, method: "AUTO", state: "LINKED" } });
+      if (!target) return { outcome: existing ? ("dropped" as const) : ("none" as const), linkId: null };
+      const link = await tx.constructionPropertyLink.upsert({
+        where: { propertyId_projectId: { propertyId, projectId: target.project.id } },
+        create: {
+          propertyId,
+          projectId: target.project.id,
+          state: "LINKED",
+          method: "AUTO",
+          confidence: target.confidence,
+          distanceM: target.distanceM,
+          reasons: target.reasons,
+          ...(options.notify === false ? { notifiedAt: SILENTLY_PROCESSED } : {}),
+        },
+        update: {
+          state: "LINKED",
+          method: "AUTO",
+          confidence: target.confidence,
+          distanceM: target.distanceM,
+          reasons: target.reasons,
+          ...(options.notify === false ? { notifiedAt: SILENTLY_PROCESSED } : {}),
+        },
+        select: { id: true },
+      });
+      return { outcome: existing ? ("moved" as const) : ("linked" as const), linkId: link.id };
+    },
+    { timeout: 20_000 },
+  );
+  if (result.linkId && options.notify !== false) await notifyRiskyLink(result.linkId, options.actorId ?? null);
   return result.outcome;
 }
 
 /**
  * После каждого забора: автосвязь всех объектов с точкой, у которых нет ручной связи (уже связанные AUTO пересчитываются —
- * так правка правил сопоставления доходит и до старых связей). Возвращает, сколько связано или перенесено.
+ * так правка правил сопоставления доходит и до старых связей), и снятие AUTO-связей у объектов, потерявших точку.
+ * Сообщений агентам этот путь не шлёт (notify: false). Возвращает, сколько связано или перенесено.
  */
 export async function autoLinkAllProperties(): Promise<number> {
   let linked = 0;
@@ -125,20 +161,26 @@ export async function autoLinkAllProperties(): Promise<number> {
         lng: { not: null },
         constructionLinks: { none: { state: "LINKED", method: "MANUAL" } },
       },
-      select: MATCH_PROPERTY_SELECT,
+      select: { id: true },
       orderBy: { id: "asc" },
       take: CHUNK,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     if (rows.length === 0) break;
     for (const row of rows) {
-      const outcome = await autoLinkProperty(toMatchInput(row));
+      const outcome = await autoLinkProperty(row.id, { notify: false });
       if (outcome === "linked" || outcome === "moved") linked += 1;
     }
     scanned += rows.length;
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < CHUNK || scanned >= MAX_PROPERTIES) break;
   }
+  const pointless = await prisma.constructionPropertyLink.findMany({
+    where: { state: "LINKED", method: "AUTO", property: { OR: [{ lat: null }, { lng: null }] } },
+    select: { propertyId: true },
+    take: 2000,
+  });
+  for (const l of pointless) await autoLinkProperty(l.propertyId, { notify: false });
   return linked;
 }
 
@@ -208,12 +250,16 @@ export async function notifyRiskyLink(linkId: string, actorId: string | null): P
     if (claimed.count !== 1) return false;
     const color = COLOR_OUT[link.project.colorStatus];
     const agentId = propertyOwnerAgentId(link.property);
-    if (color === "green" || !agentId || agentId === actorId) return false;
+    if (color === "green" || !agentId || agentId === actorId) {
+      // Обработано без сообщения: сутки тишины не включаются, смена цвета позже дойдёт.
+      await prisma.constructionPropertyLink.updateMany({ where: { id: link.id }, data: { notifiedAt: SILENTLY_PROCESSED } });
+      return false;
+    }
     const label = REGISTRY_COLOR_LABEL[color];
     try {
       await notifyFeedOnly([agentId], {
         kind: "task",
-        title: `Реестр строек: объект №${link.property.shortId} — «${label.title}»`,
+        title: `Реестр строек: у объекта №${link.property.shortId} «${label.title}»`,
         body: `Объект связан с проектом застройщика ${link.project.customer} в реестре разрешённых строек. ${label.warning ?? ""}`.trim(),
         url: `/properties/${link.property.shortId}`,
         tag: `construction-registry-link-${link.property.id}`,

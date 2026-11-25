@@ -190,6 +190,53 @@ describe("адрес: таджикская и русская запись", () =
   });
 });
 
+/** Ревью PR #434 (25.11.2026): каждая находка закреплена тестом. */
+describe("адрес: находки ревью", () => {
+  it("одиночная буква после номера не клеится к нему: город, корпус, союз, «д.»", () => {
+    for (const address of ["Айни 56, г. Душанбе", "Айни 56 к 2", "Айни 56г. Душанбе"]) {
+      expect(addressAgreement(address, "кӯчаи Айнӣ №56"), address).toMatchObject({ house: true, houseConflict: false });
+    }
+    expect(addressAgreement("Турсунзода 7 и 9", "кӯчаи М. Турсунзода №9")).toMatchObject({ house: true, houseConflict: false });
+    expect(addressAgreement("Рудаки 12, д. 3", "хиёбони Рӯдакӣ, 12")).toMatchObject({ house: true, houseConflict: false });
+  });
+  it("корпус слитно, через дефис и в кавычках — часть номера", () => {
+    expect(addressAgreement("Шевченко 20-А", "кӯчаи Шевченко №20а")).toMatchObject({ house: true });
+    expect(addressAgreement("Шевченко 20А", "кӯчаи Шевченко №20 «а»")).toMatchObject({ house: true });
+    expect(addressAgreement("Шевченко 20", "кӯчаи Шевченко №20-А")).toMatchObject({ house: false });
+  });
+  it("разные фамилии с одним костяком согласных: Хусейнзода/Хасанзода и Назарова/Нозиров не улица", () => {
+    expect(addressAgreement("улица Хусейнзода, 5", "кӯчаи Хасанзода №5").street).toBe(false);
+    expect(addressAgreement("улица Назарова, 5", "кӯчаи Нозиров №5").street).toBe(false);
+  });
+  it("Карамова/Каримов совпадают только «по написанию»: в 120 м даже с номером дома само не связываем", () => {
+    const a = addressAgreement("улица Карамова, 5", "кӯчаи Каримов №5");
+    expect(a).toMatchObject({ street: true, streetFuzzy: true, house: true });
+    const project = { lat: 38.5556, lng: 68.7575, address: "кӯчаи Каримов №5", customer: "Застройщик" };
+    const at120 = { lat: 38.55668, lng: 68.7575, address: "улица Карамова, 5", title: "2-комн", description: null, isNewBuilding: true };
+    expect(scoreRegistryMatch({ property: at120, project }).level).toBe("suggest");
+    expect(scoreRegistryMatch({ property: { ...at120, lat: 38.5559 }, project }).level).toBe("auto"); // 33 м
+  });
+  it("этаж, комнаты и площадь — не номер дома", () => {
+    expect(addressAgreement("Айни 56, 9 этаж", "кӯчаи Айнӣ №9")).toMatchObject({ house: false });
+    expect(addressAgreement("Айни, 3-комнатная", "кӯчаи Айнӣ №3")).toMatchObject({ house: false });
+    expect(addressAgreement("Айни 56, 9 этаж", "кӯчаи Айнӣ №56")).toMatchObject({ house: true, houseConflict: false });
+  });
+  it("район без указателя улицы — не улица; после «кӯчаи/проспект» — улица", () => {
+    expect(addressAgreement("Сино, Айни 12", "кӯчаи Сино №12").street).toBe(false);
+    expect(addressAgreement("проспект Исмоили Сомони, 12", "хиёбони Исмоили Сомонӣ №12")).toMatchObject({ street: true, house: true });
+  });
+  it("граница 150/151 м: улица и дом в 150 м — само, в 151 м — только предложение", () => {
+    const project = { lat: 38.5556, lng: 68.7575, address: "кӯчаи Р.Набиев №12", customer: "Застройщик" };
+    const prop = (dLatM: number) => ({ lat: 38.5556 + dLatM / 111195, lng: 68.7575, address: "ул. Р. Набиев, 12", title: "кв", description: null, isNewBuilding: false });
+    const m150 = scoreRegistryMatch({ property: prop(150), project });
+    const m151 = scoreRegistryMatch({ property: prop(151.2), project });
+    expect(m150.distanceM).toBe(150);
+    expect(m150.level).toBe("auto");
+    expect(m151.distanceM).toBe(151);
+    expect(m151.level).toBe("suggest");
+  });
+});
+
 describe("короткий статус реестра для списка и Шабнам", () => {
   it("зелёный — без предупреждения, с оценкой застройщика", () => {
     expect(registryBriefLine({ status: "green", letter: "B" })).toBe("Реестр строек: разрешение есть, оценка застройщика B.");

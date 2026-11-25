@@ -50,7 +50,7 @@ export const findPropertyTool: AssistantReadToolPlugin = {
       return { total: 0, items: [], note: "Ссылки Somon в карточке объекта не хранятся — найти объект по ним нельзя" };
     }
     const money = await loadMoneyContext();
-    const registry = await registryNotesFor(found.properties);
+    const registry = await registryNotesFor(found.properties, { surface: actor.surface });
     const items: ((ReturnType<typeof presentPropertyBrief> & Partial<AssistantRegistryNote>) | ReturnType<typeof presentTrashedProperty>)[] =
       found.properties.map((p) => ({ ...presentPropertyBrief(p, money), ...registry.get(p.id) }));
     // Номер удалённого объекта (живой с этим номером не нашёлся) — справка «в Корзине» первой

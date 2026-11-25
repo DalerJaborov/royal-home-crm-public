@@ -238,6 +238,17 @@ const SKIP_MARKERS = new Set([
   "хонахои", "хонаи", "хучрахои", "хучраи", "хучра", "блоки", "блок", "блокхо", "манзилхои", "манзили", "корпус", "подъезд", "этаж",
 ]);
 
+/** После этого слова номера уже не дома: этаж, комнаты, подъезд, квартира, площадь (до следующей улицы). */
+const NOT_HOUSE_WORD = /^(этаж|эт$|комн|ком$|подъезд|кв$|квартир|сотк|сот$|м2|кабат|ошена|хучр)/;
+/** Число ПЕРЕД этим словом — не номер дома: «9 этаж», «3-комнатная», «60 м2». Квартиры сюда не входят: «№6 квартираҳои». */
+const NUMBER_BEFORE_NOT_HOUSE = /^(этаж|эт$|комн|ком$|сотк|сот$|м2|кабат|ошена)/;
+
+/**
+ * Названия районов Душанбе: без указателя улицы перед ними это район, а не улица («Сино, Айни 12»). После «кӯчаи/улица»
+ * («проспект Исмоили Сомони») они остаются словами улицы.
+ */
+const DISTRICT_WORDS = new Set(["сино", "синои", "шохмансур", "шохмансури", "фирдавси", "фирдавсии", "исмоили", "сомони", "сомонии"]);
+
 /** Слова адреса, которые не отличают одну улицу от другой. */
 const ADDRESS_NOISE = new Set([
   "дом", "душанбе", "собик", "бинои", "назди", "пеши", "напротив", "рядом", "возле", "ориентир", "буриши", "кисмати",
@@ -265,40 +276,48 @@ export interface AddressSegment {
 export function addressSegments(raw: string | null | undefined): AddressSegment[] {
   if (!raw) return [];
   const text = foldAddress(raw)
-    // Кавычки и скобки вокруг буквы дома («31"а"», «13 «г»») и знаки номера — в сторону.
+    // Буква корпуса в кавычках сразу за номером («31"а"», «13 «г»», «36”а”») — часть номера: 31а, 13г, 36а.
+    .replace(/(\d)\s*[«"'“”„‘’`]\s*([а-яa-z])\s*[»"'“”„‘’`]/g, "$1$2")
+    // «56г. Душанбе», «12д.»: буква с точкой сразу за номером — сокращение (город, дом), а не корпус.
+    .replace(/(\d)([гдкшип])\.(?=\s*[а-яa-z])/g, "$1 $2.")
+    // Прочие кавычки, скобки и знаки номера — в сторону.
     .replace(/[«»"'“”„‘’`()[\]{}№#]/g, " ")
-    // «20-А» → «20а»: буква корпуса пишется и через дефис.
+    // «20-А» → «20а»: буква корпуса пишется и через дефис (одна буква, дальше не буква).
     .replace(/(\d)\s*-\s*([а-яa-z])(?![а-яa-z])/g, "$1$2")
     // «10-15» → диапазон (раскроем ниже); прочие дефисы — разделители («Қазоқон-1», «1-ум»).
     .replace(/(\d)\s*-\s*(\d)/g, "$1~$2")
     .replace(/[.,;:\\!?+=*_–—-]/g, " ");
-  // Буква корпуса отдельным словом сразу после номера («36 а», «13 г»): приклеиваем к номеру.
-  const tokens: string[] = [];
-  for (const t of text.split(/\s+/).filter(Boolean)) {
-    const prev = tokens[tokens.length - 1];
-    if (prev && /^[а-яa-z]$/.test(t) && /^\d{1,4}$/.test(prev)) tokens[tokens.length - 1] = prev + t;
-    else tokens.push(t);
-  }
+  // Отдельно стоящую букву к номеру НЕ клеим (ревью 25.11.2026): «Айни 56 к 2», «Турсунзода 7 и 9», «56, г. Душанбе» —
+  // это корпус, союз, город, а не дом «56к», «7и», «56г». Корпус пишут слитно («20а»), через дефис или в кавычках.
+  const tokens = text.split(/\s+/).filter(Boolean);
 
   const segments: AddressSegment[] = [];
   let current: AddressSegment = { words: [], numbers: [] };
   let skipping = false;
+  /** Текущая улица открыта указателем («кӯчаи», «улица»): тогда название района в ней — часть названия улицы. */
+  let openedByMarker = false;
   const flush = () => {
     if (current.words.length > 0 || current.numbers.length > 0) segments.push(current);
     current = { words: [], numbers: [] };
+    openedByMarker = false;
   };
-  for (const t of tokens) {
+  for (let i = 0; i < tokens.length; i += 1) {
+    const t = tokens[i]!;
     if (STREET_MARKERS.has(t)) {
       flush();
       skipping = false;
+      openedByMarker = true;
       continue;
     }
-    if (SKIP_MARKERS.has(t)) {
+    if (SKIP_MARKERS.has(t) || NOT_HOUSE_WORD.test(t)) {
       skipping = true;
       continue;
     }
     if (/^\d/.test(t)) {
       if (skipping) continue;
+      // «9 этаж», «3-комнатная», «60 м2» — число не номер дома.
+      const next = tokens[i + 1];
+      if (next && NUMBER_BEFORE_NOT_HOUSE.test(next)) continue;
       const range = /^(\d{1,4})~(\d{1,4})$/.exec(t);
       if (range) {
         const a = Number(range[1]);
@@ -317,6 +336,8 @@ export function addressSegments(raw: string | null | undefined): AddressSegment[
     if (current.numbers.length > 0) flush();
     // Слово после «ноҳияи/район» — название района, а не улицы.
     if (skipping) continue;
+    // Район без указателя улицы («Сино, Айни 12») — не улица.
+    if (DISTRICT_WORDS.has(t) && !openedByMarker) continue;
     current.words.push(t);
   }
   flush();
@@ -334,12 +355,30 @@ function consonantSkeleton(word: string): string {
   return word.replace(/[аеиоуыэюяхйьъ]/g, "").replace(/(.)\1+/g, "$1");
 }
 
-/** Как совпали два слова улицы: точно (в том числе с падежной концовкой) или только по костяку согласных. */
+/** Расстояние правки (вставка, удаление, замена буквы); короткие слова, поэтому простая таблица. */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
+/**
+ * Как совпали два слова улицы: точно (в том числе с падежной концовкой) или только по написанию («fuzzy»): тот же костяк
+ * согласных И не больше двух правок (Турсунзаде/Турсунзода, Казакон/Қазоқон). Разные фамилии с одним костяком
+ * (Хусейнзода/Хасанзода, Назарова/Нозиров) правкам не проходят; что прошло (Карамова/Каримов) — только «fuzzy»,
+ * и автосвязь по нему ставится лишь вблизи и с номером дома (scoreRegistryMatch).
+ */
 export function streetWordMatch(a: string, b: string): "exact" | "fuzzy" | null {
   if (a === b) return "exact";
   if (a.length >= 5 && b.length >= 5 && (a.startsWith(b) || b.startsWith(a))) return "exact";
   const skeleton = consonantSkeleton(a);
-  if (skeleton.length >= 4 && a[0] === b[0] && skeleton === consonantSkeleton(b)) return "fuzzy";
+  if (skeleton.length >= 4 && a[0] === b[0] && skeleton === consonantSkeleton(b) && editDistance(a, b) <= 2) return "fuzzy";
   return null;
 }
 
@@ -398,7 +437,7 @@ export function developerMentioned(customer: string, ...texts: (string | null | 
  * Не домысливаем: без точки у объекта — «не похоже»; одно только расстояние — не повод связывать.
  *  - auto до 80 м: застройщик назван; ИЛИ совпали улица и номер дома на ней; ИЛИ новостройка на той же улице, если
  *    улица совпала не только по написанию-догадке и номера домов не противоречат друг другу;
- *  - auto до 150 м: только улица И номер дома на ней (адрес подтверждён, точка могла уехать от геокодера);
+ *  - auto до 150 м: только улица (точно, не по написанию-догадке) И номер дома на ней (точка могла уехать от геокодера);
  *  - suggest: до 250 м и есть хотя бы один признак (новостройка, улица, дом, застройщик): агент подтверждает.
  * Номера домов у обеих сторон есть, но разные («Айни 56» против «Айнӣ №58 ва 60») — это соседний дом: только предложение.
  */
@@ -438,7 +477,8 @@ export function scoreRegistryMatch(input: RegistryMatchInput): RegistryMatch {
   const addressed = addr.street && addr.house;
   const strongEvidence = named || addressed || (p.isNewBuilding && addr.street && !addr.streetFuzzy && !addr.houseConflict);
   if (close && strongEvidence) return { level: "auto", confidence, distanceM: distance, reasons };
-  if (addressed && distance <= MATCH_RADIUS_M.addressed) return { level: "auto", confidence, distanceM: distance, reasons };
+  // Дальше 80 м — только точная улица: совпадение по написанию-догадке там не довод (ревью 25.11.2026).
+  if (addressed && !addr.streetFuzzy && distance <= MATCH_RADIUS_M.addressed) return { level: "auto", confidence, distanceM: distance, reasons };
   if (p.isNewBuilding || addr.street || addr.house || named) return { level: "suggest", confidence, distanceM: distance, reasons };
   return { level: "none", confidence: 0, distanceM: distance, reasons: [] };
 }

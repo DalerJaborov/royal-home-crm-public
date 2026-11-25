@@ -699,7 +699,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
 
     const shown = ordered.slice(0, 8);
     // Реестр строек — строкой у каждого объекта, одним запросом на весь список (25.11.2026, только сотрудникам).
-    const registry = await registryNotesFor(shown);
+    const registry = await registryNotesFor(shown, { surface: actor.surface });
     return shown.map((p) => ({
       id: p.id,
       shortId: p.shortId,

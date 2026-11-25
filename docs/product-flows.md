@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4179**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4178**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11370,7 +11370,7 @@
     - const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…
       · меняет в базе: property
     - если written.count > 0
-      - void autoLinkPropertyById(property.id);
+      - void autoLinkPropertyById(property.id, req.agent?.id ?? null);
         · зовёт autoLinkPropertyById()
   - если сорвалось
     - void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.…
@@ -12813,7 +12813,7 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
-- void autoLinkPropertyById(updated.id);
+- void autoLinkPropertyById(updated.id, req.agent!.id);
   · зовёт autoLinkPropertyById()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
@@ -13912,8 +13912,10 @@
     - [items, total] = await Promise.all([ prisma.property.findMany({ where: fuzzyWhere, orderBy: [{ createdAt: "de…
       · читает в базе: property
       · считает в базе: property
-- const [result, registry] = await Promise.all([presentPropertyListItems(items, req), loadRegistryBriefs(items)…
-  · зовёт presentPropertyListItems()
+- const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…
+  · запись в журнал ошибок
+  - void logSystemError("api", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…
+    · запись в журнал ошибок
 - res.json({ items: result.map((p)
   · ответ 200
 
@@ -27161,7 +27163,7 @@
         - вариант case "PRICE_CHANGE"
         - вариант case "CARD_DATA"
           - если claim.write && !claim.write.priceChanged
-            - void autoLinkPropertyById(property.id);
+            - void autoLinkPropertyById(property.id, actorId);
               · зовёт autoLinkPropertyById()
           - break;
             · прекращает перебор
@@ -28941,6 +28943,17 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await autoLinkPropertyById(payload.propertyId);
+    · зовёт autoLinkPropertyById()
+    - пробует
+      - если !(await loadRegistrySettings()).enabled
+        - return null;
+          · дословно из кода
+      - return await autoLinkProperty(propertyId, { actorId, notify: true });
+        · зовёт autoLinkProperty()
+    - если сорвалось
+      - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+        · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя
 - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, deletedAt: null, address:…
@@ -28959,9 +28972,7 @@
     - если !(await loadRegistrySettings()).enabled
       - return null;
         · дословно из кода
-    - const p = await prisma.property.findFirst({ where: { id: propertyId, deletedAt: null, lat: { not: null }, lng…
-      · читает в базе: property
-    - return p ? await autoLinkProperty(toMatchInput(p)) : null;
+    - return await autoLinkProperty(propertyId, { actorId, notify: true });
       · зовёт autoLinkProperty()
   - если сорвалось
     - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
@@ -28969,13 +28980,6 @@
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()
-    - для каждого: const d of districts
-      - если !d.boundary
-        - continue;
-          · переходит к следующему
-      - если ring && isPointInPolygon(lng, lat, ring)
-        - return { id: d.id, name: d.name, source: "point" };
-          · дословно из кода
   - если district
     - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, districtId: null, address…
       · меняет в базе: property

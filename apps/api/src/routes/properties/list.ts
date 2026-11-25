@@ -336,10 +336,16 @@ listRouter.get("/", requireAuth, async (req, res) => {
     }
   }
 
-  const [result, registry] = await Promise.all([presentPropertyListItems(items, req), loadRegistryBriefs(items)]);
-  // Значок реестра строек в списке (25.11.2026): пакетом на страницу, только в этом ответе сотрудникам — общий
-  // presentPropertyListItems (его зовёт и маркетинг) про реестр не знает.
-  res.json({ items: result.map((p) => ({ ...p, registry: registry.briefs.get(p.id) ?? null })), total, page: pageNum, pageSize });
+  // Значок реестра строек в списке (25.11.2026): пакетом на страницу, только в этом ответе сотрудникам; общий
+  // presentPropertyListItems (его зовёт и маркетинг) про реестр не знает. Сбой реестра не роняет список: значков просто нет.
+  const [result, registry] = await Promise.all([
+    presentPropertyListItems(items, req),
+    loadRegistryBriefs(items).catch((err: unknown) => {
+      void logSystemError("api", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }),
+  ]);
+  res.json({ items: result.map((p) => ({ ...p, registry: registry?.briefs.get(p.id) ?? null })), total, page: pageNum, pageSize });
 });
 
 /** Потолок выгрузки каталога (22.09.2026, класс «Пагинация» из CLAUDE.md). Без

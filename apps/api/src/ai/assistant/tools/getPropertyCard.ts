@@ -46,7 +46,7 @@ export const getPropertyCardTool: AssistantReadToolPlugin = {
       if (trashed) return presentTrashedProperty(trashed, trash);
       return { error: "Объект не найден — найдите его через find_property и передайте id или номер" };
     }
-    const [money, registry] = await Promise.all([loadMoneyContext(), registryNotesFor([property])]);
+    const [money, registry] = await Promise.all([loadMoneyContext(), registryNotesFor([property], { surface: actor.surface })]);
     return { ...presentPropertyCard(property, actor, money), ...registry.get(property.id) };
   },
 };

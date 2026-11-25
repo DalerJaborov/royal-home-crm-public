@@ -77,6 +77,8 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
         `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в Nominatim — ` +
           `точку на карте нужно поставить руками (адрес: ${address.slice(0, 120)})`
       );
+      // Точки нет — прежняя AUTO-связь с реестром (по старому адресу) снимается той же дверью (ревью 25.11.2026).
+      await autoLinkPropertyById(payload.propertyId);
       return;
     }
     const written = await prisma.property.updateMany({
