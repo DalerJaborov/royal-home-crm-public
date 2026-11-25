@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 780,
-  "forks": 4230,
+  "forks": 4232,
   "mounts": 87,
   "cron": 145,
   "jobs": 36,
@@ -105472,7 +105472,7 @@
            "c": [
             {
              "k": "if",
-             "t": "now - row.createdAt.getTime() > QUEUED_ALERT_MS",
+             "t": "now - row.updatedAt.getTime() > QUEUED_ALERT_MS",
              "a": [],
              "c": [
               {
@@ -132358,7 +132358,16 @@
          "a": [
           "меняет в базе: outgoingMediaJob"
          ],
-         "c": []
+         "c": [
+          {
+           "k": "do",
+           "t": "started = (await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: \"PREPARING\" }, data: { sta…",
+           "a": [
+            "меняет в базе: outgoingMediaJob"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -132400,6 +132409,21 @@
         },
         {
          "k": "if",
+         "t": "delivery.code === \"start_lost\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "delivery.outcomeUnknown",
          "a": [],
          "c": [
@@ -132427,6 +132451,21 @@
           "читает в базе: outgoingMediaJob"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "row?.status === \"SENDING\" && !started",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",

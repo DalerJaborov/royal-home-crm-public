@@ -7,12 +7,12 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import sharp from "sharp";
 // Перекодировка в тестах ждёт до конца (кроме проверки «готовится»), чтобы ответ был детерминированным.
-process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "60000";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { savePrivateFile, privateFilePath, privateDirRoot } from "../src/lib/privateFiles.js";
 import { attachmentLinkExpiry, chatAttachmentLinks, verifyAttachmentLink } from "../src/lib/chatAttachmentLinks.js";
-import { cleanupDerivedChatMedia, derivedFailMarker } from "../src/lib/chatMediaDerived.js";
+import { cleanupDerivedChatMedia, derivedFailMarker, setPrepareWaitMsForTests } from "../src/lib/chatMediaDerived.js";
+setPrepareWaitMsForTests(60_000);
 import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { presentMessages } from "../src/lib/messageAttachments.js";
 
@@ -361,7 +361,7 @@ describe("Ревью #428: пропуск без входа, очередь, л�
     const fresh = (await savePrivateFile(ogg, "audio/ogg"))!;
     createdFiles.push(fresh);
     const play = chatAttachmentLinks(fresh, "audio", "audio/ogg", agentId)!.play!;
-    process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "0";
+    setPrepareWaitMsForTests(0);
     try {
       const first = await request(app).get(local(play));
       expect(first.status).toBe(503);
@@ -373,7 +373,7 @@ describe("Ревью #428: пропуск без входа, очередь, л�
       }
       expect(status).toBe(200);
     } finally {
-      process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "60000";
+      setPrepareWaitMsForTests(60_000);
     }
   }, 60_000);
 

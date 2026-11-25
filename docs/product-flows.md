@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **780**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4230**. Модулей: **87**.
+Путей: **780**. Развилок в самих путях: **2484**; вместе с задачами по расписанию и фоновыми заданиями — **4232**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -23593,7 +23593,7 @@
           - continue;
             · переходит к следующему
       - иначе если row.status === "QUEUED"
-        - если now - row.createdAt.getTime() > QUEUED_ALERT_MS
+        - если now - row.updatedAt.getTime() > QUEUED_ALERT_MS
           - stuck++;
             · дословно из кода
       - иначе если now - (row.startedAt ?? row.updatedAt).getTime() > STUCK_ALERT_MS
@@ -29347,6 +29347,8 @@
         · ошибка JobInterrupted
     - const delivery = await deliverMediaToConversation( target, { path: prepared.path, size: prepared.size, mimety…
       · меняет в базе: outgoingMediaJob
+      - started = (await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { sta…
+        · меняет в базе: outgoingMediaJob
     - если delivery.ok
       - return;
         · дальше не идёт, ничего не меняя
@@ -29355,12 +29357,18 @@
     - если nowRow?.status === "CANCELLED"
       - return;
         · дальше не идёт, ничего не меняя
+    - если delivery.code === "start_lost"
+      - return;
+        · дальше не идёт, ничего не меняя
     - если delivery.outcomeUnknown
       - return;
         · дальше не идёт, ничего не меняя
   - если сорвалось
     - const row = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } }).cat…
       · читает в базе: outgoingMediaJob
+    - если row?.status === "SENDING" && !started
+      - return;
+        · дальше не идёт, ничего не меняя
     - если row?.status === "SENDING"
       - void logSystemError("background-jobs", `Файл клиенту: сбой после начала отправки (задание ${job.id}): ${descr…
         · запись в журнал ошибок

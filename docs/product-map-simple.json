@@ -16,10 +16,10 @@
   "paths": 780,
   "cron": 145,
   "jobs": 36,
-  "conditions": 4191,
+  "conditions": 4193,
   "untranslatedUnique": 487,
   "untranslatedTotal": 626,
-  "partialUnique": 1122,
+  "partialUnique": 1124,
   "translatedShare": 85
  },
  "untranslated": [
@@ -83327,7 +83327,14 @@
          "t": "меняет: outgoing файл задание",
          "k": "do",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "меняет: outgoing файл задание",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
         },
         {
          "t": "если есть получилось (доставка)",
@@ -83337,6 +83344,12 @@
         },
         {
          "t": "если статус (сейчас строка) — «CANCELLED»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если code — «start_lost»",
          "k": "if",
          "a": [],
          "c": []
@@ -83354,6 +83367,12 @@
        "k": "catch",
        "a": [],
        "c": [
+        {
+         "t": "если статус — «SENDING» и нет: started",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
         {
          "t": "если статус — «SENDING»",
          "k": "if",
