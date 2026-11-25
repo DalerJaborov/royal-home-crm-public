@@ -1725,7 +1725,7 @@ export async function runAssistantDetailed(
     }
     const glossary = tajikTurn ? tajikGlossaryFor(userQuestion) : "";
     // Реестр строек: раздел есть, пока включён рубильник (25.11.2026). Неизменный текст — префикс промта не дрожит.
-    const registryGuide = await registryPromptGuide();
+    const registryGuide = registryPromptGuide(settings.registryEnabled);
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
       .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor))
