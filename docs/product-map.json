@@ -1975,6 +1975,11 @@
       "label": null
     },
     {
+      "id": "outgoing-media-photo-jobs",
+      "expr": "*/2 * * * * *",
+      "label": null
+    },
+    {
       "id": "outgoing-media-sweep",
       "expr": "*/30 * * * *",
       "label": null
