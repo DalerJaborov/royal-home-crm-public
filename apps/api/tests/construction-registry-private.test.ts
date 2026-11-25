@@ -38,6 +38,7 @@ const ALLOWED = new Set([
   "apps/api/src/cron.ts", // еженедельный забор
   "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники: личка и рабочие группы)
   "apps/api/src/ai/assistant/tools/registryBrief.ts", // строка реестра в ответах Шабнам про объекты (25.11.2026)
+  "apps/api/src/ai/assistant/runtime.ts", // рубильник реестра в кэше настроек помощника сотрудников (раздел подсказки)
   "apps/api/src/routes/properties/list.ts", // значок реестра в списке объектов сотрудникам (25.11.2026)
   // Дверь автосвязи (только запись связи, наружу ничего не отдаёт) — из путей создания объекта и смены точки (25.11.2026).
   "apps/api/src/jobs/geocode.ts",
@@ -53,6 +54,8 @@ const ALLOWED = new Set([
 const INTERNAL_ASSISTANT_FILES = new Set([
   "apps/api/src/ai/assistant/tools/registryReadTool.ts",
   "apps/api/src/ai/assistant/tools/registryBrief.ts",
+  // Снимок настроек помощника сотрудников: знает только булев рубильник constructionRegistryEnabled для раздела подсказки, данных реестра нет.
+  "apps/api/src/ai/assistant/runtime.ts",
 ]);
 
 /**
