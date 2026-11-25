@@ -132,6 +132,9 @@ export const agentUpdateSchema = agentCreateSchema.partial().extend({
   /// Личные выходные (владелец 11.10.2026): дни недели по Душанбе, 0 — воскресенье.
   /// Пусто — работает каждый день. Правило — daysOff.ts.
   weeklyDaysOff: daysOffSchema.optional(),
+  /// «Это тот же человек» (25.11.2026): другая учётка того же сотрудника (агент и РОП).
+  /// Только подпись в карточке — права и данные не объединяются. null снимает связь.
+  samePersonAgentId: z.string().uuid().nullable().optional(),
 });
 
 /** Самообслуживание: сотрудник меняет свои данные. Отдельно от agentUpdateSchema —

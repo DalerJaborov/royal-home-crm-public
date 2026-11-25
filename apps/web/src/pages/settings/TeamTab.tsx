@@ -1,5 +1,5 @@
 import { RuTimeField } from "../../components/look/fields/RuFields";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useServerSyncedFields, useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { Link } from "react-router-dom";
 import { KeyRound, Pencil, Plus, ShieldOff, Trash2, ShieldCheck, UserX, MoreHorizontal, X } from "lucide-react";
@@ -13,7 +13,12 @@ import {
   useUploadAgentAvatar,
   useReset2fa,
   useResetLoginCodeBlock,
+  useIssueStaffTelegramLink,
+  useUnlinkStaffTelegram,
+  type AgentListItem,
+  type StaffTelegramLink,
 } from "../../hooks/useAgents";
+import { StaffShabnamLinkPanel } from "../../components/settings/StaffShabnamLink";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 import { useCan } from "../../lib/permissions";
@@ -23,6 +28,7 @@ import { DaysOffPicker } from "../../components/DaysOffPicker";
 import { PhoneInput } from "../../components/FormField";
 import { AgentPermissionsModal } from "../../components/AgentPermissionsModal";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { canManageStaffShabnam, samePersonAccounts } from "../../lib/staffShabnam";
 
 /**
  * Браузерной трубки (WebRTC) у сотрудников больше нет — удалена 18.08.2026 вместе
@@ -119,6 +125,24 @@ export function AgentsSection() {
   const uploadAvatar = useUploadAgentAvatar();
   const reset2fa = useReset2fa();
   const resetCodeBlock = useResetLoginCodeBlock();
+  // Шабнам (25.11.2026): ссылка подключения живёт только здесь, в памяти экрана.
+  const issueShabnamLink = useIssueStaffTelegramLink();
+  const unlinkShabnam = useUnlinkStaffTelegram();
+  const canShabnam = canManageStaffShabnam(me?.role);
+  const [shabnamLink, setShabnamLink] = useState<{ agentId: string; name: string; link: StaffTelegramLink } | null>(null);
+  const [shabnamError, setShabnamError] = useState<{ agentId: string; text: string } | null>(null);
+  // Только что добавленный сотрудник — предложить сразу подключить его к Шабнам.
+  const [justCreated, setJustCreated] = useState<{ id: string; name: string } | null>(null);
+  async function startShabnamLink(agent: { id: string; fullName: string }) {
+    setShabnamError(null);
+    try {
+      const link = await issueShabnamLink.mutateAsync(agent.id);
+      setShabnamLink({ agentId: agent.id, name: agent.fullName, link });
+      setJustCreated(null);
+    } catch (err) {
+      setShabnamError({ agentId: agent.id, text: err instanceof Error ? err.message : "Не удалось получить ссылку" });
+    }
+  }
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ fullName: "", phone: "", role: "AGENT" });
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +155,7 @@ export function AgentsSection() {
    * шли одним нажатием иконки: промах по соседней кнопке выкидывал сотрудника
    * из системы и необратимо снимал его с дежурств в настройках.
    */
-  const [confirmRow, setConfirmRow] = useState<{ kind: "deactivate" | "reset2fa" | "resetCodeBlock"; id: string; name: string } | null>(
+  const [confirmRow, setConfirmRow] = useState<{ kind: "deactivate" | "reset2fa" | "resetCodeBlock" | "unlinkShabnam"; id: string; name: string } | null>(
     null
   );
   const [avatarUploadingId, setAvatarUploadingId] = useState<string | null>(null);
@@ -165,6 +189,8 @@ export function AgentsSection() {
     sharePostTelegram: true,
     // Личные выходные (владелец 11.10.2026): пусто — работает каждый день.
     weeklyDaysOff: [] as number[],
+    // «Это тот же человек» (25.11.2026): пусто — связи нет. Только подпись, права не трогает.
+    samePersonAgentId: "",
   });
   const [profileError, setProfileError] = useState<string | null>(null);
   // Предупреждение от сервера: номер сохранён, но АТС не ответила и проверить его
@@ -251,6 +277,7 @@ export function AgentsSection() {
     instagramUsername?: string | null;
     sharePostTelegram?: boolean;
     weeklyDaysOff?: number[];
+    samePersonAgentId?: string | null;
   }) {
     setProfileEditId(a.id);
     setProfileForm({
@@ -263,6 +290,7 @@ export function AgentsSection() {
       instagramUsername: a.instagramUsername ?? "",
       sharePostTelegram: a.sharePostTelegram ?? true,
       weeklyDaysOff: a.weeklyDaysOff ?? [],
+      samePersonAgentId: a.samePersonAgentId ?? "",
     });
     setProfileError(null);
     setExtensionNote(null);
@@ -274,7 +302,7 @@ export function AgentsSection() {
     try {
       // Пустая строка -> null, чтобы можно было очистить номер (undefined в JSON
       // не сериализуется и PATCH его просто не тронет — см. CLAUDE.md).
-      const { sipExtension, whisperLanguage, instagramUsername, ...rest } = profileForm;
+      const { sipExtension, whisperLanguage, instagramUsername, samePersonAgentId, ...rest } = profileForm;
       const saved = await updateAgent.mutateAsync({
         id,
         body: {
@@ -285,6 +313,8 @@ export function AgentsSection() {
           whisperLanguage: whisperLanguage || null,
           // Пусто -> null — сотрудник не подключён к Instagram, соавтором не становится.
           instagramUsername: instagramUsername.trim() || null,
+          // Пусто -> null снимает связь «тот же человек».
+          samePersonAgentId: samePersonAgentId || null,
         },
       });
       setExtensionNote(saved?.extensionNote ? { id, text: saved.extensionNote } : null);
@@ -305,6 +335,8 @@ export function AgentsSection() {
       // ответе на заведение — раньше этот ответ выбрасывался, и директор узнавал
       // о проблеме, только когда новичку не доходили звонки (аудит 23.09.2026, №62).
       setExtensionNote(created?.extensionNote ? { id: created.id, text: created.extensionNote } : null);
+      // Сразу предложить подключить новичка к Шабнам (25.11.2026): иначе это забывается.
+      if (created?.id && canShabnam) setJustCreated({ id: created.id, name: form.fullName.trim() });
       setForm({ fullName: "", phone: "", role: "AGENT" });
       setShowForm(false);
     } catch (err) {
@@ -455,6 +487,34 @@ export function AgentsSection() {
           </div>
         </form>
       )}
+      {justCreated && (
+        <div className="quiet" role="status" style={{ flexWrap: "wrap", gap: 8, marginBottom: "var(--s3)" }}>
+          <span className="dot ok" />
+          <span className="txt" style={{ flex: "1 1 240px", whiteSpace: "normal" }}>
+            {justCreated.name} добавлен(а). Подключить к Шабнам? Получите ссылку и перешлите её сотруднику.
+          </span>
+          <button
+            className="pill sm"
+            type="button"
+            disabled={issueShabnamLink.isPending}
+            onClick={() => void startShabnamLink({ id: justCreated.id, fullName: justCreated.name })}
+          >
+            Получить ссылку
+          </button>
+          <button className="pill ghost sm" type="button" onClick={() => setJustCreated(null)}>
+            Позже
+          </button>
+        </div>
+      )}
+      {shabnamError && (
+        <div className="quiet crit" role="alert">
+          <span className="dot crit" />
+          <span className="txt">{shabnamError.text}</span>
+        </div>
+      )}
+      {shabnamLink && !visibleAgents.some((a) => a.id === shabnamLink.agentId) && (
+        <StaffShabnamLinkPanel name={shabnamLink.name} link={shabnamLink.link} onClose={() => setShabnamLink(null)} />
+      )}
       <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarChange} />
 
       {permissionsAgentId && (
@@ -508,7 +568,8 @@ export function AgentsSection() {
           // Учётку директора может менять только директор — скрываем действия у остальных.
           const locked = a.role === "DIRECTOR" && !iAmDirector;
           return (
-            <div key={a.id} className={`row${a.isActive ? "" : " done"}`}>
+            <Fragment key={a.id}>
+            <div className={`row${a.isActive ? "" : " done"}`}>
               <button
                 type="button"
                 disabled={locked}
@@ -667,6 +728,27 @@ export function AgentsSection() {
                           : "Выходных нет — работает каждый день. Отметьте дни, в которые сотрудник не получает новые заявки."}
                       </span>
                     </div>
+                    {/* «ЭТО ТОТ ЖЕ ЧЕЛОВЕК» (25.11.2026): у одной сотрудницы учётка агента и
+                        учётка РОП. Только подпись — права, клиенты и Telegram у учёток свои. */}
+                    <label className="fld wide">
+                      <span className="lab">Это тот же человек, что и</span>
+                      <select
+                        value={profileForm.samePersonAgentId}
+                        onChange={(e) => setProfileForm((f) => ({ ...f, samePersonAgentId: e.target.value }))}
+                      >
+                        <option value="">Нет, отдельный человек</option>
+                        {(agents ?? [])
+                          .filter((other) => other.id !== a.id)
+                          .map((other) => (
+                            <option key={other.id} value={other.id}>
+                              {other.fullName} · {ROLE_LABELS[other.role]}
+                            </option>
+                          ))}
+                      </select>
+                      <span className="msg">
+                        Только подпись, чтобы не путать учётки. Права, клиенты и Telegram у каждой учётки свои.
+                      </span>
+                    </label>
                     <div className="wrap wide">
                       <button
                         className="pill"
@@ -716,6 +798,17 @@ export function AgentsSection() {
                   <span style={{ whiteSpace: "normal" }}>
                     {ROLE_LABELS[a.role]} · {a.phone}
                   </span>
+                  {/* Шабнам (25.11.2026): узнаёт ли помощница этого сотрудника в Telegram. */}
+                  {a.isActive && a.telegramLinked !== undefined && (
+                    <span className="msg" style={{ whiteSpace: "normal" }}>
+                      {a.telegramLinked ? "Шабнам: подключена" : "Шабнам: не подключена"}
+                    </span>
+                  )}
+                  {samePersonAccounts<AgentListItem>(a, agents ?? []).map((twin) => (
+                    <span key={twin.id} className="msg" style={{ whiteSpace: "normal" }}>
+                      Это тот же человек: {twin.fullName} ({ROLE_LABELS[twin.role]})
+                    </span>
+                  ))}
                   {/* Номер сохранён, но АТС была недоступна — проверить его было нечем.
                       Это предупреждение, а не ошибка: сохранение мы не блокируем. */}
                   {extensionNote?.id === a.id && (
@@ -777,7 +870,28 @@ export function AgentsSection() {
               ) : (
                 // Кнопки строки — круглые `.pill.icon` (договор дизайна: «строка
                 // 56 px: аватар 36, текст, чип, круглая кнопка»).
-                <div className="act">
+                <div className="act" style={{ flexWrap: "wrap" }}>
+                  {/* Шабнам (25.11.2026): ссылка подключения / отключение — директор и админ. */}
+                  {canShabnam && a.isActive && (
+                    <button
+                      className="pill ghost sm"
+                      type="button"
+                      disabled={issueShabnamLink.isPending}
+                      onClick={() => void startShabnamLink(a)}
+                      title="Получить ссылку, которую сотрудник откроет в своём Telegram"
+                    >
+                      {a.telegramLinked ? "Подключить заново" : "Подключить к Шабнам"}
+                    </button>
+                  )}
+                  {canShabnam && a.telegramLinked && (
+                    <button
+                      className="pill ghost sm"
+                      type="button"
+                      onClick={() => setConfirmRow({ kind: "unlinkShabnam", id: a.id, name: a.fullName })}
+                    >
+                      Отключить Шабнам
+                    </button>
+                  )}
                   {/* Права раздаёт тот, у кого есть permissions.manage (директор и, с
                       14.09.2026, админ по умолчанию — обычная ASSIGNABLE-галочка, не
                       владельческая) — у остальных кнопки нет, и сервер всё равно откажет. */}
@@ -851,6 +965,10 @@ export function AgentsSection() {
                 </div>
               )}
             </div>
+            {shabnamLink?.agentId === a.id && (
+              <StaffShabnamLinkPanel name={shabnamLink.name} link={shabnamLink.link} onClose={() => setShabnamLink(null)} />
+            )}
+            </Fragment>
           );
         })}
       </div>
@@ -897,6 +1015,27 @@ export function AgentsSection() {
               setTwoFaError(null);
             } catch (err) {
               setTwoFaError(err instanceof Error ? err.message : "Не удалось сбросить блок входа");
+            } finally {
+              setConfirmRow(null);
+            }
+          }}
+        />
+      )}
+      {confirmRow?.kind === "unlinkShabnam" && (
+        <ConfirmDialog
+          title={`Отключить Шабнам у ${confirmRow.name}?`}
+          description="Telegram сотрудника отвяжется от CRM: Шабнам перестанет его узнавать, а код входа в Telegram приходить не будет. Подключить снова можно новой ссылкой."
+          confirmLabel={unlinkShabnam.isPending ? "Отключаем…" : "Отключить"}
+          confirmDisabled={unlinkShabnam.isPending}
+          onCancel={() => setConfirmRow(null)}
+          onConfirm={async () => {
+            const id = confirmRow.id;
+            try {
+              await unlinkShabnam.mutateAsync(id);
+              setShabnamError(null);
+              if (shabnamLink?.agentId === id) setShabnamLink(null);
+            } catch (err) {
+              setShabnamError({ agentId: id, text: err instanceof Error ? err.message : "Не удалось отключить Шабнам" });
             } finally {
               setConfirmRow(null);
             }
