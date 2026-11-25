@@ -227,8 +227,9 @@ describe("оператор приёма заявок на настоящем п�
   beforeEach(() => { understandModel.mockReset(); understandModel.mockResolvedValue(null); });
 
   it("случай 3, WhatsApp: заявка в этот же ход и вопрос о деталях; ответ — заметка; модель ядра не звалась; память v2 переживает приём", async () => {
-    const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он позвонит вам в ближайшее время, " +
+    const f = await coreFixture("Хочу продать квартиру, 2 комнаты", "WHATSAPP");
+    // 24.11.2026: роль и суть (комнаты) есть — заявка сразу; срок звонка не называем (владелец 22.11.2026).
+    expect(await plannedText(f.eventKey)).toBe("Поможем продать, комиссия агентства 2%. Спасибо, передаю агенту, он с вами свяжется, " +
       "а пока можете рассказать о квартире: район, сколько комнат и цену.");
     const lead = await intakeJob(f.eventKey);
     expect(lead?.payload).toMatchObject({ scenario: "seller", propertyId: null });
@@ -258,12 +259,12 @@ describe("оператор приёма заявок на настоящем п�
     expect((await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } })).kind).toBe("SELLER");
   });
 
-  it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время повторяем и пишем агенту заметкой", async () => {
-    const f = await coreFixture("Продать недвижимость", "WHATSAPP");
-    expect(await plannedText(f.eventKey)).toContain("а пока можете рассказать");
+  it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время агенту заметкой, вслух не повторяем", async () => {
+    const f = await coreFixture("Продать недвижимость, 3 комнаты", "WHATSAPP");
+    expect(await plannedText(f.eventKey)).toContain("а пока можете");
     await settle(f.eventKey);
     const second = await f.receive("С 11 до 2.30 удобно");
-    expect(await plannedText(second)).toBe("Передам агенту: звонить с 11:00 до 14:30.");
+    expect(await plannedText(second)).toBe("Передам агенту, когда вам удобно.");
     expect((await intakeJob(second, true))?.payload).toMatchObject({ scenario: "note" });
     coreModelUntouched(f);
   });
@@ -271,12 +272,13 @@ describe("оператор приёма заявок на настоящем п�
   it("случай 6, WhatsApp по-таджикски: покупатель — заявка сразу, ответ «2 хонага…» — «Ба агент расондам.», без списка", async () => {
     understandModel.mockImplementation(async (request: { user: string }) => {
       const current = (JSON.parse(request.user) as { currentClientMessage: string }).currentClientMessage;
-      return current.startsWith("Хона") ? { ...EMPTY_ANSWER, role: "buyer", roleQuote: "Хона мехарам", language: "tg" } : null;
+      return current.startsWith("Хона") ? { ...EMPTY_ANSWER, role: "buyer", roleQuote: "Хона мехарам", district: "Сино", language: "tg" } : null;
     });
-    const f = await coreFixture("Хона мехарам", "WHATSAPP");
+    // 24.11.2026: роль и район — суть есть, заявка сразу (голая роль сначала получила бы вопрос по сути).
+    const f = await coreFixture("Хона мехарам дар Сино", "WHATSAPP");
     const first = await plannedText(f.eventKey);
     expect(first).toContain("ба агент мерасонам");
-    expect(first).toContain("чанд ҳуҷра, кадом ноҳия ва то чанд пул");
+    expect(first).toContain("чанд ҳуҷра ва то чанд пул");
     expect((await intakeJob(f.eventKey))?.payload).toMatchObject({ scenario: "buyer", propertyId: null });
     await settle(f.eventKey);
     const second = await f.receive("2 хонага, ремонт, 700 ҳазор");
@@ -294,11 +296,12 @@ describe("оператор приёма заявок на настоящем п�
     const conversationId = (await prisma.$transaction(tx => ensureScopedBotConversation(tx, { channel: "INSTAGRAM", subscriberId: f.peer, transport }))).id;
     nativeExtra.push(conversationId);
     await prisma.botConversation.update({ where: { id: conversationId }, data: { adPropertyId: propertyId, adTopic: "property" } });
-    expect(await plannedText(f.eventKey)).toBe(`Это объект №${propertyShortId}, цена 520 000 сомони. ` +
+    // 24.11.2026 (находка 17, 71178348): вопрос об услугах — ответ об услугах, а не цена объекта.
+    expect(await plannedText(f.eventKey)).toBe("Для покупателя наши услуги бесплатны. " +
       "Если хотите, агент позвонит, всё подробно расскажет и покажет.");
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 47");
-    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
+    expect(await plannedText(second)).toBe(`Это объект №${propertyShortId}, цена 520 000 сомони. Спасибо, номер получил, агент вам позвонит.`);
     const lead = await intakeJob(second);
     expect(lead?.payload).toMatchObject({ scenario: "property", propertyId });
     await settle(second);
@@ -314,7 +317,12 @@ describe("оператор приёма заявок на настоящем п�
     const f = await coreFixture("Мефурушам", "WHATSAPP");
     const first = await plannedText(f.eventKey);
     expect(first).toContain("комиссияи агентӣ 2%");
+    // 24.11.2026: голая роль — вопрос по сути, заявка на ответ (владелец 22.11.2026).
+    expect(await intakeJob(f.eventKey)).toBeNull();
     await settle(f.eventKey);
+    const answer = await f.receive("Сино, 2 хона");
+    expect(await plannedText(answer)).toMatch(/WhatsApp/u);
+    await settle(answer);
     const second = await f.receive("Я хочу продоват свою квартиру");
     // 20.11.2026: после заявки не тишина — «Ваша заявка у агента…» (язык разговора — по последним словам клиента).
     expect(await plannedText(second)).toMatch(/^(?:Ваша заявка у агента, он с вами свяжется\.|Дархостатон назди агент аст, ӯ бо шумо тамос мегирад\.)$/u);
@@ -374,13 +382,13 @@ describe("ревью 19.11: недостающие тесты подключен
     await settle(f.eventKey);
     const second = await f.receive("918 22 33 49");
     // Вопрос о деталях уже звучал первым ответом — строка заявки его не повторяет.
-    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент позвонит в ближайшее время.");
+    expect(await plannedText(second)).toBe("Спасибо, номер получил, агент вам позвонит.");
     expect((await intakeJob(second))?.payload).toMatchObject({ scenario: "seller", propertyId: null });
     coreModelUntouched(f);
   });
 
   it("Т3: задание заявки ждёт ответ хода; последняя попытка (force) заводит заявку; нечитаемые данные — тревога, не тихий пропуск", async () => {
-    const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
+    const f = await coreFixture("Хочу продать квартиру, 2 комнаты", "WHATSAPP");
     await plannedText(f.eventKey);
     const job = await intakeJob(f.eventKey);
     expect(await runCustomerLeadOnlyIntake(job!.payload)).toEqual({ status: "wait", reason: "turn_not_settled" });
@@ -393,7 +401,7 @@ describe("ревью 19.11: недостающие тесты подключен
   });
 
   it("Р14: память изменил параллельный ход, пока этот ждал модель понимания — решение не пишется, ход решается заново, одна заявка", async () => {
-    const f = await coreFixture("Хочу продать квартиру", "WHATSAPP");
+    const f = await coreFixture("Хочу продать квартиру, 2 комнаты", "WHATSAPP");
     understandModel.mockImplementationOnce(async () => {
       const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey }, select: { conversationId: true } });
       await prisma.botConversation.update({ where: { id: ticket.conversationId! }, data: { leadOnlyPending: serializeOperatorState(initialOperatorState()) as object } });

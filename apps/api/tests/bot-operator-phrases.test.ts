@@ -103,7 +103,9 @@ describe("сторож фраз оператора", () => {
     // прошла бы мимо него. Пометки после заявки (callback_noted, text_only_noted, note_added, no_agent_noted) — свободны.
     const LEAD_KEYS = ["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "lead_callback",
       "lead_text_only", "phone_received", "out_of_area_accepted"];
-    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted", "question_noted", "lead_status", "lead_reminder"];
+    // next_step («делать ничего не нужно, агент свяжется») звучит только после заявки (decide.ts: `s.leadAccepted`).
+    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted", "question_noted", "lead_status", "lead_reminder",
+      "next_step"];
     for (const { key, language, text } of rendered()) {
       if (LEAD_KEYS.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(true);
       else if (!AFTER_LEAD.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(false);

@@ -75,8 +75,10 @@ describe("renderer: company terms in a DM", () => {
     expect(render("payment", "", { mediaPerception: voice("рассрочка есть?") })).toContain("Рассрочки нет");
     expect(render("payment", "", { mediaPerception: voice("привет, адрес дома?") })).not.toMatch(/рассрочк/iu);
   });
-  it("public comments keep the term (the gate is for DMs)", () => {
-    expect(render("negotiation", "адрес?", { surface: "public_comment" })).toContain("Вопрос торга");
+  // 24.11.2026 (прод de960ea6: на «Воаллекум салом» ушло правило о торге): комментарии — тем же правилом, что и переписка.
+  it("public comments: the term answers only its own question too", () => {
+    expect(render("negotiation", "адрес?", { surface: "public_comment" }) ?? "").not.toContain("Вопрос торга");
+    expect(render("negotiation", "скидка будет?", { surface: "public_comment" })).toContain("Вопрос торга");
   });
   it("the memory allow-list render (no input) keeps every term line", () => {
     expect(renderCustomerAgentDecision({ decision, evidence: policy("negotiation") as never, language: "ru", requestedFacts: [],
