@@ -1581,7 +1581,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) {
       // Никто Шабнам не звал и ясного рабочего вопроса нет: в режиме «живая» она сама решает, вступать ли в беседу.
-      if (raw && !isForwarded && msg.from && !msg.sender_chat && msg.message_id) {
+      // Рамки те же, что у реакции без обращения: ИИ-помощник включён и пишет привязанный активный сотрудник.
+      if (raw && !isForwarded && msg.from && !msg.sender_chat && msg.message_id
+        && await isAiAssistantEnabled() && await senderOf(msg)) {
         void runLiveChime({
           chatId, messageId: msg.message_id, threadId: msg.message_thread_id, text: raw,
           fromTelegramId: msg.from.id, isBot: msg.from.is_bot === true, isForwarded, senderIsChat: Boolean(msg.sender_chat),
@@ -2114,7 +2116,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         moneyWallet,
         scope: "group",
         groupChat: addressed ? { chatId, registeredAt } : undefined,
-        liveGroupChat: resolveGroupMode(registered.chatMode) === "LIVE" && await automationSwitchOn("shabnamGroupLiveEnabled"),
+        liveGroupChat: addressed && resolveGroupMode(registered.chatMode) === "LIVE" && await automationSwitchOn("shabnamGroupLiveEnabled"),
         allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
         readOnlyGroup: Boolean(continuationRef),
         validateQueueAudience, forwardedEvidence,

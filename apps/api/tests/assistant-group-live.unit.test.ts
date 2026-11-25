@@ -28,6 +28,7 @@ describe("рамки живой беседы", () => {
     expect(sanitizeLiveReply("Доброе утро — хорошего дня!")).toBe("Доброе утро, хорошего дня!");
     expect(sanitizeLiveReply("Смотрите https://example.com")).toBeNull();
     expect(sanitizeLiveReply("Напишите мне @name")).toBeNull();
+    expect(sanitizeLiveReply("Поздравляю со сделкой на 120 000!")).toBeNull();
     expect(sanitizeLiveReply("а".repeat(300))).toBeNull();
     expect(sanitizeLiveReply("Лутфан, не переживайте")).toBeNull();
     expect(sanitizeLiveReply("Не шутите про штраф")).toBeNull();

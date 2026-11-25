@@ -25,7 +25,7 @@ const input = (text = "Всем доброе утро, коллеги!") => ({
 
 async function resetGroup(data: Record<string, unknown> = {}) {
   await prisma.assistantTelegramGroup.deleteMany({ where: { chatId } });
-  await prisma.assistantTelegramGroup.create({ data: { chatId, registeredByAgentId: agentId, ...data } });
+  await prisma.assistantTelegramGroup.create({ data: { chatId, registeredByAgentId: agentId, contextEnabledAt: new Date(), ...data } });
 }
 
 beforeAll(async () => {
@@ -97,6 +97,25 @@ describe("живая беседа в группе", () => {
     expect(await considerLiveChime(input(), deliver, noon)).toEqual({ kind: "shadow", reply: "Доброе утро!" });
     expect(deliver).not.toHaveBeenCalled();
     expect((await prisma.assistantTelegramGroup.findUniqueOrThrow({ where: { chatId } })).liveWindowCount).toBe(0);
+  });
+
+  it("группа без памяти: молчит, модель не зовётся", async () => {
+    await resetGroup({ contextEnabledAt: null });
+    expect(await considerLiveChime(input(), vi.fn(async () => true), noon)).toEqual({ kind: "skip", reason: "no-memory" });
+    expect(callGemini).not.toHaveBeenCalled();
+  });
+
+  it("недавний спор в окне: «хорошего вечера» не получает ответа", async () => {
+    await prisma.assistantTelegramContext.create({ data: {
+      groupChatId: chatId, messageId: 1, text: "Опять штраф за опоздание, надоело", occurredAt: new Date(noon.getTime() - 60_000),
+      expiresAt: new Date(noon.getTime() + 86_400_000), authorTelegramId: "1", authorAgentId: null,
+      sourceVersion: noon, sourceUpdateId: BigInt(unique),
+    } });
+    callGemini.mockResolvedValue({ join: true, reply: "Хорошего вечера!" });
+    const outcome = await considerLiveChime(input("Всем хорошего вечера"), vi.fn(async () => true), noon);
+    expect(outcome).toEqual({ kind: "skip", reason: "topic-window" });
+    expect(callGemini).not.toHaveBeenCalled();
+    await prisma.assistantTelegramContext.deleteMany({ where: { groupChatId: chatId } });
   });
 
   it("не человек, пересланное, команда: пропуск без модели", async () => {

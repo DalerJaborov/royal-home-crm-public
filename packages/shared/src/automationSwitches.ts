@@ -53,7 +53,7 @@ export const AUTOMATION_SWITCH_DEFAULT = true;
  * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
  * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
  */
-export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled", "shabnamGroupLiveShadowEnabled"]);
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
