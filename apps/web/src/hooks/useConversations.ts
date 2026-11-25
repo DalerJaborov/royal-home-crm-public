@@ -9,8 +9,8 @@ import { keepWhilePaging } from "../lib/keepWhilePaging";
 import { ApiError } from "../lib/apiError";
 import {
   cancelConversationMediaUpload,
-  cancelOutgoingMediaJob,
-  retryOutgoingMediaJob,
+  requestOutgoingMediaCancel,
+  requestOutgoingMediaRetry,
   uploadConversationMedia,
   waitOutgoingMediaJob,
   type OutgoingMediaJobView,
@@ -455,7 +455,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         const conversationId = id;
         const jobId = upload.jobId;
         setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
-        void retryOutgoingMediaJob(conversationId, jobId)
+        void requestOutgoingMediaRetry(conversationId, jobId)
           .then(() => follow(conversationId, upload, jobId))
           .catch((err: unknown) => {
             // Исходника уже нет на сервере (прошли сутки) — грузим файл заново.
@@ -482,7 +482,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
       cancelConversationMediaUpload(localId);
       // Файл уже на сервере — отменить задание, пока оно не начало уходить клиенту.
       const jobId = useMediaUploadsStore.getState().byConversation[id]?.find((u) => u.localId === localId)?.jobId;
-      if (jobId) void cancelOutgoingMediaJob(id, jobId).catch(() => {});
+      if (jobId) void requestOutgoingMediaCancel(id, jobId).catch(() => {});
       remove(id, localId);
     },
     [id, remove]

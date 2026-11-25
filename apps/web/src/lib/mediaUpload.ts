@@ -146,11 +146,11 @@ export function fetchOutgoingMediaJob(conversationId: string, jobId: string): Pr
   return api<OutgoingMediaJobView>(`/conversations/${conversationId}/media-jobs/${jobId}`);
 }
 
-export function retryOutgoingMediaJob(conversationId: string, jobId: string): Promise<{ jobId: string }> {
+export function requestOutgoingMediaRetry(conversationId: string, jobId: string): Promise<{ jobId: string }> {
   return api<{ jobId: string }>(`/conversations/${conversationId}/media-jobs/${jobId}/retry`, { method: "POST" });
 }
 
-export function cancelOutgoingMediaJob(conversationId: string, jobId: string): Promise<unknown> {
+export function requestOutgoingMediaCancel(conversationId: string, jobId: string): Promise<unknown> {
   return api(`/conversations/${conversationId}/media-jobs/${jobId}`, { method: "DELETE" });
 }
 
