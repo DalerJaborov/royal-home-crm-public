@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 775,
-  "forks": 4176,
+  "forks": 4178,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -50392,11 +50392,26 @@
         },
         {
          "k": "do",
-         "t": "await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …",
+         "t": "const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…",
          "a": [
           "меняет в базе: property"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "written.count > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void autoLinkPropertyById(property.id, req.agent?.id ?? null);",
+           "a": [
+            "зовёт autoLinkPropertyById()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -56830,6 +56845,14 @@
      "c": []
     },
     {
+     "k": "do",
+     "t": "void autoLinkPropertyById(updated.id, req.agent!.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "willAutoPublish",
      "a": [],
@@ -56882,14 +56905,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "void autoLinkPropertyById(updated.id);",
-     "a": [
-      "зовёт autoLinkPropertyById()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -61691,15 +61706,24 @@
     },
     {
      "k": "do",
-     "t": "const result = await presentPropertyListItems(items, req);",
+     "t": "const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…",
      "a": [
-      "зовёт presentPropertyListItems()"
+      "запись в журнал ошибок"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"api\", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
-     "t": "res.json({ items: result, total, page: pageNum, pageSize });",
+     "t": "res.json({ items: result.map((p)",
      "a": [
       "ответ 200"
      ],
@@ -84333,6 +84357,14 @@
        ]
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "void autoLinkPropertyById(property.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -122202,6 +122234,21 @@
              "a": [],
              "c": [
               {
+               "k": "if",
+               "t": "claim.write && !claim.write.priceChanged",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void autoLinkPropertyById(property.id, actorId);",
+                 "a": [
+                  "зовёт autoLinkPropertyById()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
                "k": "do",
                "t": "break;",
                "a": [
@@ -130476,6 +130523,61 @@
       },
       {
        "k": "do",
+       "t": "await autoLinkPropertyById(payload.propertyId);",
+       "a": [
+        "зовёт autoLinkPropertyById()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await loadRegistrySettings()).enabled",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+           "a": [
+            "зовёт autoLinkProperty()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+      },
+      {
+       "k": "do",
        "t": "return;",
        "a": [
         "дальше не идёт, ничего не меняя"
@@ -130531,6 +130633,61 @@
      ]
     },
     {
+     "k": "do",
+     "t": "await autoLinkPropertyById(payload.propertyId);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await loadRegistrySettings()).enabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+         "a": [
+          "зовёт autoLinkProperty()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+    },
+    {
      "k": "if",
      "t": "!property.districtId",
      "a": [],
@@ -130541,46 +130698,7 @@
        "a": [
         "зовёт districtByPoint()"
        ],
-       "c": [
-        {
-         "k": "loop",
-         "t": "для каждого: const d of districts",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!d.boundary",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "ring && isPointInPolygon(lng, lat, ring)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { id: d.id, name: d.name, source: \"point\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "districtByPoint() — apps/api/src/lib/propertyDistrict.ts"
+       "c": []
       },
       {
        "k": "if",

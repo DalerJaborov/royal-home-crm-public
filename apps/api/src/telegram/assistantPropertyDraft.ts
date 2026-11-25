@@ -67,6 +67,7 @@ import {
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
 import { narrationRate } from "../lib/propertyNarration.js";
+import { registryNoteAfterCreate } from "../ai/assistant/tools/registryBrief.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -1724,7 +1725,10 @@ async function createFromPreview(ctx: Context, id: string, messageId?: number): 
   const baseText = media?.error || skipped
     ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
     : t(lang).created;
-  const createdText = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
+  const withVideoNote = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
+  // Реестр строек — строкой в том же сообщении (25.11.2026): новостройку сверяем сразу, а не ждём недельного забора.
+  const registryNote = await registryNoteAfterCreate(created.id, lang, ctx.agentId);
+  const createdText = registryNote ? `${withVideoNote}\n\n${registryNote}` : withVideoNote;
   if (messageId) {
     try { await editMessageText(chatId, messageId, createdText, buttons); }
     catch { await sendMessageWithButtons(chatId, createdText, buttons); }

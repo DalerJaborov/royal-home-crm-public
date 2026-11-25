@@ -148,6 +148,7 @@ import { requestAgentAttention } from "../lib/agentAttention.js";
 import { sendPushToAgents } from "../push.js";
 import { ensureMetaAdKnown } from "../lib/ads/syncMetaAds.js";
 import { maskPhonesInFreeText } from "../lib/clientPhone.js";
+import { autoLinkPropertyById } from "../lib/constructionRegistry/autoLinkOnSave.js";
 
 export const webhooksRouter = Router();
 
@@ -1199,6 +1200,8 @@ webhooksRouter.post("/site-listing-upserted", syncWebhookLimiter, async (req, re
     });
   }
 
+  // Объект с сайта (новый или с новым адресом/точкой) — сверить с реестром строек. Фон, в ответ сайту ничего не попадает.
+  void autoLinkPropertyById(property.id);
   res.status(created ? 201 : 200).json({ ok: true, propertyId: property.id, created });
 });
 

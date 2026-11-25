@@ -16,10 +16,10 @@
   "paths": 775,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4137,
-  "untranslatedUnique": 474,
-  "untranslatedTotal": 609,
-  "partialUnique": 1113,
+  "conditions": 4139,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 611,
+  "partialUnique": 1111,
   "translatedShare": 85
  },
  "untranslated": [
@@ -33,6 +33,7 @@
   "!(await exemptCustomerSpam(id.data))",
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
+  "!(await loadRegistrySettings()).enabled",
   "!(await metaCatalogKeyOk(req))",
   "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
@@ -41009,6 +41010,12 @@
          "k": "do",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если количество больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -48572,6 +48579,19 @@
       {
        "t": "если fuzzy количество больше 0",
        "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "запись в журнал ошибок",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
        "a": [],
        "c": []
       }
@@ -82316,6 +82336,41 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(await loadRegistrySettings()).enabled",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(await loadRegistrySettings()).enabled",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },
@@ -82347,38 +82402,44 @@
      ]
     },
     {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await loadRegistrySettings()).enabled",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await loadRegistrySettings()).enabled"
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "t": "если нет: район (объект)",
      "k": "if",
      "a": [],
      "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если нет: boundary",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть ring и это point in polygon",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
       {
        "t": "если есть район",
        "k": "if",
