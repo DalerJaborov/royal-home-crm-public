@@ -13,7 +13,7 @@ import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback, handleVoicelessCopyCallback } from "./montajerReceive.js";
-import { parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
+import { handleMontajerNarration, parseMontajerCallback, parseMontajerText, runMontajerCommand } from "./montajerBot.js";
 import { appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import { batchWindowFor, debounceAndMerge, quickRepeatMergeEnabled } from "../messengers/debounceBuffer.js";
 import { markLastTelegramReplyUndelivered } from "../messengers/appendMessages.js";
@@ -544,6 +544,10 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     startAssistantPrivate(msg, agent);
     return true;
   }
+
+  // «Озвучь текст» (25.11.2026): озвучка своего текста из чата монтажёра, до меню очереди и приёма вложений —
+  // иначе любое слово, кроме команд, превращалось в статус очереди (telegram/montajerBot.ts).
+  if (await handleMontajerNarration(msg, agent)) return true;
 
   /**
    * ОБЛОЖКА ОТ МОНТАЖЁРА БОЛЬШЕ НЕ ПРИНИМАЕТСЯ (владелец, 21.09.2026: «обложки
