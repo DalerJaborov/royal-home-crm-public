@@ -36,6 +36,7 @@ import { toSmsPhone } from "./sms/phone.js";
 import { sendMessage as sendTelegramMessage } from "../telegram/api.js";
 import { sendLoginCodePush, type PushSubscriptionRow } from "../push.js";
 import { logSystemError } from "./systemError.js";
+import { noteLoginCodeRefusal } from "./loginCodeWatch.js";
 
 export const LOGIN_SMS_CODE_TTL_MS = 5 * 60 * 1000;
 export const LOGIN_SMS_MAX_ATTEMPTS = 5;
@@ -93,7 +94,7 @@ export function devCodeEchoEnabled(): boolean {
 
 export type IssueResult =
   | { ok: true; channel: LoginCodeChannel; devCode?: string; fallbackAfterSec?: number; resendAfterSec?: number }
-  | { ok: false; error: string; retryAfterSec?: number };
+  | { ok: false; error: string; retryAfterSec?: number; blockedUntilMs?: number };
 
 export type CodeAgent = { id: string; phone: string; telegramChatId: string | null };
 
@@ -188,7 +189,14 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
       return { ok: false as const, error: "Код уже отправлен. Дождитесь окончания таймера перед повторной отправкой.", retryAfterSec };
     }
     if (recent.length >= LOGIN_SMS_PER_HOUR) {
-      return { ok: false as const, error: "Слишком много кодов за час. Попробуйте позже или обратитесь к директору" };
+      // Блок снимется, когда самый ранний из пяти кодов выйдет из часового окна
+      // (recent — от новых к старым, пятый с краю и есть «самый ранний из пяти»).
+      const blockedUntilMs = recent[LOGIN_SMS_PER_HOUR - 1].createdAt.getTime() + 60 * 60 * 1000;
+      return {
+        ok: false as const,
+        error: "Слишком много кодов за час. Попробуйте позже или обратитесь к директору",
+        blockedUntilMs,
+      };
     }
 
     const order: LoginCodeChannel[] = channel
@@ -207,7 +215,10 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
     });
     return { ok: true as const, rowId: row.id, order, liveSubs, wanted, ackToken, reservedAt: now };
   });
-  if (!reserved.ok) return reserved;
+  if (!reserved.ok) {
+    if (reserved.blockedUntilMs !== undefined) noteLoginCodeRefusal(agent.id, "hour-limit");
+    return reserved;
+  }
   const { rowId, order, liveSubs, wanted, ackToken } = reserved;
   const resendAfterSec = () => Math.max(0, Math.ceil((reserved.reservedAt + LOGIN_SMS_RESEND_MS - Date.now()) / 1000));
   const errors: string[] = [];
@@ -252,6 +263,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
     }
     // All transports refused: release the reservation, allowing a real retry.
     await prisma.loginSmsCode.delete({ where: { id: rowId } });
+    noteLoginCodeRefusal(agent.id, "send-failed");
     return { ok: false, error: `Не удалось отправить код: ${errors.join("; ")}` };
   } catch (err) {
     await prisma.loginSmsCode.deleteMany({ where: { id: rowId } });
@@ -337,6 +349,7 @@ export async function verifyLoginCode(agentId: string, code: string): Promise<Ve
   }
   if (!secretsMatch(hashCode(agentId, code), latest.codeHash)) {
     await prisma.loginSmsCode.update({ where: { id: latest.id }, data: { attempts: { increment: 1 } } });
+    noteLoginCodeRefusal(agentId, "wrong-code");
     return { ok: false, error: "Неверный код" };
   }
   // Гасим условно: два одновременных запроса с верным кодом — сессию получит один.
@@ -346,4 +359,16 @@ export async function verifyLoginCode(agentId: string, code: string): Promise<Ve
   });
   if (consumed.count === 0) return { ok: false, error: "Код уже использован. Запросите новый" };
   return { ok: true };
+}
+
+/**
+ * Директор снимает блок «5 кодов за час»: строки кодов этого сотрудника за последний
+ * час удаляются, счётчик обнуляется. Лимиты для остальных не меняются. Возвращает,
+ * сколько строк убрано.
+ */
+export async function resetLoginCodeBlock(agentId: string): Promise<number> {
+  const removed = await prisma.loginSmsCode.deleteMany({
+    where: { agentId, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  });
+  return removed.count;
 }

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4176**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -869,6 +869,28 @@
 - res.json(live);
   · ответ 200
 
+### POST /api/v1/agents/:id/login-code/reset
+
+`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+- const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);
+  · зовёт resetStaffLoginCodeBlock()
+  - если actor.role !== "DIRECTOR"
+    - return fail(403, "Снять блок входа по коду может только директор");
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } …
+    · читает в базе: agent
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - const removed = await resetLoginCodeBlock(target.id);
+    · зовёт resetLoginCodeBlock()
+  - logAgentAudit(actor.id, "LOGIN_CODE_BLOCK_RESET", "Agent", target.id, { targetName: target.fullName, removedC…
+    · зовёт logAgentAudit()
+
 ### GET /api/v1/agents/:id/overview
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
@@ -1622,7 +1644,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error });
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…
     · ответ 503
 - res.json({ pendingToken: signPending2faToken(agent.id, "sms"), channel: issued.channel, phoneHint: maskPhoneF…
   · ответ 200
@@ -1872,7 +1894,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error });
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…
     · ответ 503
 - res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: issued.resendAf…
   · ответ 200

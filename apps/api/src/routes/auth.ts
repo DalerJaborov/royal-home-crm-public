@@ -113,6 +113,16 @@ function phoneCandidates(raw: string): string[] {
   return staffPhoneLookupForms(raw);
 }
 
+/**
+ * Тело 503 «слишком много кодов за час»: когда блок снимется (`retryAt`, ISO) и
+ * привязан ли Telegram — экран входа показывает время по Душанбе и кнопку. Поля
+ * добавочные: старые клиенты читают только `error`.
+ */
+function blockedBody(blockedUntilMs: number | undefined, telegramAvailable: boolean): Record<string, unknown> {
+  if (blockedUntilMs === undefined) return {};
+  return { retryAt: new Date(blockedUntilMs).toISOString(), telegramAvailable };
+}
+
 authRouter.post("/login/code", async (req, res) => {
   const parsed = loginCodeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Введите номер телефона" });
@@ -142,7 +152,7 @@ authRouter.post("/login/code", async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChatId) });
   }
   res.json({
     pendingToken: signPending2faToken(agent.id, "sms"),
@@ -436,7 +446,7 @@ authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChatId) });
   }
   res.json({
     channel: issued.channel,

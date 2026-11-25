@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../apiError";
-import { loginRetryAfterMs } from "../loginRetry";
+import { loginBlockInfo, loginBlockText, loginRetryAfterMs } from "../loginRetry";
 
 describe("login resend deadline from API errors", () => {
   it("reads the server countdown from JSON data instead of the Error root", () => {
@@ -16,5 +16,20 @@ describe("login resend deadline from API errors", () => {
   it("rejects invalid server values and retains a bounded fallback", () => {
     expect(loginRetryAfterMs(new ApiError("retry", 429, { resendAfterSec: -5 }, 4000))).toBe(4000);
     expect(loginRetryAfterMs(new ApiError("retry", 429, { resendAfterSec: "3" }))).toBe(60_000);
+  });
+});
+
+describe("блок «5 кодов за час» (503 с retryAt)", () => {
+  it("читает время снятия и Telegram, текст — в часах Душанбе (UTC+5)", () => {
+    const info = loginBlockInfo(new ApiError("many", 503, { retryAt: "2026-11-25T07:05:00.000Z", telegramAvailable: true }));
+    expect(info?.telegramAvailable).toBe(true);
+    expect(loginBlockText(info!)).toBe(
+      "Код уже запрашивали 5 раз за час. Подождите до 12:05 (по Душанбе) или попросите директора сбросить блок."
+    );
+  });
+  it("без retryAt или с мусором — null, обычное сообщение остаётся", () => {
+    expect(loginBlockInfo(new ApiError("many", 503, {}))).toBeNull();
+    expect(loginBlockInfo(new ApiError("many", 503, { retryAt: "не дата" }))).toBeNull();
+    expect(loginBlockInfo(new ApiError("x", 429, { retryAt: "2026-11-25T07:05:00.000Z" }))).toBeNull();
   });
 });

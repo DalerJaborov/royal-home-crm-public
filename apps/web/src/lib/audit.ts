@@ -74,6 +74,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TELEGRAM_LINK_CODE_ISSUED: "Запрошена привязка Telegram",
   TELEGRAM_LINKED: "Telegram привязан",
   TOTP_RESET_BY_DIRECTOR: "Код подтверждения сброшен директором",
+  LOGIN_CODE_BLOCK_RESET: "Блок входа по коду снят директором",
   SITE_ADMIN_PASSWORD_RESET: "Сброс пароля администратора сайта",
 
   // Клиенты.
