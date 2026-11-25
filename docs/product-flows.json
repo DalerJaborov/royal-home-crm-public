@@ -7225,7 +7225,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],
@@ -8329,7 +8329,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],

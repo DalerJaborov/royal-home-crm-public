@@ -1644,7 +1644,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
     · ответ 503
 - res.json({ pendingToken: signPending2faToken(agent.id, "sms"), channel: issued.channel, phoneHint: maskPhoneF…
   · ответ 200
@@ -1894,7 +1894,7 @@
       · ставит заголовок ответа
     - return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
       · ответ 429
-  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChat…
+  - return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
     · ответ 503
 - res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: issued.resendAf…
   · ответ 200
