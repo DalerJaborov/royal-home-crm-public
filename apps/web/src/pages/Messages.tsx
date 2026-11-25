@@ -91,11 +91,11 @@ import { RhAvatar } from "../components/look/ui";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
+import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
+import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
 /** Почему «Отправить объект» серый: отправка пишет показ объекта в карточку клиента. */
 const PROPERTY_SEND_NEEDS_CARD = "Сначала примите заявку: у этого диалога ещё нет карточки клиента";
-import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
-import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -2116,19 +2116,11 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                   role="menuitem"
                   aria-disabled={!canSendProperty || undefined}
                   title={canSendProperty ? undefined : PROPERTY_SEND_NEEDS_CARD}
-                  onClick={(e) => {
-                    if (!canSendProperty) {
-                      e.stopPropagation();
-                      setPropertyHint(true);
-                      return;
-                    }
-                    setPropertyPickerOpen(true);
-                  }}
+                  onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint(true))}
                   style={canSendProperty ? undefined : { opacity: 0.55 }}
                 >
                   <Building2 aria-hidden="true" />Объект из базы
                 </button>
-                {!canSendProperty && propertyHint && <span className="meta" role="note" style={{ padding: "4px 12px" }}>{PROPERTY_SEND_NEEDS_CARD}</span>}
                 {quickReplies.length > 0 && (
                   <div role="group" aria-label="Быстрые ответы" className="ry-menu-group">
                     <span className="ry-menu-cap">Быстрые ответы</span>

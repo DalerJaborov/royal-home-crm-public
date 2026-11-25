@@ -261,6 +261,9 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(entry!.getAttribute("aria-disabled")).toBe("true");
     click(entry);
     expect(document.body.textContent).not.toContain("Окно подбора");
+    // Меню закрылось, причина осталась одной строкой над полем (не дублем в меню).
+    expect(document.querySelector('[role="menu"][aria-label="Прикрепить"]')).toBeNull();
+    expect(document.querySelectorAll('[data-testid="chat-send-property-hint"]').length).toBe(1);
   });
   it("agent «⋯»: search, contact details, client card — and no bot control", () => {
     h.perms = AGENT;
