@@ -289,19 +289,28 @@ describe("правка до публикации — кого предупред
   });
 
   it("ролик у монтажёра: Telegram монтажёру «было → стало», журнал и факты прошлой передачи обновлены", async () => {
-    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1\nЦена: 450 000 с." });
-    await patch(p.id, agentToken, { price: 520000 }).expect(200);
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1
+Этаж: 5" });
+    await patch(p.id, agentToken, { floor: 7 }).expect(200);
     await waitFor(() => montajerMessages().length > 0);
     const text = String(montajerMessages()[0]![1]);
-    expect(text).toContain("Цена: 450000 TJS → 520000 TJS");
+    expect(text).toContain("Этаж: 5 → 7");
     expect(text).toContain("Учтите в монтаже");
     const logged = await waitFor(() => prisma.montajerMessage.findFirst({ where: { propertyId: p.id, kind: "FACTS_CHANGED" } }));
     expect(logged.text).toBe(text);
     const fresh = await waitFor(async () => {
       const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id }, select: { videoHandoffLastFactsText: true } });
-      return row.videoHandoffLastFactsText?.includes("Цена:") && !row.videoHandoffLastFactsText.includes("450 000") ? row : null;
+      return row.videoHandoffLastFactsText?.includes("Этаж: 7") && !row.videoHandoffLastFactsText.includes("Этаж: 5") ? row : null;
     });
-    expect(fresh.videoHandoffLastFactsText).toContain("520");
+    expect(fresh.videoHandoffLastFactsText).toContain("Этаж: 7");
+  });
+
+  it("ролик у монтажёра, поменялась ТОЛЬКО цена: монтажёру не пишем — цены в ролике нет (25.11.2026)", async () => {
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR" });
+    await patch(p.id, agentToken, { price: 520000 }).expect(200);
+    await waitForSettled(() => prisma.montajerMessage.count({ where: { propertyId: p.id, kind: "FACTS_CHANGED" } }));
+    expect(montajerMessages()).toHaveLength(0);
+    expect(await prisma.montajerMessage.count({ where: { propertyId: p.id, kind: "FACTS_CHANGED" } })).toBe(0);
   });
 
   it("монтажёр не привязан к Telegram: не молчим — журнал ошибок и директору", async () => {
@@ -317,14 +326,24 @@ describe("правка до публикации — кого предупред
     }
   });
 
-  it("в очереди монтажа монтажёру ничего не шлём — текст соберётся свежим при отправке", async () => {
+  it("в очереди монтажа монтажёру ничего не шлём — текст соберётся свежим при отправке, а цены в нём нет", async () => {
     const p = await seed({ status: "EDITING", videoHandoffStatus: "QUEUED" });
-    await patch(p.id, agentToken, { price: 530000 }).expect(200);
+    await patch(p.id, agentToken, { floor: 8 }).expect(200);
     expect(montajerMessages()).toHaveLength(0);
     const { buildMontajerMessageText } = await import("../src/lib/videoHandoff.js");
     const text = await buildMontajerMessageText(p.id);
-    expect(text).toContain("530");
+    expect(text).toContain("Этаж: 8");
+    expect(text).not.toContain("Цена");
     expect(text).not.toContain("450");
+  });
+
+  it("ролик уже получен, поменялась ТОЛЬКО цена: модераторам «цифры могли устареть» не шлём — цены в ролике нет (25.11.2026)", async () => {
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "RECEIVED", clipReviewStatus: "APPROVED" });
+    await patch(p.id, agentToken, { price: 540000 }).expect(200);
+    await waitForSettled(async () => sendPushToAgents.mock.calls.length);
+    expect(
+      sendPushToAgents.mock.calls.find((c) => String((c[1] as { body?: string })?.body).includes("Цифры в ролике могут быть устаревшими"))
+    ).toBeUndefined();
   });
 
   it("ролик уже получен и ждёт слота: правка цифр в кадре — модераторам «цифры могли устареть»", async () => {

@@ -118,11 +118,12 @@ describe("publishPropertyPriceDropStory", () => {
   it("рубильник включён, историй ещё не было — картинка публикуется, kind=PRICE_DROP", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { instagramStoriesEnabled: true } });
 
-    const summary = await publishPropertyPriceDropStory(propertyId, "280 000 с.");
+    // Третий аргумент — старая цена числом в сомони (25.11.2026): карточка рисует «−разница» и зачёркнутую «N TJS».
+    const summary = await publishPropertyPriceDropStory(propertyId, "280 000 с.", 280000);
 
     expect(summary.attempted).toBe(true);
     expect(summary.publishedParts).toBe(1);
-    expect(generateStoryCard).toHaveBeenCalledWith(propertyId, { priceWasText: "280 000 с." });
+    expect(generateStoryCard).toHaveBeenCalledWith(propertyId, { priceWasText: "280 000 с.", priceWasTjs: 280000 });
     expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
     // (propertyId, igUserId, token, imageUrl) — propertyId добавлен 21.09.2026
     // (случай №111), чтобы отложенный контейнер можно было сохранить на дозавершение.

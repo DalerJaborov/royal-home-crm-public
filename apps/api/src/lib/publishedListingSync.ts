@@ -1,10 +1,10 @@
 import { prisma, type PropertyRecord, type TxClient } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { formatPrice } from "../ai/seoGenerator.js";
-import { loadMoneyContext, toTjs } from "./money.js";
+import { loadMoneyContext, loadUsdRateInfo, toTjs } from "./money.js";
 import { buildPriceDisplay } from "./reelsCaptionTemplate.js";
 import { publishPropertyPriceDropStory } from "./instagramStories.js";
-import { formatShortCode } from "@royal-home/shared";
+import { formatShortCode, propertyPriceTjs } from "@royal-home/shared";
 import { logSystemAudit } from "./audit.js";
 import { sendPushToAgent } from "../push.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
@@ -154,7 +154,9 @@ export async function reportPublishedPriceChange(before: PropertyRecord, after: 
         where: { id: after.id }, select: { version: true, deletedAt: true, status: true },
       });
       if (latest && !latest.deletedAt && latest.version === after.version && latest.status === "AVAILABLE") {
-        await publishPropertyPriceDropStory(after.id, buildPriceDisplay(before.price, before.currency, money));
+        // Старая цена числом в сомони — карточка рисует зачёркнутую «N TJS» и плашку «−разница» (курс только из Настроек).
+        const usdRate = before.currency === "USD" || after.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+        await publishPropertyPriceDropStory(after.id, buildPriceDisplay(before.price, before.currency, money), propertyPriceTjs(before.price, before.currency, usdRate));
       }
     }
     if (stage.captionNeedsManualFix) await reportCaptionNeedsManualFix(after);

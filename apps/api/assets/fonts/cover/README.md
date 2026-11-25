@@ -53,3 +53,20 @@
 fc-match "TT Norms Pro"      # должен ответить TTNormsPro-*, а не DejaVu Sans
 fc-match "RH Playfair Lining"
 ```
+
+## Onest (карточка-история, `lib/video/storyCard.ts`, с 25.11.2026)
+
+| Файл | Где на карточке |
+|---|---|
+| `Onest-SemiBold.ttf` (вес 600) | крупная цена, «Цена снижена», плитки, логотип-пилюля, печать «ПРОДАНО» |
+| `Onest-Medium.ttf` (вес 500) | «TJS», старая цена, номер объекта, подписи плиток, район |
+
+Onest — шрифт интерфейса CRM (OFL, текст лицензии — `OFL-Onest.txt`). Файлы — **статические
+инстансы** переменного шрифта Google Fonts (`google/fonts/ofl/onest`, оси `wght` 500 и 600), собранные
+`fontTools.varLib.instancer`: nameID 1 «Onest Medium/SemiBold», typographic family (16) «Onest», стиль (17)
+«Medium»/«SemiBold», `usWeightClass` 500/600 — так же устроены файлы TT Norms Pro. Ширины глифов для раскладки —
+`src/lib/video/storyMetrics.ts` (генератор `genstorymetrics.py`, перегенерировать при замене файлов).
+Таджикские буквы (Ғ Ӣ Қ Ӯ Ҳ Ҷ), «№», «²», «−» в шрифте есть.
+**Проверка на Windows:** `sharp` там не читает шрифты из репозитория (см. `tests/coverFonts.ts`) и рисует запасной
+шрифт, поэтому раскладку смотрят в Chromium с теми же TTF, а настоящий рендер librsvg проверяют на Linux
+(Docker-образ API или веб-сессия).

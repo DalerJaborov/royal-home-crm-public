@@ -367,13 +367,17 @@ const CARD_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * не публикует историю и не паникует (то же поведение, что и у видео-историй
  * при недоступном ffprobe).
  */
-export async function publishPropertyPriceDropStory(propertyId: string, priceWasText: string): Promise<StoriesPublishSummary> {
+export async function publishPropertyPriceDropStory(
+  propertyId: string,
+  priceWasText: string,
+  priceWasTjs?: number | null
+): Promise<StoriesPublishSummary> {
   return publishCardStory({
     propertyId,
     kind: PRICE_DROP_STORY_KIND,
     label: "цена снижена",
     cooldownMs: PRICE_DROP_COOLDOWN_MS,
-    cardOptions: { priceWasText },
+    cardOptions: { priceWasText, priceWasTjs },
   });
 }
 
