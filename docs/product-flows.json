@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 785,
-  "forks": 4269,
+  "forks": 4271,
   "mounts": 87,
   "cron": 146,
   "jobs": 36,
@@ -91370,6 +91370,21 @@
         },
         {
          "k": "if",
+         "t": "!isChannelWatchHour(previousAt) || !isChannelWatchDay(previousAt)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { alerted: [] };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
          "a": [],
          "c": [
@@ -91392,21 +91407,13 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const day = dushanbeDateString(at);",
-         "a": [
-          "зовёт dushanbeDateString()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
          "t": "для каждого: const channel of WATCHED_CHANNELS",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "const { alert, average } = channelVolumeVerdict(current, Number(row?.past ?? 0));",
+           "t": "const { alert, average } = channelVolumeVerdict(Number(row?.cur ?? 0), Number(row?.past ?? 0), Number(row?.pr…",
            "a": [
             "зовёт channelVolumeVerdict()"
            ],
@@ -91414,7 +91421,7 @@
           },
           {
            "k": "if",
-           "t": "!alert || alertedToday.has(key)",
+           "t": "!alert",
            "a": [],
            "c": [
             {
@@ -91429,7 +91436,22 @@
           },
           {
            "k": "if",
-           "t": "await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
+           "t": "!(await isMetaChannelEnabled(channel))",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "channel === \"INSTAGRAM\" && (await instagramAllAccountsLost())",
            "a": [],
            "c": [
             {
@@ -91444,9 +91466,9 @@
           },
           {
            "k": "do",
-           "t": "const queued = await enqueueDirectorAlert({ title: `📉 ${channelName(channel)}: новых обращений почти нет`, b…",
+           "t": "const { alerted: queued } = await raiseCriticalAlarm({ tag: `channel-volume-${channel}`, title: `📉 ${channel…",
            "a": [
-            "зовёт enqueueDirectorAlert()"
+            "зовёт raiseCriticalAlarm()"
            ],
            "c": []
           },
@@ -91455,14 +91477,6 @@
            "t": "queued",
            "a": [],
            "c": [
-            {
-             "k": "do",
-             "t": "alertedToday.add(key);",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            },
             {
              "k": "do",
              "t": "alerted.push(channel);",

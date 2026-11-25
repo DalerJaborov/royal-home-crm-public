@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2508**; вместе с задачами по расписанию и фоновыми заданиями — **4269**. Модулей: **87**.
+Путей: **785**. Развилок в самих путях: **2508**; вместе с задачами по расписанию и фоновыми заданиями — **4271**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20420,27 +20420,29 @@
     - если !isChannelWatchHour(at) || !isChannelWatchDay(at)
       - return { alerted: [] };
         · дословно из кода
+    - если !isChannelWatchHour(previousAt) || !isChannelWatchDay(previousAt)
+      - return { alerted: [] };
+        · дословно из кода
     - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
       - return { alerted: [] };
         · дословно из кода
     - const rows = await prisma.$queryRaw<VolumeRow[]>` SELECT "channel"::text AS channel, COUNT(*) FILTER (WHERE e…
       · обращается к базе своим SQL
-    - const day = dushanbeDateString(at);
-      · зовёт dushanbeDateString()
     - для каждого: const channel of WATCHED_CHANNELS
-      - const { alert, average } = channelVolumeVerdict(current, Number(row?.past ?? 0));
+      - const { alert, average } = channelVolumeVerdict(Number(row?.cur ?? 0), Number(row?.past ?? 0), Number(row?.pr…
         · зовёт channelVolumeVerdict()
-      - если !alert || alertedToday.has(key)
+      - если !alert
         - continue;
           · переходит к следующему
-      - если await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })
+      - если !(await isMetaChannelEnabled(channel))
         - continue;
           · переходит к следующему
-      - const queued = await enqueueDirectorAlert({ title: `📉 ${channelName(channel)}: новых обращений почти нет`, b…
-        · зовёт enqueueDirectorAlert()
+      - если channel === "INSTAGRAM" && (await instagramAllAccountsLost())
+        - continue;
+          · переходит к следующему
+      - const { alerted: queued } = await raiseCriticalAlarm({ tag: `channel-volume-${channel}`, title: `📉 ${channel…
+        · зовёт raiseCriticalAlarm()
       - если queued
-        - alertedToday.add(key);
-          · дословно из кода
         - alerted.push(channel);
           · дословно из кода
   - если alerted.length > 0

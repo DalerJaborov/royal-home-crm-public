@@ -16,9 +16,9 @@
   "paths": 785,
   "cron": 146,
   "jobs": 36,
-  "conditions": 4230,
-  "untranslatedUnique": 494,
-  "untranslatedTotal": 634,
+  "conditions": 4232,
+  "untranslatedUnique": 493,
+  "untranslatedTotal": 633,
   "partialUnique": 1134,
   "translatedShare": 85
  },
@@ -236,7 +236,6 @@
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await prepareOwnerReportDelivery(optIn.propertyId, now)",
   "await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks",
-  "await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
   "await raise(directorIds, \"incoming-calls-dead\", dead, now)",
   "await raise(directorIds, \"incoming-calls-silence\", silence, now)",
   "await refreshMetaAdsTokenIfDue()",
@@ -67072,6 +67071,12 @@
          "c": []
         },
         {
+         "t": "если это не канал watch hour или это не канал watch день",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
          "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
          "k": "if",
          "a": [],
@@ -67084,18 +67089,24 @@
          "a": [],
          "c": [
           {
-           "t": "если нет: alert или разосланных тревог today содержит есть ключ",
+           "t": "если нет: alert",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
+           "t": "если выключено: Meta канал",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
+           "more": true
+          },
+          {
+           "t": "если канал — «INSTAGRAM» и есть Instagram все подключения потерянные",
+           "k": "if",
+           "a": [],
+           "c": [],
            "more": true
           },
           {
