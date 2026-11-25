@@ -10,6 +10,7 @@ import { registerWork } from "./workGuard";
 import { uploadClipVideo } from "./clipVideoUpload";
 import type { ChunkedSessionHolder } from "./chunkedUpload";
 import { assertFitsSingleRequest } from "./singleRequestLimit";
+import { MAX_RETRY_ATTEMPTS, planServerRetry, retryDelayMs } from "./uploadRetry";
 
 /**
  * Очередь загрузки фотографий и видео: прогресс видно, ничего не пропадает.
@@ -173,12 +174,11 @@ const DB_NAME = "royal-home-uploads";
 const STORE = "tasks";
 const DB_VERSION = 1;
 
-/** Пауза перед повтором: 5с, 10с, 20с… но не длиннее пяти минут. */
-export function retryDelayMs(attempts: number): number {
-  return Math.min(5_000 * 2 ** Math.max(0, attempts - 1), 5 * 60_000);
-}
-
 /**
+ * Пауза перед повтором (5 с … 5 мин) и потолок попыток живут в lib/uploadRetry.ts
+ * с 25.11.2026: то же расписание берёт очередь мастера (lib/draftUploads.ts).
+ * Здесь — переизлучение, чтобы прежние импорты не менялись.
+ *
  * Потолок автоматических попыток для «повторяемого» отказа (найдено 17.09.2026:
  * объект ОБ-000095 у Нозы — 112 попыток за 6,5 часов, ни одна не прошла).
  *
@@ -195,7 +195,7 @@ export function retryDelayMs(attempts: number): number {
  * Дальше — это уже не сеть, а сам файл, и агенту нужно увидеть отказ и решить
  * (обычно: убрать и переснять/выбрать фото заново).
  */
-export const MAX_RETRY_ATTEMPTS = 10;
+export { MAX_RETRY_ATTEMPTS, retryDelayMs };
 
 // ─────────────────────────── хранилище ───────────────────────────
 
@@ -539,6 +539,9 @@ export interface SendResult {
    *  только у отказа многочастевой докачки. */
   partsDone?: number;
   partsTotal?: number;
+  /** Сервер принял хоть одну часть ролика за этот заход — run() начинает счёт
+   *  попыток заново (lib/uploadRetry.ts::planServerRetry, 25.11.2026). */
+  progressed?: boolean;
 }
 
 /** ApiError → тот же формат результата, что и у прямых XHR-запросов ниже:
@@ -912,7 +915,14 @@ export async function uploadVideoChunked(
       }
       const result = await putVideoPart(propertyId, sessionId, n, blob, (loaded) => onProgress(confirmedBytes + loaded, file.size));
       if (result.status < 200 || result.status >= 300) {
-        partFailed = { ...result, failedPartNumber: n, failedPartBlob: blob, partsDone: partsDoneCount, partsTotal: totalParts };
+        partFailed = {
+          ...result,
+          failedPartNumber: n,
+          failedPartBlob: blob,
+          partsDone: partsDoneCount,
+          partsTotal: totalParts,
+          progressed: partsDoneCount > uploaded.size,
+        };
         break;
       }
       confirmedBytes += blob.size;
@@ -1223,7 +1233,9 @@ async function run(): Promise<void> {
        * Такое задание останавливается и ЖДЁТ человека, а не исчезает молча.
        */
       const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
-      const attempts = task.attempts + 1;
+      // Ролик, у которого за этот заход ушла хоть одна часть, — не «файл
+      // повредился»: счёт начинается заново (lib/uploadRetry.ts::planServerRetry).
+      const attempts = retryable ? planServerRetry(task.attempts, result.progressed === true).attempts : task.attempts + 1;
       const giveUp = attempts >= MAX_RETRY_ATTEMPTS;
       const errorText = giveUp
         ? `Не ушло за ${attempts} попыток — файл мог повредиться при сохранении. Уберите и добавьте заново.`

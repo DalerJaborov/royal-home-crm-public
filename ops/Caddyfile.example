@@ -34,6 +34,28 @@
 		format json
 	}
 
+	# Таймауты — против медленных/зависших клиентов, держащих соединение
+	# (slowloris-класс атак). В Caddy это настройка СЕРВЕРА (global `servers`),
+	# а не сайта: внутри блока сайта директивы `timeouts` нет — так и на проде.
+	servers {
+		timeouts {
+			# read_body — потолок на ВСЁ тело запроса (Go ReadTimeout), а не на паузу
+			# между байтами. 10s резал загрузку ролика (25.11.2026, разбор 502 мастера):
+			# часть 8 МБ на мобильном канале 2–6 Мбит/с идёт 11–30 с, nginx писал
+			# «400 time=10.000 upstream=-», телефон получал 502 «Сервер временно
+			# недоступен». Число держит сторож scripts/audit-limits.mjs: тело размером
+			# с request_body.max_size должно успеть дойти на канале 1 Мбит/с.
+			# От медленного заголовка защищает read_header, от молчащего тела —
+			# client_body_timeout у nginx (apps/web/nginx.conf, пауза между байтами).
+			read_body   5m
+			read_header 5s
+			# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
+			# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
+			write       15m
+			idle        2m
+		}
+	}
+
 	# Общие зоны лимита: по IP, окно и потолок burst — под перебор пароля и
 	# вебхуки достаточно жёстко, под обычный интерфейс агентов — не мешает.
 	order rate_limit before basicauth
@@ -63,17 +85,6 @@ crm.royalhome.tj {
 	# идёт чанками (см. lib/localVideoStorage.ts), крупный body здесь не нужен.
 	request_body {
 		max_size 25MB
-	}
-
-	# Таймауты — против медленных/зависших клиентов, держащих соединение
-	# (slowloris-класс атак).
-	timeouts {
-		read_body   10s
-		read_header 5s
-		# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
-		# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
-		write       15m
-		idle        2m
 	}
 
 	header {
@@ -110,14 +121,6 @@ crm.royalhome.tj {
 royalhome.tj {
 	request_body {
 		max_size 10MB
-	}
-	timeouts {
-		read_body   10s
-		read_header 5s
-		# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
-		# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
-		write       15m
-		idle        2m
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
