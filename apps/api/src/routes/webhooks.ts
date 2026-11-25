@@ -18,6 +18,8 @@ import { CustomerReplyHeldError } from "../lib/customerReplyFence.js";
 import { isFinalCustomerInputFrame } from "../lib/customerInputFrame.js";
 import { reserveCustomerPropertyFocus } from "../lib/customerPropertyFocus.js";
 import { verifyCustomerAccountSignature, verifyPublicCustomerAccountSignature } from "../messengers/meta.js";
+import type { MetaIncoming } from "../messengers/meta.js";
+import { keepCustomerInputMediaInBackground } from "../lib/customerInputMedia.js";
 import { customerPropertyEvidenceFromMeta } from "../lib/customerPropertyEvidence.js";
 import { peekAdReferral, consumeAdReferral } from "../messengers/metaPeerMemory.js";
 import { sendManagedCustomerPropertyReply } from "../lib/customerPropertyDelivery.js";
@@ -1455,6 +1457,69 @@ async function resolveInstagramName(channel: MetaChannel, senderId: string, toke
 const DOWNLOADABLE_ATTACHMENTS = new Set(["image", "audio", "voice", "video", "document", "file", "ig_reel"]);
 
 /**
+ * ФАЙЛЫ, КОТОРЫЕ ПРИСЛАЛ САМ КЛИЕНТ, — откуда их качать (вынесено 25.11.2026).
+ * Одна дверь на два места: основной цикл вебхука (дальше к ним добавляются кадр
+ * истории и файл нашей публикации) и удержанные сообщения (HELD), которые бот не
+ * обрабатывает, но файлы которых сотрудник должен видеть (lib/customerInputMedia.ts).
+ */
+async function clientAttachmentSources(
+  msg: MetaIncoming,
+  account: { id: string | null; token?: string | null }
+): Promise<AttachmentSource[]> {
+  const attachments: AttachmentSource[] = [];
+  if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
+    if (msg.channel === "WHATSAPP") {
+      // Ключ номера-получателя: файл чужого аккаунта WhatsApp Business ключ
+      // Настроек не видит (см. whatsAppMediaSource). account.id = null — основной
+      // номер из Настроек.
+      const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
+      if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
+    } else if (msg.attachmentUrl) {
+      // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у
+      // DOWNLOADABLE_ATTACHMENTS): страница чужой/нашей публикации ИЛИ прямой
+      // CDN-файл, который клиент снял и прислал сам. Страницу (instagram.com/...)
+      // качать не пытаемся — там нечего разбирать, и попытка превратила бы
+      // mediaSeen в ложное «видел», хотя фактически ничего не скачано (ветку
+      // «клиент показывает на нашу публикацию» ниже это бы включало напрасно).
+      // Настоящий CDN-адрес (scontent-*/lookaside*) уходит на скачивание как
+      // обычное видео.
+      if (msg.attachmentType !== "ig_reel" || !isInstagramLink(msg.attachmentUrl)) {
+        // declaredKind — то, чем вложение назвала САМА платформа (Meta:
+        // attachments[].type). Без него голосовое из Instagram/Messenger,
+        // приходящее файлом .mp4 с видео-заголовком, неотличимо от настоящего
+        // видео (attachments.ts: detect()) и попадало в описание сцены Gemini
+        // вместо расшифровки речи — платформа честно писала "audio", а этот
+        // ответ здесь терялся, потому что просто не передавался дальше
+        // (найдено 19.08.2026 по живому диалогу, клиент прислал голосовое).
+        attachments.push({ url: msg.attachmentUrl, declaredKind: msg.attachmentType });
+      }
+    }
+  }
+  /**
+   * ПЕРЕСЛАННЫЙ ПОСТ С CDN META — ТОЖЕ КАРТИНКА (02.10.2026). «share» и
+   * «ig_post» в список скачиваемых не входят: у Messenger «share» бывает и
+   * ссылкой на чужую страницу. Но когда адрес ведёт на CDN самой Meta, там лежит
+   * превью поста — и модель должна его видеть, а не слышать «не открылось».
+   */
+  if (
+    (msg.attachmentType === "share" || msg.attachmentType === "ig_post") &&
+    msg.channel !== "WHATSAPP" &&
+    isMetaCdnUrl(msg.attachmentUrl)
+  ) {
+    attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
+  }
+  // Остальные вложения того же сообщения (пачка фото в Instagram/Messenger) —
+  // те же правила, что у первого: только скачиваемые типы, страницы Instagram
+  // не качаем. До 26.08.2026 хвост пачки терялся молча.
+  for (const extra of msg.extraAttachments ?? []) {
+    if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
+    if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
+    attachments.push({ url: extra.url, declaredKind: extra.type });
+  }
+  return attachments;
+}
+
+/**
  * Эхо нашего исходящего: свои реплики пропускаем молча, ручной ответ сотрудника
  * из приложения — записываем в переписку и останавливаем бота.
  *
@@ -2024,7 +2089,19 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       }
       // A held DM was written into its CRM chat before the ACK and belongs to
       // no bot: skip it BEFORE any account/Graph profile lookup (13.11.2026).
-      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") { traceOutcome("blocked", "dm_lane_held"); continue; }
+      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") {
+        // Текст уже в чате; файлы клиента — тоже сотруднику, в фоне (25.11.2026):
+        // раньше у удержанного сообщения оставалась только пометка «[вложение: image]».
+        if (msg.messageId && !msg.isEcho) {
+          const held = msg;
+          void resolveIncomingAccount(held.channel, held.accountExternalId, held.senderId)
+            .then((account) => clientAttachmentSources(held, account))
+            .then((sources) => keepCustomerInputMediaInBackground({ channel: held.channel, subscriberId: held.senderId, mid: held.messageId, sources }))
+            .catch(() => undefined);
+        }
+        traceOutcome("blocked", "dm_lane_held");
+        continue;
+      }
 
       // Чей это разговор: маркер найденного аккаунта уходит и в индикаторы
       // «прочитано/печатает», и в сам ответ, и в служебные запросы вроде
@@ -2239,56 +2316,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // на прямую Meta бот перестал видеть вложения — доходило одно слово «image».
       // У Instagram и Messenger адрес файла лежит в вебхуке, у WhatsApp его надо
       // добыть по идентификатору медиа отдельным запросом с маркером.
-      const attachments: AttachmentSource[] = [];
-      if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
-        if (msg.channel === "WHATSAPP") {
-          // Ключ номера-получателя: файл чужого аккаунта WhatsApp Business ключ
-          // Настроек не видит (см. whatsAppMediaSource). account.id = null — основной
-          // номер из Настроек.
-          const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
-          if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
-        } else if (msg.attachmentUrl) {
-          // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у
-          // DOWNLOADABLE_ATTACHMENTS): страница чужой/нашей публикации ИЛИ прямой
-          // CDN-файл, который клиент снял и прислал сам. Страницу (instagram.com/...)
-          // качать не пытаемся — там нечего разбирать, и попытка превратила бы
-          // mediaSeen в ложное «видел», хотя фактически ничего не скачано (ветку
-          // «клиент показывает на нашу публикацию» ниже это бы включало напрасно).
-          // Настоящий CDN-адрес (scontent-*/lookaside*) уходит на скачивание как
-          // обычное видео.
-          if (msg.attachmentType !== "ig_reel" || !isInstagramLink(msg.attachmentUrl)) {
-            // declaredKind — то, чем вложение назвала САМА платформа (Meta:
-            // attachments[].type). Без него голосовое из Instagram/Messenger,
-            // приходящее файлом .mp4 с видео-заголовком, неотличимо от настоящего
-            // видео (attachments.ts: detect()) и попадало в описание сцены Gemini
-            // вместо расшифровки речи — платформа честно писала "audio", а этот
-            // ответ здесь терялся, потому что просто не передавался дальше
-            // (найдено 19.08.2026 по живому диалогу, клиент прислал голосовое).
-            attachments.push({ url: msg.attachmentUrl, declaredKind: msg.attachmentType });
-          }
-        }
-      }
-      /**
-       * ПЕРЕСЛАННЫЙ ПОСТ С CDN META — ТОЖЕ КАРТИНКА (02.10.2026). «share» и
-       * «ig_post» в список скачиваемых не входят: у Messenger «share» бывает и
-       * ссылкой на чужую страницу. Но когда адрес ведёт на CDN самой Meta, там лежит
-       * превью поста — и модель должна его видеть, а не слышать «не открылось».
-       */
-      if (
-        (msg.attachmentType === "share" || msg.attachmentType === "ig_post") &&
-        msg.channel !== "WHATSAPP" &&
-        isMetaCdnUrl(msg.attachmentUrl)
-      ) {
-        attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
-      }
-      // Остальные вложения того же сообщения (пачка фото в Instagram/Messenger) —
-      // те же правила, что у первого: только скачиваемые типы, страницы Instagram
-      // не качаем. До 26.08.2026 хвост пачки терялся молча.
-      for (const extra of msg.extraAttachments ?? []) {
-        if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
-        if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
-        attachments.push({ url: extra.url, declaredKind: extra.type });
-      }
+      const attachments: AttachmentSource[] = await clientAttachmentSources(msg, account);
 
       /**
        * ОТВЕТ НА НАШУ ИСТОРИЮ — ЭТО ТОЖЕ КАРТИНКА, А НЕ ТОЛЬКО ФЛАЖОК.

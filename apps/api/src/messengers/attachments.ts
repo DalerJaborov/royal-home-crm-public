@@ -272,17 +272,25 @@ async function heicToJpeg(buf: Buffer): Promise<Buffer | null> {
   // событий и заводит массив ширина × высота × 4 байта; две разом на 12-мегапиксельных
   // снимках — сотни МБ в процессе API.
   const run = heicChain.then(async () => {
+    // Потолок 30 с на одну расшифровку: зависшая не держит очередь всех остальных HEIC.
+    let timer: NodeJS.Timeout | undefined;
     try {
-      const out = await (await sharpFromUpload(buf)).rotate().jpeg({ quality: 85 }).toBuffer();
-      return out.byteLength <= MAX_IMAGE_BYTES ? out : null;
+      const decoded = (async () => {
+        const out = await (await sharpFromUpload(buf)).rotate().jpeg({ quality: 85 }).toBuffer();
+        return out.byteLength <= MAX_IMAGE_BYTES ? out : null;
+      })();
+      return await Promise.race([decoded, new Promise<null>((r) => { timer = setTimeout(() => r(null), HEIC_TIMEOUT_MS); })]);
     } catch {
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   });
   heicChain = run.then(() => undefined, () => undefined);
   return run;
 }
 let heicChain: Promise<void> = Promise.resolve();
+const HEIC_TIMEOUT_MS = 30_000;
 /** Сколько файлов одного сообщения качается одновременно. */
 const DOWNLOAD_CONCURRENCY = 3;
 

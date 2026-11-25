@@ -130,6 +130,29 @@ describe("Файл клиента — сотруднику, в любом пут
     expect(fs.readdirSync(dir).length).toBe(before);
   });
 
+  it("первая попытка ничего не скачала, повтор скачал — ждут файлы повтора, а старая пометка «не скачалось» снимается", async () => {
+    const sub = `keep-retry-${runId}`;
+    const mid = `mid-retry-${runId}`;
+    const id = await conversationWith("WHATSAPP", sub, []);
+    fetched.value = { images: [], audios: [], medias: [], hadUnsupported: true, lost: [{ kind: "image", reason: "failed" }] } satisfies FetchedAttachments;
+    expect(await keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    fetched.value = { images: [{ kind: "image", mediaType: "image/jpeg", data: await jpegBase64() }], audios: [], medias: [], hadUnsupported: false, lost: [] } satisfies FetchedAttachments;
+    expect(await keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("pending");
+    const [row] = await pendingRows("WHATSAPP", sub, mid);
+    const [file] = filesOf(row.files);
+    savedFiles.push(file);
+    expect(privateFilePath(file)).toBeTruthy();
+    expect(row.lost).toEqual([]);
+    // Реплика пришла с пометкой от первой попытки — прикрепление файла её снимает.
+    await prisma.botConversation.update({ where: { id }, data: { messages: [{ role: "user", content: "", mid, attachmentsLost: [{ kind: "image", reason: "failed" }] }] as never } });
+    fetched.value = { images: [], audios: [], medias: [], hadUnsupported: true, lost: [{ kind: "image", reason: "failed" }] } satisfies FetchedAttachments;
+    // Третья доставка ничего не скачала: ждущие файлы второй всё равно ложатся в реплику.
+    expect(await keepCustomerInputMedia({ channel: "WHATSAPP", subscriberId: sub, mid, sources: [{ url: "https://cdn.example/a.jpg" }] })).toBe("attached");
+    const e = await entry(id, mid);
+    expect(filesOf(e.attachments)).toEqual([file]);
+    expect(e.attachmentsLost).toBeUndefined();
+  });
+
   it("старый путь уже сохранил вложения — не перезаписываем и не копим дубль на диске", async () => {
     const sub = `keep-dup-${runId}`;
     const mid = `mid-dup-${runId}`;

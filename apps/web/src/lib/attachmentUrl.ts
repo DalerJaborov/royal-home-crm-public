@@ -94,7 +94,7 @@ export function browserPlays(mime: string): boolean {
  * просто «ломается», поэтому сначала спрашиваем адрес запросом HEAD и даём его
  * плееру только после 200. Ждём до двух минут, потом честно «не вышло».
  */
-export type PlayableState = "idle" | "preparing" | "ready" | "failed";
+export type PlayableState = "idle" | "preparing" | "ready" | "failed" | "expired";
 const PLAYABLE_MAX_TRIES = 24;
 
 export function usePlayableUrl(url: string | null, active: boolean): { state: PlayableState } {
@@ -112,6 +112,9 @@ export function usePlayableUrl(url: string | null, active: boolean): { state: Pl
         const res = await fetch(url, { method: "HEAD", credentials: "omit", cache: "no-store" });
         if (cancelled) return;
         if (res.ok) return setState("ready");
+        // Подпись истекла (диалог открыт часами): это не «файл не играет» — вызывающий
+        // возьмёт свежую ссылку из переписки и спросит снова.
+        if (res.status === 403) return setState("expired");
         if (res.status === 503 && n < PLAYABLE_MAX_TRIES) {
           const wait = Math.min(15, Math.max(2, Number(res.headers.get("Retry-After")) || 5)) * 1000;
           timer = setTimeout(() => void attempt(n + 1), wait);
