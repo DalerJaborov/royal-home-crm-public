@@ -46,6 +46,8 @@ const CUSTOMER_JOB_TYPES = Object.values(CUSTOMER_JOB_LANES);
 const HEAVY_TYPES = [
   "clip-compress",
   "video-handoff-publish",
+  // История-ролик «цена снижена»/«продано» (25.11.2026): ffmpeg накладывает карточку на ролик — десятки секунд.
+  "property-status-story",
   "photo-post-publish",
   "social-repost-publish",
   // Свободный ролик в соцсети (12.10.2026): шесть каналов подряд, минуты — лёгким заданием

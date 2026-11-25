@@ -684,9 +684,11 @@ export async function publishInstagramStory(
   igUserId: string,
   token: string,
   videoUrl: string,
-  partIndex: number = 0
+  partIndex: number = 0,
+  /** Вид истории для журнала: по умолчанию «ролик монтажёра»; история-ролик с карточкой — "PRICE_DROP"/"SOLD" (25.11.2026). */
+  storyKind: string = "VIDEO"
 ): Promise<PublishResult> {
-  return publishInstagramStoryMedia(propertyId, igUserId, token, videoUrl, "video_url", { storyKind: "VIDEO", partIndex });
+  return publishInstagramStoryMedia(propertyId, igUserId, token, videoUrl, "video_url", { storyKind, partIndex });
 }
 
 /**

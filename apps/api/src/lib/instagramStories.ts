@@ -35,6 +35,7 @@
  *    сторис на Странице вообще.
  */
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { prisma } from "../db.js";
 import { loadCredentials } from "../messengers/meta.js";
@@ -47,10 +48,11 @@ import {
   publishFacebookStoryVideo,
 } from "./socialPublish.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
-import { probeVideoDimensions, cutVideoSegment } from "./ffmpeg.js";
+import { probeVideoDimensions, cutVideoSegment, overlayCardOnVideo, STORY_OVERLAY_SEC } from "./ffmpeg.js";
 import { videoHandoffDir } from "../upload.js";
 import { logSystemError } from "./systemError.js";
-import { generateStoryCard, type GenerateStoryCardOptions } from "./video/storyCard.js";
+import { generateStoryCard, generateStoryCardOverlay, pickStoryLanguage, type GenerateStoryCardOptions } from "./video/storyCard.js";
+import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { describeError } from "./describeError.js";
 
 /** Meta принимает в историю ролик не длиннее 60 секунд. */
@@ -104,6 +106,9 @@ export interface StoriesPublishSummary {
   publishedParts: number;
   totalParts: number;
   error?: string;
+  /** История создана у Meta и ждёт обработки (дозавершит фоновый проход контейнеров): повторять публикацию нельзя —
+   *  выйдет вторая (ревью 25.11.2026). */
+  pending?: boolean;
   /** Часть не вышла, потому что Meta не смогла скачать наш файл (18.11.2026, объект №208):
    *  повтор пройдёт сам — его ставит lib/videoHandoff.ts (jobs/socialPublishRetry.ts). */
   retriable?: boolean;
@@ -143,6 +148,33 @@ export async function publishPropertyInstagramStories(
     select: { instagramStoriesEnabled: true, facebookStoriesEnabled: true },
   });
   if (!options?.force && !settings?.instagramStoriesEnabled) return empty;
+
+  // ОДНА ИСТОРИЯ ВМЕСТО ДВУХ (25.11.2026, №214: в 13:24 вышла «цена снижена», в 13:47 следом тот же ролик отдельной
+  // историей). «Цена снижена» и «продано» теперь выходят САМИМ РОЛИКОМ с карточкой поверх (publishCardStory,
+  // video) — если такая история по объекту вышла недавно, автоматическую историю того же ролика не повторяем.
+  // Ручная кнопка (force) и дозавершение оборванной серии (resumeOnly) этого правила не знают.
+  if (!options?.force && !options?.resumeOnly) {
+    const recentEvent = await prisma.propertyStoryPost.findFirst({
+      where: {
+        propertyId,
+        channel: "INSTAGRAM",
+        kind: { in: [PRICE_DROP_STORY_KIND, SOLD_STORY_KIND] },
+        publishedAt: { gte: new Date(Date.now() - EVENT_STORY_DEDUP_WINDOW_MS) },
+      },
+      select: { id: true },
+    });
+    // Задание «история по событию» ещё ждёт или идёт (ждёт озвучку/перевыпуск ролика) — автоисторию ролика не выкладываем:
+    // иначе новый ролик выходит первым, а «цена снижена» следом (тот же сценарий №214).
+    const pendingEventJob = await prisma.backgroundJob.findFirst({
+      where: {
+        type: PROPERTY_STATUS_STORY_JOB_TYPE,
+        dedupeKey: { in: [`${PROPERTY_STATUS_STORY_JOB_TYPE}:${PRICE_DROP_STORY_KIND}:${propertyId}`, `${PROPERTY_STATUS_STORY_JOB_TYPE}:${SOLD_STORY_KIND}:${propertyId}`] },
+        status: { in: ["PENDING", "RUNNING"] },
+      },
+      select: { id: true },
+    });
+    if (recentEvent || pendingEventJob) return empty;
+  }
 
   // force обходит только рубильник, а не проверку ролика модератором: ролик на
   // проверке («без Одобрить в сети не выйдет», lib/clipReview.ts) не уходит в
@@ -338,6 +370,8 @@ export async function publishPropertyInstagramStories(
  *  «одна история на объект навсегда» (цена может снижаться много раз). */
 const PRICE_DROP_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const PRICE_DROP_STORY_KIND = "PRICE_DROP";
+/** Историю-ролик «цена снижена»/«продано» не дублируем автоматической историей того же ролика в течение этого окна. */
+const EVENT_STORY_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /** Печать «продано» на объекте — событие разовое, но объект могут снять с
  *  продажи и продать заново; сутки повтора берём те же, что у снижения цены. */
@@ -370,7 +404,8 @@ const CARD_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export async function publishPropertyPriceDropStory(
   propertyId: string,
   priceWasText: string,
-  priceWasTjs?: number | null
+  priceWasTjs?: number | null,
+  options: { video?: boolean } = {}
 ): Promise<StoriesPublishSummary> {
   return publishCardStory({
     propertyId,
@@ -378,7 +413,56 @@ export async function publishPropertyPriceDropStory(
     label: "цена снижена",
     cooldownMs: PRICE_DROP_COOLDOWN_MS,
     cardOptions: { priceWasText, priceWasTjs },
+    video: options.video,
   });
+}
+
+/** Тип фонового задания «история по событию объекта»: цена снижена или продано, готовым роликом с карточкой. */
+export const PROPERTY_STATUS_STORY_JOB_TYPE = "property-status-story";
+/** Пауза перед историей «цена снижена»: за это время озвучка успевает наложить голос с новой ценой на ролик (на №214 — около минуты). */
+export const PRICE_DROP_STORY_DELAY_MS = 6 * 60 * 1000;
+/** Попыток задания: пока озвучка накладывается — ждём (по 3 минуты), на последней публикуем всё равно. */
+export const PRICE_DROP_STORY_MAX_ATTEMPTS = 6;
+
+/**
+ * «ЦЕНА СНИЖЕНА» ИСТОРИЕЙ-РОЛИКОМ (25.11.2026, владелец: «подождать, когда ролик приготовится, и просто наложить
+ * «цена снижена»»). Мгновенной картинки больше нет: ставим задание на несколько минут вперёд — оно дождётся, пока
+ * озвучка пересоберёт ролик (jobs/propertyStatusStory.ts), и выложит сам ролик с карточкой первые секунды. Нет
+ * ролика — задание выложит фото-карточку. Вызывается из `reportPublishedPriceChange`, как раньше прямой вызов.
+ */
+export async function queuePropertyPriceDropStory(propertyId: string, priceWasText: string, priceWasTjs?: number | null): Promise<void> {
+  await enqueueBackgroundJob({
+    type: PROPERTY_STATUS_STORY_JOB_TYPE,
+    payload: { propertyId, kind: PRICE_DROP_STORY_KIND, priceWasText, priceWasTjs: priceWasTjs ?? null, queuedAt: Date.now() },
+    maxAttempts: PRICE_DROP_STORY_MAX_ATTEMPTS,
+    // Несколько снижений подряд схлопываются в одну историю (самая ранняя «была» цена остаётся — владелец видит полное падение).
+    dedupeKey: `${PROPERTY_STATUS_STORY_JOB_TYPE}:${PRICE_DROP_STORY_KIND}:${propertyId}`,
+    runAt: new Date(Date.now() + PRICE_DROP_STORY_DELAY_MS),
+  });
+}
+
+/** Ручная печать «продано» историей-роликом: то же задание без паузы и без ожидания озвучки (`force` — кнопка человека). */
+export async function queuePropertySoldStory(propertyId: string): Promise<boolean> {
+  const queued = await enqueueBackgroundJob({
+    type: PROPERTY_STATUS_STORY_JOB_TYPE,
+    payload: { propertyId, kind: SOLD_STORY_KIND, priceWasText: null, priceWasTjs: null, queuedAt: Date.now(), force: true },
+    maxAttempts: 3,
+    dedupeKey: `${PROPERTY_STATUS_STORY_JOB_TYPE}:${SOLD_STORY_KIND}:${propertyId}`,
+  });
+  return queued.enqueued;
+}
+
+/**
+ * История этого вида по объекту уже создана у Meta и ждёт обработки. Контейнер намеренно остаётся ждать и при
+ * сбое `media_publish` (lib/socialPublish.ts), и его дозавершит фоновый проход раз в несколько минут — повторная
+ * публикация или фото-запасной путь выложили бы ВТОРУЮ историю (ревью 25.11.2026).
+ */
+async function hasPendingStoryContainer(propertyId: string, kind: string): Promise<boolean> {
+  const row = await prisma.pendingInstagramContainer.findFirst({
+    where: { propertyId, kind: "STORY", storyKind: kind, status: "PENDING", createdAt: { gte: new Date(Date.now() - 3 * 60 * 60 * 1000) } },
+    select: { id: true },
+  });
+  return !!row;
 }
 
 /**
@@ -397,7 +481,7 @@ export async function publishPropertyPriceDropStory(
  */
 export async function publishPropertySoldStory(
   propertyId: string,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; video?: boolean } = {}
 ): Promise<StoriesPublishSummary> {
   return publishCardStory({
     propertyId,
@@ -406,6 +490,7 @@ export async function publishPropertySoldStory(
     cooldownMs: SOLD_COOLDOWN_MS,
     cardOptions: { soldStamp: true },
     force: options.force ?? false,
+    video: options.video,
   });
 }
 
@@ -430,6 +515,121 @@ export async function publishPropertyCardStory(
   });
 }
 
+type StoryPublisher = Extract<Awaited<ReturnType<typeof resolveInstagramPublisher>>, { ok: true }>;
+
+/** Вертикальный кадр 9:16 с допуском: карточка рисуется под него, на горизонтальный ролик её не наложить. */
+export function isStoryAspect(width: number, height: number): boolean {
+  return height > 0 && Math.abs(width / height - 9 / 16) < 0.03;
+}
+
+/**
+ * ИСТОРИЯ-РОЛИК С КАРТОЧКОЙ (25.11.2026): готовый ролик объекта (звук сохраняется), первые секунды поверх него —
+ * карточка «цена снижена» / печать «продано» (тот же слой, что на фото-истории, прозрачный). Возвращает итог
+ * публикации или `null` — «ролика нет / не подошёл / Instagram отказал, ничего не опубликовав»: вызывающий
+ * публикует обычную фото-карточку. ffmpeg занимает десятки секунд — звать только из фонового задания.
+ *
+ * Берётся только сданный ролик (`RECEIVED`): пока ролик у монтажёра или на проверке модератора, лежащий файл —
+ * прежний, и выкладывать его в историю нельзя (правило `publishPropertyInstagramStories`).
+ */
+async function publishCardVideoStory(p: {
+  propertyId: string;
+  kind: string;
+  label: string;
+  cardOptions: GenerateStoryCardOptions;
+  publisher: StoryPublisher;
+  facebookReady: boolean;
+  creds: Awaited<ReturnType<typeof loadCredentials>>;
+}): Promise<StoriesPublishSummary | null> {
+  const { propertyId, kind, label, cardOptions, publisher, facebookReady, creds } = p;
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    select: { videoHandoffFinalPath: true, videoHandoffStatus: true, clipReviewStatus: true, videoMasterNarrationVersionId: true },
+  });
+  const clipPath = property?.videoHandoffFinalPath;
+  if (!property || !clipPath || !clipPath.startsWith("/uploads/")) return null;
+  if (property.videoHandoffStatus !== "RECEIVED" || property.clipReviewStatus === "PENDING") return null;
+
+  const clipDisk = path.join(videoHandoffDir, path.basename(clipPath));
+  const dims = await probeVideoDimensions(clipDisk);
+  if (!dims || dims.durationSec <= 0 || !isStoryAspect(dims.width, dims.height)) return null;
+  // Дольше минуты Instagram не берёт целиком, а резать ролик молча (потерять концовку с контактами) нельзя — фото-карточка.
+  if (dims.durationSec > MAX_STORY_PART_SEC + 0.5) return null;
+  // «Цена снижена»: голос в ролике должен быть от ТЕКУЩЕЙ озвучки, иначе он назовёт старую цену под плашкой «цена снижена».
+  // Свежая одобренная озвучка, которой в ролике ещё нет (ни перемикс, ни вклейка монтажёром), — идём фото-карточкой.
+  if (kind === PRICE_DROP_STORY_KIND) {
+    const latest = await prisma.propertyNarrationVersion.findFirst({
+      where: { propertyId, status: "READY", approvedAt: { not: null } },
+      orderBy: { revision: "desc" },
+      select: { id: true },
+    });
+    if (latest && latest.id !== property.videoMasterNarrationVersionId) {
+      const delivered = await prisma.propertyNarrationDelivery.findFirst({ where: { propertyId, versionId: latest.id, status: "SENT" }, select: { id: true } });
+      if (!delivered) return null;
+    }
+  }
+
+  const overlay = await generateStoryCardOverlay(propertyId, cardOptions, { width: dims.width, height: dims.height });
+  if (!overlay.ok || !overlay.image) return null;
+
+  const stamp = Date.now();
+  const pngPath = path.join(os.tmpdir(), `${propertyId}-${kind.toLowerCase()}-overlay-${stamp}.png`);
+  const fileName = `${propertyId}-${kind.toLowerCase()}-story-${stamp}.mp4`;
+  const outPath = path.join(videoHandoffDir, fileName);
+  let published = false;
+  try {
+    await fs.writeFile(pngPath, overlay.image);
+    const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC });
+    if (!rendered) {
+      void logSystemError("meta", `История «${label}» (объект ${propertyId}): не удалось наложить карточку на ролик — выкладываем фото-карточкой`);
+      return null;
+    }
+    const videoUrl = publicUploadUrl(`/uploads/handoff/${fileName}`);
+    if (!videoUrl) return null; // дальше фото-путь сам назовёт причину («Не настроен CRM_PUBLIC_URL»)
+
+    const { result } = await publishViaInstagramPublisher(publisher, (igUserId, token) =>
+      publishInstagramStory(propertyId, igUserId, token, videoUrl, 0, kind)
+    );
+    if (!result.ok) {
+      // pending — контейнер жив у Meta и сохранён на дозавершение: второй раз (фото) не публикуем. Отказ `media_publish`
+      // тоже оставляет контейнер ждать (признака pending в ответе нет) — смотрим на сам контейнер.
+      if (result.pending || (await hasPendingStoryContainer(propertyId, kind))) {
+        return { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error };
+      }
+      void logSystemError("meta", `История-ролик «${label}» (объект ${propertyId}) не вышла: ${result.error ?? "Instagram отказал без объяснения"} — пробуем фото-карточкой`);
+      return null;
+    }
+    published = true;
+    await prisma.propertyStoryPost.create({
+      data: { propertyId, channel: "INSTAGRAM", mediaId: result.postId ?? "", partIndex: 0, kind },
+    });
+
+    // Facebook — тем же файлом; отказ Facebook итог Instagram не меняет (как у остальных историй).
+    if (facebookReady) {
+      try {
+        const fb = await publishFacebookStoryVideo(creds.pageId!, creds.pageToken!, videoUrl);
+        if (fb.ok) {
+          await prisma.propertyStoryPost.create({
+            data: { propertyId, channel: "FACEBOOK", mediaId: fb.postId ?? "", partIndex: 0, kind },
+          });
+        } else {
+          void logSystemError("meta", `Сторис Facebook «${label}» (объект ${propertyId}) не удалась: ${fb.error}`);
+        }
+      } catch (err) {
+        void logSystemError("meta", `Сторис Facebook «${label}» (объект ${propertyId}) не удалась: ${describeError(err)}`);
+      }
+    }
+    return { attempted: true, publishedParts: 1, totalParts: 1 };
+  } catch (err) {
+    const error = describeError(err);
+    void logSystemError("meta", `История-ролик «${label}» (объект ${propertyId}): ${error}`);
+    // Уже опубликовано в Instagram — фото вторым постом не добавляем.
+    return published ? { attempted: true, publishedParts: 1, totalParts: 1, error } : null;
+  } finally {
+    await fs.unlink(pngPath).catch(() => {});
+    await fs.unlink(outPath).catch(() => {});
+  }
+}
+
 /**
  * Общая механика историй-КАРТИНОК: рубильник, ограничение повторов, токен,
  * рендер карточки, выкладывание файла под публичный адрес, публикация и запись
@@ -449,8 +649,16 @@ async function publishCardStory(params: {
   cooldownMs: number;
   cardOptions: GenerateStoryCardOptions;
   force?: boolean;
+  /** Выложить готовым роликом объекта с карточкой поверх (ffmpeg, десятки секунд) — только из фонового задания. */
+  video?: boolean;
 }): Promise<StoriesPublishSummary> {
-  const { propertyId, kind, label, cooldownMs, cardOptions, force = false } = params;
+  const { propertyId, kind, label, force = false } = params;
+  // Язык надписей по очереди (25.11.2026): русский и таджикский через одну историю; явно заданный не трогаем.
+  const language = params.cardOptions.lang ?? pickStoryLanguage(await prisma.propertyStoryPost.count({
+    where: { channel: "INSTAGRAM", kind: { in: [PRICE_DROP_STORY_KIND, SOLD_STORY_KIND, CARD_STORY_KIND] } },
+  }));
+  const cardOptions: GenerateStoryCardOptions = { ...params.cardOptions, lang: language };
+  const { cooldownMs } = params;
   const fail = (error: string): StoriesPublishSummary => {
     void logSystemError("meta", `История «${label}» (объект ${propertyId}): ${error}`);
     return { attempted: true, publishedParts: 0, totalParts: 1, error };
@@ -458,6 +666,8 @@ async function publishCardStory(params: {
   const empty: StoriesPublishSummary = { attempted: false, publishedParts: 0, totalParts: 1 };
   const blocked = await storyPublicationBlock(propertyId);
   if (blocked) return { ...empty, error: blocked };
+  // Такая история уже ждёт обработки у Meta — второй раз не выкладываем, даже ручной кнопкой.
+  if (await hasPendingStoryContainer(propertyId, kind)) return { attempted: true, publishedParts: 0, totalParts: 1, pending: true };
 
   // Settings читаем всегда (не только при !force) — facebookStoriesEnabled
   // «под своим тумблером» проверяется НЕЗАВИСИМО от force, см. докстринг
@@ -499,6 +709,12 @@ async function publishCardStory(params: {
     if (lastFb && Date.now() - lastFb.publishedAt.getTime() < cooldownMs) facebookReady = false;
   }
 
+  if (params.video) {
+    const videoOutcome = await publishCardVideoStory({ propertyId, kind, label, cardOptions, publisher, facebookReady, creds });
+    if (videoOutcome) return videoOutcome;
+    // null — ролика нет или он не подошёл, либо Instagram отказал, ничего не опубликовав: идём к фото-карточке.
+  }
+
   const card = await generateStoryCard(propertyId, cardOptions);
   if (!card.ok || !card.image) {
     // Причину рендера generateStoryCard уже записала сама — второй раз не пишем.
@@ -519,8 +735,8 @@ async function publishCardStory(params: {
     );
     let outcome: StoriesPublishSummary;
     if (!result.ok) {
-      outcome = result.pending
-        ? { attempted: true, publishedParts: 0, totalParts: 1, error: result.error }
+      outcome = result.pending || (await hasPendingStoryContainer(propertyId, kind))
+        ? { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error }
         : fail(result.error ?? "Instagram отказал без объяснения");
     } else {
       await prisma.propertyStoryPost.create({

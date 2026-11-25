@@ -17,6 +17,7 @@ import { telegramReplyRetryJob } from "./telegramReplyRetry.js";
 import { telegramDirectReplyRetryJob } from "./telegramDirectReplyRetry.js";
 import { geoMatchSweepJob } from "./geoMatchSweep.js";
 import { videoHandoffPublishJob } from "./videoHandoffPublish.js";
+import { propertyStatusStoryJob } from "./propertyStatusStory.js";
 import { photoPostPublishJob } from "./photoPostPublish.js";
 import { socialRepostPublishJob } from "./socialRepostPublish.js";
 import { tiktokPublishRetryJob } from "./tiktokPublishRetry.js";
@@ -61,6 +62,7 @@ registerJobHandler(geoMatchSweepJob);
 // Публикация ролика от монтажёра (случай №114, 21.09.2026) — пять сетей,
 // минуты; выживает рестарт контейнера, чего не умел синхронный вызов.
 registerJobHandler(videoHandoffPublishJob);
+registerJobHandler(propertyStatusStoryJob);
 // Фото-посты для объектов без ролика (28.09.2026) — та же схема очереди, что у
 // видео-конвейера, payload {propertyId}.
 registerJobHandler(photoPostPublishJob);

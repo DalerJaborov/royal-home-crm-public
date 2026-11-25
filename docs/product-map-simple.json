@@ -15,11 +15,11 @@
   "screens": 50,
   "paths": 775,
   "cron": 142,
-  "jobs": 34,
-  "conditions": 4137,
-  "untranslatedUnique": 474,
-  "untranslatedTotal": 609,
-  "partialUnique": 1113,
+  "jobs": 35,
+  "conditions": 4154,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 610,
+  "partialUnique": 1116,
   "translatedShare": 85
  },
  "untranslated": [
@@ -34,6 +34,7 @@
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
   "!(await metaCatalogKeyOk(req))",
+  "!(await queuePropertySoldStory(property.id))",
   "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
   "!(await sellerSwitchOn(\"sellerNoPropertyAlarmEnabled\"))",
@@ -38097,6 +38098,13 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если !(await queuePropertySoldStory(property.id))",
+     "k": "if",
+     "a": [],
+     "c": [],
+     "raw": "!(await queuePropertySoldStory(property.id))"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -82779,6 +82787,166 @@
         {
          "t": "меняет: объект фото публикация",
          "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "propertyStatusStoryJob",
+   "tree": [
+    {
+     "t": "если нет: объект или есть удалён at",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "если вид — «PRICE_DROP» и статус (объект) не «AVAILABLE»",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "если вид — «PRICE_DROP» и есть цена was в сомони",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если сейчас в сомони задан и сейчас в сомони не меньше цена was в сомони",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если вид — «SOLD»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть готово",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если вид не «PRICE_DROP»",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если decision — «WAIT»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «озвучка ещё накладывается на ролик — историю выложим следом»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть ожидает (сводка)",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "если есть attempted и опубликованные части (сводка) — «0» и есть ошибка (сводка)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «summary.error»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это private operation",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если source — «investigation»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если сервер сейчас выключается",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть недавняя запись",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "заводит: запись в журнале ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: quiet пульт",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: ever просмотрено и нет: молчащие",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
          "a": [],
          "c": []
         }

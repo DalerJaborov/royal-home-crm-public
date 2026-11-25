@@ -63,6 +63,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "geo-match-sweep": "Ночной подбор объектов по карте",
   geocode: "Определение адреса на карте",
   "photo-post-publish": "Публикация фото-поста",
+  "property-status-story": "История-ролик «цена снижена» / «продано»",
   "recording-search-retry": "Поиск записи разговора",
   "seller-facts": "Разбор фактов из переписки с продавцом",
   "seller-photo-insight": "Оценка фото продавца",

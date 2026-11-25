@@ -134,6 +134,29 @@ const CARD_RADIUS = 48;
 const CARD_BOTTOM_Y = STORY_CARD_HEIGHT - SAFE_BOTTOM_PX - 20;
 const LOGO_TOP = SAFE_TOP_PX + 12;
 
+/**
+ * ЯЗЫК НАДПИСЕЙ (25.11.2026, владелец: «можно чередовать — таджикские надписи и русские»).
+ * Слова — из разговорника проекта (`tajik-phrasebook`): «нарх» (цена), «ошёна» (этаж), «хонагӣ» (комнатная),
+ * «фурӯхта» (проданный, как в озвучке); «Нарх паст шуд» — по смыслу «цена упала», носителем не сверено —
+ * владелец (Таджикистан) увидит на первой же истории. Названия района и номер объекта не переводятся.
+ */
+export type StoryLanguage = "ru" | "tg";
+interface StoryStrings {
+  priceDropped: string;
+  rooms: string;
+  floor: string;
+  area: string;
+  sold: string;
+}
+const STORY_STRINGS: Record<StoryLanguage, StoryStrings> = {
+  ru: { priceDropped: "Цена снижена", rooms: "комн.", floor: "этаж", area: "м²", sold: "ПРОДАНО" },
+  tg: { priceDropped: "Нарх паст шуд", rooms: "хонагӣ", floor: "ошёна", area: "м²", sold: "ФУРӮХТА ШУД" },
+};
+/** Русский и таджикский идут по очереди: чётный порядковый номер истории — русский, нечётный — таджикский. */
+export function pickStoryLanguage(storiesPublishedSoFar: number): StoryLanguage {
+  return storiesPublishedSoFar % 2 === 0 ? "ru" : "tg";
+}
+
 /** Ширина строки в px по таблице глифов Onest; неизвестный символ — как «0» (с запасом). */
 export function measureStoryText(text: string, size: number, weight: StoryFontWeight = "SemiBold", letterSpacing = 0): number {
   const table = STORY_ADVANCE[weight];
@@ -201,11 +224,11 @@ interface FactTile {
 }
 
 /** Плитки: комнаты, площадь, этаж. Нет поля — нет плитки (участок без этажа не печатает пустоту). */
-function buildFactTiles(values: ReelsCaptionValues): FactTile[] {
+function buildFactTiles(values: ReelsCaptionValues, strings: StoryStrings): FactTile[] {
   const tiles: FactTile[] = [];
-  if (values.rooms) tiles.push({ value: String(values.rooms), label: "комн." });
-  if (values.areaSqm) tiles.push({ value: String(values.areaSqm).replace(".", ","), label: "м²" });
-  if (values.floor) tiles.push({ value: values.totalFloors ? `${values.floor}/${values.totalFloors}` : String(values.floor), label: "этаж" });
+  if (values.rooms) tiles.push({ value: String(values.rooms), label: strings.rooms });
+  if (values.areaSqm) tiles.push({ value: String(values.areaSqm).replace(".", ","), label: strings.area });
+  if (values.floor) tiles.push({ value: values.totalFloors ? `${values.floor}/${values.totalFloors}` : String(values.floor), label: strings.floor });
   return tiles;
 }
 
@@ -222,14 +245,15 @@ export interface StoryCardTextLayout {
  * Рисуется поверх фото НЕЗАВИСИМО от карточки и всегда в одном месте (верхняя треть, ниже аватара
  * и индикаторов Instagram, выше карточки). Наклон и двойная рамка — чтобы читалось как оттиск.
  */
+/** Русский текст печати; таджикский — STORY_STRINGS.tg.sold. */
 export const SOLD_STAMP_TEXT = "ПРОДАНО";
 const SOLD_STAMP_CENTER_Y = 700;
 const SOLD_STAMP_ANGLE_DEG = -11;
 
-function buildSoldStampSvg(): string {
+function buildSoldStampSvg(label: string): string {
   const fontSize = 96;
   const letterSpacing = 8;
-  const textW = measureStoryText(SOLD_STAMP_TEXT, fontSize, "SemiBold", letterSpacing);
+  const textW = measureStoryText(label, fontSize, "SemiBold", letterSpacing);
   const padX = 52;
   const padY = 30;
   const boxW = Math.min(textW + padX * 2, STORY_CARD_WIDTH - SIDE_MARGIN_PX * 2);
@@ -243,7 +267,7 @@ function buildSoldStampSvg(): string {
     <rect x="${x + 14}" y="${y + 14}" width="${boxW - 28}" height="${boxH - 28}" rx="8" fill="none" stroke="#ff3b30" stroke-width="3" />
     <text x="${STORY_CARD_WIDTH / 2}" y="${SOLD_STAMP_CENTER_Y + (fontSize * STORY_CAP_HEIGHT) / 2}" text-anchor="middle"
       font-family="${FONT_FAMILY}" font-size="${fontSize}" font-weight="600" letter-spacing="${letterSpacing}"
-      fill="#ff3b30">${SOLD_STAMP_TEXT}</text>
+      fill="#ff3b30">${escapeXml(label)}</text>
   </g>`;
 }
 
@@ -260,6 +284,10 @@ interface StoryCardInput {
   priceNowTjs?: number | null;
   priceWasTjs?: number | null;
   soldStamp: boolean;
+  /** Язык надписей; по умолчанию русский. */
+  lang?: StoryLanguage;
+  /** Слой ПОВЕРХ ролика: без затемнений фото, остаются карточка, логотип и печать (прозрачный фон). */
+  forVideo?: boolean;
 }
 
 /** Логотип-пилюля сверху слева: белая, золотая точка, «ROYAL HOME TJ». */
@@ -283,13 +311,14 @@ function buildPinSvg(x: number, cy: number, size: number): string {
 
 function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCardTextLayout } {
   const { values, number, soldStamp } = input;
+  const strings = STORY_STRINGS[input.lang ?? "ru"];
   const price = storyPriceLines({
     priceText: values.price,
     priceNowTjs: input.priceNowTjs,
     priceWasTjs: input.priceWasTjs,
     priceWasText: input.priceWasText,
   });
-  const tiles = buildFactTiles(values);
+  const tiles = buildFactTiles(values, strings);
   const innerW = CARD_W - CARD_PAD_X * 2;
   const x0 = CARD_X + CARD_PAD_X;
   const cap = STORY_CAP_HEIGHT;
@@ -303,9 +332,9 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
   const badgeH = 56;
   if (dropped) {
     const badgeSize = 30;
-    const bw = measureStoryText("Цена снижена", badgeSize, "SemiBold") + 52;
+    const bw = measureStoryText(strings.priceDropped, badgeSize, "SemiBold") + 52;
     parts.push(`<rect x="${x0}" y="${y}" width="${t(bw)}" height="${badgeH}" rx="28" fill="${BLUE}" />`);
-    parts.push(text(x0 + 26, y + badgeH / 2 + (badgeSize * cap) / 2, badgeSize, 600, "#ffffff", "Цена снижена"));
+    parts.push(text(x0 + 26, y + badgeH / 2 + (badgeSize * cap) / 2, badgeSize, 600, "#ffffff", strings.priceDropped));
     const nw = measureStoryText(number, 28, "Medium");
     parts.push(text(x0 + innerW - nw, y + badgeH / 2 + (28 * cap) / 2, 28, 500, MUTED, number));
   } else {
@@ -401,10 +430,10 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
       <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.18" />
     </filter>
   </defs>
-  <rect x="0" y="0" width="${STORY_CARD_WIDTH}" height="${Math.round(STORY_CARD_HEIGHT * 0.22)}" fill="url(#shadeTop)" />
-  <rect x="0" y="${Math.round(STORY_CARD_HEIGHT * 0.48)}" width="${STORY_CARD_WIDTH}" height="${STORY_CARD_HEIGHT - Math.round(STORY_CARD_HEIGHT * 0.48)}" fill="url(#shadeBottom)" />
+  ${input.forVideo ? "" : `<rect x="0" y="0" width="${STORY_CARD_WIDTH}" height="${Math.round(STORY_CARD_HEIGHT * 0.22)}" fill="url(#shadeTop)" />
+  <rect x="0" y="${Math.round(STORY_CARD_HEIGHT * 0.48)}" width="${STORY_CARD_WIDTH}" height="${STORY_CARD_HEIGHT - Math.round(STORY_CARD_HEIGHT * 0.48)}" fill="url(#shadeBottom)" />`}
   ${buildLogoSvg()}
-  ${soldStamp ? buildSoldStampSvg() : ""}
+  ${soldStamp ? buildSoldStampSvg(strings.sold) : ""}
   <rect x="${CARD_X}" y="${t(cardTop)}" width="${CARD_W}" height="${t(cardH)}" rx="${CARD_RADIUS}" fill="#ffffff" filter="url(#cardShadow)" />
   <g transform="translate(0, ${t(cardTop)})">
     ${parts.join("\n    ")}
@@ -419,7 +448,7 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
 export function buildStoryCardOverlaySvg(
   values: ReelsCaptionValues,
   number: string,
-  options?: { priceWasText?: string | null; soldStamp?: boolean; priceNowTjs?: number | null; priceWasTjs?: number | null }
+  options?: { priceWasText?: string | null; soldStamp?: boolean; priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage; forVideo?: boolean }
 ): string {
   return buildSvgOverlay({ values, number, ...options, soldStamp: options?.soldStamp ?? false }).svg;
 }
@@ -429,7 +458,7 @@ export function computeStoryCardTextLayout(
   values: ReelsCaptionValues,
   number: string,
   priceWasText?: string | null,
-  extra?: { priceNowTjs?: number | null; priceWasTjs?: number | null }
+  extra?: { priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage }
 ): StoryCardTextLayout {
   return buildSvgOverlay({ values, number, priceWasText, ...extra, soldStamp: false }).layout;
 }
@@ -452,33 +481,44 @@ export interface GenerateStoryCardOptions {
   priceWasText?: string | null;
   /** Старая цена в сомони числом (история «цена снижена»): тогда рисуются «−N» и зачёркнутая «N TJS». */
   priceWasTjs?: number | null;
+  /** Язык надписей (25.11.2026: русский и таджикский по очереди); по умолчанию русский. */
+  lang?: StoryLanguage;
 }
 
-/** Рисует вертикальную карточку 1080x1920 по первому фото объекта. */
-export async function generateStoryCard(propertyId: string, options?: GenerateStoryCardOptions): Promise<StoryCardResult> {
+type StoryCardData =
+  | { ok: false; error: string }
+  | { ok: true; input: StoryCardInput; photoPath: string | null; propertyId: string };
+
+/**
+ * Данные карточки одним местом для фото-карточки и для слоя поверх ролика: объект, факты, цена числом.
+ * `needPhoto` — фото-карточке нужен файл главного фото (нет — честный отказ), слою поверх ролика фото не нужно.
+ */
+async function loadStoryCardData(propertyId: string, options: GenerateStoryCardOptions | undefined, needPhoto: boolean): Promise<StoryCardData> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     include: { district: true, photos: { orderBy: { order: "asc" }, take: 1 } },
   });
   if (!property || property.deletedAt) {
-    return { ok: false, image: null, error: "Объект не найден или удалён" };
+    return { ok: false, error: "Объект не найден или удалён" };
   }
-  const mainPhoto = property.photos[0];
-  if (!mainPhoto) {
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: нет ни одной фотографии`, {
-      dedupKey: `story-card-no-photo:${property.id}`,
-    });
-    return { ok: false, image: null, error: "У объекта нет ни одной фотографии — карточку рисовать не из чего" };
-  }
-
-  const photoPath = path.join(uploadsDir, path.basename(mainPhoto.url));
-  try {
-    await fs.access(photoPath);
-  } catch {
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: файл фото не найден на диске (${photoPath})`, {
-      dedupKey: `story-card-missing-file:${property.id}`,
-    });
-    return { ok: false, image: null, error: "Файл главной фотографии не найден на диске" };
+  let photoPath: string | null = null;
+  if (needPhoto) {
+    const mainPhoto = property.photos[0];
+    if (!mainPhoto) {
+      void logSystemError("storage", `Карточка-история объекта ${property.id}: нет ни одной фотографии`, {
+        dedupKey: `story-card-no-photo:${property.id}`,
+      });
+      return { ok: false, error: "У объекта нет ни одной фотографии — карточку рисовать не из чего" };
+    }
+    photoPath = path.join(uploadsDir, path.basename(mainPhoto.url));
+    try {
+      await fs.access(photoPath);
+    } catch {
+      void logSystemError("storage", `Карточка-история объекта ${property.id}: файл фото не найден на диске (${photoPath})`, {
+        dedupKey: `story-card-missing-file:${property.id}`,
+      });
+      return { ok: false, error: "Файл главной фотографии не найден на диске" };
+    }
   }
 
   const money = await loadMoneyContext();
@@ -501,21 +541,32 @@ export async function generateStoryCard(propertyId: string, options?: GenerateSt
     details: property.details,
     money,
   });
-
-  const soldStamp = shouldStampSold(property.status, options?.soldStamp);
   // Цена числом в сомони — курс только из Настроек, без запасного (как у обложек); нет курса — прежний текст цены.
   const usdRate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
-  const overlay = buildSvgOverlay({
-    values,
-    number: propertyNumber(property.shortId),
-    priceWasText: options?.priceWasText,
-    priceNowTjs: propertyPriceTjs(property.price, property.currency, usdRate),
-    priceWasTjs: options?.priceWasTjs,
-    soldStamp,
-  });
+  return {
+    ok: true,
+    propertyId: property.id,
+    photoPath,
+    input: {
+      values,
+      number: propertyNumber(property.shortId),
+      priceWasText: options?.priceWasText,
+      priceNowTjs: propertyPriceTjs(property.price, property.currency, usdRate),
+      priceWasTjs: options?.priceWasTjs,
+      soldStamp: shouldStampSold(property.status, options?.soldStamp),
+      lang: options?.lang,
+    },
+  };
+}
+
+/** Рисует вертикальную карточку 1080x1920 по первому фото объекта. */
+export async function generateStoryCard(propertyId: string, options?: GenerateStoryCardOptions): Promise<StoryCardResult> {
+  const data = await loadStoryCardData(propertyId, options, true);
+  if (!data.ok) return { ok: false, image: null, error: data.error };
+  const overlay = buildSvgOverlay(data.input);
 
   try {
-    const image = await sharp(photoPath)
+    const image = await sharp(data.photoPath as string)
       .resize({ width: STORY_CARD_WIDTH, height: STORY_CARD_HEIGHT, fit: "cover", position: "centre" })
       .composite([{ input: Buffer.from(overlay.svg), top: 0, left: 0 }])
       .jpeg({ quality: 88 })
@@ -523,9 +574,45 @@ export async function generateStoryCard(propertyId: string, options?: GenerateSt
     return { ok: true, image, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : "неизвестный сбой";
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: отрисовка sharp упала — ${message}`, {
-      dedupKey: `story-card-render-fail:${property.id}`,
+    void logSystemError("storage", `Карточка-история объекта ${data.propertyId}: отрисовка sharp упала — ${message}`, {
+      dedupKey: `story-card-render-fail:${data.propertyId}`,
     });
     return { ok: false, image: null, error: "Не удалось отрисовать карточку" };
+  }
+}
+
+export interface StoryOverlayResult {
+  ok: boolean;
+  /** PNG с прозрачным фоном нужного размера; null при отказе. */
+  image: Buffer | null;
+  error: string | null;
+}
+
+/**
+ * СЛОЙ ПОВЕРХ РОЛИКА (25.11.2026, владелец: «на ролик наложить просто «цена снижена», «продано»»): та же
+ * карточка и печать, что на фото-истории, но на прозрачном фоне — ffmpeg кладёт её на первые секунды ролика
+ * (lib/ffmpeg.ts::overlayCardOnVideo). Размер — кадр ролика (`width`×`height`); карточка рисуется на 1080×1920
+ * и масштабируется, поэтому ролик обязан быть вертикальным 9:16 (иначе вызывающий берёт фото-карточку).
+ */
+export async function generateStoryCardOverlay(
+  propertyId: string,
+  options: GenerateStoryCardOptions | undefined,
+  size: { width: number; height: number } = { width: STORY_CARD_WIDTH, height: STORY_CARD_HEIGHT }
+): Promise<StoryOverlayResult> {
+  const data = await loadStoryCardData(propertyId, options, false);
+  if (!data.ok) return { ok: false, image: null, error: data.error };
+  const overlay = buildSvgOverlay({ ...data.input, forVideo: true });
+  try {
+    let pipeline = sharp(Buffer.from(overlay.svg));
+    if (size.width !== STORY_CARD_WIDTH || size.height !== STORY_CARD_HEIGHT) {
+      pipeline = pipeline.resize({ width: size.width, height: size.height, fit: "fill" });
+    }
+    return { ok: true, image: await pipeline.png().toBuffer(), error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "неизвестный сбой";
+    void logSystemError("storage", `Слой карточки поверх ролика объекта ${data.propertyId}: отрисовка sharp упала — ${message}`, {
+      dedupKey: `story-card-overlay-fail:${data.propertyId}`,
+    });
+    return { ok: false, image: null, error: "Не удалось отрисовать слой карточки" };
   }
 }

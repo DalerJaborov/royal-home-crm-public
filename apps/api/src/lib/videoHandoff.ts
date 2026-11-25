@@ -262,6 +262,9 @@ function cardFactsDiff(oldFactsText: string | null, newFactsText: string): strin
     const oldVal = oldMap.get(label);
     const newVal = newMap.get(label);
     if (oldVal === newVal) continue;
+    // Цены в задании монтажёру больше нет (25.11.2026), а в сохранённых фактах прошлой передачи она ещё есть:
+    // без этого первый перемонтаж после выката писал бы «Цена: было …, теперь не указано».
+    if (label === "Цена") continue;
     if (oldVal === undefined) changes.push(`${label}: добавилось — ${newVal}`);
     else if (newVal === undefined) changes.push(`${label}: было «${oldVal}», теперь не указано`);
     else changes.push(`${label}: «${oldVal}» → «${newVal}»`);

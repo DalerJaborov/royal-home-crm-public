@@ -289,8 +289,7 @@ describe("правка до публикации — кого предупред
   });
 
   it("ролик у монтажёра: Telegram монтажёру «было → стало», журнал и факты прошлой передачи обновлены", async () => {
-    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1
-Этаж: 5" });
+    const p = await seed({ status: "EDITING", videoHandoffStatus: "SENT_TO_EDITOR", videoHandoffLastFactsText: "Объект №1\nЭтаж: 5" });
     await patch(p.id, agentToken, { floor: 7 }).expect(200);
     await waitFor(() => montajerMessages().length > 0);
     const text = String(montajerMessages()[0]![1]);

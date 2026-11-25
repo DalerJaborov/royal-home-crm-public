@@ -360,6 +360,62 @@ export async function cutVideoSegment(
   return result !== null;
 }
 
+/** Сколько секунд карточка «цена снижена» / «продано» висит поверх ролика в истории. */
+export const STORY_OVERLAY_SEC = 5;
+
+/**
+ * Аргументы ffmpeg: ролик + прозрачная карточка на первые `showSec` секунд, плавно появляется и гаснет, звук
+ * ролика сохраняется. Вынесено отдельно ради теста без ffmpeg. Карточка — PNG ровно по размеру кадра ролика,
+ * её зацикливаем как неподвижный видеопоток на `showSec`; `eof_action=pass` — после этого идёт чистый ролик.
+ */
+export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, outputPath: string, opts: { showSec?: number; maxDurationSec?: number } = {}): string[] {
+  const show = opts.showSec ?? STORY_OVERLAY_SEC;
+  const maxDuration = opts.maxDurationSec ?? 60;
+  const fade = 0.5;
+  const filter =
+    `[1:v]format=rgba,fade=t=in:st=0.2:d=${fade}:alpha=1,fade=t=out:st=${(show - fade).toFixed(2)}:d=${fade}:alpha=1[ov];` +
+    `[0:v][ov]overlay=0:0:format=auto:eof_action=pass[v]`;
+  return [
+    "-y",
+    "-t", maxDuration.toFixed(2),
+    "-i", inputPath,
+    "-loop", "1", "-framerate", "30", "-t", show.toFixed(2),
+    "-i", overlayPngPath,
+    "-filter_complex", filter,
+    "-map", "[v]",
+    "-map", "0:a?",
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "21",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-movflags", "+faststart",
+    outputPath,
+  ];
+}
+
+/**
+ * ИСТОРИЯ ИЗ ГОТОВОГО РОЛИКА С КАРТОЧКОЙ (25.11.2026): кладёт прозрачную карточку на первые секунды ролика и
+ * режет до `maxDurationSec` (60 с — предел Instagram). Перекодирует, поэтому занимает десятки секунд на ролик
+ * в минуту: звать только из фонового задания, не из запроса пользователя. false — ffmpeg не справился, вызывающий
+ * публикует фото-карточку.
+ */
+export async function overlayCardOnVideo(
+  inputPath: string,
+  overlayPngPath: string,
+  outputPath: string,
+  opts: { showSec?: number; maxDurationSec?: number } = {},
+  timeoutMs = 240_000
+): Promise<boolean> {
+  const result = await tryRunFfmpeg({
+    label: "карточка поверх ролика для истории",
+    timeoutMs,
+    args: buildOverlayCardArgs(inputPath, overlayPngPath, outputPath, opts),
+  });
+  return result !== null;
+}
+
 /** Ширина/высота неподвижной картинки (обложка) — тот же ffprobe, без секции
  *  format=duration (у изображения её нет). Используется только для сверки
  *  пропорций обложки с роликом (publishTelegramVideo) — не бросает и не

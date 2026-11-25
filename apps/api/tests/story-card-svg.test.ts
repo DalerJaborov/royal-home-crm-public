@@ -6,6 +6,7 @@ import {
   buildStoryCardOverlaySvg,
   computeStoryCardTextLayout,
   measureStoryText,
+  pickStoryLanguage,
   storyPriceLines,
   SAFE_BOTTOM_PX,
   SAFE_TOP_PX,
@@ -148,5 +149,48 @@ describe("шрифт карточки", () => {
       expect(FILES[key], `карточка просит начертание «${key}», которого нет в списке файлов`).toBeDefined();
       expect(fs.existsSync(path.join(dir, FILES[key]!)), `нет файла ${FILES[key]}`).toBe(true);
     }
+  });
+});
+
+describe("язык надписей: русский и таджикский по очереди (25.11.2026)", () => {
+  it("чётная по счёту история — русская, нечётная — таджикская", () => {
+    expect([0, 1, 2, 3, 4].map(pickStoryLanguage)).toEqual(["ru", "tg", "ru", "tg", "ru"]);
+  });
+
+  it("таджикская карточка: «Нарх паст шуд», «хонагӣ», «ошёна»; район и номер объекта не переводятся", () => {
+    const svg = buildStoryCardOverlaySvg(values, "ОБ-000214", { priceNowTjs: 870000, priceWasTjs: 890000, lang: "tg" });
+    expect(svg).toContain("Нарх паст шуд");
+    expect(svg).toContain(">хонагӣ<");
+    expect(svg).toContain(">ошёна<");
+    expect(svg).not.toContain("Цена снижена");
+    expect(svg).toContain("Исмоили Сомони");
+    expect(svg).toContain("ОБ-000214");
+  });
+
+  it("русская карточка не получает таджикских слов, язык по умолчанию — русский", () => {
+    const svg = buildStoryCardOverlaySvg(values, "ОБ-000214", { priceNowTjs: 870000, priceWasTjs: 890000 });
+    expect(svg).toContain("Цена снижена");
+    expect(svg).toContain(">комн.<");
+    expect(svg).not.toContain("Нарх");
+  });
+
+  it("печать «продано» на таджикском: «ФУРӮХТА ШУД», и она помещается между боковыми полями", () => {
+    const svg = buildStoryCardOverlaySvg(values, "ОБ-000214", { priceNowTjs: 870000, soldStamp: true, lang: "tg" });
+    expect(svg).toContain("ФУРӮХТА ШУД");
+    const rect = svg.match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="16"/);
+    expect(rect).not.toBeNull();
+    const [x, , w] = rect!.slice(1).map(Number);
+    expect(x).toBeGreaterThanOrEqual(65);
+    expect(x + w).toBeLessThanOrEqual(STORY_CARD_WIDTH - 65);
+  });
+
+  it("слой поверх ролика без затемнений фото: остаются карточка и логотип, градиентов нет", () => {
+    const photo = buildStoryCardOverlaySvg(values, "ОБ-000214", { priceNowTjs: 870000 });
+    const video = buildStoryCardOverlaySvg(values, "ОБ-000214", { priceNowTjs: 870000, forVideo: true });
+    expect(photo).toContain('fill="url(#shadeTop)"');
+    expect(video).not.toContain('fill="url(#shadeTop)"');
+    expect(video).not.toContain('fill="url(#shadeBottom)"');
+    expect(video).toContain("ROYAL HOME TJ");
+    expect(video).toContain("870 000");
   });
 });

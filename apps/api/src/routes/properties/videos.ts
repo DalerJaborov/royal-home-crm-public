@@ -55,7 +55,7 @@ import { publishApprovedPost, type PublishChannel } from "../../lib/socialPublis
 import {
   publishPropertyCardStory,
   publishPropertyInstagramStories,
-  publishPropertySoldStory,
+  queuePropertySoldStory,
 } from "../../lib/instagramStories.js";
 import { requireMarketingRole } from "../marketing.js";
 import { publishPropertyPhotoPost, removePropertyPhotoPosts } from "../../lib/photoPosts.js";
@@ -676,14 +676,15 @@ videosRouter.post("/:id/instagram-story-sold", requireAuth, requireMarketingRole
     return res.status(409).json({ error: "Объект не в статусе «продан» — печать ставить рано" });
   }
 
-  const summary = await publishPropertySoldStory(property.id, { force: true });
+  // Историей-РОЛИКОМ с печатью (25.11.2026): ffmpeg накладывает печать на готовый ролик — десятки секунд, поэтому
+  // ставится в очередь, а не держит запрос. Нет ролика — задание выложит фото с печатью, как раньше.
+  if (!(await queuePropertySoldStory(property.id))) {
+    return res.status(502).json({ error: "Не удалось поставить историю в очередь — попробуйте ещё раз через минуту" });
+  }
 
-  logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, {
-    published: summary.publishedParts,
-    error: summary.error ?? null,
-  });
+  logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, { queued: true });
 
-  res.status(200).json({ ok: summary.publishedParts === 1, error: summary.error ?? null });
+  res.status(200).json({ ok: true, queued: true, error: null });
 });
 
 /**

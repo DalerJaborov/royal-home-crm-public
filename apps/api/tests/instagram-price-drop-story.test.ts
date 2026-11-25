@@ -123,7 +123,8 @@ describe("publishPropertyPriceDropStory", () => {
 
     expect(summary.attempted).toBe(true);
     expect(summary.publishedParts).toBe(1);
-    expect(generateStoryCard).toHaveBeenCalledWith(propertyId, { priceWasText: "280 000 с.", priceWasTjs: 280000 });
+    // Язык надписей (25.11.2026) выбирается по очереди — русский или таджикский, какой именно, тесту не важно.
+    expect(generateStoryCard).toHaveBeenCalledWith(propertyId, { priceWasText: "280 000 с.", priceWasTjs: 280000, lang: expect.stringMatching(/^(ru|tg)$/) });
     expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
     // (propertyId, igUserId, token, imageUrl) — propertyId добавлен 21.09.2026
     // (случай №111), чтобы отложенный контейнер можно было сохранить на дозавершение.
