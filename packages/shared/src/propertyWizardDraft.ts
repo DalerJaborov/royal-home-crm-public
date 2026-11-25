@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PROPERTY_DETAIL_KEYS } from "./enums.js";
 import { propertyDetailShown, propertyFieldShown, propertyHasMarket } from "./propertyTypeFields.js";
+import { UPLOAD_PART_MAX_BYTES, UPLOAD_PART_MIN_BYTES } from "./uploadLimits.js";
 
 /** "Не указано" в поле характеристики мастера. */
 export const DETAIL_NOT_SET = "__not_set__";
@@ -42,6 +43,18 @@ export const PROPERTY_WIZARD_STEP_COUNT = 5;
 
 /** Потолок длины текстового поля черновика — защита от записи мегабайта в JSONB. */
 const draftText = (max: number) => z.string().max(max);
+
+/** Выбор сотрудника в поле «Застройщик и разрешение» мастера: проект реестра или «нет в реестре». */
+export const propertyWizardRegistryPickSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("project"),
+    projectId: z.guid(),
+    title: draftText(300),
+    developer: draftText(300),
+    color: z.enum(["green", "yellow", "red"]),
+  }),
+  z.object({ kind: z.literal("none") }),
+]);
 
 export const propertyWizardDraftValuesSchema = z
   .object({
@@ -103,8 +116,15 @@ export const propertyWizardDraftValuesSchema = z
     stage: draftText(32),
     /** «Без озвучки» ролика (12.11.2026) — выбор в мастере Шабнам, уходит в создание объекта. */
     narrationOff: z.boolean(),
+    /**
+     * Выбор в поле «Застройщик и разрешение» (реестр строек, ревью PR #441): переживает черновик, как остальные поля.
+     * Название и застройщик — только чтобы показать выбор после возврата к черновику; в создание уходит лишь projectId.
+     */
+    registryPick: propertyWizardRegistryPickSchema.nullable(),
   })
   .partial();
+
+export type PropertyWizardRegistryPick = z.infer<typeof propertyWizardRegistryPickSchema>;
 
 export type PropertyWizardDraftValues = z.infer<typeof propertyWizardDraftValuesSchema>;
 
@@ -132,6 +152,8 @@ export const propertyDraftVideoSessionSchema = z.object({
   filename: z.string().min(1).max(255),
   sizeBytes: z.number().int().positive(),
   contentType: z.string().min(1).max(128),
+  /** Необязательно (25.11.2026): размер части, удобный клиенту (медленный канал — меньше). */
+  partSize: z.number().int().min(UPLOAD_PART_MIN_BYTES).max(UPLOAD_PART_MAX_BYTES).optional(),
 });
 
 export interface PropertyDraftMediaView {
@@ -216,5 +238,9 @@ export function buildCreateBody(v: PropertyWizardDraftValues): Record<string, un
     ...(v.sellerClientId
       ? { clientId: v.sellerClientId }
       : { sellerName: v.sellerName?.trim(), ownerContact: v.sellerPhone?.trim() }),
+    // «Застройщик и разрешение»: выбор человека — ручная связь или «нет в реестре»; нет выбора — автосвязь на сервере.
+    ...(v.registryPick
+      ? { registry: v.registryPick.kind === "none" ? { kind: "none" } : { kind: "project", projectId: v.registryPick.projectId } }
+      : {}),
   };
 }

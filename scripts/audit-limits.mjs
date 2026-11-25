@@ -25,9 +25,19 @@
  *  4. Экран: каждая ОТПРАВКА FormData мимо `api()` (`xhr.send(form)`, `fetch(…, { body: form })`,
  *     свой помощник вида `xhrSend…(…, form, …)`) обязана пройти `assertFitsSingleRequest(form`
  *     раньше отправки. `api()` и `sendToClient()` проверяют вес сами (lib/api.ts).
- *  5. Прокси: `read_body` в ops/Caddyfile.example не короче времени, за которое самое тяжёлое
- *     тело (max_size, не меньше части UPLOAD_PART_BYTES) доходит на канале 1 Мбит/с
- *     (25.11.2026: при 10s ролики мастера получали 502 — см. checkCaddyBodyTimeout).
+ *  5. Прокси: `read_body` в ops/Caddyfile.example не короче времени, за которое доходит
+ *     (а) часть UPLOAD_PART_BYTES на канале 300 Кбит/с с запасом ×2 и (б) самое тяжёлое
+ *     одиночное тело (max_size) на канале 1 Мбит/с (25.11.2026: при 10s ролики мастера
+ *     получали 502 — см. checkCaddyBodyTimeout).
+ *  6. nginx (apps/web/nginx.conf): PUT частей (три семейства адресов) идёт отдельным location
+ *     без буферизации тела, с client_max_body_size не меньше части и не больше лимита
+ *     express.raw сервера (32 МБ), с таймаутами — checkNginxPartLocation.
+ *  7. Caddy `max_size` не ниже PROXY_SINGLE_REQUEST_MAX_BYTES (иначе файлы 25–90 МБ получают
+ *     HTML-413 от Caddy) и не выше `client_max_body_size` общего /api/ у nginx.
+ *  8. Ответы-заглушки в JSON: у nginx — @proxy_408/413/502/503/504 и error_page в каждом
+ *     прокси-location; у Caddy — handle_errors с PROXY_ и application/json.
+ *  9. МЯГКОЕ: `requestTimeout`/`headersTimeout` Node в apps/api/src/index.ts проверяются, только
+ *     если заданы явно (ставит волна B); не заданы — пропуск без падения.
  *
  * Каждое правило проверено внесением поломки — scripts/audit-limits.test.mjs.
  *
@@ -308,6 +318,16 @@ export function checkWebSource(source) {
  */
 export const MIN_UPLINK_BITS_PER_SEC = 1_000_000;
 
+/**
+ * Худший канал для ЧАСТИ загрузки: 300 Кбит/с (разбор 25.11.2026: часть 8 МБ там принимается
+ * ≈ 224 с). Запас ×2 — на повтор и на провалы связи внутри одной части.
+ */
+export const MIN_PART_UPLINK_BITS_PER_SEC = 300_000;
+export const PART_TIMEOUT_MARGIN = 2;
+
+/** Лимит `express.raw` на маршрутах частей (apps/api/src/routes): nginx не должен обещать больше. */
+export const SERVER_RAW_PART_LIMIT_BYTES = 32 * MB;
+
 /** Длительность Caddy/Go («10s», «5m», «1m30s», «500ms») → секунды; null — не разобрать. */
 export function parseDurationSeconds(raw) {
   const text = String(raw).trim();
@@ -335,10 +355,18 @@ export function parseCaddySize(raw) {
  * не меньше части загрузки `UPLOAD_PART_BYTES`), должно успеть дойти за `read_body` на канале
  * MIN_UPLINK_BITS_PER_SEC. Не задан `read_body` — потолка нет, нарушать нечего.
  */
-export function checkCaddyBodyTimeout(text, { partBytes, minUplinkBitsPerSec = MIN_UPLINK_BITS_PER_SEC }) {
+export function checkCaddyBodyTimeout(
+  text,
+  {
+    partBytes,
+    minUplinkBitsPerSec = MIN_UPLINK_BITS_PER_SEC,
+    partUplinkBitsPerSec = MIN_PART_UPLINK_BITS_PER_SEC,
+    partMargin = PART_TIMEOUT_MARGIN,
+  }
+) {
   const lines = text.split("\n").map((l) => l.replace(/#.*$/, ""));
   const problems = [];
-  let biggest = partBytes;
+  let biggest = 0;
   lines.forEach((line, i) => {
     const m = /^\s*max_size\s+(\S+)/.exec(line);
     if (!m) return;
@@ -346,23 +374,178 @@ export function checkCaddyBodyTimeout(text, { partBytes, minUplinkBitsPerSec = M
     if (bytes === null) problems.push({ line: i + 1, problem: `max_size ${m[1]} — не разобрать` });
     else biggest = Math.max(biggest, bytes);
   });
-  const requiredSec = Math.ceil((biggest * 8) / minUplinkBitsPerSec);
+  // (а) часть на худшем канале с запасом; (б) самое тяжёлое одиночное тело на 1 Мбит/с.
+  const partSec = Math.ceil(((partBytes * 8) / partUplinkBitsPerSec) * partMargin);
+  const singleSec = Math.ceil((biggest * 8) / minUplinkBitsPerSec);
+  const requiredSec = Math.max(partSec, singleSec);
+  biggest = Math.max(biggest, partBytes);
   lines.forEach((line, i) => {
     const m = /^\s*read_body\s+(\S+)/.exec(line);
     if (!m) return;
     const sec = parseDurationSeconds(m[1]);
     if (sec === null) {
-      problems.push({ line: i + 1, problem: `read_body ${m[1]} — не разобрать (пишите «5m», «300s»)` });
+      problems.push({ line: i + 1, problem: `read_body ${m[1]} — не разобрать (пишите «15m», «900s»)` });
     } else if (sec < requiredSec) {
       problems.push({
         line: i + 1,
         problem:
-          `read_body ${m[1]} короче ${requiredSec} с — тело ${Math.round(biggest / 1e6)} МБ на канале ` +
+          `read_body ${m[1]} короче ${requiredSec} с — часть ${Math.round(partBytes / 1e6)} МБ на канале ` +
+          `${partUplinkBitsPerSec / 1e3} Кбит/с (запас ×${partMargin}) или тело ${Math.round(biggest / 1e6)} МБ на ` +
           `${minUplinkBitsPerSec / 1e6} Мбит/с не успеет дойти: прокси оборвёт загрузку и телефон получит 502 ` +
           "(read_body — потолок на всё тело, а не на паузу между байтами).",
       });
     }
   });
+  return problems;
+}
+
+// ── nginx и ответы-заглушки ───────────────────────────────────────────────────
+
+/** Размер nginx («10m», «150m», «2100m», «512k») → байты; null — не разобрать. */
+export function parseNginxSize(raw) {
+  const m = /^\s*(\d+)\s*([kmg]?)\s*$/i.exec(String(raw));
+  if (!m) return null;
+  return Number(m[1]) * { "": 1, k: 1024, m: MB, g: 1024 * MB }[m[2].toLowerCase()];
+}
+
+/** Список `location …{ тело }` из текста nginx (без комментариев). */
+export function nginxLocations(text) {
+  const clean = text.split("\n").map((l) => l.replace(/#.*/, "")).join("\n");
+  const out = [];
+  const re = /\blocation\b([^{]*)\{/g;
+  let m;
+  while ((m = re.exec(clean))) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < clean.length && depth > 0; i++) {
+      if (clean[i] === "{") depth++;
+      else if (clean[i] === "}") depth--;
+    }
+    out.push({ name: m[1].trim(), line: clean.slice(0, m.index).split("\n").length, body: clean.slice(m.index + m[0].length, i - 1) });
+  }
+  return out;
+}
+
+const PART_FAMILIES = ["upload-sessions/", "videos/upload-sessions/", "drafts/current/videos/"];
+const STUB_CODES = [408, 413, 502, 503, 504];
+
+/**
+ * ПРАВИЛА 6 и 8 (nginx). 25.11.2026: части шли под общим /api/ с буферизацией тела — часть
+ * 8 МБ на канале 300 Кбит/с лежала в tmpfs 128 МБ (mem_limit контейнера) ≈ 224 с, дюжина таких
+ * частей разом роняла nginx, и вся CRM отвечала 502.
+ */
+export function checkNginxPartLocation(text, { partBytes, rawLimitBytes = SERVER_RAW_PART_LIMIT_BYTES }) {
+  const problems = [];
+  const locs = nginxLocations(text);
+  const parts = locs.filter((l) => l.name.includes("/parts/"));
+  if (parts.length === 0) {
+    problems.push({ line: 1, problem: "нет location для PUT частей загрузки (…/parts/N): части пойдут под общий /api/ с буферизацией тела в tmpfs" });
+  }
+  for (const family of PART_FAMILIES) {
+    if (parts.length && !parts.some((l) => l.name.includes(family))) {
+      problems.push({ line: parts[0].line, problem: `location частей не покрывает семейство адресов «${family}…/parts/N»` });
+    }
+  }
+  for (const l of parts) {
+    const at = (problem) => problems.push({ line: l.line, problem: `location ${l.name.slice(0, 40)}…: ${problem}` });
+    if (!/\bproxy_request_buffering\s+off\s*;/.test(l.body)) at("нет `proxy_request_buffering off;` — часть копится в tmpfs 128 МБ целиком");
+    if (!/\bproxy_http_version\s+1\.1\s*;/.test(l.body)) at("нет `proxy_http_version 1.1;` — без него потоковая отправка тела не работает");
+    const cmb = /\bclient_max_body_size\s+(\S+?)\s*;/.exec(l.body);
+    const cmbBytes = cmb ? parseNginxSize(cmb[1]) : null;
+    if (!cmb || cmbBytes === null) at("нет разборчивого `client_max_body_size`");
+    else if (cmbBytes < partBytes) at(`client_max_body_size ${cmb[1]} меньше части ${Math.round(partBytes / MB)} МБ — каждая часть получит 413`);
+    else if (cmbBytes >= rawLimitBytes) at(`client_max_body_size ${cmb[1]} не меньше лимита express.raw сервера (${rawLimitBytes / MB} МБ) — обещание шире сервера`);
+    if (!/\bclient_body_timeout\s+\d+\s*[sm]\s*;/.test(l.body)) at("нет `client_body_timeout` (пауза между байтами тела)");
+    if (!/\bproxy_read_timeout\s+\d+\s*[sm]\s*;/.test(l.body) || !/\bproxy_send_timeout\s+\d+\s*[sm]\s*;/.test(l.body)) at("нет proxy_read_timeout/proxy_send_timeout");
+  }
+  // Правило 8: заглушки в JSON.
+  for (const code of STUB_CODES) {
+    const stub = locs.find((l) => l.name === `@proxy_${code}`);
+    if (!stub) {
+      problems.push({ line: 1, problem: `нет named-location @proxy_${code}: ошибка nginx ${code} придёт HTML-страницей` });
+      continue;
+    }
+    const ok =
+      /application\/json/.test(stub.body) &&
+      new RegExp(`\\breturn\\s+${code}\\b`).test(stub.body) &&
+      stub.body.includes(`"code":"PROXY_${code}"`) &&
+      /"message":"[^"]+"/.test(stub.body) &&
+      /"retryable":(true|false)/.test(stub.body);
+    if (!ok) problems.push({ line: stub.line, problem: `@proxy_${code}: тело должно быть JSON с code PROXY_${code}, message, retryable и Content-Type application/json` });
+    const wantRetry = code === 413 ? "false" : "true";
+    if (ok && !stub.body.includes(`"retryable":${wantRetry}`)) problems.push({ line: stub.line, problem: `@proxy_${code}: retryable должен быть ${wantRetry}` });
+  }
+  for (const l of locs) {
+    // Только /api/: /uploads/ отдаёт файлы браузеру и Meta, JSON-ответ там не нужен.
+    if (!/\bproxy_pass\b/.test(l.body) || !l.name.includes("/api/")) continue;
+    for (const code of STUB_CODES) {
+      if (!new RegExp(`\\berror_page\\s+${code}\\s+@proxy_${code}\\s*;`).test(l.body)) {
+        problems.push({ line: l.line, problem: `location ${l.name.slice(0, 40)}: нет \`error_page ${code} @proxy_${code};\` — ошибка ${code} придёт HTML` });
+      }
+    }
+  }
+  return problems;
+}
+
+/** `client_max_body_size` общего `location /api/` (байты) или null. */
+export function nginxApiBodyLimit(text) {
+  const api = nginxLocations(text).find((l) => l.name === "/api/");
+  const m = api && /\bclient_max_body_size\s+(\S+?)\s*;/.exec(api.body);
+  return m ? parseNginxSize(m[1]) : null;
+}
+
+/**
+ * ПРАВИЛО 7: Caddy `request_body max_size` не ниже потолка одиночного запроса (иначе файл
+ * 25–90 МБ получает HTML-413 без кода) и не выше `client_max_body_size` общего /api/ у nginx.
+ * ПРАВИЛО 8 (Caddy): блок handle_errors с JSON.
+ */
+export function checkCaddyMaxSize(text, { ceiling, nginxApiLimit = null }) {
+  const problems = [];
+  const lines = text.split("\n").map((l) => l.replace(/#.*$/, ""));
+  let inCrm = false;
+  lines.forEach((line, i) => {
+    if (/^\S.*\{\s*$/.test(line)) inCrm = /crm\./.test(line);
+    const m = /^\s*max_size\s+(\S+)/.exec(line);
+    if (!m || !inCrm) return;
+    const bytes = parseCaddySize(m[1]);
+    if (bytes === null) problems.push({ line: i + 1, problem: `max_size ${m[1]} — не разобрать` });
+    else if (bytes < ceiling) {
+      problems.push({
+        line: i + 1,
+        problem: `max_size ${m[1]} ниже потолка одиночного запроса ${Math.round(ceiling / MB)} МБ — файлы между ними получат HTML-413 от Caddy без кода`,
+      });
+    } else if (nginxApiLimit !== null && bytes > nginxApiLimit) {
+      problems.push({ line: i + 1, problem: `max_size ${m[1]} выше client_max_body_size у nginx (${Math.round(nginxApiLimit / MB)} МБ)` });
+    }
+  });
+  const joined = lines.join("\n");
+  if (!/\bhandle_errors\b/.test(joined) || !/application\/json/.test(joined) || !/PROXY_/.test(joined)) {
+    problems.push({ line: 1, problem: "нет `handle_errors` с JSON-ответом (code PROXY_…, application/json): ошибки Caddy придут HTML-страницей" });
+  }
+  return problems;
+}
+
+/**
+ * ПРАВИЛО 9 (мягкое): `requestTimeout`/`headersTimeout` Node в apps/api/src/index.ts.
+ * Умолчание Node requestTimeout — 300 с на ВСЁ тело: часть 8 МБ на 300 Кбит/с с запасом ×2
+ * (≈ 448 с) в него не влезает. Проверяем, только если значение задано явно; 0 — без предела.
+ */
+export function checkNodeTimeouts(text, { partBytes }) {
+  const problems = [];
+  const masked = maskComments(text);
+  const get = (name) => {
+    const m = new RegExp(`\\b${name}\\s*[=:]\\s*([^;,\\n}]+)`).exec(masked);
+    return m ? m[1].trim() : null;
+  };
+  const val = (expr) => evalBytes(expr.replace(/_/g, ""), 0);
+  const rt = get("requestTimeout");
+  const ht = get("headersTimeout");
+  const need = Math.ceil(((partBytes * 8) / MIN_PART_UPLINK_BITS_PER_SEC) * PART_TIMEOUT_MARGIN) * 1000;
+  const a = rt === null ? null : val(rt);
+  const b = ht === null ? null : val(ht);
+  if (rt !== null && a === null) problems.push({ line: 1, problem: `requestTimeout = ${rt} — не разобрать (число миллисекунд или арифметика)` });
+  else if (a !== null && a !== 0 && a < need) problems.push({ line: 1, problem: `requestTimeout ${a} мс короче ${need} мс — часть ${Math.round(partBytes / MB)} МБ на 300 Кбит/с с запасом ×2 не успеет` });
+  if (a !== null && b !== null && a !== 0 && b > a) problems.push({ line: 1, problem: `headersTimeout ${b} мс больше requestTimeout ${a} мс` });
   return problems;
 }
 
@@ -409,8 +592,18 @@ export function scan(root = ROOT) {
   const caddy = join(root, "ops", "Caddyfile.example");
   if (existsSync(caddy)) {
     const partBytes = evalBytes("UPLOAD_PART_BYTES", ceiling, sharedConstants);
+    const nginxPath = join(root, "apps", "web", "nginx.conf");
+    const nginxText = existsSync(nginxPath) ? readFileSync(nginxPath, "utf8") : null;
     if (partBytes === null) problems.push({ file: "packages/shared/src/uploadLimits.ts", line: 1, problem: "нет UPLOAD_PART_BYTES — сторож read_body не знает размер части" });
-    else for (const p of checkCaddyBodyTimeout(readFileSync(caddy, "utf8"), { partBytes })) problems.push({ file: "ops/Caddyfile.example", ...p });
+    else {
+      const caddyText = readFileSync(caddy, "utf8");
+      for (const p of checkCaddyBodyTimeout(caddyText, { partBytes })) problems.push({ file: "ops/Caddyfile.example", ...p });
+      const nginxLimit = nginxText ? nginxApiBodyLimit(nginxText) : null;
+      for (const p of checkCaddyMaxSize(caddyText, { ceiling, nginxApiLimit: nginxLimit })) problems.push({ file: "ops/Caddyfile.example", ...p });
+      if (nginxText) for (const p of checkNginxPartLocation(nginxText, { partBytes })) problems.push({ file: "apps/web/nginx.conf", ...p });
+      const indexPath = join(root, "apps", "api", "src", "index.ts");
+      if (existsSync(indexPath)) for (const p of checkNodeTimeouts(readFileSync(indexPath, "utf8"), { partBytes })) problems.push({ file: "apps/api/src/index.ts", ...p });
+    }
   }
   return { ceiling, problems, exceptions };
 }

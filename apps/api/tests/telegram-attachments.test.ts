@@ -252,8 +252,8 @@ describe("Вложения Telegram в инбоксе", () => {
     expect(res.status).toBe(200);
     const withFiles = res.body.messages[2];
     expect(withFiles.attachments).toHaveLength(2);
-    expect(withFiles.attachments[0]).toEqual({ kind: "image", mime: "image/jpeg", file: photoFile });
-    expect(withFiles.attachments[1]).toEqual({ kind: "audio", mime: "audio/ogg", file: voiceFile });
+    expect(withFiles.attachments[0]).toMatchObject({ kind: "image", mime: "image/jpeg", file: photoFile });
+    expect(withFiles.attachments[1]).toMatchObject({ kind: "audio", mime: "audio/ogg", file: voiceFile });
   });
 
   it("руководителю имя файла не приезжает — то же правило, что у остальных каналов", async () => {

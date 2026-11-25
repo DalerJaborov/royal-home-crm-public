@@ -19,9 +19,13 @@ import { AUDIO_SPEEDS, audioClock, audioSpeedLabel, claimAudio, nextAudioSpeed, 
  * вне этого файла не пройдёт сторож `ruFieldsGuard.test.ts`.
  */
 export function RhAudioPlayer({
-  src, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
+  src: primarySrc, fallbackSrc, onLoadError, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
 }: {
   src: string;
+  /** Запасной адрес на ошибку плеера — голосовое в m4a, если браузер не сыграл ogg (25.11.2026). */
+  fallbackSrc?: string;
+  /** Ошибка загрузки — сначала вызывающему (истёкшая подпись: он даст свежий адрес). true — обработано. */
+  onLoadError?: () => boolean;
   autoPlay?: boolean;
   /** Кнопка скорости 1×/1,5×/2× — для голосовых и разговоров. */
   speeds?: boolean;
@@ -39,6 +43,9 @@ export function RhAudioPlayer({
   inBubble?: boolean;
 }) {
   const ref = useRef<HTMLAudioElement | null>(null);
+  const [onFallback, setOnFallback] = useState(false);
+  useEffect(() => { setOnFallback(false); }, [primarySrc]);
+  const src = onFallback && fallbackSrc ? fallbackSrc : primarySrc;
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
   const [dur, setDur] = useState<number | null>(null);
@@ -123,7 +130,11 @@ export function RhAudioPlayer({
           if (!usableDuration(e.currentTarget.duration)) setDur((d) => d ?? endedAt);
           setPlaying(false); setPos(0); e.currentTarget.currentTime = 0;
         }}
-        onError={() => setFailed(true)}
+        onError={() => {
+          if (onLoadError?.()) return;
+          if (!onFallback && fallbackSrc) setOnFallback(true);
+          else setFailed(true);
+        }}
       />
       <button
         type="button"

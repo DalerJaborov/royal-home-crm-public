@@ -8,7 +8,7 @@ import type { PropertyNarrationItem, PropertyNarrationView } from "@royal-home/s
 const api = vi.hoisted(() => vi.fn());
 vi.mock("../lib/api", () => ({ api }));
 import { narrationChangesLine, narrationFactsChanges, narrationLengthCheck } from "@royal-home/shared";
-import { NarrationApprovalNudge, PropertyNarrationManager, narrationAwaitsMe, narrationCardState, narrationClock, narrationIsPending, narrationReleaseMoving } from "./PropertyNarrationManager";
+import { NarrationApprovalNudge, PropertyNarrationManager, narrationAwaitsMe, narrationCardState, narrationClock, narrationFileName, narrationIsPending, narrationReleaseMoving } from "./PropertyNarrationManager";
 import { NarrationComposer } from "./NarrationComposer";
 
 /**
@@ -358,6 +358,15 @@ describe("карточка объекта: озвучка для агента", 
     expect(narrationLengthCheck("Квартира.", "ru", null, null)).toBeNull();
     expect(narrationFactsChanges({ ...facts, price: "50000" }, { ...facts, floor: 4 })).toEqual(["этаж", "цена"]);
     expect(narrationChangesLine(["цена", "этаж", "район"])).toBe("Изменилось: цена, этаж и район");
+  });
+  it("25.11: у утверждённой и у ждущей одобрения озвучки есть «Скачать озвучку», файл назван по номеру объекта", () => {
+    const approved = render({ propertyCode: 231, versions: [version({ approvedAt: "2026-11-18" })] }, "card");
+    expect(approved).toContain("Скачать озвучку (mp3)");
+    expect(render({ versions: [version()] })).toContain("Скачать озвучку (mp3)");
+    // Нет файла (noAudio) — скачивать нечего.
+    expect(render({ versions: [version({ hasAudio: false })] })).not.toContain("Скачать озвучку");
+    expect(narrationFileName(231)).toBe("ozvuchka-ob231.mp3");
+    expect(narrationFileName(undefined)).toBe("ozvuchka.mp3");
   });
   it("монтажёр (canDraft=false) только слушает", () => {
     const html = render({ canDraft: false, canApproveAudio: false, versions: [version({ approvedAt: "2026-11-14" })] });

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2485**; вместе с задачами по расписанию и фоновыми заданиями — **4187**. Модулей: **86**.
+Путей: **787**. Развилок в самих путях: **2519**; вместе с задачами по расписанию и фоновыми заданиями — **4274**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -80,7 +80,7 @@
 
 ### PATCH /api/v1/ads/:id/ownership
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - const parsed = ownershipSchema.safeParse(req.body);
   · проверяет данные схемой ownershipSchema
@@ -101,7 +101,7 @@
 
 ### PATCH /api/v1/ads/:id/properties
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - const parsed = setAdPropertiesBodySchema.safeParse(req.body);
   · проверяет данные схемой setAdPropertiesBodySchema
@@ -130,7 +130,7 @@
 
 ### PATCH /api/v1/ads/:id/property
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - const parsed = linkSchema.safeParse(req.body);
   · проверяет данные схемой linkSchema
@@ -157,7 +157,7 @@
 
 ### GET /api/v1/ads/accounts
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - если accountsCache && Date.now() - accountsCache.fetchedAt < 30 * 60 * 1000
   - return res.json({ accounts: accountsCache.rows });
@@ -178,7 +178,7 @@
 
 ### GET /api/v1/ads/board
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = periodSchema.safeParse(req.query);
   · проверяет данные схемой periodSchema
@@ -236,7 +236,7 @@
 
 ### POST /api/v1/ads/connect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
 
 - пробует
   - const url = await buildConnectUrl(req.agent!.id);
@@ -251,7 +251,7 @@
 
 ### GET /api/v1/ads/creatives
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = periodSchema.safeParse(req.query);
   · проверяет данные схемой periodSchema
@@ -266,7 +266,7 @@
 
 ### POST /api/v1/ads/disconnect
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite, requireChannelAdmin
 
 - await prisma.settings.updateMany({ where: { id: "singleton" }, data: { metaAdsToken: null, metaAdsTokenRefres…
   · меняет в базе: settings
@@ -277,7 +277,7 @@
 
 ### GET /api/v1/ads/foreign
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = unmatchedQuerySchema.safeParse(req.query);
   · проверяет данные схемой unmatchedQuerySchema
@@ -292,7 +292,7 @@
 
 ### GET /api/v1/ads/insights
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = monthSchema.safeParse(req.query.month);
   · проверяет данные схемой monthSchema
@@ -308,7 +308,7 @@
 
 ### GET /api/v1/ads/leaderboard
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = leaderboardQuerySchema.safeParse(req.query);
   · проверяет данные схемой leaderboardQuerySchema
@@ -325,7 +325,7 @@
 
 ### POST /api/v1/ads/link-post
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - const parsed = linkPostSchema.safeParse(req.body);
   · проверяет данные схемой linkPostSchema
@@ -349,14 +349,14 @@
 
 ### GET /api/v1/ads/pacing
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - res.json(await buildAdPacing({ accounts: fresh && accountsCache ? accountsCache.rows : null }));
   · ответ 200
 
 ### GET /api/v1/ads/property/:id
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ads = await prisma.ad.findMany({ where: { excluded: false, ...adsOfPropertiesWhere([req.params.id]) }, …
   · читает в базе: ad
@@ -400,7 +400,7 @@
 
 ### GET /api/v1/ads/reconcile
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = periodSchema.safeParse(req.query);
   · проверяет данные схемой periodSchema
@@ -415,7 +415,7 @@
 
 ### GET /api/v1/ads/report
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = periodSchema.safeParse(req.query);
   · проверяет данные схемой periodSchema
@@ -432,7 +432,7 @@
 
 ### POST /api/v1/ads/sync
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsWrite
 
 - const credentials = await loadMetaAdsCredentials();
   · зовёт loadMetaAdsCredentials()
@@ -453,7 +453,7 @@
 
 ### GET /api/v1/ads/trend
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = periodSchema.safeParse(req.query);
   · проверяет данные схемой periodSchema
@@ -483,7 +483,7 @@
 
 ### GET /api/v1/ads/unmatched
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireAdsRead
 
 - const parsed = unmatchedQuerySchema.safeParse(req.query);
   · проверяет данные схемой unmatchedQuerySchema
@@ -500,7 +500,7 @@
 
 ### GET /api/v1/ads/callback
 
-`apps/api/src/routes/ads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/ads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const base = crmPublicBase() ?? "";
   · зовёт crmPublicBase()
@@ -535,7 +535,7 @@
 
 ### POST /api/v1/agents/:id/2fa/reset
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.reset2fa, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.reset2fa, requireElevation
 
 - const outcome = await resetStaffTwoFactor(req.agent!, req.params.id);
   · зовёт resetStaffTwoFactor()
@@ -561,7 +561,7 @@
 
 ### POST /api/v1/agents/:id/avatar
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation, anyParams(upload.single("avatar"))
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation, anyParams(upload.single("avatar"))
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -585,7 +585,7 @@
 
 ### POST /api/v1/agents/:id/call
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const [me, target] = await Promise.all([ prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { si…
   · читает в базе: agent
@@ -630,7 +630,7 @@
 
 ### POST /api/v1/agents/:id/freeze
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await freezeStaffMember(req.agent!, req.params.id, req.body);
   · зовёт freezeStaffMember()
@@ -686,7 +686,7 @@
 
 ### GET /api/v1/agents/:id/glance/drill
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const query = agentGlanceDrillQuerySchema.safeParse(req.query);
   · проверяет данные схемой agentGlanceDrillQuerySchema
@@ -708,7 +708,7 @@
 
 ### GET /api/v1/agents/:id/glance
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const query = agentGlanceQuerySchema.safeParse(req.query);
   · проверяет данные схемой agentGlanceQuerySchema
@@ -725,7 +725,7 @@
 
 ### POST /api/v1/agents/:id/handover
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await handoverStaffWork(req.agent!, req.params.id, req.body);
   · зовёт handoverStaffWork()
@@ -782,14 +782,14 @@
 
 ### GET /api/v1/agents/:id/handovers
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
 - res.json(await listStaffHandovers(req.params.id));
   · ответ 200
 
 ### GET /api/v1/agents/:id/kpi
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
   · читает в базе: agent
@@ -803,7 +803,7 @@
 
 ### DELETE /api/v1/agents/:id/lead-pause
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
 - const outcome = await resumeStaffLeads(req.agent!, req.params.id);
   · зовёт resumeStaffLeads()
@@ -824,7 +824,7 @@
 
 ### POST /api/v1/agents/:id/lead-pause
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
 - const outcome = await pauseStaffLeads(req.agent!, req.params.id, req.body);
   · зовёт pauseStaffLeads()
@@ -859,7 +859,7 @@
 
 ### GET /api/v1/agents/:id/live
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const live = await loadStaffLive(req.params.id, req.agent!);
   · зовёт loadStaffLive()
@@ -871,7 +871,7 @@
 
 ### POST /api/v1/agents/:id/login-code/reset
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - если !id.success
   - return res.status(400).json({ error: "Неверный сотрудник" });
@@ -893,7 +893,7 @@
 
 ### GET /api/v1/agents/:id/overview
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const seesInvestigations = canReadInvestigations(req);
   · зовёт canReadInvestigations()
@@ -932,13 +932,13 @@
 
 ### GET /api/v1/agents/:id/permissions
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage
 
 - тело без развилок и известных действий
 
 ### PUT /api/v1/agents/:id/permissions
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage, requireElevation
 
 - const outcome = await setStaffPermissions(req.agent!, req.params.id, req.body);
   · зовёт setStaffPermissions()
@@ -967,7 +967,7 @@
 
 ### GET /api/v1/agents/:id/points
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const [entries, totals] = await Promise.all([ prisma.auditLog.findMany({ where: { action: "POINTS_AWARD", ent…
   · читает в базе: auditLog
@@ -976,7 +976,7 @@
 
 ### POST /api/v1/agents/:id/telegram-link
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - если !id.success
   - return res.status(400).json({ error: "Неверный сотрудник" });
@@ -1007,7 +1007,7 @@
 
 ### POST /api/v1/agents/:id/telegram-unlink
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - если !id.success
   - return res.status(400).json({ error: "Неверный сотрудник" });
@@ -1015,7 +1015,7 @@
 
 ### POST /api/v1/agents/:id/unfreeze
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await unfreezeStaffMember(req.agent!, req.params.id);
   · зовёт unfreezeStaffMember()
@@ -1043,7 +1043,7 @@
 
 ### DELETE /api/v1/agents/:id
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await deleteStaffMember(req.agent!, req.params.id);
   · зовёт deleteStaffMember()
@@ -1082,7 +1082,7 @@
 
 ### PATCH /api/v1/agents/:id
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await updateStaffMember(req.agent!, req.params.id, req.body);
   · зовёт updateStaffMember()
@@ -1184,7 +1184,7 @@
 
 ### GET /api/v1/agents/extensions/free
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
 - const pool = await readExtensionPool();
   · зовёт readExtensionPool()
@@ -1193,7 +1193,7 @@
 
 ### POST /api/v1/agents/handovers/:batchId/revert
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await revertStaffHandover(req.agent!, req.params.batchId);
   · зовёт revertStaffHandover()
@@ -1229,7 +1229,7 @@
 
 ### GET /api/v1/agents
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
 - res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…
   · ответ 200
@@ -1249,7 +1249,7 @@
 
 ### POST /api/v1/agents
 
-`apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
 - const outcome = await createStaffMember(req.agent!, req.body);
   · зовёт createStaffMember()
@@ -1301,7 +1301,7 @@
 
 ### GET /api/v1/ai/assistant-audit
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const parsed = assistantAuditQuerySchema.safeParse(req.query);
   · проверяет данные схемой assistantAuditQuerySchema
@@ -1320,7 +1320,7 @@
 
 ### GET /api/v1/ai/assistant-turns
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const parsed = assistantTurnsQuerySchema.safeParse(req.query);
   · проверяет данные схемой assistantTurnsQuerySchema
@@ -1337,25 +1337,25 @@
 
 ### POST /api/v1/ai/assistant/actions/:id/cancel
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - обработчик вынесен: `assistantActionRoute(cancelAssistantAction) — раскрыто по коду функции assistantActionRoute()`
 
 ### POST /api/v1/ai/assistant/actions/:id/confirm
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - обработчик вынесен: `assistantActionRoute(confirmAssistantAction) — раскрыто по коду функции assistantActionRoute()`
 
 ### POST /api/v1/ai/assistant/actions/:id/undo
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - обработчик вынесен: `assistantActionRoute(undoAssistantAction) — раскрыто по коду функции assistantActionRoute()`
 
 ### POST /api/v1/ai/assistant
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - если !(await isAiAssistantEnabled())
   - return res.status(403).json({ error: "ИИ-ассистент выключен в Настройках" });
@@ -1420,7 +1420,7 @@
 
 ### POST /api/v1/ai/card-fill/:clientId
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
@@ -1443,7 +1443,7 @@
 
 ### GET /api/v1/ai/cost
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - если !rawId
   - return res.status(400).json({ error: "conversationId обязателен" });
@@ -1455,7 +1455,7 @@
 
 ### POST /api/v1/ai/generate-listing
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.aiListing, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.aiListing, предел частоты запросов
 
 - const parsed = generateListingSchema.safeParse(req.body);
   · проверяет данные схемой generateListingSchema
@@ -1481,7 +1481,7 @@
 
 ### GET /api/v1/ai/insights
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -1496,7 +1496,7 @@
 
 ### POST /api/v1/ai/parse-note
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - const parsed = parseNoteSchema.safeParse(req.body);
   · проверяет данные схемой parseNoteSchema
@@ -1522,7 +1522,7 @@
 
 ### POST /api/v1/ai/property-draft/:clientId
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
@@ -1548,7 +1548,7 @@
 
 ### POST /api/v1/ai/score/:clientId
 
-`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/ai.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsedClientId.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
@@ -1576,7 +1576,7 @@
 
 ### GET /api/v1/attachments/:name
 
-`apps/api/src/routes/attachments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.viewAttachments
+`apps/api/src/routes/attachments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.viewAttachments
 
 - const parsed = paramsSchema.safeParse(req.params);
   · проверяет данные схемой paramsSchema
@@ -1593,7 +1593,7 @@
     · зовёт findAttachmentOwnerClientId()
   - const owner = ownerClientId ? await prisma.client.findUnique({ where: { id: ownerClientId }, select: { assign…
     · читает в базе: client
-  - если !owner || !canAccessAssignedAgent(req, owner.assignedAgentId)
+  - если !owner || !canOpenChatAttachments(req, owner.assignedAgentId)
     - return res.status(403).json({ error: "Нет доступа к этому вложению" });
       · ответ 403 — «Нет доступа к этому вложению»
 - res.setHeader("Content-Type", privateMimeType(parsed.data.name));
@@ -1618,11 +1618,82 @@
     - res.status(500).json({ error: "Не удалось прочитать файл" });
       · ответ 500 — «Не удалось прочитать файл»
 
+## /api/v1/attachments/s
+
+### GET /api/v1/attachments/s/:name
+
+`apps/api/src/routes/attachments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+
+- const params = paramsSchema.safeParse(req.params);
+  · проверяет данные схемой paramsSchema
+- const query = signedQuerySchema.safeParse(req.query);
+  · проверяет данные схемой signedQuerySchema
+- если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…
+  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- const access = await loadAgentAccess(query.data.a).catch(()
+  · зовёт loadAgentAccess()
+- если !access?.isActive || !access.permissions.has("messages.viewAttachments")
+  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- const fullPath = privateFilePath(params.data.name);
+  · зовёт privateFilePath()
+- если !fullPath
+  - return res.status(404).json({ error: "Файл не найден" });
+    · ответ 404 — «Файл не найден»
+- let mime = privateMimeType(params.data.name);
+  · зовёт privateMimeType()
+- если query.data.v
+  - пробует
+    - servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play", hint);
+      · зовёт ensureDerived()
+    - mime = derivedMime(servePath);
+      · зовёт derivedMime()
+  - если сорвалось
+    - если err instanceof DerivedMediaUnavailable && query.data.v === "t"
+      - servePath = fullPath;
+        · дословно из кода
+    - иначе
+      - если reason === "preparing"
+        - res.setHeader("Retry-After", "5");
+          · ставит заголовок ответа
+        - res.setHeader("Cache-Control", "no-store");
+          · ставит заголовок ответа
+        - return res.status(503).json({ error: "Готовим файл для браузера", reason });
+          · ответ 503 — «Готовим файл для браузера»
+      - return res.status(reason === "disabled" ? 404 : 422).json({ error: reason === "disabled" ? "Копия для браузер…
+        · ответ (код зависит от условия)
+- res.setHeader("Content-Type", mime);
+  · ставит заголовок ответа
+- res.setHeader("X-Content-Type-Options", "nosniff");
+  · ставит заголовок ответа
+- res.setHeader("Content-Disposition", "inline");
+  · ставит заголовок ответа
+- res.setHeader("Referrer-Policy", "no-referrer");
+  · ставит заголовок ответа
+- res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  · ставит заголовок ответа
+- res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
+  · ставит заголовок ответа
+- res.sendFile(path.basename(servePath), { root: path.dirname(servePath), cacheControl: false, dotfiles: "deny"…
+  · ответ 500 — «Не удалось прочитать файл»
+  - если !err
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если (err as NodeJS.ErrnoException).code === "ECONNABORTED" || res.headersSent
+    - если !res.writableEnded
+      - res.end();
+        · ответ 200
+    - return;
+      · дальше не идёт, ничего не меняя
+  - res.status(500).json({ error: "Не удалось прочитать файл" });
+    · ответ 500 — «Не удалось прочитать файл»
+
 ## /api/v1/audit-log
 
 ### GET /api/v1/audit-log
 
-`apps/api/src/routes/auditLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/auditLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsedPage = pageQuerySchema.safeParse(req.query);
   · проверяет данные схемой pageQuerySchema
@@ -1660,7 +1731,7 @@
 
 ### POST /api/v1/auth/login/code-ack
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - const parsed = codeAckSchema.safeParse(req.body);
   · проверяет данные схемой codeAckSchema
@@ -1672,7 +1743,7 @@
 
 ### POST /api/v1/auth/login/code
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - const parsed = loginCodeSchema.safeParse(req.body);
   · проверяет данные схемой loginCodeSchema
@@ -1703,7 +1774,7 @@
 
 ### POST /api/v1/auth/login/verify-code
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - const parsed = verifyCodeSchema.safeParse(req.body);
   · проверяет данные схемой verifyCodeSchema
@@ -1740,7 +1811,7 @@
 
 ### POST /api/v1/auth/login/verify-totp
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - const parsed = verifyTotpSchema.safeParse(req.body);
   · проверяет данные схемой verifyTotpSchema
@@ -1767,7 +1838,7 @@
 
 ### POST /api/v1/auth/login
 
-`apps/api/src/auth/testPasswordLogin.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/auth/testPasswordLogin.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - если typeof phone !== "string" || typeof password !== "string"
   - return res.status(400).json({ error: "Неверные данные" });
@@ -1785,14 +1856,14 @@
 
 ### POST /api/v1/auth/login
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, предел частоты запросов · **вход не требуется**
 
 - res.status(410).json({ error: "Вход по паролю отключён. Обновите страницу и войдите по коду из СМС" });
   · ответ 410 — «Вход по паролю отключён. Обновите страницу и войдите по коду из СМС»
 
 ### POST /api/v1/auth/logout
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const parsed = logoutSchema.safeParse(req.body ?? {});
   · проверяет данные схемой logoutSchema
@@ -1822,7 +1893,7 @@
 
 ### POST /api/v1/auth/passkey/login/options
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await passkeyLoginEnabled())
   - return res.status(403).json({ error: "Вход по отпечатку или лицу временно отключён" });
@@ -1834,7 +1905,7 @@
 
 ### POST /api/v1/auth/passkey/login/verify
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await passkeyLoginEnabled())
   - return res.status(403).json({ error: "Вход по отпечатку или лицу временно отключён" });
@@ -1859,7 +1930,7 @@
 
 ### POST /api/v1/auth/refresh
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !refreshToken
   - return res.status(401).json({ error: "Сессия истекла, войдите заново" });
@@ -1910,7 +1981,7 @@
 
 ### GET /api/v1/auth/session
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - если !refreshToken
   - return res.json({ sid: null });
@@ -1926,7 +1997,7 @@
 
 ### POST /api/v1/auth/step-up/send-code
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
 
 - const parsed = stepUpSendSchema.safeParse(req.body ?? {});
   · проверяет данные схемой stepUpSendSchema
@@ -1953,7 +2024,7 @@
 
 ### GET /api/v1/auth/step-up
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { totpEnabled: true, role…
   · читает в базе: agent
@@ -1964,7 +2035,7 @@
 
 ### POST /api/v1/auth/step-up
 
-`apps/api/src/auth/testPasswordLogin.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
+`apps/api/src/auth/testPasswordLogin.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
 
 - если typeof password !== "string"
   - return next();
@@ -1981,7 +2052,7 @@
 
 ### POST /api/v1/auth/step-up
 
-`apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
+`apps/api/src/routes/auth.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен
 
 - const parsed = stepUpSchema.safeParse(req.body);
   · проверяет данные схемой stepUpSchema
@@ -2014,7 +2085,7 @@
 
 ### POST /api/v1/backups/report
 
-`apps/api/src/routes/backups.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/backups.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Приём отчётов о бэкапах не настроен" });
@@ -2034,7 +2105,7 @@
 
 ### GET /api/v1/backups
 
-`apps/api/src/routes/backups.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/backups.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const rows = await prisma.backupRun.findMany({ orderBy: { finishedAt: "desc" }, take: 300, });
   · читает в базе: backupRun
@@ -2052,7 +2123,7 @@
 
 ### GET /api/v1/bot-scenarios
 
-`apps/api/src/routes/botScenarios.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/botScenarios.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - const comparison = await buildScenarioComparison();
   · зовёт buildScenarioComparison()
@@ -2063,7 +2134,7 @@
 
 ### GET /api/v1/calendar/tasks
 
-`apps/api/src/routes/calendar.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/calendar.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = dateRangeQuerySchema.safeParse(req.query);
   · проверяет данные схемой dateRangeQuerySchema
@@ -2087,7 +2158,7 @@
 
 ### GET /api/v1/calls/feed
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts
 
 - если req.query.before !== undefined && req.query.before !== ""
   - const parsedBefore = feedCursorSchema.safeParse(req.query.before);
@@ -2113,7 +2184,7 @@
 
 ### GET /api/v1/calls/incoming
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
 
 - const parsedPage = pageQuerySchema.safeParse(req.query);
   · проверяет данные схемой pageQuerySchema
@@ -2157,7 +2228,7 @@
 
 ### GET /api/v1/calls/insights
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
 
 - const latest = await prisma.callInsight.findFirst({ orderBy: { createdAt: "desc" } });
   · читает в базе: callInsight
@@ -2166,7 +2237,7 @@
 
 ### GET /api/v1/calls/summary
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
 
 - const analyses = await prisma.callAnalysis.findMany({ where: { createdAt: { gte: since } }, orderBy: { create…
   · читает в базе: callAnalysis
@@ -2192,7 +2263,7 @@
 
 ### GET /api/v1/calls/telephony/dashboard
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts, supervisorOnly
 
 - const { start: dayStart } = dushanbeDayRange(new Date());
   · зовёт dushanbeDayRange()
@@ -2216,7 +2287,7 @@
 
 ### GET /api/v1/calls
 
-`apps/api/src/routes/calls.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts
+`apps/api/src/routes/calls.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: calls.transcripts
 
 - const parsedPage = pageQuerySchema.safeParse(req.query);
   · проверяет данные схемой pageQuerySchema
@@ -2254,7 +2325,7 @@
 
 ### POST /api/v1/clients/:id/accept
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -2286,7 +2357,7 @@
 
 ### POST /api/v1/clients/:id/assign
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
 
 - const parsed = clientAssignSchema.safeParse(req.body);
   · проверяет данные схемой clientAssignSchema
@@ -2303,7 +2374,7 @@
 
 ### POST /api/v1/clients/:id/bot-pause
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = botPauseSchema.safeParse(req.body);
   · проверяет данные схемой botPauseSchema
@@ -2339,7 +2410,7 @@
 
 ### POST /api/v1/clients/:id/buyer-requirements
 
-`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/intents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const input = clientBuyerRequirementsSchema.safeParse(req.body);
   · проверяет данные схемой clientBuyerRequirementsSchema
@@ -2366,7 +2437,7 @@
 
 ### POST /api/v1/clients/:id/call
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = callBodySchema.safeParse(req.body ?? {});
   · проверяет данные схемой callBodySchema
@@ -2440,7 +2511,7 @@
 
 ### GET /api/v1/clients/:id/card-suggestions
 
-`apps/api/src/routes/clients/suggestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/suggestions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, assignedAge…
   · читает в базе: client
@@ -2460,7 +2531,7 @@
 
 ### GET /api/v1/clients/:id/conversation-export
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !Number.isInteger(shortId)
   - return res.status(404).json({ error: "Клиент не найден" });
@@ -2507,7 +2578,7 @@
 
 ### POST /api/v1/clients/:id/decline
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -2545,7 +2616,7 @@
 
 ### GET /api/v1/clients/:id/delete-request
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, assignedAge…
   · читает в базе: client
@@ -2562,7 +2633,7 @@
 
 ### POST /api/v1/clients/:id/delete-request
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.requestDelete
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.requestDelete
 
 - const parsed = clientDeleteRequestSchema.safeParse(req.body);
   · проверяет данные схемой clientDeleteRequestSchema
@@ -2597,7 +2668,7 @@
 
 ### POST /api/v1/clients/:id/duplicate-review/confirm
 
-`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !outcome.ok
   - return res.status(outcome.status).json({ error: outcome.error });
@@ -2624,7 +2695,7 @@
 
 ### POST /api/v1/clients/:id/duplicate-review/deny
 
-`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !outcome.ok
   - return res.status(outcome.status).json({ error: outcome.error });
@@ -2640,7 +2711,7 @@
 
 ### POST /api/v1/clients/:id/intents
 
-`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/intents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const input = confirmClientIntentSchema.safeParse(req.body);
   · проверяет данные схемой confirmClientIntentSchema
@@ -2690,7 +2761,7 @@
 
 ### POST /api/v1/clients/:id/interactions
 
-`apps/api/src/routes/clients/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = interactionCreateSchema.safeParse(req.body);
   · проверяет данные схемой interactionCreateSchema
@@ -2786,7 +2857,7 @@
 
 ### POST /api/v1/clients/:id/live-voice-call
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !LIVE_VOICE_ROLES.includes(req.agent!.role)
   - return res.status(403).json({ error: "Звонок роботом доступен только руководителю" });
@@ -2846,7 +2917,7 @@
 
 ### GET /api/v1/clients/:id/market-listings
 
-`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/matching.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = marketBuyerListingsQuerySchema.safeParse(req.query);
   · проверяет данные схемой marketBuyerListingsQuerySchema
@@ -2887,7 +2958,7 @@
 
 ### GET /api/v1/clients/:id/match
 
-`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/matching.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientPropertyMatchQuerySchema.safeParse(req.query);
   · проверяет данные схемой clientPropertyMatchQuerySchema
@@ -2920,7 +2991,7 @@
 
 ### POST /api/v1/clients/:id/message-voice
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(voiceMessageUpload.single("audio"))
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(voiceMessageUpload.single("audio"))
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -2967,7 +3038,7 @@
 
 ### POST /api/v1/clients/:id/message
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientMessageSchema.safeParse(req.body);
   · проверяет данные схемой clientMessageSchema
@@ -3013,7 +3084,7 @@
 
 ### DELETE /api/v1/clients/:id/permanent
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.purge
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.purge
 
 - const client = await prisma.client.findUnique({ where: { id: req.params.id }, include: { deals: { select: { i…
   · читает в базе: client
@@ -3056,7 +3127,7 @@
 
 ### GET /api/v1/clients/:id/property-activity
 
-`apps/api/src/routes/clients/propertyActivity.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/propertyActivity.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const query = clientPropertyActivityQuerySchema.safeParse(req.query);
   · проверяет данные схемой clientPropertyActivityQuerySchema
@@ -3096,7 +3167,7 @@
 
 ### POST /api/v1/clients/:id/reactivation-offer/accept
 
-`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await acceptReactivationOffer(req.params.id, req.agent!.id);
   · зовёт acceptReactivationOffer()
@@ -3110,7 +3181,7 @@
 
 ### POST /api/v1/clients/:id/reactivation-offer/decline
 
-`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await loadOwnOffer(req.params.id, req.agent!.id);
   · зовёт loadOwnOffer()
@@ -3129,7 +3200,7 @@
 
 ### POST /api/v1/clients/:id/refuse
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientRefuseSchema.safeParse(req.body);
   · проверяет данные схемой clientRefuseSchema
@@ -3172,7 +3243,7 @@
 
 ### POST /api/v1/clients/:id/request-restore
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { id: true, shortId: tr…
   · читает в базе: client
@@ -3196,7 +3267,7 @@
 
 ### POST /api/v1/clients/:id/requirements-suggestion/apply
 
-`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/intents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !client
   - return;
@@ -3223,7 +3294,7 @@
 
 ### GET /api/v1/clients/:id/requirements-suggestion
 
-`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/intents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !client
   - return;
@@ -3236,7 +3307,7 @@
 
 ### POST /api/v1/clients/:id/restore
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
 - const result = await restoreClientFromTrash(req.params.id, req.agent!.id);
   · зовёт restoreClientFromTrash()
@@ -3250,7 +3321,7 @@
 
 ### GET /api/v1/clients/:id/robot-call-stop
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !found.ok
   - return res.status(found.status).json({ error: found.error });
@@ -3260,7 +3331,7 @@
 
 ### PUT /api/v1/clients/:id/robot-call-stop
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = robotCallStopUpdateSchema.safeParse(req.body ?? {});
   · проверяет данные схемой robotCallStopUpdateSchema
@@ -3311,7 +3382,7 @@
 
 ### POST /api/v1/clients/:id/security-review
 
-`apps/api/src/routes/clients/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.securityReview
+`apps/api/src/routes/clients/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.securityReview
 
 - если !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -3378,7 +3449,7 @@
 
 ### GET /api/v1/clients/:id/seller-object
 
-`apps/api/src/routes/clients/sellerObject.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/sellerObject.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
@@ -3409,7 +3480,7 @@
 
 ### POST /api/v1/clients/:id/send-properties
 
-`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/matching.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = sendPropertiesSchema.safeParse(req.body);
   · проверяет данные схемой sendPropertiesSchema
@@ -3484,7 +3555,7 @@
 
 ### GET /api/v1/clients/:id/send-target
 
-`apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/matching.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !query.success
   - return res.status(400).json({ error: "Неверные параметры диалога" });
@@ -3505,7 +3576,7 @@
 
 ### POST /api/v1/clients/:id/similar-notes/:otherId/dismiss
 
-`apps/api/src/routes/clients/duplicates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
+`apps/api/src/routes/clients/duplicates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
 
 - если id === otherId
   - return res.status(400).json({ error: "Нельзя отклонить карточку саму с собой" });
@@ -3523,7 +3594,7 @@
 
 ### GET /api/v1/clients/:id/similar-notes
 
-`apps/api/src/routes/clients/duplicates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
+`apps/api/src/routes/clients/duplicates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
 
 - const client = await prisma.client.findUnique({ where: { id: req.params.id } });
   · читает в базе: client
@@ -3545,7 +3616,7 @@
 
 ### GET /api/v1/clients/:id/timeline
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const cardWhere = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -3583,7 +3654,7 @@
 
 ### POST /api/v1/clients/:id/to-candidate
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign, есть право: vacancies.view
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign, есть право: vacancies.view
 
 - const result = await convertClientToJobApplication({ clientId: req.params.id, actorId: req.agent!.id });
   · зовёт convertClientToJobApplication()
@@ -3599,7 +3670,7 @@
 
 ### POST /api/v1/clients/:id/transfer
 
-`apps/api/src/routes/clients/lifecycle.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/lifecycle.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !can(req, "clients.assign")
   - return res.status(403).json({ error: "Передавать клиентов может только руководитель" });
@@ -3645,7 +3716,7 @@
 
 ### GET /api/v1/clients/:id/whatsapp-first
 
-`apps/api/src/routes/clients/whatsappFirstContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/whatsappFirstContact.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !client
   - return;
@@ -3661,7 +3732,7 @@
 
 ### POST /api/v1/clients/:id/whatsapp-first
 
-`apps/api/src/routes/clients/whatsappFirstContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/whatsappFirstContact.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = waFirstContactSendSchema.safeParse(req.body ?? {});
   · проверяет данные схемой waFirstContactSendSchema
@@ -3685,7 +3756,7 @@
 
 ### DELETE /api/v1/clients/:id
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
 - const result = await trashClient(req.params.id, req.agent!.id);
   · зовёт trashClient()
@@ -3699,7 +3770,7 @@
 
 ### GET /api/v1/clients/:id
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const cardWhere = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -3730,6 +3801,8 @@
   - если сорвалось
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
+- const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);
+  · зовёт attachmentLinkSigner()
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
   - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
     · читает в базе: property
@@ -3767,7 +3840,7 @@
 
 ### PATCH /api/v1/clients/:id
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientUpdateSchema.safeParse(req.body);
   · проверяет данные схемой clientUpdateSchema
@@ -3867,7 +3940,7 @@
 
 ### POST /api/v1/clients/delete-requests/:id/approve
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
 - const parsed = clientDeleteRequestApproveSchema.safeParse(req.body ?? {});
   · проверяет данные схемой clientDeleteRequestApproveSchema
@@ -3884,7 +3957,7 @@
 
 ### POST /api/v1/clients/delete-requests/:id/reject
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
 - const parsed = clientDeleteRequestRejectSchema.safeParse(req.body);
   · проверяет данные схемой clientDeleteRequestRejectSchema
@@ -3901,7 +3974,7 @@
 
 ### GET /api/v1/clients/delete-requests
 
-`apps/api/src/routes/clients/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
+`apps/api/src/routes/clients/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.delete
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -3915,7 +3988,7 @@
 
 ### POST /api/v1/clients/dial
 
-`apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/communications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = dialSchema.safeParse(req.body);
   · проверяет данные схемой dialSchema
@@ -3964,7 +4037,7 @@
 
 ### GET /api/v1/clients/duplicate-reviews
 
-`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/duplicateReviews.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если wantsAll && !can(req, "clients.merge")
   - return res.status(403).json({ error: "Нет права видеть все пары — только свои (без ?all)" });
@@ -3976,7 +4049,7 @@
 
 ### GET /api/v1/clients/duplicates
 
-`apps/api/src/routes/clients/duplicates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
+`apps/api/src/routes/clients/duplicates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
 
 - const found = await findDuplicateClientGroups();
   · зовёт findDuplicateClientGroups()
@@ -3992,7 +4065,7 @@
 
 ### POST /api/v1/clients/merge
 
-`apps/api/src/routes/clients/duplicates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
+`apps/api/src/routes/clients/duplicates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge
 
 - const parsed = clientsMergeSchema.safeParse(req.body);
   · проверяет данные схемой clientsMergeSchema
@@ -4034,7 +4107,7 @@
 
 ### GET /api/v1/clients/reactivation-offers
 
-`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/reactivationOffers.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const items = await prisma.client.findMany({ where: { reactivationOfferedToAgentId: req.agent!.id, deletedAt:…
   · читает в базе: client
@@ -4043,7 +4116,7 @@
 
 ### GET /api/v1/clients/summary
 
-`apps/api/src/routes/clients/summary.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/summary.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -4076,7 +4149,7 @@
 
 ### GET /api/v1/clients/trash/:id/review/timeline
 
-`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+`apps/api/src/routes/clients/trashReview.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
 
 - const parsed = timelineQuerySchema.safeParse(req.query);
   · проверяет данные схемой timelineQuerySchema
@@ -4101,7 +4174,7 @@
 
 ### GET /api/v1/clients/trash/:id/review
 
-`apps/api/src/routes/clients/trashReview.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+`apps/api/src/routes/clients/trashReview.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
 
 - const client = await prisma.client.findFirst({ where: { id: req.params.id, deletedAt: { not: null } }, select…
   · читает в базе: client
@@ -4121,7 +4194,7 @@
 
 ### GET /api/v1/clients/trash
 
-`apps/api/src/routes/clients/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+`apps/api/src/routes/clients/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
 
 - const [items, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ deletedAt: "desc" }, {…
   · читает в базе: client
@@ -4131,7 +4204,7 @@
 
 ### GET /api/v1/clients
 
-`apps/api/src/routes/clients/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientQuerySchema.safeParse(req.query);
   · проверяет данные схемой clientQuerySchema
@@ -4226,7 +4299,7 @@
 
 ### POST /api/v1/clients
 
-`apps/api/src/routes/clients/card.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/clients/card.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientCreateSchema.safeParse(req.body);
   · проверяет данные схемой clientCreateSchema
@@ -4312,7 +4385,7 @@
 
 ### GET /api/v1/construction-registry/map
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const { enabled } = await loadRegistrySettings();
   · зовёт loadRegistrySettings()
@@ -4335,9 +4408,42 @@
 - res.json(body);
   · ответ 200
 
+### POST /api/v1/construction-registry/match-preview
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = previewBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой previewBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);
+  · зовёт previewRegistryMatch()
+- res.json(body);
+  · ответ 200
+
+### GET /api/v1/construction-registry/projects
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = searchQuerySchema.safeParse(req.query);
+  · проверяет данные схемой searchQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  · зовёт loadRegistrySettings()
+- если !enabled || !updated
+  - return res.json(body);
+    · ответ 200
+- const hits = await searchRegistryProjects(parsed.data);
+  · зовёт searchRegistryProjects()
+- res.json(body);
+  · ответ 200
+
 ### DELETE /api/v1/construction-registry/property/:id/link
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !property
   - return res.status(404).json({ error: "Объект не найден" });
@@ -4352,7 +4458,7 @@
 
 ### POST /api/v1/construction-registry/property/:id/link
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = projectBodySchema.safeParse(req.body);
   · проверяет данные схемой projectBodySchema
@@ -4375,9 +4481,30 @@
 - res.json(await buildPropertyResponse(toMatchInput(property), true));
   · ответ 200
 
+### POST /api/v1/construction-registry/property/:id/none
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- const { enabled } = await loadRegistrySettings();
+  · зовёт loadRegistrySettings()
+- если !enabled
+  - return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+    · ответ 409 — «Реестр строек выключен в Настройках»
+- если (await markNotInRegistry(property.id, req.agent!.id)) === 0
+  - return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
+    · ответ 409
+- res.json(await buildPropertyResponse(toMatchInput(property), enabled));
+  · ответ 200
+
 ### POST /api/v1/construction-registry/property/:id/reject
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = projectBodySchema.safeParse(req.body);
   · проверяет данные схемой projectBodySchema
@@ -4402,7 +4529,7 @@
 
 ### GET /api/v1/construction-registry/property/:id
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !property
   - return res.status(404).json({ error: "Объект не найден" });
@@ -4414,7 +4541,7 @@
 
 ### GET /api/v1/construction-registry/status
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const [settings, runs, active, linked] = await Promise.all([ loadRegistrySettings(), prisma.constructionSyncR…
   · читает в базе: constructionSyncRun
@@ -4425,7 +4552,7 @@
 
 ### POST /api/v1/construction-registry/sync
 
-`apps/api/src/routes/constructionRegistry.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - void runConstructionRegistrySync({ trigger: "manual" });
   · зовёт runConstructionRegistrySync()
@@ -4436,7 +4563,7 @@
 
 ### GET /api/v1/contacts/:id
 
-`apps/api/src/routes/contacts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
+`apps/api/src/routes/contacts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
 
 - const scopeAgentId = chatScopeAgentId(req);
   · зовёт chatScopeAgentId()
@@ -4453,7 +4580,7 @@
 
 ### PATCH /api/v1/contacts/:id
 
-`apps/api/src/routes/contacts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
+`apps/api/src/routes/contacts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
 
 - const parsed = patchSchema.safeParse(req.body);
   · проверяет данные схемой patchSchema
@@ -4482,7 +4609,7 @@
 
 ### POST /api/v1/contacts/links/:id/confirm
 
-`apps/api/src/routes/contacts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
+`apps/api/src/routes/contacts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
 
 - const candidate = await prisma.contactLinkCandidate.findUnique({ where: { id: req.params.id }, select: { id: …
   · читает в базе: contactLinkCandidate
@@ -4511,7 +4638,7 @@
 
 ### POST /api/v1/contacts/links/:id/dismiss
 
-`apps/api/src/routes/contacts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
+`apps/api/src/routes/contacts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
 
 - const updated = await prisma.contactLinkCandidate.updateMany({ where: { id: req.params.id, status: "PENDING" …
   · меняет в базе: contactLinkCandidate
@@ -4525,7 +4652,7 @@
 
 ### GET /api/v1/contacts/links
 
-`apps/api/src/routes/contacts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
+`apps/api/src/routes/contacts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.merge, есть право: messages.view
 
 - const rows = await prisma.contactLinkCandidate.findMany({ where: { status: "PENDING" }, select: { id: true, r…
   · читает в базе: contactLinkCandidate
@@ -4536,7 +4663,7 @@
 
 ### POST /api/v1/conversations/:id/link-client
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, есть право: messages.view, есть право: clients.merge, есть право: clients.viewAll
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, есть право: messages.view, есть право: clients.merge, есть право: clients.viewAll
 
 - const parsed = conversationClientLinkSchema.safeParse(req.body);
   · проверяет данные схемой conversationClientLinkSchema
@@ -4555,9 +4682,58 @@
     - return res.status(err.status).json({ error: err.message });
       · ответ (код зависит от условия)
 
+### POST /api/v1/conversations/:id/media-jobs/:jobId/retry
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  · зовёт retryOutgoingMediaJob()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### DELETE /api/v1/conversations/:id/media-jobs/:jobId
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  · зовёт cancelOutgoingMediaJob()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/conversations/:id/media-jobs/:jobId
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- res.json(outgoingMediaJobView(job));
+  · ответ 200
+
+### GET /api/v1/conversations/:id/media-jobs
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const jobs = await prisma.outgoingMediaJob.findMany({ where: { conversationId: req.params.id, agentId: req.ag…
+  · читает в базе: outgoingMediaJob
+- res.json({ jobs: jobs.map(outgoingMediaJobView) });
+  · ответ 200
+
 ### POST /api/v1/conversations/:id/pause
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
 
 - const parsed = botPauseSchema.safeParse(req.body);
   · проверяет данные схемой botPauseSchema
@@ -4574,7 +4750,7 @@
 
 ### POST /api/v1/conversations/:id/reply-media/upload-sessions/complete
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - const parsed = replyMediaCompleteSchema.safeParse(req.body ?? {});
   · проверяет данные схемой replyMediaCompleteSchema
@@ -4582,20 +4758,30 @@
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
 - пробует
-  - assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agent…
-    · зовёт assembleChunkedUpload()
+  - await assertOwnChunkedUpload({ kind: "conversation-media", sessionId, agentId });
+    · зовёт assertOwnChunkedUpload()
+  - await runUploadCompletion({ req, res, sessionId, owner: chunkedUploadOwner(agentId), what: "файл в переписку"…
+    - если ctx.interruptedInProcessing
+      - return { status: 409, body: uploadErrorBody("ALREADY_ASSEMBLED", { message: "Отправка прервалась при перезапу…
+        · дословно из кода
+    - const queued = await outgoingMediaCompressOn();
+      · зовёт outgoingMediaCompressOn()
+    - const assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId, agentId, ...(queued ? …
+      · зовёт assembleChunkedUpload()
+    - const file = { path: assembled.tmpPath, size: assembled.sizeBytes, mimetype: normalizeOutgoingMime(assembled.…
+      · зовёт normalizeOutgoingMime()
+    - const outcome = queued ? await enqueueOutgoingMedia({ agentId, conversationId: req.params.id, file, caption: …
+      · зовёт enqueueOutgoingMedia()
 - если сорвалось
-  - если err instanceof ChunkedUploadError
-    - return res.status(err.status).json(chunkedUploadErrorBody(err));
-      · ответ (код зависит от условия)
+  - если sendUploadError(res, err, "файл в переписку")
+    - return;
+      · дальше не идёт, ничего не меняя
   - throw err;
     · пробрасывает ошибку дальше
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
 
 ### POST /api/v1/conversations/:id/reply-media
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, anyParams(mediaMessageUpload.single("media"))
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, anyParams(mediaMessageUpload.single("media"))
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -4605,12 +4791,14 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- const outcome = (await outgoingMediaCompressOn()) ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conv…
+  · зовёт outgoingMediaCompressOn()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
 ### POST /api/v1/conversations/:id/reply-voice
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, anyParams(voiceMessageUpload.single("audio"))
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, anyParams(voiceMessageUpload.single("audio"))
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -4631,7 +4819,7 @@
 
 ### POST /api/v1/conversations/:id/reply
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - const parsed = replySchema.safeParse(req.body);
   · проверяет данные схемой replySchema
@@ -4654,7 +4842,7 @@
 
 ### POST /api/v1/conversations/:id/resume
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
 
 - если !(await setPausedUntil(req.params.id, null))
   - return res.status(404).json({ error: "Диалог не найден" });
@@ -4666,7 +4854,7 @@
 
 ### POST /api/v1/conversations/:id/spam-restore
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
 
 - если !id.success
   - return res.status(400).json({ error: "Неверный идентификатор переписки" });
@@ -4681,7 +4869,7 @@
 
 ### POST /api/v1/conversations/:id/translate
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - const parsed = translateMessageSchema.safeParse(req.body);
   · проверяет данные схемой translateMessageSchema
@@ -4706,7 +4894,7 @@
 
 ### GET /api/v1/conversations/:id
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - если rawId.startsWith(TG_PREFIX)
   - const tg = await prisma.telegramConversation.findUnique({ where: { id }, include: { client: clientSelect } });
@@ -4729,6 +4917,10 @@
 - если !conversation
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
+- const owner = conversationClientId && !can(req, "clients.viewAll") ? await prisma.client.findUnique({ where: …
+  · читает в базе: client
+- const signedLinks = can(req, "clients.viewAll") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…
+  · зовёт attachmentLinkSigner()
 - const shown = withHiddenConversationOrigin( { channel: conversation.channel, name: conversation.client?.fullN…
   · зовёт withHiddenConversationOrigin()
 - const shieldTransport = await loadCustomerTransportForConversation(conversation.id);
@@ -4742,7 +4934,7 @@
 
 ### GET /api/v1/conversations/groups/:groupId
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - const ownAgentId = chatScopeAgentId(req);
   · зовёт chatScopeAgentId()
@@ -4795,12 +4987,14 @@
       · меняет в базе: telegramDirectConversation
   - void publishConversationUpdated(source.kind, source.id);
     · зовёт publishConversationUpdated()
+- const signedLinks = attachmentLinkSigner(req, ownerAgentId);
+  · зовёт attachmentLinkSigner()
 - для каждого: const [sourceOrder, source] of sources.entries()
   - если !Array.isArray(source.messages)
     - continue;
       · переходит к следующему
   - для каждого: const [sourceMessageIndex, rawMessage] of source.messages.entries()
-    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);
       · зовёт presentMessages()
     - если !message
       - continue;
@@ -4810,7 +5004,7 @@
 
 ### GET /api/v1/conversations/spam-filtered
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: clients.assign
 
 - const rows = await prisma.$queryRaw<Array<{ id: string; channel: string; name: string | null; lastMessageAt: …
   · обращается к базе своим SQL
@@ -4819,7 +5013,7 @@
 
 ### GET /api/v1/conversations
 
-`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
 
 - const parsed = conversationQuerySchema.safeParse(req.query);
   · проверяет данные схемой conversationQuerySchema
@@ -4847,7 +5041,7 @@
 
 ### GET /api/v1/dashboard/briefing/audio
 
-`apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/briefing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const briefing = await loadBriefing(new Date(), { seesCompanyMoney: can(req, "finance.view") }).catch(()
   · зовёт loadBriefing()
@@ -4870,7 +5064,7 @@
 
 ### GET /api/v1/dashboard/briefing
 
-`apps/api/src/routes/briefing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/briefing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - пробует
   - res.json(await buildBriefingResponse(new Date(), { seesCompanyMoney: can(req, "finance.view") }));
@@ -4881,7 +5075,7 @@
 
 ### GET /api/v1/dashboard/charts
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const now = dushanbeWallClock();
   · зовёт dushanbeWallClock()
@@ -4917,7 +5111,7 @@
 
 ### POST /api/v1/dashboard/counters/seen
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = sectionSeenSchema.safeParse(req.body);
   · проверяет данные схемой sectionSeenSchema
@@ -4933,7 +5127,7 @@
 
 ### GET /api/v1/dashboard/counters
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { sectionsSeenAt: true, s…
   · читает в базе: agent
@@ -4953,7 +5147,7 @@
 
 ### GET /api/v1/dashboard/heatmap/channels
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const parsed = heatmapChannelsQuerySchema.safeParse(req.query);
   · проверяет данные схемой heatmapChannelsQuerySchema
@@ -4975,7 +5169,7 @@
 
 ### GET /api/v1/dashboard/heatmap
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const parsed = heatmapQuerySchema.safeParse(req.query);
   · проверяет данные схемой heatmapQuerySchema
@@ -4991,14 +5185,14 @@
 
 ### GET /api/v1/dashboard/insights
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - res.json(await buildDashboardInsights({ seesMoney: can(req, "finance.view") }));
   · ответ 200
 
 ### POST /api/v1/dashboard/mission-control/ask
 
-`apps/api/src/routes/dashboardMissionControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboardMissionControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const parsed = askBodySchema.safeParse(req.body);
   · проверяет данные схемой askBodySchema
@@ -5026,14 +5220,14 @@
 
 ### GET /api/v1/dashboard/mission-control/live
 
-`apps/api/src/routes/dashboardMissionControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboardMissionControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - res.json(envelope(ctx, await buildLive(ctx)));
   · ответ 200
 
 ### GET /api/v1/dashboard/mission-control/ticker
 
-`apps/api/src/routes/dashboardMissionControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboardMissionControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const parsed = tickerQuerySchema.safeParse(req.query);
   · проверяет данные схемой tickerQuerySchema
@@ -5050,21 +5244,21 @@
 
 ### GET /api/v1/dashboard/mission-control/zones
 
-`apps/api/src/routes/dashboardMissionControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboardMissionControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - res.json(envelope(ctx, await buildZones(ctx)));
   · ответ 200
 
 ### GET /api/v1/dashboard/mission-control
 
-`apps/api/src/routes/dashboardMissionControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboardMissionControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - res.json(envelope(ctx, { ...live, ...zones }));
   · ответ 200
 
 ### PATCH /api/v1/dashboard/modules/:id
 
-`apps/api/src/routes/pultModules.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/pultModules.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !isPultModuleId(id)
   - return res.status(404).json({ error: "Такого модуля пульта нет" });
@@ -5087,7 +5281,7 @@
 
 ### GET /api/v1/dashboard/modules
 
-`apps/api/src/routes/pultModules.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/pultModules.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const rows = await prisma.pultModule.findMany();
   · читает в базе: pultModule
@@ -5098,7 +5292,7 @@
 
 ### GET /api/v1/dashboard/sales-control
 
-`apps/api/src/routes/dashboardSalesControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dashboardSalesControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !isSellerControlRopRole(req.agent?.role)
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -5132,7 +5326,7 @@
 
 ### GET /api/v1/dashboard/summary
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -5189,7 +5383,7 @@
 
 ### GET /api/v1/dashboard/team-live
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const startOfDay = dushanbeStartOfToday();
   · зовёт dushanbeStartOfToday()
@@ -5203,7 +5397,7 @@
 
 ### GET /api/v1/dashboard/unassigned-leads
 
-`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
+`apps/api/src/routes/dashboard.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
 
 - const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…
   · читает в базе: client
@@ -5215,7 +5409,7 @@
 
 ### POST /api/v1/deals/:id/annul
 
-`apps/api/src/routes/dealAnnul.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dealAnnul.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await annulDealFor(req, req.params.id, req.body);
   · зовёт annulDealFor()
@@ -5259,7 +5453,7 @@
 
 ### GET /api/v1/deals/:id/documents/:docId/file
 
-`apps/api/src/routes/dealDocuments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
+`apps/api/src/routes/dealDocuments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
 
 - const parsedParams = documentParamsSchema.safeParse(req.params);
   · проверяет данные схемой documentParamsSchema
@@ -5306,7 +5500,7 @@
 
 ### DELETE /api/v1/deals/:id/documents/:docId
 
-`apps/api/src/routes/dealDocuments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
+`apps/api/src/routes/dealDocuments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
 
 - const parsedParams = documentParamsSchema.safeParse(req.params);
   · проверяет данные схемой documentParamsSchema
@@ -5338,7 +5532,7 @@
 
 ### GET /api/v1/deals/:id/documents
 
-`apps/api/src/routes/dealDocuments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
+`apps/api/src/routes/dealDocuments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard
 
 - если forbidden
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -5353,7 +5547,7 @@
 
 ### POST /api/v1/deals/:id/documents
 
-`apps/api/src/routes/dealDocuments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard, anyParams(dealDocumentUpload.single("file"))
+`apps/api/src/routes/dealDocuments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, documentsGuard, anyParams(dealDocumentUpload.single("file"))
 
 - если forbidden
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -5383,7 +5577,7 @@
 
 ### GET /api/v1/deals/:id/payout
 
-`apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dealPayout.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const deal = await prisma.deal.findUnique({ where: { id: req.params.id }, select: { id: true, agentId: true, …
   · читает в базе: deal
@@ -5400,7 +5594,7 @@
 
 ### POST /api/v1/deals/:id/payout
 
-`apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dealPayout.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await markDealPayoutFor(req, req.params.id, req.body);
   · зовёт markDealPayoutFor()
@@ -5446,7 +5640,7 @@
 
 ### PATCH /api/v1/deals/:id
 
-`apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/deals.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await updateDealFor(req, req.params.id, req.body);
   · зовёт updateDealFor()
@@ -5534,7 +5728,7 @@
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
     - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
@@ -5600,7 +5794,6 @@
       · меняет в базе: property
       · меняет в базе: client
       · считает в базе: deal
-      · создаёт или меняет в базе: settings
       · читает в базе: deal
       · меняет в базе: deal
       - если isCompleting
@@ -5654,8 +5847,6 @@
         - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
           · зовёт scaleClosedCommissionShares()
       - иначе если isCompleting || isRepricingClosed
-        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-          · создаёт или меняет в базе: settings
         - если baseCents > 0 && totalP > 0
           - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
             · зовёт splitCents()
@@ -5778,7 +5969,7 @@
 
 ### GET /api/v1/deals/payouts
 
-`apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/dealPayout.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = payoutsQuerySchema.safeParse(req.query);
   · проверяет данные схемой payoutsQuerySchema
@@ -5792,7 +5983,7 @@
 
 ### GET /api/v1/deals
 
-`apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/deals.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = dealQuerySchema.safeParse(req.query);
   · проверяет данные схемой dealQuerySchema
@@ -5822,7 +6013,7 @@
 
 ### POST /api/v1/deals
 
-`apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/deals.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await createDealFor(req, req.body);
   · зовёт createDealFor()
@@ -5835,7 +6026,7 @@
     - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
@@ -5864,14 +6055,10 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
-      · читает в базе: settings
-      · создаёт или меняет в базе: settings
-    - если settings
-      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
-        · дословно из кода
-      - commissionAmount = commissionOf(property.price, commissionPercent);
-        · дословно из кода
+    - commissionPercent = COMMISSION_TOTAL_PERCENT;
+      · дословно из кода
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -5945,7 +6132,7 @@
 
 ### GET /api/v1/districts
 
-`apps/api/src/routes/districts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/districts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const districts = await prisma.district.findMany({ orderBy: { name: "asc" } });
   · читает в базе: district
@@ -5954,7 +6141,7 @@
 
 ### POST /api/v1/districts
 
-`apps/api/src/routes/districts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: districts.manage
+`apps/api/src/routes/districts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: districts.manage
 
 - const parsed = districtCreateSchema.safeParse(req.body);
   · проверяет данные схемой districtCreateSchema
@@ -5984,7 +6171,7 @@
 
 ### POST /api/v1/errors/:id/reopen
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const outcome = await reopenErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, sec…
   · зовёт reopenErrorLogEntry()
@@ -5996,7 +6183,7 @@
 
 ### POST /api/v1/errors/:id/resolve
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const outcome = await resolveErrorLogEntry(req.params.id, { agentId: req.agent!.id, role: req.agent?.role, se…
   · зовёт resolveErrorLogEntry()
@@ -6008,7 +6195,7 @@
 
 ### POST /api/v1/errors/gemini-health-check
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const result = await checkGeminiHealth();
   · зовёт checkGeminiHealth()
@@ -6017,7 +6204,7 @@
 
 ### POST /api/v1/errors/resolve-all
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const parsed = resolveAllSchema.safeParse(req.body ?? {});
   · проверяет данные схемой resolveAllSchema
@@ -6031,7 +6218,7 @@
 
 ### POST /api/v1/errors/stuck-conversations/retry
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const rows = await findStuckConversations();
   · зовёт findStuckConversations()
@@ -6048,7 +6235,7 @@
 
 ### GET /api/v1/errors/stuck-conversations
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const rows = await findStuckConversations();
   · зовёт findStuckConversations()
@@ -6057,7 +6244,7 @@
 
 ### GET /api/v1/errors
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - если !paging.success
   - return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
@@ -6073,7 +6260,7 @@
 
 ### POST /api/v1/errors
 
-`apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/errorLog.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = clientErrorSchema.safeParse(req.body);
   · проверяет данные схемой clientErrorSchema
@@ -6092,7 +6279,7 @@
 
 ### POST /api/v1/events/ticket
 
-`apps/api/src/routes/events.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/events.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !liveEventsEnabled()
   - res.status(503).json({ error: "Живые события выключены" });
@@ -6109,7 +6296,7 @@
 
 ### GET /api/v1/events
 
-`apps/api/src/routes/events.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, authorizeStream
+`apps/api/src/routes/events.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, authorizeStream
 
 - если !liveEventsEnabled()
   - res.status(503).json({ error: "Живые события выключены" });
@@ -6171,13 +6358,13 @@
 
 ### POST /api/v1/expenses/:id/pay
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `expensePaymentHandler("pay") — раскрыто по коду функции expensePaymentHandler()`
 
 ### GET /api/v1/expenses/:id/receipts/:receiptId/file
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - если !idSchema.safeParse(req.params.receiptId).success
   - return res.status(400).json({ error: "Неверный чек" });
@@ -6215,7 +6402,7 @@
 
 ### DELETE /api/v1/expenses/:id/receipts/:receiptId
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - если !idSchema.safeParse(req.params.receiptId).success
   - return res.status(400).json({ error: "Неверный чек" });
@@ -6236,7 +6423,7 @@
 
 ### POST /api/v1/expenses/:id/receipts
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write, anyParams(dealDocumentUpload.single("file"))
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write, anyParams(dealDocumentUpload.single("file"))
 
 - const e = await prisma.expense.findUnique({ where: { id: req.params.id } });
   · читает в базе: expense
@@ -6275,7 +6462,7 @@
 
 ### PATCH /api/v1/expenses/:id/restore
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - const expense = await restoreExpense(req.params.id, { confirmAutoOverlap: req.body?.confirmAutoOverlap === tr…
@@ -6291,13 +6478,13 @@
 
 ### POST /api/v1/expenses/:id/undo-payment
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `expensePaymentHandler("undo-payment") — раскрыто по коду функции expensePaymentHandler()`
 
 ### DELETE /api/v1/expenses/:id
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверная версия расхода" });
@@ -6316,7 +6503,7 @@
 
 ### PATCH /api/v1/expenses/:id
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - const { expense, changed } = await updateExpense(req.params.id, req.body);
@@ -6332,14 +6519,14 @@
 
 ### GET /api/v1/expenses/archive
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - res.json(await listArchivedExpenses(req.query.from, req.query.to));
   · ответ 200
 
 ### PATCH /api/v1/expenses/categories/:id
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - пробует
   - const updated = await updateExpenseCategory(req.params.id, req.body);
@@ -6355,7 +6542,7 @@
 
 ### GET /api/v1/expenses/categories
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - const p = expenseListQuerySchema.safeParse(req.query);
   · проверяет данные схемой expenseListQuerySchema
@@ -6367,7 +6554,7 @@
 
 ### POST /api/v1/expenses/categories
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - пробует
   - const row = await createExpenseCategory(req.body);
@@ -6383,7 +6570,7 @@
 
 ### GET /api/v1/expenses/counterparties
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - const p = expenseListQuerySchema.safeParse(req.query);
   · проверяет данные схемой expenseListQuerySchema
@@ -6407,7 +6594,7 @@
 
 ### POST /api/v1/expenses/export/telegram
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - если !expenseListQuerySchema.safeParse(req.query).success
   - return res.status(400).json({ error: "Некорректные фильтры" });
@@ -6430,7 +6617,7 @@
 
 ### GET /api/v1/expenses/export
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - если !["month", "from", "to", "status", "categoryId", "rootCategory", "counterparty", "paymentMethod", "q", "recur…
   - return next();
@@ -6447,14 +6634,13 @@
 
 ### GET /api/v1/expenses/export
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - const from = dushanbeMonthStart(monthsBack - 1);
   · зовёт dushanbeMonthStart()
-- const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
+- const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLETED", clos…
   · читает в базе: deal
   · читает в базе: expense
-  · создаёт или меняет в базе: settings
 - если truncated
   - void logSystemError( "api", `Выгрузка бухгалтерии за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE…
     · запись в журнал ошибок
@@ -6490,14 +6676,14 @@
 
 ### GET /api/v1/expenses/forecast
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - res.json(await buildExpenseForecast());
   · ответ 200
 
 ### GET /api/v1/expenses/pivot
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - const p = expenseListQuerySchema.safeParse(req.query);
   · проверяет данные схемой expenseListQuerySchema
@@ -6509,7 +6695,7 @@
 
 ### GET /api/v1/expenses/pulse
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - await upsertAiExpenses(recentMonths(2)).catch(()
   · зовёт upsertAiExpenses()
@@ -6529,13 +6715,13 @@
 
 ### POST /api/v1/expenses/recurring/:id/pay
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `recurringPaymentHandler("pay") — раскрыто по коду функции recurringPaymentHandler()`
 
 ### PATCH /api/v1/expenses/recurring/:id/restore
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - пробует
   - const row = await restoreRecurringExpense(req.params.id);
@@ -6551,25 +6737,25 @@
 
 ### POST /api/v1/expenses/recurring/:id/skip
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `recurringPaymentHandler("skip") — раскрыто по коду функции recurringPaymentHandler()`
 
 ### POST /api/v1/expenses/recurring/:id/undo-payment
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `recurringPaymentHandler("undo-payment") — раскрыто по коду функции recurringPaymentHandler()`
 
 ### POST /api/v1/expenses/recurring/:id/undo
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
 - обработчик вынесен: `recurringPaymentHandler("undo") — раскрыто по коду функции recurringPaymentHandler()`
 
 ### DELETE /api/v1/expenses/recurring/:id
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - await deleteRecurringExpense(req.params.id);
@@ -6585,7 +6771,7 @@
 
 ### PATCH /api/v1/expenses/recurring/:id
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - const { row, changed } = await updateRecurringExpense(req.params.id, req.body);
@@ -6601,7 +6787,7 @@
 
 ### GET /api/v1/expenses/recurring
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - пробует
   - res.json(await listRecurringExpenses());
@@ -6615,7 +6801,7 @@
 
 ### POST /api/v1/expenses/recurring
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - const row = await createRecurringExpense(req.body);
@@ -6631,7 +6817,7 @@
 
 ### GET /api/v1/expenses/summary
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - пробует
   - res.json(await buildExpenseSummary({ months: req.query.months, through: req.query.through }));
@@ -6643,7 +6829,7 @@
 
 ### GET /api/v1/expenses/upcoming
 
-`apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
+`apps/api/src/routes/expenseWorkspace.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…
 
 - const today = todayExpenseDay();
   · зовёт todayExpenseDay()
@@ -6660,7 +6846,7 @@
 
 ### GET /api/v1/expenses
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - пробует
   - res.json(await listExpenses(req.query));
@@ -6672,7 +6858,7 @@
 
 ### POST /api/v1/expenses
 
-`apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
+`apps/api/src/routes/expenses.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
   - const { expense, month } = await createExpense(req.body, { agentId: req.agent!.id, idempotencyKey: req.get("I…
@@ -6690,7 +6876,7 @@
 
 ### GET /api/v1/finance/forecast
 
-`apps/api/src/routes/finance.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/finance.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - const parsed = forecastQuerySchema.safeParse(req.query);
   · проверяет данные схемой forecastQuerySchema
@@ -6715,7 +6901,7 @@
 
 ### PATCH /api/v1/founders/:id/restore
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await restoreFounder(req.params.id);
@@ -6731,7 +6917,7 @@
 
 ### DELETE /api/v1/founders/:id
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await deleteFounder(req.params.id);
@@ -6747,7 +6933,7 @@
 
 ### PATCH /api/v1/founders/:id
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await updateFounder(req.params.id, req.body);
@@ -6763,7 +6949,7 @@
 
 ### PATCH /api/v1/founders/contributions/:id/restore
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await restoreContribution(req.params.id);
@@ -6779,7 +6965,7 @@
 
 ### DELETE /api/v1/founders/contributions/:id
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await deleteContribution(req.params.id);
@@ -6795,7 +6981,7 @@
 
 ### PATCH /api/v1/founders/contributions/:id
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await updateContribution(req.params.id, req.body);
@@ -6811,7 +6997,7 @@
 
 ### GET /api/v1/founders/contributions
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - пробует
   - res.json(await listContributions(req.query));
@@ -6823,7 +7009,7 @@
 
 ### POST /api/v1/founders/contributions
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await createContribution(req.body, { agentId: req.agent!.id, requestKey });
@@ -6839,7 +7025,7 @@
 
 ### GET /api/v1/founders/totals
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - пробует
   - res.json(await founderTotals(String(req.query.month ?? "")));
@@ -6851,14 +7037,14 @@
 
 ### GET /api/v1/founders
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
 - res.json(await listFounders({ includeDeleted: req.query.includeDeleted === "1" || req.query.includeDeleted ==…
   · ответ 200
 
 ### POST /api/v1/founders
 
-`apps/api/src/routes/founders.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
+`apps/api/src/routes/founders.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, write
 
 - пробует
   - const row = await createFounder(req.body);
@@ -6876,7 +7062,7 @@
 
 ### GET /api/v1/function-status
 
-`apps/api/src/routes/functionStatus.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/functionStatus.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - пробует
   - если !canViewFunctionStatus(req.agent?.role)
@@ -6895,7 +7081,7 @@
 
 ### GET /api/v1/geo/landmarks
 
-`apps/api/src/routes/geo.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/geo.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = lookupQuerySchema.safeParse(req.query);
   · проверяет данные схемой lookupQuerySchema
@@ -6913,7 +7099,7 @@
 
 ### GET /api/v1/geo/lookup
 
-`apps/api/src/routes/geo.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/geo.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = lookupQuerySchema.safeParse(req.query);
   · проверяет данные схемой lookupQuerySchema
@@ -6936,7 +7122,7 @@
 
 ### GET /api/v1/geo/resolve
 
-`apps/api/src/routes/geo.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/geo.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = resolveQuerySchema.safeParse(req.query);
   · проверяет данные схемой resolveQuerySchema
@@ -6950,7 +7136,7 @@
 
 ### GET /api/v1/geo/suggest
 
-`apps/api/src/routes/geo.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/geo.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = suggestQuerySchema.safeParse(req.query);
   · проверяет данные схемой suggestQuerySchema
@@ -6972,7 +7158,7 @@
 
 ### GET /api/v1/hall-of-fame/top-agents
 
-`apps/api/src/routes/hallOfFame.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/hallOfFame.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !(await royalScoreEnabled())
   - return res.json({ agents: [] });
@@ -6991,7 +7177,7 @@
 
 ### GET /api/v1/hall-of-fame
 
-`apps/api/src/routes/hallOfFame.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/hallOfFame.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const wall = dushanbeWallClock();
   · зовёт dushanbeWallClock()
@@ -7019,7 +7205,7 @@
 
 ### GET /api/v1/import/clients/template
 
-`apps/api/src/routes/import.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run
+`apps/api/src/routes/import.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run
 
 - res.setHeader("Content-Type", "text/csv; charset=utf-8");
   · ставит заголовок ответа
@@ -7030,7 +7216,7 @@
 
 ### POST /api/v1/import/clients
 
-`apps/api/src/routes/import.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run, csvUpload.single("file")
+`apps/api/src/routes/import.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run, csvUpload.single("file")
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -7082,7 +7268,7 @@
 
 ### GET /api/v1/import/properties/template
 
-`apps/api/src/routes/import.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run
+`apps/api/src/routes/import.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run
 
 - res.setHeader("Content-Type", "text/csv; charset=utf-8");
   · ставит заголовок ответа
@@ -7093,7 +7279,7 @@
 
 ### POST /api/v1/import/properties
 
-`apps/api/src/routes/import.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run, csvUpload.single("file")
+`apps/api/src/routes/import.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: import.run, csvUpload.single("file")
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -7157,7 +7343,7 @@
 
 ### GET /api/v1/insights/:id
 
-`apps/api/src/routes/insights.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
+`apps/api/src/routes/insights.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
 
 - const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canReadInves…
   · читает в базе: insightDigest
@@ -7178,7 +7364,7 @@
 
 ### PATCH /api/v1/insights/cases/:id
 
-`apps/api/src/routes/insights.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
+`apps/api/src/routes/insights.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
 
 - const body = insightCaseReviewSchema.parse(req.body);
   · проверяет данные схемой insightCaseReviewSchema
@@ -7197,7 +7383,7 @@
 
 ### POST /api/v1/insights/generate
 
-`apps/api/src/routes/insights.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage
+`apps/api/src/routes/insights.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage
 
 - const body = generateBodySchema.parse(req.body);
   · проверяет данные схемой generateBodySchema
@@ -7223,7 +7409,7 @@
 
 ### GET /api/v1/insights
 
-`apps/api/src/routes/insights.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
+`apps/api/src/routes/insights.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
 
 - const digests = await prisma.insightDigest.findMany({ orderBy: { periodStart: "desc" }, include: { _count: { …
   · читает в базе: insightDigest
@@ -7234,13 +7420,13 @@
 
 ### POST /api/v1/instagram-comments/:id/hide
 
-`apps/api/src/routes/instagramComments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
+`apps/api/src/routes/instagramComments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
 
 - обработчик вынесен: `(req, res) => moderate(req, res, true) — раскрыто по коду функции moderate()`
 
 ### POST /api/v1/instagram-comments/:id/reply
 
-`apps/api/src/routes/instagramComments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
+`apps/api/src/routes/instagramComments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
 
 - const id = idSchema.safeParse(req.params.id);
   · проверяет данные схемой idSchema
@@ -7339,13 +7525,13 @@
 
 ### POST /api/v1/instagram-comments/:id/unhide
 
-`apps/api/src/routes/instagramComments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
+`apps/api/src/routes/instagramComments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view, есть право: comments.moderate
 
 - обработчик вынесен: `(req, res) => moderate(req, res, false) — раскрыто по коду функции moderate()`
 
 ### GET /api/v1/instagram-comments
 
-`apps/api/src/routes/instagramComments.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
+`apps/api/src/routes/instagramComments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
 
 - const parsed = instagramCommentQuerySchema.safeParse(req.query);
   · проверяет данные схемой instagramCommentQuerySchema
@@ -7370,7 +7556,7 @@
 
 ### GET /api/v1/integrations
 
-`apps/api/src/routes/integrations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/integrations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const rows = await loadIntegrationHealthSnapshot();
   · зовёт loadIntegrationHealthSnapshot()
@@ -7381,7 +7567,7 @@
 
 ### PATCH /api/v1/interactions/:id/complete
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
@@ -7403,7 +7589,7 @@
 
 ### GET /api/v1/interactions/:id/recording
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…
   · читает в базе: interaction
@@ -7459,7 +7645,7 @@
 
 ### POST /api/v1/interactions/:id/retranscribe
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = retranscribeParamsSchema.safeParse(req.params);
   · проверяет данные схемой retranscribeParamsSchema
@@ -7498,7 +7684,7 @@
 
 ### PATCH /api/v1/interactions/:id/showing/cancel
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = showingCancelSchema.safeParse(req.body);
   · проверяет данные схемой showingCancelSchema
@@ -7518,7 +7704,7 @@
 
 ### PATCH /api/v1/interactions/:id/showing/reschedule
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = showingRescheduleSchema.safeParse(req.body);
   · проверяет данные схемой showingRescheduleSchema
@@ -7538,7 +7724,7 @@
 
 ### GET /api/v1/interactions/:id/transcript
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…
   · читает в базе: interaction
@@ -7564,7 +7750,7 @@
 
 ### POST /api/v1/interactions/:id/translate
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…
   · читает в базе: interaction
@@ -7603,7 +7789,7 @@
 
 ### POST /api/v1/interactions/:id/work-response
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: "Проверьте ответ по задаче" });
@@ -7632,7 +7818,7 @@
 
 ### GET /api/v1/interactions/summary
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = activitySummaryQuerySchema.safeParse(req.query);
   · проверяет данные схемой activitySummaryQuerySchema
@@ -7654,7 +7840,7 @@
 
 ### GET /api/v1/interactions
 
-`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/interactions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = interactionFeedQuerySchema.safeParse(req.query);
   · проверяет данные схемой interactionFeedQuerySchema
@@ -7673,7 +7859,7 @@
 
 ### GET /api/v1/l/:token/go
 
-`apps/api/src/routes/propertyShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/propertyShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const link = await prisma.propertyShareLink.findUnique({ where: { token: req.params.token }, include: { prope…
   · читает в базе: propertyShareLink
@@ -7692,7 +7878,7 @@
 
 ### GET /api/v1/l/:token
 
-`apps/api/src/routes/propertyShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/propertyShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const link = await prisma.propertyShareLink.findUnique({ where: { token: req.params.token }, include: { prope…
   · читает в базе: propertyShareLink
@@ -7712,7 +7898,7 @@
 
 ### DELETE /api/v1/landmarks/:id/aliases/:aliasId
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const alias = await prisma.geoAlias.findUnique({ where: { id: req.params.aliasId } });
   · читает в базе: geoAlias
@@ -7730,7 +7916,7 @@
 
 ### POST /api/v1/landmarks/:id/aliases
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = landmarkAliasCreateSchema.safeParse(req.body);
   · проверяет данные схемой landmarkAliasCreateSchema
@@ -7763,7 +7949,7 @@
 
 ### POST /api/v1/landmarks/:id/hide
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
 
 - const existing = await prisma.landmark.findUnique({ where: { id: req.params.id } });
   · читает в базе: landmark
@@ -7779,7 +7965,7 @@
 
 ### POST /api/v1/landmarks/:id/show
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
 
 - const existing = await prisma.landmark.findUnique({ where: { id: req.params.id } });
   · читает в базе: landmark
@@ -7795,7 +7981,7 @@
 
 ### DELETE /api/v1/landmarks/:id
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: landmarks.manage
 
 - const existing = await prisma.landmark.findUnique({ where: { id: req.params.id } });
   · читает в базе: landmark
@@ -7816,7 +8002,7 @@
 
 ### PATCH /api/v1/landmarks/:id
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = landmarkUpdateSchema.safeParse(req.body);
   · проверяет данные схемой landmarkUpdateSchema
@@ -7837,7 +8023,7 @@
 
 ### GET /api/v1/landmarks
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = landmarkQuerySchema.safeParse(req.query);
   · проверяет данные схемой landmarkQuerySchema
@@ -7868,7 +8054,7 @@
 
 ### POST /api/v1/landmarks
 
-`apps/api/src/routes/landmarks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/landmarks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = landmarkCreateSchema.safeParse(req.body);
   · проверяет данные схемой landmarkCreateSchema
@@ -7886,7 +8072,7 @@
 
 ### POST /api/v1/lead-magnets/:id/duplicate
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const source = await prisma.leadMagnetCampaign.findUnique({ where: { id: req.params.id }, select: CAMPAIGN_FI…
   · читает в базе: leadMagnetCampaign
@@ -7904,7 +8090,7 @@
 
 ### PATCH /api/v1/lead-magnets/:id/enabled
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = enabledInputSchema.safeParse(req.body);
   · проверяет данные схемой enabledInputSchema
@@ -7932,7 +8118,7 @@
 
 ### DELETE /api/v1/lead-magnets/:id/file
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const campaign = await prisma.leadMagnetCampaign.findUnique({ where: { id: req.params.id }, select: { id: tru…
   · читает в базе: leadMagnetCampaign
@@ -7949,7 +8135,7 @@
 
 ### POST /api/v1/lead-magnets/:id/file
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, anyParams(acceptPdf)
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, anyParams(acceptPdf)
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -7971,7 +8157,7 @@
 
 ### POST /api/v1/lead-magnets/:id/rehearse
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - const parsed = rehearseSchema.safeParse(req.body ?? {});
   · проверяет данные схемой rehearseSchema
@@ -7988,7 +8174,7 @@
 
 ### DELETE /api/v1/lead-magnets/:id
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const campaign = await prisma.leadMagnetCampaign.findUnique({ where: { id: req.params.id }, select: { id: tru…
   · читает в базе: leadMagnetCampaign
@@ -8007,7 +8193,7 @@
 
 ### PATCH /api/v1/lead-magnets/:id
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = leadMagnetCampaignInputSchema.safeParse(req.body);
   · проверяет данные схемой leadMagnetCampaignInputSchema
@@ -8028,7 +8214,7 @@
 
 ### GET /api/v1/lead-magnets/deliveries
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
@@ -8043,7 +8229,7 @@
 
 ### GET /api/v1/lead-magnets
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - const rows = await prisma.leadMagnetCampaign.findMany({ select: CAMPAIGN_FIELDS, orderBy: [{ enabled: "desc" …
   · читает в базе: leadMagnetCampaign
@@ -8052,7 +8238,7 @@
 
 ### POST /api/v1/lead-magnets
 
-`apps/api/src/routes/leadMagnets.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/leadMagnets.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = leadMagnetCampaignInputSchema.safeParse(req.body);
   · проверяет данные схемой leadMagnetCampaignInputSchema
@@ -8070,7 +8256,7 @@
 
 ### GET /api/v1/live-voice/:id/listen
 
-`apps/api/src/routes/liveVoiceListen.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
+`apps/api/src/routes/liveVoiceListen.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
 
 - если !parsed.success
   - res.status(400).json({ error: "Некорректный номер разговора" });
@@ -8177,7 +8363,7 @@
 
 ### GET /api/v1/live-voice/active
 
-`apps/api/src/routes/liveVoiceListen.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
+`apps/api/src/routes/liveVoiceListen.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
 
 - const sessions = liveVoiceMonitor.listActive();
   · зовёт listActive()
@@ -8190,7 +8376,7 @@
 
 ### POST /api/v1/maintenance/data-corrections/:id/apply
 
-`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - если process.env.MANUAL_DATA_CORRECTIONS_LIVE !== "explicitly-approved"
   - return res.status(409).json({ error: "Применение ручных исправлений выключено. Доступен только план." });
@@ -8210,7 +8396,7 @@
 
 ### GET /api/v1/maintenance/data-corrections/:id/review
 
-`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - если !z.string().uuid().safeParse(req.params.id).success
   - return res.status(400).json({ error: "Некорректный план" });
@@ -8225,7 +8411,7 @@
 
 ### GET /api/v1/maintenance/data-corrections/:id
 
-`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - если !z.string().uuid().safeParse(req.params.id).success
   - return res.status(400).json({ error: "Некорректный план" });
@@ -8240,13 +8426,13 @@
 
 ### POST /api/v1/maintenance/data-corrections/plans
 
-`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - обработчик вынесен: `prepare(true) — раскрыто по коду функции prepare()`
 
 ### POST /api/v1/maintenance/data-corrections/preview
 
-`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - обработчик вынесен: `prepare(false) — раскрыто по коду функции prepare()`
 
@@ -8254,7 +8440,7 @@
 
 ### GET /api/v1/market/history
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = marketHistoryQuerySchema.safeParse(req.query);
   · проверяет данные схемой marketHistoryQuerySchema
@@ -8268,7 +8454,7 @@
 
 ### POST /api/v1/market/listing-contact
 
-`apps/api/src/routes/marketContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/marketContact.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = bodySchema.safeParse(req.body);
   · проверяет данные схемой bodySchema
@@ -8318,14 +8504,14 @@
 
 ### GET /api/v1/market/overpriced
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json(await findOverpricedPropertiesCached());
   · ответ 200
 
 ### GET /api/v1/market/property/:id/dynamics
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const where = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -8352,7 +8538,7 @@
 
 ### GET /api/v1/market/property/:id/history
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const where = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -8371,7 +8557,7 @@
 
 ### GET /api/v1/market/property/:id
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const where = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -8388,7 +8574,7 @@
 
 ### GET /api/v1/market/segments
 
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/market.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = marketSegmentsQuerySchema.safeParse(req.query);
   · проверяет данные схемой marketSegmentsQuerySchema
@@ -8402,7 +8588,7 @@
 
 ### POST /api/v1/market/matches/:matchId/status
 
-`apps/api/src/routes/marketMatches.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/marketMatches.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = statusSchema.safeParse(req.body);
   · проверяет данные схемой statusSchema
@@ -8424,7 +8610,7 @@
 
 ### GET /api/v1/market/matches/property/:id
 
-`apps/api/src/routes/marketMatches.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/marketMatches.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const where = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -8453,7 +8639,7 @@
 
 ### GET /api/v1/marketing/channels-status
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const [settings, capabilities, publishedCount, recentErrors] = await Promise.all([ prisma.settings.findUnique…
   · читает в базе: settings
@@ -8465,7 +8651,7 @@
 
 ### POST /api/v1/marketing/digests/run
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - runDigestNowSchema.parse(req.body ?? {});
   · проверяет данные схемой runDigestNowSchema
@@ -8484,7 +8670,7 @@
 
 ### GET /api/v1/marketing/digests
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const rows = await prisma.socialDigestPost.findMany({ orderBy: { createdAt: "desc" }, take: 60, select: { id:…
   · читает в базе: socialDigestPost
@@ -8498,7 +8684,7 @@
 
 ### GET /api/v1/marketing/editor-queue
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const parsed = editorQueueQuerySchema.safeParse(req.query);
   · проверяет данные схемой editorQueueQuerySchema
@@ -8513,7 +8699,7 @@
 
 ### GET /api/v1/marketing/editors-load
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const deadlines = await loadPipelineDeadlines();
   · зовёт loadPipelineDeadlines()
@@ -8528,7 +8714,7 @@
 
 ### GET /api/v1/marketing/facebook-crosspost-check
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { facebookCrosspostPa…
   · читает в базе: settings
@@ -8551,7 +8737,7 @@
 
 ### GET /api/v1/marketing/first-seconds
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - пробует
   - res.json(await loadFirstSeconds());
@@ -8564,7 +8750,7 @@
 
 ### GET /api/v1/marketing/meta-catalog-feed/status
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const rows = await loadCatalogProperties();
   · зовёт loadCatalogProperties()
@@ -8573,7 +8759,7 @@
 
 ### GET /api/v1/marketing/post-analysis
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - пробует
   - const stats = await loadPostStats();
@@ -8592,7 +8778,7 @@
 
 ### GET /api/v1/marketing/post-stats
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = postStatsQuerySchema.safeParse(req.query);
   · проверяет данные схемой postStatsQuerySchema
@@ -8614,7 +8800,7 @@
 
 ### GET /api/v1/marketing/publish-schedule
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const [loaded, settings, candidates] = await Promise.all([ loadPublishScheduleRules(), prisma.settings.findUn…
   · читает в базе: settings
@@ -8643,7 +8829,7 @@
 
 ### GET /api/v1/marketing/queue
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsedPage = queueQuerySchema.safeParse(req.query);
   · проверяет данные схемой queueQuerySchema
@@ -8658,7 +8844,7 @@
 
 ### GET /api/v1/marketing/recently-published
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = recentlyPublishedQuerySchema.safeParse(req.query);
   · проверяет данные схемой recentlyPublishedQuerySchema
@@ -8685,7 +8871,7 @@
 
 ### GET /api/v1/marketing/summary
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const deadlines = await loadPipelineDeadlines();
   · зовёт loadPipelineDeadlines()
@@ -8715,7 +8901,7 @@
 
 ### GET /api/v1/marketing/telegram-chats-check
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - если !isTelegramEnabled()
   - return res.json({ configured: false, chats: [] });
@@ -8738,7 +8924,7 @@
 
 ### POST /api/v1/marketing/video-handoff/:id/cancel
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const parsed = cancelVideoHandoffBodySchema.safeParse(req.body ?? {});
   · проверяет данные схемой cancelVideoHandoffBodySchema
@@ -8757,7 +8943,7 @@
 
 ### POST /api/v1/marketing/video-handoff/:id/hold
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const parsed = holdVideoHandoffBodySchema.safeParse(req.body ?? {});
   · проверяет данные схемой holdVideoHandoffBodySchema
@@ -8776,7 +8962,7 @@
 
 ### POST /api/v1/marketing/video-handoff/:id/move
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const parsed = videoHandoffMoveBodySchema.safeParse(req.body ?? {});
   · проверяет данные схемой videoHandoffMoveBodySchema
@@ -8796,7 +8982,7 @@
 
 ### POST /api/v1/marketing/video-handoff/:id/resend
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true, delet…
   · читает в базе: property
@@ -8823,7 +9009,7 @@
 
 ### POST /api/v1/marketing/video-handoff/:id/unhold
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const result = await releaseVideoHandoffHold(req.params.id);
   · зовёт releaseVideoHandoffHold()
@@ -8837,7 +9023,7 @@
 
 ### GET /api/v1/marketing/video-handoff/queue-state
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const state: VideoHandoffQueueState = await videoHandoffQueueState();
   · зовёт videoHandoffQueueState()
@@ -8846,7 +9032,7 @@
 
 ### POST /api/v1/marketing/video-handoff/queue/pause
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - const parsed = pauseVideoHandoffQueueBodySchema.safeParse(req.body ?? {});
   · проверяет данные схемой pauseVideoHandoffQueueBodySchema
@@ -8862,7 +9048,7 @@
 
 ### POST /api/v1/marketing/video-handoff/queue/resume
 
-`apps/api/src/routes/marketing.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
+`apps/api/src/routes/marketing.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireEditorsLoadRole
 
 - await setVideoHandoffQueuePaused(false);
   · зовёт setVideoHandoffQueuePaused()
@@ -8875,7 +9061,7 @@
 
 ### POST /api/v1/me/2fa/confirm
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
 
 - const parsed = totpCodeSchema.safeParse(req.body);
   · проверяет данные схемой totpCodeSchema
@@ -8901,7 +9087,7 @@
 
 ### POST /api/v1/me/2fa/disable
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
 
 - const parsed = disable2faSchema.safeParse(req.body);
   · проверяет данные схемой disable2faSchema
@@ -8930,7 +9116,7 @@
 
 ### POST /api/v1/me/2fa/setup
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов, вход выполнен, requireElevation
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id } });
   · читает в базе: agent
@@ -8951,7 +9137,7 @@
 
 ### POST /api/v1/me/active-call/cancel
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const call = activeCallFor(req.agent!.id);
   · зовёт activeCallFor()
@@ -8981,7 +9167,7 @@
 
 ### GET /api/v1/me/active-call
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const call = activeCallFor(req.agent!.id);
   · зовёт activeCallFor()
@@ -8995,7 +9181,7 @@
 
 ### POST /api/v1/me/avatar
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, upload.single("avatar")
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, upload.single("avatar")
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -9013,7 +9199,7 @@
 
 ### POST /api/v1/me/callback-requests/:id/done
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: messages.view
 
 - const id = z.string().uuid().safeParse(req.params.id), body = customerRequestCloseSchema.safeParse(req.body ?…
   · проверяет данные схемой customerRequestCloseSchema
@@ -9047,7 +9233,7 @@
 
 ### POST /api/v1/me/callback-requests/:id/transition
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const id = z.string().uuid().safeParse(req.params.id), body = customerRequestTransitionSchema.safeParse(req.b…
   · проверяет данные схемой customerRequestTransitionSchema
@@ -9066,7 +9252,7 @@
 
 ### GET /api/v1/me/callback-requests
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !can(req, "messages.view") && !can(req, "messages.viewOwn")
   - return res.status(403).json({ error: "Нет доступа к переписке" });
@@ -9081,7 +9267,7 @@
 
 ### PATCH /api/v1/me/clip-review-telegram
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = meTelegramModerationSchema.safeParse(req.body);
   · проверяет данные схемой meTelegramModerationSchema
@@ -9100,7 +9286,7 @@
 
 ### POST /api/v1/me/incoming-call/:id/block-caller
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !canManageIncoming(req)
   - return res.status(403).json({ error: "Блокировать номера может оператор или руководитель" });
@@ -9127,7 +9313,7 @@
 
 ### DELETE /api/v1/me/lead-pause
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { id: true, leadsPausedUn…
   · читает в базе: agent
@@ -9149,7 +9335,7 @@
 
 ### POST /api/v1/me/lead-pause
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = leadPauseSchema.safeParse(req.body);
   · проверяет данные схемой leadPauseSchema
@@ -9179,7 +9365,7 @@
 
 ### GET /api/v1/me/logins
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const logins = await prisma.loginLog.findMany({ where: { agentId: req.agent!.id }, orderBy: { createdAt: "des…
   · читает в базе: loginLog
@@ -9188,7 +9374,7 @@
 
 ### PATCH /api/v1/me/montage-copies
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если role !== "ADMIN" && role !== "DIRECTOR"
   - return res.status(403).json({ error: "Копии монтажа доступны только администратору" });
@@ -9207,7 +9393,7 @@
 
 ### POST /api/v1/me/owner-questions/:id/answer
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const parsed = ownerAnswerSchema.safeParse(req.body);
   · проверяет данные схемой ownerAnswerSchema
@@ -9229,7 +9415,7 @@
 
 ### GET /api/v1/me/owner-questions
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const items = await loadPendingOwnerQuestions(20, req.agent!.id);
   · зовёт loadPendingOwnerQuestions()
@@ -9238,7 +9424,7 @@
 
 ### DELETE /api/v1/me/passkeys/:id
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const removed = await removePasskey(req.agent!.id, req.params.id);
   · зовёт removePasskey()
@@ -9252,7 +9438,7 @@
 
 ### POST /api/v1/me/passkeys/confirm
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - если !(await passkeyLoginEnabled())
   - return res.status(403).json({ error: "Вход по отпечатку или лицу временно отключён" });
@@ -9276,7 +9462,7 @@
 
 ### POST /api/v1/me/passkeys/options
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - если !(await passkeyLoginEnabled())
   - return res.status(403).json({ error: "Вход по отпечатку или лицу временно отключён" });
@@ -9291,14 +9477,14 @@
 
 ### GET /api/v1/me/passkeys
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json(await listPasskeys(req.agent!.id));
   · ответ 200
 
 ### PUT /api/v1/me/preferences
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = uiPreferencesSchema.safeParse(req.body);
   · проверяет данные схемой uiPreferencesSchema
@@ -9330,7 +9516,7 @@
 
 ### GET /api/v1/me/queue-pause
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !canManageIncoming(req)
   - return res.json(null);
@@ -9351,7 +9537,7 @@
 
 ### POST /api/v1/me/queue-pause
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !canManageIncoming(req)
   - return res.status(403).json({ error: "Управлять приёмом входящих может оператор или руководитель" });
@@ -9376,7 +9562,7 @@
 
 ### POST /api/v1/me/royal-score/advice
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !(await royalScoreEnabled())
   - return res.status(404).json({ error: "Royal Score отключён", disabled: true });
@@ -9396,7 +9582,7 @@
 
 ### GET /api/v1/me/royal-score
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !(await royalScoreEnabled())
   - return res.status(404).json({ error: "Royal Score отключён", disabled: true });
@@ -9411,7 +9597,7 @@
 
 ### GET /api/v1/me/score-months
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const currentStart = dushanbeStartOfMonth();
   · зовёт dushanbeStartOfMonth()
@@ -9424,7 +9610,7 @@
 
 ### DELETE /api/v1/me/sessions/:id
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const ok = await revokeSession(req.agent!.id, req.params.id);
   · зовёт revokeSession()
@@ -9438,7 +9624,7 @@
 
 ### GET /api/v1/me/sessions
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const sessions = await listActiveSessions(req.agent!.id);
   · зовёт listActiveSessions()
@@ -9447,7 +9633,7 @@
 
 ### POST /api/v1/me/telegram-link
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const { code, deepLink } = await createTelegramLinkCode(req.agent!.id);
   · зовёт createTelegramLinkCode()
@@ -9458,7 +9644,7 @@
 
 ### PATCH /api/v1/me/telegram-moderation
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = meTelegramModerationSchema.safeParse(req.body);
   · проверяет данные схемой meTelegramModerationSchema
@@ -9475,7 +9661,7 @@
 
 ### POST /api/v1/me/telegram-unlink
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramUserId: null,…
   · меняет в базе: agent
@@ -9486,7 +9672,7 @@
 
 ### GET /api/v1/me/voice-notes/:name
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если typeof name !== "string" || name.length > 128
   - return res.status(400).json({ error: "Неверное имя файла" });
@@ -9526,7 +9712,7 @@
 
 ### POST /api/v1/me/voice-notes
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов, anyParams(voiceMessageUpload.single("audio"))
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов, anyParams(voiceMessageUpload.single("audio"))
 
 - void (async ()
   · ответ 400 — «Аудио не передано»
@@ -9539,7 +9725,7 @@
 
 ### GET /api/v1/me
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { id: true, fullName: tru…
   · читает в базе: agent
@@ -9553,7 +9739,7 @@
 
 ### PATCH /api/v1/me
 
-`apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/me.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = meUpdateSchema.safeParse(req.body);
   · проверяет данные схемой meUpdateSchema
@@ -9589,7 +9775,7 @@
 
 ### POST /api/v1/me/notifications/:id/read
 
-`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = idParamSchema.safeParse(req.params);
   · проверяет данные схемой idParamSchema
@@ -9606,7 +9792,7 @@
 
 ### POST /api/v1/me/notifications/read-all
 
-`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investi…
   · меняет в базе: notification
@@ -9615,7 +9801,7 @@
 
 ### POST /api/v1/me/notifications/read-many
 
-`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = readManySchema.safeParse(req.body);
   · проверяет данные схемой readManySchema
@@ -9629,7 +9815,7 @@
 
 ### POST /api/v1/me/notifications/seen
 
-`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = seenSchema.safeParse(req.body ?? {});
   · проверяет данные схемой seenSchema
@@ -9643,7 +9829,7 @@
 
 ### GET /api/v1/me/notifications
 
-`apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/notifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = pageQuerySchema.safeParse(req.query);
   · проверяет данные схемой pageQuerySchema
@@ -9666,7 +9852,7 @@
 
 ### GET /api/v1/media/chat/*splat
 
-`apps/api/src/routes/mediaProxy.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/mediaProxy.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - если !match
   - return res.status(404).json({ error: "Файл не найден" });
@@ -9696,7 +9882,7 @@
 
 ### GET /api/v1/morning-report
 
-`apps/api/src/routes/morningReport.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/morningReport.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - если !serviceTokenValid(req)
   - return res.status(401).json({ error: "Нужен служебный токен" });
@@ -9712,7 +9898,7 @@
 
 ### DELETE /api/v1/oversight/ack
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
 
 - если !parsed.success
   - res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
@@ -9726,7 +9912,7 @@
 
 ### POST /api/v1/oversight/ack
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
 
 - const parsed = oversightAckBodySchema.safeParse(req.body);
   · проверяет данные схемой oversightAckBodySchema
@@ -9742,7 +9928,7 @@
 
 ### GET /api/v1/oversight/agent-loss-series
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - const { threshold, windowDays, items } = await findAgentLossSeries(since);
   · зовёт findAgentLossSeries()
@@ -9751,7 +9937,7 @@
 
 ### GET /api/v1/oversight/endless-negotiations
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const { maxRounds, items } = await findEndlessNegotiations(new Date());
   · зовёт findEndlessNegotiations()
@@ -9760,7 +9946,7 @@
 
 ### GET /api/v1/oversight/flags
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
 
 - const name = (n: string)
   · зовёт clientNamePhoneSafe()
@@ -9786,7 +9972,7 @@
 
 ### GET /api/v1/oversight/lead-transfers
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
   · читает в базе: interaction
@@ -9796,7 +9982,7 @@
 
 ### GET /api/v1/oversight/no-contact-clients
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const where = noContactWhere();
   · зовёт noContactWhere()
@@ -9808,7 +9994,7 @@
 
 ### GET /api/v1/oversight/overdue-tasks
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const where = overdueTasksWhere(now);
   · зовёт overdueTasksWhere()
@@ -9820,7 +10006,7 @@
 
 ### GET /api/v1/oversight/refused-high-score
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - const { threshold, items } = await findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS));
   · зовёт findRefusedHighScore()
@@ -9829,7 +10015,7 @@
 
 ### GET /api/v1/oversight/seller-property-missing
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - const { warnDays, criticalDays, items } = await findSellerPropertyMissing(new Date());
   · зовёт findSellerPropertyMissing()
@@ -9838,7 +10024,7 @@
 
 ### GET /api/v1/oversight/showing-survey-calls/:id/recording
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations, есть право: calls.hearRecording
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations, есть право: calls.hearRecording
 
 - если typeof id !== "string"
   - return res.status(400).json({ error: "Неверный идентификатор" });
@@ -9858,7 +10044,7 @@
 
 ### GET /api/v1/oversight/showing-survey-calls/:id
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - если typeof id !== "string"
   - return res.status(400).json({ error: "Неверный идентификатор" });
@@ -9879,7 +10065,7 @@
 
 ### GET /api/v1/oversight/showing-survey-calls
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - const { items, total } = await listPostShowingCallFeed({ page, pageSize, onlyFlagged });
   · зовёт listPostShowingCallFeed()
@@ -9894,7 +10080,7 @@
 
 ### GET /api/v1/oversight/silent-after-showing
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - const { days, items } = await findSilentAfterShowing(new Date());
   · зовёт findSilentAfterShowing()
@@ -9903,7 +10089,7 @@
 
 ### GET /api/v1/oversight/summary
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
 - если !canReadInvestigations(req)
   - return res.json(ordinary);
@@ -9913,7 +10099,7 @@
 
 ### GET /api/v1/oversight/transfer-pairs
 
-`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
+`apps/api/src/routes/oversight.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireInvestigations
 
 - const changes = await prisma.auditLog.findMany({ where: { action: "CLIENT_AGENT_CHANGE", entityType: "Client"…
   · читает в базе: auditLog
@@ -9949,7 +10135,7 @@
 
 ### POST /api/v1/properties/:id/accept-handover
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/transfer.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, deleted…
   · читает в базе: property
@@ -9974,7 +10160,7 @@
 
 ### GET /api/v1/properties/:id/change-requests
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, assigne…
   · читает в базе: property
@@ -9991,7 +10177,7 @@
 
 ### POST /api/v1/properties/:id/change-requests
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.requestChange
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.requestChange
 
 - const parsed = createPropertyChangeRequestSchema.safeParse(req.body);
   · проверяет данные схемой createPropertyChangeRequestSchema
@@ -10020,7 +10206,7 @@
 
 ### POST /api/v1/properties/:id/clip-review/approve
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -10035,7 +10221,7 @@
 
 ### POST /api/v1/properties/:id/clip-review/reject
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !(await canDecideClipInCrm(req.agent!.id, can(req, "properties.moderate"), req.params.id))
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -10055,7 +10241,7 @@
 
 ### POST /api/v1/properties/:id/clip-video/upload-sessions/:sessionId/complete
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10071,24 +10257,25 @@
   - return res.status(409).json(lock);
     · ответ 409
 - пробует
-  - assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId: String(req.params.sessionId), agentI…
-    · зовёт assembleChunkedUpload()
+  - await assertOwnChunkedUpload({ kind: "clip-video", sessionId, agentId });
+    · зовёт assertOwnChunkedUpload()
+  - await runUploadCompletion({ req, res, sessionId, owner: chunkedUploadOwner(agentId), what: "ролик карточки", …
+    - const assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId, agentId });
+      · зовёт assembleChunkedUpload()
+    - пробует
+    - в любом случае
+      - await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
+        · дословно из кода
 - если сорвалось
-  - если err instanceof ChunkedUploadError
-    - return res.status(err.status).json(chunkedUploadErrorBody(err));
-      · ответ (код зависит от условия)
+  - если sendUploadError(res, err, "ролик карточки")
+    - return;
+      · дальше не идёт, ничего не меняя
   - throw err;
     · пробрасывает ошибку дальше
-- пробует
-  - res.status(outcome.status).json(outcome.body);
-    · ответ (код зависит от условия)
-- в любом случае
-  - await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
-    · дословно из кода
 
 ### POST /api/v1/properties/:id/clip-video
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(clipVideoUpload.single("video"))
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(clipVideoUpload.single("video"))
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10111,7 +10298,7 @@
 
 ### POST /api/v1/properties/:id/complete-editing
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !body.success
   - return res.status(400).json({ error: "Неверные данные: поле withoutInstagram — да или нет" });
@@ -10129,7 +10316,7 @@
 
 ### GET /api/v1/properties/:id/cover-poster.jpg
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { deletedAt: true, …
   · читает в базе: property
@@ -10149,7 +10336,7 @@
 
 ### POST /api/v1/properties/:id/cover/regenerate
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const exists = await prisma.property.findUnique({ where: { id: req.params.id }, select: { deletedAt: true } }…
   · читает в базе: property
@@ -10175,7 +10362,7 @@
 
 ### POST /api/v1/properties/:id/cover/upload
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, upload.fields([ { name: "square", maxCount: 1 }, { name: "story", maxCount: 1 }, ])
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, upload.fields([ { name: "square", maxCount: 1 }, { name: "story", maxCount: 1 }, ])
 
 - const exists = await prisma.property.findUnique({ where: { id }, select: { deletedAt: true } });
   · читает в базе: property
@@ -10198,7 +10385,7 @@
 
 ### GET /api/v1/properties/:id/delete-request
 
-`apps/api/src/routes/properties/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, assigne…
   · читает в базе: property
@@ -10215,7 +10402,7 @@
 
 ### POST /api/v1/properties/:id/delete-request
 
-`apps/api/src/routes/properties/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.requestDelete
+`apps/api/src/routes/properties/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.requestDelete
 
 - const parsed = propertyDeleteRequestSchema.safeParse(req.body);
   · проверяет данные схемой propertyDeleteRequestSchema
@@ -10250,7 +10437,7 @@
 
 ### POST /api/v1/properties/:id/final-video/discard
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const result = await discardReceivedFinalVideo(req.params.id);
   · зовёт discardReceivedFinalVideo()
@@ -10264,7 +10451,7 @@
 
 ### POST /api/v1/properties/:id/finish-edit
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10296,7 +10483,7 @@
 
 ### DELETE /api/v1/properties/:id/group-share/:index/done
 
-`apps/api/src/routes/properties/groupShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/groupShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsedIndex = indexParamSchema.safeParse(req.params);
   · проверяет данные схемой indexParamSchema
@@ -10318,7 +10505,7 @@
 
 ### POST /api/v1/properties/:id/group-share/:index/done
 
-`apps/api/src/routes/properties/groupShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/groupShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsedIndex = indexParamSchema.safeParse(req.params);
   · проверяет данные схемой indexParamSchema
@@ -10340,7 +10527,7 @@
 
 ### GET /api/v1/properties/:id/group-share
 
-`apps/api/src/routes/properties/groupShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/groupShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const result = await shareStatus(req.params.id);
   · зовёт shareStatus()
@@ -10352,7 +10539,7 @@
 
 ### POST /api/v1/properties/:id/instagram-stories-publish
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10379,7 +10566,7 @@
 
 ### GET /api/v1/properties/:id/instagram-stories/last
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const last = await prisma.propertyStoryPost.findFirst({ where: { propertyId: req.params.id }, orderBy: { publ…
   · читает в базе: propertyStoryPost
@@ -10388,7 +10575,7 @@
 
 ### POST /api/v1/properties/:id/instagram-story-card
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10404,7 +10591,7 @@
 
 ### POST /api/v1/properties/:id/instagram-story-sold
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10423,14 +10610,14 @@
 
 ### GET /api/v1/properties/:id/matching-clients
 
-`apps/api/src/routes/properties/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.viewAll
+`apps/api/src/routes/properties/matching.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.viewAll
 
 - res.json(await matchingClientsForViewer(req, req.params.id));
   · ответ 200
 
 ### GET /api/v1/properties/:id/montajer-messages
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10447,7 +10634,7 @@
 
 ### GET /api/v1/properties/:id/montajer-preview
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -10469,7 +10656,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/approve
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…
   · проверяет данные схемой narrationActionSchema
@@ -10501,7 +10688,7 @@
 
 ### GET /api/v1/properties/:id/narration/:versionId/audio
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const versionId = idSchema.safeParse(req.params.versionId);
   · проверяет данные схемой idSchema
@@ -10523,7 +10710,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/generate
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Генерация доступна маркетингу и руководству" });
@@ -10580,7 +10767,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/handoff-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Передачу готовит маркетинг или руководство" });
@@ -10618,7 +10805,7 @@
 
 ### POST /api/v1/properties/:id/narration/:versionId/reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Результат проверяет руководство" });
@@ -10656,7 +10843,7 @@
 
 ### POST /api/v1/properties/:id/narration/deliveries/:deliveryId/queue
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10703,7 +10890,7 @@
 
 ### POST /api/v1/properties/:id/narration/delivery-reconcile
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Сверку сохраняет руководство" });
@@ -10745,7 +10932,7 @@
 
 ### POST /api/v1/properties/:id/narration/mode
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Озвучку объекта выбирает агент" });
@@ -10781,7 +10968,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10798,7 +10985,7 @@
 
 ### POST /api/v1/properties/:id/narration/owner-report-revoke
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10813,7 +11000,7 @@
 
 ### POST /api/v1/properties/:id/narration/publication-preview
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Нет доступа" });
@@ -10828,7 +11015,7 @@
 
 ### POST /api/v1/properties/:id/narration/remix-retry
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const access = await narrationAccessForAgent(req.agent!.id, p.id);
   · зовёт narrationAccessForAgent()
@@ -10845,7 +11032,7 @@
 
 ### GET /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const facts = narrationFacts(p, config.liveWords === true);
   · зовёт narrationFacts()
@@ -10876,7 +11063,7 @@
 
 ### POST /api/v1/properties/:id/narration
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если req.agent!.role === "EDITOR"
   - return res.status(403).json({ error: "Монтажёр получает подтверждённую озвучку" });
@@ -10948,7 +11135,7 @@
 
 ### DELETE /api/v1/properties/:id/owner-report-link
 
-`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !found.ok
   - return res.status(found.status).json({ error: found.error });
@@ -10960,7 +11147,7 @@
 
 ### GET /api/v1/properties/:id/owner-report-link
 
-`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !found.ok
   - return res.status(found.status).json({ error: found.error });
@@ -10972,7 +11159,7 @@
 
 ### POST /api/v1/properties/:id/owner-report-link
 
-`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/ownerReportLink.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !found.ok
   - return res.status(found.status).json({ error: found.error });
@@ -10984,7 +11171,7 @@
 
 ### DELETE /api/v1/properties/:id/permanent
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.purge
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.purge
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, include: { photos: { orderB…
   · читает в базе: property
@@ -11075,7 +11262,7 @@
 
 ### POST /api/v1/properties/:id/photo-post
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11091,7 +11278,7 @@
 
 ### GET /api/v1/properties/:id/photo-posts
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11108,7 +11295,7 @@
 
 ### POST /api/v1/properties/:id/photos/:photoId/enhance/approve
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const photo = await prisma.propertyPhoto.findUnique({ where: { id: req.params.photoId } });
   · читает в базе: propertyPhoto
@@ -11162,7 +11349,7 @@
 
 ### POST /api/v1/properties/:id/photos/:photoId/enhance/reject
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const photo = await prisma.propertyPhoto.findUnique({ where: { id: req.params.photoId } });
   · читает в базе: propertyPhoto
@@ -11194,7 +11381,7 @@
 
 ### POST /api/v1/properties/:id/photos/:photoId/enhance
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireElevation
 
 - const photo = await prisma.propertyPhoto.findUnique({ where: { id: req.params.photoId } });
   · читает в базе: propertyPhoto
@@ -11245,7 +11432,7 @@
 
 ### DELETE /api/v1/properties/:id/photos/:photoId
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const photo = await prisma.propertyPhoto.findUnique({ where: { id: req.params.photoId } });
   · читает в базе: propertyPhoto
@@ -11276,7 +11463,7 @@
 
 ### GET /api/v1/properties/:id/photos/archive.zip
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, include: { photos: { orderB…
   · читает в базе: property
@@ -11296,7 +11483,7 @@
 
 ### PATCH /api/v1/properties/:id/photos/order
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = photoOrderSchema.safeParse(req.body);
   · проверяет данные схемой photoOrderSchema
@@ -11336,7 +11523,7 @@
 
 ### POST /api/v1/properties/:id/photos
 
-`apps/api/src/routes/properties/photos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(memoryUploadBudget), anyParams(upload.array("photos", 30))
+`apps/api/src/routes/properties/photos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(memoryUploadBudget), anyParams(upload.array("photos", 30))
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11419,8 +11606,11 @@
       - если guessedAddress
         - data.canonicalAddress = normalizePropertyAddress(guessedAddress);
           · зовёт normalizePropertyAddress()
-    - await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …
+    - const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…
       · меняет в базе: property
+    - если written.count > 0
+      - void autoLinkPropertyById(property.id, req.agent?.id ?? null);
+        · зовёт autoLinkPropertyById()
   - если сорвалось
     - void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.…
       · запись в журнал ошибок
@@ -11450,7 +11640,7 @@
 
 ### GET /api/v1/properties/:id/price-advice
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !id
   - return res.status(404).json({ error: "Объект не найден" });
@@ -11471,7 +11661,7 @@
 
 ### GET /api/v1/properties/:id/price-waitlist
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !id
   - return res.status(404).json({ error: "Объект не найден" });
@@ -11492,7 +11682,7 @@
 
 ### POST /api/v1/properties/:id/publication-metadata/:attemptId/reconcile
 
-`apps/api/src/routes/properties/publicationMetadata.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/publicationMetadata.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !["ADMIN","DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({error:"Проверку фиксирует руководство"});
@@ -11533,7 +11723,7 @@
 
 ### POST /api/v1/properties/:id/publish-at
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = publishAtSchema.safeParse(req.body);
   · проверяет данные схемой publishAtSchema
@@ -11552,7 +11742,7 @@
 
 ### POST /api/v1/properties/:id/publish-now
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const result = await publishHandoffNow(req.params.id);
   · зовёт publishHandoffNow()
@@ -11566,7 +11756,7 @@
 
 ### POST /api/v1/properties/:id/refresh-captions
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11591,7 +11781,7 @@
 
 ### POST /api/v1/properties/:id/regenerate-caption
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.aiListing
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.aiListing
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, include: { district: true }…
   · читает в базе: property
@@ -11610,7 +11800,7 @@
 
 ### POST /api/v1/properties/:id/repost
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11628,7 +11818,7 @@
 
 ### GET /api/v1/properties/:id/reposts
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11645,7 +11835,7 @@
 
 ### POST /api/v1/properties/:id/restore
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const result = await restorePropertyFromTrash(req.params.id, { agentId: req.agent!.id, can: (permission)
   · зовёт restorePropertyFromTrash()
@@ -11661,7 +11851,7 @@
 
 ### POST /api/v1/properties/:id/review/approve
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
@@ -11676,7 +11866,7 @@
 
 ### POST /api/v1/properties/:id/review/reject
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
 
 - const parsed = reviewRejectSchema.safeParse(req.body);
   · проверяет данные схемой reviewRejectSchema
@@ -11693,7 +11883,7 @@
 
 ### POST /api/v1/properties/:id/send-back-to-montajer
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11720,7 +11910,7 @@
 
 ### GET /api/v1/properties/:id/share-links
 
-`apps/api/src/routes/properties/shareLinks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/shareLinks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11737,7 +11927,7 @@
 
 ### POST /api/v1/properties/:id/share-links
 
-`apps/api/src/routes/properties/shareLinks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/shareLinks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11767,7 +11957,7 @@
 
 ### POST /api/v1/properties/:id/sms-share
 
-`apps/api/src/routes/properties/smsShare.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/smsShare.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: `Выберите от 1 до ${SMS_SHARE_MAX_RECIPIENTS} клиентов` });
@@ -11859,7 +12049,7 @@
 
 ### POST /api/v1/properties/:id/social-extras/remove
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11875,7 +12065,7 @@
 
 ### GET /api/v1/properties/:id/social-extras
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { deletedAt: true }…
   · читает в базе: property
@@ -11887,7 +12077,7 @@
 
 ### POST /api/v1/properties/:id/social-removed-by-hand
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = markRemovedByHandSchema.safeParse(req.body);
   · проверяет данные схемой markRemovedByHandSchema
@@ -11907,7 +12097,7 @@
 
 ### POST /api/v1/properties/:id/social-unpublish
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -11934,7 +12124,7 @@
 
 ### GET /api/v1/properties/:id/stats/platforms
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !id
   - return res.status(404).json({ error: "Объект не найден" });
@@ -11950,7 +12140,7 @@
 
 ### GET /api/v1/properties/:id/stats
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !id
   - return res.status(404).json({ error: "Объект не найден" });
@@ -11971,7 +12161,7 @@
 
 ### GET /api/v1/properties/:id/story-card.jpg
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const result = await generateStoryCard(req.params.id);
   · зовёт generateStoryCard()
@@ -11987,7 +12177,7 @@
 
 ### POST /api/v1/properties/:id/tiktok-publish
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12038,7 +12228,7 @@
 
 ### POST /api/v1/properties/:id/transfer
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/transfer.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
   · зовёт transferPropertyByManager()
@@ -12077,7 +12267,7 @@
 
 ### POST /api/v1/properties/:id/video-handoff/requeue
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12104,7 +12294,7 @@
 
 ### POST /api/v1/properties/:id/video-handoff/upload
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(videoHandoffUpload.single("video"))
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(videoHandoffUpload.single("video"))
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12126,7 +12316,7 @@
 
 ### GET /api/v1/properties/:id/videos/:videoId/download-file
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const video = await prisma.propertyVideo.findUnique({ where: { id: req.params.videoId } });
   · читает в базе: propertyVideo
@@ -12156,7 +12346,7 @@
 
 ### GET /api/v1/properties/:id/videos/:videoId/download
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const video = await prisma.propertyVideo.findUnique({ where: { id: req.params.videoId } });
   · читает в базе: propertyVideo
@@ -12175,7 +12365,7 @@
 
 ### GET /api/v1/properties/:id/videos/:videoId/file
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const video = await prisma.propertyVideo.findUnique({ where: { id: req.params.videoId } });
   · читает в базе: propertyVideo
@@ -12207,7 +12397,7 @@
 
 ### DELETE /api/v1/properties/:id/videos/:videoId
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const video = await prisma.propertyVideo.findUnique({ where: { id: req.params.videoId } });
   · читает в базе: propertyVideo
@@ -12240,7 +12430,7 @@
 
 ### GET /api/v1/properties/:id/videos/archive.zip
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12268,7 +12458,7 @@
 
 ### POST /api/v1/properties/:id/videos/upload-sessions/:sessionId/complete
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12278,9 +12468,14 @@
 - const session = await prisma.videoUploadSession.findUnique({ where: { id: req.params.sessionId } });
   · читает в базе: videoUploadSession
 - если !session || session.propertyId !== property.id
-  - return res.status(404).json({ error: "Загрузка не найдена" });
-    · ответ 404 — «Загрузка не найдена»
-- если !permitted
+  - const stored = !session ? await readUploadState(String(req.params.sessionId), owner) : null;
+    · зовёт readUploadState()
+  - если stored?.state === "done" && (canManageProperty(req, property) || (await canManageOrIsHandoffMontajer(req, pro…
+    - return replyStoredUpload(req, res, stored, String(req.params.sessionId));
+      · зовёт replyStoredUpload()
+  - return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
+    · ответ 404
+- если !(await mayUseVideoSession(req, property, session.purpose))
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - если session.purpose !== "HANDOFF"
@@ -12294,73 +12489,84 @@
 - если !completeBody.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
+- const uploadedParts = await listLocalUploadParts(session.id);
+  · зовёт listLocalUploadParts()
 - если uploadedParts.length !== session.totalParts
-  - return res.status(409).json({ error: "Не все части получены", uploadedPartNumbers: uploadedParts });
-    · ответ 409 — «Не все части получены»
-- если session.purpose === "HANDOFF"
-  - const ext = videoExtensionOf(session.filename) ?? ".mp4";
-    · зовёт videoExtensionOf()
-  - пробует
-    - await completeLocalUploadSessionToPath(session.id, assembledPath, session.totalParts);
-      · зовёт completeLocalUploadSessionToPath()
-  - если сорвалось
-    - void logSystemError("storage", `Не удалось собрать ролик монтажёра из частей на диске: ${err instanceof Error…
-      · запись в журнал ошибок
-    - return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
-      · ответ 502 — «Не удалось собрать файл — попробуйте ещё раз»
-  - const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfAppro…
-    · зовёт receiveEditedVideoFromFile()
-  - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
+  - return res.status(409).json(uploadErrorBody("PARTS_MISSING", { message: "Не все части получены", extra: { upl…
+    · ответ 409
+- пробует
+  - await runUploadCompletion({ req, res, sessionId: session.id, owner, what: session.purpose === "HANDOFF" ? "ро…
+    · пробрасывает ошибку дальше
     · удаляет в базе: videoUploadSession
-  - если !result.ok
-    - await closeManualFinalVideoWait(property.id);
-      · зовёт closeManualFinalVideoWait()
-    - return res.status(409).json({ error: result.error });
-      · ответ 409
-  - return res.status(200).json(handoffReceivedBody(result));
-    · ответ 200
-- пробует
-  - await completeLocalUploadSession(session.id, session.storageKey, session.totalParts);
-    · зовёт completeLocalUploadSession()
-- если сорвалось
-  - void logSystemError("storage", `Не удалось собрать видео из частей на диске: ${err instanceof Error ? err.mes…
-    · запись в журнал ошибок
-  - return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
-    · ответ 502 — «Не удалось собрать файл — попробуйте ещё раз»
-- const uploader = await prisma.agent.findUnique({ where: { id: session.createdById }, select: { fullName: true…
-  · читает в базе: agent
-- пробует
-  - video = await prisma.propertyVideo.create({ data: { propertyId: property.id, storageKey: session.storageKey, …
+    · читает в базе: agent
     · создаёт в базе: propertyVideo
-- если сорвалось
-  - если (err as { code?: string }).code !== "P2002"
-    - throw err;
-      · пробрасывает ошибку дальше
-  - const raced = await prisma.propertyVideo.findUniqueOrThrow({ where: { uploadKey: session.uploadKey }, include…
     · читает в базе: propertyVideo
-  - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
-    · удаляет в базе: videoUploadSession
-  - если raced.storageKey !== session.storageKey
-    - void localVideoDelete(session.storageKey);
-      · зовёт localVideoDelete()
-  - return res.status(200).json(presentVideo(raced, raced.uploadedBy.fullName));
-    · ответ 200
-- await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
-  · удаляет в базе: videoUploadSession
-- если !isMontajerSource
-  - void revertToReviewAfterVideoUpload(property) .then(()
-    · зовёт revertToReviewAfterVideoUpload()
-- logAudit(req, "PROPERTY_VIDEOS_ADDED", "Property", property.id, { shortId: property.shortId, count: 1 });
-  · зовёт logAudit()
-- если !isMontajerSource
-  - void notifySourceFilesChanged(property.id, "video", "добавлен 1", req.agent!.id);
-    · зовёт notifySourceFilesChanged()
-- res.status(201).json(presentVideo(video, uploader?.fullName ?? ""));
-  · ответ 201
+    - если session.purpose === "HANDOFF"
+      - const ext = videoExtensionOf(session.filename) ?? ".mp4";
+        · зовёт videoExtensionOf()
+      - пробует
+        - пробует
+          - await completeLocalUploadSessionToPath(session.id, assembledPath, plan);
+            · зовёт completeLocalUploadSessionToPath()
+        - если сорвалось
+          - throw toStorageError(err, "сборка ролика монтажёра");
+            · пробрасывает ошибку дальше
+        - const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfAppro…
+          · зовёт receiveEditedVideoFromFile()
+        - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
+          · удаляет в базе: videoUploadSession
+        - если !result.ok
+          - await closeManualFinalVideoWait(property.id);
+            · зовёт closeManualFinalVideoWait()
+      - в любом случае
+        - await fs.rm(assembledPath, { force: true }).catch(() => {});
+          · дословно из кода
+    - пробует
+      - await completeLocalUploadSession(session.id, session.storageKey, plan);
+        · зовёт completeLocalUploadSession()
+    - если сорвалось
+      - throw toStorageError(err, "сборка видео объекта");
+        · пробрасывает ошибку дальше
+    - const uploader = await prisma.agent.findUnique({ where: { id: session.createdById }, select: { fullName: true…
+      · читает в базе: agent
+    - пробует
+      - video = await prisma.propertyVideo.create({ data: { propertyId: property.id, storageKey: session.storageKey, …
+        · создаёт в базе: propertyVideo
+    - если сорвалось
+      - если (err as { code?: string }).code !== "P2002"
+        - throw err;
+          · пробрасывает ошибку дальше
+      - const raced = await prisma.propertyVideo.findUniqueOrThrow({ where: { uploadKey: session.uploadKey }, include…
+        · читает в базе: propertyVideo
+      - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
+        · удаляет в базе: videoUploadSession
+      - если raced.storageKey !== session.storageKey
+        - void localVideoDelete(session.storageKey);
+          · зовёт localVideoDelete()
+      - return { status: 200, body: presentVideo(raced, raced.uploadedBy.fullName) };
+        · зовёт presentVideo()
+    - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
+      · удаляет в базе: videoUploadSession
+    - если !isMontajerSource
+      - void revertToReviewAfterVideoUpload(property) .then(()
+        · зовёт revertToReviewAfterVideoUpload()
+    - logAudit(req, "PROPERTY_VIDEOS_ADDED", "Property", property.id, { shortId: property.shortId, count: 1 });
+      · зовёт logAudit()
+    - если !isMontajerSource
+      - void notifySourceFilesChanged(property.id, "video", "добавлен 1", req.agent!.id);
+        · зовёт notifySourceFilesChanged()
+    - return { status: 201, body: presentVideo(video, uploader?.fullName ?? "") };
+      · зовёт presentVideo()
+- если сорвалось
+  - если sendUploadError(res, err, "видео объекта: сборка")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### PUT /api/v1/properties/:id/videos/upload-sessions/:sessionId/parts/:partNumber
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, express.raw({ type: () => true, limit: "32mb" })
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12370,36 +12576,46 @@
 - const session = await prisma.videoUploadSession.findUnique({ where: { id: req.params.sessionId } });
   · читает в базе: videoUploadSession
 - если !session || session.propertyId !== property.id
-  - return res.status(404).json({ error: "Загрузка не найдена" });
-    · ответ 404 — «Загрузка не найдена»
-- если !permitted
+  - return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
+    · ответ 404
+- если !(await mayUseVideoSession(req, property, session.purpose))
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
-- если !Number.isInteger(partNumber) || partNumber < 1 || partNumber > session.totalParts
-  - return res.status(400).json({ error: "Неверный номер части" });
-    · ответ 400 — «Неверный номер части»
-- если !Buffer.isBuffer(body) || body.length === 0
-  - return res.status(400).json({ error: "Пустая часть" });
-    · ответ 400 — «Пустая часть»
-- если !isLastPart && body.length !== session.partSize
-  - return res.status(400).json({ error: "Размер части не совпадает с планом загрузки" });
-    · ответ 400 — «Размер части не совпадает с планом загрузки»
 - пробует
-  - await writeLocalUploadPart(session.id, partNumber, body);
+  - если !Number.isInteger(partNumber) || partNumber < 1 || partNumber > session.totalParts
+    - throw new UploadError("PART_OUT_OF_RANGE");
+      · ошибка UploadError — «PART_OUT_OF_RANGE»
+  - await assertUploadDiskSpace(expectedBytes);
+    · зовёт assertUploadDiskSpace()
+  - const bytes = await writeLocalUploadPart(session.id, partNumber, partBodySource(req), { expectedBytes });
     · зовёт writeLocalUploadPart()
+  - logUploadPart(req, { kind: "property-video", sessionId: session.id, partNumber, bytes, startedAt });
+    · зовёт logUploadPart()
 - если сорвалось
-  - void logSystemError("storage", `Не удалось записать часть видео на диск: ${err instanceof Error ? err.message…
-    · запись в журнал ошибок
-  - return res.status(502).json({ error: "Часть не дошла до хранилища — попробуйте ещё раз" });
-    · ответ 502 — «Часть не дошла до хранилища — попробуйте ещё раз»
-- await prisma.videoUploadSession.update({ where: { id: session.id }, data: { parts: parts.map((n)
+  - если err instanceof UploadError
+    - logUploadPart(req, { kind: "property-video", sessionId: session.id, partNumber, startedAt, code: err.code });
+      · зовёт logUploadPart()
+  - если sendUploadError(res, err, "видео объекта: часть")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
+- await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
   · меняет в базе: videoUploadSession
+  - await tx.$queryRaw`SELECT id FROM "VideoUploadSession" WHERE id = ${session.id} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - const parts = await listLocalUploadParts(session.id);
+    · зовёт listLocalUploadParts()
+  - await tx.videoUploadSession.updateMany({ where: { id: session.id }, data: { parts: parts.map((n)
+    · меняет в базе: videoUploadSession
 - res.json({ ok: true, partNumber });
   · ответ 200
 
 ### DELETE /api/v1/properties/:id/videos/upload-sessions/:sessionId
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12426,9 +12642,36 @@
 - res.status(204).end();
   · ответ 204
 
+### GET /api/v1/properties/:id/videos/upload-sessions/:sessionId
+
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+  · читает в базе: property
+- если !property
+  - return res.status(404).json({ error: PROPERTY_GONE_MESSAGE });
+    · ответ 404
+- const session = await prisma.videoUploadSession.findUnique({ where: { id: sessionId } });
+  · читает в базе: videoUploadSession
+- если session && session.propertyId !== property.id
+  - return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND"));
+    · ответ 404
+- если !permitted
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- const stored = await readUploadState(sessionId, videoSessionOwner(property.id));
+  · зовёт readUploadState()
+- если !session && !stored
+  - return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND"));
+    · ответ 404
+- const sizes = await localUploadPartSizes(sessionId);
+  · зовёт localUploadPartSizes()
+- res.json(view);
+  · ответ 200
+
 ### POST /api/v1/properties/:id/videos/upload-sessions
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12454,6 +12697,9 @@
 - если sizeBytes > MAX_VIDEO_SESSION_BYTES
   - return res.status(400).json({ error: videoTooLargeMessage(filename), code: VIDEO_TOO_LARGE_CODE, limitBytes: …
     · ответ 400
+- если !plan
+  - return res.status(400).json(uploadErrorBody("PART_SIZE_INVALID"));
+    · ответ 400
 - если purpose !== "handoff"
   - const lock = propertyEditLockBody(req, property);
     · зовёт propertyEditLockBody()
@@ -12476,6 +12722,15 @@
       · ответ 409 — «Ключ загрузки уже использован другим объектом»
   - return res.status(200).json({ status: "in-progress", sessionId: existingSession.id, partSize: existingSession…
     · ответ 200
+- пробует
+  - await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
+    · зовёт assertUploadDiskSpace()
+- если сорвалось
+  - если sendUploadError(res, err, "видео объекта: старт")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
 - если purpose === "handoff"
   - если property.videoHandoffStatus !== "SENT_TO_EDITOR"
     - если reopenDenied
@@ -12500,10 +12755,11 @@
   - await createLocalUploadSession(sessionId);
     · зовёт createLocalUploadSession()
 - если сорвалось
-  - void logSystemError("storage", `Не удалось открыть загрузку видео на диск: ${err instanceof Error ? err.messa…
-    · запись в журнал ошибок
-  - return res.status(502).json({ error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
-    · ответ 502 — «Не удалось начать загрузку видео — попробуйте ещё раз»
+  - если sendUploadError(res, err, "видео объекта: старт")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
 - const session = await prisma.videoUploadSession.create({ data: { id: sessionId, propertyId: property.id, uplo…
   · создаёт в базе: videoUploadSession
 - res.status(201).json({ status: "started", sessionId: session.id, partSize, totalParts, uploadedPartNumbers: […
@@ -12511,7 +12767,7 @@
 
 ### GET /api/v1/properties/:id/videos
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12528,7 +12784,7 @@
 
 ### POST /api/v1/properties/:id/videos
 
-`apps/api/src/routes/properties/videos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(videoUpload.array("videos", MAX_VIDEOS_PER_REQUEST))
+`apps/api/src/routes/properties/videos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, anyParams(videoUpload.array("videos", MAX_VIDEOS_PER_REQUEST))
 
 - const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12613,7 +12869,7 @@
 
 ### GET /api/v1/properties/:id/voice
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !id
   - return res.status(404).json({ error: "Объект не найден" });
@@ -12634,7 +12890,7 @@
 
 ### DELETE /api/v1/properties/:id
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const removal = propertyRemovalSchema.safeParse(req.body ?? {});
   · проверяет данные схемой propertyRemovalSchema
@@ -12655,7 +12911,7 @@
 
 ### GET /api/v1/properties/:id
 
-`apps/api/src/routes/properties/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const cardWhere = cardWhereFromParam(String(req.params.id));
   · зовёт cardWhereFromParam()
@@ -12679,7 +12935,7 @@
 
 ### PATCH /api/v1/properties/:id
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const removal = propertyRemovalSchema.safeParse(req.body);
   · проверяет данные схемой propertyRemovalSchema
@@ -12690,6 +12946,11 @@
   · проверяет данные схемой propertyUpdateSchema
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой registryChoiceBodySchema
+- если !registryChoice.success
+  - return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
     · ответ 400 — «Неверные данные»
 - const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
@@ -12862,6 +13123,11 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
+- const registryError = registryChoice.data.registry ? registryChoiceError(await applyRegistryChoice(updated.id…
+  · зовёт registryChoiceError()
+- если !registryChoice.data.registry
+  - void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
+    · зовёт applyRegistryChoice()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12869,21 +13135,22 @@
     · зовёт skipVideoHandoffOnManualPublish()
   - publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…
     · зовёт publishPropertyUpdated()
-  - если siteSyncError
-    - return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+  - если siteSyncError || registryError
+    - return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {})…
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
-- void autoLinkPropertyById(updated.id);
-  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
+- если registryError
+  - return res.status(207).json({ ...presentProperty(updated, req), registryError });
+    · ответ 207
 - res.json(presentProperty(updated, req));
   · ответ 200
 
 ### POST /api/v1/properties/bulk-sync
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.publish
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.publish
 
 - const parsed = bulkSiteSyncSchema.safeParse(req.body);
   · проверяет данные схемой bulkSiteSyncSchema
@@ -12928,7 +13195,7 @@
 
 ### POST /api/v1/properties/bulk-trash
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const removal = propertyRemovalSchema.safeParse(req.body);
   · проверяет данные схемой propertyRemovalSchema
@@ -12953,7 +13220,7 @@
 
 ### POST /api/v1/properties/change-requests/:rid/approve
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = decidePropertyChangeRequestSchema.safeParse(req.body ?? {});
   · проверяет данные схемой decidePropertyChangeRequestSchema
@@ -12970,7 +13237,7 @@
 
 ### POST /api/v1/properties/change-requests/:rid/cancel
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const result = await cancelPropertyChangeRequest({ requestId: req.params.rid, actorId: req.agent!.id });
   · зовёт cancelPropertyChangeRequest()
@@ -12982,7 +13249,7 @@
 
 ### POST /api/v1/properties/change-requests/:rid/reject
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = rejectPropertyChangeRequestSchema.safeParse(req.body);
   · проверяет данные схемой rejectPropertyChangeRequestSchema
@@ -12999,7 +13266,7 @@
 
 ### GET /api/v1/properties/change-requests
 
-`apps/api/src/routes/properties/changeRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/changeRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -13013,7 +13280,7 @@
 
 ### GET /api/v1/properties/clip-review/pending
 
-`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+`apps/api/src/routes/properties/moderation.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
 
 - const parsed = clipPendingQuerySchema.safeParse(req.query);
   · проверяет данные схемой clipPendingQuerySchema
@@ -13025,7 +13292,7 @@
 
 ### POST /api/v1/properties/delete-requests/:id/approve
 
-`apps/api/src/routes/properties/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = propertyDeleteRequestApproveSchema.safeParse(req.body ?? {});
   · проверяет данные схемой propertyDeleteRequestApproveSchema
@@ -13042,7 +13309,7 @@
 
 ### POST /api/v1/properties/delete-requests/:id/reject
 
-`apps/api/src/routes/properties/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = propertyDeleteRequestRejectSchema.safeParse(req.body);
   · проверяет данные схемой propertyDeleteRequestRejectSchema
@@ -13059,7 +13326,7 @@
 
 ### GET /api/v1/properties/delete-requests
 
-`apps/api/src/routes/properties/deleteRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/deleteRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -13075,7 +13342,7 @@
 
 ### DELETE /api/v1/properties/drafts/current/media/:mediaId
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
@@ -13090,7 +13357,7 @@
 
 ### POST /api/v1/properties/drafts/current/photos
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен, memoryUploadBudget, draftPhotoUpload.array("photos", 5)
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен, memoryUploadBudget, draftPhotoUpload.array("photos", 5)
 
 - const draft = await ensureDraft(req.agent!.id, req.get("X-Property-Draft-Id"));
   · зовёт ensureDraft()
@@ -13109,7 +13376,7 @@
 
 ### POST /api/v1/properties/drafts/current/start
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const parsed = propertyDraftStartSchema.safeParse(req.body);
   · проверяет данные схемой propertyDraftStartSchema
@@ -13137,33 +13404,67 @@
 
 ### POST /api/v1/properties/drafts/current/videos/:mediaId/complete
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- const completed = await completeDraftVideo(req.agent!.id, req.get("X-Property-Draft-Id"), parsedId.data);
-  · зовёт completeDraftVideo()
-- res.status(completed.status).json(completed.body);
-  · ответ (код зависит от условия)
+- const media = await prisma.propertyDraftMedia.findUnique({ where: { id: mediaId }, select: { status: true } }…
+  · читает в базе: propertyDraftMedia
+- если !media || media.status === "READY"
+  - const completed = await completeDraftVideoLocked(agentId, draftHeaderId, mediaId);
+    · зовёт completeDraftVideoLocked()
+  - return res.status(completed.status).json(completed.body);
+    · ответ (код зависит от условия)
+- пробует
+  - await runUploadCompletion({ req, res, sessionId: mediaId, owner: draftVideoOwner(agentId), what: "ролик черно…
+    - const completed = await completeDraftVideoLocked(agentId, draftHeaderId, mediaId);
+      · зовёт completeDraftVideoLocked()
+- если сорвалось
+  - если sendUploadError(res, err, "ролик черновика: сборка")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### PUT /api/v1/properties/drafts/current/videos/:mediaId/parts/:partNumber
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен, (req, res, next) => { req.headers["content-type"] = "application/octet-stream"; next(); }, express.raw({ type: () => true, limit: "32mb" })
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const parsedParams = partParamsSchema.safeParse(req.params);
   · проверяет данные схемой partParamsSchema
 - если !parsedParams.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- const written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber,…
-  · зовёт writeDraftVideoPart()
+- пробует
+  - written = await writeDraftVideoPart(req.agent!.id, req.get("X-Property-Draft-Id"), mediaId, partNumber, partB…
+    · зовёт writeDraftVideoPart()
+- если сорвалось
+  - если sendUploadError(res, err, "ролик черновика: часть")
+    - return;
+      · дальше не идёт, ничего не меняя
+  - throw err;
+    · пробрасывает ошибку дальше
+- logUploadPart(req, { kind: "draft-video", sessionId: mediaId, partNumber, startedAt, code });
+  · зовёт logUploadPart()
 - res.status(written.status).json(written.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/properties/drafts/current/videos/:mediaId
+
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+
+- если !parsedId.success
+  - return res.status(400).json({ error: "Неверные данные" });
+    · ответ 400 — «Неверные данные»
+- const status = await draftVideoStatus(req.agent!.id, parsedId.data);
+  · зовёт draftVideoStatus()
+- res.status(status.status).json(status.body);
   · ответ (код зависит от условия)
 
 ### POST /api/v1/properties/drafts/current/videos/sessions
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const parsed = propertyDraftVideoSessionSchema.safeParse(req.body);
   · проверяет данные схемой propertyDraftVideoSessionSchema
@@ -13177,7 +13478,7 @@
 
 ### DELETE /api/v1/properties/drafts/current
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const parsed = propertyDraftDeleteSchema.safeParse(req.body ?? {});
   · проверяет данные схемой propertyDraftDeleteSchema
@@ -13209,7 +13510,7 @@
 
 ### GET /api/v1/properties/drafts/current
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const revision = draft?.revision ?? (await prisma.propertyDraft.findUnique({ where: { agentId: req.agent!.id …
   · читает в базе: propertyDraft
@@ -13218,7 +13519,7 @@
 
 ### PUT /api/v1/properties/drafts/current
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - const parsed = propertyDraftSaveSchema.safeParse(req.body);
   · проверяет данные схемой propertyDraftSaveSchema
@@ -13243,7 +13544,7 @@
 
 ### POST /api/v1/properties/drafts/from-client/:clientId
 
-`apps/api/src/routes/properties/drafts.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
+`apps/api/src/routes/properties/drafts.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, draftErrorHandler, вход выполнен
 
 - если !parsedId.success
   - return res.status(400).json({ error: "Неверный идентификатор клиента" });
@@ -13260,7 +13561,7 @@
 
 ### GET /api/v1/properties/duplicate-check
 
-`apps/api/src/routes/properties/duplicateCheck.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/duplicateCheck.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = propertyDuplicateCheckQuerySchema.safeParse(req.query);
   · проверяет данные схемой propertyDuplicateCheckQuerySchema
@@ -13272,7 +13573,7 @@
 
 ### GET /api/v1/properties/export
 
-`apps/api/src/routes/properties/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.export
+`apps/api/src/routes/properties/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.export
 
 - const [items, total] = await Promise.all([ prisma.property.findMany({ where: { status: "AVAILABLE", deletedAt…
   · читает в базе: property
@@ -13299,7 +13600,7 @@
 
 ### GET /api/v1/properties/handover/pending
 
-`apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/transfer.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const rows = await prisma.property.findMany({ where: { deletedAt: null, handoverPendingSince: { not: null }, …
   · читает в базе: property
@@ -13308,7 +13609,7 @@
 
 ### GET /api/v1/properties/health
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = healthQuerySchema.safeParse(req.query);
   · проверяет данные схемой healthQuerySchema
@@ -13331,7 +13632,7 @@
 
 ### GET /api/v1/properties/map
 
-`apps/api/src/routes/properties/map.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/map.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = mapQuerySchema.safeParse(req.query);
   · проверяет данные схемой mapQuerySchema
@@ -13446,7 +13747,7 @@
 
 ### GET /api/v1/properties/narration-free/:id/file
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const id = idSchema.safeParse(req.params.id);
   · проверяет данные схемой idSchema
@@ -13463,7 +13764,7 @@
 
 ### GET /api/v1/properties/narration-free/options
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const used = await freeNarrationUsedToday(req.agent!.id);
   · зовёт freeNarrationUsedToday()
@@ -13472,7 +13773,7 @@
 
 ### POST /api/v1/properties/narration-free
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const body = freeNarrationRequestSchema.safeParse(req.body);
   · проверяет данные схемой freeNarrationRequestSchema
@@ -13549,7 +13850,7 @@
 
 ### GET /api/v1/properties/narration-listen/:id/file
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const id = idSchema.safeParse(req.params.id);
   · проверяет данные схемой idSchema
@@ -13566,7 +13867,7 @@
 
 ### POST /api/v1/properties/narration-listen
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const body = narrationListenRequestSchema.safeParse(req.body);
   · проверяет данные схемой narrationListenRequestSchema
@@ -13612,7 +13913,7 @@
 
 ### GET /api/v1/properties/narration-music/:id/file
 
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !hasMarketingRole(req.agent)
   - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
@@ -13640,7 +13941,7 @@
 
 ### DELETE /api/v1/properties/narration-music/:id
 
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !canConfigure(req.agent!.role)
   - return res.status(403).json({ error: "Музыку удаляет руководство" });
@@ -13660,7 +13961,7 @@
 
 ### GET /api/v1/properties/narration-music
 
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !hasMarketingRole(req.agent)
   - return res.status(403).json({ error: "Музыка доступна маркетингу и руководству" });
@@ -13672,7 +13973,7 @@
 
 ### POST /api/v1/properties/narration-music
 
-`apps/api/src/routes/properties/narrationMusic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, narrationMusicUpload.single("file")
+`apps/api/src/routes/properties/narrationMusic.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, narrationMusicUpload.single("file")
 
 - если !canConfigure(req.agent!.role)
   - return res.status(403).json({ error: "Музыку загружает руководство" });
@@ -13700,7 +14001,7 @@
 
 ### GET /api/v1/properties/narration-options
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - const view: NarrationOptionsView = { templates: config.templates ?? [], endings: config.endings ?? [], voices…
   · зовёт narrationAutoEnabled()
@@ -13709,7 +14010,7 @@
 
 ### GET /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !manager(req.agent)
   - return res.status(403).json({ error: "Настройки доступны маркетингу и руководству" });
@@ -13719,7 +14020,7 @@
 
 ### PUT /api/v1/properties/narration-settings
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Голоса настраивает руководство" });
@@ -13764,7 +14065,7 @@
 
 ### GET /api/v1/properties/narration-voice-samples/:voiceId/:lang
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !params.success
   - return res.status(400).json({ error: "Некорректный голос" });
@@ -13784,7 +14085,7 @@
 
 ### POST /api/v1/properties/narration-voice-samples/prepare
 
-`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+`apps/api/src/routes/properties/narration.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/narration-options", "/narration-free", "/narration-listen", "/narration-voice-sampl…, вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
 
 - если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
   - return res.status(403).json({ error: "Образцы голосов готовит руководство" });
@@ -13805,7 +14106,7 @@
 
 ### GET /api/v1/properties/needs-help
 
-`apps/api/src/routes/properties/stats.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/stats.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - пробует
   - res.json(await loadNeedsHelp());
@@ -13818,7 +14119,7 @@
 
 ### POST /api/v1/properties/removal-dossiers
 
-`apps/api/src/routes/properties/removalDossier.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/removalDossier.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !canViewInvestigations(req.agent?.role) || !can(req, "clients.securityReview")
   - return res.status(403).json({ error: 'Недостаточно прав' });
@@ -13833,7 +14134,7 @@
 
 ### DELETE /api/v1/properties/share-links/:linkId
 
-`apps/api/src/routes/properties/shareLinks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/shareLinks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const link = await prisma.propertyShareLink.findUnique({ where: { id: req.params.linkId }, include: { propert…
   · читает в базе: propertyShareLink
@@ -13851,7 +14152,7 @@
 
 ### GET /api/v1/properties/summary
 
-`apps/api/src/routes/properties/summary.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/summary.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const [showings30d, deadlines, pipelineRows, pipelineTotal] = await Promise.all([ prisma.interaction.count({ …
   · считает в базе: interaction
@@ -13865,7 +14166,7 @@
 
 ### GET /api/v1/properties/trash
 
-`apps/api/src/routes/properties/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
+`apps/api/src/routes/properties/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: archive.view
 
 - const [items, total] = await Promise.all([ prisma.property.findMany({ where, orderBy: [{ deletedAt: "desc" },…
   · читает в базе: property
@@ -13875,7 +14176,7 @@
 
 ### GET /api/v1/properties
 
-`apps/api/src/routes/properties/list.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/list.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = propertyQuerySchema.safeParse(req.query);
   · проверяет данные схемой propertyQuerySchema
@@ -13961,14 +14262,16 @@
     - [items, total] = await Promise.all([ prisma.property.findMany({ where: fuzzyWhere, orderBy: [{ createdAt: "de…
       · читает в базе: property
       · считает в базе: property
-- const result = await presentPropertyListItems(items, req);
-  · зовёт presentPropertyListItems()
-- res.json({ items: result, total, page: pageNum, pageSize });
+- const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…
+  · запись в журнал ошибок
+  - void logSystemError("api", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…
+    · запись в журнал ошибок
+- res.json({ items: result.map((p)
   · ответ 200
 
 ### POST /api/v1/properties
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/properties/crud.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const result = await createProperty({ agent: req.agent!, body: req.body, forceDuplicate: req.query.force === …
   · зовёт createProperty()
@@ -13979,7 +14282,7 @@
 
 ### POST /api/v1/property-offers/:id/answer
 
-`apps/api/src/routes/propertyOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/propertyOffers.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const body = answerSchema.safeParse(req.body);
   · проверяет данные схемой answerSchema
@@ -14000,7 +14303,7 @@
 
 ### GET /api/v1/public/instagram/media
 
-`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/publicFeed.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const items = await getInstagramMedia();
   · зовёт getInstagramMedia()
@@ -14011,7 +14314,7 @@
 
 ### GET /api/v1/public/meta-catalog/home-listings.csv
 
-`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/publicFeed.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await metaCatalogKeyOk(req))
   - return res.status(404).end();
@@ -14027,7 +14330,7 @@
 
 ### GET /api/v1/public/meta-catalog/products-video.csv
 
-`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/publicFeed.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await metaCatalogKeyOk(req))
   - return res.status(404).end();
@@ -14043,7 +14346,7 @@
 
 ### GET /api/v1/public/property-video/:file
 
-`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/publicFeed.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !parsed.success
   - return res.status(404).end();
@@ -14073,7 +14376,7 @@
 
 ### GET /api/v1/public/owner-report/:token
 
-`apps/api/src/routes/ownerReportPublic.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ownerReportNoStore, предел частоты запросов, (_req, res, next) => { res.setHeader("Cache-Control", "no-store" · **вход не требуется**
+`apps/api/src/routes/ownerReportPublic.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ownerReportNoStore, предел частоты запросов, (_req, res, next) => { res.setHeader("Cache-Control", "no-store" · **вход не требуется**
 
 - если !OWNER_REPORT_TOKEN_RE.test(token)
   - return res.status(404).json(NOT_FOUND);
@@ -14107,7 +14410,7 @@
 
 ### POST /api/v1/push/action
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const parsed = actionSchema.safeParse(req.body ?? {});
   · проверяет данные схемой actionSchema
@@ -14154,21 +14457,21 @@
 
 ### GET /api/v1/push/config
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json({ enabled: isPushConfigured(), publicKey: getVapidPublicKey() });
   · ответ 200
 
 ### GET /api/v1/push/preferences
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json(preferencesView(await mutedKindsOf(req.agent!.id)));
   · ответ 200
 
 ### PATCH /api/v1/push/preferences
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
@@ -14186,7 +14489,7 @@
 
 ### POST /api/v1/push/subscribe
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = subscribeSchema.safeParse(req.body);
   · проверяет данные схемой subscribeSchema
@@ -14200,7 +14503,7 @@
 
 ### POST /api/v1/push/test
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !isPushConfigured()
   - return res.status(503).json({ error: "Push не настроен на сервере (VAPID-ключи)" });
@@ -14217,7 +14520,7 @@
 
 ### POST /api/v1/push/unsubscribe
 
-`apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/push.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
@@ -14231,7 +14534,7 @@
 
 ### POST /api/v1/report-pdf/:kind/telegram
 
-`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/reportPdf.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !kind
   - return;
@@ -14258,7 +14561,7 @@
 
 ### GET /api/v1/report-pdf/:kind
 
-`apps/api/src/routes/reportPdf.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/reportPdf.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !kind
   - return;
@@ -14282,14 +14585,14 @@
 
 ### GET /api/v1/reports/agents
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - res.json(await buildAgentsReport(parseReportRange(req.query), reportViewer(req)));
   · ответ 200
 
 ### GET /api/v1/reports/demand-supply
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = demandSupplyQuerySchema.safeParse(req.query);
   · проверяет данные схемой demandSupplyQuerySchema
@@ -14309,7 +14612,7 @@
 
 ### GET /api/v1/reports/funnel
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const range = parseReportRange(req.query);
   · зовёт parseReportRange()
@@ -14320,7 +14623,7 @@
 
 ### GET /api/v1/reports/hot-properties
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = hotQuerySchema.safeParse(req.query);
   · проверяет данные схемой hotQuerySchema
@@ -14340,7 +14643,7 @@
 
 ### GET /api/v1/reports/lost-by-channel
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const [lostRows, totalRows] = await Promise.all([ prisma.client.groupBy({ by: ["source", "refusalReason"], wh…
   · считает в базе: client
@@ -14353,7 +14656,7 @@
 
 ### GET /api/v1/reports/marketing-funnel
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const result = await buildMarketingFunnel(seesMoney, new Date());
   · зовёт buildMarketingFunnel()
@@ -14362,7 +14665,7 @@
 
 ### GET /api/v1/reports/marketing-insights
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const result = await buildMarketingInsights(seesMoney, req.query.force === "1");
   · зовёт buildMarketingInsights()
@@ -14374,7 +14677,7 @@
 
 ### PATCH /api/v1/reports/monthly/:id
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
 
 - const parsed = monthlyReportNotesSchema.safeParse(req.body);
   · проверяет данные схемой monthlyReportNotesSchema
@@ -14393,7 +14696,7 @@
 
 ### POST /api/v1/reports/monthly/generate
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
 
 - const result = await generateMonthlyReport();
   · зовёт generateMonthlyReport()
@@ -14402,7 +14705,7 @@
 
 ### GET /api/v1/reports/monthly
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const reports = await prisma.monthlyReport.findMany({ orderBy: { periodStart: "desc" }, take: 12, include: { …
   · читает в базе: monthlyReport
@@ -14413,7 +14716,7 @@
 
 ### GET /api/v1/reports/post-showing-cohort/config
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
 
 - const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingC…
   · читает в базе: settings
@@ -14423,7 +14726,7 @@
 
 ### PUT /api/v1/reports/post-showing-cohort/config
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = postShowingCohortConfigSchema.safeParse(req.body);
   · проверяет данные схемой postShowingCohortConfigSchema
@@ -14437,7 +14740,7 @@
 
 ### GET /api/v1/reports/post-showing-cohort
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
 
 - если !parsed.success
   - return res.status(400).json({ error: "Некорректный период" });
@@ -14457,7 +14760,7 @@
 
 ### PATCH /api/v1/reports/problems/:id
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
 
 - const parsed = problemReportNotesSchema.safeParse(req.body);
   · проверяет данные схемой problemReportNotesSchema
@@ -14476,7 +14779,7 @@
 
 ### POST /api/v1/reports/problems/generate
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, есть право: dashboard.analytics
 
 - const parsed = problemReportGenerateSchema.safeParse(req.body);
   · проверяет данные схемой problemReportGenerateSchema
@@ -14493,7 +14796,7 @@
 
 ### GET /api/v1/reports/problems
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = problemReportQuerySchema.safeParse(req.query);
   · проверяет данные схемой problemReportQuerySchema
@@ -14507,7 +14810,7 @@
 
 ### GET /api/v1/reports/response-speed
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = responseSpeedQuerySchema.safeParse(req.query);
   · проверяет данные схемой responseSpeedQuerySchema
@@ -14527,7 +14830,7 @@
 
 ### GET /api/v1/reports/security-review-digest
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations
 
 - const parsed = dateRangeQuerySchema.safeParse(req.query);
   · проверяет данные схемой dateRangeQuerySchema
@@ -14543,14 +14846,14 @@
 
 ### GET /api/v1/reports/sources
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - res.json(await buildSourcesReport(parseReportRange(req.query)));
   · ответ 200
 
 ### GET /api/v1/reports/waiting-now
 
-`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reports.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const counts = await countStuckConversationsByChannel();
   · зовёт countStuckConversationsByChannel()
@@ -14561,7 +14864,7 @@
 
 ### GET /api/v1/reports/director/drill
 
-`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reportsDirector.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = directorDrillQuerySchema.safeParse(req.query);
   · проверяет данные схемой directorDrillQuerySchema
@@ -14583,7 +14886,7 @@
 
 ### GET /api/v1/reports/director/export.xlsx
 
-`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reportsDirector.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = directorDashboardQuerySchema.safeParse(req.query);
   · проверяет данные схемой directorDashboardQuerySchema
@@ -14610,7 +14913,7 @@
 
 ### GET /api/v1/reports/director/history
 
-`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reportsDirector.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = historyQuerySchema.safeParse(req.query);
   · проверяет данные схемой historyQuerySchema
@@ -14642,7 +14945,7 @@
 
 ### GET /api/v1/reports/director
 
-`apps/api/src/routes/reportsDirector.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
+`apps/api/src/routes/reportsDirector.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view
 
 - const parsed = directorDashboardQuerySchema.safeParse(req.query);
   · проверяет данные схемой directorDashboardQuerySchema
@@ -14656,7 +14959,7 @@
 
 ### POST /api/v1/search-console/disconnect
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { searchConsoleRefreshToken: null, searchCon…
   · меняет в базе: settings
@@ -14669,7 +14972,7 @@
 
 ### GET /api/v1/search-console/oauth/start
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadGoogleApp();
   · зовёт loadGoogleApp()
@@ -14683,7 +14986,7 @@
 
 ### GET /api/v1/search-console/overview
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = searchOverviewQuerySchema.safeParse(req.query);
   · проверяет данные схемой searchOverviewQuerySchema
@@ -14697,7 +15000,7 @@
 
 ### PUT /api/v1/search-console/yandex/app
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const parsed = yandexAppSchema.safeParse(req.body);
   · проверяет данные схемой yandexAppSchema
@@ -14715,7 +15018,7 @@
 
 ### POST /api/v1/search-console/yandex/disconnect
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { yandexWebmasterRefreshToken: null, yandexW…
   · меняет в базе: settings
@@ -14728,7 +15031,7 @@
 
 ### GET /api/v1/search-console/yandex/oauth/start
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadYandexApp();
   · зовёт loadYandexApp()
@@ -14742,7 +15045,7 @@
 
 ### GET /api/v1/search-console/yandex/overview
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = searchOverviewQuerySchema.safeParse(req.query);
   · проверяет данные схемой searchOverviewQuerySchema
@@ -14758,7 +15061,7 @@
 
 ### GET /api/v1/search-console/oauth/callback
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const back = (params: Record<string, string>)
   · зовёт publicAppUrl()
@@ -14804,7 +15107,7 @@
 
 ### GET /api/v1/search-console/yandex/oauth/callback
 
-`apps/api/src/routes/searchConsole.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/searchConsole.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const back = (params: Record<string, string>)
   · зовёт publicAppUrl()
@@ -14852,7 +15155,7 @@
 
 ### GET /api/v1/security/lost-clients
 
-`apps/api/src/routes/security.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/security.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - если !q
   - return;
@@ -14862,7 +15165,7 @@
 
 ### GET /api/v1/security/lost-properties
 
-`apps/api/src/routes/security.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/security.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - если !q
   - return;
@@ -14872,7 +15175,7 @@
 
 ### GET /api/v1/security/summary
 
-`apps/api/src/routes/security.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/security.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const [groups, total, pendingOldCount, newDeviceLogins, permissionChangeCount, lastPermissionChange, flaggedC…
   · считает в базе: client
@@ -14897,7 +15200,7 @@
 
 ### POST /api/v1/security/cases/:id/decisions
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const id = idSchema.safeParse(req.params.id), parsed = investigationDecisionSchema.safeParse(req.body);
   · проверяет данные схемой idSchema
@@ -14918,7 +15221,7 @@
 
 ### POST /api/v1/security/cases/:id/severity
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const id = idSchema.safeParse(req.params.id), body = investigationSeveritySchema.safeParse(req.body);
   · проверяет данные схемой idSchema
@@ -14937,7 +15240,7 @@
 
 ### GET /api/v1/security/cases/:id
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const id = idSchema.safeParse(req.params.id);
   · проверяет данные схемой idSchema
@@ -14954,14 +15257,14 @@
 
 ### GET /api/v1/security/cases/agency-label-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - res.json(presentEvidencePayload(await previewAgencyLabelCoincidences(), can(req, "clients.viewPhone")));
   · ответ 200
 
 ### GET /api/v1/security/cases/automation-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const ownerProbeOn = await sellerSwitchOn("sellerProbeCallEnabled");
   · зовёт sellerSwitchOn()
@@ -14973,14 +15276,14 @@
 
 ### GET /api/v1/security/cases/buyer-showing-candidates
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - res.json({ mode: "PREVIEW", items: presentEvidencePayload(await previewBuyerShowingCandidates(), can(req, "cl…
   · ответ 200
 
 ### GET /api/v1/security/cases/config
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { investigationCaseCo…
   · читает в базе: settings
@@ -14991,7 +15294,7 @@
 
 ### PUT /api/v1/security/cases/config
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = investigationCaseConfigUpdateSchema.safeParse(req.body);
   · проверяет данные схемой investigationCaseConfigUpdateSchema
@@ -15007,7 +15310,7 @@
 
 ### GET /api/v1/security/cases/manual-contact-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const query = investigationCasesQuerySchema.safeParse(req.query);
   · проверяет данные схемой investigationCasesQuerySchema
@@ -15019,14 +15322,14 @@
 
 ### GET /api/v1/security/cases/named-assignment-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - res.json(presentEvidencePayload(await previewNamedAssignments(), can(req, "clients.viewPhone")));
   · ответ 200
 
 ### GET /api/v1/security/cases/recurrence
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - пробует
   - const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { investigatio…
@@ -15047,7 +15350,7 @@
 
 ### GET /api/v1/security/cases/seller-control-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = investigationCasesQuerySchema.safeParse(req.query);
   · проверяет данные схемой investigationCasesQuerySchema
@@ -15065,7 +15368,7 @@
 
 ### GET /api/v1/security/cases/weekly-operational-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const query = weeklyOperationalPreviewQuerySchema.safeParse(req.query);
   · проверяет данные схемой weeklyOperationalPreviewQuerySchema
@@ -15077,14 +15380,14 @@
 
 ### GET /api/v1/security/cases/workflow-agent-preview
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - res.json(presentEvidencePayload(await previewWorkflowAgentCounts(), can(req, "clients.viewPhone")));
   · ответ 200
 
 ### GET /api/v1/security/cases/workflow-observations
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const active = await prisma.workflowCheckpoint.findUnique({ where: { key: "client-workflow-observations-v1" }…
   · читает в базе: workflowCheckpoint
@@ -15098,7 +15401,7 @@
 
 ### GET /api/v1/security/cases
 
-`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/investigationCases.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = investigationCasesQuerySchema.safeParse(req.query);
   · проверяет данные схемой investigationCasesQuerySchema
@@ -15115,7 +15418,7 @@
 
 ### POST /api/v1/security/cases/seller-control/:id/commands
 
-`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/sellerControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = sellerControlCommandSchema.safeParse(req.body);
   · проверяет данные схемой sellerControlCommandSchema
@@ -15148,7 +15451,7 @@
 
 ### POST /api/v1/security/cases/seller-control/buyer-candidate
 
-`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/sellerControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - если !parsed.success
   - return res.status(400).json({ error: "Укажите договорённость и ответственного руководителя" });
@@ -15170,7 +15473,7 @@
 
 ### PUT /api/v1/security/cases/seller-control/config
 
-`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/sellerControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const parsed = sellerControlConfigUpdateSchema.safeParse(req.body);
   · проверяет данные схемой sellerControlConfigUpdateSchema
@@ -15190,7 +15493,7 @@
 
 ### GET /api/v1/security/cases/seller-control
 
-`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/sellerControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - const [settings, episodes] = await Promise.all([ prisma.settings.findUnique({ where: { id: "singleton" }, sel…
   · читает в базе: settings
@@ -15204,7 +15507,7 @@
 
 ### POST /api/v1/security/cases/seller-control
 
-`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+`apps/api/src/routes/sellerControl.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
 
 - если !parsed.success
   - return res.status(400).json({ error: "Укажите карточку и ответственного руководителя" });
@@ -15223,7 +15526,7 @@
 
 ### POST /api/v1/settings/asterisk-ami-test
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const creds = await loadAmiCredentials();
   · зовёт loadAmiCredentials()
@@ -15245,7 +15548,7 @@
 
 ### POST /api/v1/settings/asterisk-test
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const creds = await loadAriCredentials();
   · зовёт loadAriCredentials()
@@ -15259,14 +15562,14 @@
 
 ### GET /api/v1/settings/bot-guard-stats
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - res.json(await loadBotGuardStats());
   · ответ 200
 
 ### GET /api/v1/settings/branding
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { companyName: true, …
   · читает в базе: settings
@@ -15275,7 +15578,7 @@
 
 ### POST /api/v1/settings/call-whisper/preview
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = whisperPreviewSchema.safeParse(req.body);
   · проверяет данные схемой whisperPreviewSchema
@@ -15307,7 +15610,7 @@
 
 ### POST /api/v1/settings/call-whisper/token
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { callWhisperStationToken: encryptSecret(tok…
   · меняет в базе: settings
@@ -15318,7 +15621,7 @@
 
 ### GET /api/v1/settings/call-whisper
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { callWhisperStationT…
   · читает в базе: settings
@@ -15330,7 +15633,7 @@
 
 ### POST /api/v1/settings/exchange-rate/refresh
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const result = await refreshUsdToTjsRateFromAlif();
   · зовёт refreshUsdToTjsRateFromAlif()
@@ -15344,7 +15647,7 @@
 
 ### POST /api/v1/settings/gemini-test
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !parsed.success
   - return res.status(400).json({ ok: false, error: parsed.error.issues[0]?.message ?? MODEL_NAME_HINT });
@@ -15364,7 +15667,7 @@
 
 ### POST /api/v1/settings/instagram-insights-test
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const creds = await loadCredentials();
   · зовёт loadCredentials()
@@ -15391,7 +15694,7 @@
 
 ### POST /api/v1/settings/live-voice-test-call
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = liveVoiceTestCallSchema.safeParse(req.body ?? {});
   · проверяет данные схемой liveVoiceTestCallSchema
@@ -15410,7 +15713,7 @@
 
 ### POST /api/v1/settings/live-voice/elevenlabs-check
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const config = await loadElevenLabsProviderConfig();
   · зовёт loadElevenLabsProviderConfig()
@@ -15443,7 +15746,7 @@
 
 ### POST /api/v1/settings/live-voice/preview-voice
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, предел частоты запросов
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, предел частоты запросов
 
 - const parsed = liveVoicePreviewSchema.safeParse(req.body);
   · проверяет данные схемой liveVoicePreviewSchema
@@ -15464,7 +15767,7 @@
 
 ### GET /api/v1/settings/live-voice/sessions/:id/recording
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts, есть право: calls.hearRecording
 
 - const session = await prisma.liveVoiceSession.findUnique({ where: { id: req.params.id }, select: { recordingU…
   · читает в базе: liveVoiceSession
@@ -15486,7 +15789,7 @@
 
 ### GET /api/v1/settings/live-voice/sessions
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, есть право: calls.transcripts
 
 - const query = liveVoiceSessionsQuerySchema.safeParse(req.query);
   · проверяет данные схемой liveVoiceSessionsQuerySchema
@@ -15513,7 +15816,7 @@
 
 ### POST /api/v1/settings/logo
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, upload.single("logo")
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, upload.single("logo")
 
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
@@ -15525,7 +15828,7 @@
 
 ### DELETE /api/v1/settings/messenger-accounts/:id
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - await deleteAccount(req.params.id);
   · зовёт deleteAccount()
@@ -15536,14 +15839,14 @@
 
 ### GET /api/v1/settings/messenger-accounts
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - res.json({ items: await listAccounts() });
   · ответ 200
 
 ### POST /api/v1/settings/messenger-accounts
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = messengerAccountSchema.safeParse(req.body);
   · проверяет данные схемой messengerAccountSchema
@@ -15598,7 +15901,7 @@
 
 ### POST /api/v1/settings/meta-catalog-feed/rotate
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { metaCatalogFeedKey: key } });
   · меняет в базе: settings
@@ -15611,7 +15914,7 @@
 
 ### POST /api/v1/settings/site-admin-reset
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteAdmin.reset, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteAdmin.reset, requireElevation
 
 - если !url || !apiKey
   - return res.status(503).json({ error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)" …
@@ -15641,7 +15944,7 @@
 
 ### POST /api/v1/settings/telephony-audio/:kind
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, audioUpload.single("audio")
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, audioUpload.single("audio")
 
 - если !Object.hasOwn(TELEPHONY_AUDIO_KINDS, kind)
   - return res.status(404).json({ error: "Неизвестный тип звука" });
@@ -15670,7 +15973,7 @@
 
 ### GET /api/v1/settings/telephony-audio
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - для каждого: const kind of Object.keys(TELEPHONY_AUDIO_KINDS)
   - для каждого: const ext of ["mp3", STATION_AUDIO_EXT]
@@ -15681,14 +15984,14 @@
 
 ### GET /api/v1/settings/telephony-traffic
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - res.json({ stationTraffic: await getStationTrafficUsageCached() });
   · ответ 200
 
 ### GET /api/v1/settings
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const settings = (await prisma.settings.findUnique({ where: { id: "singleton" } })) ?? (await prisma.settings…
   · читает в базе: settings
@@ -15703,7 +16006,7 @@
 
 ### PATCH /api/v1/settings
 
-`apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -15911,7 +16214,7 @@
 
 ### GET /api/v1/settings/cover-templates/:id/preview.jpg
 
-`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const { width, height } = coverFormatSize(format);
   · зовёт coverFormatSize()
@@ -15941,7 +16244,7 @@
 
 ### DELETE /api/v1/settings/cover-templates/:id
 
-`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если id === BUILTIN_COVER_TEMPLATE_ID
   - return res.status(400).json({ error: "Встроенный шаблон удалить нельзя" });
@@ -15973,7 +16276,7 @@
 
 ### GET /api/v1/settings/cover-templates/openai-reference/:format/image
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - если !format.success
   - return res.status(400).json({ error: "Формат — square или story" });
@@ -15989,7 +16292,7 @@
 
 ### DELETE /api/v1/settings/cover-templates/openai-reference/:format
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !format.success
   - return res.status(400).json({ error: "Формат — square или story" });
@@ -16003,7 +16306,7 @@
 
 ### POST /api/v1/settings/cover-templates/openai-reference/:format
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, upload.single("image")
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, upload.single("image")
 
 - если !format.success
   - return res.status(400).json({ error: "Формат — square или story" });
@@ -16024,7 +16327,7 @@
 
 ### POST /api/v1/settings/cover-templates/openai-test
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = testSchema.safeParse(req.body ?? {});
   · проверяет данные схемой testSchema
@@ -16046,7 +16349,7 @@
 
 ### GET /api/v1/settings/cover-templates/openai
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const [row, runtime, usedToday, recent] = await Promise.all([ prisma.settings.findUnique({ where: { id: "sing…
   · читает в базе: settings
@@ -16060,7 +16363,7 @@
 
 ### PUT /api/v1/settings/cover-templates/openai
 
-`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsCoverOpenAi.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = updateSchema.safeParse(req.body);
   · проверяет данные схемой updateSchema
@@ -16076,7 +16379,7 @@
 
 ### GET /api/v1/settings/cover-templates
 
-`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const [templates, settings] = await Promise.all([listCoverTemplates(), loadCoverSettings()]);
   · зовёт listCoverTemplates()
@@ -16085,7 +16388,7 @@
 
 ### POST /api/v1/settings/cover-templates
 
-`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, coverTemplatesUpload.fields([ { name: "svg", maxCount: 1 }, { name: "spec", maxCount: 1 }, { name: "leaves", …
+`apps/api/src/routes/settingsCoverTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation, coverTemplatesUpload.fields([ { name: "svg", maxCount: 1 }, { name: "spec", maxCount: 1 }, { name: "leaves", …
 
 - если !svgFile || !specFile
   - return res.status(400).json({ error: "Нужны оба файла: SVG-слой и spec.json" });
@@ -16148,31 +16451,31 @@
 
 ### POST /api/v1/settings/customer-agent/kill
 
-`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - обработчик вынесен: `handler(killCustomerAgentForOwner) — раскрыто по коду функции handler()`
 
 ### POST /api/v1/settings/customer-agent/refresh-current
 
-`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - обработчик вынесен: `handler(refreshCurrentCustomerAgentForOwner) — раскрыто по коду функции handler()`
 
 ### POST /api/v1/settings/customer-agent/revisions/register
 
-`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - обработчик вынесен: `handler(registerCustomerAgentForOwner) — раскрыто по коду функции handler()`
 
 ### PUT /api/v1/settings/customer-agent/rollout
 
-`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - обработчик вынесен: `handler(publishCustomerAgentForOwner) — раскрыто по коду функции handler()`
 
 ### GET /api/v1/settings/customer-agent
 
-`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - обработчик вынесен: `handler(actor=>readCustomerAgentOwnerState(actor)) — раскрыто по коду функции handler()`
 
@@ -16180,7 +16483,7 @@
 
 ### GET /api/v1/settings/messenger-accounts/:id/instagram-app-binding
 
-`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = paramsSchema.safeParse(req.params);
   · проверяет данные схемой paramsSchema
@@ -16197,7 +16500,7 @@
 
 ### POST /api/v1/settings/messenger-accounts/:id/instagram-app-binding
 
-`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const params = paramsSchema.safeParse(req.params), body = instagramAppBindingInputSchema.safeParse(req.body);
   · проверяет данные схемой paramsSchema
@@ -16216,7 +16519,7 @@
 
 ### DELETE /api/v1/settings/meta-eternal/accounts/:id/page
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !params.success
   - return res.status(400).json({ error: "Некорректный идентификатор аккаунта" });
@@ -16236,7 +16539,7 @@
 
 ### POST /api/v1/settings/meta-eternal/accounts/:id/page
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const body = metaEternalPageInputSchema.safeParse(req.body ?? {});
   · проверяет данные схемой metaEternalPageInputSchema
@@ -16274,7 +16577,7 @@
 
 ### PUT /api/v1/settings/meta-eternal/app-review
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const body = metaEternalAppReviewInputSchema.safeParse(req.body);
   · проверяет данные схемой metaEternalAppReviewInputSchema
@@ -16296,7 +16599,7 @@
 
 ### POST /api/v1/settings/meta-eternal/login/:id/connect
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !params.success
   - return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
@@ -16320,7 +16623,7 @@
 
 ### GET /api/v1/settings/meta-eternal/login/:id
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - если !params.success
   - return res.status(404).json({ error: "Вход не найден — войдите через Facebook заново" });
@@ -16339,7 +16642,7 @@
 
 ### POST /api/v1/settings/meta-eternal/login
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - пробует
   - const url = await buildMetaLoginUrl(req.agent!.id, "assets");
@@ -16355,7 +16658,7 @@
 
 ### POST /api/v1/settings/meta-eternal/pages/:pageId/connect
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !params.success
   - return res.status(400).json({ error: "Некорректный идентификатор Страницы" });
@@ -16379,7 +16682,7 @@
 
 ### POST /api/v1/settings/meta-eternal/pages/:pageId/subscribe
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !params.success
   - return res.status(400).json({ error: "Некорректный идентификатор Страницы" });
@@ -16409,7 +16712,7 @@
 
 ### GET /api/v1/settings/meta-eternal/pages
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - пробует
   - const listed = await listCompanyPages();
@@ -16434,7 +16737,7 @@
 
 ### PUT /api/v1/settings/meta-eternal/preferred
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const body = metaEternalPreferredInputSchema.safeParse(req.body);
   · проверяет данные схемой metaEternalPreferredInputSchema
@@ -16456,7 +16759,7 @@
 
 ### GET /api/v1/settings/meta-eternal
 
-`apps/api/src/routes/settingsMetaEternal.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsMetaEternal.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - пробует
   - res.json(await metaEternalStatus());
@@ -16469,7 +16772,7 @@
 
 ### POST /api/v1/settings/restore-points/:id/restore
 
-`apps/api/src/routes/settingsRestorePoints.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsRestorePoints.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const point = await prisma.settingsSnapshot.findUnique({ where: { id: req.params.id } });
   · читает в базе: settingsSnapshot
@@ -16513,7 +16816,7 @@
 
 ### GET /api/v1/settings/restore-points
 
-`apps/api/src/routes/settingsRestorePoints.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsRestorePoints.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -16532,7 +16835,7 @@
 
 ### POST /api/v1/settings/somon/recipients/:agentId/unblock
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success
   - return res.status(400).json({ error: "Подтвердите проверку чата" });
@@ -16565,7 +16868,7 @@
 
 ### GET /api/v1/settings/somon/recipients
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - пробует
   - const [agents, selected] = await Promise.all([ prisma.agent.findMany({ where: { role: "AGENT", isActive: true…
@@ -16579,7 +16882,7 @@
 
 ### PUT /api/v1/settings/somon/recipients
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = somonRecipientsSchema.safeParse(req.body);
   · проверяет данные схемой somonRecipientsSchema
@@ -16600,7 +16903,7 @@
 
 ### POST /api/v1/settings/somon/review/:advertId/resolve
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !parsed.success
   - return res.status(400).json({ error: "Некорректный ID объявления" });
@@ -16631,7 +16934,7 @@
 
 ### POST /api/v1/settings/somon/seller-review/:advertId/resolve
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !parsed.success
   - return res.status(400).json({ error: "Некорректный ID объявления" });
@@ -16652,7 +16955,7 @@
 
 ### POST /api/v1/settings/somon/source/recover
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - если !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success
   - return res.status(400).json({ error: "Подтвердите проверку причины остановки" });
@@ -16685,7 +16988,7 @@
 
 ### PUT /api/v1/settings/somon/state
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = somonMonitorStateSchema.safeParse(req.body);
   · проверяет данные схемой somonMonitorStateSchema
@@ -16739,7 +17042,7 @@
 
 ### GET /api/v1/settings/somon/status
 
-`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/settingsSomon.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - пробует
   - const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
@@ -16768,7 +17071,7 @@
 
 ### POST /api/v1/showing-questions/:id/answer
 
-`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/showingQuestions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если isReadOnlyRole(req.agent!.role)
   - return res.status(403).json({ error: "Недостаточно прав" });
@@ -16791,7 +17094,7 @@
 
 ### GET /api/v1/showing-questions
 
-`apps/api/src/routes/showingQuestions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/showingQuestions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
@@ -16805,7 +17108,7 @@
 
 ### POST /api/v1/site-notifications/:id/resolve
 
-`apps/api/src/routes/siteNotifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.resolve
+`apps/api/src/routes/siteNotifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.resolve
 
 - const parsed = resolveSchema.safeParse(req.body);
   · проверяет данные схемой resolveSchema
@@ -16822,7 +17125,7 @@
 
 ### POST /api/v1/site-notifications/resolve-all
 
-`apps/api/src/routes/siteNotifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.resolve
+`apps/api/src/routes/siteNotifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.resolve
 
 - const rows = await prisma.siteEditNotification.findMany({ where: { resolvedAt: null }, select: { id: true }, …
   · читает в базе: siteEditNotification
@@ -16849,7 +17152,7 @@
 
 ### GET /api/v1/site-notifications
 
-`apps/api/src/routes/siteNotifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.view
+`apps/api/src/routes/siteNotifications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteChanges.view
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -16866,7 +17169,7 @@
 
 ### GET /api/v1/sms/balance
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - const r = await smsBalance();
   · зовёт smsBalance()
@@ -16878,14 +17181,14 @@
 
 ### GET /api/v1/sms/settings
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - res.json(await presentSmsSettings());
   · ответ 200
 
 ### PATCH /api/v1/sms/settings
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = smsSettingsSchema.safeParse(req.body);
   · проверяет данные схемой smsSettingsSchema
@@ -16921,14 +17224,14 @@
 
 ### GET /api/v1/sms/status
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json({ configured: await smsConfigured() });
   · ответ 200
 
 ### POST /api/v1/sms/test
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - const parsed = testSchema.safeParse(req.body);
   · проверяет данные схемой testSchema
@@ -16947,7 +17250,7 @@
 
 ### POST /api/v1/sms/webhook/payom/:key
 
-`apps/api/src/routes/sms.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/sms.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - если !isPayomWebhookKey(String(req.params.key))
   - return res.status(404).json({ error: "Not found" });
@@ -16973,7 +17276,7 @@
 
 ### POST /api/v1/social-videos/:id/add-destinations
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoAddDestinationsSchema.safeParse(req.body);
   · проверяет данные схемой socialVideoAddDestinationsSchema
@@ -16991,7 +17294,7 @@
 
 ### POST /api/v1/social-videos/:id/copy
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const item = await copySocialVideo(idOf(req), req.agent!.id);
   · зовёт copySocialVideo()
@@ -17002,7 +17305,7 @@
 
 ### POST /api/v1/social-videos/:id/cover/ai
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoAiCoverSchema.safeParse(req.body ?? {});
   · проверяет данные схемой socialVideoAiCoverSchema
@@ -17034,14 +17337,14 @@
 
 ### DELETE /api/v1/social-videos/:id/cover
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json(await clearCover(idOf(req)));
   · ответ 200
 
 ### POST /api/v1/social-videos/:id/cover
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialVideoCoverUpload.single("cover")
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialVideoCoverUpload.single("cover")
 
 - пробует
   - если !req.file
@@ -17069,7 +17372,7 @@
 
 ### POST /api/v1/social-videos/:id/mark-removed
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoMarkRemovedSchema.safeParse(req.body);
   · проверяет данные схемой socialVideoMarkRemovedSchema
@@ -17087,7 +17390,7 @@
 
 ### POST /api/v1/social-videos/:id/publish
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoPublishSchema.safeParse(req.body);
   · проверяет данные схемой socialVideoPublishSchema
@@ -17105,7 +17408,7 @@
 
 ### POST /api/v1/social-videos/:id/remove-from-socials
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoRemoveSchema.safeParse(req.body ?? {});
   · проверяет данные схемой socialVideoRemoveSchema
@@ -17123,7 +17426,7 @@
 
 ### POST /api/v1/social-videos/:id/retry
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoRetrySchema.safeParse(req.body ?? {});
   · проверяет данные схемой socialVideoRetrySchema
@@ -17141,14 +17444,14 @@
 
 ### POST /api/v1/social-videos/:id/unschedule
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json(await unscheduleSocialVideo(idOf(req)));
   · ответ 200
 
 ### DELETE /api/v1/social-videos/:id
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - await deleteSocialVideo(idOf(req));
   · зовёт deleteSocialVideo()
@@ -17159,14 +17462,14 @@
 
 ### GET /api/v1/social-videos/:id
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json(await getSocialVideo(idOf(req)));
   · ответ 200
 
 ### PATCH /api/v1/social-videos/:id
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoUpdateSchema.safeParse(req.body);
   · проверяет данные схемой socialVideoUpdateSchema
@@ -17180,7 +17483,7 @@
 
 ### POST /api/v1/social-videos/ai-caption
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoAiCaptionSchema.safeParse(req.body);
   · проверяет данные схемой socialVideoAiCaptionSchema
@@ -17201,7 +17504,7 @@
 
 ### GET /api/v1/social-videos/ai-providers
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const body: SocialVideoAiProvidersResponse = { providers: await listCoverProviders(), defaultProvider: SOCIAL…
   · зовёт listCoverProviders()
@@ -17210,21 +17513,21 @@
 
 ### GET /api/v1/social-videos/channels/live
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json({ channels: await loadChannelLive({ refresh: req.query.refresh === "1" }) });
   · ответ 200
 
 ### GET /api/v1/social-videos/channels
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json({ channels: await loadChannelInfos() });
   · ответ 200
 
 ### POST /api/v1/social-videos/photos
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES)
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialPhotoPostUpload.array("photos", SOCIAL_PHOTO_POST_MAX_IMAGES)
 
 - пробует
   - если files.length === 0
@@ -17254,14 +17557,14 @@
 
 ### GET /api/v1/social-videos/trends
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - res.json(await getSocialVideoTrends({ refresh: req.query.refresh === "1" }));
   · ответ 200
 
 ### POST /api/v1/social-videos/upload-sessions/:sessionId/complete
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - пробует
   - const fields = socialVideoCreateFieldsSchema.safeParse(req.body ?? {});
@@ -17271,47 +17574,53 @@
       · ответ 400
     - return;
       · дальше не идёт, ничего не меняя
-  - const assembled = await assembleSocialVideoUpload(String(req.params.sessionId), req.agent!.id);
-    · зовёт assembleSocialVideoUpload()
-  - const item = await createSocialVideoFromUpload({ tmpPath: assembled.tmpPath, originalName: assembled.original…
-    · зовёт createSocialVideoFromUpload()
-  - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: i…
-    · зовёт logAudit()
-  - res.status(201).json(item);
-    · ответ 201
+  - await assertOwnSocialVideoUpload(sessionId, agentId);
+    · зовёт assertOwnSocialVideoUpload()
+  - await runUploadCompletion({ req, res, sessionId, owner: chunkedUploadOwner(agentId), what: "свободный ролик",…
+    · пробрасывает ошибку дальше
+    - пробует
+      - const assembled = await assembleSocialVideoUpload(sessionId, agentId);
+        · зовёт assembleSocialVideoUpload()
+      - const item = await createSocialVideoFromUpload({ tmpPath: assembled.tmpPath, originalName: assembled.original…
+        · зовёт createSocialVideoFromUpload()
+      - logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: i…
+        · зовёт logAudit()
+    - если сорвалось
+      - если err instanceof SocialVideoError
+        - return { status: err.status, body: { error: err.message, ...(err.extra ?? {}) }, finalize: err.status < 500 };
+          · дословно из кода
+      - throw err;
+        · пробрасывает ошибку дальше
+    - в любом случае
+      - если tmpPath
+        - await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+          · дословно из кода
 - если сорвалось
-  - если err instanceof SocialVideoError
-    - res.status(err.status).json({ error: err.message });
-      · ответ (код зависит от условия)
+  - если sendUploadError(res, err, "свободный ролик")
     - return;
       · дальше не идёт, ничего не меняя
-  - если err instanceof ChunkedUploadError
-    - res.status(err.status).json(chunkedUploadErrorBody(err));
-      · ответ (код зависит от условия)
-    - return;
-      · дальше не идёт, ничего не меняя
-- в любом случае
-  - если tmpPath
-    - await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
-      · дословно из кода
 
 ### PUT /api/v1/social-videos/upload-sessions/:sessionId/parts/:partNumber
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, express.raw({ type: () => true, limit: "16mb" })
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
-- если !Buffer.isBuffer(body)
-  - res.status(400).json({ error: "Пустая часть" });
-    · ответ 400 — «Пустая часть»
-  - return;
-    · дальше не идёт, ничего не меняя
-- await writeSocialVideoPart({ sessionId: String(req.params.sessionId), agentId: req.agent!.id, partNumber: Num…
-  · зовёт writeSocialVideoPart()
-- res.json({ ok: true });
+- пробует
+  - const bytes = await writeSocialVideoPart({ sessionId, agentId: req.agent!.id, partNumber, body: partBodySourc…
+    · зовёт writeSocialVideoPart()
+  - logUploadPart(req, { kind: "social", sessionId, partNumber, bytes, startedAt });
+    · зовёт logUploadPart()
+- если сорвалось
+  - если err instanceof ChunkedUploadError
+    - logUploadPart(req, { kind: "social", sessionId, partNumber, startedAt, code: err.code });
+      · зовёт logUploadPart()
+  - throw err;
+    · пробрасывает ошибку дальше
+- res.json({ ok: true, partNumber });
   · ответ 200
 
 ### POST /api/v1/social-videos/upload-sessions
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = uploadStartSchema.safeParse(req.body);
   · проверяет данные схемой uploadStartSchema
@@ -17325,7 +17634,7 @@
 
 ### GET /api/v1/social-videos
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const parsed = socialVideoListQuerySchema.safeParse(req.query);
   · проверяет данные схемой socialVideoListQuerySchema
@@ -17339,7 +17648,7 @@
 
 ### POST /api/v1/social-videos
 
-`apps/api/src/routes/socialVideos.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialVideoUpload.single("video")
+`apps/api/src/routes/socialVideos.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, socialVideoUpload.single("video")
 
 - пробует
   - если !req.file
@@ -17375,7 +17684,7 @@
 
 ### POST /api/v1/stuck-work/:id/retry
 
-`apps/api/src/routes/stuckWork.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/stuckWork.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const outcome = await retryStuckWorkItem(req.params.id, canViewInvestigations(req.agent?.role) && can(req, "c…
   · зовёт retryStuckWorkItem()
@@ -17390,7 +17699,7 @@
 
 ### GET /api/v1/stuck-work
 
-`apps/api/src/routes/stuckWork.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+`apps/api/src/routes/stuckWork.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -17406,7 +17715,7 @@
 
 ### GET /api/v1/team/stages
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const agents = await prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, selec…
   · читает в базе: agent
@@ -17425,7 +17734,7 @@
 
 ### GET /api/v1/team
 
-`apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
+`apps/api/src/routes/team.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
 - const startOfMonth = dushanbeStartOfMonth();
   · зовёт dushanbeStartOfMonth()
@@ -17470,7 +17779,7 @@
 
 ### GET /api/v1/telephony/whisper/file/:name
 
-`apps/api/src/routes/telephonyWhisper.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/telephonyWhisper.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await stationAuthorized(req.headers[TOKEN_HEADER]))
   - return res.status(404).end();
@@ -17495,7 +17804,7 @@
 
 ### GET /api/v1/telephony/whisper/manifest
 
-`apps/api/src/routes/telephonyWhisper.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/telephonyWhisper.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !(await stationAuthorized(req.headers[TOKEN_HEADER]))
   - return res.status(404).end();
@@ -17527,7 +17836,7 @@
 
 ### POST /api/v1/threads/disconnect
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/threads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - await prisma.settings.update({ where: { id: "singleton" }, data: { threadsAccessToken: null, threadsTokenExpi…
   · меняет в базе: settings
@@ -17538,7 +17847,7 @@
 
 ### GET /api/v1/threads/oauth/start
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/threads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadAppCredentials();
   · зовёт loadAppCredentials()
@@ -17554,7 +17863,7 @@
 
 ### GET /api/v1/threads/profile
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/threads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { threadsUserId: true…
   · читает в базе: settings
@@ -17582,7 +17891,7 @@
 
 ### GET /api/v1/threads/oauth/callback
 
-`apps/api/src/routes/threads.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/threads.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const base = publicAppUrl();
   · зовёт publicAppUrl()
@@ -17632,7 +17941,7 @@
 
 ### GET /api/v1/tiktok/creator-info
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/tiktok.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { tiktokClientKey: tr…
   · читает в базе: settings
@@ -17657,7 +17966,7 @@
 
 ### POST /api/v1/tiktok/disconnect
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/tiktok.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { tiktokClientKey: tr…
   · читает в базе: settings
@@ -17681,7 +17990,7 @@
 
 ### GET /api/v1/tiktok/insights
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
+`apps/api/src/routes/tiktok.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { tiktokClientKey: tr…
   · читает в базе: settings
@@ -17705,7 +18014,7 @@
 
 ### GET /api/v1/tiktok/oauth/start
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
+`apps/api/src/routes/tiktok.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireMarketingRole, requireChannelAdmin
 
 - const app = await loadAppCredentials();
   · зовёт loadAppCredentials()
@@ -17723,7 +18032,7 @@
 
 ### GET /api/v1/tiktok/oauth/callback
 
-`apps/api/src/routes/tiktok.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/tiktok.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const base = publicAppUrl();
   · зовёт publicAppUrl()
@@ -17764,7 +18073,7 @@
 
 ### POST /api/v1/transcribe
 
-`apps/api/src/routes/transcribe.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов, memoryUploadBudget, upload.single("audio")
+`apps/api/src/routes/transcribe.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов, memoryUploadBudget, upload.single("audio")
 
 - если !req.file
   - return res.status(400).json({ error: "Аудио не передано" });
@@ -17786,7 +18095,7 @@
 
 ### POST /api/v1/transfer-requests/:id/respond
 
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/transferRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const outcome = await reviewRopTransfer(who(req), req.params.id, req.body);
   · зовёт reviewRopTransfer()
@@ -17795,14 +18104,14 @@
 
 ### GET /api/v1/transfer-requests/outgoing
 
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
+`apps/api/src/routes/transferRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: transfers.request
 
 - res.json({ items: await listOutgoingTransferRequests(who(req)) });
   · ответ 200
 
 ### GET /api/v1/transfer-requests/pending
 
-`apps/api/src/routes/transferRequests.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/transferRequests.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - res.json({ items: await listPendingTransferReviews(who(req)) });
   · ответ 200
@@ -17811,7 +18120,7 @@
 
 ### GET /api/v1/ui-shell
 
-`apps/api/src/routes/uiShell.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
+`apps/api/src/routes/uiShell.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, (_req, res, next) => { res.setHeader("Cache-Control", "no-store", вход выполнен
 
 - res.json(body);
   · ответ 200
@@ -17820,32 +18129,28 @@
 
 ### PUT /api/v1/upload-sessions/:sessionId/parts/:partNumber
 
-`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, express.raw({ type: () => true, limit: "32mb" })
+`apps/api/src/routes/uploadSessions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- если !Buffer.isBuffer(body)
-  - res.status(400).json({ error: "Пустая часть" });
-    · ответ 400 — «Пустая часть»
-  - return;
-    · дальше не идёт, ничего не меняя
 - пробует
   - const kind = await chunkedUploadKind(sessionId);
     · зовёт chunkedUploadKind()
   - если !kind || !(kind in CHUNKED_UPLOAD_PURPOSES)
-    - res.status(404).json({ error: "Загрузка не найдена — выберите файл ещё раз" });
-      · ответ 404 — «Загрузка не найдена — выберите файл ещё раз»
-    - return;
-      · дальше не идёт, ничего не меняя
-  - await writeChunkedUploadPart({ kind, sessionId, agentId: req.agent!.id, partNumber: Number(req.params.partNum…
+    - throw new UploadError("SESSION_NOT_FOUND");
+      · ошибка UploadError — «SESSION_NOT_FOUND»
+  - const bytes = await writeChunkedUploadPart({ kind, sessionId, agentId: req.agent!.id, partNumber, body: partB…
     · зовёт writeChunkedUploadPart()
-  - res.json({ ok: true });
+  - logUploadPart(req, { kind, sessionId, partNumber, bytes, startedAt });
+    · зовёт logUploadPart()
+  - res.json({ ok: true, partNumber });
     · ответ 200
 - если сорвалось
-  - sendError(res, err, next);
-    · дословно из кода
+  - если err instanceof UploadError
+    - logUploadPart(req, { kind: "chunked", sessionId, partNumber, startedAt, code: err.code });
+      · зовёт logUploadPart()
 
 ### GET /api/v1/upload-sessions/:sessionId
 
-`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/uploadSessions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - пробует
   - res.json(await chunkedUploadStatus(String(req.params.sessionId), req.agent!.id));
@@ -17856,7 +18161,7 @@
 
 ### POST /api/v1/upload-sessions
 
-`apps/api/src/routes/uploadSessions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/routes/uploadSessions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = startSchema.safeParse(req.body);
   · проверяет данные схемой startSchema
@@ -17883,7 +18188,7 @@
 
 ### POST /api/v1/vacancies/:id/call
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const application = await prisma.jobApplication.findUnique({ where: { id: req.params.id }, select: { name: tr…
   · читает в базе: jobApplication
@@ -17925,7 +18230,7 @@
 
 ### GET /api/v1/vacancies/:id/contact-options
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - пробует
   - res.json(await recruitmentContactOptions(req.params.id, req.agent!.id));
@@ -17936,7 +18241,7 @@
 
 ### GET /api/v1/vacancies/:id/conversation
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const application = await prisma.jobApplication.findUnique({ where: { id: req.params.id }, select: { conversa…
   · читает в базе: jobApplication
@@ -17955,14 +18260,16 @@
     · ответ 200
 - const clientCards = clientIds.length > 0 ? await prisma.client.findMany({ where: { id: { in: clientIds } }, s…
   · читает в базе: client
-- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed).slice( -C…
+- const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…
+  · зовёт attachmentLinkSigner()
+- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLin…
   · зовёт presentMessages()
 - res.json({ inboxId: inboxIdOf(application.channel, conversationId), messages, files: messages.filter((m)
   · ответ 200
 
 ### GET /api/v1/vacancies/:id/cv
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const application = await prisma.jobApplication.findUnique({ where: { id: req.params.id }, select: { cvFile: …
   · читает в базе: jobApplication
@@ -17975,7 +18282,7 @@
 
 ### POST /api/v1/vacancies/:id/invitations/preview
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - const body = recruitmentContactPreviewSchema.safeParse(req.body);
   · проверяет данные схемой recruitmentContactPreviewSchema
@@ -17993,7 +18300,7 @@
 
 ### POST /api/v1/vacancies/:id/invitations
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - const body = recruitmentContactConfirmSchema.safeParse(req.body);
   · проверяет данные схемой recruitmentContactConfirmSchema
@@ -18011,7 +18318,7 @@
 
 ### GET /api/v1/vacancies/:id/invite-call-recording
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const call = await prisma.interviewInviteCall.findFirst({ where: { jobApplicationId: req.params.id, jobApplic…
   · читает в базе: interviewInviteCall
@@ -18028,7 +18335,7 @@
 
 ### GET /api/v1/vacancies/:id/portfolio/:index
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - если !params.success
   - return res.status(400).json({ error: "Неверный файл" });
@@ -18043,7 +18350,7 @@
 
 ### DELETE /api/v1/vacancies/:id
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - если !canEraseCandidates(req.agent!.role)
   - return res.status(403).json({ error: "Удалять анкеты навсегда может только директор или администратор" });
@@ -18059,7 +18366,7 @@
 
 ### GET /api/v1/vacancies/:id
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - если !id.success
   - return res.status(404).json({ error: "Анкета не найдена" });
@@ -18074,7 +18381,7 @@
 
 ### PATCH /api/v1/vacancies/:id
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const parsed = patchSchema.safeParse(req.body);
   · проверяет данные схемой patchSchema
@@ -18208,7 +18515,7 @@
 
 ### POST /api/v1/vacancies/bulk
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const parsed = bulkSchema.safeParse(req.body);
   · проверяет данные схемой bulkSchema
@@ -18269,7 +18576,7 @@
 
 ### GET /api/v1/vacancies
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const parsed = listQuerySchema.safeParse(req.query);
   · проверяет данные схемой listQuerySchema
@@ -18286,7 +18593,7 @@
 
 ### POST /api/v1/vacancies
 
-`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/vacancies.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - const parsed = createSchema.safeParse(req.body);
   · проверяет данные схемой createSchema
@@ -18322,7 +18629,7 @@
 
 ### PUT /api/v1/vacancies/positions/:key
 
-`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage, requireElevation
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage, requireElevation
 
 - const key = recruitmentPositionKeySchema.safeParse(req.params.key), parsed = recruitmentPositionUpdateSchema.…
   · проверяет данные схемой recruitmentPositionKeySchema
@@ -18393,7 +18700,7 @@
 
 ### GET /api/v1/vacancies/positions/recovery/:campaign
 
-`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage
 
 - если !/^[a-z0-9-]{8,64}$/.test(req.params.campaign)
   - res.status(400).json({ error: "Неверная кампания" });
@@ -18411,7 +18718,7 @@
 
 ### POST /api/v1/vacancies/positions/recovery
 
-`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage, есть право: messages.view, requireElevation
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view, есть право: settings.manage, есть право: messages.view, requireElevation
 
 - const parsed = recruitmentRecoveryRequestSchema.safeParse(req.body);
   · проверяет данные схемой recruitmentRecoveryRequestSchema
@@ -18429,14 +18736,14 @@
 
 ### GET /api/v1/vacancies/positions/templates
 
-`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - res.json({ items: recruitmentPositionTemplates() });
   · ответ 200
 
 ### GET /api/v1/vacancies/positions
 
-`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
 
 - пробует
   - res.json({ items: await readRecruitmentPositions() });
@@ -18451,7 +18758,7 @@
 
 ### POST /api/v1/webhooks/google-budget
 
-`apps/api/src/routes/budgetWebhook.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/budgetWebhook.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { googleBudgetToken: …
   · читает в базе: settings
@@ -18504,7 +18811,7 @@
 
 ### GET /api/v1/webhooks/meta
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - если !challenge
   - return res.status(403).send("Forbidden");
@@ -18515,7 +18822,7 @@
 
 ### POST /api/v1/webhooks/meta
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, requireMetaSignature, предел частоты запросов
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, requireMetaSignature, предел частоты запросов
 
 - если !(await isMetaEnabled())
   - return res.status(503).json({ error: "Канал Meta выключен в Настройках CRM" });
@@ -18660,7 +18967,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - traceOutcome("blocked", "dm_lane_held");
+              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18703,17 +19010,6 @@
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
-                · дословно из кода
-            - если DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")
-              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…
-                · дословно из кода
-            - если (msg.attachmentType === "share" || msg.attachmentType === "ig_post") && msg.channel !== "WHATSAPP" && isMetaC…
-              - attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
-                · дословно из кода
-            - для каждого: const extra of msg.extraAttachments ?? []
-              - if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
-                · дословно из кода
-              - if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
                 · дословно из кода
             - если msg.replyToStoryUrl
               - attachments.push({ url: msg.replyToStoryUrl });
@@ -18870,7 +19166,7 @@
 
 ### POST /api/v1/webhooks/site-cover-image
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Интеграция с сайтом не настроена" });
@@ -18921,7 +19217,7 @@
 
 ### POST /api/v1/webhooks/site-lead-status
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Не настроено" });
@@ -18957,7 +19253,7 @@
 
 ### POST /api/v1/webhooks/site-listing-changed
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Не настроено" });
@@ -19000,7 +19296,7 @@
 
 ### POST /api/v1/webhooks/site-listing-upserted
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Не настроено" });
@@ -19114,12 +19410,14 @@
     · меняет в базе: property
     - const p = await tx.property.update({ where: { id: raced.id }, data: updateData });
       · меняет в базе: property
+- void autoLinkPropertyById(property.id);
+  · зовёт autoLinkPropertyById()
 - res.status(created ? 201 : 200).json({ ok: true, propertyId: property.id, created });
   · ответ (код зависит от условия)
 
 ### POST /api/v1/webhooks/telegram
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, requireTelegramSecret, предел частоты запросов
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, requireTelegramSecret, предел частоты запросов
 
 - res.json({ ok: true });
   · ответ 200
@@ -19153,7 +19451,7 @@
 
 ### GET /api/v1/webhooks/website-chat/:sessionId
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, anyParams(websiteChatPollLimiter) · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, anyParams(websiteChatPollLimiter) · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Чат на сайте не настроен" });
@@ -19175,7 +19473,7 @@
 
 ### POST /api/v1/webhooks/website-chat
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Чат на сайте не настроен" });
@@ -19233,7 +19531,7 @@
 
 ### POST /api/v1/webhooks/website-lead
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - если !apiKey
   - return res.status(503).json({ error: "Приём заявок с сайта не настроен" });
@@ -19278,7 +19576,7 @@
 
 ### GET /api/v1/webhooks/website-working-hours
 
-`apps/api/src/routes/webhooks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+`apps/api/src/routes/webhooks.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
 - пробует
   - res.json({ withinWorkingHours: await isWithinWorkingHours() });
@@ -19291,7 +19589,7 @@
 
 ### PATCH /api/v1/whatsapp-templates/account
 
-`apps/api/src/routes/whatsappTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/whatsappTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - const parsed = accountSchema.safeParse(req.body);
   · проверяет данные схемой accountSchema
@@ -19309,7 +19607,7 @@
 
 ### POST /api/v1/whatsapp-templates/submit
 
-`apps/api/src/routes/whatsappTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+`apps/api/src/routes/whatsappTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
 
 - пробует
   - const overview = await submitWaTemplates();
@@ -19329,7 +19627,7 @@
 
 ### GET /api/v1/whatsapp-templates
 
-`apps/api/src/routes/whatsappTemplates.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
+`apps/api/src/routes/whatsappTemplates.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
 - res.json(await waTemplatesOverview(req.query.fresh === "1"));
   · ответ 200
@@ -19338,7 +19636,7 @@
 
 ### POST /api/v1/_seen
 
-`apps/api/src/app.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+`apps/api/src/app.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
 - const parsed = screenSeenSchema.safeParse(req.body);
   · проверяет данные схемой screenSeenSchema
@@ -19354,7 +19652,7 @@
 
 ### GET /api/v1/health/deep
 
-`apps/api/src/app.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/app.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - const report = await deepHealth();
   · зовёт deepHealth()
@@ -19363,7 +19661,7 @@
 
 ### GET /api/v1/health
 
-`apps/api/src/app.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
+`apps/api/src/app.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh · **вход не требуется**
 
 - res.json({ ok: true });
   · ответ 200
@@ -20169,12 +20467,16 @@
 ### chunked-uploads-cleanup — 17 * * * *
 
 - пробует
-  - const removed = await sweepStaleChunkedUploads();
+  - const removed = await sweepStaleChunkedUploads(Date.now(), notifyAbandonedChunkedUpload);
     · зовёт sweepStaleChunkedUploads()
-    - для каждого: const { id, meta } of await listSessions()
-      - если now - lastActivity(meta) > SESSION_IDLE_TTL_MS && (await abortLocalUploadSession(id))
-        - removed++;
-          · дословно из кода
+    - для каждого: const s of await listSessions()
+      - если !expired
+        - continue;
+          · переходит к следующему
+      - если await abortLocalUploadSession(s.id)
+        - если !s.finished && onAbandoned
+          - await onAbandoned(s).catch(() => {});
+            · дословно из кода
   - если removed
     - console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
       · пишет строку в журнал сервера
@@ -23459,6 +23761,97 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### outgoing-media-jobs — */5 * * * * *
+
+- await runCustomerJobsTick("media");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
+### outgoing-media-photo-jobs — */2 * * * * *
+
+- await runCustomerJobsTick("mediaPhoto");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
+### outgoing-media-sweep — */30 * * * *
+
+- пробует
+  - const r = await sweepOutgoingMediaSpool();
+    · зовёт sweepOutgoingMediaSpool()
+    - const spool = outgoingMediaSpoolDir();
+      · зовёт outgoingMediaSpoolDir()
+    - const rows = await prisma.outgoingMediaJob.findMany({ where: { status: { in: ["QUEUED", "PREPARING", "SENDING…
+      · читает в базе: outgoingMediaJob
+    - для каждого: const row of rows
+      - если row.status === "FAILED"
+        - если now - (row.finishedAt ?? row.updatedAt).getTime() > FAILED_KEEP_MS
+          - если fs.existsSync(file)
+            - await fs.promises.rm(file, { force: true }).catch(() => {});
+              · дословно из кода
+            - removedFiles++;
+              · дословно из кода
+          - continue;
+            · переходит к следующему
+      - иначе если row.status === "QUEUED"
+        - если now - row.updatedAt.getTime() > QUEUED_ALERT_MS
+          - stuck++;
+            · дословно из кода
+      - иначе если now - (row.startedAt ?? row.updatedAt).getTime() > STUCK_ALERT_MS
+        - stuck++;
+          · дословно из кода
+    - для каждого: const name of await fs.promises.readdir(spool).catch(() => [] as string[])
+      - если live.has(name)
+        - continue;
+          · переходит к следующему
+      - если st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS
+        - await fs.promises.rm(full, { force: true }).catch(() => {});
+          · дословно из кода
+        - removedFiles++;
+          · дословно из кода
+    - const removedRows = ( await prisma.outgoingMediaJob.deleteMany({ where: { status: { in: ["SENT", "CANCELLED",…
+      · удаляет в базе: outgoingMediaJob
+    - если stuck
+      - void logSystemError("background-jobs", `Очередь отправки файлов клиентам: ${stuck} шт. сжимаются дольше 20 ми…
+        · запись в журнал ошибок
+  - если r.removedFiles || r.removedRows
+    - console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка уборки спула отправки файлов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### owner-exposure-verification-preview — 15 * * * *
 
 - await runExposureOwnerPreviewTick();
@@ -23847,6 +24240,56 @@
           · пишет строку в журнал сервера
   - если deleted || failed
     - console.log( `[cron] Уборка вложений переписки: удалено ${deleted}, оставлено ${kept}` + (failed ? `, не удал…
+      · пишет строку в журнал сервера
+  - const derived = cleanupDerivedChatMedia();
+    · зовёт cleanupDerivedChatMedia()
+    - пробует
+    - если сорвалось
+      - return result;
+        · дословно из кода
+    - const olderThanDay = (full: string)
+      - пробует
+      - если сорвалось
+        - return false;
+          · дословно из кода
+    - для каждого: const entry of entries
+      - если result.deleted >= cap
+        - break;
+          · прекращает перебор
+      - если !entry.isFile()
+        - continue;
+          · переходит к следующему
+      - если path.dirname(path.resolve(full)) !== path.resolve(dir)
+        - continue;
+          · переходит к следующему
+      - если entry.name.startsWith(".tmp-")
+        - remove = olderThanDay(full);
+          · дословно из кода
+      - иначе
+        - если !m
+          - continue;
+            · переходит к следующему
+        - remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));
+          · зовёт privateFilePath()
+      - если !remove
+        - continue;
+          · переходит к следующему
+      - пробует
+      - если сорвалось
+        - result.kept++;
+          · дословно из кода
+  - если derived.deleted
+    - console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
+      · пишет строку в журнал сервера
+  - const stale = await cleanupStalePendingCustomerMedia();
+    · зовёт cleanupStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM "CustomerPendingMedia" WHERE "id" IN (…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - dropFiles(fileNames(row.files));
+        · дословно из кода
+  - если stale.deleted
+    - console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки вложений", err);
@@ -25234,6 +25677,33 @@
         · запись в журнал ошибок
   - если sessions
     - console.log(`[cron] Уборка брошенных загрузок видео: сессий ${sessions}` + (failed ? `, не удалось ${failed}`…
+      · пишет строку в журнал сервера
+  - const orphans = await cleanupOrphanUploadDirs();
+    · зовёт cleanupOrphanUploadDirs()
+    - const dirs = await listLocalUploadSessionDirs();
+      · зовёт listLocalUploadSessionDirs()
+    - если candidates.length === 0
+      - return 0;
+        · дословно из кода
+    - const [sessions, media] = await Promise.all([ prisma.videoUploadSession.findMany({ where: { id: { in: ids } }…
+      · читает в базе: videoUploadSession
+      · читает в базе: propertyDraftMedia
+    - для каждого: const d of candidates
+      - const onlyResult = (await listLocalUploadParts(d.id)).length === 0 && (await readLocalUploadSessionState(d.id…
+        · зовёт listLocalUploadParts()
+      - если (onlyResult || orphan) && (await abortLocalUploadSession(d.id))
+        - removed++;
+          · дословно из кода
+  - если orphans
+    - console.log(`[cron] Уборка сирот загрузки частями: папок ${orphans}`);
+      · пишет строку в журнал сервера
+  - const parts = flushUploadPartStats();
+    · зовёт flushUploadPartStats()
+    - если alarmed
+      - void logSystemError( "storage", `Загрузка частями: за сутки не прошло ${snapshot.failed} из ${total} частей (…
+        · запись в журнал ошибок
+  - если parts.ok + parts.failed
+    - console.log(`[cron] Части загрузки за сутки: принято ${parts.ok}, отказов ${parts.failed}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки брошенных загрузок видео", err);
@@ -27207,6 +27677,9 @@
       - смотря что в: pre.kind
         - вариант case "PRICE_CHANGE"
         - вариант case "CARD_DATA"
+          - если claim.write && !claim.write.priceChanged
+            - void autoLinkPropertyById(property.id, actorId);
+              · зовёт autoLinkPropertyById()
           - break;
             · прекращает перебор
         - вариант case "REMAKE_VIDEO"
@@ -28985,6 +29458,17 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await autoLinkPropertyById(payload.propertyId);
+    · зовёт autoLinkPropertyById()
+    - пробует
+      - если !(await loadRegistrySettings()).enabled
+        - return null;
+          · дословно из кода
+      - return await autoLinkProperty(propertyId, { actorId, notify: true });
+        · зовёт autoLinkProperty()
+    - если сорвалось
+      - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+        · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя
 - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, deletedAt: null, address:…
@@ -28997,16 +29481,20 @@
       · ошибка Error — «Адрес объекта ${payload.propertyId} сменился во время геокодирования —»
   - return;
     · дальше не идёт, ничего не меняя
+- await autoLinkPropertyById(payload.propertyId);
+  · зовёт autoLinkPropertyById()
+  - пробует
+    - если !(await loadRegistrySettings()).enabled
+      - return null;
+        · дословно из кода
+    - return await autoLinkProperty(propertyId, { actorId, notify: true });
+      · зовёт autoLinkProperty()
+  - если сорвалось
+    - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+      · запись в журнал ошибок
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()
-    - для каждого: const d of districts
-      - если !d.boundary
-        - continue;
-          · переходит к следующему
-      - если ring && isPointInPolygon(lng, lat, ring)
-        - return { id: d.id, name: d.name, source: "point" };
-          · дословно из кода
   - если district
     - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, districtId: null, address…
       · меняет в базе: property
@@ -29050,6 +29538,130 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+
+### outgoingMediaPhotoSendJob
+
+`apps/api/src/jobs/outgoingMediaSend.ts`
+
+- тело без развилок и известных действий
+
+### outgoingMediaSendJob
+
+`apps/api/src/jobs/outgoingMediaSend.ts`
+
+- await runOutgoingMediaJob(payload.mediaJobId, backgroundJobsStopSignal);
+  · зовёт runOutgoingMediaJob()
+  - const job = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId } });
+    · читает в базе: outgoingMediaJob
+  - если !job || TERMINAL.has(job.status)
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const spool = outgoingMediaSpoolDir();
+    · зовёт outgoingMediaSpoolDir()
+  - если job.status === "SENDING"
+    - void logSystemError("background-jobs", `Отправка файла клиенту прервана в момент передачи (задание ${job.id})…
+      · запись в журнал ошибок
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const claimed = await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: { in: ["QUEUED", "PRE…
+    · меняет в базе: outgoingMediaJob
+  - если !claimed.count
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const watcher = setInterval(()
+    · читает в базе: outgoingMediaJob
+    - void prisma.outgoingMediaJob .findUnique({ where: { id: job.id }, select: { status: true } }) .then((row)
+      · читает в базе: outgoingMediaJob
+      - если row?.status === "CANCELLED"
+        - cancelled = true;
+          · дословно из кода
+        - controller.abort();
+          · дословно из кода
+  - const onProgress = (percent: number)
+    · меняет в базе: outgoingMediaJob
+    - если now - lastProgressWrite < 2_000
+      - return;
+        · дальше не идёт, ничего не меняя
+    - void prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { progress: perce…
+      · меняет в базе: outgoingMediaJob
+  - пробует
+    - const target = await resolveMediaTarget(job.conversationId);
+      · зовёт resolveMediaTarget()
+    - если !target
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если !fs.existsSync(inputPath)
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const channel = outgoingMediaChannelOf(target);
+      · зовёт outgoingMediaChannelOf()
+    - prepared = channel && (await outgoingMediaCompressOn()) ? await prepareOutgoingMedia({ path: inputPath, mimet…
+      · зовёт outgoingMediaCompressOn()
+    - если controller.signal.aborted
+      - throw new JobInterrupted();
+        · ошибка JobInterrupted
+    - const delivery = await deliverMediaToConversation( target, { path: prepared.path, size: prepared.size, mimety…
+      · меняет в базе: outgoingMediaJob
+      - started = (await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { sta…
+        · меняет в базе: outgoingMediaJob
+    - если delivery.ok
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const nowRow = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } });
+      · читает в базе: outgoingMediaJob
+    - если nowRow?.status === "CANCELLED"
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если delivery.code === "start_lost"
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если delivery.outcomeUnknown
+      - return;
+        · дальше не идёт, ничего не меняя
+  - если сорвалось
+    - const row = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } }).cat…
+      · читает в базе: outgoingMediaJob
+    - если row?.status === "SENDING" && !started
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если row?.status === "SENDING"
+      - void logSystemError("background-jobs", `Файл клиенту: сбой после начала отправки (задание ${job.id}): ${descr…
+        · запись в журнал ошибок
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если cancelled || row?.status === "CANCELLED"
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если stopSignal?.aborted
+      - await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { status: "QUEUE…
+        · меняет в базе: outgoingMediaJob
+      - throw new Error("worker выходит — сжатие продолжится в новом процессе");
+        · ошибка Error — «worker выходит — сжатие продолжится в новом процессе»
+    - если err instanceof PrepareError || err instanceof JobInterrupted
+      - void logSystemError("storage", `Файл для клиента не подготовлен (${job.mimeType}, ${formatUploadLimit(job.siz…
+        · запись в журнал ошибок
+      - return;
+        · дальше не идёт, ничего не меняя
+    - void logSystemError("background-jobs", `Отправка файла клиенту упала: ${describeError(err)}`, { dedupKey: "ou…
+      · запись в журнал ошибок
+  - в любом случае
+    - если prepared?.owned
+      - await fs.promises.rm(prepared.path, { force: true }).catch(() => {});
+        · дословно из кода
+- когда попытки кончились
+  - await giveUpOutgoingMediaJob(payload.mediaJobId);
+    · зовёт giveUpOutgoingMediaJob()
+    - const row = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId }, select: { status: true } });
+      · читает в базе: outgoingMediaJob
+    - если !row
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если row.status === "SENDING"
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если row.status === "QUEUED" || row.status === "PREPARING"
+      - await failDefinitely(mediaJobId, "Файл не удалось подготовить — попробуйте другой файл или отправьте позже");
+        · дословно из кода
 
 ### photoPostPublishJob
 

@@ -457,9 +457,19 @@ export async function createSocialVideoFromUpload(input: {
   /** Адреса «канал + аккаунт»; если заданы, главнее `channels`. */
   destinations?: SocialVideoDestination[];
   createdById: string;
+  /**
+   * Заранее известный id поста (25.11.2026) — id сессии загрузки частями. Повтор приёма той же
+   * сессии (выкат посреди фоновой обработки, повтор клиента) находит уже заведённый пост и не
+   * делает второй.
+   */
+  id?: string;
 }): Promise<SocialVideoItem> {
   const ext = path.extname(input.originalName).toLowerCase();
   try {
+    if (input.id) {
+      const already = await prisma.socialVideoPost.findUnique({ where: { id: input.id }, include: WITH_CREATOR });
+      if (already) return presentSocialVideo(already);
+    }
     if (!(SOCIAL_VIDEO_ALLOWED_EXTENSIONS as readonly string[]).includes(ext)) {
       throw new SocialVideoError(`Файл «${input.originalName}» не подходит: нужен ролик MP4 или MOV`, 422);
     }
@@ -468,7 +478,7 @@ export async function createSocialVideoFromUpload(input: {
 
     const contentHash = await hashFile(input.tmpPath);
     const duplicateOf = await findDuplicate(contentHash, input.originalName.slice(0, 200), probe?.durationSec ?? null);
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     // Перепаковка БЕЗ перекодирования (-c copy): moov-атом в начало файла, лишние дорожки
     // (таймкод/метаданные iPhone) долой. Meta и Telegram забирают файл по ссылке и требуют
     // moov впереди; потерь качества нет, на ролик в сотни МБ уходят секунды. Не вышло —
@@ -516,6 +526,11 @@ export async function createSocialVideoFromUpload(input: {
     } catch (err) {
       // Запись не создалась - файл-сирота на диске не нужен никому.
       await fs.promises.rm(destDisk, { force: true }).catch(() => {});
+      // Параллельный приём той же сессии успел первым — отдаём его пост.
+      if (input.id && (err as { code?: string }).code === "P2002") {
+        const winner = await prisma.socialVideoPost.findUnique({ where: { id: input.id }, include: WITH_CREATOR });
+        if (winner) return presentSocialVideo(winner);
+      }
       throw err;
     }
   } finally {

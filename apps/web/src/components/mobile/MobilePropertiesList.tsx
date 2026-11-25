@@ -21,6 +21,7 @@ import { MhLane, MhListScreen, type MhLaneChip } from "./mh/MhList";
 import type { District, Paginated, Property } from "../../types";
 import { ObjectsTabs } from "../SectionTabs";
 import { PropertyHealthDot } from "../PropertyHealthDot";
+import { RegistryBadge } from "../RegistryBadge";
 import { propertyFloorsLabel, type PropertyHealthBrief } from "@royal-home/shared";
 
 /**
@@ -618,6 +619,7 @@ function MhPropertyRow({
           </span>
           <span className="s mh-prop-s">
             {chipClass && <span className={chipClass}>{statusChipLabel(p.status, p.pipeline)}</span>}
+            <RegistryBadge brief={p.registry} />
             <span className="tx">{meta}</span>
           </span>
         </span>

@@ -12,27 +12,42 @@
  * пишут в ответ изнутри неё.
  */
 import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 import type { Request } from "express";
 import { z } from "zod";
 import type { Prisma, PropertyDraftMedia } from "../generated/prisma/client.js";
 import {
   MAX_DRAFT_PHOTOS,
   MAX_DRAFT_VIDEOS,
+  UPLOAD_MAX_PARTS,
   UPLOAD_VIDEO_MAX_BYTES,
   VIDEO_TOO_LARGE_CODE,
+  computeUploadPartPlan,
+  expectedUploadPartBytes,
+  uploadErrorBody,
   videoTooLargeMessage,
   type PropertyDraftMediaView,
   type PropertyDraftView,
+  type UploadSessionStatusView,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { canAccessAssignedAgent, scopeToOwnAgent } from "../auth/middleware.js";
 import {
   abortLocalUploadSession,
+  assertUploadDiskSpace,
+  uploadStartDiskBytes,
   completeLocalUploadSession,
   createLocalUploadSession,
+  finishLocalUploadSession,
+  listLocalUploadParts,
+  localUploadPartSizes,
   localVideoDelete,
+  lockLocalUploadAssembly,
   writeLocalUploadPart,
 } from "./localVideoStorage.js";
+import { UploadError, toStorageError } from "./uploadErrors.js";
+import { reportUploadError } from "./uploadHttp.js";
+import { readUploadState } from "./uploadCompletion.js";
 import { logSystemError } from "./systemError.js";
 import { UNSUPPORTED_VIDEO_MESSAGE, videoExtensionOf } from "./videoFileExtension.js";
 import { copySellerAttachmentsToDraft, listSellerAttachments, sellerCardToDraftValues, sellerFactsToDraftValues } from "./sellerMedia.js";
@@ -43,31 +58,23 @@ import { removePhotoFiles } from "../routes/properties/draftAttach.js";
 export type DraftResult<T = unknown> = { status: number; body: T };
 const result = <T>(status: number, body: T): DraftResult<T> => ({ status, body });
 
-/** Тот же план частей, что у видео объекта (routes/properties/videos.ts): 8 МБ —
- *  компромисс между числом запросов и ценой повтора одной части при обрыве. */
-export const VIDEO_PART_SIZE = 8 * 1024 * 1024;
-export const MAX_UPLOAD_PARTS = 10_000;
+/** План частей — общий на все виды загрузки частями (packages/shared::computeUploadPartPlan). */
+export const MAX_UPLOAD_PARTS = UPLOAD_MAX_PARTS;
 /** Потолок файлов черновика — общий с экраном мастера (packages/shared). */
 export { MAX_DRAFT_PHOTOS, MAX_DRAFT_VIDEOS };
 
-function computePartPlan(sizeBytes: number): { partSize: number; totalParts: number } {
-  let partSize = VIDEO_PART_SIZE;
-  let totalParts = Math.max(1, Math.ceil(sizeBytes / partSize));
-  if (totalParts > MAX_UPLOAD_PARTS) {
-    partSize = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS);
-    totalParts = Math.ceil(sizeBytes / partSize);
-  }
-  return { partSize, totalParts };
+/** Владелец итога сборки ролика черновика (lib/uploadCompletion.ts). */
+export function draftVideoOwner(agentId: string): string {
+  return `agent:${agentId}`;
 }
 
-function uploadedParts(parts: Prisma.JsonValue): number[] {
-  if (!Array.isArray(parts)) return [];
-  return parts
-    .map((p) =>
-      p && typeof p === "object" && "partNumber" in p ? Number((p as { partNumber: unknown }).partNumber) : null
-    )
-    .filter((n): n is number => n !== null && Number.isInteger(n))
-    .sort((a, b) => a - b);
+/** Отказ слоя хранения → ответ маршрута/бота того же вида, что и у остальных загрузок. */
+function uploadFailure(err: unknown, what: string): DraftResult {
+  if (err instanceof UploadError) {
+    reportUploadError(err, what);
+    return result(err.status, err.body());
+  }
+  throw err;
 }
 
 export function presentDraftMedia(m: PropertyDraftMedia): PropertyDraftMediaView {
@@ -136,6 +143,8 @@ export interface DraftVideoSessionInput {
   filename: string;
   sizeBytes: number;
   contentType: string;
+  /** Необязательно: размер части, удобный клиенту (UPLOAD_PART_MIN_BYTES…UPLOAD_PART_MAX_BYTES). */
+  partSize?: number;
 }
 
 /**
@@ -144,6 +153,7 @@ export interface DraftVideoSessionInput {
  */
 export async function startDraftVideoSession(agentId: string, draftHeaderId: string | undefined, input: DraftVideoSessionInput): Promise<DraftResult> {
   const { uploadKey, filename, sizeBytes, contentType } = input;
+  const plan = computeUploadPartPlan(sizeBytes, input.partSize);
   if (!contentType.startsWith("video/")) return result(400, { error: "Допустимо только видео" });
   // Расширение — из белого списка, до начала загрузки (D15, 02.10.2026): раньше
   // брали из имени файла как есть, и «.html»/«.svg» ложился в хранилище и
@@ -157,6 +167,7 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
       limitBytes: UPLOAD_VIDEO_MAX_BYTES,
     });
   }
+  if (!plan) return result(400, uploadErrorBody("PART_SIZE_INVALID"));
 
   const draft = await ensureDraft(agentId, draftHeaderId);
 
@@ -173,7 +184,7 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
         mediaId: existing.id,
         partSize: existing.partSize,
         totalParts: existing.totalParts,
-        uploadedPartNumbers: uploadedParts(existing.parts),
+        uploadedPartNumbers: await listLocalUploadParts(existing.id),
       });
     }
 
@@ -198,7 +209,7 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
         mediaId: sameFile.id,
         partSize: sameFile.partSize,
         totalParts: sameFile.totalParts,
-        uploadedPartNumbers: uploadedParts(sameFile.parts),
+        uploadedPartNumbers: await listLocalUploadParts(sameFile.id),
       });
     }
 
@@ -207,20 +218,18 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
       return result(400, { error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });
     }
 
-    const { partSize, totalParts } = computePartPlan(sizeBytes);
+    const { partSize, totalParts } = plan;
     const storageKey = `${draft.id}/${randomUUID()}${ext}`;
     // Свой id заранее: папка частей на диске заводится ДО записи в базу. Упади сервер
-    // между двумя шагами — останется пустая папка без записи (её подберёт уборка по
-    // возрасту), а не запись без папки для частей.
+    // между двумя шагами — останется пустая папка без записи (её подберёт уборка сирот
+    // по возрасту, lib/videoUploadCleanup.ts), а не запись без папки для частей.
+    // Место на диске — до папки: нет места — 507 DISK_FULL, а не 500 посреди записи.
     const mediaId = randomUUID();
     try {
+      await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
       await createLocalUploadSession(mediaId);
     } catch (err) {
-      void logSystemError(
-        "storage",
-        `Не удалось открыть загрузку видео черновика: ${err instanceof Error ? err.message : String(err)}`
-      );
-      return result(502, { error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
+      return uploadFailure(err, "ролик черновика: старт");
     }
 
     const media = await tx.propertyDraftMedia.create({
@@ -245,85 +254,171 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
   });
 }
 
-/** Часть ролика (PUT /drafts/current/videos/:mediaId/parts/:partNumber). */
-export async function writeDraftVideoPart(agentId: string, draftHeaderId: string | undefined, mediaId: string, partNumber: number, body: Buffer): Promise<DraftResult> {
-  return withDraftLock(agentId, async (tx) => {
+/**
+ * Часть ролика (PUT /drafts/current/videos/:mediaId/parts/:partNumber).
+ *
+ * Байты пишутся на диск ВНЕ транзакции (25.11.2026): раньше запись восьми мегабайт шла
+ * внутри withDraftLock — на медленном канале это минуты с занятым соединением пула и
+ * замком черновика. Теперь: короткая проверка под замком → запись части на диск (поток,
+ * без копии в памяти) → короткая запись списка частей (по диску — правда о принятом).
+ */
+export async function writeDraftVideoPart(
+  agentId: string,
+  draftHeaderId: string | undefined,
+  mediaId: string,
+  partNumber: number,
+  body: Buffer | Readable
+): Promise<DraftResult> {
+  const checked = await withDraftLock(agentId, async (tx) => {
     const media = await tx.propertyDraftMedia.findUnique({
       where: { id: mediaId },
       include: { draft: { select: { agentId: true } } },
     });
-    if (!media || media.kind !== "VIDEO") return result(404, { error: "Загрузка не найдена" });
+    if (!media || media.kind !== "VIDEO") return result(404, uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
     if (media.draft.agentId !== agentId) return result(403, { error: "Недостаточно прав" });
     await assertMediaDraft(tx, agentId, media.draftId, draftHeaderId);
-    if (media.status === "READY") return result(409, { error: "Файл уже собран" });
-    if (!media.totalParts || partNumber > media.totalParts) {
-      return result(400, { error: "Номер части вне плана загрузки" });
+    if (media.status === "READY") return result(409, uploadErrorBody("ALREADY_ASSEMBLED"));
+    if (!media.totalParts || !media.partSize || partNumber > media.totalParts) {
+      return result(400, uploadErrorBody("PART_OUT_OF_RANGE", { message: "Номер части вне плана загрузки" }));
     }
+    return { media: { id: media.id, draftId: media.draftId, partSize: media.partSize, totalParts: media.totalParts, sizeBytes: media.sizeBytes } };
+  });
+  if ("status" in checked) return checked;
+  const { media } = checked;
 
-    if (!Buffer.isBuffer(body) || body.length === 0) return result(400, { error: "Пустая часть" });
-    const expectedSize = partNumber === media.totalParts ? media.sizeBytes - (media.totalParts - 1) * media.partSize! : media.partSize!;
-    if (body.length !== expectedSize) return result(400, { error: "Размер части не совпадает с планом загрузки" });
+  const expectedBytes = expectedUploadPartBytes(media, partNumber);
+  try {
+    await assertUploadDiskSpace(expectedBytes);
+    await writeLocalUploadPart(mediaId, partNumber, body, { expectedBytes });
+  } catch (err) {
+    return uploadFailure(err, "ролик черновика: часть");
+  }
 
-    try {
-      await writeLocalUploadPart(mediaId, partNumber, body);
-    } catch (err) {
-      void logSystemError(
-        "storage",
-        `Не удалось записать часть видео черновика: ${err instanceof Error ? err.message : String(err)}`
-      );
-      return result(502, { error: "Часть не записалась — попробуйте ещё раз" });
-    }
-
-    // Повтор той же части перезаписывает файл и не должен плодить дубли в списке.
-    const known = new Set(uploadedParts(media.parts));
-    known.add(partNumber);
-    const next = [...known].sort((a, b) => a - b).map((n) => ({ partNumber: n }));
-    await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });
+  return withDraftLock(agentId, async (tx) => {
+    // Пока байты шли, ролик могли удалить — тогда список писать некуда (папку частей
+    // уже убрал deleteDraftMedia), отвечаем как на удалённую загрузку.
+    const still = await tx.propertyDraftMedia.findUnique({ where: { id: mediaId }, select: { id: true } });
+    if (!still) return result(404, uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
+    // Диск читается ПОД замком черновика: последняя из параллельных частей видит все уже
+    // записанные — номера в списке не теряются.
+    const uploaded = await listLocalUploadParts(mediaId);
+    await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: uploaded.map((n) => ({ partNumber: n })) } });
     await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: draftExpiry() } });
-    return result(200, { uploadedPartNumbers: [...known].sort((a, b) => a - b) });
+    return result(200, { uploadedPartNumbers: uploaded });
   });
 }
 
-/** Сборка ролика (POST /drafts/current/videos/:mediaId/complete). */
+/** Состояние загрузки ролика черновика (GET /drafts/current/videos/:mediaId) — для докачки
+ *  и асинхронной сборки: принятые части и байты по диску, состояние и итог. */
+export async function draftVideoStatus(agentId: string, mediaId: string): Promise<DraftResult> {
+  const media = await prisma.propertyDraftMedia.findUnique({
+    where: { id: mediaId },
+    include: { draft: { select: { agentId: true } } },
+  });
+  if (!media || media.kind !== "VIDEO") return result(404, uploadErrorBody("SESSION_NOT_FOUND"));
+  if (media.draft.agentId !== agentId) return result(403, { error: "Недостаточно прав" });
+  const sizes = await localUploadPartSizes(mediaId);
+  const stored = await readUploadState(mediaId, draftVideoOwner(agentId));
+  const ready = media.status === "READY";
+  const receiving = !ready && (!stored || (stored.state === "failed" && stored.error?.code === "PARTS_MISSING"));
+  const view: UploadSessionStatusView = {
+    sessionId: mediaId,
+    state: ready ? "done" : receiving || !stored ? "receiving" : stored.state,
+    partSize: media.partSize ?? 0,
+    totalParts: media.totalParts ?? 0,
+    sizeBytes: media.sizeBytes,
+    uploadedPartNumbers: [...sizes.keys()],
+    receivedBytes: ready ? media.sizeBytes : [...sizes.values()].reduce((a, b) => a + b, 0),
+    ...(ready ? { result: { status: 200, body: { media: presentDraftMedia(media) } } } : {}),
+    ...(!ready && !receiving && stored?.error ? { error: stored.error } : {}),
+    updatedAt: (stored?.updatedAt ? new Date(stored.updatedAt) : media.updatedAt).toISOString(),
+  };
+  return result(200, view);
+}
+
+/**
+ * Сборка ролика (бот Telegram; HTTP-маршрут берёт замок сам через lib/uploadCompletion.ts и
+ * зовёт completeDraftVideoLocked). Под замком сборки (lockLocalUploadAssembly): две вкладки или
+ * повтор не склеивают один файл вдвоём. Части убираются только после того, как ролик помечен
+ * готовым в базе.
+ */
 export async function completeDraftVideo(agentId: string, draftHeaderId: string | undefined, mediaId: string): Promise<DraftResult> {
-  return withDraftLock(agentId, async (tx) => {
+  let lock;
+  try {
+    lock = await lockLocalUploadAssembly(mediaId);
+  } catch (err) {
+    // Папки частей нет: либо уже собрано (READY), либо загрузки нет — ответит проверка ниже.
+    if (!(err instanceof UploadError && err.code === "SESSION_NOT_FOUND")) return uploadFailure(err, "ролик черновика: сборка");
+    lock = undefined;
+  }
+  if (lock === null) return result(409, uploadErrorBody("ASSEMBLING", { extra: { uploadedPartNumbers: await listLocalUploadParts(mediaId) } }));
+  try {
+    const outcome = await completeDraftVideoLocked(agentId, draftHeaderId, mediaId);
+    if (outcome.status === 200) await finishLocalUploadSession(mediaId);
+    return outcome;
+  } finally {
+    await lock?.release();
+  }
+}
+
+/**
+ * Сборка без своего замка — вызывающий его уже держит. Склейка идёт ВНЕ транзакции
+ * (раньше — внутри withDraftLock с пределом 120 с: ролик 2 ГБ дольше, транзакция
+ * откатывалась, файл склеен, части стёрты, статус UPLOADING — и дальше 502 навсегда).
+ * Части здесь НЕ удаляются: их убирает вызывающий после ответа 200.
+ */
+export async function completeDraftVideoLocked(agentId: string, draftHeaderId: string | undefined, mediaId: string): Promise<DraftResult> {
+  const checked = await withDraftLock(agentId, async (tx) => {
     const media = await tx.propertyDraftMedia.findUnique({
       where: { id: mediaId },
       include: { draft: { select: { agentId: true } } },
     });
-    if (!media || media.kind !== "VIDEO") return result(404, { error: "Загрузка не найдена" });
+    if (!media || media.kind !== "VIDEO") return result(404, uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
     if (media.draft.agentId !== agentId) return result(403, { error: "Недостаточно прав" });
     await assertMediaDraft(tx, agentId, media.draftId, draftHeaderId);
     if (media.status === "READY") return result(200, { media: presentDraftMedia(media) });
-    if (!media.storageKey || !media.totalParts) return result(409, { error: "Загрузка повреждена" });
-
-    const have = uploadedParts(media.parts);
-    if (have.length !== media.totalParts) {
-      // 409, а не 400: части действительно не все, и клиенту надо дослать недостающие.
-      return result(409, {
-        error: "Пришли не все части",
-        uploadedPartNumbers: have,
+    if (!media.storageKey || !media.totalParts || !media.partSize) return result(409, { error: "Загрузка повреждена" });
+    return {
+      media: {
+        id: media.id,
+        draftId: media.draftId,
+        storageKey: media.storageKey,
         totalParts: media.totalParts,
-      });
-    }
+        partSize: media.partSize,
+        sizeBytes: media.sizeBytes,
+      },
+    };
+  });
+  if ("status" in checked) return checked;
+  const { media } = checked;
 
-    try {
-      await completeLocalUploadSession(media.id, media.storageKey, media.totalParts);
-    } catch (err) {
-      void logSystemError(
-        "storage",
-        `Не удалось собрать видео черновика: ${err instanceof Error ? err.message : String(err)}`
-      );
-      return result(502, { error: "Не удалось собрать видео — попробуйте ещё раз" });
-    }
+  const have = await listLocalUploadParts(media.id);
+  if (have.length !== media.totalParts) {
+    // 409, а не 400: части действительно не все, и клиенту надо дослать недостающие.
+    return result(
+      409,
+      uploadErrorBody("PARTS_MISSING", { message: "Пришли не все части", extra: { uploadedPartNumbers: have, totalParts: media.totalParts } })
+    );
+  }
 
-    const ready = await tx.propertyDraftMedia.update({
-      where: { id: media.id },
-      data: { status: "READY" },
-    });
+  try {
+    await completeLocalUploadSession(media.id, media.storageKey, media);
+  } catch (err) {
+    return uploadFailure(toStorageError(err, "сборка ролика черновика"), "ролик черновика: сборка");
+  }
+
+  return withDraftLock(agentId, async (tx) => {
+    const current = await tx.propertyDraftMedia.findUnique({ where: { id: media.id } });
+    if (!current) {
+      // Пока склеивали, ролик удалили — собранный файл никому не нужен.
+      await localVideoDelete(media.storageKey);
+      return result(404, uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
+    }
+    if (current.status === "READY") return result(200, { media: presentDraftMedia(current) });
+    const ready = await tx.propertyDraftMedia.update({ where: { id: media.id }, data: { status: "READY" } });
     await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: draftExpiry() } });
     return result(200, { media: presentDraftMedia(ready) });
-  }, 120_000);
+  });
 }
 
 /** Отмена загрузки и удаление файла черновика (DELETE /drafts/current/media/:mediaId). */

@@ -7,6 +7,7 @@ import { formatPropertyCode } from "../../../lib/clientFormat";
 
 import { useAuthStore } from "../../../store/auth";
 import { PropertyHealthDot } from "../../PropertyHealthDot";
+import { RegistryBadge } from "../../RegistryBadge";
 import { PropertyPhoto } from "../../property/PropertyPhoto";
 import { PropertyStats } from "../../PropertyStats";
 import { RhAvatar } from "../ui";
@@ -78,6 +79,7 @@ export function RoyalPropertyItem({ property: p, health, variant = "card", selec
           <PropertyHealthDot health={health} />
           <span title={`Номер для поиска: ${formatPropertyCode(p.shortId)}`}>№{p.shortId}</span>
           <span className="ry-obj-state" data-tone={tone}>{stageLabel}</span>
+          <RegistryBadge brief={p.registry} />
           {p.publishedOnSite && <span className="ry-obj-tag" data-tone={pillTone("info")}><ObjIcon name="globe" size={16} />На сайте</span>}
         </p>
         <div className="ry-obj-stats">

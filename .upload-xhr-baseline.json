@@ -1,0 +1,21 @@
+{
+  "_": "База для scripts/audit-upload-xhr.mjs: реализации отправки файла через XMLHttpRequest, существовавшие на 25.11.2026. Только убывает: перевели файл на общие кирпичи apps/web/src/lib/upload/ — уменьшите число (node scripts/audit-upload-xhr.mjs --update). Новый файл сюда не добавляется: новая загрузка идёт через lib/chunkedUpload.ts.",
+  "files": {
+    "apps/web/src/lib/chunkedUpload.ts": {
+      "count": 2,
+      "reason": "Общий помощник загрузки частями (чат, короткий ролик карточки, ролики в соцсети) — эталон, на который переводятся остальные."
+    },
+    "apps/web/src/lib/draftUploads.ts": {
+      "count": 2,
+      "reason": "Очередь мастера нового объекта: свой XHR с прогрессом части и сторожем тишины; кандидат на перевод на lib/chunkedUpload.ts во второй волне."
+    },
+    "apps/web/src/lib/socialVideoUpload.ts": {
+      "count": 2,
+      "reason": "Фото-пост в соцсети одним запросом FormData (sendOnce); ролики уже идут общим помощником частями."
+    },
+    "apps/web/src/lib/uploadQueue.ts": {
+      "count": 4,
+      "reason": "Очередь карточки объекта: пачка фото одним запросом и части сырого видео с докачкой между вкладками (план и части хранит база)."
+    }
+  }
+}
