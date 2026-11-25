@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 774,
-  "forks": 4166,
+  "endpoints": 775,
+  "forks": 4176,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -3541,6 +3541,105 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/login-code/reset",
+   "mount": "/api/v1/agents",
+   "full": "/api/v1/agents/:id/login-code/reset",
+   "file": "apps/api/src/routes/agents.ts",
+   "router": "agentsRouter",
+   "top": "apps/api/src/routes/agents.ts::agentsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: agents.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный сотрудник\" });",
+       "a": [
+        "ответ 400 — «Неверный сотрудник»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);",
+     "a": [
+      "зовёт resetStaffLoginCodeBlock()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "actor.role !== \"DIRECTOR\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(403, \"Снять блок входа по коду может только директор\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } …",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!target",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return fail(404, \"Сотрудник не найден\");",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const removed = await resetLoginCodeBlock(target.id);",
+       "a": [
+        "зовёт resetLoginCodeBlock()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAgentAudit(actor.id, \"LOGIN_CODE_BLOCK_RESET\", \"Agent\", target.id, { targetName: target.fullName, removedC…",
+       "a": [
+        "зовёт logAgentAudit()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "resetStaffLoginCodeBlock() — apps/api/src/lib/staffAdmin.ts"
     }
    ]
   },
@@ -7126,7 +7225,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error });",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],
@@ -8230,7 +8329,7 @@
       },
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: issued.error });",
+       "t": "return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });",
        "a": [
         "ответ 503"
        ],
@@ -26120,6 +26219,21 @@
       "зовёт findStuckConversations()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "rows.length > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await resetAiRetryCap(rows.map((row)",
+       "a": [
+        "зовёт resetAiRetryCap()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -82197,7 +82311,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"dm_lane_held\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82275,7 +82389,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"dm_lane_core\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82830,7 +82944,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"principal_stale\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82944,7 +83058,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"reply_held\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82967,7 +83081,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"outbound_shield\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82990,7 +83104,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\");",
+                   "t": "traceOutcome(\"blocked\", \"meta_send_block\");",
                    "a": [
                     "дословно из кода"
                    ],
@@ -120527,6 +120641,48 @@
     },
     {
      "k": "do",
+     "t": "const capOn = await automationSwitchOn(\"botRetryCapEnabled\");",
+     "a": [
+      "зовёт automationSwitchOn()"
+     ],
+     "c": [],
+     "from": "automationSwitchOn() — apps/api/src/lib/automationSwitches.ts"
+    },
+    {
+     "k": "do",
+     "t": "const capBase = capOn ? aiRetryLedgerBase(conversation.id, history) : null;",
+     "a": [
+      "зовёт aiRetryLedgerBase()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const message = channelCoreMessageKey(messages);",
+       "a": [
+        "зовёт channelCoreMessageKey()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "aiRetryLedgerBase() — apps/api/src/jobs/aiReplyRetryCap.ts"
+    },
+    {
+     "k": "if",
+     "t": "capBase && await aiRetryStopped(capBase, startedAt)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
      "t": "const outcome = await retryStuckConversation({ id: conversation.id, channel: conversation.channel, subscriber…",
      "a": [
       "зовёт retryStuckConversation()"
@@ -120545,6 +120701,21 @@
           {
            "k": "do",
            "t": "traceOutcome(\"failed\");",
+           "a": [
+            "зовёт traceOutcome()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "result === \"channel-dead\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "traceOutcome(\"blocked\", \"channel_key_dead\");",
            "a": [
             "зовёт traceOutcome()"
            ],
@@ -120589,6 +120760,99 @@
     },
     {
      "k": "if",
+     "t": "outcome === \"channel-dead\"",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!capBase",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new Error(\"повтор не удался: ключ канала не принят (подробности в журнале ошибок)\");",
+         "a": [
+          "ошибка Error — «повтор не удался: ключ канала не принят (подробности в журнале ошибок»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: \"channel_key_d…",
+       "a": [
+        "зовёт stopAiRetry()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "keyDead",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await alertClientWaiting({ conversationId: input.conversationId, trigger: \"failed\", why: \"ответ бота не ушёл,…",
+             "a": [
+              "зовёт alertClientWaiting()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "await logSystemError(\"ai\", `Повтор ответа бота остановлен (${input.conversationId}): ${keyDead ? \"ключ канала…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[ai-retry-cap] остановка повтора:\", error instanceof Error ? error.message : \"UnknownError\");",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "stopAiRetry() — apps/api/src/jobs/aiReplyRetryCap.ts"
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "outcome === \"failed\"",
      "a": [],
      "c": [
@@ -120597,6 +120861,21 @@
        "t": "throw new Error(\"повтор не удался (подробности в журнале ошибок)\");",
        "a": [
         "ошибка Error — «повтор не удался (подробности в журнале ошибок»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"no-reply\" && capBase && await noteAiRetryNoReply(capBase)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await stopAiRetry({ conversationId: conversation.id, base: capBase, startedAt, stop: { reason: \"retry_cap\" } …",
+       "a": [
+        "зовёт stopAiRetry()"
        ],
        "c": []
       }

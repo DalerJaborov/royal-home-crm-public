@@ -265,6 +265,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // mutation session above remains bound to the ORIGINAL raw input.
         text = [text, mediaPerception.transcript].filter(value => value.trim()).join("\n");
       }
+      // Голосовое без расшифровки — в журнал, с признаком модели (прод 23–24.11.2026, 7c64c52d и fb2dc9e7: разбор ПРОШЁЛ,
+      // наблюдение записано, но расшифровка пустая, и в журнале не было ни строки — причину не по чему искать). Текста нет.
+      if (prepared.attachmentInput?.kinds?.includes("audio") && !mediaPerception?.transcript?.trim()) {
+        void logSystemError("ai", `Голосовое клиента в переписке не расшифровано: ${mediaPerception
+          ? `модель вернула пустую расшифровку (speech=${mediaPerception.speech}, язык=${mediaPerception.language})`
+          : "разбора не было (файл не скачан или разбор упал)"}, канал ${planningPrincipal.scope.channel}`,
+          { dedupKey: `customer-dm-voice-empty:${mediaPerception ? mediaPerception.speech : "none"}`, quietPult: true });
+      }
     }
     if (runtime.mediaEnabled && !prepared.media.length && !mediaPerception) {
       mediaPerception = await loadCustomerAdjacentVisualObservation(planningPrincipal, claim) ?? undefined;

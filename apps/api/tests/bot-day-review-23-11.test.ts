@@ -120,7 +120,9 @@ describe("D. Понимание: кнопка рекламы, «алекум», 
     const t = turn(state, ctx(), "Покупаем", recent, { role: "buyer", roleQuote: "Покупаем", question: "other", language: "ru" });
     expect(t.u.question).toBe("none");
     expect(t.keys).not.toContain("details_by_agent");
-    expect(t.d.actions.some(action => action.type === "accept_lead")).toBe(true);
+    // Владелец 22.11.2026 (PR #418): голая роль — сначала один вопрос по сути, заявка — на ответ (и в WhatsApp).
+    expect(t.keys).toContain("role_details_buyer");
+    expect(t.d.actions.some(action => action.type === "accept_lead")).toBe(false);
     expect(t.text).not.toMatch(/точно скажет агент/u);
   });
 
@@ -178,7 +180,9 @@ describe("E. C10: роль без «?» — не вопрос, интерес н
     expect(t.u.roleByQuestion).toBe(false);
     expect(t.keys).not.toContain("offer_call");
     expect(t.keys).not.toContain("details_by_agent");
-    expect(t.d.actions.some(action => action.type === "accept_lead")).toBe(true);
+    // Интерес не отменяется, но голая роль — сначала вопрос по сути (владелец 22.11.2026, PR #418), заявка — следующим ходом.
+    expect(t.keys).toContain("role_details_buyer");
+    expect(t.d.actions.some(action => action.type === "accept_lead")).toBe(false);
   });
 
   it("вопрос со знаком («Квартира продаётся?») — по-прежнему покупатель только по вопросу", () => {

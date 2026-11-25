@@ -85,8 +85,8 @@ function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx
       phone: understanding.phone, note: `Бот не смог собрать ответ, заявка запасным путём. Слова клиента: «${understanding.quote}»`,
       outOfArea: previous.outOfArea, callbackWhen: null, textOnly: false, noCall: previous.noCall });
     state.leadAccepted = true; state.step = "done";
-    text = (understanding.phone && !ctx.phoneKnown ? OPERATOR_PHRASES.phone_received : OPERATOR_PHRASES.lead_known_phone)[language][0]
-      .replace("{when}", ctx.callbackWhen[language]);
+    // Срок звонка не называем (владелец 22.11.2026); номер в словах — «номер получил», иначе номер WhatsApp.
+    text = (understanding.phone ? OPERATOR_PHRASES.phone_received : OPERATOR_PHRASES.lead_known_phone)[language][0];
   } else if (!phoneKnown) text = OPERATOR_PHRASES.ask_phone[language][0];
   else text = OPERATOR_PHRASES.ask_role[language][0];
   let stored: StoredOperatorState;
@@ -115,6 +115,63 @@ export function reconcileAskedRole(state: OperatorState, recent: OperatorTurnReq
   if (seen < state.asked.role) state.asked.role = seen;
 }
 
+/**
+ * СТОРОЖ ПОВТОРА СВОЕЙ РЕПЛИКИ (прод 18.11.2026, 9d656fe1: на три голосовых подряд — одна и та же фраза о комиссии; находка 13
+ * от 24.11). Шаг, чей текст уже прозвучал в двух последних ответах бота, не повторяется: берётся другой вариант той же фразы, а
+ * если и он уже звучал — шаг выпадает. Выпало всё — тишина и сигнал человеку («повтор»), а не пластинка клиенту.
+ * Вопрос о роли не трогаем: его пределы держит decide.ts (два раза, второй — другими словами).
+ */
+const REPEAT_WINDOW = 2;
+/** Фразы, чей смысл — факт (объект, цена, место, характеристики, время клиента): повтор факта не прячется за другим вариантом. */
+export const OPERATOR_FACT_KEYS: ReadonlySet<OperatorStepOut["key"]> = new Set(["property_price", "property_no_price", "property_sold",
+  "property_place", "property_place_price", "property_details", "property_details_price", "property_details_other", "callback_time_noted"]);
+/** Фразы, которые несут цену объекта. */
+const PRICE_LINE_KEYS: ReadonlySet<OperatorStepOut["key"]> = new Set(["property_price", "property_place_price", "property_details_price"]);
+const sameLine = (text: string) => text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+export function withoutOwnRepeats(decision: { steps: OperatorStepOut[]; language: OperatorLanguage; actions: OperatorAction[]; silent: boolean },
+  recent: OperatorTurnRequest["input"]["recent"], sent: readonly string[] = [], opts: { priceAsked?: boolean } = {}): void {
+  // Два прошлых ответа, каждый — по целым предложениям (ревью #418: не подстрока, иначе «Понял.» совпало бы внутри длинного ответа).
+  const lastBot = [...(recent ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text), ...sent].slice(-REPEAT_WINDOW);
+  const sentences = new Set(lastBot.flatMap(text => [sameLine(text), ...text.split(/(?<=[.!?])\s+|\n+/u).map(sameLine)]).filter(Boolean));
+  // Ход с заявкой не глушим: строка заявки звучит один раз, и клиент должен узнать, что заявка принята.
+  if (!lastBot.length || !decision.steps.length || decision.actions.some(action => action.type === "accept_lead")) return;
+  const seen = (step: OperatorStepOut) => sentences.has(sameLine(renderOperatorStep(step, decision.language)));
+  // Фраза с фактом (номер и цена объекта, факты карточки, время клиента): другой вариант — тот же факт другими словами, это тоже
+  // повтор (живая находка 33, 25.11.2026: «Нархи объекти №217 235 000 USD аст.», следом «Ин объекти №217, нархаш 235 000 USD.»).
+  // Тот же объект с той же ценой в недавнем ответе под другим ключом (место с ценой → цена) — тоже повтор.
+  const factSeen = (step: OperatorStepOut) => {
+    const variants = OPERATOR_PHRASES[step.key][decision.language].length;
+    if (Array.from({ length: variants }, (_, i) => ({ ...step, variant: i })).some(seen)) return true;
+    const id = step.vars.id, price = step.vars.price;
+    if (id === undefined || typeof price !== "string") return false;
+    const marker = sameLine(`№${String(id)}`), priceLine = sameLine(price);
+    return lastBot.some(text => sameLine(text).includes(marker) && sameLine(text).includes(priceLine));
+  };
+  const kept: OperatorStepOut[] = [];
+  for (const step of decision.steps) {
+    // Прямой вопрос о цене («Сколько стоит?») — ответ ценой всегда, даже если она была в недавнем ответе (ревью #425: иначе тишина
+    // и сигнал человеку на простой вопрос). Другой вариант той же фразы — чтобы не звучать пластинкой.
+    if (opts.priceAsked && PRICE_LINE_KEYS.has(step.key)) {
+      const variants = OPERATOR_PHRASES[step.key][decision.language].length;
+      kept.push(Array.from({ length: variants }, (_, i) => ({ ...step, variant: step.variant + i })).find(candidate => !seen(candidate)) ?? step);
+      continue;
+    }
+    if (OPERATOR_FACT_KEYS.has(step.key)) { if (!factSeen(step)) kept.push(step); continue; }
+    if (step.key === "ask_role" || step.key === "greet" || step.key === "greet_assalom" || !seen(step)) { kept.push(step); continue; }
+    const variants = OPERATOR_PHRASES[step.key][decision.language].length;
+    const other = Array.from({ length: variants - 1 }, (_, i) => ({ ...step, variant: step.variant + i + 1 })).find(candidate => !seen(candidate));
+    if (other) kept.push(other);
+  }
+  const meaningful = kept.filter(step => step.key !== "greet" && step.key !== "greet_assalom");
+  if (!meaningful.length) {
+    decision.steps = [];
+    decision.silent = true;
+    if (!decision.actions.some(action => action.type === "call_staff")) decision.actions.push({ type: "call_staff", reason: "repeat_question" });
+    return;
+  }
+  decision.steps = kept;
+}
+
 export async function runOperatorTurn(request: OperatorTurnRequest): Promise<OperatorTurnResult> {
   const now = request.now ?? new Date();
   const previous = readOperatorState(request.storedState, now);
@@ -131,6 +188,7 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
   const understanding = await understandTurn(request.input, previous, request.ctx, request.model, request.timeoutMs);
   try {
     const decision = decide(previous, understanding, request.ctx);
+    withoutOwnRepeats(decision, request.input.recent, request.input.sentBotTexts, { priceAsked: understanding.priceAsked === true });
     let parts = decision.steps.map(step => renderOperatorStep(step, decision.language));
     let text = renderOperatorReply(decision.steps, decision.language) || null;
     if (text && request.ownWords?.enabled) {

@@ -2024,7 +2024,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       }
       // A held DM was written into its CRM chat before the ACK and belongs to
       // no bot: skip it BEFORE any account/Graph profile lookup (13.11.2026).
-      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") { traceOutcome("blocked"); continue; }
+      if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") { traceOutcome("blocked", "dm_lane_held"); continue; }
 
       // Чей это разговор: маркер найденного аккаунта уходит и в индикаторы
       // «прочитано/печатает», и в сам ответ, и в служебные запросы вроде
@@ -2146,7 +2146,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
        * сгорел сторож номеров 17.09.
        */
       const originalRouting = inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg));
-      if (originalRouting && originalRouting.execution.lane !== "LEGACY") { traceOutcome("blocked"); continue; }
+      if (originalRouting && originalRouting.execution.lane !== "LEGACY") { traceOutcome("blocked", "dm_lane_core"); continue; }
       const currentNative = await findScopedBotConversation({ channel: msg.channel, subscriberId: msg.senderId, transport: customerTransport });
       const currentHistory = currentNative ? await prisma.botConversation.findUnique({ where: { id: currentNative.id }, select: { messages: true } }) : null;
       const finalCustomerInput = isFinalCustomerInputFrame({ kind: msg.payload ? "postback" : "message", isEcho: msg.isEcho,
@@ -2816,7 +2816,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       await showMetaReadAndTyping(msg.channel, msg.senderId, msg.messageId, true, account.token, customerTransport);
       await sleep(typingDelayMs(result.reply));
       if (result.customerReplyPrincipal && (await revalidateCustomerPrincipal(result.customerReplyPrincipal)).status !== "current") {
-        traceOutcome("blocked");
+        traceOutcome("blocked", "principal_stale");
         continue;
       }
       const sendReplyText = async (text: string): Promise<string | null> => {
@@ -2855,7 +2855,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         await showMetaReadAndTyping(msg.channel, msg.senderId, undefined, true, account.token, customerTransport);
         await sleep(typingDelayMs(result.reply2, 6000));
         if (result.customerReplyPrincipal && (await revalidateCustomerPrincipal(result.customerReplyPrincipal)).status !== "current") {
-          traceOutcome("blocked");
+          traceOutcome("blocked", "principal_stale");
           continue;
         }
         await stampOutgoingMid(
@@ -2875,7 +2875,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         ));
       }
     } catch (err) {
-      if (err instanceof CustomerReplyHeldError) { traceOutcome("blocked"); continue; }
+      if (err instanceof CustomerReplyHeldError) { traceOutcome("blocked", "reply_held"); continue; }
       /**
        * ЩИТ ИСХОДЯЩИХ НЕ ВЫПУСТИЛ ОТВЕТ — ЭТО РЕШЕНИЕ, А НЕ ПОЛОМКА (17.09.2026).
        *
@@ -2884,7 +2884,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
        * входящих. Причину щит уже записал в журнал и показал руководству.
        */
       if (isOutboundBlockedError(err)) {
-        traceOutcome("blocked");
+        traceOutcome("blocked", "outbound_shield");
         console.warn(`[щит] ${msg.channel}: ответ не отправлен — ${err.message}`);
         continue;
       }
@@ -2896,7 +2896,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
        * уже ушёл «клиент ждёт ответа» с настоящей причиной, руководству — тревога.
        */
       if (isMetaSendBlockError(err)) {
-        traceOutcome("blocked");
+        traceOutcome("blocked", "meta_send_block");
         if (!providerAcceptedReply) await markLastReplyUndelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId);
         if (providerAcceptedReply) replySent = true;
         console.warn(`[метка Meta] ${msg.channel}: ответ не отправлен — ${err.message.slice(0, 200)}`);
