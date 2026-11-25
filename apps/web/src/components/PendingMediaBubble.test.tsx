@@ -56,6 +56,28 @@ describe("PendingMediaBubble", () => {
   });
 });
 
+describe("исход неизвестен и пузырь после перезагрузки (ревью 25.11)", () => {
+  it("файл мог дойти — «Повторить» не показываем, только «Убрать»", () => {
+    render(
+      <PendingMediaBubble
+        upload={{ ...base, status: "error", error: "Проверьте переписку", retryable: false, jobId: "j" }}
+        onRetry={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(screen.queryByText("Повторить")).toBeNull();
+    expect(screen.getByText("Убрать")).toBeTruthy();
+  });
+
+  it("пузырь, поднятый с сервера, без файла и превью — рисуется подложкой, не ломается", () => {
+    const { container } = render(
+      <PendingMediaBubble upload={{ ...base, file: null, previewUrl: "", status: "processing", stage: "compress", progress: 10, jobId: "j" }} onRetry={vi.fn()} onCancel={vi.fn()} />
+    );
+    expect(container.querySelector("video, img")).toBeNull();
+    expect(screen.getByText("Сжимаем 10%")).toBeTruthy();
+  });
+});
+
 describe("waitOutgoingMediaJob", () => {
   it("спрашивает, пока не SENT; сбой сети при опросе — не сбой отправки", async () => {
     const answers: Array<OutgoingMediaJobView | Error> = [
@@ -73,6 +95,20 @@ describe("waitOutgoingMediaJob", () => {
     const done = await waitOutgoingMediaJob("c", "j", (job) => seen.push(job.status), undefined, async () => {});
     expect(done.status).toBe("SENT");
     expect(seen).toEqual(["QUEUED", "PREPARING", "SENT"]);
+  });
+
+  it("опрос не бесконечный: через полчаса — «проверьте переписку позже», без повтора", async () => {
+    vi.mocked(api).mockResolvedValue({ id: "j", status: "PREPARING", progress: 1, error: null, note: null });
+    let now = 0;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const done = await waitOutgoingMediaJob("c", "j", () => {}, undefined, async () => {
+        now += 10 * 60_000;
+      });
+      expect(done).toMatchObject({ status: "FAILED", retryable: false });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("опрос редеет со временем: не долбить сервер минутами", () => {

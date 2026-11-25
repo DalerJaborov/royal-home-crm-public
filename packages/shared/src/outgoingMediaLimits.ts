@@ -18,18 +18,31 @@
  *    его предел задаёт сервер (apps/api/src/telegram/api.ts).
  */
 const MB = 1024 * 1024;
+/**
+ * «МБ» у Meta — ДЕСЯТИЧНЫЕ (ревью 25.11.2026): документация пишет «16MB», а считает ли
+ * платформа 16·10⁶ или 16·2²⁰ байт, не сказано. Берём меньшее — 16 000 000: файл на
+ * 0,7 МБ легче не виден глазу, а отказ Meta на 16,5 «двоичных» мегабайтах — виден.
+ */
+const DMB = 1_000_000;
 
 export type MetaOutgoingChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK";
 
 export const META_OUTGOING_MEDIA_LIMITS: Record<MetaOutgoingChannel, { image: number; video: number }> = {
-  WHATSAPP: { image: 5 * MB, video: 16 * MB },
-  INSTAGRAM: { image: 8 * MB, video: 25 * MB },
-  FACEBOOK: { image: 8 * MB, video: 25 * MB },
+  WHATSAPP: { image: 5 * DMB, video: 16 * DMB },
+  INSTAGRAM: { image: 8 * DMB, video: 25 * DMB },
+  FACEBOOK: { image: 8 * DMB, video: 25 * DMB },
 };
 
 /** Фото в Telegram по ссылке: потолок облачного Bot API (sendPhoto). Telegram и сам
  *  пережимает фото до 2560 px, так что уложиться в 5 МБ — без видимой потери. */
-export const TELEGRAM_OUTGOING_IMAGE_LIMIT = 5 * MB;
+export const TELEGRAM_OUTGOING_IMAGE_LIMIT = 5 * DMB;
+
+/**
+ * Фото тяжелее этого — не снимок с телефона (48 Мп iPhone в HEIC/JPEG весит 5–15 МБ),
+ * а скан или выгрузка из редактора. Его сжатие требует держать файл и пиксели в памяти
+ * worker целиком — отказ сразу при приёме, с понятным текстом (ревью 25.11.2026).
+ */
+export const OUTGOING_IMAGE_SOURCE_MAX_BYTES = 50 * MB;
 
 /**
  * Запас к потолку при сжатии видео: битрейт x264 «в среднем», а не точно, и контейнер

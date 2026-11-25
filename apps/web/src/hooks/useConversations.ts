@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ContactProfileView } from "@royal-home/shared";
 import { api } from "../lib/api";
@@ -11,6 +11,7 @@ import {
   cancelConversationMediaUpload,
   requestOutgoingMediaCancel,
   requestOutgoingMediaRetry,
+  fetchOutgoingMediaJobs,
   uploadConversationMedia,
   waitOutgoingMediaJob,
   type OutgoingMediaJobView,
@@ -364,6 +365,9 @@ export function useSendMediaMessage(id: string | null) {
  * conversationId, а не в useState компонента, поэтому переключение между диалогами
  * во время загрузки прогресс не теряет.
  */
+/** Задания, за которыми эта вкладка уже следит: подъём пузырей с сервера не заводит второй опрос. */
+const followedMediaJobs = new Set<string>();
+
 export function useUploadConversationMediaWithProgress(id: string | null) {
   const queryClient = useQueryClient();
   const add = useMediaUploadsStore((s) => s.add);
@@ -383,32 +387,39 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
     async (conversationId: string, upload: PendingMediaUpload, jobId: string) => {
       const stageOf = (job: OutgoingMediaJobView) =>
         job.status === "QUEUED" ? "queued" : job.status === "PREPARING" ? "compress" : "send";
-      setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
-      const done = await waitOutgoingMediaJob(conversationId, jobId, (job) => {
-        if (job.status === "QUEUED" || job.status === "PREPARING" || job.status === "SENDING") {
-          setProcessing(conversationId, upload.localId, { jobId, stage: stageOf(job), progress: job.progress });
+      followedMediaJobs.add(jobId);
+      try {
+        setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
+        const done = await waitOutgoingMediaJob(conversationId, jobId, (job) => {
+          if (job.status === "QUEUED" || job.status === "PREPARING" || job.status === "SENDING") {
+            setProcessing(conversationId, upload.localId, { jobId, stage: stageOf(job), progress: job.progress });
+          }
+        });
+        if (done.status === "SENT" || done.status === "CANCELLED") {
+          remove(conversationId, upload.localId);
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          return;
         }
-      });
-      if (done.status === "SENT" || done.status === "CANCELLED") {
-        remove(conversationId, upload.localId);
-        queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        return;
+        setError(conversationId, upload.localId, done.error || "Не удалось отправить", done.retryable !== false);
+      } finally {
+        followedMediaJobs.delete(jobId);
       }
-      setError(conversationId, upload.localId, done.error || "Не удалось отправить");
     },
     [queryClient, remove, setError, setProcessing]
   );
 
   const run = useCallback(
     async (conversationId: string, upload: PendingMediaUpload) => {
+      if (!upload.file) return;
+      const file = upload.file;
       try {
         // localId живёт с пузырём до успеха: «Повторить» идёт с тем же ключом.
         const result = await uploadConversationMedia(
           conversationId,
-          upload.file,
+          file,
           upload.caption,
           (percent) => setProgress(conversationId, upload.localId, percent),
-          `media:${upload.localId}`,
+          upload.uploadKey ?? `media:${upload.localId}`,
           upload.localId
         );
         if (result?.queued && result.jobId) {
@@ -458,21 +469,64 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         void requestOutgoingMediaRetry(conversationId, jobId)
           .then(() => follow(conversationId, upload, jobId))
           .catch((err: unknown) => {
-            // Исходника уже нет на сервере (прошли сутки) — грузим файл заново.
+            // Исходника уже нет на сервере (прошли сутки) — грузим файл заново, НОВЫМ ключом
+            // повтора: со старым сервер вернул бы ответ первой загрузки — то самое задание (ревью 25.11).
             if ((err as { status?: number }).status === 410) {
+              if (!upload.file) {
+                setError(conversationId, upload.localId, "Файла уже нет на сервере — выберите его и отправьте заново", false);
+                return;
+              }
               setUploading(conversationId, upload.localId);
-              void run(conversationId, { ...upload, jobId: undefined });
+              void run(conversationId, { ...upload, jobId: undefined, uploadKey: `media:${upload.localId}:${Date.now()}` });
               return;
             }
             setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось повторить");
           });
         return;
       }
+      if (!upload.file) return;
       setUploading(id, upload.localId);
       void run(id, upload);
     },
     [id, setUploading, setProcessing, setError, run, follow]
   );
+
+  /**
+   * ПУЗЫРИ ПОСЛЕ ПЕРЕЗАГРУЗКИ ВКЛАДКИ (ревью 25.11.2026). Файл уходит в фоне и может упасть,
+   * когда вкладку уже закрыли; при открытии переписки сервер называет незавершённые и упавшие
+   * за сутки отправки этого сотрудника — пузыри встают на место, опрос продолжается.
+   */
+  useEffect(() => {
+    if (!id) return;
+    const conversationId = id;
+    let alive = true;
+    void fetchOutgoingMediaJobs(conversationId)
+      .then(({ jobs }) => {
+        if (!alive) return;
+        const present = new Set((useMediaUploadsStore.getState().byConversation[conversationId] ?? []).map((u) => u.jobId));
+        for (const job of jobs) {
+          if (present.has(job.id) || followedMediaJobs.has(job.id)) continue;
+          const upload: PendingMediaUpload = {
+            localId: `job-${job.id}`,
+            file: null,
+            previewUrl: "",
+            kind: job.kind ?? "video",
+            caption: job.caption ?? undefined,
+            progress: job.progress,
+            status: job.status === "FAILED" ? "error" : "processing",
+            error: job.error ?? undefined,
+            retryable: job.retryable,
+            jobId: job.id,
+          };
+          add(conversationId, upload);
+          if (job.status !== "FAILED") void follow(conversationId, upload, job.id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id, add, follow]);
 
   const cancel = useCallback(
     (localId: string) => {

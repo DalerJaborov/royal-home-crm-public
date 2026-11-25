@@ -140,7 +140,19 @@ export interface OutgoingMediaJobView {
   progress: number;
   error: string | null;
   note: string | null;
+  /** false — исход неизвестен (файл мог дойти): «Повторить» не предлагаем. */
+  retryable?: boolean;
+  kind?: "image" | "video";
+  caption?: string | null;
 }
+
+/** Незавершённые и упавшие за сутки отправки сотрудника в переписке — пузыри после перезагрузки вкладки. */
+export function fetchOutgoingMediaJobs(conversationId: string): Promise<{ jobs: OutgoingMediaJobView[] }> {
+  return api<{ jobs: OutgoingMediaJobView[] }>(`/conversations/${conversationId}/media-jobs`);
+}
+
+/** Дольше этого не спрашиваем: сервер сам сдаётся раньше (12 минут сжатия), дальше — «проверьте позже». */
+export const OUTGOING_MEDIA_WAIT_MAX_MS = 30 * 60_000;
 
 export function fetchOutgoingMediaJob(conversationId: string, jobId: string): Promise<OutgoingMediaJobView> {
   return api<OutgoingMediaJobView>(`/conversations/${conversationId}/media-jobs/${jobId}`);
@@ -173,6 +185,12 @@ export async function waitOutgoingMediaJob(
   const started = Date.now();
   for (;;) {
     if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+    if (Date.now() - started > OUTGOING_MEDIA_WAIT_MAX_MS) {
+      return {
+        id: jobId, status: "FAILED", progress: 0, retryable: false, note: null,
+        error: "Сервер долго отправляет файл — проверьте переписку позже",
+      };
+    }
     try {
       const job = await fetchOutgoingMediaJob(conversationId, jobId);
       onUpdate(job);

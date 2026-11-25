@@ -12,7 +12,8 @@ import { create } from "zustand";
  */
 export interface PendingMediaUpload {
   localId: string;
-  file: File;
+  /** null — пузырь поднят с сервера после перезагрузки вкладки (самого файла во вкладке уже нет). */
+  file: File | null;
   /** blob-ссылка на превью (кадр видео/фото) — создаётся один раз при добавлении и
    *  освобождается при удалении записи, чтобы не копить память во вкладке. */
   previewUrl: string;
@@ -27,13 +28,17 @@ export interface PendingMediaUpload {
   jobId?: string;
   /** Что сервер делает сейчас: ждёт очереди, сжимает, отправляет клиенту. */
   stage?: "queued" | "compress" | "send";
+  /** false — исход отправки неизвестен (файл мог дойти): «Повторить» не показываем. */
+  retryable?: boolean;
+  /** Ключ повтора загрузки; новый — когда файл грузится заново (сервер его уже убрал). */
+  uploadKey?: string;
 }
 
 interface MediaUploadsState {
   byConversation: Record<string, PendingMediaUpload[]>;
   add: (conversationId: string, upload: PendingMediaUpload) => void;
   setProgress: (conversationId: string, localId: string, progress: number) => void;
-  setError: (conversationId: string, localId: string, error: string) => void;
+  setError: (conversationId: string, localId: string, error: string, retryable?: boolean) => void;
   setUploading: (conversationId: string, localId: string) => void;
   setProcessing: (conversationId: string, localId: string, patch: { jobId: string; stage: PendingMediaUpload["stage"]; progress: number }) => void;
   remove: (conversationId: string, localId: string) => void;
@@ -52,12 +57,12 @@ export const useMediaUploadsStore = create<MediaUploadsState>((set) => ({
         [conversationId]: (s.byConversation[conversationId] ?? []).map((u) => (u.localId === localId ? { ...u, progress } : u)),
       },
     })),
-  setError: (conversationId, localId, error) =>
+  setError: (conversationId, localId, error, retryable = true) =>
     set((s) => ({
       byConversation: {
         ...s.byConversation,
         [conversationId]: (s.byConversation[conversationId] ?? []).map((u) =>
-          u.localId === localId ? { ...u, status: "error", error } : u
+          u.localId === localId ? { ...u, status: "error", error, retryable } : u
         ),
       },
     })),
@@ -83,7 +88,7 @@ export const useMediaUploadsStore = create<MediaUploadsState>((set) => ({
     set((s) => {
       const list = s.byConversation[conversationId] ?? [];
       const found = list.find((u) => u.localId === localId);
-      if (found) URL.revokeObjectURL(found.previewUrl);
+      if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
       return { byConversation: { ...s.byConversation, [conversationId]: list.filter((u) => u.localId !== localId) } };
     }),
 }));

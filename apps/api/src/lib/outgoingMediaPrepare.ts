@@ -92,6 +92,8 @@ export interface PreparedMedia {
   sendAsLink: boolean;
   /** Своё временное (удалить после отправки); у «original» — false. */
   owned: boolean;
+  /** Подготовить не удалось (сбой или срок ffmpeg) — ушёл исходник, как до сжатия. */
+  fallback?: boolean;
   ms: number;
 }
 
@@ -161,6 +163,18 @@ export function parseProbe(json: unknown): MediaProbe {
   };
 }
 
+/**
+ * ТОЛЬКО ЛОКАЛЬНЫЕ ФАЙЛЫ (ревью 25.11.2026). Файл присылает человек, и «видео .mp4» может
+ * оказаться плейлистом HLS со ссылками на чужие адреса: ffmpeg пошёл бы за ними из worker —
+ * во внутреннюю сеть сервера (SSRF) или куда угодно наружу. Белый список протоколов перед
+ * каждым `-i` и у ffprobe: только файлы на диске.
+ */
+export const LOCAL_FILES_ONLY = ["-protocol_whitelist", "file"] as const;
+
+export function probeArgs(inputPath: string): string[] {
+  return ["-v", "error", ...LOCAL_FILES_ONLY, "-print_format", "json", "-show_format", "-show_streams", inputPath];
+}
+
 export async function probeMedia(inputPath: string, signal?: AbortSignal): Promise<MediaProbe> {
   const result = await runFfmpeg({
     bin: "ffprobe",
@@ -168,7 +182,7 @@ export async function probeMedia(inputPath: string, signal?: AbortSignal): Promi
     timeoutMs: 30_000,
     captureStdout: true,
     signal,
-    args: ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", inputPath],
+    args: probeArgs(inputPath),
   });
   return parseProbe(JSON.parse(result.stdout || "{}"));
 }
@@ -280,6 +294,8 @@ export interface PrepareOptions {
   signal?: AbortSignal;
   /** 0–100 по ходу сжатия видео. */
   onProgress?: (percent: number) => void;
+  /** Крайний срок всей подготовки (мс с эпохи): каждое перекодирование укладывается в остаток. */
+  deadlineAt?: number;
 }
 
 /**
@@ -331,6 +347,7 @@ export function transcodeArgs(
   return [
     "-hide_banner", "-nostdin", "-y",
     "-threads", ffmpegThreads(),
+    ...LOCAL_FILES_ONLY,
     "-i", input,
     "-map", "0:v:0",
     ...audio,
@@ -349,12 +366,16 @@ export function transcodeArgs(
 export function remuxArgs(input: string, output: string, probe: MediaProbe): string[] {
   return [
     "-hide_banner", "-nostdin", "-y",
+    ...LOCAL_FILES_ONLY,
     "-i", input,
     "-map", "0:v:0", ...(probe.audio ? ["-map", "0:a:0"] : []),
     "-c", "copy",
     // hvc1 — тег, с которым HEVC играет на iPhone/Safari (с hev1 видно только звук).
     ...(probe.video?.codec === "hevc" ? ["-tag:v", "hvc1"] : []),
-    "-map_metadata", "-1", "-map_chapters", "-1",
+    // Общие метаданные файла прочь (там геометка iPhone), а метаданные потока картинки
+    // оставляем: ffmpeg 5.1 (образ прода) держит поворот и в них — без этого
+    // вертикальное видео без перекодирования легло бы «на бок».
+    "-map_metadata", "-1", "-map_metadata:s:v", "0:s:v", "-map_chapters", "-1",
     "-movflags", "+faststart",
     "-f", "mp4", output,
   ];
@@ -384,6 +405,14 @@ function wrapFfmpeg(err: unknown): never {
   throw err;
 }
 
+/** Срок шага не дальше общего крайнего срока подготовки; срок вышел — сбой ffmpeg, не отмена. */
+function boundedTimeout(ms: number, options: PrepareOptions): number {
+  if (options.deadlineAt === undefined) return ms;
+  const left = options.deadlineAt - Date.now();
+  if (left <= 1_000) throw new PrepareError("Сжатие не уложилось в срок", "ffmpeg");
+  return Math.min(ms, left);
+}
+
 async function runTranscode(
   input: string,
   output: string,
@@ -393,7 +422,7 @@ async function runTranscode(
 ): Promise<void> {
   await runFfmpeg({
     label: "сжатие видео для клиента",
-    timeoutMs: encodeTimeoutMs(probe.durationSec),
+    timeoutMs: boundedTimeout(encodeTimeoutMs(probe.durationSec), options),
     lowPriority: true,
     signal: options.signal,
     onStdoutChunk: progressReporter(probe.durationSec, options.onProgress),
@@ -404,7 +433,7 @@ async function runTranscode(
 async function runRemux(input: string, output: string, probe: MediaProbe, options: PrepareOptions): Promise<void> {
   await runFfmpeg({
     label: "перекладка видео в MP4",
-    timeoutMs: 3 * 60_000,
+    timeoutMs: boundedTimeout(3 * 60_000, options),
     lowPriority: true,
     signal: options.signal,
     args: remuxArgs(input, output, probe),
@@ -423,14 +452,25 @@ export async function prepareOutgoingVideo(
   options: PrepareOptions
 ): Promise<PreparedMedia> {
   const started = Date.now();
+  /**
+   * НЕ СМОГЛИ ПОДГОТОВИТЬ — ОТПРАВЛЯЕМ КАК РАНЬШЕ, А НЕ ОТКАЗ (ревью 25.11.2026). До очереди
+   * сжатия видео уходило всегда: файлом, если влезает, иначе ссылкой. Сбой ffmpeg, срок,
+   * нечитаемый для ffprobe файл не должны делать хуже прежнего: исходник уходит той же
+   * доставкой, она сама решит «файл или ссылка», агенту — честная пометка. Отказ — только
+   * на отмену (сотрудник или выкат).
+   */
+  const asBefore = (): PreparedMedia => ({
+    path: input.path, mimetype: input.mimetype, size: input.size, action: "original",
+    sendAsLink: input.size > channelMediaLimit(channel, "video"), owned: false, ms: Date.now() - started, fallback: true,
+  });
   let probe: MediaProbe;
   try {
     probe = await probeMedia(input.path, options.signal);
   } catch (err) {
     if (err instanceof FfmpegError && err.aborted) throw new PrepareError("Отменено", "aborted");
-    throw new PrepareError("Видео не читается — возможно, файл повреждён", "unreadable");
+    return asBefore();
   }
-  if (!probe.video) throw new PrepareError("В файле нет видео", "no_video");
+  if (!probe.video) return asBefore();
   const plan = planVideo(probe, channel, input.size);
   const out = path.join(options.workDir, `${randomUUID()}.mp4`);
   const done = async (action: PreparedMedia["action"], sendAsLink: boolean): Promise<PreparedMedia> => ({
@@ -470,7 +510,9 @@ export async function prepareOutgoingVideo(
     return await done("transcoded", false);
   } catch (err) {
     await fs.rm(out, { force: true }).catch(() => {});
-    throw err;
+    if (err instanceof PrepareError && err.code === "aborted") throw err;
+    if (options.signal?.aborted) throw new PrepareError("Отменено", "aborted");
+    return asBefore();
   }
 }
 
@@ -481,6 +523,7 @@ export async function prepareOutgoingVideo(
 /** Длинная сторона фото: WhatsApp в «HD» показывает до 4096, но 2560 неотличимы на телефоне и в 3–4 раза легче. */
 const IMAGE_MAX_SIDE = 2560;
 const MIN_SIDE_AFTER_SHRINK = 1080;
+export const MAX_IMAGE_PIXELS = 100_000_000;
 
 export async function prepareOutgoingImage(
   input: PrepareInput,
@@ -504,6 +547,11 @@ export async function prepareOutgoingImage(
     meta = await base.clone().metadata();
   } catch {
     throw new PrepareError("Фото не читается — возможно, файл повреждён", "unreadable");
+  }
+  // Предел пикселей до любой работы с картинкой: 100 Мп — с запасом больше 48 Мп iPhone,
+  // а «бомба» в заголовке (крошечный файл, 30000×30000) не раскладывается в память worker.
+  if ((meta.width ?? 0) * (meta.height ?? 0) > MAX_IMAGE_PIXELS) {
+    throw new PrepareError("Фото слишком большое по размеру кадра — отправьте снимок с телефона", "too_big");
   }
   // .metadata() показывает размер ДО поворота: для 5-8 (повёрнутых) сторон меняем местами.
   const swap = (meta.orientation ?? 1) >= 5;

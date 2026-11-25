@@ -34,7 +34,10 @@ export function PendingMediaBubble({
   return (
     <div className="bub me">
       <div className="att-img" style={{ position: "relative" }}>
-        {u.kind === "image" ? (
+        {/* Пузырь, поднятый с сервера после перезагрузки вкладки, превью не имеет — только подложка. */}
+        {!u.previewUrl ? (
+          <div className="w-full h-full" style={{ background: "var(--c-surface-2, rgba(127,127,127,.25))" }} aria-hidden />
+        ) : u.kind === "image" ? (
           <img src={u.previewUrl} alt="Загружается" className="w-full h-full object-cover" />
         ) : (
           <video src={u.previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
@@ -79,9 +82,12 @@ export function PendingMediaBubble({
           <span className="txt" style={{ color: "var(--crit)" }}>
             {u.error || "Не удалось отправить"}
           </span>
-          <button type="button" className="lnk" onClick={() => onRetry(u)}>
-            Повторить
-          </button>
+          {/* Исход неизвестен (файл мог дойти) — повтор задвоил бы файл у клиента: только «Убрать». */}
+          {u.retryable !== false && (
+            <button type="button" className="lnk" onClick={() => onRetry(u)}>
+              Повторить
+            </button>
+          )}
           <button type="button" className="lnk" onClick={() => onCancel(u.localId)}>
             Убрать
           </button>

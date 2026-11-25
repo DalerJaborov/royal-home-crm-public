@@ -1,14 +1,23 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { formatUploadLimit } from "@royal-home/shared";
+import { formatUploadLimit, OUTGOING_IMAGE_SOURCE_MAX_BYTES } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import type { OutgoingMediaJob } from "../generated/prisma/client.js";
+import { Prisma, type OutgoingMediaJob } from "../generated/prisma/client.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { asMetaChannel } from "../messengers/meta.js";
 import { moveUploadedFile } from "../upload.js";
 import { automationSwitchOn } from "./automationSwitches.js";
-import { agentSender, deliverMediaToConversation, mediaDeliveryPrecheck, type DeliveryTarget } from "./conversationDelivery.js";
+import {
+  agentSender,
+  deliverMediaToConversation,
+  mediaDeliveryPrecheck,
+  placeQueuedMediaPause,
+  rollbackQueuedMediaPause,
+  type DeliveryTarget,
+  type StoredPauseUndo,
+} from "./conversationDelivery.js";
+import { sendPushToAgent } from "../push.js";
 import { TG_PREFIX } from "./conversationId.js";
 import { describeError } from "./describeError.js";
 import { channelMediaLimit, prepareOutgoingMedia, PrepareError, type OutgoingMediaChannel, type PreparedMedia } from "./outgoingMediaPrepare.js";
@@ -40,6 +49,11 @@ import { logSystemError } from "./systemError.js";
  */
 
 export const OUTGOING_MEDIA_JOB_TYPE = "outgoing-media-send";
+/**
+ * Фото — своя полоса (ревью 25.11.2026): фото готовится за секунду и не должно ждать за
+ * 12-минутным видео в общей очереди («мгновенно» — главное требование владельца).
+ */
+export const OUTGOING_MEDIA_PHOTO_JOB_TYPE = "outgoing-media-photo";
 export const OUTGOING_MEDIA_MAX_ATTEMPTS = 5;
 /** Сколько всего даём подготовке одного файла: ниже срока задания очереди (14 мин) и «зависшего RUNNING» (15 мин). */
 const PREPARE_DEADLINE_MS = 12 * 60_000;
@@ -47,12 +61,22 @@ const PREPARE_DEADLINE_MS = 12 * 60_000;
 const FAILED_KEEP_MS = 24 * 60 * 60 * 1000;
 /** Файл в спуле без строки задания — след оборванного приёма. */
 const ORPHAN_KEEP_MS = 6 * 60 * 60 * 1000;
-/** Задание, которое ждёт или сжимается дольше этого, — повод для тревоги. */
+/** Сжимается или отправляется дольше этого (от начала обработки) — повод для тревоги. */
 const STUCK_ALERT_MS = 20 * 60_000;
+/** Ждёт очереди дольше этого — тревога: два-три длинных видео подряд ждут до получаса, это норма. */
+const QUEUED_ALERT_MS = 60 * 60_000;
+/** Текст «исход неизвестен» — один на все случаи: процесс упал, транспорт оборвался, история не записалась. */
+export const OUTCOME_UNKNOWN_TEXT =
+  "Связь оборвалась в момент отправки — файл мог дойти. Проверьте переписку и, если файла там нет, отправьте его заново.";
 /** Записи старше месяца не нужны даже для разбора. */
 const ROW_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 /** Минимум свободного места под приём: сжатие пишет копию рядом с исходником. */
 const MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024;
+
+const SPOOL_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif",
+  ".mp4", ".m4v", ".mov", ".3gp", ".webm", ".mkv", ".avi",
+]);
 
 export type OutgoingMediaStatus = "QUEUED" | "PREPARING" | "SENDING" | "SENT" | "FAILED" | "CANCELLED";
 const TERMINAL: ReadonlySet<string> = new Set(["SENT", "FAILED", "CANCELLED"]);
@@ -99,7 +123,9 @@ export async function outgoingMediaCompressOn(): Promise<boolean> {
 }
 
 /** Что видит экран про задание. */
-export function outgoingMediaJobView(job: Pick<OutgoingMediaJob, "id" | "status" | "progress" | "error" | "note" | "conversationId" | "createdAt">) {
+export function outgoingMediaJobView(
+  job: Pick<OutgoingMediaJob, "id" | "status" | "progress" | "error" | "note" | "conversationId" | "createdAt" | "retryable" | "mimeType" | "originalName" | "caption">
+) {
   return {
     id: job.id,
     conversationId: job.conversationId,
@@ -107,6 +133,10 @@ export function outgoingMediaJobView(job: Pick<OutgoingMediaJob, "id" | "status"
     progress: job.progress,
     error: job.error,
     note: job.note,
+    retryable: job.retryable,
+    kind: job.mimeType.startsWith("image/") ? ("image" as const) : ("video" as const),
+    originalName: job.originalName,
+    caption: job.caption,
     createdAt: job.createdAt.toISOString(),
   };
 }
@@ -127,6 +157,14 @@ export interface AcceptedMediaFile {
   originalname: string;
 }
 
+function jobTypeFor(mimeType: string): string {
+  return mimeType.startsWith("image/") ? OUTGOING_MEDIA_PHOTO_JOB_TYPE : OUTGOING_MEDIA_JOB_TYPE;
+}
+
+function storedUndo(raw: unknown): StoredPauseUndo | null {
+  return raw && typeof raw === "object" ? (raw as StoredPauseUndo) : null;
+}
+
 /**
  * Принять файл в очередь. Файл забирается (переносится в спул) или удаляется в любом исходе —
  * вызывающему убирать нечего.
@@ -139,12 +177,22 @@ export async function enqueueOutgoingMedia(input: {
 }): Promise<{ status: number; body: Record<string, unknown> }> {
   const drop = () => fs.promises.rm(input.file.path, { force: true }).catch(() => {});
   const mimetype = normalizeOutgoingMime(input.file.mimetype, input.file.originalname);
+  if (mimetype.startsWith("image/") && input.file.size > OUTGOING_IMAGE_SOURCE_MAX_BYTES) {
+    await drop();
+    return {
+      status: 413,
+      body: {
+        error: `Фото весит ${formatUploadLimit(input.file.size)} — больше ${formatUploadLimit(OUTGOING_IMAGE_SOURCE_MAX_BYTES)}. Это не снимок с телефона: сохраните его как JPG поменьше и отправьте снова.`,
+      },
+    };
+  }
   const target = await resolveMediaTarget(input.conversationId);
   if (!target) {
     await drop();
     return { status: 404, body: { error: "Диалог не найден" } };
   }
-  const pre = await mediaDeliveryPrecheck(target, await agentSender(input.agentId), mimetype);
+  const sender = await agentSender(input.agentId);
+  const pre = await mediaDeliveryPrecheck(target, sender, mimetype);
   if (!pre.ok) {
     await drop();
     return { status: pre.status, body: { error: pre.error, code: pre.code } };
@@ -158,7 +206,10 @@ export async function enqueueOutgoingMedia(input: {
     });
     return { status: 507, body: { error: "На сервере кончается место — файл не принят. Сообщите руководителю." } };
   }
-  const ext = path.extname(input.file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 10);
+  // Расширение в спуле — только из списка медиа: по нему ffmpeg выбирает разборщик, и «.m3u8»
+  // под видом видео сделал бы из файла плейлист со ссылками наружу (ревью 25.11.2026).
+  const rawExt = path.extname(input.file.originalname).toLowerCase();
+  const ext = SPOOL_EXTENSIONS.has(rawExt) ? rawExt : ".bin";
   const inputName = `${randomUUID()}${ext}`;
   const dest = path.join(spool, inputName);
   try {
@@ -169,6 +220,12 @@ export async function enqueueOutgoingMedia(input: {
     void logSystemError("storage", `Файл переписки не перенесён в очередь отправки: ${describeError(err)}`, { dedupKey: "outgoing-media-spool-write" });
     return { status: 503, body: { error: "Файл не сохранился на сервере — попробуйте ещё раз" } };
   }
+  // Сотрудник взял диалог в момент «Отправить», а не через минуты сжатия: бот замолкает сразу.
+  const pause = await placeQueuedMediaPause(target, sender);
+  if (!pause.ok) {
+    await fs.promises.rm(dest, { force: true }).catch(() => {});
+    return { status: pause.status, body: { error: pause.error } };
+  }
   const job = await prisma.outgoingMediaJob.create({
     data: {
       conversationId: input.conversationId,
@@ -178,30 +235,62 @@ export async function enqueueOutgoingMedia(input: {
       mimeType: mimetype,
       sizeBytes: input.file.size,
       caption: input.caption || null,
+      ...(pause.undo ? { pauseUndo: pause.undo as unknown as Prisma.InputJsonValue } : {}),
     },
   });
   const queued = await enqueueBackgroundJob({
-    type: OUTGOING_MEDIA_JOB_TYPE,
+    type: jobTypeFor(mimetype),
     payload: { mediaJobId: job.id },
     maxAttempts: OUTGOING_MEDIA_MAX_ATTEMPTS,
     dedupeKey: `outgoing-media:${job.id}`,
   });
   if (!queued.enqueued) {
-    await finishJob(job.id, "FAILED", { error: "Очередь отправки недоступна — нажмите «Повторить» через минуту" });
+    await failDefinitely(job.id, "Очередь отправки недоступна — нажмите «Повторить» через минуту");
     return { status: 503, body: { error: "Очередь отправки недоступна — попробуйте через минуту", jobId: job.id } };
   }
   return { status: 202, body: { ok: true, queued: true, jobId: job.id, status: "QUEUED" } };
 }
 
+/** Финал задания. Уже завершённое не перезаписывает (отмена сотрудника не становится «отправлено»). */
 async function finishJob(
   id: string,
   status: "SENT" | "FAILED" | "CANCELLED",
-  data: { error?: string | null; note?: string | null; outBytes?: number; outMime?: string; prepareMs?: number } = {}
-): Promise<void> {
-  await prisma.outgoingMediaJob.update({
-    where: { id },
-    data: { status, finishedAt: new Date(), progress: status === "SENT" ? 100 : undefined, ...data },
+  data: { error?: string | null; note?: string | null; outBytes?: number; outMime?: string; prepareMs?: number; retryable?: boolean } = {}
+): Promise<boolean> {
+  const r = await prisma.outgoingMediaJob.updateMany({
+    where: { id, status: { notIn: [...TERMINAL] } },
+    data: { status, finishedAt: new Date(), ...(status === "SENT" ? { progress: 100 } : {}), ...data },
   });
+  return r.count === 1;
+}
+
+/** Клиенту заведомо ничего не ушло: отказ, откат паузы бота, пуш сотруднику (вкладка могла быть закрыта). */
+async function failDefinitely(id: string, error: string, extra: { prepareMs?: number } = {}): Promise<void> {
+  if (!(await finishJob(id, "FAILED", { error, retryable: true, ...extra }))) return;
+  const row = await prisma.outgoingMediaJob.findUnique({
+    where: { id },
+    select: { pauseUndo: true, agentId: true, conversationId: true, mimeType: true },
+  });
+  await rollbackQueuedMediaPause(storedUndo(row?.pauseUndo));
+  if (row) await notifyFailed(row, error);
+}
+
+/** Исход неизвестен: паузу оставляем (файл мог дойти — человек в диалоге), «Повторить» не предлагаем. */
+async function failUnknown(id: string): Promise<void> {
+  if (!(await finishJob(id, "FAILED", { error: OUTCOME_UNKNOWN_TEXT, retryable: false }))) return;
+  const row = await prisma.outgoingMediaJob.findUnique({ where: { id }, select: { agentId: true, conversationId: true, mimeType: true } });
+  if (row) await notifyFailed(row, OUTCOME_UNKNOWN_TEXT);
+}
+
+/** Пуш отправившему: вкладку могли закрыть, и пузырь с ошибкой никто бы не увидел (ревью 25.11.2026). */
+async function notifyFailed(row: { agentId: string; conversationId: string; mimeType: string }, error: string): Promise<void> {
+  const what = row.mimeType.startsWith("image/") ? "Фото" : "Видео";
+  await sendPushToAgent(row.agentId, {
+    title: `${what} клиенту не отправлено`,
+    body: error,
+    url: `/messages?c=${encodeURIComponent(row.conversationId)}`,
+    tag: `outgoing-media-${row.conversationId}`,
+  }).catch(() => 0);
 }
 
 /** Повтор упавшего: исходник ещё в спуле — снова в очередь, без новой загрузки. */
@@ -209,22 +298,33 @@ export async function retryOutgoingMediaJob(jobId: string, agentId: string): Pro
   const job = await prisma.outgoingMediaJob.findUnique({ where: { id: jobId } });
   if (!job || job.agentId !== agentId) return { status: 404, body: { error: "Отправка не найдена" } };
   if (job.status !== "FAILED") return { status: 409, body: { error: "Повторять нечего", status: job.status } };
+  if (!job.retryable) return { status: 409, body: { error: OUTCOME_UNKNOWN_TEXT, code: "OUTCOME_UNKNOWN" } };
   if (!fs.existsSync(path.join(outgoingMediaSpoolDir(), job.inputName))) {
     return { status: 410, body: { error: "Файла уже нет на сервере — выберите его и отправьте заново", code: "INPUT_GONE" } };
   }
+  const target = await resolveMediaTarget(job.conversationId);
+  if (!target) return { status: 404, body: { error: "Диалог не найден" } };
+  const pause = await placeQueuedMediaPause(target, await agentSender(agentId));
+  if (!pause.ok) return { status: pause.status, body: { error: pause.error } };
   const reset = await prisma.outgoingMediaJob.updateMany({
-    where: { id: jobId, status: "FAILED" },
-    data: { status: "QUEUED", error: null, note: null, progress: 0, finishedAt: null, startedAt: null },
+    where: { id: jobId, status: "FAILED", retryable: true },
+    data: {
+      status: "QUEUED", error: null, note: null, progress: 0, finishedAt: null, startedAt: null,
+      pauseUndo: pause.undo ? (pause.undo as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+    },
   });
-  if (!reset.count) return { status: 409, body: { error: "Повторять нечего" } };
+  if (!reset.count) {
+    await rollbackQueuedMediaPause(pause.undo);
+    return { status: 409, body: { error: "Повторять нечего" } };
+  }
   const queued = await enqueueBackgroundJob({
-    type: OUTGOING_MEDIA_JOB_TYPE,
+    type: jobTypeFor(job.mimeType),
     payload: { mediaJobId: jobId },
     maxAttempts: OUTGOING_MEDIA_MAX_ATTEMPTS,
     dedupeKey: `outgoing-media:${jobId}`,
   });
   if (!queued.enqueued) {
-    await finishJob(jobId, "FAILED", { error: "Очередь отправки недоступна — нажмите «Повторить» через минуту" });
+    await failDefinitely(jobId, "Очередь отправки недоступна — нажмите «Повторить» через минуту");
     return { status: 503, body: { error: "Очередь отправки недоступна — попробуйте через минуту" } };
   }
   return { status: 202, body: { ok: true, queued: true, jobId, status: "QUEUED" } };
@@ -242,6 +342,9 @@ export async function cancelOutgoingMediaJob(jobId: string, agentId: string): Pr
     const now = await prisma.outgoingMediaJob.findUnique({ where: { id: jobId }, select: { status: true } });
     return { status: 409, body: { error: now?.status === "SENT" ? "Файл уже отправлен" : "Файл уже уходит клиенту — отменить нельзя", status: now?.status } };
   }
+  // Отменил ждущее или сжимаемое — диалог он не взял: пауза бота, поставленная при приёме, снимается.
+  // У упавшего её уже сняли (заведомый отказ) или намеренно оставили (исход неизвестен).
+  if (job.status !== "FAILED") await rollbackQueuedMediaPause(storedUndo(job.pauseUndo));
   // Сжатие, если идёт, оборвёт сам обработчик (он следит за статусом); исходник ждущего убираем сразу.
   if (job.status === "QUEUED" || job.status === "FAILED") {
     await fs.promises.rm(path.join(outgoingMediaSpoolDir(), job.inputName), { force: true }).catch(() => {});
@@ -262,8 +365,11 @@ const CHANNEL_NAMES: Record<OutgoingMediaChannel, string> = {
 
 function noteFor(prepared: PreparedMedia, sizeIn: number, channel: OutgoingMediaChannel | null, sentAsLink: boolean): string | null {
   if (sentAsLink && channel) {
-    return `Видео слишком длинное для ${CHANNEL_NAMES[channel]} (предел ${formatUploadLimit(channelMediaLimit(channel, "video"))}) — клиенту ушла ссылка на просмотр`;
+    return prepared.fallback
+      ? "Видео не удалось сжать — клиенту ушла ссылка на просмотр"
+      : `Видео слишком длинное для ${CHANNEL_NAMES[channel]} (предел ${formatUploadLimit(channelMediaLimit(channel, "video"))}) — клиенту ушла ссылка на просмотр`;
   }
+  if (prepared.fallback) return "Видео не удалось сжать — ушёл оригинал";
   if (prepared.action === "transcoded" || prepared.action === "image") return `Сжато ${mb(sizeIn)} → ${mb(prepared.size)} МБ`;
   return null;
 }
@@ -272,8 +378,14 @@ class JobInterrupted extends Error {}
 
 /**
  * Исполнение одного задания (worker). Идемпотентно: завершённое не трогает, отправку,
- * начатую до сбоя процесса, не повторяет. Бросает только когда процесс выходит —
- * очередь вернёт задание и новый процесс начнёт сжатие заново.
+ * начатую до сбоя, не повторяет. Бросает только когда процесс выходит — очередь вернёт
+ * задание, и новый процесс начнёт сжатие заново.
+ *
+ * ИСХОД НЕИЗВЕСТЕН — НЕ «ПОВТОРИТЬ» (ревью 25.11.2026). Статус SENDING ставится прямо перед
+ * сетевой отправкой. Если после него что угодно пошло не так — транспорт оборвался
+ * (deliverMediaToConversation: outcomeUnknown), упала запись в историю или отметка
+ * «отправлено», — файл мог дойти до клиента. Такое задание закрывается текстом «проверьте
+ * переписку» без кнопки повтора и без отката паузы бота.
  */
 export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: AbortSignal): Promise<void> {
   const job = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId } });
@@ -281,9 +393,7 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
   const spool = outgoingMediaSpoolDir();
   const inputPath = path.join(spool, job.inputName);
   if (job.status === "SENDING") {
-    await finishJob(job.id, "FAILED", {
-      error: "Связь оборвалась в момент отправки. Проверьте переписку: если файла там нет — нажмите «Повторить».",
-    });
+    await failUnknown(job.id);
     void logSystemError("background-jobs", `Отправка файла клиенту прервана в момент передачи (задание ${job.id}) — повтор не делали, чтобы не задвоить`);
     return;
   }
@@ -297,7 +407,6 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
   let cancelled = false;
   const onStop = () => controller.abort();
   stopSignal?.addEventListener("abort", onStop);
-  const deadline = setTimeout(() => controller.abort(), PREPARE_DEADLINE_MS);
   // Отмена сотрудником во время сжатия: статус в базе — единственный общий язык api и worker.
   const watcher = setInterval(() => {
     void prisma.outgoingMediaJob
@@ -322,20 +431,23 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
   try {
     const target = await resolveMediaTarget(job.conversationId);
     if (!target) {
-      await finishJob(job.id, "FAILED", { error: "Переписка удалена — отправлять некуда" });
+      await failDefinitely(job.id, "Переписка удалена — отправлять некуда");
       return;
     }
     if (!fs.existsSync(inputPath)) {
-      await finishJob(job.id, "FAILED", { error: "Файл не сохранился на сервере — выберите его и отправьте заново" });
+      await failDefinitely(job.id, "Файл не сохранился на сервере — выберите его и отправьте заново");
       return;
     }
     const channel = outgoingMediaChannelOf(target);
     const original: PreparedMedia = {
       path: inputPath, mimetype: job.mimeType, size: job.sizeBytes, action: "original", sendAsLink: false, owned: false, ms: 0,
     };
-    prepared = channel && (await outgoingMediaCompressOn())
-      ? await prepareOutgoingMedia({ path: inputPath, mimetype: job.mimeType, size: job.sizeBytes }, channel, { workDir: spool, signal: controller.signal, onProgress })
-      : original;
+    prepared =
+      channel && (await outgoingMediaCompressOn())
+        ? await prepareOutgoingMedia({ path: inputPath, mimetype: job.mimeType, size: job.sizeBytes }, channel, {
+            workDir: spool, signal: controller.signal, onProgress, deadlineAt: Date.now() + PREPARE_DEADLINE_MS,
+          })
+        : original;
     if (controller.signal.aborted) throw new JobInterrupted();
 
     const delivery = await deliverMediaToConversation(
@@ -344,6 +456,7 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
       {
         sender: await agentSender(job.agentId),
         caption: job.caption ?? undefined,
+        pausePlacedByQueue: true,
         beforeTransport: async () =>
           (await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { status: "SENDING", progress: 100 } })).count === 1,
       }
@@ -364,9 +477,22 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
       await fs.promises.rm(inputPath, { force: true }).catch(() => {});
       return;
     }
-    await finishJob(job.id, "FAILED", { error: delivery.error, prepareMs: prepared.ms });
+    if (delivery.outcomeUnknown) {
+      await failUnknown(job.id);
+      return;
+    }
+    await failDefinitely(job.id, delivery.error, { prepareMs: prepared.ms });
   } catch (err) {
-    if (cancelled || (await isCancelled(job.id))) {
+    // Сначала — дошли ли до отправки: после SENDING любой сбой означает «мог дойти».
+    const row = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } }).catch(() => null);
+    if (row?.status === "SENDING") {
+      await failUnknown(job.id).catch(() => {});
+      void logSystemError("background-jobs", `Файл клиенту: сбой после начала отправки (задание ${job.id}): ${describeError(err)}`, {
+        dedupKey: "outgoing-media-after-send",
+      });
+      return;
+    }
+    if (cancelled || row?.status === "CANCELLED") {
       await fs.promises.rm(inputPath, { force: true }).catch(() => {});
       return;
     }
@@ -376,39 +502,36 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
       throw new Error("worker выходит — сжатие продолжится в новом процессе");
     }
     if (err instanceof PrepareError || err instanceof JobInterrupted) {
-      const timedOut = controller.signal.aborted;
-      const message = timedOut
-        ? "Сжатие не уложилось в 12 минут — отправьте видео короче или частями"
-        : err instanceof PrepareError && err.code !== "ffmpeg"
+      const message =
+        err instanceof PrepareError && err.code !== "ffmpeg" && err.code !== "aborted"
           ? err.message
           : "Не удалось подготовить файл для клиента — попробуйте ещё раз или отправьте другой файл";
-      await finishJob(job.id, "FAILED", { error: message });
+      await failDefinitely(job.id, message);
       void logSystemError("storage", `Файл для клиента не подготовлен (${job.mimeType}, ${formatUploadLimit(job.sizeBytes)}): ${err.message}`.slice(0, 900), {
         dedupKey: `outgoing-media-prepare:${err instanceof PrepareError ? err.code : "interrupted"}`,
       });
       return;
     }
-    await finishJob(job.id, "FAILED", { error: "Не удалось отправить файл — нажмите «Повторить»" }).catch(() => {});
+    await failDefinitely(job.id, "Не удалось отправить файл — нажмите «Повторить»").catch(() => {});
     void logSystemError("background-jobs", `Отправка файла клиенту упала: ${describeError(err)}`, { dedupKey: "outgoing-media-run" });
   } finally {
-    clearTimeout(deadline);
     clearInterval(watcher);
     stopSignal?.removeEventListener("abort", onStop);
     if (prepared?.owned) await fs.promises.rm(prepared.path, { force: true }).catch(() => {});
   }
 }
 
-async function isCancelled(id: string): Promise<boolean> {
-  const row = await prisma.outgoingMediaJob.findUnique({ where: { id }, select: { status: true } }).catch(() => null);
-  return row?.status === "CANCELLED";
-}
-
 /** Очередь исчерпала попытки (процесс падал на этом задании) — честный отказ сотруднику. */
 export async function giveUpOutgoingMediaJob(mediaJobId: string): Promise<void> {
-  await prisma.outgoingMediaJob.updateMany({
-    where: { id: mediaJobId, status: { in: ["QUEUED", "PREPARING"] } },
-    data: { status: "FAILED", finishedAt: new Date(), error: "Файл не удалось подготовить — попробуйте другой файл или отправьте позже" },
-  });
+  const row = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId }, select: { status: true } });
+  if (!row) return;
+  if (row.status === "SENDING") {
+    await failUnknown(mediaJobId);
+    return;
+  }
+  if (row.status === "QUEUED" || row.status === "PREPARING") {
+    await failDefinitely(mediaJobId, "Файл не удалось подготовить — попробуйте другой файл или отправьте позже");
+  }
 }
 
 export interface OutgoingMediaSweepResult {
@@ -419,13 +542,14 @@ export interface OutgoingMediaSweepResult {
 
 /**
  * Уборка спула и тревога (крон worker, раз в 30 минут): исходники упавших старше суток,
- * брошенные файлы без задания, старые строки; ждущие и сжимаемые дольше 20 минут — в журнал.
+ * брошенные файлы без задания, старые строки. Тревога — сжатие или отправка дольше 20 минут
+ * от НАЧАЛА обработки или ожидание очереди дольше часа: два длинных видео подряд — не поломка.
  */
 export async function sweepOutgoingMediaSpool(now = Date.now()): Promise<OutgoingMediaSweepResult> {
   const spool = outgoingMediaSpoolDir();
   const rows = await prisma.outgoingMediaJob.findMany({
     where: { status: { in: ["QUEUED", "PREPARING", "SENDING", "FAILED"] } },
-    select: { id: true, inputName: true, status: true, updatedAt: true, finishedAt: true },
+    select: { id: true, inputName: true, status: true, createdAt: true, updatedAt: true, startedAt: true, finishedAt: true },
     take: 5000,
   });
   const live = new Set<string>();
@@ -434,11 +558,17 @@ export async function sweepOutgoingMediaSpool(now = Date.now()): Promise<Outgoin
   for (const row of rows) {
     if (row.status === "FAILED") {
       if (now - (row.finishedAt ?? row.updatedAt).getTime() > FAILED_KEEP_MS) {
-        await fs.promises.rm(path.join(spool, row.inputName), { force: true }).catch(() => {});
-        removedFiles++;
+        // Считаем только то, что правда лежало: уже убранный исходник не «убирается» каждые полчаса.
+        const file = path.join(spool, row.inputName);
+        if (fs.existsSync(file)) {
+          await fs.promises.rm(file, { force: true }).catch(() => {});
+          removedFiles++;
+        }
         continue;
       }
-    } else if (now - row.updatedAt.getTime() > STUCK_ALERT_MS) {
+    } else if (row.status === "QUEUED") {
+      if (now - row.createdAt.getTime() > QUEUED_ALERT_MS) stuck++;
+    } else if (now - (row.startedAt ?? row.updatedAt).getTime() > STUCK_ALERT_MS) {
       stuck++;
     }
     live.add(row.inputName);
@@ -458,7 +588,7 @@ export async function sweepOutgoingMediaSpool(now = Date.now()): Promise<Outgoin
     })
   ).count;
   if (stuck) {
-    void logSystemError("background-jobs", `Очередь отправки файлов клиентам: ${stuck} шт. ждут или сжимаются дольше 20 минут`, {
+    void logSystemError("background-jobs", `Очередь отправки файлов клиентам: ${stuck} шт. сжимаются дольше 20 минут или ждут дольше часа`, {
       dedupKey: "outgoing-media-stuck",
     });
   }

@@ -3438,6 +3438,10 @@ export function startCronJobs() {
   scheduleTracked("outgoing-media-jobs", "*/5 * * * * *", async () => {
     await runCustomerJobsTick("media");
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото — своя полоса и тик каждые 2 секунды: фото готовится за секунду и не ждёт видео.
+  scheduleTracked("outgoing-media-photo-jobs", "*/2 * * * * *", async () => {
+    await runCustomerJobsTick("mediaPhoto");
+  }, undefined, undefined, { timeoutMs: 5 * 60_000 });
 
   // После выката ядро бота ждало кнопку «Обновить версию бота» (03–05.11.2026
   // двое суток без ответов). Обычный выкат, где поменялся только код, ядро

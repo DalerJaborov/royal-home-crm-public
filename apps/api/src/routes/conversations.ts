@@ -1791,6 +1791,16 @@ async function deliverReplyMedia(
     await fs.rm(file.path, { force: true });
     return { status: 400, body: { error: "Допустимы только изображения или видео" } };
   }
+  // Прежний путь (сжатие выключено) HEIC не перекодирует, а канал его не примет. Раньше такой
+  // файл отбивался ещё на входе (пустой тип в Chrome), теперь тип узнаётся по расширению — отказ
+  // тот же, сразу и с понятной причиной, а не «не удалось отправить» после загрузки в R2.
+  if (/^image\/hei[cf]/i.test(file.mimetype)) {
+    await fs.rm(file.path, { force: true });
+    return {
+      status: 400,
+      body: { error: "Фото HEIC без сжатия канал не примет — отправьте JPG или включите в Настройках «Фото и видео клиенту — как в WhatsApp»" },
+    };
+  }
   const isTelegram = rawId.startsWith(TG_PREFIX);
   const conversation = isTelegram
     ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_PREFIX.length) } }).then((c) => c && fromTelegram({ ...c, client: null }))

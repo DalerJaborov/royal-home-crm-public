@@ -12135,6 +12135,10 @@ model OutgoingMediaJob {
   note           String?
   /// Причина отказа простыми словами (status FAILED).
   error          String?
+  /// false — исход отправки неизвестен (файл мог дойти): «Повторить» не предлагаем, чтобы не задвоить.
+  retryable      Boolean   @default(true)
+  /// Снимок паузы бота, поставленной при приёме (conversationDelivery.ts::placeQueuedMediaPause) — для отката.
+  pauseUndo      Json?
   outBytes       Int?
   outMime        String?
   prepareMs      Int?

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { giveUpOutgoingMediaJob, OUTGOING_MEDIA_JOB_TYPE, runOutgoingMediaJob } from "../lib/outgoingMediaJobs.js";
+import { giveUpOutgoingMediaJob, OUTGOING_MEDIA_JOB_TYPE, OUTGOING_MEDIA_PHOTO_JOB_TYPE, runOutgoingMediaJob } from "../lib/outgoingMediaJobs.js";
 import { backgroundJobsStopSignal } from "./stopSignal.js";
 import type { JobHandler } from "./registry.js";
 
@@ -29,3 +29,6 @@ export const outgoingMediaSendJob: JobHandler<Payload> = {
     await giveUpOutgoingMediaJob(payload.mediaJobId);
   },
 };
+
+/** Фото — та же работа в своей полосе: фото не стоит в очереди за видео. */
+export const outgoingMediaPhotoSendJob: JobHandler<Payload> = { ...outgoingMediaSendJob, type: OUTGOING_MEDIA_PHOTO_JOB_TYPE };

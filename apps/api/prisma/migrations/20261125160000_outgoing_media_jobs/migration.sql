@@ -14,6 +14,8 @@ CREATE TABLE "OutgoingMediaJob" (
     "caption" TEXT,
     "note" TEXT,
     "error" TEXT,
+    "retryable" BOOLEAN NOT NULL DEFAULT true,
+    "pauseUndo" JSONB,
     "outBytes" INTEGER,
     "outMime" TEXT,
     "prepareMs" INTEGER,

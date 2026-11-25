@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import sharp from "sharp";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -25,6 +26,26 @@ const {
 }));
 
 vi.mock("../src/lib/outgoingMedia.js", () => ({ uploadOutgoingMedia }));
+// Запись в историю после отправки: тест «Meta приняла файл, а история упала» роняет её один раз.
+const appendFail = vi.hoisted(() => ({ once: false }));
+vi.mock("../src/messengers/appendMessages.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/messengers/appendMessages.js")>();
+  return {
+    ...real,
+    appendConversationMessages: vi.fn(async (...args: Parameters<typeof real.appendConversationMessages>) => {
+      if (appendFail.once) {
+        appendFail.once = false;
+        throw new Error("history write failed");
+      }
+      return real.appendConversationMessages(...args);
+    }),
+  };
+});
+const sendPushToAgent = vi.hoisted(() => vi.fn(async () => 1));
+vi.mock("../src/push.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/push.js")>()),
+  sendPushToAgent,
+}));
 const isR2Configured = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../src/lib/r2Client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/r2Client.js")>()),
@@ -244,9 +265,9 @@ describe("надёжность", () => {
     expect((await jobs.cancelOutgoingMediaJob(jobId, "someone-else")).status).toBe(404);
   });
 
-  it("сбой канала → FAILED с причиной; «Повторить» отправляет без новой загрузки", async () => {
+  it("заведомый сбой (хранилище не приняло файл) → FAILED с причиной; «Повторить» отправляет без новой загрузки", async () => {
     const conv = await waConversation();
-    sendVideo.mockRejectedValueOnce(new Error("socket hang up"));
+    uploadOutgoingMedia.mockRejectedValueOnce(new Error("R2 down"));
     const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
     const jobId = accepted.body.jobId as string;
     await runQueuedJob(jobId);
@@ -258,7 +279,7 @@ describe("надёжность", () => {
     expect(retried.status).toBe(202);
     await runQueuedJob(jobId);
     expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("SENT");
-    expect(sendVideo).toHaveBeenCalledTimes(2);
+    expect(sendVideo).toHaveBeenCalledTimes(1);
   }, 120_000);
 
   it("видео не помещается даже в нижнем качестве — честная ссылка и пометка сотруднику", async () => {
@@ -294,6 +315,119 @@ describe("надёжность", () => {
   }, 60_000);
 });
 
+describe("исход неизвестен — повтор не предлагается (ревью 25.11)", () => {
+  const paused = async (conv: string) =>
+    (await prisma.botConversation.findUniqueOrThrow({ where: { id: conv }, select: { pausedUntil: true } })).pausedUntil;
+
+  it("транспорт оборвался (файл мог дойти): FAILED без «Повторить», пауза бота остаётся, пуш сотруднику", async () => {
+    const conv = await waConversation();
+    sendVideo.mockRejectedValueOnce(new Error("socket hang up"));
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jobId = accepted.body.jobId as string;
+    await runQueuedJob(jobId);
+    const row = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } });
+    expect(row).toMatchObject({ status: "FAILED", retryable: false, error: jobs.OUTCOME_UNKNOWN_TEXT });
+    expect((await jobs.retryOutgoingMediaJob(jobId, agentId)).status).toBe(409);
+    expect(await paused(conv)).not.toBeNull();
+    expect(sendPushToAgent).toHaveBeenCalledWith(agentId, expect.objectContaining({ body: jobs.OUTCOME_UNKNOWN_TEXT }));
+  }, 60_000);
+
+  it("Meta приняла файл, а запись в историю упала: не «Повторить», а «проверьте переписку»", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jobId = accepted.body.jobId as string;
+    appendFail.once = true;
+    await runQueuedJob(jobId);
+    expect(sendVideo).toHaveBeenCalledTimes(1);
+    const row = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } });
+    expect(row).toMatchObject({ status: "FAILED", retryable: false });
+  }, 60_000);
+
+  it("очередь сдалась на задании в SENDING — тоже «проверьте переписку»", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jobId = accepted.body.jobId as string;
+    await prisma.outgoingMediaJob.update({ where: { id: jobId }, data: { status: "SENDING" } });
+    await jobs.giveUpOutgoingMediaJob(jobId);
+    expect(await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: "FAILED", retryable: false });
+  });
+});
+
+describe("пауза бота — с момента «Отправить» (ревью 25.11)", () => {
+  const paused = async (conv: string) =>
+    (await prisma.botConversation.findUniqueOrThrow({ where: { id: conv }, select: { pausedUntil: true } })).pausedUntil;
+
+  it("в очереди бот уже молчит; отмена снимает паузу", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    expect(await paused(conv)).not.toBeNull();
+    await jobs.cancelOutgoingMediaJob(accepted.body.jobId as string, agentId);
+    expect(await paused(conv)).toBeNull();
+  });
+
+  it("заведомый отказ (окно закрылось, пока сжимали) — пауза снята; успех — пауза одна, не двойная", async () => {
+    const conv = await waConversation();
+    sendVideo.mockRejectedValueOnce(
+      new Error('Graph API HTTP 400: {"error":{"message":"(#131047) Message failed to send because more than 24 hours have passed since the customer last replied to this number.","code":131047}}')
+    );
+    const failed = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    await runQueuedJob(failed.body.jobId as string);
+    expect(await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: failed.body.jobId as string } })).toMatchObject({ status: "FAILED", retryable: true });
+    expect(await paused(conv)).toBeNull();
+
+    const ok = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const placed = await paused(conv);
+    await runQueuedJob(ok.body.jobId as string);
+    expect((await paused(conv))?.getTime()).toBeGreaterThanOrEqual(placed!.getTime());
+  }, 60_000);
+});
+
+describe("сбой сжатия — как раньше, а не отказ (ревью 25.11)", () => {
+  it("нечитаемое для ffmpeg видео уходит оригиналом с пометкой агенту", async () => {
+    const conv = await waConversation();
+    const broken = path.join(dir, `broken-${Date.now()}.mp4`);
+    writeFileSync(broken, Buffer.alloc(200 * 1024, 7));
+    const accepted = await jobs.enqueueOutgoingMedia({
+      agentId, conversationId: conv, file: { path: broken, size: 200 * 1024, mimetype: "video/mp4", originalname: "broken.mp4" },
+    });
+    await runQueuedJob(accepted.body.jobId as string);
+    const row = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: accepted.body.jobId as string } });
+    expect(row.status).toBe("SENT");
+    expect(row.note).toMatch(/не удалось сжать/);
+    expect(sendVideo).toHaveBeenCalledTimes(1);
+  }, 60_000);
+});
+
+describe("фото: своя полоса и предел исходника (ревью 25.11)", () => {
+  it("фото больше 50 МБ — отказ сразу с понятным текстом, в память worker не попадает", async () => {
+    const conv = await waConversation();
+    const big = path.join(dir, `big-${Date.now()}.jpg`);
+    writeFileSync(big, Buffer.alloc(51 * 1024 * 1024));
+    const res = await jobs.enqueueOutgoingMedia({
+      agentId, conversationId: conv, file: { path: big, size: 51 * 1024 * 1024, mimetype: "image/jpeg", originalname: "scan.jpg" },
+    });
+    expect(res.status).toBe(413);
+    expect(String(res.body.error)).toMatch(/50 МБ/);
+    expect(existsSync(big)).toBe(false);
+  });
+
+  it("фото уходит своей полосой и не ждёт видео в очереди", async () => {
+    const conv = await waConversation();
+    const video = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jpg = path.join(dir, `photo-${Date.now()}.jpg`);
+    await sharp({ create: { width: 64, height: 48, channels: 3, background: "#888" } }).jpeg().toFile(jpg);
+    const photo = await jobs.enqueueOutgoingMedia({
+      agentId, conversationId: conv, file: { path: jpg, size: statSync(jpg).size, mimetype: "image/jpeg", originalname: "a.jpg" },
+    });
+    const bg = await prisma.backgroundJob.findFirstOrThrow({ where: { dedupeKey: `outgoing-media:${photo.body.jobId}` } });
+    expect(bg.type).toBe(jobs.OUTGOING_MEDIA_PHOTO_JOB_TYPE);
+    await runCustomerJobsTick("mediaPhoto");
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: photo.body.jobId as string } })).status).toBe("SENT");
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: video.body.jobId as string } })).status).toBe("QUEUED");
+    await jobs.cancelOutgoingMediaJob(video.body.jobId as string, agentId);
+  });
+});
+
 describe("Telegram", () => {
   it("видео уходит оригиналом (перекладка в MP4, HEVC сохранён)", async () => {
     const tg = await prisma.telegramConversation.create({
@@ -322,5 +456,19 @@ describe("уборка спула", () => {
     expect(result.removedFiles).toBeGreaterThanOrEqual(1);
     expect(existsSync(path.join(jobs.outgoingMediaSpoolDir(), row.inputName))).toBe(false);
     expect((await jobs.retryOutgoingMediaJob(jobId, agentId)).status).toBe(410);
+    // Второй проход не «убирает» уже убранное снова.
+    const again = await jobs.sweepOutgoingMediaSpool();
+    expect(again.removedFiles).toBe(0);
+  });
+
+  it("тревога считает от начала обработки: давно ждавшее, но только начатое сжатие — не «зависло»", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    await prisma.outgoingMediaJob.update({
+      where: { id: accepted.body.jobId as string },
+      data: { status: "PREPARING", createdAt: new Date(Date.now() - 40 * 60_000), startedAt: new Date() },
+    });
+    expect((await jobs.sweepOutgoingMediaSpool()).stuck).toBe(0);
+    await prisma.outgoingMediaJob.update({ where: { id: accepted.body.jobId as string }, data: { status: "CANCELLED" } });
   });
 });

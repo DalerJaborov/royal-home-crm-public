@@ -307,6 +307,15 @@ describe("фото/видео в переписку частями (POST …/rep
     expect(delivered).toHaveLength(1);
   });
 
+  it("рубильник ВЫКЛ: HEIC отклоняется сразу (канал его не примет), до доставки", async () => {
+    delivered.length = 0;
+    const sessionId = await uploadParts(adminToken, "conversation-media", Buffer.from("heic"), "IMG_0001.HEIC", "image/heic");
+    const res = await auth(request(app).post(`/api/v1/conversations/${conversationIds[0]}/reply-media/upload-sessions/complete`), adminToken).send({ sessionId });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/HEIC/);
+    expect(delivered).toHaveLength(0);
+  });
+
   it("без id сессии — 400; чужая сессия — 404", async () => {
     const noSession = await auth(request(app).post(`/api/v1/conversations/${conversationIds[0]}/reply-media/upload-sessions/complete`), adminToken).send({});
     expect(noSession.status).toBe(400);

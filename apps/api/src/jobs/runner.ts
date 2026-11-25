@@ -37,9 +37,11 @@ export const CUSTOMER_JOB_LANES = {
    * роликами соцсетей, а ответы клиентам — за ней.
    */
   media: "outgoing-media-send",
+  /** Фото — своя полоса: секунда работы не ждёт за 12-минутным видео (ревью 25.11.2026). */
+  mediaPhoto: "outgoing-media-photo",
 } as const;
 type CustomerJobLane = keyof typeof CUSTOMER_JOB_LANES;
-const customerBusy: Record<CustomerJobLane, boolean> = { inbox: false, outbox: false, intake: false, media: false };
+const customerBusy: Record<CustomerJobLane, boolean> = { inbox: false, outbox: false, intake: false, media: false, mediaPhoto: false };
 const CUSTOMER_JOB_TYPES = Object.values(CUSTOMER_JOB_LANES);
 /**
  * ТЯЖЁЛЫЕ ТИПЫ — В ХВОСТ ПАРТИИ (аудит №4, 27.08).

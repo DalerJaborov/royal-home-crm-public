@@ -94,6 +94,16 @@ export function runFfmpeg(options: FfmpegRunOptions): Promise<FfmpegResult> {
   const startedAt = Date.now();
 
   return new Promise<FfmpegResult>((resolve, reject) => {
+    // Уже отменено — процесс не запускаем вовсе (ревью 25.11.2026): иначе отменённое сжатие
+    // успевало стартовать и жило до первого события abort, которого больше не будет.
+    if (options.signal?.aborted) {
+      reject(
+        new FfmpegError(`ffmpeg (${options.label}) отменён`, {
+          label: options.label, code: null, signal: null, timedOut: false, aborted: true, stderrTail: "",
+        })
+      );
+      return;
+    }
     const wantStdout = Boolean(options.captureStdout || options.onStdoutChunk);
     const proc = spawn(bin, options.args, {
       cwd: options.cwd,

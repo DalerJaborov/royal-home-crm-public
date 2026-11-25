@@ -233,6 +233,69 @@ async function applyDeliveryPauseUndoable(
   });
 }
 
+/** Пауза, снятая в JSON (строка задания очереди отправки): даты строками. */
+export type StoredPauseUndo = {
+  target: Pick<DeliveryTarget, "kind" | "id">;
+  prevPausedUntil: string | null;
+  prevBotPausedAt: string | null;
+  placed: string;
+  placedBotPausedAt: string | null;
+  ownershipFence: DeliveryOwnershipFence;
+  claimUndo?: (Omit<PropertyChatClaimUndo, "at"> & { at: string }) | null;
+  pauseChanged?: boolean;
+};
+
+function storePauseUndo(u: PauseUndo): StoredPauseUndo {
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return {
+    target: { kind: u.target.kind, id: u.target.id },
+    prevPausedUntil: iso(u.prevPausedUntil),
+    prevBotPausedAt: iso(u.prevBotPausedAt),
+    placed: u.placed.toISOString(),
+    placedBotPausedAt: iso(u.placedBotPausedAt),
+    ownershipFence: u.ownershipFence,
+    claimUndo: u.claimUndo ? { ...u.claimUndo, at: u.claimUndo.at.toISOString() } : null,
+    pauseChanged: u.pauseChanged,
+  };
+}
+
+function revivePauseUndo(s: StoredPauseUndo): PauseUndo {
+  const d = (v: string | null) => (v ? new Date(v) : null);
+  return {
+    target: s.target,
+    prevPausedUntil: d(s.prevPausedUntil),
+    prevBotPausedAt: d(s.prevBotPausedAt),
+    placed: new Date(s.placed),
+    placedBotPausedAt: d(s.placedBotPausedAt),
+    ownershipFence: s.ownershipFence,
+    claimUndo: s.claimUndo ? { ...s.claimUndo, at: new Date(s.claimUndo.at) } : null,
+    pauseChanged: s.pauseChanged,
+  };
+}
+
+/**
+ * ПАУЗА БОТА В МОМЕНТ ПРИЁМА ФАЙЛА В ОЧЕРЕДЬ (ревью 25.11.2026). Сотрудник нажал «Отправить» —
+ * он взял диалог; пока видео сжимается (до 12 минут), бот не должен отвечать клиенту «вторым
+ * голосом». Те же правила срока, что у самой отправки (deliveryPauseFor); при отправке
+ * доставка ставит ту же паузу ещё раз — без изменения (keepLonger), то есть без двойной.
+ * Возвращает снимок для отката — его хранит строка задания (JSON).
+ */
+export async function placeQueuedMediaPause(
+  target: DeliveryTarget,
+  sender: MessageSender
+): Promise<{ ok: true; undo: StoredPauseUndo | null } | { ok: false; status: number; error: string }> {
+  const pause = await deliveryPauseFor(target, undefined, sender, () => defaultPauseForSender(target, sender));
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, sender);
+  if (!placed.ok) return placed;
+  return { ok: true, undo: placed.undo ? storePauseUndo(placed.undo) : null };
+}
+
+/** Откат паузы очереди: отправка отменена или ЗАВЕДОМО не ушла. Чужую паузу не трогает (тот же откат). */
+export async function rollbackQueuedMediaPause(stored: StoredPauseUndo | null | undefined): Promise<void> {
+  if (!stored) return;
+  await rollbackDeliveryPause(revivePauseUndo(stored));
+}
+
 /**
  * Откатить паузу после ТОЧНО неудавшейся отправки (решение владельца 04.10.2026,
  * CHANNEL-NEW-08): клиенту заведомо ничего не ушло (закрытое окно, щит, сбой до
@@ -958,7 +1021,9 @@ function humanMb(bytes: number): string {
 export type MediaDeliveryResult =
   /** sentAsLink — видео больше предела канала ушло клиенту ссылкой на просмотр, а не файлом. */
   | { ok: true; pausedUntil: Date; sentAsLink: boolean }
-  | { ok: false; status: number; error: string; code?: "window_closed" };
+  /** outcomeUnknown — транспорт упал так, что файл МОГ дойти (таймаут, обрыв): повторять нельзя,
+   *  иначе клиент получит его дважды (ревью 25.11.2026). */
+  | { ok: false; status: number; error: string; code?: "window_closed"; outcomeUnknown?: boolean };
 
 type MediaPrecheckFail = { ok: false; status: number; error: string; code?: "window_closed" };
 
@@ -1059,6 +1124,9 @@ export async function deliverMediaToConversation(
      *  false — отправку отменили (сотрудник нажал «Отменить»): клиенту ничего не уходит,
      *  пауза бота откатывается. */
     beforeTransport?: () => Promise<boolean>;
+    /** Пауза бота уже стоит с момента приёма в очередь (placeQueuedMediaPause) — вторую не ставим:
+     *  иначе её «отпечаток» сменился бы, и откат очереди при заведомом отказе не сработал бы. */
+    pausePlacedByQueue?: boolean;
   }
 ): Promise<MediaDeliveryResult> {
   const isTelegram = target.kind === "telegram";
@@ -1100,10 +1168,17 @@ export async function deliverMediaToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
-  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
-  if (!placed.ok) return placed;
-  const { pausedUntil, undo: pauseUndo } = placed;
+  let pausedUntil: Date;
+  let pauseUndo: PauseUndo | null = null;
+  if (options.pausePlacedByQueue) {
+    pausedUntil = await currentPausedUntil(target);
+  } else {
+    const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
+    const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
+    if (!placed.ok) return placed;
+    pausedUntil = placed.pausedUntil;
+    pauseUndo = placed.undo;
+  }
 
   const ext = (media.mimetype.split("/")[1] || (isImage ? "jpg" : "mp4")).split(";")[0];
   let r2Key: string;
@@ -1186,7 +1261,7 @@ export async function deliverMediaToConversation(
       };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
-    return { ok: false, status: 502, error: `Не удалось отправить ${isImage ? "фото" : "видео"}` };
+    return { ok: false, status: 502, error: `Не удалось отправить ${isImage ? "фото" : "видео"}`, outcomeUnknown: true };
   }
 
   const message = [

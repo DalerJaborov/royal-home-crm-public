@@ -271,3 +271,68 @@ describe("голосовое: запись Chrome и Safari доходит в л
     }
   }, 60_000);
 });
+
+describe("ревью 25.11: безопасность и «как раньше» при сбое", () => {
+  it("плейлист HLS (имя .m3u8, тип «video/mp4») не ведёт ffmpeg в сеть: только локальные файлы", async () => {
+    const fake = fx("playlist.m3u8");
+    writeFileSync(fake, ["#EXTM3U", "#EXT-X-TARGETDURATION:1", "#EXTINF:1,", "http://127.0.0.1:9/seg.ts", "#EXT-X-ENDLIST", ""].join(String.fromCharCode(10)));
+    await expect(probeMedia(fake)).rejects.toThrow(/whitelist/i);
+    // ffmpeg и сам не пускает плейлист с диска в сеть, но версии разные (прод — 5.1): наш белый
+    // список обязан стоять перед входом у всех трёх вызовов, и это проверяется отдельно.
+    const { probeArgs, remuxArgs, transcodeArgs } = await import("../src/lib/outgoingMediaPrepare.js");
+    const probe = parseProbe({ streams: [{ codec_type: "video", codec_name: "h264", width: 2, height: 2 }] });
+    for (const args of [
+      probeArgs("in"),
+      remuxArgs("in", "out", probe),
+      transcodeArgs("in", "out", probe, { width: 2, height: 2, fps: 30, videoKbps: 300, audioKbps: 0 }),
+    ]) {
+      const w = args.indexOf("-protocol_whitelist");
+      expect(w).toBeGreaterThanOrEqual(0);
+      expect(args[w + 1]).toBe("file");
+      expect(w).toBeLessThan(args.lastIndexOf("in"));
+    }
+    // И подготовка не падает: исходник уходит «как раньше», а не отказ.
+    const out = await prepareOutgoingMedia({ path: fake, mimetype: "video/mp4", size: statSync(fake).size }, "WHATSAPP", { workDir: dir });
+    expect(out).toMatchObject({ action: "original", fallback: true, owned: false });
+  });
+
+  it("срок вышел посреди сжатия — исходник уходит как раньше (файлом или ссылкой), не отказ", async () => {
+    const size = statSync(fx("long.mp4")).size;
+    const saved = { ...META_OUTGOING_MEDIA_LIMITS.WHATSAPP };
+    try {
+      META_OUTGOING_MEDIA_LIMITS.WHATSAPP.video = 1024 * 1024;
+      const out = await prepareOutgoingMedia({ path: fx("long.mp4"), mimetype: "video/mp4", size }, "WHATSAPP", {
+        workDir: dir, deadlineAt: Date.now() + 1_500,
+      });
+      expect(out).toMatchObject({ action: "original", fallback: true, sendAsLink: true });
+    } finally {
+      Object.assign(META_OUTGOING_MEDIA_LIMITS.WHATSAPP, saved);
+    }
+  }, 60_000);
+
+  it("уже отменённый сигнал — ffmpeg не запускается вовсе", async () => {
+    const { runFfmpeg } = await import("../src/lib/ffmpeg.js");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runFfmpeg({ bin: "ffprobe", label: "тест", timeoutMs: 5_000, signal: controller.signal, args: ["-version"] })
+    ).rejects.toMatchObject({ aborted: true });
+  });
+
+  it("перекладка без перекодирования сохраняет поворот: вертикальное видео не ложится на бок", async () => {
+    const size = statSync(fx("iphone-hdr.mov")).size;
+    const out = await prepareOutgoingMedia({ path: fx("iphone-hdr.mov"), mimetype: "video/quicktime", size }, "TELEGRAM", { workDir: dir });
+    const p = await probeMedia(out.path);
+    expect(p.video!.height).toBeGreaterThan(p.video!.width);
+  });
+
+  it("фото-«бомба» по пикселям отклоняется до раскладки в память", async () => {
+    const { MAX_IMAGE_PIXELS } = await import("../src/lib/outgoingMediaPrepare.js");
+    expect(MAX_IMAGE_PIXELS).toBe(100_000_000);
+    const file = fx("huge.png");
+    await sharp({ create: { width: 12_000, height: 9_000, channels: 3, background: "#fff" } }).png({ compressionLevel: 1 }).toFile(file);
+    await expect(
+      prepareOutgoingMedia({ path: file, mimetype: "image/png", size: statSync(file).size }, "WHATSAPP", { workDir: dir })
+    ).rejects.toMatchObject({ code: "too_big" });
+  }, 60_000);
+});
