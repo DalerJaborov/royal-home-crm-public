@@ -215,6 +215,110 @@ describe("суточная проверка ключей: смена парол�
   });
 });
 
+describe("ревью #432: ворота — только вызов Instagram, не ключ", () => {
+  const SHARED = `stand-shared-page-token-${run}`;
+  let igShared = "";
+  let fbShared = "";
+  const fbUrl = () => `https://graph.facebook.com/${meta.GRAPH_VERSION}/page-${run}/messages`;
+  const igUrl = () => meta.instagramApiUrl(`/${meta.GRAPH_VERSION}/me/messages`);
+  const dm = { recipient: { id: `peer-shared-${run}` }, message: { text: "Тест общего ключа" } };
+
+  beforeAll(async () => {
+    const { encryptSecret } = await import("../src/crypto.js");
+    // Instagram, подключённый через Страницу, и Facebook этой Страницы — один ключ (lib/metaPageConnect.ts).
+    igShared = (await prisma.messengerAccount.create({ data: { channel: "INSTAGRAM", externalId: `ig-shared-${run}`, title: `IG общий ${run}`, token: encryptSecret(SHARED) } })).id;
+    fbShared = (await prisma.messengerAccount.create({ data: { channel: "FACEBOOK", externalId: `page-${run}`, title: `FB общий ${run}`, token: encryptSecret(SHARED) } })).id;
+  });
+  afterAll(async () => {
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${igShared}` } } });
+    await prisma.errorLog.deleteMany({ where: { dedupKey: { startsWith: `ig-account-locked:${igShared}` } } });
+    await prisma.messengerAccount.deleteMany({ where: { id: { in: [igShared, fbShared] } } });
+    resetAccountsCache();
+  });
+  beforeEach(async () => {
+    await prisma.messengerAccount.updateMany({ where: { id: igShared }, data: { accessLostAt: null, accessLostReason: null } });
+  });
+
+  it("отметка Instagram не глушит Messenger с тем же ключом, а успех Messenger её не снимает", async () => {
+    await access.noteInstagramAccountLocked(igShared, `HTTP 401: ${DEAD_TEXT}`);
+    expect(await lostAt(igShared)).not.toBeNull();
+    const before = callsWith(SHARED);
+    fetchMock.mockImplementation(async () => json({ recipient_id: "r", message_id: `mid-${randomUUID()}` }));
+    await expect(meta.callGraph(fbUrl(), SHARED, dm)).resolves.toBeTruthy();
+    expect(callsWith(SHARED)).toBe(before + 1);
+    expect(await lostAt(igShared)).not.toBeNull();
+    // Сам Instagram этим ключом закрыт (проба только что взята отметкой).
+    const err = await meta.callGraph(igUrl(), SHARED, dm).catch((e: unknown) => e);
+    expect(access.isInstagramAccessLostError(err)).toBe(true);
+    expect(callsWith(SHARED)).toBe(before + 1);
+  });
+
+  it("401/190 на вызове Facebook с общим ключом не метит Instagram", async () => {
+    fetchMock.mockImplementation(async () => json({ error: { message: DEAD_TEXT, type: "OAuthException", code: 190 } }, 401));
+    await expect(meta.callGraph(fbUrl(), SHARED, dm)).rejects.toThrow(/401/);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await lostAt(igShared)).toBeNull();
+  });
+
+  it("голый 401 без слов про ключ/сессию (например, прокси) не метит аккаунт", async () => {
+    expect(access.isInstagramKeyRefusal(401, "Unauthorized")).toBe(false);
+    expect(access.isInstagramKeyRefusal(401, JSON.stringify({ error: { message: "Unauthorized", code: 1 } }))).toBe(false);
+    expect(access.isInstagramKeyRefusal(401, JSON.stringify({ error: { message: "x", code: 190 } }))).toBe(true);
+    fetchMock.mockImplementation(async () => new Response("Unauthorized", { status: 401 }));
+    await expect(meta.callGraph(igUrl(), alive.token, dm)).rejects.toThrow(/401/);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await lostAt(alive.id)).toBeNull();
+  });
+
+  it("успешная отправка через ядро (durable) этим ключом снимает отметку", async () => {
+    const { withCustomerDeliveryTransport } = await import("../src/lib/customerDeliveryTransport.js");
+    await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+    expect(await lostAt(dead.id)).not.toBeNull();
+    revived.add(dead.token);
+    const hooks = { beforePost: async () => {}, accepted: async () => {}, rejected: async () => {}, networkFailure: async () => {} };
+    await expect(withCustomerDeliveryTransport(hooks, () => meta.callGraph(igUrl(), dead.token, dm))).resolves.toBeTruthy();
+    expect(await lostAt(dead.id)).toBeNull();
+  });
+
+  it("карточка объекта, не ушедшая из-за потери доступа, — «не ушло», а не «неизвестно»", async () => {
+    const { isProviderDefinitiveRejection } = await import("../src/lib/metaProviderRejection.js");
+    expect(isProviderDefinitiveRejection(new access.InstagramAccessLostError(dead.id, null))).toBe(true);
+    expect(isProviderDefinitiveRejection(new Error("Graph API HTTP 400: x"))).toBe(true);
+    expect(isProviderDefinitiveRejection(new Error("Graph API HTTP 500: x"))).toBe(false);
+  });
+});
+
+describe("ревью #432: очередь комментариев не забивается отложенными брошенного аккаунта", () => {
+  const prefix = `stand-park-${run}`;
+  afterAll(async () => {
+    await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: prefix } } });
+  });
+
+  it("520 отложенных у аккаунта с отметкой не мешают выбрать комментарий живого аккаунта; старше 3 суток — закрыты", async () => {
+    const { selectDueComments } = await import("../src/messengers/comments.js");
+    await access.noteInstagramAccountLocked(dead.id, `HTTP 401: ${DEAD_TEXT}`);
+    const base = Date.UTC(1971, 0, 1);
+    await prisma.instagramComment.createMany({ data: Array.from({ length: 520 }, (_, i) => ({
+      commentId: `${prefix}-dead-${i}`, mediaId: "m", authorId: `a-${i}`, text: "нарх?", status: "PENDING",
+      accountExternalId: dead.externalId, replyDueAt: new Date(base + i),
+    })) as never });
+    await prisma.instagramComment.create({ data: {
+      commentId: `${prefix}-alive`, mediaId: "m", authorId: "a-alive", text: "нарх?", status: "PENDING",
+      accountExternalId: alive.externalId, replyDueAt: new Date(base + 24 * 60 * 60 * 1000),
+    } as never });
+
+    const due = await selectDueComments(new Date());
+    expect(due.some((c) => c.commentId === `${prefix}-alive`)).toBe(true);
+    expect(due.some((c) => c.commentId.startsWith(`${prefix}-dead-`))).toBe(false);
+
+    await prisma.instagramComment.updateMany({ where: { commentId: { in: [0, 1, 2, 3, 4].map((i) => `${prefix}-dead-${i}`) } },
+      data: { createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) } });
+    await selectDueComments(new Date());
+    expect(await prisma.instagramComment.count({ where: { commentId: { startsWith: `${prefix}-dead-` }, status: "SKIPPED", note: "access_lost" } })).toBe(5);
+    expect(await prisma.instagramComment.count({ where: { commentId: { startsWith: `${prefix}-dead-` }, status: "PENDING" } })).toBe(515);
+  });
+});
+
 describe("личное по комментарию: ожидаемые отказы Meta", () => {
   it("«This user cant reply» — отказ про получателя, а не поломка", () => {
     const err = new MetaGraphCallError("Graph API HTTP 400: This user cant reply to this comment",

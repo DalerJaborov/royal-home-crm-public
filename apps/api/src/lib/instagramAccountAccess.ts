@@ -43,9 +43,26 @@ export function isInstagramAccountLockedText(text: string | undefined): boolean 
  * только «войдите в Instagram и пройдите проверку», а мёртвый после смены пароля ключ каждый путь встречал заново.
  * Теперь: «аккаунт закрыт» ИЛИ «ключ не принят» (узкая проверка channelKeyAlarm.ts::isMetaAuthFailure: 401 или код
  * 190/102 вместе с текстом про маркер/сессию). 5xx, 429, лимиты 613/4/17 и отказы «про клиента» сюда не попадают.
+ *
+ * ГОЛЫЙ 401 НЕ МЕТИТ (ревью #432): isMetaAuthFailure считает отказом ключа любой 401 — для тревоги это допустимо, а
+ * отметка глушит аккаунт. 401 без кода 190/102 и без слов про маркер/сессию — например, отказ прокси Instagram
+ * («Unauthorized», чужой x-proxy-key) — не про ключ аккаунта.
  */
+const KEY_SIGNAL_TEXT = /access token|session|OAuthException|OAuth access/i;
+function graphErrorCode(text: string | undefined): number | null {
+  try {
+    const code = (JSON.parse(text ?? "") as { error?: { code?: unknown } }).error?.code;
+    return typeof code === "number" ? code : null;
+  } catch {
+    return null;
+  }
+}
 export function isInstagramKeyRefusal(status: number | undefined, text: string | undefined): boolean {
-  return isInstagramAccountLockedText(text) || isMetaAuthFailure(status, text);
+  if (isInstagramAccountLockedText(text)) return true;
+  if (!isMetaAuthFailure(status, text)) return false;
+  if (status !== 401) return true; // 190/102 с текстом про ключ — проверено в isMetaAuthFailure
+  const code = graphErrorCode(text);
+  return code === 190 || code === 102 || KEY_SIGNAL_TEXT.test(text ?? "");
 }
 
 /**
@@ -103,19 +120,8 @@ export async function lostInstagramAccount(ref: InstagramAccessRef): Promise<Los
   }
 }
 
-/** Ошибка «в Meta не ходили: у аккаунта отметка потери доступа». Вызывающий не пишет её в журнал — это уже сделала отметка. */
-export class InstagramAccessLostError extends Error {
-  readonly instagramAccessLost = true;
-  constructor(readonly accountId: string, reason: string | null) {
-    super(`Instagram: доступ к аккаунту ${accountId} потерян (${(reason ?? "ключ не принят").slice(0, 120)}) — запрос в Meta не отправлен`);
-    this.name = "InstagramAccessLostError";
-  }
-}
-
-export function isInstagramAccessLostError(err: unknown): err is InstagramAccessLostError {
-  return err instanceof InstagramAccessLostError ||
-    (typeof err === "object" && err !== null && (err as { instagramAccessLost?: unknown }).instagramAccessLost === true);
-}
+// Ошибка «в Meta не ходили» живёт в модуле без импортов: её разбирают и ядро, и трасса (одно правило «не ушло»).
+export { InstagramAccessLostError, isInstagramAccessLostError } from "./metaProviderRejection.js";
 
 /**
  * Решение перед запросом в Meta этим ключом/аккаунтом: null — идти как обычно; `{ probe: true }` — идти, это проба
@@ -145,7 +151,10 @@ export async function noteInstagramWorkHeld(accountId: string, what: string): Pr
   try {
     await logSystemError("meta",
       `Instagram (аккаунт ${accountId}): ${what} ждёт — доступ к аккаунту потерян, в Meta не ходим. ` +
-        `После «Заменить маркер» в Настройках → Каналы работа продолжится сама.`,
+        // Честно (ревью #432): повтор зависших берёт только сегодняшние (по Душанбе) переписки (stuckConversations.ts,
+        // stuckWhere), комментарии ждут не дольше 3 суток — более старое после замены ключа само не уйдёт.
+        `После «Заменить маркер» в Настройках → Каналы сами уйдут ответы на сегодняшние сообщения и комментарии ` +
+        `последних 3 суток; более ранним клиентам ответьте вручную.`,
       { dedupKey: `ig-access-held:${accountId}:${what}`.slice(0, 120), dedupWindowMs: DAY_MS, silent: true, quietPult: true });
   } catch {
     // Журнал не должен ронять то, о чём пишет.

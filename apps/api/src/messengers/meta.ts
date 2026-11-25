@@ -60,6 +60,7 @@ import {
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
 import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
   noteInstagramBackupKeyDead, noteInstagramKeyRefused, noteInstagramProbeSucceeded } from "../lib/instagramAccountAccess.js";
+import { isProviderDefinitiveRejection } from "../lib/metaProviderRejection.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -252,7 +253,7 @@ export async function loadAccountCredentials(): Promise<MetaAccountCredentials[]
   }
 }
 
-import { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
+import { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken, isInstagramApiUrl } from "./metaGraph.js";
 export { GRAPH_VERSION, instagramApiUrl, instagramRequest, isFacebookLoginToken } from "./metaGraph.js";
 
 const CALL_TIMEOUT_MS = 15_000;
@@ -1747,7 +1748,10 @@ export async function fetchInstagramProfile(senderId: string, tokenOverride?: st
     const res = await fetchWithRetry(req.url, { headers: req.headers });
     if (!res.ok) {
       const body = await res.text();
-      if ((await noteInstagramKeyRefused({ token: igToken, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return {};
+      // Отказ — на тот ключ, которым шёл запрос (ревью #432): через Страницу читали ключом Страницы, и его отказ про
+      // личный ключ аккаунта ничего не говорит — тогда строка журнала как раньше.
+      if (isInstagramApiUrl(req.url) &&
+          (await noteInstagramKeyRefused({ token: igToken, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return {};
       // Subcode 33 = «Object does not exist»: профиль удалён или заблокирован.
       // Кэшируем пустой ответ на 24ч и логируем ОДИН раз, чтобы не спамить API.
       if (res.status === 400) {
@@ -2086,8 +2090,17 @@ export async function callGraph<T = unknown>(
    * в Meta не ходим — кроме пробы раз в PROBE_EVERY_MS (успех снимает отметку). Отказ без запроса — InstagramAccessLostError:
    * вызывающие его в журнал не пишут, отметка уже дала одну запись и одну тревогу. Путь ядра (durable) не трогаем: у него
    * своя квитанция попытки (lib/customerDeliveryDispatcher.ts). Ключи, которых нет среди аккаунтов с отметкой, — как раньше.
+   *
+   * ТОЛЬКО ВЫЗОВ INSTAGRAM (ревью #432): решает адрес запроса (graph.instagram.com / прокси Instagram), а не ключ. У
+   * Instagram, подключённого через Страницу, ключ тот же, что у Facebook этой Страницы (lib/metaPageConnect.ts): иначе
+   * отметка Instagram глушила бы Messenger, а успех Messenger снимал бы отметку Instagram.
+   * Путь ядра (durable) ворота не закрывают — у него своя квитанция попытки, — но его успех тоже снимает отметку.
    */
-  const access = routed.route === "unchanged" && !currentCustomerDeliveryTransport() ? await instagramAccessGate({ token }) : null;
+  const instagramPersonalCall = routed.route === "unchanged" && isInstagramApiUrl(routed.url);
+  const durableCall = Boolean(currentCustomerDeliveryTransport());
+  const access = !instagramPersonalCall ? null
+    : durableCall ? await lostInstagramAccount({ token }).then((account) => (account ? { account, probe: true } : null))
+    : await instagramAccessGate({ token });
   if (access && !access.probe) throw new InstagramAccessLostError(access.account.id, access.account.reason);
   /**
    * ЭХО С ДРУГОГО ПУТИ (21.11.2026). Отправка через Страницу, эхо — по подписке входа через
@@ -2187,6 +2200,8 @@ export async function callGraph<T = unknown>(
         forgetPageToken(failedToken);
         const afterPage = fellBackFromPage;
         const pageRefused = pageRouteRefused;
+        // Метит только отказ ВЫЗОВА Instagram личным ключом — не Facebook с тем же ключом Страницы (ревью #432).
+        const instagramRefused = routed.route === "unchanged" && isInstagramApiUrl(routed.url) && isInstagramKeyRefusal(res.status, text);
         void describeMetaToken(failedToken).then(async (who) => {
           // Повтор личным после отказа Страницы (ревью #344, второй круг): Страница на паузе, но путь
           // у аккаунта есть — «Meta закрыла доступ» здесь была бы ложной. Запасной ключ, раз в сутки.
@@ -2198,7 +2213,7 @@ export async function callGraph<T = unknown>(
           // пароля ключ (25.11.2026, прод 24.11): одна отметка и одна тревога на эпизод (lib/instagramAccountAccess.ts),
           // а не тревога на каждый вызов. Отметка уже стоит — дверь ничего не пишет. Аккаунт с рабочим путём Страницы
           // дверь не метит, а говорит «запасной личный ключ не работает» раз в сутки (ревью #344).
-          if (who.instagramAccountId && isInstagramKeyRefusal(res.status, text)) {
+          if (who.instagramAccountId && instagramRefused) {
             await noteInstagramAccountLocked(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`);
             return;
           }
@@ -2211,7 +2226,7 @@ export async function callGraph<T = unknown>(
         });
       }
       // Проба аккаунта с отметкой не прошла: отметка уже стоит, писать нечего — тот же отказ, что без запроса.
-      if (access?.probe && isInstagramKeyRefusal(res.status, text)) throw new InstagramAccessLostError(access.account.id, access.account.reason);
+      if (access?.probe && !durableCall && isInstagramKeyRefusal(res.status, text)) throw new InstagramAccessLostError(access.account.id, access.account.reason);
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);
@@ -2234,8 +2249,9 @@ export async function callGraph<T = unknown>(
     // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
     gateSettled = true;
     await settleMetaSendAccepted(gate);
-    // Проба аккаунта Instagram с отметкой «доступ потерян» прошла — ключ снова принимается, отметка снимается.
-    if (access?.probe) await noteInstagramProbeSucceeded(access.account.id);
+    // Instagram принял запрос личным ключом аккаунта с отметкой «доступ потерян» (проба или отправка ядра) — ключ снова
+    // принимается, отметка снимается. Только вызов Instagram: успех Facebook с общим ключом Страницы её не трогает.
+    if (access) await noteInstagramProbeSucceeded(access.account.id);
     // Тело успешного ответа Meta не гарантировано (у sender_action оно пустое) —
     // отсутствие JSON здесь не ошибка.
     let parsed: T | null;
@@ -2361,11 +2377,10 @@ async function sendMessageImpl(
 export function isDefinitiveSendRejection(err: unknown): boolean {
   // Блокировка Meta (#273): не отправляли вовсе, отказ по правилам или предупреждение — сообщение у клиента не появилось.
   if (err instanceof CustomerReplyHeldError || isMetaSendBlockError(err)) return true;
-  // Доступ к аккаунту Instagram потерян: запроса не было, а неудачная проба — отказ 401/190. Не ушло точно.
-  if (isInstagramAccessLostError(err)) return true;
-  // Только 4xx: Meta отклонила запрос. 5xx и таймаут — исход неизвестен (могло дойти), счёт щита не возвращаем, иначе
-  // повтор того же текста пройдёт щит и клиент получит дубль (ревью #283, Н1).
-  return /^Graph API HTTP 4\d{2}:/.test(err instanceof Error ? err.message : "");
+  // Только 4xx или «доступ к аккаунту Instagram потерян» (запроса не было): Meta отклонила. 5xx и таймаут — исход
+  // неизвестен (могло дойти), счёт щита не возвращаем, иначе повтор того же текста пройдёт щит и клиент получит дубль
+  // (ревью #283, Н1). Правило одно на транспорт, ядро и трассу — lib/metaProviderRejection.ts (ревью #432).
+  return isProviderDefinitiveRejection(err);
 }
 
 /**

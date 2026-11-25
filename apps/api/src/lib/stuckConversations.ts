@@ -258,7 +258,8 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * ДОСТУП К АККАУНТУ INSTAGRAM ПОТЕРЯН (25.11.2026, прод 24.11: «Повтор зависшего диалога (INSTAGRAM, …) не удался»
      * ×100+ за сутки — одни и те же переписки раз в 30 минут звали ИИ и бились в мёртвый ключ). До хода ИИ: ни модели,
      * ни Meta; одна строка журнала на аккаунт в сутки. Переписка остаётся «зависшей» — после «Заменить маркер» (отметка
-     * снимается, messengers/accounts.ts) крон health-automation поставит повтор, и ответ уйдёт.
+     * снимается, messengers/accounts.ts) крон health-automation поставит повтор, и ответ уйдёт — но только пока
+     * переписка проходит stuckWhere (клиент писал сегодня по Душанбе, недоставленный ответ — до 24 часов).
      */
     if (metaChannel === "INSTAGRAM" && row.accountId && await lostInstagramAccount({ accountId: row.accountId })) {
       await noteInstagramWorkHeld(row.accountId, "повтор ответа бота");
@@ -313,7 +314,11 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
     if (result.customerPropertyReply) {
       const outcome = await sendManagedCustomerPropertyReply(result.customerPropertyReply,
         () => sendMetaMessage(metaChannel, row.subscriberId, result.reply, token, { transport: customerTransport }));
-      return outcome === "accepted" ? "sent" : "no-reply";
+      if (outcome === "accepted") return "sent";
+      // Карточка не ушла, потому что доступ к аккаунту Instagram потерян (отметку поставил соседний вызов посреди хода):
+      // это не «пустой повтор» — к потолку повторов не считаем, ждём замены ключа (ревью #432).
+      if (metaChannel === "INSTAGRAM" && row.accountId && await lostInstagramAccount({ accountId: row.accountId })) return "channel-paused";
+      return "no-reply";
     }
     await stampOutgoingMid(
       metaChannel,

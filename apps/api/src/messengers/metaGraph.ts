@@ -38,6 +38,15 @@ function instagramProxyBase(): string | undefined {
   return process.env.IG_PROXY_URL || process.env.GEMINI_PROXY_URL || undefined;
 }
 
+/**
+ * Запрос идёт в Instagram (graph.instagram.com или прокси Instagram), а не в graph.facebook.com (25.11.2026, ревью #432).
+ * У Instagram, подключённого через Страницу, ключ тот же, что у Facebook этой Страницы: решать «это Instagram» по ключу
+ * нельзя — только по адресу запроса.
+ */
+export function isInstagramApiUrl(url: string): boolean {
+  return instagramPathOf(url, instagramProxyBase()) !== null;
+}
+
 /** Путь адреса Instagram (graph.instagram.com или прокси), иначе null. */
 function instagramPathOf(url: string, proxy: string | undefined): string | null {
   if (url.startsWith(GRAPH_INSTAGRAM_ORIGIN)) return url.slice(GRAPH_INSTAGRAM_ORIGIN.length);

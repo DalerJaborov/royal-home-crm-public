@@ -1230,18 +1230,7 @@ export async function processDueComments(now: Date = new Date()): Promise<Commen
    */
   if (!(await loadBotCapabilities()).comments) return stats;
 
-  const due = (await prisma.instagramComment.findMany({
-    where: {
-      OR: [
-        { status: "PENDING", replyDueAt: { lte: now } },
-        // Потолок попыток здесь — БОЛЬШИЙ из двух (ИИ-недоступность терпит 12):
-        // застрявший в WORKING комментарий с пятой попыткой ИИ-сбоя всё ещё наш.
-        { status: "WORKING", updatedAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) }, attempts: { lt: AI_DOWN_MAX_ATTEMPTS } },
-      ],
-    },
-    orderBy: { replyDueAt: "asc" },
-    take: BATCH_LIMIT,
-  })) as QueuedComment[];
+  const due = await selectDueComments(now);
 
   /**
    * ПАРАЛЛЕЛЬНО, А НЕ ПО ОЧЕРЕДИ (05.09.2026, вместе с переносом человеческой паузы
@@ -2877,6 +2866,49 @@ async function finishModeration(
   await finish(row.id, { status: deleted ? "DELETED" : "HIDDEN", hiddenAt: new Date(),
     note: moderationAcceptedNote(result, reason), propertyId });
   return deleted ? "deleted" : "hidden";
+}
+
+/**
+ * ОЧЕРЕДЬ КОММЕНТАРИЕВ БЕЗ АККАУНТОВ С ОТМЕТКОЙ «ДОСТУП ПОТЕРЯН» (ревью #432). Выборка берёт BATCH_LIMIT в минуту по самым
+ * давним replyDueAt; отложенные комментарии брошенного аккаунта (Arvan) иначе набирались бы сотнями и забивали выборку —
+ * вставала бы очередь всех аккаунтов (Royal Home, Facebook). Поэтому:
+ *  - такие комментарии исключаются В ЗАПРОСЕ (а не пропуском после выборки);
+ *  - ждут не дольше ACCESS_LOST_MAX_WAIT_MS от появления: старше — закрываются «access_lost» без пуша (публичный ответ
+ *    через трое суток уже не к месту, личное Meta разрешает 7 суток, а ключ могут не заменить никогда).
+ * Отметку снимут («Заменить маркер», проба) — оставшиеся комментарии разберутся обычным порядком.
+ */
+export const ACCESS_LOST_MAX_WAIT_MS = 3 * 24 * 60 * 60 * 1000;
+
+export async function selectDueComments(now: Date = new Date()): Promise<QueuedComment[]> {
+  const lost = await prisma.messengerAccount.findMany({
+    where: { channel: "INSTAGRAM", accessLostAt: { not: null } },
+    select: { externalId: true, extraExternalIds: true },
+  }).catch(() => [] as { externalId: string; extraExternalIds: string[] }[]);
+  const lostIds = [...new Set(lost.flatMap((a) => [a.externalId, ...a.extraExternalIds]).filter(Boolean))];
+  if (lostIds.length) {
+    const closed = await prisma.instagramComment.updateMany({
+      where: { channel: "INSTAGRAM", accountExternalId: { in: lostIds }, status: "PENDING",
+        createdAt: { lt: new Date(now.getTime() - ACCESS_LOST_MAX_WAIT_MS) } },
+      data: { status: "SKIPPED", note: "access_lost" },
+    }).catch(() => ({ count: 0 }));
+    if (closed.count > 0) console.warn(`[comments] ${closed.count} комментариев аккаунта без доступа закрыты «access_lost» (ждали дольше 3 суток)`);
+  }
+  return (await prisma.instagramComment.findMany({
+    where: {
+      OR: [
+        { status: "PENDING", replyDueAt: { lte: now } },
+        // Потолок попыток здесь — БОЛЬШИЙ из двух (ИИ-недоступность терпит 12):
+        // застрявший в WORKING комментарий с пятой попыткой ИИ-сбоя всё ещё наш.
+        { status: "WORKING", updatedAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) }, attempts: { lt: AI_DOWN_MAX_ATTEMPTS } },
+      ],
+      // NOT IN через явное OR: у accountExternalId бывает NULL, а NOT (x IN …) по NULL в SQL отбросил бы и такие строки.
+      ...(lostIds.length ? { AND: [{ OR: [
+        { channel: { not: "INSTAGRAM" } }, { accountExternalId: null }, { accountExternalId: { notIn: lostIds } },
+      ] }] } : {}),
+    },
+    orderBy: { replyDueAt: "asc" },
+    take: BATCH_LIMIT,
+  })) as QueuedComment[];
 }
 
 /** Пока доступ к аккаунту потерян, комментарий ждёт: снова PENDING через полчаса, захват попытку не тратит. */
