@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 775,
-  "forks": 4178,
+  "forks": 4177,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -23967,7 +23967,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -24274,7 +24274,6 @@
           "меняет в базе: property",
           "меняет в базе: client",
           "считает в базе: deal",
-          "создаёт или меняет в базе: settings",
           "читает в базе: deal",
           "меняет в базе: deal"
          ],
@@ -24525,14 +24524,6 @@
            "t": "isCompleting || isRepricingClosed",
            "a": [],
            "c": [
-            {
-             "k": "do",
-             "t": "const settings = await tx.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"singleton\"…",
-             "a": [
-              "создаёт или меняет в базе: settings"
-             ],
-             "c": []
-            },
             {
              "k": "if",
              "t": "baseCents > 0 && totalP > 0",
@@ -25371,7 +25362,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -25508,35 +25499,19 @@
        "c": [
         {
          "k": "do",
-         "t": "const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: \"singleton\" } }) : await prism…",
+         "t": "commissionPercent = COMMISSION_TOTAL_PERCENT;",
          "a": [
-          "читает в базе: settings",
-          "создаёт или меняет в базе: settings"
+          "дословно из кода"
          ],
          "c": []
         },
         {
-         "k": "if",
-         "t": "settings",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
         }
        ]
       },
@@ -28181,11 +28156,10 @@
     },
     {
      "k": "do",
-     "t": "const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLE…",
+     "t": "const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLETED\", clos…",
      "a": [
       "читает в базе: deal",
-      "читает в базе: expense",
-      "создаёт или меняет в базе: settings"
+      "читает в базе: expense"
      ],
      "c": []
     },

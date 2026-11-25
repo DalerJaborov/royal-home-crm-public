@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4178**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4177**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5482,7 +5482,7 @@
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
     - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
@@ -5548,7 +5548,6 @@
       · меняет в базе: property
       · меняет в базе: client
       · считает в базе: deal
-      · создаёт или меняет в базе: settings
       · читает в базе: deal
       · меняет в базе: deal
       - если isCompleting
@@ -5602,8 +5601,6 @@
         - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
           · зовёт scaleClosedCommissionShares()
       - иначе если isCompleting || isRepricingClosed
-        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-          · создаёт или меняет в базе: settings
         - если baseCents > 0 && totalP > 0
           - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
             · зовёт splitCents()
@@ -5783,7 +5780,7 @@
     - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
@@ -5812,14 +5809,10 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
-      · читает в базе: settings
-      · создаёт или меняет в базе: settings
-    - если settings
-      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
-        · дословно из кода
-      - commissionAmount = commissionOf(property.price, commissionPercent);
-        · дословно из кода
+    - commissionPercent = COMMISSION_TOTAL_PERCENT;
+      · дословно из кода
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -6399,10 +6392,9 @@
 
 - const from = dushanbeMonthStart(monthsBack - 1);
   · зовёт dushanbeMonthStart()
-- const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
+- const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLETED", clos…
   · читает в базе: deal
   · читает в базе: expense
-  · создаёт или меняет в базе: settings
 - если truncated
   - void logSystemError( "api", `Выгрузка бухгалтерии за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE…
     · запись в журнал ошибок
