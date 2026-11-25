@@ -304,8 +304,8 @@ export interface PrepareOptions {
  * Очередь одна (одно сжатие за раз), так что больше четырёх ядер сжатие не займёт никогда.
  */
 function ffmpegThreads(): string {
-  const n = Number(process.env.OUTGOING_MEDIA_FFMPEG_THREADS);
-  return String(Number.isInteger(n) && n > 0 ? n : 4);
+  // Константа, не переменная окружения: имя из env должно быть проброшено в контейнер (сторож env-reaches-container).
+  return "4";
 }
 
 /** Срок одного перекодирования: втрое дольше самого ролика плюс минута, от 2 до 10 минут. */
