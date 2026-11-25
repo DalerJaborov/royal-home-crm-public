@@ -229,7 +229,8 @@ export function Login() {
       } else {
         const block = loginBlockInfo(err);
         if (block) {
-          setTelegramAvailable(block.telegramAvailable);
+          // Лимит общий для всех каналов: до снятия гасим и «ещё раз», и Telegram.
+          setResendAt(block.retryAt.getTime());
           setError(loginBlockText(block));
         } else {
           setError(err instanceof Error ? err.message : "Не удалось отправить код");

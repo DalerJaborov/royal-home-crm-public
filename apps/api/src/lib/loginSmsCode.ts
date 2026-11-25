@@ -191,7 +191,9 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
     if (recent.length >= LOGIN_SMS_PER_HOUR) {
       // Блок снимется, когда самый ранний из пяти кодов выйдет из часового окна
       // (recent — от новых к старым, пятый с краю и есть «самый ранний из пяти»).
-      const blockedUntilMs = recent[LOGIN_SMS_PER_HOUR - 1].createdAt.getTime() + 60 * 60 * 1000;
+      // Вверх до следующей минуты: экран показывает ЧЧ:ММ без секунд и не должен звать раньше срока.
+      const rawUntil = recent[LOGIN_SMS_PER_HOUR - 1].createdAt.getTime() + 60 * 60 * 1000;
+      const blockedUntilMs = Math.floor(rawUntil / 60_000) * 60_000 + 60_000;
       return {
         ok: false as const,
         error: "Слишком много кодов за час. Попробуйте позже или обратитесь к директору",
@@ -224,7 +226,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
   const errors: string[] = [];
   try {
     for (const ch of order) {
-      await prisma.loginSmsCode.update({ where: { id: rowId }, data: { channel: ch } });
+      await prisma.loginSmsCode.updateMany({ where: { id: rowId }, data: { channel: ch } });
       if (ch === "push") {
         const accepted = await sendLoginCodePush(liveSubs, {
           kind: "login-code",
@@ -256,13 +258,13 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
     }
     // Стенд без провайдера: код всё равно действует, его отдаёт ответ сервера.
     if (devCodeEchoEnabled()) {
-      await prisma.loginSmsCode.update({
+      await prisma.loginSmsCode.updateMany({
         where: { id: rowId }, data: { channel: wanted === "push" ? "sms" : wanted },
       });
       return { ok: true, channel: wanted === "push" ? "sms" : wanted, devCode: code, resendAfterSec: resendAfterSec() };
     }
     // All transports refused: release the reservation, allowing a real retry.
-    await prisma.loginSmsCode.delete({ where: { id: rowId } });
+    await prisma.loginSmsCode.deleteMany({ where: { id: rowId } });
     noteLoginCodeRefusal(agent.id, "send-failed");
     return { ok: false, error: `Не удалось отправить код: ${errors.join("; ")}` };
   } catch (err) {
@@ -367,8 +369,13 @@ export async function verifyLoginCode(agentId: string, code: string): Promise<Ve
  * сколько строк убрано.
  */
 export async function resetLoginCodeBlock(agentId: string): Promise<number> {
-  const removed = await prisma.loginSmsCode.deleteMany({
-    where: { agentId, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  // Под той же блокировкой Agent, что и выдача кода: сброс не вклинивается между
+  // резервом строки и её обновлением.
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${agentId} FOR UPDATE`;
+    const removed = await tx.loginSmsCode.deleteMany({
+      where: { agentId, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+    });
+    return removed.count;
   });
-  return removed.count;
 }

@@ -121,14 +121,17 @@ describe("сброс блока входа по коду", () => {
 });
 
 describe("ответ 503 по лимиту часа", () => {
-  it("отдаёт retryAt = самый ранний из пяти кодов + 1 час и telegramAvailable", async () => {
+  it("отдаёт retryAt = самый ранний из пяти кодов + 1 час, вверх до минуты", async () => {
     await fillHour();
     const earliest = (await prisma.loginSmsCode.findFirst({ where: { agentId: targetId }, orderBy: { createdAt: "asc" } }))!;
     const res = await request(app).post("/api/v1/auth/login/code").send({ phone: targetPhone });
     expect(res.status).toBe(503);
     expect(res.body.error).toContain("Слишком много кодов за час");
-    expect(new Date(res.body.retryAt).getTime()).toBe(earliest.createdAt.getTime() + 60 * 60 * 1000);
-    expect(res.body.telegramAvailable).toBe(true);
+    const raw = earliest.createdAt.getTime() + 60 * 60 * 1000;
+    const until = new Date(res.body.retryAt).getTime();
+    expect(until).toBeGreaterThan(raw);
+    expect(until - raw).toBeLessThanOrEqual(60_000);
+    expect(until % 60_000).toBe(0);
   });
 });
 

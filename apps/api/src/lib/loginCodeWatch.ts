@@ -62,7 +62,7 @@ export function noteLoginCodeRefusal(agentId: string, kind: LoginCodeRefusalKind
       .catch(() => null);
     await logSystemError(
       "api",
-      `Сотрудник ${agent?.fullName ?? agentId} не может получить код входа: ${list.length} отказа за 15 минут (${detail}). Откройте карточку сотрудника и, если нужно, сбросьте блок входа по коду`,
+      `Сотрудник ${agent?.fullName ?? agentId} не может получить код входа: ${list.length} отказа за 15 минут (${detail}). ${counts.has("hour-limit") ? "Если это он сам, снимите блок: карточка сотрудника, «Сбросить блок входа по коду»" : "Проверьте, что это сам сотрудник, а не чужой"}`,
       { dedupKey: `login-code-refusals:${agentId}:${dayKey(now)}`, dedupWindowMs: 60 * 60 * 1000 }
     );
   })().catch(() => undefined);

@@ -114,13 +114,13 @@ function phoneCandidates(raw: string): string[] {
 }
 
 /**
- * Тело 503 «слишком много кодов за час»: когда блок снимется (`retryAt`, ISO) и
- * привязан ли Telegram — экран входа показывает время по Душанбе и кнопку. Поля
+ * Тело 503 «слишком много кодов за час»: когда блок снимется (`retryAt`, ISO, до минуты вверх) —
+ * экран входа показывает время по Душанбе. Поля
  * добавочные: старые клиенты читают только `error`.
  */
-function blockedBody(blockedUntilMs: number | undefined, telegramAvailable: boolean): Record<string, unknown> {
+function blockedBody(blockedUntilMs: number | undefined): Record<string, unknown> {
   if (blockedUntilMs === undefined) return {};
-  return { retryAt: new Date(blockedUntilMs).toISOString(), telegramAvailable };
+  return { retryAt: new Date(blockedUntilMs).toISOString() };
 }
 
 authRouter.post("/login/code", async (req, res) => {
@@ -152,7 +152,7 @@ authRouter.post("/login/code", async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChatId) });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
   }
   res.json({
     pendingToken: signPending2faToken(agent.id, "sms"),
@@ -446,7 +446,7 @@ authRouter.post("/step-up/send-code", requireAuth, async (req, res) => {
       res.set("Retry-After", String(issued.retryAfterSec));
       return res.status(429).json({ error: issued.error, resendAfterSec: issued.retryAfterSec });
     }
-    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs, !!agent.telegramChatId) });
+    return res.status(503).json({ error: issued.error, ...blockedBody(issued.blockedUntilMs) });
   }
   res.json({
     channel: issued.channel,
