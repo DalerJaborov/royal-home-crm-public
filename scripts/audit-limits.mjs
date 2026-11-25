@@ -25,12 +25,15 @@
  *  4. Экран: каждая ОТПРАВКА FormData мимо `api()` (`xhr.send(form)`, `fetch(…, { body: form })`,
  *     свой помощник вида `xhrSend…(…, form, …)`) обязана пройти `assertFitsSingleRequest(form`
  *     раньше отправки. `api()` и `sendToClient()` проверяют вес сами (lib/api.ts).
+ *  5. Прокси: `read_body` в ops/Caddyfile.example не короче времени, за которое самое тяжёлое
+ *     тело (max_size, не меньше части UPLOAD_PART_BYTES) доходит на канале 1 Мбит/с
+ *     (25.11.2026: при 10s ролики мастера получали 502 — см. checkCaddyBodyTimeout).
  *
  * Каждое правило проверено внесением поломки — scripts/audit-limits.test.mjs.
  *
  *   node scripts/audit-limits.mjs
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { maskComments } from "./audit-fetch-timeout.mjs";
@@ -296,6 +299,73 @@ export function checkWebSource(source) {
   return problems;
 }
 
+// ── прокси: потолок времени на тело ───────────────────────────────────────────
+
+/**
+ * Самый медленный канал агента, на котором загрузка обязана проходить: 1 Мбит/с.
+ * Замер 24.11.2026 (журнал nginx прода): Android-агент отдавал 1,4–3,5 МБ за 10 с,
+ * то есть 1,1–2,8 Мбит/с; iPhone 23.11 — 2,1–6 Мбит/с в провалах.
+ */
+export const MIN_UPLINK_BITS_PER_SEC = 1_000_000;
+
+/** Длительность Caddy/Go («10s», «5m», «1m30s», «500ms») → секунды; null — не разобрать. */
+export function parseDurationSeconds(raw) {
+  const text = String(raw).trim();
+  if (!/^(\d+(?:\.\d+)?(ms|s|m|h))+$/.test(text)) return null;
+  const k = { ms: 0.001, s: 1, m: 60, h: 3600 };
+  let total = 0;
+  for (const m of text.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h)/g)) total += Number(m[1]) * k[m[2]];
+  return total;
+}
+
+/** Размер Caddy («25MB» — десятичные мегабайты, «25MiB» — двоичные) → байты; null — не разобрать. */
+export function parseCaddySize(raw) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|kib|mib|gib)?\s*$/i.exec(String(raw));
+  if (!m) return null;
+  const unit = (m[2] ?? "b").toLowerCase();
+  const k = { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, kib: 1024, mib: MB, gib: 1024 * MB }[unit];
+  return Math.round(Number(m[1]) * k);
+}
+
+/**
+ * ПРАВИЛО 5 (25.11.2026, разбор 502 при загрузке ролика в мастере): `read_body` у Caddy — потолок
+ * на ВСЁ тело запроса, а не на паузу между байтами. При 10s часть ролика 8 МБ на канале
+ * 2–6 Мбит/с обрывалась ровно на десятой секунде (nginx: `400 time=10.000 upstream=-`), а телефон
+ * получал 502. Сторож: самое тяжёлое тело, которое пропускает прокси (`request_body.max_size`, и
+ * не меньше части загрузки `UPLOAD_PART_BYTES`), должно успеть дойти за `read_body` на канале
+ * MIN_UPLINK_BITS_PER_SEC. Не задан `read_body` — потолка нет, нарушать нечего.
+ */
+export function checkCaddyBodyTimeout(text, { partBytes, minUplinkBitsPerSec = MIN_UPLINK_BITS_PER_SEC }) {
+  const lines = text.split("\n").map((l) => l.replace(/#.*$/, ""));
+  const problems = [];
+  let biggest = partBytes;
+  lines.forEach((line, i) => {
+    const m = /^\s*max_size\s+(\S+)/.exec(line);
+    if (!m) return;
+    const bytes = parseCaddySize(m[1]);
+    if (bytes === null) problems.push({ line: i + 1, problem: `max_size ${m[1]} — не разобрать` });
+    else biggest = Math.max(biggest, bytes);
+  });
+  const requiredSec = Math.ceil((biggest * 8) / minUplinkBitsPerSec);
+  lines.forEach((line, i) => {
+    const m = /^\s*read_body\s+(\S+)/.exec(line);
+    if (!m) return;
+    const sec = parseDurationSeconds(m[1]);
+    if (sec === null) {
+      problems.push({ line: i + 1, problem: `read_body ${m[1]} — не разобрать (пишите «5m», «300s»)` });
+    } else if (sec < requiredSec) {
+      problems.push({
+        line: i + 1,
+        problem:
+          `read_body ${m[1]} короче ${requiredSec} с — тело ${Math.round(biggest / 1e6)} МБ на канале ` +
+          `${minUplinkBitsPerSec / 1e6} Мбит/с не успеет дойти: прокси оборвёт загрузку и телефон получит 502 ` +
+          "(read_body — потолок на всё тело, а не на паузу между байтами).",
+      });
+    }
+  });
+  return problems;
+}
+
 // ── обход ──────────────────────────────────────────────────────────────────────
 
 function* walk(dir) {
@@ -333,6 +403,14 @@ export function scan(root = ROOT) {
   for (const file of walk(join(root, "apps", "web", "src"))) {
     const rel = relative(root, file).replace(/\\/g, "/");
     for (const p of checkWebSource(readFileSync(file, "utf8"))) problems.push({ file: rel, ...p });
+  }
+  // Правило 5: шаблон Caddy (по нему ops/bootstrap.sh пишет /etc/caddy/Caddyfile нового сервера,
+  // с ним же ops/deploy.sh сверяет живой файл после каждого выката).
+  const caddy = join(root, "ops", "Caddyfile.example");
+  if (existsSync(caddy)) {
+    const partBytes = evalBytes("UPLOAD_PART_BYTES", ceiling, sharedConstants);
+    if (partBytes === null) problems.push({ file: "packages/shared/src/uploadLimits.ts", line: 1, problem: "нет UPLOAD_PART_BYTES — сторож read_body не знает размер части" });
+    else for (const p of checkCaddyBodyTimeout(readFileSync(caddy, "utf8"), { partBytes })) problems.push({ file: "ops/Caddyfile.example", ...p });
   }
   return { ceiling, problems, exceptions };
 }
