@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { botTurnTracePayloadSchema, type BotTurnTracePayload } from "@royal-home/shared";
-import { withBotTurnTrace, currentBotTurnTrace, traceBindConversation, traceOutcome, traceCheckpoint, traceModelStart, traceModelFinish, traceModelValidation, traceFilterDelta, traceObserveSend, traceProviderAccepted, traceStamp, traceWidgetAvailable, traceWebsiteMessagesPersisted, traceGrouped, traceDeferUntil, traceKnownSecrets, traceResolution } from "../src/lib/botTurnTrace.js";
+import { withBotTurnTrace, currentBotTurnTrace, traceBindConversation, traceOutcome, traceNoReply, traceCheckpoint, traceModelStart, traceModelFinish, traceModelValidation, traceFilterDelta, traceObserveSend, traceProviderAccepted, traceStamp, traceWidgetAvailable, traceWebsiteMessagesPersisted, traceGrouped, traceDeferUntil, traceKnownSecrets, traceResolution } from "../src/lib/botTurnTrace.js";
 import { sanitizeTraceText, tracePseudonym, projectTraceModel } from "../src/lib/botTurnTracePrivacy.js";
 import { projectBotIngressShape } from "../src/lib/botTurnTraceIngress.js";
 import { createTraceQueue } from "../src/lib/botTurnTraceQueue.js";
@@ -288,5 +288,35 @@ describe("bounded writer and ingress projection", () => {
     expect([off.models, off.sends, on.models, on.sends]).toEqual([200, 200, 200, 200]);
     expect(on.maxBytes).toBeLessThanOrEqual(32768);
     console.info("[bot-trace synthetic CPU-only; no DB/network]", JSON.stringify({ off, on }));
+  });
+});
+
+/** Разбор прода 24.11.2026: 350 заблокированных ходов (WA 211, IG 95, FB 44) легли в трассу без причины. */
+describe("причина blocked / no_reply в трассе", () => {
+  it("blocked пишет закрытый код причины, проходит строгую схему и не несёт текста", async () => {
+    const { rows, config } = recorder();
+    await withBotTurnTrace(turn, async () => { traceOutcome("blocked", "dm_lane_core"); }, config);
+    const last = botTurnTracePayloadSchema.parse(rows.at(-1));
+    expect(last).toMatchObject({ outcome: "blocked", outcomeReason: "dm_lane_core" });
+  });
+  it("no_reply с причиной; поздний исход без причины стирает устаревшую", async () => {
+    const silent = recorder();
+    await withBotTurnTrace(turn, async () => { traceNoReply("bot_silent"); traceNoReply("account_disabled"); }, silent.config);
+    // Первая причина — та, что поставила исход; вторая no_reply его не меняет.
+    expect(silent.rows.at(-1)).toMatchObject({ outcome: "no_reply", outcomeReason: "bot_silent" });
+    // Внутренний путь поставил no_reply без причины — внешний повтор её дописывает.
+    const outer = recorder();
+    await withBotTurnTrace(turn, async () => { traceNoReply(); traceNoReply("bot_silent"); }, outer.config);
+    expect(outer.rows.at(-1)).toMatchObject({ outcome: "no_reply", outcomeReason: "bot_silent" });
+    const later = recorder();
+    await withBotTurnTrace(turn, async () => { traceOutcome("blocked", "outbound_shield"); traceOutcome("failed"); }, later.config);
+    expect(later.rows.at(-1)?.outcome).toBe("failed");
+    expect(later.rows.at(-1)?.outcomeReason).toBeUndefined();
+  });
+  it("причина не для blocked/no_reply не записывается, а незнакомый код схема не пропускает", async () => {
+    const { rows, config } = recorder();
+    await withBotTurnTrace(turn, async () => { traceOutcome("completed", "bot_silent"); }, config);
+    expect(rows.at(-1)?.outcomeReason).toBeUndefined();
+    expect(botTurnTracePayloadSchema.safeParse({ ...rows.at(-1), outcome: "blocked", outcomeReason: "клиент Далер" }).success).toBe(false);
   });
 });

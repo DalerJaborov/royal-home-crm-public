@@ -53,10 +53,11 @@ describe("1. после заявки бот не молчит, но и не пр
     expect(t.text).toBe("Передал ваш вопрос агенту, он вам ответит.");
     expect(t.actions).toEqual([{ type: "append_note", note: "Вопрос клиента: «А адрес офиса какой?»", phone: null }]);
   });
-  it("«Звоните завтра днём» после «номер получил» (живой диалог 19.11) — время в заметку и ответ", () => {
+  it("«Звоните завтра днём» после «номер получил» (живой диалог 19.11) — время в заметку, ответ без срока", () => {
     const t = run(ctx({ leadExists: true }), [ru({ callback: { when: "завтра днём", textOnly: false, noCall: false }, quote: "Звоните завтра днём" })], afterLead())[0]!;
     expect(t.keys).toEqual(["callback_noted"]);
-    expect(t.text).toMatch(/завтра днём/u);
+    // Срок звонка бот не повторяет вслух (владелец 22.11.2026): время клиента — в заметке агенту.
+    expect(t.text).not.toMatch(/завтра|сегодня|\d{1,2}:\d{2}/u);
     expect(t.actions[0]).toMatchObject({ type: "append_note", note: "Когда звонить: «завтра днём»" });
   });
   it("«когда позвонят?» — напоминание агенту заметкой и «напомнил агенту», без срока", () => {
@@ -120,7 +121,7 @@ describe("2. без «одним сообщением» и без допроса
     expect(turns[1]!.actions.filter(a => a.type === "accept_lead")).toHaveLength(1);
     // Вопрос о деталях уже прозвучал первым ответом (21.11.2026) — строка заявки его не повторяет.
     expect(turns[0]!.keys).toEqual(["seller_intro", "role_details_seller"]);
-    expect(turns[1]!.text).toBe("Ташаккур, рақамро гирифтам, агент ба зудӣ занг мезанад.");
+    expect(turns[1]!.text).toBe("Ташаккур, рақамро гирифтам, агент ба шумо занг мезанад.");
     expect(turns[2]!.keys).toEqual(["note_added"]);
   });
 });

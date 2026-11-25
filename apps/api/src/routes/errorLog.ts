@@ -10,6 +10,7 @@ import { describeError } from "../lib/describeError.js";
 import { STUCK_LIMIT, findStuckConversations } from "../lib/stuckConversations.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
+import { resetAiRetryCap } from "../jobs/aiReplyRetryCap.js";
 import { classifyErrorLog, errorLogPriorityWhere, type ErrorLogPriority } from "../lib/errorLogClassify.js";
 import { checkGeminiHealth } from "../lib/integrationHealth.js";
 import { dushanbeStartOfToday } from "../lib/dushanbeTime.js";
@@ -232,6 +233,10 @@ errorLogRouter.get("/stuck-conversations", requireAuth, requirePermission("audit
  */
 errorLogRouter.post("/stuck-conversations/retry", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
   const rows = await findStuckConversations();
+  // Нажал человек — его решение важнее потолка повтора: остановки и счёт этих переписок снимаются ДО постановки,
+  // иначе задание (своё или уже стоящее от крона — очередь их сливает) увидело бы остановку и молча вышло (ревью #423).
+  // Метка сброса перекрывает и остановку, которую допишет задание, начатое до нажатия (jobs/aiReplyRetryCap.ts).
+  if (rows.length > 0) await resetAiRetryCap(rows.map((row) => row.id));
   res.json({ queued: rows.length });
   if (rows.length === 0) return;
 

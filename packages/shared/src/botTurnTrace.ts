@@ -9,7 +9,24 @@ export const BOT_CUSTOMER_AGENT_TRACE_COVERAGE = "customer_agent_dm_public_v1" a
 export const traceChannelSchema = z.enum(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE", "TELEGRAM", "TELEGRAM_DIRECT", "YOUTUBE"]);
 export const traceSourceSchema = z.enum(["webhook", "website", "ai_retry", "manual_retry", "internal", "delivery_status"]);
 export const traceOutcomeSchema = z.enum(["incomplete", "completed", "duplicate", "remembered", "echo", "manual", "bot_off", "batched", "no_reply", "failed", "blocked", "partially_sent"]);
-export const traceStageSchema = z.enum(["ingress", "media_download", "asr", "vision", "resolution", "model", "qualifier_guards", "reply_chain", "recovery", "send", "stamp", "final"]);
+/**
+ * WHY a turn ended `blocked` or `no_reply` (prod review 24.11.2026: 350 blocked turns had no reason at all, and the stuck-chat
+ * retry's `no_reply` loops could not be told apart). A closed list of codes, never text or data; an unknown cause is `other`.
+ */
+export const traceOutcomeReasonSchema = z.enum([
+  // the customer DM belongs to the core / a held lane, not to this (legacy) path
+  "dm_lane_held", "dm_lane_core",
+  // the reply was ready, but its customer authority went stale / the core held it / the property reply was held
+  "principal_stale", "reply_held", "property_reply_held",
+  // our own outbound shield, a Meta policy block or warning on the account, a dead channel key (HTTP 401, Meta 190/102)
+  "outbound_shield", "meta_send_block", "meta_send_warned", "channel_key_dead",
+  // stuck-chat retry: why nothing was (re)sent
+  "outbox_owned", "turn_terminal", "held_routing", "turn_changed", "account_disabled", "no_transport", "already_attempted",
+  // the replayed turn itself returned no reply (a rule, a lane or the bot chose silence)
+  "bot_silent",
+  "other",
+]);
+export const traceStageSchema =z.enum(["ingress", "media_download", "asr", "vision", "resolution", "model", "qualifier_guards", "reply_chain", "recovery", "send", "stamp", "final"]);
 const key = z.string().regex(/^[a-f0-9]{64}$/).nullable();
 const count = z.number().int().nonnegative();
 const time = z.string().datetime();
@@ -126,6 +143,8 @@ export const botTurnTracePayloadSchema = z.strictObject({
   schemaVersion: z.literal(1), coverage: z.enum([BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE]), traceId: z.string().uuid(),
   createdAt: time, completedAt: time.nullable(), expiresAt: time, checkpointSeq: count,
   channel: traceChannelSchema, source: traceSourceSchema, outcome: traceOutcomeSchema,
+  /** Set with outcome `blocked` / `no_reply` (stays on `partially_sent`: why the rest was not sent). Closed code only. */
+  outcomeReason: traceOutcomeReasonSchema.optional(),
   eventKey: key, conversationKey: key, accountKey: key, groupedEventKeys: z.array(key).max(32), groupedTraceIds: z.array(z.string().uuid()).max(32),
   input: z.strictObject({ kind: z.enum(["text", "media", "referral", "echo", "unknown"]), textPresent: z.boolean(), attachmentCount: count.max(1000), mimeKinds: z.array(z.enum(["image", "audio", "video", "document"])).max(4), language: z.enum(["ru", "tg", "unknown"]), echoReason: z.enum(["known_mid", "history_mid", "in_flight", "template", "manual", "unknown"]).nullable() }),
   managed: traceManagedContextSchema.optional(), customerCore: traceCustomerCoreSchema.optional(),
@@ -142,4 +161,5 @@ export type BotIngressShape = z.infer<typeof botIngressShapeSchema>;
 export type TraceModelAttempt = z.infer<typeof traceModelAttemptSchema>;
 export type TraceOutgoingPart = z.infer<typeof traceOutgoingPartSchema>;
 export type TraceOutcome = z.infer<typeof traceOutcomeSchema>;
+export type TraceOutcomeReason = z.infer<typeof traceOutcomeReasonSchema>;
 export type TraceStage = z.infer<typeof traceStageSchema>;

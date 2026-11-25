@@ -4,7 +4,8 @@
 import {detectCustomerCoreLanguage as detectClientLanguage, customerColloquialTajikLanguage} from './customerDmLanguage.js';
 import {clientOwnWords} from './untrustedContent.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
-const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;
+const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?|(?:мутахасиси|мутахассиси|агенти|агентои|корманди|ширкати|хизмати|кори) (?:бехтарин|беҳтарин|хуб|зур|зӯр|олӣ|оли)(?: (?:ҳастед|хастед|ҳастен|хастен|аст))?)$/u;
+// ↑ «мутахасиси бехтарин» (прод 24.11.2026, находка 32: похвала ушла по-русски с «Не могу гарантировать юридическую чистоту»).
 
 /** Complete standalone reactions only; mixed questions remain tool-driven. */
 export function customerPublicReaction(input:string): 'price_objection'|'appearance_objection'|null {
@@ -21,15 +22,47 @@ export function customerPublicReactionText(kind:'price_objection'|'appearance_ob
 }
 /** Public short reactions often omit Tajik letters. Do not change the voice
  * language policy or infer language from another person's mentioned handle. */
+/**
+ * Таджикская частица-связка «-ай» на русском корне («Катлаванай» = «котлован ли?», прод 24.11.2026, 8b09ee8b: ответ ушёл по-русски).
+ * Только на согласной перед «ай» и не русские слова на «-ай» (давай, сарай, чай, край, май, рай, покупай…). Оценка, не доказательство:
+ * берётся, только когда детектор языка промолчал.
+ */
+// Без русских повелительных на «-ай» (ревью #418: «Отдыхай»): -хай, -шай, -чай, -жай, -щай, -гай, -кай, -инай, -ывай, -ивай.
+const TAJIK_COPULA_WORD=/(?:^|[^\p{L}])(?!\p{L}*(?:[хшчжщгк]ай|инай|ывай|ивай)(?:$|[^\p{L}]))\p{L}{3,}[бзлмнстф]ай(?=$|[^\p{L}])/iu;
 export function customerPublicLanguage(input:string):'ru'|'tg' {
   const text=input.replace(/@[\p{L}\p{N}_.-]+/gu,' ').trim();
   const detected=detectClientLanguage(text);
   if(detected==='tg')return 'tg';
   if(customerColloquialTajikLanguage(text))return 'tg';
   if(detected==='ru')return 'ru';
+  if(TAJIK_COPULA_WORD.test(text.toLowerCase()))return 'tg';
   const tajikReaction=customerPublicReaction(text)&&/безеб|бе зеб|ика бардакай|кимат/iu.test(text);
   const tajikPraise=isCustomerPublicAppreciation(text)&&/зебо|бехтарин|офарин|зур/iu.test(text);
   return tajikReaction||tajikPraise?'tg':'ru';
+}
+
+/**
+ * КОММЕНТАРИЙ ПРОДАВЦА СО СВОИМ ЖИЛЬЁМ (прод 23.11.2026: 17b273e4 «ХОНАИ ФУРУШИ … 6 ЭТАЖ 68КВ» и 464ca263 «ҳавли фуруши дорем…»
+ * получили ответ «Объекти №219: нархаш…» про НАШ объект). Признаки: слово продажи, вопроса нет, и есть своё — «дорем/дорам», номер,
+ * площадь, этаж, сотки. «Хонаи фурӯшӣ доред?» (покупатель спрашивает) сюда не попадает: «доред» и «?».
+ */
+// Ревью #418: продавец — только по первому лицу («дорем», «продаю», «мефурӯшам»); «Хонаи фурӯшӣ … нархаш чанд» и «Продается 3 комн …
+// сколько» — покупатель с вопросом. Второй признак — номер телефона (9 цифр, с 992 — 12): цена из семи цифр телефоном не считается.
+const SELL_WORD=/(?:^|[^\p{L}])(?:фур[уӯ]ш\p{L}*|фрӯш\p{L}*|фруш\p{L}*|продаю|продам|продаём|продаем|продается|продаётся|продаж\p{L}*)/iu;
+const FIRST_PERSON_SELL=/(?:^|[^\p{L}])(?:дорем|дорам|дорум|дорим|продаю|продаём|продаем|продам|продадим|мефур[уӯ]шам|мефур[уӯ]шем|мефрушам|мефрушем|фур[уӯ]шам|фур[уӯ]шем|есть\s+у\s+(?:меня|нас)|у\s+(?:меня|нас)\s+есть)(?=$|[^\p{L}])/iu;
+const BUYER_QUESTION=/(?:^|[^\p{L}])(?:чанд|нарх\p{L}*|сколько|скока|цена|цену|почём|почем|стоит|доред|дорен|есть\s+ли|продаёте|продаете|мефур[уӯ]шед|кучо\p{L}*|куҷо\p{L}*|где)(?=$|[^\p{L}])/iu;
+function phoneInText(text:string):boolean {
+  return (text.match(/\+?\d[\d\s-]{6,16}\d/gu)??[]).some(run=>{ const d=run.replace(/\D/gu,''); return d.length===9||(d.length===12&&d.startsWith('992')); });
+}
+export function customerPublicSellerOffer(input:string):boolean {
+  const text=clientOwnWords(input??'').replace(/@[\p{L}\p{N}_.-]+/gu,' ').normalize('NFKC').toLowerCase();
+  if(!text.trim()||/[?؟]/u.test(text)||BUYER_QUESTION.test(text))return false;
+  return FIRST_PERSON_SELL.test(text)||(SELL_WORD.test(text)&&phoneInText(text));
+}
+export function customerPublicSellerOfferText(language:'ru'|'tg',phone:string):string {
+  return language==='tg'
+    ? `Ташаккур! Барои фурӯши хонаатон ба мо паёми шахсӣ нависед ё занг занед: ${phone}.`
+    : `Спасибо! Чтобы продать вашу недвижимость, напишите нам в личные сообщения или позвоните: ${phone}.`;
 }
 
 export function isCustomerPublicAppreciation(input: string): boolean {

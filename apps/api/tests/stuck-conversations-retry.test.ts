@@ -275,6 +275,36 @@ describe("повтор зависших диалогов", () => {
     // партию целиком (см. докстринг ожидания выше), а предел vitest — 20 с.
   }, 90_000);
 
+  it("повтор был остановлен (потолок и мёртвый ключ) — кнопка снимает остановку, и ответ уходит (ревью #423)", async () => {
+    /**
+     * Сценарий: владелец сменил пароль Instagram, переписки встали в «ключ мёртв», он переподключил аккаунт и нажал
+     * «Повторить зависшим». Кнопка обязана ответить: на main без потолка лесенка бы ответила.
+     */
+    const subscriber = `stuck-${runId}-retry-stopped`;
+    const conv = await makeStuckConversation(subscriber);
+    const { aiRetryLedgerBase } = await import("../src/jobs/aiReplyRetryCap.js");
+    const base = aiRetryLedgerBase(conv.id, conv.messages)!;
+    for (const messageId of [`${base}:stop`, `${base}:stop-key:fp-test`]) {
+      await prisma.processedMessage.create({ data: { channel: "ai-retry-no-reply", messageId, completedAt: new Date() } });
+    }
+
+    const res = await request(app).post("/api/v1/errors/stuck-conversations/retry").set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(200);
+    // Остановки и счёт сняты; осталась только метка сброса.
+    expect((await prisma.processedMessage.findMany({ where: { channel: "ai-retry-no-reply", messageId: { startsWith: `${conv.id}:` } },
+      select: { messageId: true } })).map((r) => r.messageId)).toEqual([`${conv.id}:reset`]);
+
+    const ownCall = () => sendMessage.mock.calls.find((c) => c[1] === subscriber);
+    const jobKey = `ai-reply-retry:${conv.id}`;
+    await waitFor(() => prisma.backgroundJob.findFirst({ where: { dedupeKey: jobKey } }), { timeoutMs: 15_000, label: "задание повтора в очереди" });
+    await waitFor(async () => {
+      await prisma.backgroundJob.updateMany({ where: { dedupeKey: jobKey, status: "PENDING" }, data: { runAt: headOfQueueRunAt() } });
+      await runBackgroundJobsTick();
+      return Boolean(ownCall());
+    }, { timeoutMs: 60_000, label: "ответ остановленной переписке ушёл" });
+    expect(String(ownCall()![2])).toContain("хона мекобед");
+  }, 90_000);
+
   it("диалог, отвеченный между предпросмотром и нажатием кнопки, второго ответа не получает", async () => {
     // Список берётся ЗАНОВО в момент запуска повтора (не тот, что видел
     // предпросмотр раньше) — имитируем «уже ответили» до вызова retry.
