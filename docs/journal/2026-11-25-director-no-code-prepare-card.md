@@ -5,3 +5,10 @@
 - Класс (все места, где собирается `AssistantActionActor`): с флагом — `actionActorOf` и нажатие (`assistantBot.ts`), `routes/ai.ts`, теперь `actionActorFrom` и два актора расходов. Без флага намеренно: `cancelPending` и сброс карточек при блокировке кода (`assistantBot.ts` ~676, ~2617) — это `discardPendingAssistantAction`, он step-up не проверяет (только confirm и undo). Кнопка «Подтвердить кодом» (`bundleNeedsStepUp*`) идёт через `staffStepUpWaived`, у актора с флагом она не появляется. REST-путь — `requireElevation` — уже освобождал роль.
 - Чем проверено: новый `tests/step-up-exempt-prepare-card.test.ts` идёт через настоящую `actionActorFrom` (флаг по ролям, рубильник, `delete_staff` у директора и менеджера); сторож проверен нарочной поломкой — без строки в `actionActorFrom` два теста красные. Рядом зелёные `step-up-owner-exempt`.
 - Что осталось: ничего по коду; живую проверку «удали сотрудника» директор сделает в Telegram после выката.
+
+## Расширение (владелец: директор и админ без кода для ЛЮБЫХ операций, Telegram и CRM)
+
+- Найдено по классу: `lib/customerAgentOwnerPolicy.ts` (`settingsStepUpSatisfied`) не знал про освобождение: настройки бота клиентов (регистрация, выкат, аварийный стоп) у директора без окна давали 428 `step_up_required`, хотя вход в `actorTx` его пропускал. Теперь учитывает `stepUpExemptRole`.
+- Ограничения короткого списка в `assistantStaffStepUpWaiver.ts` для DIRECTOR/ADMIN не действуют: `stepUpExempt` проверяется первым. Тест перебирает ВСЕ действия со stepUp (`listStepUpAssistantTools`) в каналах telegram и crm.
+- Все `requireElevation` (agents, settings*, sms, photos, pult, recruitment…) уже пропускают роль через `stepUpExemptRole`; окно в вебе (`/auth/step-up`) отдаёт elevated=true.
+- Осталось с кодом намеренно: смена своего телефона-логина (`routes/me.ts`, 428, код на старый номер СМС) — это вход, не Authenticator; код при входе; сотрудники других ролей; рубильник `STEP_UP_OWNERS_EXEMPT=0` возвращает всё.
