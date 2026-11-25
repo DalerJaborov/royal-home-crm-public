@@ -55,9 +55,11 @@ describe("1. продавец с вопросом о своём — продав
     "Хонаамро мефурушам, нархаш чанд мешавад?",
     "Хона дорам фурушам, дихед нархашро гуед",
     "Хонаамро мефурушам, офисатон кучост?",
-  ])("«%s» → заявка продавца", text => {
-    const [t] = dialog(WA_OWNERS(), [text]);
-    expect(leadsOf([t!])).toMatchObject([{ type: "accept_lead", role: "seller" }]);
+  ])("«%s» → продавец: сначала вопрос по сути, заявка продавца следующим ходом (владелец 22.11.2026)", text => {
+    const [t, next] = dialog(WA_OWNERS(), [text, "Сино, 2 хона"]);
+    expect(t!.d.state.role).toBe("seller");
+    expect(leadsOf([t!])).toEqual([]);
+    expect(leadsOf([next!])).toMatchObject([{ type: "accept_lead", role: "seller" }]);
   });
 });
 
@@ -177,11 +179,14 @@ describe("7. явная роль без номера: тёплый ответ и
     expect(turns[1]!.text).toMatch(/оценит и всё обсудит/u);
     expect(turns[1]!.text).not.toMatch(/покажет/u);
   });
-  it("WhatsApp: явная роль — заявка сразу, вслух номер не просим; вопрос о деталях — в строке заявки", () => {
+  it("WhatsApp: голая роль — сначала один вопрос по сути, вслух номер не просим; заявка — следующим ходом (владелец 22.11.2026)", () => {
     for (const [text, role] of [["Мне нужна квартира", "buyer"], ["Хочу продать квартиру", "seller"]] as const) {
-      const [t] = dialog(ctx({ channel: "WHATSAPP", phoneKnown: true }), [text]);
-      expect(leadsOf([t!]), text).toMatchObject([{ type: "accept_lead", role }]);
-      expect(t!.text, text).not.toMatch(/напишите.*номер|рақам.*нависед/iu);
+      const [t, next] = dialog(ctx({ channel: "WHATSAPP", phoneKnown: true }), [text, "ок"]);
+      expect(leadsOf([t!]), text).toEqual([]);
+      expect(t!.text, text).not.toMatch(/номер|рақам/iu);
+      expect(leadsOf([next!]), text).toMatchObject([{ type: "accept_lead", role }]);
+      expect(next!.keys, text).toEqual(["lead_known_phone"]);
+      expect(next!.text, text).toMatch(/WhatsApp/u);
     }
   });
 });
@@ -274,9 +279,10 @@ describe("второй круг слепого ревью #345", () => {
 
 describe("третий круг ревью #345: продавец рядом с нашим объектом — не покупатель объекта", () => {
   it.each(["Ман хам дар хамин бино хона дорам, фурухта метавонед?", "Хонаи мани хам дар хамин чо, шумо хам мефурушед?", "моя тоже продаётся, интересно?",
-    "А мою квартиру купите?", "Xonamro furoxtan mexoham", "Ман фурушанда"])("«%s» на рекламе объекта в WhatsApp — заявка продавца без объекта", text => {
-    const [t] = dialog(WA_AD(), [text]);
-    expect(leadsOf([t!]), text).toMatchObject([{ type: "accept_lead", role: "seller", propertyId: null }]);
+    "А мою квартиру купите?", "Xonamro furoxtan mexoham", "Ман фурушанда"])("«%s» на рекламе объекта в WhatsApp — заявка продавца без объекта (после вопроса по сути)", text => {
+    const [t, next] = dialog(WA_AD(), [text, "ок"]);
+    expect(t!.d.state.role, text).toBe("seller");
+    expect(leadsOf([next!]), text).toMatchObject([{ type: "accept_lead", role: "seller", propertyId: null }]);
   });
   it.each(["Ман хам хона дорам, нархаш чанд мешавад?", "У меня в этом же доме квартира, сколько она может стоить?"])(
     "«%s» — своё жильё без слов продажи: вопрос «купить или продать?», заявки нет", text => {

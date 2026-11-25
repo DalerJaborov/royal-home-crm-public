@@ -126,6 +126,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       kind === "image" || kind === "audio" || kind === "video" || kind === "document"));
     // Safe diagnostic code of the failure (trace only; never part of the returned shape or customer text).
     let heldCause: string | undefined;
+    let staleRace = false;
     // A vacancy chat (the recruiter's path): the lead-only quiet rule of the staff-signal door does not apply to it.
     let jobTopicTurn = false;
     const outcome = await (async (): Promise<CustomerDmAgentTurnResult> => {
@@ -263,6 +264,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // This derived content supplies conversational meaning only. The
         // mutation session above remains bound to the ORIGINAL raw input.
         text = [text, mediaPerception.transcript].filter(value => value.trim()).join("\n");
+      }
+      // Голосовое без расшифровки — в журнал, с признаком модели (прод 23–24.11.2026, 7c64c52d и fb2dc9e7: разбор ПРОШЁЛ,
+      // наблюдение записано, но расшифровка пустая, и в журнале не было ни строки — причину не по чему искать). Текста нет.
+      if (prepared.attachmentInput?.kinds?.includes("audio") && !mediaPerception?.transcript?.trim()) {
+        void logSystemError("ai", `Голосовое клиента в переписке не расшифровано: ${mediaPerception
+          ? `модель вернула пустую расшифровку (speech=${mediaPerception.speech}, язык=${mediaPerception.language})`
+          : "разбора не было (файл не скачан или разбор упал)"}, канал ${planningPrincipal.scope.channel}`,
+          { dedupKey: `customer-dm-voice-empty:${mediaPerception ? mediaPerception.speech : "none"}`, quietPult: true });
       }
     }
     if (runtime.mediaEnabled && !prepared.media.length && !mediaPerception) {
@@ -903,6 +912,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);
+    // 24.11.2026 прод: «Customer delivery principal/fence stale» — чат сменился между началом хода и планом ответа; ход повторился и
+    // ответил через 27 с. Это гонка, а не поломка: сигнал агенту не нужен (сторож молчания на 30 минут остаётся).
+    staleRace = error instanceof Error && /^Customer delivery (?:principal|fence) stale$/u.test(error.message);
     // 17.11 и 20.11 ход падал «RangeError» без места: в журнал — первая строка стека из нашего кода (файл:строка, без слов
     // клиента), иначе причину не найти (разбор каналов 20.11.2026).
     // Нет своего кадра (падение целиком внутри библиотеки) — первый кадр стека: «без места» причину не найти (24.11.2026).
@@ -930,7 +942,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const reason = outcome.reason;
       void import("./clientWaitingAlert.js")
         .then(async ({ STAFF_NEEDED_NOW_REASONS, alertClientWaiting }) =>
-          (STAFF_NEEDED_NOW_REASONS.has(reason) || (reason === "customer_core_unavailable" && await automationSwitchOn("botCoreFailAlertEnabled")))
+          (STAFF_NEEDED_NOW_REASONS.has(reason) || (reason === "customer_core_unavailable" && !staleRace && await automationSwitchOn("botCoreFailAlertEnabled")))
             ? alertClientWaiting({ conversationId: lane.ticket.conversationId, trigger: "escalate", jobTopic: jobTopicTurn }) : undefined)
         .catch(error => console.error("[client-waiting]", error instanceof Error ? error.message : "UnknownError"));
     }

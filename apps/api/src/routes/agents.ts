@@ -1,5 +1,6 @@
 import { INCLUDE_FORMER_STAFF_PARAM, wantsFormerStaff } from "@royal-home/shared";
 import { Router, type Response } from "express";
+import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
@@ -26,6 +27,7 @@ import {
   listStaffHandovers,
   pauseStaffLeads,
   readStaffPermissions,
+  resetStaffLoginCodeBlock,
   resetStaffTwoFactor,
   resumeStaffLeads,
   revertStaffHandover,
@@ -244,6 +246,14 @@ agentsRouter.post("/:id/call", async (req, res) => {
 
 agentsRouter.post("/:id/2fa/reset", requirePermission("agents.reset2fa"), requireElevation, async (req, res) => {
   const outcome = await resetStaffTwoFactor(req.agent!, req.params.id);
+  send(res, outcome);
+});
+
+/** Директор снимает блок «5 кодов за час» с входа сотрудника (карточка сотрудника → «Сбросить блок входа по коду»). */
+agentsRouter.post("/:id/login-code/reset", requirePermission("agents.manage"), requireElevation, async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный сотрудник" });
+  const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);
   send(res, outcome);
 });
 

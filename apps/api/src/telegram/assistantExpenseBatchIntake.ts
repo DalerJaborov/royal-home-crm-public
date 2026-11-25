@@ -16,6 +16,7 @@ import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { ADD_EXPENSES_TOOL, MAX_BATCH_ROWS, recordedSource, type BATCH_SOURCE_KINDS } from "../ai/assistant/tools/expenseBatchTool.js";
 import { sendExpenseBatchCard, type CardNotes } from "./assistantExpenseCard.js";
 import { sendMessage } from "./api.js";
+import { stepUpExemptRole } from "../lib/stepUp.js";
 
 /**
  * ПАЧКА РАСХОДОВ ИЗ ФАЙЛА ИЛИ ФОТО (10.11.2026). Таблица Excel/CSV разбирается кодом, фото
@@ -279,7 +280,8 @@ export async function stageExpenseBatch(params: {
     await sendMessage(chatId, rows.length ? t.noRate(usd) : t.onlyUsd, replyTo);
     if (!rows.length) return;
   }
-  const actor: AssistantActionActor = { agentId, channel: "telegram", telegramPrivate: true, can: (p) => access.permissions.has(p) };
+  const actor: AssistantActionActor = { agentId, channel: "telegram", telegramPrivate: true,
+    ...(stepUpExemptRole(access.role) ? { stepUpExempt: true } : {}), can: (p) => access.permissions.has(p) };
   for (let part = 0; part * MAX_BATCH_ROWS < rows.length; part++) {
     const items = rows.slice(part * MAX_BATCH_ROWS, (part + 1) * MAX_BATCH_ROWS);
     try {

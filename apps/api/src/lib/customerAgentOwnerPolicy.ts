@@ -32,8 +32,8 @@ async function actorTx(tx: TxClient, id: string, elevation = true) {
   if (elevation && !stepUpExemptRole(row.role) && !settingsStepUpSatisfied(row)) fail(428,"step_up_required");
   return row;
 }
-function settingsStepUpSatisfied(actor: SettingsMaintenanceActor & { id: string }) {
-  return isElevated(actor.id) || !!settingsMaintenanceUntil(actor);
+export function settingsStepUpSatisfied(actor: SettingsMaintenanceActor & { id: string }) {
+  return stepUpExemptRole(actor.role) || isElevated(actor.id) || !!settingsMaintenanceUntil(actor);
 }
 /** Audit name of the post-deploy automatic routine refresh (no signed-in actor). */
 export const CUSTOMER_AGENT_AUTO_REFRESH_ACTOR_NAME = "Система: автообновление версии бота после выката";

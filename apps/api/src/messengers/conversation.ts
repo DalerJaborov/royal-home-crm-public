@@ -1763,7 +1763,7 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       input = { ...input, customerTransport };
       if (!input.fromStaff && ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(input.channel)) {
         const original = await readCustomerDmSubjectExecution(prisma, customerTransport, input.subscriberId);
-        if (original && original.lane !== "LEGACY") return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
+        if (original && original.lane !== "LEGACY") { traceNoReply("dm_lane_core"); return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" }; }
       }
       if (!input.fromStaff && await customerPropertyTurnAlreadyManaged(input)) return { reply: "", ready: false, accepted: false, shouldReply: false };
       // Staff/echo history is not a new customer intent or property generation.
@@ -1775,6 +1775,7 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
       const lane = await loadCustomerQualifierLane({ ...input, customerPropertyAdmission: admission });
       if (lane.mode === "held") {
         if (admission?.status === "admitted") await recordScopedCustomerInput(input, input.customerAuthenticatedInput, admission.ticket);
+        traceNoReply("dm_lane_held");
         return { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
       }
       const preparedInput = { ...input, customerPropertyAdmission: admission, customerPropertyBatch: prepared.batch };

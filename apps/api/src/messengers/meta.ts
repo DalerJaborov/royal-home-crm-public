@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
 import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
@@ -48,6 +48,7 @@ import {
   describeMetaToken,
   facebookPageTokenFor,
   forgetPageToken,
+  companyPageRouteConfigured,
   instagramReadRequest,
   pageRouteFailed,
   pageRoutePolicyRefused,
@@ -2144,6 +2145,14 @@ export async function callGraph<T = unknown>(
         continue;
       }
       // Ключ не принят — тревога директору сразу, а не строка в журнале (channelKeyAlarm.ts).
+      // Вердикт «ключ канала мёртв» для повтора ответа бота (lib/stuckConversations.ts) выносится ЗДЕСЬ, один раз, про тот
+      // ключ, которым шла отправка: не повтор после отказа Страницы и не запасной личный ключ аккаунта, которому настроен
+      // путь Страницы (пауза Страницы, лимит 613, сбой выдачи маркера — временные, ключ канала жив). Ревью #423.
+      let channelKeyDead: { fingerprint: string } | null = null;
+      if (isMetaAuthFailure(res.status, text) && !fellBackFromPage &&
+          (routed.route !== "unchanged" || !(await companyPageRouteConfigured(routed.token)))) {
+        channelKeyDead = { fingerprint: createHash("sha256").update(routed.token).digest("hex").slice(0, 12) };
+      }
       if (isMetaAuthFailure(res.status, text)) {
         const failedToken = routed.token;
         forgetPageToken(failedToken);
@@ -2194,7 +2203,7 @@ export async function callGraph<T = unknown>(
         continue;
       }
       // Код, подкод и fbtrace — полями ошибки: обрезка текста до 300 знаков их больше не съедает.
-      throw new MetaGraphCallError(message, graphError);
+      throw new MetaGraphCallError(message, graphError, { channelKeyDead });
     }
     // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
     gateSettled = true;

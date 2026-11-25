@@ -179,7 +179,7 @@ export async function sendManagedCustomerPropertyReply(part: ManagedCustomerProp
   // it into a failed turn or permission to send again. Pending remains terminal.
   try { const stamped = await stampCustomerPropertyDelivery(part, status, mid); if (status === "accepted") traceStamp(mid, stamped); }
   catch { if (status === "accepted") traceStamp(mid, false); }
-  if (status === "held") traceOutcome("blocked");
+  if (status === "held") traceOutcome("blocked", "property_reply_held");
   return status;
 }
 
@@ -187,7 +187,7 @@ export async function publishManagedCustomerPropertyReply(part: ManagedCustomerP
   if (part.channel !== "WEBSITE") throw new Error("Managed website publication requires WEBSITE");
   try {
     if (!await customerPropertyReplyFresh(part)) {
-      await stampCustomerPropertyDelivery(part, "held"); traceOutcome("blocked"); return "held";
+      await stampCustomerPropertyDelivery(part, "held"); traceOutcome("blocked", "property_reply_held"); return "held";
     }
     const committed = await stampCustomerPropertyDelivery(part, "accepted");
     if (!committed) return "unknown";

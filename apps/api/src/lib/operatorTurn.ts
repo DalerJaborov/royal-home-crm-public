@@ -43,8 +43,10 @@ async function focusOf(propertyId: string | null, channel: string): Promise<Oper
   if (!propertyId) return null;
   const facts = await readCustomerPropertyFacts(propertyId, channel).catch(() => null);
   if (!facts) return null;
+  const sold = facts.availability === "SOLD";
+  // Характеристики карточки — для «конкретней / сколько комнат?»; адрес — только район и город (district_city_only).
   return { propertyId, shortId: facts.shortId, priceText: facts.price ? operatorPriceText(facts.price, facts.currency) : null,
-    sold: facts.availability === "SOLD", place: facts.availability === "SOLD" ? null : facts.publicAddress ?? null };
+    sold, place: sold ? null : facts.publicAddress ?? null, characteristics: sold ? null : facts.characteristics ?? null };
 }
 
 /** Открытые вакансии и включён ли приём вакансий (Настройки: botCanHandleVacancies → путь рекрутёра). */
