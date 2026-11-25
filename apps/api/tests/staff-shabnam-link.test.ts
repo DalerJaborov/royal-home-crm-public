@@ -86,10 +86,13 @@ describe("POST /agents/:id/telegram-link — ссылка от руководи�
     expect(res.status).toBe(200);
     expect(res.headers["cache-control"]).toContain("no-store");
     expect(res.body.deepLink).toBe(`https://t.me/rh_test_bot?start=${res.body.code}`);
-    expect(res.body.expiresInHours).toBe(24);
+    expect(res.body.expiresInHours).toBe(2);
     const row = await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } });
     expect(row.telegramLinkCode).toBe(res.body.code);
-    expect(row.telegramLinkCodeExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * 3_600_000);
+    // Ссылка руководителя живёт 2 часа, а не сутки (ревью 25.11): уходит мессенджером через чужие руки.
+    const left = row.telegramLinkCodeExpiresAt!.getTime() - Date.now();
+    expect(left).toBeGreaterThan(1.9 * 3_600_000);
+    expect(left).toBeLessThan(2.1 * 3_600_000);
     const { waitFor } = await import("./helpers/waitFor.js");
     const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { action: "TELEGRAM_LINK_CODE_ISSUED", entityId: rop.id } }));
     expect(audit?.agentId).toBe(director.id);
@@ -227,12 +230,18 @@ describe("код привязки и «не в тот аккаунт»", () => {
     await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: null, telegramUserId: null } });
   });
 
-  it("isExpiredLinkCode: просроченный код — да, живой и несуществующий — нет", async () => {
+  it("isExpiredLinkCode: просроченный и заменённый код — да; живой и чужой вид — нет", async () => {
     const { code } = await createTelegramLinkCode(rop.id);
     expect(await isExpiredLinkCode(code)).toBe(false);
     expect(await isExpiredLinkCode(`nope-${runId}`)).toBe(false);
-    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCodeExpiresAt: new Date(Date.now() - 60_000) } });
+    expect(await isExpiredLinkCode("staff")).toBe(false);
+    // Код нашего вида (16 знаков base64url), которого в базе уже нет: его заменила новая выдача.
+    const { code: next } = await createTelegramLinkCode(rop.id);
+    expect(next).not.toBe(code);
     expect(await isExpiredLinkCode(code)).toBe(true);
+    expect(await isExpiredLinkCode(next)).toBe(false);
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCodeExpiresAt: new Date(Date.now() - 60_000) } });
+    expect(await isExpiredLinkCode(next)).toBe(true);
     await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCode: null, telegramLinkCodeExpiresAt: null } });
   });
 
@@ -276,5 +285,188 @@ describe("акционер привязывает свой Telegram", () => {
     expect(res.status).toBe(200);
     const off = await request(app).post("/api/v1/me/telegram-unlink").set("Authorization", `Bearer ${tokenOf(holder)}`);
     expect(off.status).toBe(200);
+  });
+});
+
+// ─────────────── доработка по ревью 25.11 (вершина 00de97ccc) ───────────────
+
+const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
+const { issueStaffTelegramLink, unlinkStaffTelegram } = await import("../src/lib/staffAdmin.js");
+const { RELINK_TEXTS } = await import("../src/lib/telegramAgentLink.js");
+const { canManageStaffTelegram } = await import("@royal-home/shared");
+const fs = await import("node:fs");
+const path = await import("node:path");
+const { fileURLToPath } = await import("node:url");
+const here = path.dirname(fileURLToPath(import.meta.url));
+let nextUpdate = Number(runId) * 10;
+
+describe("права: только директор и администратор, личная галочка agents.manage не помогает", () => {
+  it("менеджер с личным agents.manage: ссылка и отключение — 403, ничего не меняется", async () => {
+    const mgr = await mk("Менеджер с галочкой", "MANAGER", { permissions: { granted: ["agents.manage"], revoked: [] } });
+    invalidateAgentAccess(mgr.id);
+    grantElevation(mgr.id);
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: tgId(20), telegramLinkCode: null } });
+    const link = await request(app).post(`/api/v1/agents/${agent.id}/telegram-link`).set("Authorization", `Bearer ${tokenOf(mgr)}`);
+    expect(link.status).toBe(403);
+    const off = await request(app).post(`/api/v1/agents/${agent.id}/telegram-unlink`).set("Authorization", `Bearer ${tokenOf(mgr)}`);
+    expect(off.status).toBe(403);
+    const row = await prisma.agent.findUniqueOrThrow({ where: { id: agent.id } });
+    expect(row.telegramLinkCode).toBeNull();
+    expect(row.telegramChatId).toBe(tgId(20));
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: null } });
+  });
+
+  it("отключить Шабнам у директора: админу — 403, агенту без права — 403, директору — можно", async () => {
+    const boss = await mk("Второй директор Шабнам", "DIRECTOR", { telegramChatId: tgId(21) });
+    const byAdmin = await request(app).post(`/api/v1/agents/${boss.id}/telegram-unlink`).set("Authorization", `Bearer ${tokenOf(admin)}`);
+    expect(byAdmin.status).toBe(403);
+    const byAgent = await request(app).post(`/api/v1/agents/${boss.id}/telegram-unlink`).set("Authorization", `Bearer ${tokenOf(agent)}`);
+    expect(byAgent.status).toBe(403);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: boss.id } })).telegramChatId).toBe(tgId(21));
+    const byDirector = await request(app).post(`/api/v1/agents/${boss.id}/telegram-unlink`).set("Authorization", `Bearer ${tokenOf(director)}`);
+    expect(byDirector.status).toBe(200);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: boss.id } })).telegramChatId).toBeNull();
+  });
+
+  it("одно правило на обе стороны: сервер отказывает ровно тем ролям, кому отказывает общее правило, экран зовёт его же", async () => {
+    const target = await mk("Цель правила", "AGENT");
+    for (const role of ["AGENT", "MARKETING", "EDITOR", "SECURITY", "HEAD_OF_SALES", "SHAREHOLDER", "MANAGER", "ADMIN", "DIRECTOR"]) {
+      const actor = { id: director.id, role, can: () => true };
+      const out = await issueStaffTelegramLink(actor, target.id);
+      expect(out.status === 403, role).toBe(!canManageStaffTelegram(role));
+      const off = await unlinkStaffTelegram(actor, target.id);
+      expect(off.status === 403, role).toBe(!canManageStaffTelegram(role));
+    }
+    // Экран (apps/web/src/lib/staffShabnam.ts) не держит своей копии списка ролей.
+    const web = fs.readFileSync(path.resolve(here, "../../web/src/lib/staffShabnam.ts"), "utf8");
+    const tail = web.slice(web.indexOf("export function canManageStaffShabnam"));
+    const body = tail.slice(0, tail.indexOf("\n}"));
+    expect(body).toContain("canManageStaffTelegram(role)");
+    expect(body).not.toMatch(/"DIRECTOR"|"ADMIN"/);
+  });
+});
+
+describe("весть руководству о выдаче ссылки и отключении", () => {
+  it("директор выдал ссылку и отключил Шабнам — администратор получает обе вести, без кода", async () => {
+    const { waitFor } = await import("./helpers/waitFor.js");
+    const target = await mk("Цель вести", "AGENT");
+    const issued = await request(app).post(`/api/v1/agents/${target.id}/telegram-link`).set("Authorization", `Bearer ${tokenOf(director)}`);
+    expect(issued.status).toBe(200);
+    const linkNote = await waitFor(() =>
+      prisma.notification.findFirst({
+        where: { agentId: admin.id, title: { contains: "ссылка подключения к Шабнам" }, body: { contains: `Цель вести ${runId}` } },
+      })
+    );
+    expect(linkNote?.kind).toBe("security");
+    expect(linkNote?.body).not.toContain(issued.body.code);
+    const off = await request(app).post(`/api/v1/agents/${target.id}/telegram-unlink`).set("Authorization", `Bearer ${tokenOf(director)}`);
+    expect(off.status).toBe(200);
+    const offNote = await waitFor(() =>
+      prisma.notification.findFirst({
+        where: { agentId: admin.id, title: { contains: "Шабнам отключена" }, body: { contains: `Цель вести ${runId}` } },
+      })
+    );
+    expect(offNote).not.toBeNull();
+  });
+});
+
+describe("«ссылка устарела» через настоящий вход бота", () => {
+  const start = (chat: string, code: string) =>
+    handleTelegramUpdate({
+      update_id: nextUpdate++,
+      message: {
+        message_id: nextUpdate,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: Number(chat), type: "private" },
+        from: { id: Number(chat) },
+        text: `/start ${code}`,
+      },
+    });
+
+  it("просроченный код и код, заменённый новой выдачей, получают «ссылка устарела», а не клиентское приветствие", async () => {
+    sendMessage.mockClear();
+    const { code: old } = await createTelegramLinkCode(rop.id);
+    const { code: fresh } = await createTelegramLinkCode(rop.id);
+    await start(tgId(30), old);
+    expect(sendMessage.mock.calls.some((c) => c[0] === tgId(30) && c[1] === RELINK_TEXTS.expired)).toBe(true);
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCodeExpiresAt: new Date(Date.now() - 60_000) } });
+    sendMessage.mockClear();
+    await start(tgId(31), fresh);
+    expect(sendMessage.mock.calls.some((c) => c[0] === tgId(31) && c[1] === RELINK_TEXTS.expired)).toBe(true);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramChatId).toBeNull();
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCode: null, telegramLinkCodeExpiresAt: null } });
+  });
+});
+
+describe("повтор той же доставки «Да» гасится claimCallback", () => {
+  it("тот же id нажатия после восстановления состояния не перепривязывает второй раз", async () => {
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: tgId(40), telegramUserId: tgId(40) } });
+    const { code } = await createTelegramLinkCode(rop.id);
+    expect(await linkAgentByCode(tgId(40), code, tgId(40))).toBe("asked");
+    const press = () =>
+      handleTelegramRelinkCallback({
+        id: `cb-claim-${runId}`,
+        data: `tl:y:${code}`,
+        from: { id: Number(tgId(40)) },
+        message: { chat: { id: Number(tgId(40)) }, message_id: 12 },
+      });
+    expect(await press()).toBe(true);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramChatId).toBe(tgId(40));
+    // Возвращаем всё как до нажатия и кладём тот же код: без claimCallback повтор доставки снова перепривязал бы.
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramChatId: null, telegramUserId: null } });
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: tgId(40), telegramUserId: tgId(40) } });
+    await prisma.agent.update({
+      where: { id: rop.id },
+      data: { telegramLinkCode: code, telegramLinkCodeExpiresAt: new Date(Date.now() + 3_600_000) },
+    });
+    expect(await press()).toBe(true);
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })).telegramChatId).toBe(tgId(40));
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: rop.id } })).telegramChatId).toBeNull();
+    await prisma.agent.update({ where: { id: agent.id }, data: { telegramChatId: null, telegramUserId: null } });
+    await prisma.agent.update({ where: { id: rop.id }, data: { telegramLinkCode: null, telegramLinkCodeExpiresAt: null } });
+  });
+
+  it("«Перепривязано» и отказ чужому нажатию — на обоих языках", () => {
+    expect(RELINK_TEXTS.relinked).toContain("пайваст шуд");
+    expect(RELINK_TEXTS.notYours).toContain("Ин тугма барои шумо нест");
+    expect(RELINK_TEXTS.notYours.length).toBeLessThanOrEqual(200);
+  });
+
+  it("отказ Telegram на ответ не глотается: попадает в журнал сбоев", async () => {
+    const { waitFor } = await import("./helpers/waitFor.js");
+    editMessageText.mockRejectedValueOnce(new Error("message can not be edited"));
+    sendMessage.mockRejectedValueOnce(new Error("Forbidden: bot was blocked by the user"));
+    const chat = tgId(50);
+    await handleTelegramRelinkCallback({
+      id: `cb-fail-${runId}`,
+      data: `tl:n:nocode${runId}`,
+      from: { id: Number(chat) },
+      message: { chat: { id: Number(chat) }, message_id: 13 },
+    });
+    const row = await waitFor(() => prisma.errorLog.findFirst({ where: { dedupKey: `telegram-relink-reply:${chat}` } }));
+    expect(row?.message).toContain("перепривязать Telegram");
+    await prisma.errorLog.deleteMany({ where: { dedupKey: `telegram-relink-reply:${chat}` } });
+  });
+});
+
+describe("миграция 20261126100000: старым кодам без срока — сутки", () => {
+  it("код без срока получает срок около суток, привязанный чат без кода не тронут", async () => {
+    const pending = await mk("Старый код", "AGENT", { telegramLinkCode: `legacy${runId}x` });
+    const linked = await mk("Привязанный", "AGENT", { telegramChatId: tgId(60) });
+    const sql = fs.readFileSync(
+      path.resolve(here, "../prisma/migrations/20261126100000_staff_telegram_link_expiry_same_person/migration.sql"),
+      "utf8"
+    );
+    const from = sql.indexOf('UPDATE "Agent"');
+    const update = sql.slice(from, sql.indexOf(";", from) + 1);
+    expect(update).toContain('"telegramLinkCodeExpiresAt" IS NULL');
+    await prisma.$executeRawUnsafe(update);
+    const p = await prisma.agent.findUniqueOrThrow({ where: { id: pending.id } });
+    const left = p.telegramLinkCodeExpiresAt!.getTime() - Date.now();
+    expect(left).toBeGreaterThan(23 * 3_600_000);
+    expect(left).toBeLessThan(25 * 3_600_000);
+    const l = await prisma.agent.findUniqueOrThrow({ where: { id: linked.id } });
+    expect(l.telegramChatId).toBe(tgId(60));
+    expect(l.telegramLinkCodeExpiresAt).toBeNull();
   });
 });

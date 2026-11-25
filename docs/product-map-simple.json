@@ -19,7 +19,7 @@
   "conditions": 4235,
   "untranslatedUnique": 496,
   "untranslatedTotal": 637,
-  "partialUnique": 1131,
+  "partialUnique": 1132,
   "translatedShare": 85
  },
  "untranslated": [
@@ -11744,7 +11744,7 @@
      "a": [],
      "c": [
       {
-       "t": "если роль не «DIRECTOR» и роль не «ADMIN»",
+       "t": "если нельзя manage staff Telegram",
        "k": "if",
        "a": [],
        "c": []

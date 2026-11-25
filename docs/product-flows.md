@@ -983,7 +983,7 @@
     · ответ 400 — «Неверный сотрудник»
 - const outcome = await issueStaffTelegramLink(req.agent!, id.data);
   · зовёт issueStaffTelegramLink()
-  - если actor.role !== "DIRECTOR" && actor.role !== "ADMIN"
+  - если !canManageStaffTelegram(actor.role)
     - return fail(403, "Подключать сотрудников к Шабнам может директор или администратор");
       · дословно из кода
   - если await forbiddenDirectorTarget(actor, targetId)
@@ -998,9 +998,9 @@
     - return fail(404, "Сотрудник не найден");
       · дословно из кода
   - если !target.isActive
-    - return fail(409, "Сотрудник отключён — сначала включите учётку");
+    - return fail(409, "Сотрудник отключён. Сначала включите учётку");
       · дословно из кода
-  - const { code, deepLink } = await createTelegramLinkCode(target.id);
+  - const { code, deepLink } = await createTelegramLinkCode(target.id, ADMIN_LINK_CODE_TTL_MS);
     · зовёт createTelegramLinkCode()
 - res.setHeader("Cache-Control", "no-store");
   · ставит заголовок ответа

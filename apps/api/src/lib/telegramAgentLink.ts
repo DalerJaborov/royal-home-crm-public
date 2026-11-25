@@ -42,10 +42,19 @@ const LINK_CODE_BYTES = 12;
  * СРОК ЖИЗНИ КОДА (25.11.2026). Ссылку теперь выдаёт и администратор (Настройки →
  * Сотрудники → «Подключить к Шабнам»), а он пересылает её сотруднику мессенджером:
  * вечная ссылка, утёкшая из переписки, через месяц привязала бы чужой Telegram — канал
- * кода входа. Сутки — с запасом на «открою вечером». Код без срока (выдан до этой
- * правки) действует как раньше, чтобы не сломать привязку, начатую до выката.
+ * кода входа. Сутки — с запасом на «открою вечером». Кодам без срока (выданы до этой
+ * правки) миграция 20261126100000 дала сутки от выката; пустой срок ниже ещё принимается
+ * только ради кода, который старый процесс успел выдать в минуту выката.
  */
 export const LINK_CODE_TTL_MS = 24 * 60 * 60_000;
+/**
+ * Ссылка, которую выдал РУКОВОДИТЕЛЬ (Настройки → Сотрудники), живёт 2 часа (ревью 25.11.2026):
+ * она уходит мессенджером через чужие руки, а чем короче окно, тем меньше шанс, что её откроет
+ * не тот. Не успел — руководитель выдаёт новую одной кнопкой. Своя ссылка из профиля — сутки.
+ */
+export const ADMIN_LINK_CODE_TTL_MS = 2 * 60 * 60_000;
+/** Вид нашего кода: 12 случайных байт в base64url — ровно 16 знаков. */
+const LINK_CODE_SHAPE = /^[A-Za-z0-9_-]{16}$/;
 /** Сколько ждём ответа на «Перепривязать этот Telegram?» — дольше код не живёт. */
 export const RELINK_CONFIRM_TTL_MS = 15 * 60_000;
 
@@ -56,11 +65,14 @@ function liveCodeWhere(now: Date) {
 
 /** Заводит новый код привязки для агента (или перезаписывает старый, если
  *  агент нажал кнопку второй раз, не завершив привязку первым кодом). */
-export async function createTelegramLinkCode(agentId: string): Promise<{ code: string; deepLink: string | null }> {
+export async function createTelegramLinkCode(
+  agentId: string,
+  ttlMs: number = LINK_CODE_TTL_MS
+): Promise<{ code: string; deepLink: string | null }> {
   const code = crypto.randomBytes(LINK_CODE_BYTES).toString("base64url");
   await prisma.agent.update({
     where: { id: agentId },
-    data: { telegramLinkCode: code, telegramLinkCodeExpiresAt: new Date(Date.now() + LINK_CODE_TTL_MS) },
+    data: { telegramLinkCode: code, telegramLinkCodeExpiresAt: new Date(Date.now() + ttlMs) },
   });
   const username = await getBotUsername();
   return { code, deepLink: username ? `https://t.me/${username}?start=${code}` : null };
@@ -401,11 +413,17 @@ async function noteTelegramLinked(agentId: string, source: "telegram" | "telegra
   }
 }
 
-/** Код есть в базе, но срок вышел (или учётка отключена): сотруднику надо сказать «ссылка устарела»,
- *  а не отдавать его клиентской логике как случайный текст (ревью 25.11). Несуществующий код — false. */
+/**
+ * Ссылка привязки уже не действует, и сотруднику надо сказать «ссылка устарела», а не отдавать
+ * `/start <код>` клиентской логике как случайный текст (ревью 25.11). Два случая:
+ *  - код есть в базе, но срок вышел или учётка отключена;
+ *  - кода в базе нет, но он нашего вида (16 знаков base64url): его заменила новая выдача или он
+ *    уже сработал. Клиентских ссылок `?start=` у бота нет (только `staff`), так что клиента это
+ *    не заденет.
+ */
 export async function isExpiredLinkCode(code: string): Promise<boolean> {
   const row = await prisma.agent.findFirst({ where: { telegramLinkCode: code }, select: { id: true } });
-  if (!row) return false;
+  if (!row) return LINK_CODE_SHAPE.test(code);
   const live = await prisma.agent.findFirst({ where: { telegramLinkCode: code, isActive: true, ...liveCodeWhere(new Date()) }, select: { id: true } });
   return !live;
 }
@@ -472,7 +490,9 @@ export const RELINK_TEXTS = {
     "Ссылка устарела. Попросите новую в профиле CRM или у администратора.\nИстинод кӯҳна шуд. Истиноди навро дар профили CRM ё аз маъмур гиред.",
   stale:
     "Вопрос устарел. Откройте ссылку ещё раз.\nСавол кӯҳна шуд. Истинодро аз нав кушоед.",
-  notYours: "Эта кнопка не для вас.",
+  relinked: "✅ Перепривязано.\n✅ Ин Telegram ба ҳисоби нав пайваст шуд.",
+  // Всплывающая подсказка Telegram (до 200 знаков): обе строки помещаются.
+  notYours: "Эта кнопка не для вас.\nИн тугма барои шумо нест.",
 } as const;
 
 /** Задать вопрос. Срок самого кода НЕ режем (ревью 25.11): после «Нет» ссылка ещё нужна из другого Telegram.
@@ -520,16 +540,22 @@ export async function handleTelegramRelinkCallback(query: TelegramCallbackQuery)
   await answerCallbackQuery(query.id).catch(() => {});
   const [, choice, code] = match;
   const messageId = query.message?.message_id;
+  // Отказ Telegram не глотаем молча (ревью 25.11): человек нажал кнопку и остался без ответа, значит
+  // это должно быть видно в «Здоровье системы».
   const reply = async (text: string) => {
     if (messageId) {
       try {
         await editMessageText(chatId, messageId, text);
         return;
       } catch {
-        // Сообщение уже не правится (старое, удалено) — ответим новым ниже.
+        // Сообщение уже не правится (старое, удалено): ответим новым ниже.
       }
     }
-    await sendMessage(chatId, text).catch(() => {});
+    await sendMessage(chatId, text).catch((err) => {
+      void logSystemError("telegram", `Ответ на «перепривязать Telegram» не ушёл: ${err instanceof Error ? err.message : String(err)}`, {
+        dedupKey: `telegram-relink-reply:${chatId}`,
+      });
+    });
   };
   if (choice === "n") {
     const holders = await prisma.agent.findMany({
@@ -551,6 +577,6 @@ export async function handleTelegramRelinkCallback(query: TelegramCallbackQuery)
     // Второе быстрое «Да» (другой query.id): код съеден первым нажатием, чат уже привязан —
     // не затираем «Перепривязано» словами «ссылка устарела».
     if (!(await findAgentByTelegramChatId(chatId))) await reply(RELINK_TEXTS.expired);
-  } else if (messageId) await editMessageText(chatId, messageId, "✅ Перепривязано.").catch(() => {});
+  } else await reply(RELINK_TEXTS.relinked);
   return true;
 }

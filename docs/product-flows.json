@@ -4038,7 +4038,7 @@
      "c": [
       {
        "k": "if",
-       "t": "actor.role !== \"DIRECTOR\" && actor.role !== \"ADMIN\"",
+       "t": "!canManageStaffTelegram(actor.role)",
        "a": [],
        "c": [
         {
@@ -4111,7 +4111,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(409, \"Сотрудник отключён — сначала включите учётку\");",
+         "t": "return fail(409, \"Сотрудник отключён. Сначала включите учётку\");",
          "a": [
           "дословно из кода"
          ],
@@ -4121,7 +4121,7 @@
       },
       {
        "k": "do",
-       "t": "const { code, deepLink } = await createTelegramLinkCode(target.id);",
+       "t": "const { code, deepLink } = await createTelegramLinkCode(target.id, ADMIN_LINK_CODE_TTL_MS);",
        "a": [
         "зовёт createTelegramLinkCode()"
        ],

@@ -5,16 +5,17 @@
  * Живой случай: «Ноза РОП» не смогла привязать Telegram — блок в профиле показывался
  * только агенту, монтажёру и модератору, и условие было скопировано в трёх местах.
  */
-import type { Role } from "@royal-home/shared";
+import { canManageStaffTelegram, type Role } from "@royal-home/shared";
 
 /** Блок «Личный чат с ботом CRM в Telegram» в профиле — каждой действующей роли. */
 export function canSeeTelegramLink(profile: { role: Role | string } | null | undefined): boolean {
   return !!profile;
 }
 
-/** Выдавать ссылку подключения и отключать Шабнам другому сотруднику — директор и администратор. */
+/** Выдавать ссылку подключения и отключать Шабнам другому сотруднику — директор и администратор.
+ *  Правило общее с сервером: packages/shared/src/staffTelegram.ts. */
 export function canManageStaffShabnam(role: Role | string | null | undefined): boolean {
-  return role === "DIRECTOR" || role === "ADMIN";
+  return canManageStaffTelegram(role);
 }
 
 /**

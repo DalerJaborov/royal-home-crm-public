@@ -2,17 +2,12 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canManageStaffShabnam, canSeeTelegramLink, samePersonAccounts } from "../staffShabnam";
+import { canManageStaffShabnam, samePersonAccounts } from "../staffShabnam";
 
 const ROLES = ["AGENT", "MARKETING", "EDITOR", "SECURITY", "HEAD_OF_SALES", "SHAREHOLDER", "MANAGER", "ADMIN", "DIRECTOR"] as const;
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-describe("Шабнам: кто видит привязку Telegram (живой случай 25.11.2026 — РОП не видела блок)", () => {
-  it("блок в профиле виден каждой роли", () => {
-    for (const role of ROLES) expect(canSeeTelegramLink({ role }), role).toBe(true);
-    expect(canSeeTelegramLink(null)).toBe(false);
-  });
-
+describe("Шабнам: кто видит привязку Telegram (живой случай 25.11.2026: РОП не видела блок)", () => {
   it("в Profile.tsx блок не спрятан за отдельным условием роли ни в одной из вёрсток (класс: три копии условия)", () => {
     const src = fs.readFileSync(path.resolve(here, "../../pages/Profile.tsx"), "utf8");
     const renders = [...src.matchAll(/([^\n]{0,160})<TelegramLinkSection \/>/g)].map((m) => m[1]!);

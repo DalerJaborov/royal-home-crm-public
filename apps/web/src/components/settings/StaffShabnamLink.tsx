@@ -35,7 +35,7 @@ export function StaffShabnamLinkPanel({
       await navigator.clipboard.writeText(text);
       setCopied(true);
     } catch {
-      // Буфер недоступен (старый браузер, нет разрешения) — ссылку видно в поле, её можно выделить.
+      // Буфер недоступен (старый браузер, нет разрешения): ссылку видно в поле, её можно выделить.
       setCopyFailed(true);
     }
   }
@@ -47,7 +47,7 @@ export function StaffShabnamLinkPanel({
         {link.deepLink
           ? `Ссылка для ${name}. Перешлите её сотруднику: пусть откроет в своём Telegram. Сработает один раз, действует ${link.expiresInHours} ч.`
           : `Бот ещё не назвал своё имя. Пусть ${name} напишет боту в Telegram сообщение ниже. Сработает один раз, действует ${link.expiresInHours} ч.`}{" "}
-        Сами не открывайте: к учётке привяжется ваш Telegram.
+        Не успел открыть, выдайте новую: прежняя тогда перестанет работать. Сами не открывайте: к учётке привяжется ваш Telegram.
       </span>
       <input
         className="inp"
@@ -63,7 +63,7 @@ export function StaffShabnamLinkPanel({
       <button className="pill ghost sm" type="button" onClick={onClose}>
         Готово
       </button>
-      {copyFailed && <span className="msg">Не удалось скопировать — выделите ссылку в поле и скопируйте вручную.</span>}
+      {copyFailed && <span className="msg">Не удалось скопировать. Выделите ссылку в поле и скопируйте вручную.</span>}
     </div>
   );
 }

@@ -17,13 +17,14 @@ import {
   type PermissionId,
   type Role,
   staffPhoneLookupForms,
+  canManageStaffTelegram,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { setKindMuted } from "./notificationPrefs.js";
 import { invalidateAgentAccess } from "../auth/middleware.js";
 import { logAgentAudit } from "./audit.js";
 import { resetLoginCodeBlock } from "./loginSmsCode.js";
-import { createTelegramLinkCode, LINK_CODE_TTL_MS } from "./telegramAgentLink.js";
+import { ADMIN_LINK_CODE_TTL_MS, createTelegramLinkCode } from "./telegramAgentLink.js";
 import { syncAgentQueuePresence } from "./telephony/operatorQueue.js";
 import { syncAgentMobileFallback } from "./telephony/agentMobileFallback.js";
 import {
@@ -809,8 +810,10 @@ export async function resetStaffLoginCodeBlock(actor: StaffActor, targetId: stri
  * Привязанный чат — канал кода входа, поэтому ссылка = ключ от учётки. Отсюда защиты:
  *  - только DIRECTOR/ADMIN (а на маршруте ещё agents.manage и подтверждение личности);
  *  - учётку директора — только директор, учётку раздающего права — только раздающий;
- *  - код живёт сутки (LINK_CODE_TTL_MS), после привязки гаснет; сотрудник получает весть
- *    «к учётке привязан Telegram» (noteTelegramLinked) — чужую привязку увидит сразу;
+ *  - код живёт 2 часа (ADMIN_LINK_CODE_TTL_MS), после привязки гаснет; сотрудник получает весть
+ *    «к учётке привязан Telegram» (noteTelegramLinked) и чужую привязку увидит сразу;
+ *  - руководство получает весть о выдаче (staffSecurityNotify, «telegramLink»): руководитель,
+ *    открывший ссылку в своём Telegram, получал бы коды входа чужой учётки, и об этом должны знать;
  *  - сам код в журнал не пишется: только факт выдачи и кто выдал.
  */
 export async function issueStaffTelegramLink(
@@ -818,20 +821,21 @@ export async function issueStaffTelegramLink(
   targetId: string,
   opts?: StaffCallOptions
 ): Promise<StaffOutcome<{ code: string; deepLink: string | null; expiresInHours: number }>> {
-  if (actor.role !== "DIRECTOR" && actor.role !== "ADMIN") return fail(403, "Подключать сотрудников к Шабнам может директор или администратор");
+  if (!canManageStaffTelegram(actor.role)) return fail(403, "Подключать сотрудников к Шабнам может директор или администратор");
   if (await forbiddenDirectorTarget(actor, targetId)) return fail(403, "Управлять учёткой директора может только директор");
   if (await forbiddenPrivilegedTarget(actor, targetId)) return fail(403, PRIVILEGED_TARGET_ERROR);
   const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, isActive: true } });
   if (!target) return fail(404, "Сотрудник не найден");
-  if (!target.isActive) return fail(409, "Сотрудник отключён — сначала включите учётку");
-  const { code, deepLink } = await createTelegramLinkCode(target.id);
+  if (!target.isActive) return fail(409, "Сотрудник отключён. Сначала включите учётку");
+  const { code, deepLink } = await createTelegramLinkCode(target.id, ADMIN_LINK_CODE_TTL_MS);
   audit(actor, opts, "TELEGRAM_LINK_CODE_ISSUED", target.id, { targetName: target.fullName, issuedBy: "admin" });
-  return done({ code, deepLink, expiresInHours: Math.round(LINK_CODE_TTL_MS / 3_600_000) });
+  notice(actor, opts, "telegramLink", target);
+  return done({ code, deepLink, expiresInHours: Math.round(ADMIN_LINK_CODE_TTL_MS / 3_600_000) });
 }
 
 /** Отключить Шабнам сотруднику: снять чат, Telegram-аккаунт и недоиспользованный код. */
 export async function unlinkStaffTelegram(actor: StaffActor, targetId: string, opts?: StaffCallOptions): Promise<StaffOutcome> {
-  if (actor.role !== "DIRECTOR" && actor.role !== "ADMIN") return fail(403, "Отключать Шабнам может директор или администратор");
+  if (!canManageStaffTelegram(actor.role)) return fail(403, "Отключать Шабнам может директор или администратор");
   if (await forbiddenDirectorTarget(actor, targetId)) return fail(403, "Управлять учёткой директора может только директор");
   if (await forbiddenPrivilegedTarget(actor, targetId)) return fail(403, PRIVILEGED_TARGET_ERROR);
   const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } });
@@ -841,6 +845,7 @@ export async function unlinkStaffTelegram(actor: StaffActor, targetId: string, o
     data: { telegramChatId: null, telegramUserId: null, telegramLinkCode: null, telegramLinkCodeExpiresAt: null },
   });
   audit(actor, opts, "TELEGRAM_UNLINKED", target.id, { targetName: target.fullName, unlinkedBy: "admin" });
+  notice(actor, opts, "telegramUnlink", target);
   return done({ ok: true, telegramLinked: false });
 }
 
