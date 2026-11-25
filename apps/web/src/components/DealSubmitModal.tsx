@@ -6,9 +6,10 @@ import { Rh2Sheet } from "./rh2/Rh2Sheet";
  * (19.08.2026, просьба владельца). Раньше директор одним кликом завершал
  * сделку сам — теперь агент указывает, за сколько реально продали (торг
  * почти всегда меняет цену объявления) и суммой в сомони (не процентом!)
- * делит комиссию между тем, кто вёл сделку, и компанией. 0,5% «за приём
- * объекта» отменены 11.09.2026 — поля «Привёл лида» больше нет, компания
- * получает и свою долю, и бывшую долю интейкера. Директор дальше одобряет
+ * делит комиссию между агентом и компанией. Три суммы руками и ничего
+ * подставленного (владелец 25.11.2026): фактическая цена продажи, сколько
+ * получает агент, сколько получает компания. Процентов в форме нет, приёма
+ * 0,5% нет (отменён 11.09.2026). Директор дальше одобряет
  * эти цифры, поправляет их сам (тем же окном — режим "review"), отправляет
  * на доработку — или, если сам ведёт сделку, закрывает её этим же окном
  * одним действием (см. DealCard).
@@ -57,8 +58,11 @@ export function DealSubmitModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listedPriceNum = Number(listedPrice);
-  const initialSoldPrice = initial?.soldPrice ? Number(initial.soldPrice) : listedPriceNum;
-  const [soldPrice, setSoldPrice] = useState(initialSoldPrice ? String(initialSoldPrice) : "");
+  // Цена продажи НЕ подставляется из объявления (владелец 25.11.2026: «указывали свою
+  // сумму»): иначе агент отправлял сделку, не вписав, за сколько продали на самом деле.
+  // Цена объявления остаётся подсказкой в поле и под ним. При правке (review) — свои
+  // же ранее введённые цифры.
+  const [soldPrice, setSoldPrice] = useState(initial?.soldPrice ? String(Number(initial.soldPrice)) : "");
   const [realtor, setRealtor] = useState(initial?.commissionRealtorAmount ? String(Number(initial.commissionRealtorAmount)) : "");
   const [company, setCompany] = useState(initial?.commissionCompanyAmount ? String(Number(initial.commissionCompanyAmount)) : "");
 
@@ -165,10 +169,10 @@ export function DealSubmitModal({
         )}
       </label>
 
-      <div className="sec-t">Комиссия суммой ({currency}, не процентом)</div>
+      <div className="sec-t">Кто сколько получил ({currency}, суммой)</div>
       <div className="fgrid">
         <label className="fld">
-          <span className="lab">Вёл сделку</span>
+          <span className="lab">Получает агент</span>
           <input
             type="number"
             inputMode="decimal"
@@ -180,7 +184,7 @@ export function DealSubmitModal({
           />
         </label>
         <label className="fld">
-          <span className="lab">Компания</span>
+          <span className="lab">Получает компания</span>
           <input
             type="number"
             inputMode="decimal"
