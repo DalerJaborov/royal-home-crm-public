@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4188**. Модулей: **87**.
+Путей: **779**. Развилок в самих путях: **2481**; вместе с задачами по расписанию и фоновыми заданиями — **4215**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4554,6 +4554,55 @@
     - return res.status(err.status).json({ error: err.message });
       · ответ (код зависит от условия)
 
+### POST /api/v1/conversations/:id/media-jobs/:jobId/retry
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  · зовёт retryOutgoingMediaJob()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### DELETE /api/v1/conversations/:id/media-jobs/:jobId
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { con…
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  · зовёт cancelOutgoingMediaJob()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### GET /api/v1/conversations/:id/media-jobs/:jobId
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });
+  · читает в базе: outgoingMediaJob
+- если !job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id
+  - return res.status(404).json({ error: "Отправка не найдена" });
+    · ответ 404 — «Отправка не найдена»
+- res.json(outgoingMediaJobView(job));
+  · ответ 200
+
+### GET /api/v1/conversations/:id/media-jobs
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const jobs = await prisma.outgoingMediaJob.findMany({ where: { conversationId: req.params.id, agentId: req.ag…
+  · читает в базе: outgoingMediaJob
+- res.json({ jobs: jobs.map(outgoingMediaJobView) });
+  · ответ 200
+
 ### POST /api/v1/conversations/:id/pause
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен, есть право: messages.view
@@ -4580,6 +4629,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- const queued = await outgoingMediaCompressOn();
+  · зовёт outgoingMediaCompressOn()
 - пробует
   - assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agent…
     · зовёт assembleChunkedUpload()
@@ -4589,6 +4640,10 @@
       · ответ (код зависит от условия)
   - throw err;
     · пробрасывает ошибку дальше
+- const file = { path: assembled.tmpPath, size: assembled.sizeBytes, mimetype: normalizeOutgoingMime(assembled.…
+  · зовёт normalizeOutgoingMime()
+- const outcome = queued ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, …
+  · зовёт enqueueOutgoingMedia()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
@@ -4604,6 +4659,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- const outcome = (await outgoingMediaCompressOn()) ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conv…
+  · зовёт outgoingMediaCompressOn()
 - res.status(outcome.status).json(outcome.body);
   · ответ (код зависит от условия)
 
@@ -23451,6 +23508,68 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### outgoing-media-jobs — */5 * * * * *
+
+- await runCustomerJobsTick("media");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
+### outgoing-media-sweep — */30 * * * *
+
+- пробует
+  - const r = await sweepOutgoingMediaSpool();
+    · зовёт sweepOutgoingMediaSpool()
+    - const spool = outgoingMediaSpoolDir();
+      · зовёт outgoingMediaSpoolDir()
+    - const rows = await prisma.outgoingMediaJob.findMany({ where: { status: { in: ["QUEUED", "PREPARING", "SENDING…
+      · читает в базе: outgoingMediaJob
+    - для каждого: const row of rows
+      - если row.status === "FAILED"
+        - если now - (row.finishedAt ?? row.updatedAt).getTime() > FAILED_KEEP_MS
+          - continue;
+            · переходит к следующему
+      - иначе если now - row.updatedAt.getTime() > STUCK_ALERT_MS
+        - stuck++;
+          · дословно из кода
+    - для каждого: const name of await fs.promises.readdir(spool).catch(() => [] as string[])
+      - если live.has(name)
+        - continue;
+          · переходит к следующему
+      - если st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS
+        - await fs.promises.rm(full, { force: true }).catch(() => {});
+          · дословно из кода
+        - removedFiles++;
+          · дословно из кода
+    - const removedRows = ( await prisma.outgoingMediaJob.deleteMany({ where: { status: { in: ["SENT", "CANCELLED",…
+      · удаляет в базе: outgoingMediaJob
+    - если stuck
+      - void logSystemError("background-jobs", `Очередь отправки файлов клиентам: ${stuck} шт. ждут или сжимаются дол…
+        · запись в журнал ошибок
+  - если r.removedFiles || r.removedRows
+    - console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка уборки спула отправки файлов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
 ### owner-exposure-verification-preview — 15 * * * *
 
 - await runExposureOwnerPreviewTick();
@@ -29092,6 +29211,97 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+
+### outgoingMediaSendJob
+
+`apps/api/src/jobs/outgoingMediaSend.ts`
+
+- await runOutgoingMediaJob(payload.mediaJobId, backgroundJobsStopSignal);
+  · зовёт runOutgoingMediaJob()
+  - const job = await prisma.outgoingMediaJob.findUnique({ where: { id: mediaJobId } });
+    · читает в базе: outgoingMediaJob
+  - если !job || TERMINAL.has(job.status)
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const spool = outgoingMediaSpoolDir();
+    · зовёт outgoingMediaSpoolDir()
+  - если job.status === "SENDING"
+    - void logSystemError("background-jobs", `Отправка файла клиенту прервана в момент передачи (задание ${job.id})…
+      · запись в журнал ошибок
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const claimed = await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: { in: ["QUEUED", "PRE…
+    · меняет в базе: outgoingMediaJob
+  - если !claimed.count
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const watcher = setInterval(()
+    · читает в базе: outgoingMediaJob
+    - void prisma.outgoingMediaJob .findUnique({ where: { id: job.id }, select: { status: true } }) .then((row)
+      · читает в базе: outgoingMediaJob
+      - если row?.status === "CANCELLED"
+        - cancelled = true;
+          · дословно из кода
+        - controller.abort();
+          · дословно из кода
+  - const onProgress = (percent: number)
+    · меняет в базе: outgoingMediaJob
+    - если now - lastProgressWrite < 2_000
+      - return;
+        · дальше не идёт, ничего не меняя
+    - void prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { progress: perce…
+      · меняет в базе: outgoingMediaJob
+  - пробует
+    - const target = await resolveMediaTarget(job.conversationId);
+      · зовёт resolveMediaTarget()
+    - если !target
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если !fs.existsSync(inputPath)
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const channel = outgoingMediaChannelOf(target);
+      · зовёт outgoingMediaChannelOf()
+    - prepared = channel && (await outgoingMediaCompressOn()) ? await prepareOutgoingMedia({ path: inputPath, mimet…
+      · зовёт outgoingMediaCompressOn()
+    - если controller.signal.aborted
+      - throw new JobInterrupted();
+        · ошибка JobInterrupted
+    - const delivery = await deliverMediaToConversation( target, { path: prepared.path, size: prepared.size, mimety…
+      · меняет в базе: outgoingMediaJob
+    - если delivery.ok
+      - return;
+        · дальше не идёт, ничего не меняя
+    - const nowRow = await prisma.outgoingMediaJob.findUnique({ where: { id: job.id }, select: { status: true } });
+      · читает в базе: outgoingMediaJob
+    - если nowRow?.status === "CANCELLED"
+      - return;
+        · дальше не идёт, ничего не меняя
+  - если сорвалось
+    - если cancelled || (await isCancelled(job.id))
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если stopSignal?.aborted
+      - await prisma.outgoingMediaJob.updateMany({ where: { id: job.id, status: "PREPARING" }, data: { status: "QUEUE…
+        · меняет в базе: outgoingMediaJob
+      - throw new Error("worker выходит — сжатие продолжится в новом процессе");
+        · ошибка Error — «worker выходит — сжатие продолжится в новом процессе»
+    - если err instanceof PrepareError || err instanceof JobInterrupted
+      - void logSystemError("storage", `Файл для клиента не подготовлен (${job.mimeType}, ${formatUploadLimit(job.siz…
+        · запись в журнал ошибок
+      - return;
+        · дальше не идёт, ничего не меняя
+    - void logSystemError("background-jobs", `Отправка файла клиенту упала: ${describeError(err)}`, { dedupKey: "ou…
+      · запись в журнал ошибок
+  - в любом случае
+    - если prepared?.owned
+      - await fs.promises.rm(prepared.path, { force: true }).catch(() => {});
+        · дословно из кода
+- когда попытки кончились
+  - await giveUpOutgoingMediaJob(payload.mediaJobId);
+    · зовёт giveUpOutgoingMediaJob()
+    - await prisma.outgoingMediaJob.updateMany({ where: { id: mediaJobId, status: { in: ["QUEUED", "PREPARING"] } }…
+      · меняет в базе: outgoingMediaJob
 
 ### photoPostPublishJob
 

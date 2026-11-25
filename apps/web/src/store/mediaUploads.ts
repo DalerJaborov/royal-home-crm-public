@@ -20,8 +20,13 @@ export interface PendingMediaUpload {
   caption?: string;
   /** 0–100. */
   progress: number;
-  status: "uploading" | "error" | "done";
+  /** processing — файл уже на сервере, сервер сжимает и отправляет (25.11.2026, очередь отправки). */
+  status: "uploading" | "processing" | "error" | "done";
   error?: string;
+  /** Номер задания очереди отправки: по нему опрос состояния, «Повторить» без новой загрузки и «Отменить». */
+  jobId?: string;
+  /** Что сервер делает сейчас: ждёт очереди, сжимает, отправляет клиенту. */
+  stage?: "queued" | "compress" | "send";
 }
 
 interface MediaUploadsState {
@@ -30,6 +35,7 @@ interface MediaUploadsState {
   setProgress: (conversationId: string, localId: string, progress: number) => void;
   setError: (conversationId: string, localId: string, error: string) => void;
   setUploading: (conversationId: string, localId: string) => void;
+  setProcessing: (conversationId: string, localId: string, patch: { jobId: string; stage: PendingMediaUpload["stage"]; progress: number }) => void;
   remove: (conversationId: string, localId: string) => void;
 }
 
@@ -61,6 +67,15 @@ export const useMediaUploadsStore = create<MediaUploadsState>((set) => ({
         ...s.byConversation,
         [conversationId]: (s.byConversation[conversationId] ?? []).map((u) =>
           u.localId === localId ? { ...u, status: "uploading", progress: 0, error: undefined } : u
+        ),
+      },
+    })),
+  setProcessing: (conversationId, localId, patch) =>
+    set((s) => ({
+      byConversation: {
+        ...s.byConversation,
+        [conversationId]: (s.byConversation[conversationId] ?? []).map((u) =>
+          u.localId === localId ? { ...u, status: "processing", error: undefined, ...patch } : u
         ),
       },
     })),

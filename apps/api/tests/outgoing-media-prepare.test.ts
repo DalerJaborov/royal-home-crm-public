@@ -257,3 +257,17 @@ describe("фото", () => {
     expect((await sharp(out.path).metadata()).format).toBe("jpeg");
   });
 });
+
+describe("голосовое: запись Chrome и Safari доходит в любой канал (deliverVoiceToConversation)", () => {
+  it("webm/opus (Chrome) и mp4/aac (Safari) → Ogg/Opus для WhatsApp и Telegram, M4A для Instagram и Messenger", async () => {
+    const { transcodeToOggOpus, transcodeToM4a, sniffAudioMime } = await import("../src/lib/audioTranscode.js");
+    ff(["-f", "lavfi", "-i", "sine=frequency=500:sample_rate=48000", "-t", "2", "-c:a", "libopus", fx("chrome.webm")]);
+    ff(["-f", "lavfi", "-i", "sine=frequency=500:sample_rate=44100", "-t", "2", "-c:a", "aac", "-f", "mp4", fx("safari.mp4")]);
+    for (const src of ["chrome.webm", "safari.mp4"]) {
+      const ogg = await transcodeToOggOpus(readFileSync(fx(src)));
+      expect(sniffAudioMime(ogg!)?.mime).toBe("audio/ogg");
+      const m4a = await transcodeToM4a(readFileSync(fx(src)));
+      expect(sniffAudioMime(m4a!)?.mime).toBe("audio/mp4");
+    }
+  }, 60_000);
+});

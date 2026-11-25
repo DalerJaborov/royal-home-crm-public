@@ -25,10 +25,11 @@ const {
 }));
 
 vi.mock("../src/lib/outgoingMedia.js", () => ({ uploadOutgoingMedia }));
+const isR2Configured = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../src/lib/r2Client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/r2Client.js")>()),
   r2PresignDownloadUrl: vi.fn(async (key: string) => `https://r2.test/${key}`),
-  isR2Configured: vi.fn(() => true),
+  isR2Configured,
 }));
 vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
@@ -175,6 +176,16 @@ describe("приём: 202 сразу, файл в спуле", () => {
     const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file });
     expect(accepted.status).toBe(409);
     expect(accepted.body.code).toBe("window_closed");
+    expect(existsSync(file.path)).toBe(false);
+    expect(await prisma.outgoingMediaJob.count({ where: { conversationId: conv } })).toBe(0);
+  });
+
+  it("хранилище файлов не настроено — отказ сразу, а не после минуты сжатия", async () => {
+    const conv = await waConversation();
+    isR2Configured.mockReturnValueOnce(false);
+    const file = upload("long.mp4");
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file });
+    expect(accepted.status).toBe(503);
     expect(existsSync(file.path)).toBe(false);
     expect(await prisma.outgoingMediaJob.count({ where: { conversationId: conv } })).toBe(0);
   });

@@ -7,7 +7,14 @@ import { useSendIntent } from "./useSendIntent";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { keepWhilePaging } from "../lib/keepWhilePaging";
 import { ApiError } from "../lib/apiError";
-import { cancelConversationMediaUpload, uploadConversationMedia } from "../lib/mediaUpload";
+import {
+  cancelConversationMediaUpload,
+  cancelOutgoingMediaJob,
+  retryOutgoingMediaJob,
+  uploadConversationMedia,
+  waitOutgoingMediaJob,
+  type OutgoingMediaJobView,
+} from "../lib/mediaUpload";
 import { UploadCancelledError } from "../lib/chunkedUpload";
 import { useMediaUploadsStore, type PendingMediaUpload } from "../store/mediaUploads";
 import type { ConversationMessage, Paginated } from "../types";
@@ -365,11 +372,38 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const setUploading = useMediaUploadsStore((s) => s.setUploading);
   const remove = useMediaUploadsStore((s) => s.remove);
 
+  const setProcessing = useMediaUploadsStore((s) => s.setProcessing);
+
+  /**
+   * Файл уже на сервере, сервер сжимает и отправляет (25.11.2026, очередь отправки): пузырь
+   * показывает «Сжимаем N% / Отправляем…», пока задание не закончится. Опрос живёт вне
+   * компонента — переключение диалогов его не обрывает.
+   */
+  const follow = useCallback(
+    async (conversationId: string, upload: PendingMediaUpload, jobId: string) => {
+      const stageOf = (job: OutgoingMediaJobView) =>
+        job.status === "QUEUED" ? "queued" : job.status === "PREPARING" ? "compress" : "send";
+      setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
+      const done = await waitOutgoingMediaJob(conversationId, jobId, (job) => {
+        if (job.status === "QUEUED" || job.status === "PREPARING" || job.status === "SENDING") {
+          setProcessing(conversationId, upload.localId, { jobId, stage: stageOf(job), progress: job.progress });
+        }
+      });
+      if (done.status === "SENT" || done.status === "CANCELLED") {
+        remove(conversationId, upload.localId);
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        return;
+      }
+      setError(conversationId, upload.localId, done.error || "Не удалось отправить");
+    },
+    [queryClient, remove, setError, setProcessing]
+  );
+
   const run = useCallback(
     async (conversationId: string, upload: PendingMediaUpload) => {
       try {
         // localId живёт с пузырём до успеха: «Повторить» идёт с тем же ключом.
-        await uploadConversationMedia(
+        const result = await uploadConversationMedia(
           conversationId,
           upload.file,
           upload.caption,
@@ -377,6 +411,10 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           `media:${upload.localId}`,
           upload.localId
         );
+        if (result?.queued && result.jobId) {
+          await follow(conversationId, upload, result.jobId);
+          return;
+        }
         // Успех — сама реплика придёт с сервера через инвалидацию, локальный
         // пузырь-заглушку убираем, чтобы не показать её дважды.
         remove(conversationId, upload.localId);
@@ -387,7 +425,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось отправить");
       }
     },
-    [queryClient, setProgress, setError, remove]
+    [queryClient, setProgress, setError, remove, follow]
   );
 
   const start = useCallback(
@@ -412,10 +450,28 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const retry = useCallback(
     (upload: PendingMediaUpload) => {
       if (!id) return;
+      // Файл уже на сервере (задание упало при сжатии или отправке) — повтор без новой загрузки.
+      if (upload.jobId) {
+        const conversationId = id;
+        const jobId = upload.jobId;
+        setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
+        void retryOutgoingMediaJob(conversationId, jobId)
+          .then(() => follow(conversationId, upload, jobId))
+          .catch((err: unknown) => {
+            // Исходника уже нет на сервере (прошли сутки) — грузим файл заново.
+            if ((err as { status?: number }).status === 410) {
+              setUploading(conversationId, upload.localId);
+              void run(conversationId, { ...upload, jobId: undefined });
+              return;
+            }
+            setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось повторить");
+          });
+        return;
+      }
       setUploading(id, upload.localId);
       void run(id, upload);
     },
-    [id, setUploading, run]
+    [id, setUploading, setProcessing, setError, run, follow]
   );
 
   const cancel = useCallback(
@@ -424,6 +480,9 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
       // Сначала оборвать отправку: оставшиеся части не уходят, сборку не зовём —
       // иначе пузырь исчезал, а файл всё равно доходил клиенту (ревью #254).
       cancelConversationMediaUpload(localId);
+      // Файл уже на сервере — отменить задание, пока оно не начало уходить клиенту.
+      const jobId = useMediaUploadsStore.getState().byConversation[id]?.find((u) => u.localId === localId)?.jobId;
+      if (jobId) void cancelOutgoingMediaJob(id, jobId).catch(() => {});
       remove(id, localId);
     },
     [id, remove]

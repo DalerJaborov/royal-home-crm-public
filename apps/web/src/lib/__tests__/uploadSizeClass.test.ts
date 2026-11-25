@@ -160,12 +160,16 @@ describe("одиночная отправка: вес до отправки и �
     expect(httpStatusMessage(413)).toMatch(/Сожмите его или разделите/);
   });
 
-  it("выбор файла в переписку: предел экрана совпадает с сервером (300 МБ, а не 1 ГБ)", () => {
+  it("выбор файла в переписку: предел экрана совпадает с сервером (1 ГБ с 25.11.2026, сервер сжимает сам)", () => {
     const mb = 1024 * 1024;
-    const ok = { type: "video/mp4", size: 300 * mb } as File;
-    const tooBig = { type: "video/mp4", size: 300 * mb + 1 } as File;
+    const ok = { name: "a.mp4", type: "video/mp4", size: 1024 * mb } as File;
+    const tooBig = { name: "a.mp4", type: "video/mp4", size: 1024 * mb + 1 } as File;
     expect(validateOutgoingMediaPick(ok, "INSTAGRAM")).toBeNull();
-    expect(validateOutgoingMediaPick(tooBig, "INSTAGRAM")).toMatch(/300 МБ/);
+    expect(validateOutgoingMediaPick(tooBig, "INSTAGRAM")).toMatch(/1 ГБ/);
+    // Тяжёлое фото в WhatsApp больше не отказ до загрузки: сервер сожмёт под 5 МБ.
+    expect(validateOutgoingMediaPick({ name: "IMG.JPG", type: "image/jpeg", size: 40 * mb } as File, "WHATSAPP")).toBeNull();
+    // HEIC с пустым типом (Chrome на Windows) узнаётся по расширению.
+    expect(validateOutgoingMediaPick({ name: "IMG_0001.HEIC", type: "", size: 3 * mb } as File, "WHATSAPP")).toBeNull();
   });
 });
 

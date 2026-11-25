@@ -1006,6 +1006,10 @@ export async function mediaDeliveryPrecheck(
   if (/svg/i.test(mimetype)) {
     return { ok: false, status: 400, error: "SVG не поддерживается — отправьте фото (JPG/PNG/WebP)" };
   }
+  // До сжатия, а не после: на стенде 25.11 минута сжатия кончалась отказом «R2 не настроено».
+  if (!isR2Configured()) {
+    return { ok: false, status: 503, error: "Хранилище файлов (R2) не настроено — фото/видео отправить нельзя" };
+  }
   return { ok: true, capturedTransport, metaChannel };
 }
 
