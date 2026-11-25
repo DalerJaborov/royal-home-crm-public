@@ -20,7 +20,7 @@ import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { agentSender, deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../lib/conversationDelivery.js";
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
-import { canOpenChatAttachments } from "../lib/chatAttachmentLinks.js";
+import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
 import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
@@ -249,7 +249,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
     return { id, channel: canSeeOrigin ? source.channel : null, canReply: source.kind !== "telegram-direct", pausedUntil: source.pausedUntil?.toISOString() ?? null };
   });
-  const signedLinks = canOpenChatAttachments(req, ownerAgentId);
+  const signedLinks = attachmentLinkSigner(req, ownerAgentId);
   const messages: Array<GroupMessage & { sourceOrder: number }> = [];
   for (const [sourceOrder, source] of sources.entries()) {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
@@ -1435,8 +1435,8 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
     ? await prisma.client.findUnique({ where: { id: conversationClientId }, select: { assignedAgentId: true, deletedAt: true } })
     : null;
   const signedLinks = can(req, "clients.viewAll")
-    ? canOpenChatAttachments(req, null)
-    : canOpenChatAttachments(req, owner && !owner.deletedAt ? owner.assignedAgentId : undefined);
+    ? attachmentLinkSigner(req, null)
+    : attachmentLinkSigner(req, owner && !owner.deletedAt ? owner.assignedAgentId : undefined);
   const shown = withHiddenConversationOrigin(
     {
       channel: conversation.channel,

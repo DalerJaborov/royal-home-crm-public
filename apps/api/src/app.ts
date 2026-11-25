@@ -76,7 +76,7 @@ import { conversationsRouter } from "./routes/conversations.js";
 import { auditLogRouter } from "./routes/auditLog.js";
 import { morningReportRouter } from "./routes/morningReport.js";
 import { botScenariosRouter } from "./routes/botScenarios.js";
-import { attachmentsRouter, signedAttachmentsRouter } from "./routes/attachments.js";
+import { attachmentsRouter, signedAttachmentRequestValid, signedAttachmentsRouter } from "./routes/attachments.js";
 import { mediaProxyRouter } from "./routes/mediaProxy.js";
 import { instagramCommentsRouter } from "./routes/instagramComments.js";
 import { leadMagnetsRouter } from "./routes/leadMagnets.js";
@@ -812,15 +812,18 @@ app.use("/api/v1/bot-scenarios", botScenariosRouter);
  * заголовка Authorization. Раньше attachmentsRouter: у того requireAuth на весь
  * роутер. Общий лимит запросов сюда не применяется (API_LIMIT_EXEMPT_PREFIXES):
  * по одному видео браузер шлёт десятки запросов кусками (Range), и офис за
- * одним адресом выбирал бы общий потолок за минуты. Вместо него — свой потолок,
- * который считает только ОТКАЗЫ (подбор подписи), а честные ответы не трогает.
+ * одним адресом выбирал бы общий потолок за минуты. Вместо него — свой потолок
+ * на ПОДБОР ПОДПИСИ: запрос с верной подписью не считается вовсе (`skip`).
+ * Не `skipSuccessfulRequests` (ревью #428): тот вычитает запрос только на
+ * finish ответа, а оборванный кусок видео или ленивая картинка, ушедшая с
+ * экрана, закрываются без finish — и честный просмотр копил бы счётчик.
  */
 const signedAttachmentLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true,
+  skip: (req) => signedAttachmentRequestValid(req),
   keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? "unknown")}`,
   message: { error: "Слишком много запросов, подождите немного" },
 });

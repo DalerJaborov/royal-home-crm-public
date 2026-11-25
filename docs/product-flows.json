@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 775,
-  "forks": 4187,
+  "forks": 4190,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -6829,7 +6829,30 @@
     },
     {
      "k": "if",
-     "t": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.e, query.data.k)",
+     "t": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Ссылка на вложение устарела — обновите переписку\" });",
+       "a": [
+        "ответ 403 — «Ссылка на вложение устарела — обновите переписку»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const access = await loadAgentAccess(query.data.a).catch(()",
+     "a": [
+      "зовёт loadAgentAccess()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!access?.isActive || !access.permissions.has(\"messages.viewAttachments\")",
      "a": [],
      "c": [
       {
@@ -6885,7 +6908,7 @@
        "c": [
         {
          "k": "do",
-         "t": "servePath = await ensureDerived(params.data.name, query.data.v === \"t\" ? \"thumb\" : \"play\");",
+         "t": "servePath = await ensureDerived(params.data.name, query.data.v === \"t\" ? \"thumb\" : \"play\", hint);",
          "a": [
           "зовёт ensureDerived()"
          ],
@@ -6926,6 +6949,37 @@
          "t": "иначе",
          "a": [],
          "c": [
+          {
+           "k": "if",
+           "t": "reason === \"preparing\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "res.setHeader(\"Retry-After\", \"5\");",
+             "a": [
+              "ставит заголовок ответа"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "res.setHeader(\"Cache-Control\", \"no-store\");",
+             "a": [
+              "ставит заголовок ответа"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return res.status(503).json({ error: \"Готовим файл для браузера\", reason });",
+             "a": [
+              "ответ 503 — «Готовим файл для браузера»"
+             ],
+             "c": []
+            }
+           ]
+          },
           {
            "k": "do",
            "t": "return res.status(reason === \"disabled\" ? 404 : 422).json({ error: reason === \"disabled\" ? \"Копия для браузер…",
@@ -16291,9 +16345,9 @@
     },
     {
      "k": "do",
-     "t": "const signedLinks = canOpenChatAttachments(req, client.assignedAgentId);",
+     "t": "const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);",
      "a": [
-      "зовёт canOpenChatAttachments()"
+      "зовёт attachmentLinkSigner()"
      ],
      "c": []
     },
@@ -20670,9 +20724,9 @@
     },
     {
      "k": "do",
-     "t": "const signedLinks = can(req, \"clients.viewAll\") ? canOpenChatAttachments(req, null) : canOpenChatAttachments(…",
+     "t": "const signedLinks = can(req, \"clients.viewAll\") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…",
      "a": [
-      "зовёт canOpenChatAttachments()"
+      "зовёт attachmentLinkSigner()"
      ],
      "c": []
     },
@@ -20971,9 +21025,9 @@
     },
     {
      "k": "do",
-     "t": "const signedLinks = canOpenChatAttachments(req, ownerAgentId);",
+     "t": "const signedLinks = attachmentLinkSigner(req, ownerAgentId);",
      "a": [
-      "зовёт canOpenChatAttachments()"
+      "зовёт attachmentLinkSigner()"
      ],
      "c": []
     },
@@ -79365,9 +79419,9 @@
     },
     {
      "k": "do",
-     "t": "const signedLinks = canOpenChatAttachments(req, conversationOwner ? conversationOwner.assignedAgentId : undef…",
+     "t": "const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…",
      "a": [
-      "зовёт canOpenChatAttachments()"
+      "зовёт attachmentLinkSigner()"
      ],
      "c": []
     },
@@ -106648,6 +106702,34 @@
          ]
         },
         {
+         "k": "do",
+         "t": "const olderThanDay = (full: string)",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": []
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
          "k": "loop",
          "t": "для каждого: const entry of entries",
          "a": [],
@@ -106703,25 +106785,12 @@
            "a": [],
            "c": [
             {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
+             "k": "do",
+             "t": "remove = olderThanDay(full);",
+             "a": [
+              "дословно из кода"
+             ],
              "c": []
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "remove = false;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
             }
            ]
           },
@@ -106747,7 +106816,7 @@
             },
             {
              "k": "do",
-             "t": "remove = !privateFilePath(m[1]);",
+             "t": "remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === \"fail\" && olderThanDay(full));",
              "a": [
               "зовёт privateFilePath()"
              ],
@@ -106804,6 +106873,54 @@
         {
          "k": "do",
          "t": "console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const stale = await cleanupStalePendingCustomerMedia();",
+       "a": [
+        "зовёт cleanupStalePendingCustomerMedia()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM \"CustomerPendingMedia\" WHERE \"id\" IN (…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "dropFiles(fileNames(row.files));",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "cleanupStalePendingCustomerMedia() — apps/api/src/lib/customerInputMedia.ts"
+      },
+      {
+       "k": "if",
+       "t": "stale.deleted",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],

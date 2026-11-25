@@ -51,9 +51,9 @@ type AttachmentKind = MessageAttachment["kind"];
 export type PresentedAttachment = MessageAttachment;
 export type PresentedMessage = ConversationMessage;
 
-const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed"]);
+const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed", "too_many"]);
 
-function presentAttachments(raw: unknown, allowed: boolean, signedLinks: boolean): PresentedAttachment[] | undefined {
+function presentAttachments(raw: unknown, allowed: boolean, signedFor: string | null): PresentedAttachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const items: PresentedAttachment[] = [];
   for (const entry of raw) {
@@ -82,8 +82,8 @@ function presentAttachments(raw: unknown, allowed: boolean, signedLinks: boolean
     }
     if (typeof file !== "string" || !file) continue;
     // Подписанная ссылка — только вместе с правом И подтверждённым владением
-    // (signedLinks считает вызывающий через canOpenChatAttachments).
-    const links = allowed && signedLinks ? chatAttachmentLinks(file, kind as AttachmentKind, presentedMime) : null;
+    // (signedFor считает вызывающий через attachmentLinkSigner).
+    const links = allowed && signedFor ? chatAttachmentLinks(file, kind as AttachmentKind, presentedMime, signedFor) : null;
     items.push({
       kind: kind as AttachmentKind,
       mime: presentedMime,
@@ -99,7 +99,7 @@ function withLost(items: PresentedAttachment[] | undefined, raw: unknown): Prese
   const lost = presentAttachments(
     raw.map((l) => (l && typeof l === "object" ? { kind: (l as { kind?: unknown }).kind, lost: (l as { reason?: unknown }).reason, mime: "" } : null)),
     false,
-    false
+    null
   );
   if (!lost) return items;
   return [...(items ?? []), ...lost];
@@ -125,12 +125,12 @@ export function presentMessages(
    *  только те два маршрута, что реально отдают переписку сотруднику: /clients/:id
    *  и /conversations/:id (см. их вызовы presentMessages). */
   phonesAllowed = true,
-  /** Класть ли во вложения подписанные ссылки (`src`/`thumb`/`play`). Только
-   *  там, где вызывающий проверил владение клиентом тем же правилом, что у
-   *  маршрута выдачи файла, — `canOpenChatAttachments(req, assignedAgentId)`.
-   *  По умолчанию false: забытая проверка оставляет прежний путь, а не открывает
+  /** Кому класть во вложения подписанные ссылки (`src`/`thumb`/`play`) — id
+   *  сотрудника. Только там, где вызывающий проверил владение клиентом тем же
+   *  правилом, что у маршрута выдачи файла, — `attachmentLinkSigner(req, …)`.
+   *  По умолчанию null: забытая проверка оставляет прежний путь, а не открывает
    *  файл. */
-  signedLinks = false
+  signedFor: string | null = null
 ): PresentedMessage[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
@@ -163,7 +163,7 @@ export function presentMessages(
         // читателя без права на номер это открытый номер (ACCESS-02).
         content: phonesAllowed ? text : maskPhonesForReader(text).text,
         // Не сохранённые файлы (lib/customerInputMedia.ts) — пометками рядом с сохранёнными.
-        attachments: withLost(presentAttachments(attachments, attachmentsAllowed, signedLinks), attachmentsLost),
+        attachments: withLost(presentAttachments(attachments, attachmentsAllowed, signedFor), attachmentsLost),
         // Только у role="assistant" и только тем же простым разбором, что и
         // остальные поля колонки: доверять форме jsonb нельзя. Отсутствует или
         // разобрать не удалось — интерфейс покажет это как ответ бота (см.

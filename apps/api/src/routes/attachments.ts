@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { loadAgentAccess, requireAuth, requirePermission } from "../auth/middleware.js";
 import { findAttachmentOwnerClientId, privateFilePath, privateMimeType } from "../lib/privateFiles.js";
 import { prisma } from "../db.js";
 import { canOpenChatAttachments, verifyAttachmentLink } from "../lib/chatAttachmentLinks.js";
@@ -114,10 +114,28 @@ attachmentsRouter.get("/:name", async (req, res) => {
 export const signedAttachmentsRouter = Router();
 
 const signedQuerySchema = z.object({
+  a: z.string().min(1).max(64),
   e: z.coerce.number().int().positive(),
   k: z.string().min(16).max(64),
   v: z.enum(["t", "p"]).optional(),
+  m: z.enum(["a", "v"]).optional(),
 });
+
+/**
+ * Подпись верна (имя файла, сотрудник, срок) — без похода в базу. Нужна ещё и
+ * лимитеру (app.ts): он считает ТОЛЬКО запросы с неверной подписью, честные
+ * (в том числе оборванные кусками Range) не трогает вовсе.
+ */
+export function signedAttachmentRequestValid(req: { params?: unknown; query?: unknown; path?: string }): boolean {
+  let name = "";
+  try {
+    name = decodeURIComponent((req.path ?? "").replace(/^\//, "").split("/")[0] ?? "");
+  } catch {
+    return false; // битая кодировка в адресе — точно не наша ссылка
+  }
+  const query = signedQuerySchema.safeParse(req.query);
+  return !!name && query.success && verifyAttachmentLink(name, query.data.a, query.data.e, query.data.k);
+}
 
 /** Срок кэша в браузере — до конца действия подписи, но не больше шести часов. */
 function privateMaxAge(expSec: number): number {
@@ -128,7 +146,13 @@ signedAttachmentsRouter.get("/:name", async (req, res) => {
   const params = paramsSchema.safeParse(req.params);
   const query = signedQuerySchema.safeParse(req.query);
   // Один ответ на «подпись не та», «срок вышел» и «имя чужое»: перебором ничего не узнать.
-  if (!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.e, query.data.k)) {
+  if (!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, query.data.k)) {
+    return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+  }
+  // Подпись выдана конкретному сотруднику: отключили учётку — ссылка гаснет сразу
+  // (кэш доступа — секунды, общий с requireAuth), а не через часы до конца срока.
+  const access = await loadAgentAccess(query.data.a).catch(() => null);
+  if (!access?.isActive || !access.permissions.has("messages.viewAttachments")) {
     return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
   }
   const fullPath = privateFilePath(params.data.name);
@@ -138,7 +162,8 @@ signedAttachmentsRouter.get("/:name", async (req, res) => {
   let mime = privateMimeType(params.data.name);
   if (query.data.v) {
     try {
-      servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play");
+      const hint = query.data.m === "a" ? "audio" : query.data.m === "v" ? "video" : undefined;
+      servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play", hint);
       mime = derivedMime(servePath);
     } catch (err) {
       if (err instanceof DerivedMediaUnavailable && query.data.v === "t") {
@@ -146,6 +171,12 @@ signedAttachmentsRouter.get("/:name", async (req, res) => {
         servePath = fullPath;
       } else {
         const reason = err instanceof DerivedMediaUnavailable ? err.reason : "failed";
+        if (reason === "preparing") {
+          // Копия считается в фоне: браузер повторит через несколько секунд.
+          res.setHeader("Retry-After", "5");
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(503).json({ error: "Готовим файл для браузера", reason });
+        }
         return res.status(reason === "disabled" ? 404 : 422).json({
           error: reason === "disabled" ? "Копия для браузера выключена в Настройках" : "Этот файл браузер не воспроизводит — скачайте его",
           reason,

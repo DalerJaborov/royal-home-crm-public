@@ -6,11 +6,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import sharp from "sharp";
+// Перекодировка в тестах ждёт до конца (кроме проверки «готовится»), чтобы ответ был детерминированным.
+process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "60000";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { savePrivateFile, privateFilePath, privateDirRoot } from "../src/lib/privateFiles.js";
 import { attachmentLinkExpiry, chatAttachmentLinks, verifyAttachmentLink } from "../src/lib/chatAttachmentLinks.js";
-import { cleanupDerivedChatMedia } from "../src/lib/chatMediaDerived.js";
+import { cleanupDerivedChatMedia, derivedFailMarker } from "../src/lib/chatMediaDerived.js";
+import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { presentMessages } from "../src/lib/messageAttachments.js";
 
 /**
@@ -237,14 +240,17 @@ describe("Отдача по подписи", () => {
     const e = Number(url.searchParams.get("e"));
     const k = url.searchParams.get("k")!;
     const base = url.pathname;
-    expect((await request(app).get(`${base}?e=${e}&k=${k.slice(0, -1)}${k.endsWith("A") ? "B" : "A"}`)).status).toBe(403);
-    expect((await request(app).get(`${base}?e=${e + 60}&k=${k}`)).status).toBe(403);
+    const a = url.searchParams.get("a")!;
+    expect((await request(app).get(`${base}?a=${a}&e=${e}&k=${k.slice(0, -1)}${k.endsWith("A") ? "B" : "A"}`)).status).toBe(403);
+    expect((await request(app).get(`${base}?a=${a}&e=${e + 60}&k=${k}`)).status).toBe(403);
+    // Подпись одного сотрудника не годится от имени другого.
+    expect((await request(app).get(`${base}?a=${createdAgentIds[1]}&e=${e}&k=${k}`)).status).toBe(403);
     // Подпись честная, но срок «через год» — такую сервер не выдаёт никогда.
     const far = attachmentLinkExpiry(Date.now() + 365 * 24 * 3600 * 1000);
-    const farLinks = chatAttachmentLinks(photoFile, "image", "image/jpeg", Date.now() + 365 * 24 * 3600 * 1000)!;
-    expect(verifyAttachmentLink(photoFile, far, new URL(farLinks.src, "http://x").searchParams.get("k")!)).toBe(false);
+    const farLinks = chatAttachmentLinks(photoFile, "image", "image/jpeg", agentId, Date.now() + 365 * 24 * 3600 * 1000)!;
+    expect(verifyAttachmentLink(photoFile, agentId, far, new URL(farLinks.src, "http://x").searchParams.get("k")!)).toBe(false);
     // Выдана сутки назад — уже просрочена.
-    const old = chatAttachmentLinks(photoFile, "image", "image/jpeg", Date.now() - 24 * 3600 * 1000)!;
+    const old = chatAttachmentLinks(photoFile, "image", "image/jpeg", agentId, Date.now() - 5 * 3600 * 1000)!;
     expect((await request(app).get(local(old.src))).status).toBe(403);
     expect((await request(app).get(base)).status).toBe(403);
   });
@@ -301,7 +307,7 @@ describe("Копии: миниатюра и версия для браузера
       // Отдельный файл, у которого копии ещё точно нет.
       const fresh = (await savePrivateFile(Buffer.from(`ogg-off-${runId}`), "audio/ogg"))!;
       createdFiles.push(fresh);
-      const links = chatAttachmentLinks(fresh, "audio", "audio/ogg")!;
+      const links = chatAttachmentLinks(fresh, "audio", "audio/ogg", agentId)!;
       const res = await request(app).get(local(links.play!));
       expect(res.status).toBe(404);
       expect(res.body.reason).toBe("disabled");
@@ -312,7 +318,7 @@ describe("Копии: миниатюра и версия для браузера
 
   it("уборка снимает копию, когда оригинала больше нет, и не трогает живую", async () => {
     const victim = (await savePrivateFile(await sharp({ create: { width: 40, height: 40, channels: 3, background: "#000" } }).jpeg().toBuffer(), "image/jpeg"))!;
-    const links = chatAttachmentLinks(victim, "image", "image/jpeg")!;
+    const links = chatAttachmentLinks(victim, "image", "image/jpeg", agentId)!;
     expect((await request(app).get(local(links.thumb!))).status).toBe(200);
     const derived = path.join(privateDirRoot(), "derived", `${victim}.t.webp`);
     expect(fs.existsSync(derived)).toBe(true);
@@ -322,4 +328,90 @@ describe("Копии: миниатюра и версия для браузера
     // Живая копия (оригинал на месте) осталась.
     expect(fs.existsSync(path.join(privateDirRoot(), "derived", `${photoFile}.t.webp`))).toBe(true);
   });
+});
+
+describe("Ревью #428: пропуск без входа, очередь, лимит", () => {
+  it("отключённый сотрудник: его подписанная ссылка гаснет сразу", async () => {
+    const { atts } = await cardAttachments(agentToken);
+    const src = atts.find((a) => a.kind === "image")!.src;
+    await prisma.agent.update({ where: { id: agentId }, data: { isActive: false } });
+    invalidateAgentAccess(agentId);
+    try {
+      expect((await request(app).get(local(src))).status).toBe(403);
+    } finally {
+      await prisma.agent.update({ where: { id: agentId }, data: { isActive: true } });
+      invalidateAgentAccess(agentId);
+    }
+    expect((await request(app).get(local(src))).status).toBe(200);
+  });
+
+  it("чужой агент: ни в /conversations/:id, ни в /groups ссылок на файлы чужого клиента нет", async () => {
+    const single = await request(app).get(`/api/v1/conversations/${conversationId}`).set("Authorization", `Bearer ${otherAgentToken}`);
+    if (single.status === 200) for (const m of single.body.messages) for (const a of m.attachments ?? []) expect(a.src).toBeUndefined();
+    const client = await prisma.botConversation.findUniqueOrThrow({ where: { id: conversationId }, select: { clientId: true } });
+    const group = await request(app).get(`/api/v1/conversations/groups/client:${client.clientId}`).set("Authorization", `Bearer ${otherAgentToken}`);
+    if (group.status === 200) for (const m of group.body.messages) for (const a of m.attachments ?? []) expect(a.src).toBeUndefined();
+    // Свой агент в той же группе ссылки получает — проверка не «никому ничего».
+    const own = await request(app).get(`/api/v1/conversations/groups/client:${client.clientId}`).set("Authorization", `Bearer ${agentToken}`);
+    if (own.status === 200) expect(own.body.messages.some((m: { attachments?: Array<{ src?: string }> }) => m.attachments?.some((a) => a.src))).toBe(true);
+  });
+
+  it.skipIf(!hasFfmpeg)("копия ещё не готова — 503 с Retry-After, работа идёт в фоне, потом 200", async () => {
+    const ogg = ffmpegMake(["-f", "lavfi", "-i", "sine=frequency=300:duration=2", "-c:a", "libopus", "-b:a", "24k"], "ogg");
+    const fresh = (await savePrivateFile(ogg, "audio/ogg"))!;
+    createdFiles.push(fresh);
+    const play = chatAttachmentLinks(fresh, "audio", "audio/ogg", agentId)!.play!;
+    process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "0";
+    try {
+      const first = await request(app).get(local(play));
+      expect(first.status).toBe(503);
+      expect(first.headers["retry-after"]).toBe("5");
+      let status = 503;
+      for (let i = 0; i < 40 && status === 503; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        status = (await request(app).head(local(play))).status;
+      }
+      expect(status).toBe(200);
+    } finally {
+      process.env.CHAT_MEDIA_PREPARE_WAIT_MS = "60000";
+    }
+  }, 60_000);
+
+  it.skipIf(!hasFfmpeg)("битый файл: неудача помечается на сутки, второй запрос не гонит ffmpeg заново", async () => {
+    const broken = (await savePrivateFile(Buffer.from(`not-an-ogg-${runId}`), "audio/ogg"))!;
+    createdFiles.push(broken);
+    const play = chatAttachmentLinks(broken, "audio", "audio/ogg", agentId)!.play!;
+    expect((await request(app).get(local(play))).status).toBe(422);
+    const marker = derivedFailMarker(`${broken}.p.m4a`);
+    expect(fs.existsSync(marker)).toBe(true);
+    const mtime = fs.statSync(marker).mtimeMs;
+    const t0 = Date.now();
+    expect((await request(app).get(local(play))).status).toBe(422);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(fs.statSync(marker).mtimeMs).toBe(mtime);
+  }, 60_000);
+
+  it("webm голосом: подсказка m=a, а не «видео» по расширению", () => {
+    const links = chatAttachmentLinks("00000000-0000-0000-0000-000000000000.webm", "audio", "audio/webm", agentId)!;
+    expect(links.play).toContain("m=a");
+    const video = chatAttachmentLinks("00000000-0000-0000-0000-000000000000.webm", "video", "video/webm", agentId)!;
+    expect(video.play).toContain("m=v");
+  });
+
+  it("лимит считает только неверные подписи: 320 честных запросов (в том числе кусками) — без 429", async () => {
+    const { atts } = await cardAttachments(agentToken);
+    const src = atts.find((a) => a.kind === "image")!.src;
+    for (let i = 0; i < 320; i++) {
+      const res = await request(app).get(local(src)).set("Range", "bytes=0-1");
+      expect(res.status).toBe(206);
+    }
+  }, 120_000);
+
+  it("подбор подписи упирается в потолок (429)", async () => {
+    let last = 0;
+    for (let i = 0; i < 305; i++) {
+      last = (await request(app).get(`/api/v1/attachments/s/${photoFile}?a=${agentId}&e=1&k=AAAAAAAAAAAAAAAAAAAAAA`)).status;
+    }
+    expect(last).toBe(429);
+  }, 120_000);
 });

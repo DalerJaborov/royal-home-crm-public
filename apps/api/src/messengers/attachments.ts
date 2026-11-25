@@ -236,7 +236,7 @@ function detect(contentType: string, url: string, declaredKind?: string, managed
 }
 
 /** Почему файл клиента не сохранён — для пометки на месте вложения (25.11.2026). */
-export type LostReason = "too_big" | "too_long" | "unsupported" | "failed";
+export type LostReason = "too_big" | "too_long" | "unsupported" | "failed" | "too_many";
 export interface LostAttachment {
   kind: "image" | "audio" | "video" | "file";
   reason: LostReason;
@@ -268,13 +268,23 @@ const HEIC_PENDING = "image/heic";
  */
 async function heicToJpeg(buf: Buffer): Promise<Buffer | null> {
   if (!isHeic(buf)) return null;
-  try {
-    const out = await (await sharpFromUpload(buf)).rotate().jpeg({ quality: 85 }).toBuffer();
-    return out.byteLength <= MAX_IMAGE_BYTES ? out : null;
-  } catch {
-    return null;
-  }
+  // Одна расшифровка HEIC за раз (ревью #428): декодер — WASM, держит цикл
+  // событий и заводит массив ширина × высота × 4 байта; две разом на 12-мегапиксельных
+  // снимках — сотни МБ в процессе API.
+  const run = heicChain.then(async () => {
+    try {
+      const out = await (await sharpFromUpload(buf)).rotate().jpeg({ quality: 85 }).toBuffer();
+      return out.byteLength <= MAX_IMAGE_BYTES ? out : null;
+    } catch {
+      return null;
+    }
+  });
+  heicChain = run.then(() => undefined, () => undefined);
+  return run;
 }
+let heicChain: Promise<void> = Promise.resolve();
+/** Сколько файлов одного сообщения качается одновременно. */
+const DOWNLOAD_CONCURRENCY = 3;
 
 /** Только хост — в журнал: полный адрес медиа содержит подписанный ключ доступа.
  *  Разбор не должен падать сам: он вызывается из обработчика ошибки. */
@@ -641,7 +651,17 @@ export function fetchAttachments(
   return traceMeasured("media_download", () => fetchAttachmentsImpl(sources, managed, maxFiles));
 }
 async function fetchAttachmentsImpl(sources: AttachmentSource[], managed: ManagedAttachmentDownload | undefined, maxFiles: number): Promise<FetchedAttachments> {
-  const results = await Promise.all(sources.slice(0, maxFiles).map(source => fetchOne(source, managed)));
+  // По DOWNLOAD_CONCURRENCY за раз, а не все разом (ревью #428): десять видео по
+  // 16 МБ одновременно — 160 МБ буферов в процессе API с потолком 768 МБ.
+  const picked = sources.slice(0, maxFiles);
+  const results: Array<FetchedAttachment | null> = new Array(picked.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, picked.length) }, async () => {
+    while (next < picked.length) {
+      const i = next++;
+      results[i] = await fetchOne(picked[i], managed);
+    }
+  }));
   const lost: LostAttachment[] = results.flatMap((r, i): LostAttachment[] => {
     if (r === null) return [{ kind: lostKind({ kind: "unsupported" }, sources[i]?.declaredKind), reason: "failed" }];
     return r.kind === "unsupported" && r.lost ? [r.lost] : [];

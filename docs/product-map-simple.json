@@ -16,9 +16,9 @@
   "paths": 775,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4148,
-  "untranslatedUnique": 478,
-  "untranslatedTotal": 613,
+  "conditions": 4151,
+  "untranslatedUnique": 479,
+  "untranslatedTotal": 614,
   "partialUnique": 1117,
   "translatedShare": 85
  },
@@ -121,6 +121,7 @@
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
+  "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…",
   "!parsed.success || !toSmsPhone(parsed.data.phone)",
   "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
   "!permissions.has(\"clients.viewAll\") && (first.clientAssignedAgentId !== agent.id || !first.clientAcceptedAt)",
@@ -13030,7 +13031,21 @@
    "screens": [],
    "tree": [
     {
-     "t": "если нет: success или нет: success или нет: проверить вложение ссылка",
+     "t": "если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Ссылка на вложение устарела — обновите переписку»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…"
+    },
+    {
+     "t": "если нет: is активен или permissions не содержит «messages.viewAttachments»",
      "k": "if",
      "a": [],
      "c": [
@@ -13083,6 +13098,13 @@
          "k": "else",
          "a": [],
          "c": [
+          {
+           "t": "если причина — «preparing»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
           {
            "t": "ответ (код зависит от условия)",
            "k": "do",
@@ -72484,6 +72506,26 @@
          "c": []
         },
         {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
          "t": "и так по каждому",
          "k": "loop",
          "a": [],
@@ -72551,6 +72593,25 @@
       },
       {
        "t": "если есть удалён",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть удалён (залежался)",
        "k": "if",
        "a": [],
        "c": []

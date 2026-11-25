@@ -1269,6 +1269,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const pendingUploads = usePendingMediaUploads(replyTargetId);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
+  /** Несколько файлов вставкой или перетаскиванием — сначала показать, потом слать (ревью #428). */
+  const [pendingBatch, setPendingBatch] = useState<File[] | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   useEffect(() => {
     if (!pendingMedia?.type.startsWith("image/")) { setMediaPreview(null); return; }
@@ -1447,7 +1449,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   /** Файл выбран в скрытом `<input>` — проверяем размер СРАЗУ, до загрузки: канал
    *  диалога уже известен, дожидаться ответа сервера ради очевидного отказа незачем.
    *  У видео это больше не отказ по каналу (гибридный режим) — только 1 ГБ предохранитель. */
-  function handlePickMedia(files: ArrayLike<File> | null | undefined) {
+  function handlePickMedia(files: ArrayLike<File> | null | undefined, opts: { confirmBatch?: boolean } = {}) {
     if (!files?.length || readOnly || !replyTargetId) return;
     setMediaError(null);
     const plan = planOutgoingMediaPick(files, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
@@ -1459,7 +1461,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       setPendingMedia(plan.single);
       return;
     }
-    // Несколько файлов — сразу в отправку; подпись из поля уходит с первым.
+    // Вставка и перетаскивание: файлы могли попасть случайно — сначала полоска
+    // «N файлов — Отправить / Отменить», а не отправка клиенту сразу.
+    if (opts.confirmBatch) {
+      setPendingBatch(plan.batch);
+      return;
+    }
+    // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
     plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
     setText("");
   }
@@ -2048,6 +2056,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <span className="txt">{mediaError}</span>
         </div>
       )}
+      {pendingBatch && pendingBatch.length > 0 && (
+        <div className="suggest">
+          <Video className="i" />
+          <span className="txt">Файлов к отправке: {pendingBatch.length}</span>
+          <button type="button" className="lnk" onClick={() => setPendingBatch(null)}>
+            Отменить
+          </button>
+          <button
+            type="button"
+            className="pill sm"
+            onClick={() => {
+              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+              setPendingBatch(null);
+              setText("");
+            }}
+          >
+            Отправить
+          </button>
+        </div>
+      )}
       {pendingMedia && (
         <div className="suggest">
           {pendingMedia.type.startsWith("image/") ? (
@@ -2245,10 +2273,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           // мессенджерах на ПК (25.11.2026). Тот же путь, что у скрепки:
           // проверки канала и размера в planOutgoingMediaPick.
           onPaste={(e) => {
+            // Скопирован текст (часто вместе с картинкой-превью из Word/браузера) —
+            // это обычная вставка текста, её не перехватываем.
+            if (Array.from(e.clipboardData?.types ?? []).includes("text/plain")) return;
             const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
             if (!files.length) return;
             e.preventDefault();
-            handlePickMedia(files);
+            handlePickMedia(files, { confirmBatch: true });
           }}
           onDragOver={(e) => {
             if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
@@ -2257,7 +2288,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
             if (!files.length) return;
             e.preventDefault();
-            handlePickMedia(files);
+            handlePickMedia(files, { confirmBatch: true });
           }}
           rows={1}
           placeholder={royal
