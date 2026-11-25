@@ -117,10 +117,13 @@ export interface ScoredCandidate {
 export async function rankCandidates(property: PropertyForMatch, projects?: ConstructionProject[]): Promise<ScoredCandidate[]> {
   if (property.lat === null || property.lng === null) return [];
   const near = projects ?? (await projectsNear(property.lat, property.lng));
+  // Объекта ещё нет (предпросмотр в мастере до создания): отвергнутых у него быть не может.
   const rejected = new Set(
-    (await prisma.constructionPropertyLink.findMany({ where: { propertyId: property.id, state: "REJECTED" }, select: { projectId: true } })).map(
-      (l) => l.projectId,
-    ),
+    property.id
+      ? (await prisma.constructionPropertyLink.findMany({ where: { propertyId: property.id, state: "REJECTED" }, select: { projectId: true } })).map(
+          (l) => l.projectId,
+        )
+      : [],
   );
   const out: ScoredCandidate[] = [];
   for (const project of near) {

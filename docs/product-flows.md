@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2488**; вместе с задачами по расписанию и фоновыми заданиями — **4198**. Модулей: **86**.
+Путей: **781**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4223**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1541,7 +1541,7 @@
     · зовёт findAttachmentOwnerClientId()
   - const owner = ownerClientId ? await prisma.client.findUnique({ where: { id: ownerClientId }, select: { assign…
     · читает в базе: client
-  - если !owner || !canAccessAssignedAgent(req, owner.assignedAgentId)
+  - если !owner || !canOpenChatAttachments(req, owner.assignedAgentId)
     - return res.status(403).json({ error: "Нет доступа к этому вложению" });
       · ответ 403 — «Нет доступа к этому вложению»
 - res.setHeader("Content-Type", privateMimeType(parsed.data.name));
@@ -1565,6 +1565,77 @@
   - иначе
     - res.status(500).json({ error: "Не удалось прочитать файл" });
       · ответ 500 — «Не удалось прочитать файл»
+
+## /api/v1/attachments/s
+
+### GET /api/v1/attachments/s/:name
+
+`apps/api/src/routes/attachments.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+
+- const params = paramsSchema.safeParse(req.params);
+  · проверяет данные схемой paramsSchema
+- const query = signedQuerySchema.safeParse(req.query);
+  · проверяет данные схемой signedQuerySchema
+- если !params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…
+  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- const access = await loadAgentAccess(query.data.a).catch(()
+  · зовёт loadAgentAccess()
+- если !access?.isActive || !access.permissions.has("messages.viewAttachments")
+  - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+    · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- const fullPath = privateFilePath(params.data.name);
+  · зовёт privateFilePath()
+- если !fullPath
+  - return res.status(404).json({ error: "Файл не найден" });
+    · ответ 404 — «Файл не найден»
+- let mime = privateMimeType(params.data.name);
+  · зовёт privateMimeType()
+- если query.data.v
+  - пробует
+    - servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play", hint);
+      · зовёт ensureDerived()
+    - mime = derivedMime(servePath);
+      · зовёт derivedMime()
+  - если сорвалось
+    - если err instanceof DerivedMediaUnavailable && query.data.v === "t"
+      - servePath = fullPath;
+        · дословно из кода
+    - иначе
+      - если reason === "preparing"
+        - res.setHeader("Retry-After", "5");
+          · ставит заголовок ответа
+        - res.setHeader("Cache-Control", "no-store");
+          · ставит заголовок ответа
+        - return res.status(503).json({ error: "Готовим файл для браузера", reason });
+          · ответ 503 — «Готовим файл для браузера»
+      - return res.status(reason === "disabled" ? 404 : 422).json({ error: reason === "disabled" ? "Копия для браузер…
+        · ответ (код зависит от условия)
+- res.setHeader("Content-Type", mime);
+  · ставит заголовок ответа
+- res.setHeader("X-Content-Type-Options", "nosniff");
+  · ставит заголовок ответа
+- res.setHeader("Content-Disposition", "inline");
+  · ставит заголовок ответа
+- res.setHeader("Referrer-Policy", "no-referrer");
+  · ставит заголовок ответа
+- res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  · ставит заголовок ответа
+- res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
+  · ставит заголовок ответа
+- res.sendFile(path.basename(servePath), { root: path.dirname(servePath), cacheControl: false, dotfiles: "deny"…
+  · ответ 500 — «Не удалось прочитать файл»
+  - если !err
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если (err as NodeJS.ErrnoException).code === "ECONNABORTED" || res.headersSent
+    - если !res.writableEnded
+      - res.end();
+        · ответ 200
+    - return;
+      · дальше не идёт, ничего не меняя
+  - res.status(500).json({ error: "Не удалось прочитать файл" });
+    · ответ 500 — «Не удалось прочитать файл»
 
 ## /api/v1/audit-log
 
@@ -3678,6 +3749,8 @@
   - если сорвалось
     - console.error("[clients] firstOpenedAt не записан:", err instanceof Error ? err.message : err);
       · пишет строку в журнал сервера
+- const signedLinks = attachmentLinkSigner(req, client.assignedAgentId);
+  · зовёт attachmentLinkSigner()
 - если !client.acceptedAt && client.assignReason === "own_property_match" && client.matchedPropertyId
   - const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…
     · читает в базе: property
@@ -4283,6 +4356,39 @@
 - res.json(body);
   · ответ 200
 
+### POST /api/v1/construction-registry/match-preview
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = previewBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой previewBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const body: RegistryMatchPreviewResponse = await previewRegistryMatch(parsed.data);
+  · зовёт previewRegistryMatch()
+- res.json(body);
+  · ответ 200
+
+### GET /api/v1/construction-registry/projects
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = searchQuerySchema.safeParse(req.query);
+  · проверяет данные схемой searchQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const [{ enabled }, updated] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  · зовёт loadRegistrySettings()
+- если !enabled || !updated
+  - return res.json(body);
+    · ответ 200
+- const hits = await searchRegistryProjects(parsed.data);
+  · зовёт searchRegistryProjects()
+- res.json(body);
+  · ответ 200
+
 ### DELETE /api/v1/construction-registry/property/:id/link
 
 `apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -4321,6 +4427,27 @@
 - await linkPropertyManually(property.id, project.id, req.agent!.id);
   · зовёт linkPropertyManually()
 - res.json(await buildPropertyResponse(toMatchInput(property), true));
+  · ответ 200
+
+### POST /api/v1/construction-registry/property/:id/none
+
+`apps/api/src/routes/constructionRegistry.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !property
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canEditLink(req, property)
+  - return res.status(403).json({ error: "Менять привязку может ответственный агент или руководитель" });
+    · ответ 403 — «Менять привязку может ответственный агент или руководитель»
+- const { enabled } = await loadRegistrySettings();
+  · зовёт loadRegistrySettings()
+- если !enabled
+  - return res.status(409).json({ error: "Реестр строек выключен в Настройках" });
+    · ответ 409 — «Реестр строек выключен в Настройках»
+- если (await markNotInRegistry(property.id, req.agent!.id)) === 0
+  - return res.status(409).json({ error: REGISTRY_NOTHING_TO_REJECT });
+    · ответ 409
+- res.json(await buildPropertyResponse(toMatchInput(property), enabled));
   · ответ 200
 
 ### POST /api/v1/construction-registry/property/:id/reject
@@ -4681,6 +4808,10 @@
 - если !conversation
   - return res.status(404).json({ error: "Диалог не найден" });
     · ответ 404 — «Диалог не найден»
+- const owner = conversationClientId && !can(req, "clients.viewAll") ? await prisma.client.findUnique({ where: …
+  · читает в базе: client
+- const signedLinks = can(req, "clients.viewAll") ? attachmentLinkSigner(req, null) : attachmentLinkSigner(req,…
+  · зовёт attachmentLinkSigner()
 - const shown = withHiddenConversationOrigin( { channel: conversation.channel, name: conversation.client?.fullN…
   · зовёт withHiddenConversationOrigin()
 - const shieldTransport = await loadCustomerTransportForConversation(conversation.id);
@@ -4747,12 +4878,14 @@
       · меняет в базе: telegramDirectConversation
   - void publishConversationUpdated(source.kind, source.id);
     · зовёт publishConversationUpdated()
+- const signedLinks = attachmentLinkSigner(req, ownerAgentId);
+  · зовёт attachmentLinkSigner()
 - для каждого: const [sourceOrder, source] of sources.entries()
   - если !Array.isArray(source.messages)
     - continue;
       · переходит к следующему
   - для каждого: const [sourceMessageIndex, rawMessage] of source.messages.entries()
-    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);
       · зовёт presentMessages()
     - если !message
       - continue;
@@ -12705,6 +12838,11 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
+  · проверяет данные схемой registryChoiceBodySchema
+- если !registryChoice.success
+  - return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
+    · ответ 400 — «Неверные данные»
 - const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   · читает в базе: property
 - если !existing || existing.deletedAt
@@ -12876,8 +13014,11 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
-- void autoLinkPropertyById(updated.id, req.agent!.id);
-  · зовёт autoLinkPropertyById()
+- const registryError = registryChoice.data.registry ? registryChoiceError(await applyRegistryChoice(updated.id…
+  · зовёт registryChoiceError()
+- если !registryChoice.data.registry
+  - void applyRegistryChoice(updated.id, undefined, patchRegistryActor);
+    · зовёт applyRegistryChoice()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12885,13 +13026,16 @@
     · зовёт skipVideoHandoffOnManualPublish()
   - publishPropertyUpdated({ propertyId: published.id, agentId: published.assignedAgentId, stage: published.statu…
     · зовёт publishPropertyUpdated()
-  - если siteSyncError
-    - return res.status(207).json({ ...presentProperty(published, req), siteSyncError });
+  - если siteSyncError || registryError
+    - return res.status(207).json({ ...presentProperty(published, req), ...(siteSyncError ? { siteSyncError } : {})…
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
+- если registryError
+  - return res.status(207).json({ ...presentProperty(updated, req), registryError });
+    · ответ 207
 - res.json(presentProperty(updated, req));
   · ответ 200
 
@@ -18007,7 +18151,9 @@
     · ответ 200
 - const clientCards = clientIds.length > 0 ? await prisma.client.findMany({ where: { id: { in: clientIds } }, s…
   · читает в базе: client
-- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed).slice( -C…
+- const signedLinks = attachmentLinkSigner(req, conversationOwner ? conversationOwner.assignedAgentId : undefin…
+  · зовёт attachmentLinkSigner()
+- const messages = presentMessages(raw.messages, can(req, "messages.viewAttachments"), phonesAllowed, signedLin…
   · зовёт presentMessages()
 - res.json({ inboxId: inboxIdOf(application.channel, conversationId), messages, files: messages.filter((m)
   · ответ 200
@@ -18712,7 +18858,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - traceOutcome("blocked", "dm_lane_held");
+              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18755,17 +18901,6 @@
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
-                · дословно из кода
-            - если DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")
-              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…
-                · дословно из кода
-            - если (msg.attachmentType === "share" || msg.attachmentType === "ig_post") && msg.channel !== "WHATSAPP" && isMetaC…
-              - attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
-                · дословно из кода
-            - для каждого: const extra of msg.extraAttachments ?? []
-              - if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
-                · дословно из кода
-              - if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
                 · дословно из кода
             - если msg.replyToStoryUrl
               - attachments.push({ url: msg.replyToStoryUrl });
@@ -23905,6 +24040,56 @@
           · пишет строку в журнал сервера
   - если deleted || failed
     - console.log( `[cron] Уборка вложений переписки: удалено ${deleted}, оставлено ${kept}` + (failed ? `, не удал…
+      · пишет строку в журнал сервера
+  - const derived = cleanupDerivedChatMedia();
+    · зовёт cleanupDerivedChatMedia()
+    - пробует
+    - если сорвалось
+      - return result;
+        · дословно из кода
+    - const olderThanDay = (full: string)
+      - пробует
+      - если сорвалось
+        - return false;
+          · дословно из кода
+    - для каждого: const entry of entries
+      - если result.deleted >= cap
+        - break;
+          · прекращает перебор
+      - если !entry.isFile()
+        - continue;
+          · переходит к следующему
+      - если path.dirname(path.resolve(full)) !== path.resolve(dir)
+        - continue;
+          · переходит к следующему
+      - если entry.name.startsWith(".tmp-")
+        - remove = olderThanDay(full);
+          · дословно из кода
+      - иначе
+        - если !m
+          - continue;
+            · переходит к следующему
+        - remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));
+          · зовёт privateFilePath()
+      - если !remove
+        - continue;
+          · переходит к следующему
+      - пробует
+      - если сорвалось
+        - result.kept++;
+          · дословно из кода
+  - если derived.deleted
+    - console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
+      · пишет строку в журнал сервера
+  - const stale = await cleanupStalePendingCustomerMedia();
+    · зовёт cleanupStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ files: unknown }[]>` DELETE FROM "CustomerPendingMedia" WHERE "id" IN (…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - dropFiles(fileNames(row.files));
+        · дословно из кода
+  - если stale.deleted
+    - console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки вложений", err);

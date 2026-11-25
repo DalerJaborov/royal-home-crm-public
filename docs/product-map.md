@@ -12,8 +12,8 @@
 |---|---|
 | Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 32 |
-| Модулей сервера | 85 |
-| Адресов сервера всего | 771 |
+| Модулей сервера | 86 |
+| Адресов сервера всего | 775 |
 | Задач по расписанию | 135 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -158,7 +158,7 @@
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/property-offers` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/propertyOffers.ts` |
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 142 | да (37 мест) | `apps/api/src/routes/properties.ts` |
-| `/api/v1/construction-registry` | **без подписи** | 7 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
+| `/api/v1/construction-registry` | **без подписи** | 10 | да (1 мест) | `apps/api/src/routes/constructionRegistry.ts` |
 | `/api/v1/transfer-requests` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/transferRequests.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 58 | да (12 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
@@ -217,6 +217,7 @@
 | `/api/v1/stuck-work` | Экран «Что не доехало»: работа, которую система не довела до конца | 2 | да (2 мест) | `apps/api/src/routes/stuckWork.ts` |
 | `/api/v1/backups` | Отчёты о резервных копиях | 2 | нет | `apps/api/src/routes/backups.ts` |
 | `/api/v1/bot-scenarios` | Сценарии продаж для бота | 1 | да (1 мест) | `apps/api/src/routes/botScenarios.ts` |
+| `/api/v1/attachments/s` | **без подписи** | 1 | да (2 мест) | `apps/api/src/routes/attachments.ts` |
 | `/api/v1/attachments` | Вложения переписки | 1 | да (2 мест) | `apps/api/src/routes/attachments.ts` |
 | `/api/v1/media` | Отдача файлов чата по ссылке | 1 | нет | `apps/api/src/routes/mediaProxy.ts` |
 | `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
@@ -425,5 +426,5 @@
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
 - Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-group-sweep`, `assistant-log-retention`, `assistant-telegram-context-cleanup`, `backup-freshness`, `balance-watch`, `client-notes-plain-sweep`, `client-silence-sweep`, `clip-owner-autopublish`, `clip-review-resend`, `clip-review-stale-alarm`, `comment-needs-human-sweep`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `customer-unrecorded-summary`, `daily-stories`, `disk-cleanup`, `finance-pdf-monthly`, `free-narration-purge`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-buyer-alerts`, `market-median-history`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-somon-incremental`, `meta-ads-stale-watch`, `meta-inbox-reconcile`, `missed-call-task-whatsapp-close`, `narration-auto-flow`, `narration-preview-due`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `payment-reminders`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `showing-questions`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `somon-owner-leads-silence`, `staff-notice-cleanup`, `staff-social-post-sweep`, `telegram-bot-api-volume-cleanup`, `telegram-delivery-watch`, `telephony-station-traffic`, `transfer-request-tick`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`, `whatsapp-calling-health`, `whatsapp-webhook-watch`
-- Модулей сервера: `/api/v1/showing-questions`, `/api/v1/property-offers`, `/api/v1/construction-registry`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
+- Модулей сервера: `/api/v1/showing-questions`, `/api/v1/property-offers`, `/api/v1/construction-registry`, `/api/v1/transfer-requests`, `/api/v1/live-voice`, `/api/v1/report-pdf`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/founders`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/upload-sessions`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/attachments/s`, `/api/v1/function-status`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

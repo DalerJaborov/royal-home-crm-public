@@ -24,7 +24,8 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Создание объекта или запись точки (координаты от геокодера/снимка помечаются geocodedAt: new Date()). */
 const CREATES_OR_PLACES = /\bproperty\.(create|createMany|upsert)\(|geocodedAt:\s*new Date\(\)/;
-const CALLS_DOOR = /autoLinkPropertyById\(/;
+/** Дверь: автосвязь или выбор сотрудника в поле «Застройщик и разрешение» (без выбора — та же автосвязь, 25.11.2026). */
+const CALLS_DOOR = /autoLinkPropertyById\(|applyRegistryChoice\(/;
 
 /** Пути, которым сверять нечем или которые сверяет кто-то другой — с причиной. */
 const EXEMPT: Record<string, string> = {
@@ -44,7 +45,7 @@ const MUST_CALL = [
 describe("реестр строек: все пути создания и смены точки зовут автосвязь", () => {
   const files = walk(SRC);
 
-  it("каждый файл, который создаёт объект или пишет ему точку, зовёт autoLinkPropertyById (или исключён с причиной)", () => {
+  it("каждый файл, который создаёт объект или пишет ему точку, зовёт дверь реестра (или исключён с причиной)", () => {
     const writers = files.filter((f) => CREATES_OR_PLACES.test(readFileSync(f, "utf8"))).map(rel);
     expect(writers.length).toBeGreaterThanOrEqual(4); // сторож не должен опустеть молча
     const missing = writers.filter((r) => !EXEMPT[r] && !CALLS_DOOR.test(readFileSync(path.join(SRC, r), "utf8")));
@@ -68,7 +69,7 @@ describe("реестр строек: все пути создания и сме�
 
   it("при создании дверь зовётся ДО раннего выхода «объект в конвейере»", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("void autoLinkPropertyById(property.id, req.agent.id)");
+    const call = crud.indexOf("applyRegistryChoice(property.id, parsedDraftRef.data.registry, registryActor)");
     const earlyReturn = crud.indexOf("if (isPipelineStatus(property.status) || property.offSite)");
     expect(call).toBeGreaterThan(0);
     expect(earlyReturn).toBeGreaterThan(0);
@@ -77,7 +78,7 @@ describe("реестр строек: все пути создания и сме�
 
   it("при правке дверь зовётся ДО ветки автопубликации", () => {
     const crud = readFileSync(path.join(SRC, "routes/properties/crud.ts"), "utf8");
-    const call = crud.indexOf("void autoLinkPropertyById(updated.id, req.agent!.id)");
+    const call = crud.indexOf("applyRegistryChoice(updated.id, registryChoice.data.registry, patchRegistryActor)");
     const autoPublish = crud.indexOf("if (willAutoPublish) {");
     expect(call).toBeGreaterThan(0);
     expect(call).toBeLessThan(autoPublish);

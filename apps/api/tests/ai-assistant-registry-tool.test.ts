@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 const { prisma } = await import("../src/db.js");
 const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
 const { groupHiddenToolsForTests } = await import("../src/telegram/assistantBot.js");
+// Рубильник реестра Шабнам берёт из кэша настроек помощника (15 с): после смены в базе кэш сбрасываем.
+const { resetAssistantRuntimeCache } = await import("../src/ai/assistant/runtime.js");
 
 const runId = String(Date.now()).slice(-8);
 const plugin = findAssistantToolPlugin("get_construction_registry");
@@ -23,6 +25,7 @@ let prevEnabled = true;
 beforeAll(async () => {
   prevEnabled = (await prisma.settings.findUnique({ where: { id: "singleton" }, select: { constructionRegistryEnabled: true } }))?.constructionRegistryEnabled ?? true;
   await prisma.settings.upsert({ where: { id: "singleton" }, update: { constructionRegistryEnabled: true }, create: { id: "singleton", constructionRegistryEnabled: true } });
+  resetAssistantRuntimeCache();
   developerId = (await prisma.constructionDeveloper.create({ data: { nameNormalized: `dev-${runId}`, displayName: `Застройщик ${runId}` } })).id;
   projectId = (
     await prisma.constructionProject.create({
@@ -68,7 +71,9 @@ describe("get_construction_registry", () => {
   });
   it("рубильник выключен — отказ", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { constructionRegistryEnabled: false } });
+    resetAssistantRuntimeCache();
     expect((await call({ query: "ЖК" })).error).toMatch(/выключен/);
     await prisma.settings.update({ where: { id: "singleton" }, data: { constructionRegistryEnabled: true } });
+    resetAssistantRuntimeCache();
   });
 });

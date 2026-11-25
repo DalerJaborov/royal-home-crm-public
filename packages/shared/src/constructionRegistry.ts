@@ -9,6 +9,7 @@
  * Ничего не выдумываем: рейтинг считается только из фактов реестра (цвет проекта, год решения),
  * а нет данных — так и пишется («мало данных»), без числа с потолка.
  */
+import { z } from "zod";
 import { distanceMeters } from "./geo.js";
 
 export type RegistryColor = "green" | "yellow" | "red";
@@ -482,6 +483,105 @@ export function scoreRegistryMatch(input: RegistryMatchInput): RegistryMatch {
   if (p.isNewBuilding || addr.street || addr.house || named) return { level: "suggest", confidence, distanceM: distance, reasons };
   return { level: "none", confidence: 0, distanceM: distance, reasons: [] };
 }
+
+// ───────────────────────── Поиск по реестру (поле «Застройщик и разрешение», Шабнам) ─────────────────────────
+
+/**
+ * ПОИСК ПО ВСЕМУ СПИСКУ РЕЕСТРА (25.11.2026): поле выбора в мастере, форме и карточке объекта и инструмент Шабнам
+ * «привяжи объект к застройщику». Одно правило на сервер и экран. Сравниваем свёрнутые строки: регистр, таджикские
+ * буквы (Ҷамол = Чамол), русское «дж» (Джалол = Ҷалол), кавычки и знаки; организационные формы («ҶДММ», «ООО») в
+ * запросе ничего не отличают и отбрасываются.
+ */
+export function registrySearchKey(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return foldAddress(raw)
+    .replace(/[«»"'“”„‘’`().,;:_\-–—/\\№#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Слова запроса без организационных форм. Пустой запрос — пустой список. */
+export function registryQueryTokens(query: string | null | undefined): string[] {
+  const words = registrySearchKey(query).split(" ").filter(Boolean);
+  const kept = words.filter((w) => !LEGAL_FORMS.has(w));
+  return kept.length > 0 ? kept : words;
+}
+
+export interface RegistrySearchFields {
+  title: string;
+  customer: string;
+  developer?: string | null;
+  address?: string | null;
+  qaror?: string | null;
+}
+
+/**
+ * Насколько проект подходит под запрос: null — не подходит; больше — лучше. Каждое слово запроса обязано найтись
+ * в названии, застройщике, адресе или номере решения. Номер решения целиком — 100; название начинается с запроса — 90;
+ * все слова в названии — 80; в имени застройщика — 70; где-то в карточке — 50.
+ */
+export function registryQueryScore(query: string | null | undefined, fields: RegistrySearchFields): number | null {
+  const tokens = registryQueryTokens(query);
+  if (tokens.length === 0) return 0;
+  const q = tokens.join(" ");
+  const title = registrySearchKey(fields.title);
+  const developer = `${registrySearchKey(fields.customer)} ${registrySearchKey(fields.developer)}`.trim();
+  const address = registrySearchKey(fields.address);
+  const qaror = registrySearchKey(fields.qaror);
+  if (qaror && qaror === q) return 100;
+  const everywhere = `${title} ${developer} ${address} ${qaror}`;
+  if (!tokens.every((t) => everywhere.includes(t))) return null;
+  if (title.startsWith(q)) return 90;
+  if (tokens.every((t) => title.includes(t))) return 80;
+  if (tokens.every((t) => developer.includes(t))) return 70;
+  return 50;
+}
+
+/** Проект реестра в поле выбора и в списке поиска: только то, что нужно строке. */
+export interface RegistryProjectOption {
+  id: string;
+  title: string;
+  /** Застройщик (как он назван в реестре). */
+  developer: string;
+  address: string | null;
+  qaror: string;
+  color: RegistryColor;
+  /** Расстояние до точки объекта, метры; null — точки нет. */
+  distanceM: number | null;
+  sourceUrl: string;
+}
+
+export interface RegistryProjectSearchResponse {
+  enabled: boolean;
+  updatedAt: string | null;
+  /** Реестр ещё ни разу не загружался. */
+  notLoaded: boolean;
+  items: RegistryProjectOption[];
+}
+
+/** Лучший вариант для новой точки: уровень уверенности и до трёх запасных. Ничего не пишет в базу. */
+export interface RegistryMatchPreviewResponse {
+  enabled: boolean;
+  updatedAt: string | null;
+  notLoaded: boolean;
+  noPoint: boolean;
+  /** auto — подставить сразу; suggest — догадка «проверьте»; none — поле пустое. */
+  level: RegistryMatchLevel;
+  best: (RegistryProjectOption & { confidence: number; reasons: string[] }) | null;
+  alternatives: RegistryProjectOption[];
+}
+
+/**
+ * Выбор сотрудника в поле «Застройщик и разрешение», отправляется вместе с объектом (создание и правка).
+ *  - project — сотрудник выбрал проект сам: ручная связь, автоматика её не трогает;
+ *  - none — «нет в реестре / не новостройка»: связь снимается, проекты рядом больше не предлагаются.
+ * Нет поля — решает автоматика (уверенное совпадение связывается само, как раньше).
+ */
+export const registryChoiceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("project"), projectId: z.guid() }),
+  z.object({ kind: z.literal("none") }),
+]);
+export type RegistryChoice = z.infer<typeof registryChoiceSchema>;
 
 // ───────────────────────── Короткий статус объекта (список CRM и Шабнам) ─────────────────────────
 
