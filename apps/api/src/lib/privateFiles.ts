@@ -33,6 +33,11 @@ function privateDirPath(): string {
   return dir;
 }
 
+/** Корень закрытого хранилища — для подкаталогов со своей уборкой (lib/chatMediaDerived.ts). */
+export function privateDirRoot(): string {
+  return privateDirPath();
+}
+
 /** Расширение по типу содержимого — чтобы файл открывался в браузере и плеере. */
 const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": "jpg",

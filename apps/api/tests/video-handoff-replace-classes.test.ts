@@ -132,7 +132,7 @@ function startSession(propertyId: string, uploadKey: string, sizeBytes: number) 
   return request(app)
     .post(`/api/v1/properties/${propertyId}/videos/upload-sessions`)
     .set("Authorization", `Bearer ${marketingToken}`)
-    .send({ uploadKey, filename: "final.mp4", sizeBytes, contentType: "video/mp4", purpose: "handoff" });
+    .send({ uploadKey, filename: "final.mp4", sizeBytes, contentType: "video/mp4", purpose: "handoff", partSize: PART_SIZE });
 }
 
 async function uploadParts(propertyId: string, sessionId: string, totalParts: number, sizeBytes: number) {

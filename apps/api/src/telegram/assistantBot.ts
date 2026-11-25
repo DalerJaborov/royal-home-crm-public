@@ -7,7 +7,9 @@ import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPubl
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { offerTelegramLinkToNewcomer } from "./assistantGroupNewcomer.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, unaddressedHelpQuestion, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -188,8 +190,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_missed_calls",
   "get_team_load",
   "get_stuck_work",
-  // Реестр строек (21.11.2026, tools/registryReadTool.ts): только сотрудникам и только в личке.
-  "get_construction_registry",
+  // Реестр строек (tools/registryReadTool.ts) с 25.11.2026 НЕ здесь: данные публичные (memor.pro), объекты в группе и так
+  // видны через поиск, а знать о разрешении стройки должна вся команда (решение владельца 25.11.2026).
   // Разбор клиентской базы (17.11.2026, tools/clientBaseOverviewTool.ts): числа по агентам — только личка.
   "get_client_base_overview",
   // Сообщение коллеге от имени просящего (17.11.2026, tools/sendStaffMessageTool.ts): текст и получатель — только личка.
@@ -198,6 +200,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Привязка объекта к реестру строек словами (25.11.2026, tools/registryLinkTool.ts): запись уровня B без кнопки — только личка.
+  "link_property_to_registry",
   // Выход объекта из монтажа в продажу, «Готово» (17.11.2026): публикует на сайт и уведомляет агента — только в личке.
   "complete_property_editing",
   // Смена статуса объекта (17.11.2026): теперь меняется сразу (снять с продажи, продано) и закрывает показы и посты — только в личке.
@@ -1436,6 +1440,11 @@ async function answerGroupHelp(msg: TelegramIncomingMessage, isStart: boolean): 
   // отмечаем при следующей подсказке или приветствии (владелец 23.11: «все, кто нажали, пусть сработает»).
   await rememberStartPress(msg).catch((err) => logSystemError("telegram",
     `Шабнам: не удалось запомнить нажавшего /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
+  // Нажал /start, а CRM его не знает (24.11.2026): один раз кнопка привязки по номеру, ответом ему.
+  if (isStart && !(await senderOf(msg))) {
+    await offerTelegramLinkToNewcomer(msg, "start").catch((err) => logSystemError("telegram",
+      `Шабнам: предложение привязки после /start: ${describeError(err)}`, { dedupKey: "assistant-group-link-offer" }));
+  }
   if (claimGroupHint("skills", chatId)) {
     // Сбой отметки нажавших не должен лишать запросившего самой подсказки умений.
     await greetStartPressers(msg, "hint", { preClaimed: true, except: msg.from?.id ? String(msg.from.id) : undefined })
@@ -1498,8 +1507,52 @@ async function groupMontageReply(
 /**
  * Сообщение из группы. true — разобрано здесь (бот сам и адресат); false — не про
  * помощника, дальше обычная логика групп (комментарии канала).
+ *
+ * Сообщение, которое помощница не взяла, может быть от новичка, которого CRM не узнаёт
+ * (24.11.2026): ему один раз предлагаем привязку по номеру (telegram/assistantGroupNewcomer.ts).
+ * Одна точка после всего разбора: любой путь «молчим» (болтовня, вопрос без привязки) проходит здесь.
  */
 export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
+  if (await handleAssistantGroupMessageCore(msg, updateId)) return true;
+  try {
+    return await offerTelegramLinkToNewcomer(msg, "ambient");
+  } catch (err) {
+    await logSystemError("telegram", `Шабнам: предложение привязки новичку: ${describeError(err)}`, { dedupKey: "assistant-group-link-offer" });
+    return false;
+  }
+}
+
+/** Ответ на /assistant_memory (директор или админ): память группы вкл/выкл или её состояние. */
+async function groupMemoryCommand(chatId: string, arg: string, agentId: string | undefined): Promise<string> {
+  if (!agentId) return NOT_LINKED_TEXT;
+  const access = await loadAgentAccess(agentId);
+  if (!access?.isActive || !GROUP_ADMIN_ROLES.has(access.role)) return "Память группы включает и выключает только директор или администратор.";
+  const group = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+  if (!group) return "Сначала подключите группу: /assistant_on.";
+  if (arg === "on") {
+    // Уже включённую не перезапускаем: окно памяти не начинается заново.
+    await prisma.assistantTelegramGroup.updateMany({
+      where: { chatId, contextEnabledAt: null },
+      data: { contextEnabledAt: new Date(groupClock()), contextIncludeUnlinked: true },
+    });
+    await prisma.assistantTelegramGroup.updateMany({ where: { chatId }, data: { contextOptOutAt: null } });
+    return "Память группы включена: запоминаю, о чём здесь говорят, и отвечаю с учётом этого. Выключить: /assistant_memory off.";
+  }
+  if (arg === "off") {
+    await prisma.assistantTelegramGroup.updateMany({
+      where: { chatId },
+      data: { contextEnabledAt: null, contextOptOutAt: new Date(groupClock()) },
+    });
+    // Сохранённое стираем сразу, а не ночным сторожем: «выключила» должно значить «не помню».
+    await prisma.assistantTelegramContext.deleteMany({ where: { groupChatId: chatId } });
+    return "Память группы выключена, сохранённое стёрто. Включить снова: /assistant_memory on.";
+  }
+  return group.contextEnabledAt
+    ? "Память группы включена. Выключить: /assistant_memory off."
+    : "Память группы выключена. Включить: /assistant_memory on.";
+}
+
+async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") return false;
   // Группа стала супергруппой: регистрация переезжает на новый id. ДО проверки «группа подключена»
   // (на новом id её ещё нет) и без отправителя-сотрудника: это служебное сообщение Telegram, в чат ничего не пишем.
@@ -1535,7 +1588,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   let raw = (msg.text ?? "").trim();
   const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
   const forwardedText = isForwarded ? (msg.text ?? msg.caption ?? "").trim() : "";
-  const groupCommand = isForwarded ? null : new RegExp(`^/assistant_(on|off|quiet|resume|mode)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
+  const groupCommand = isForwarded ? null : new RegExp(`^/assistant_(on|off|quiet|resume|memory|mode)(?:@${escapeRe(botUsername)})?(?:\\s+(on|off))?(?:\\s|$)`, "i").exec(raw);
   const verb = groupCommand?.[1].toLowerCase();
   const onOff = verb === "on" || verb === "off" ? groupCommand : null;
   const participation = verb === "quiet" || verb === "resume" ? verb
@@ -1576,7 +1629,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     if (!continuationRef && !isForwarded) windowText = windowRequest(msg, key);
     if (!continuationRef && windowText === null && key && !isForwarded) {
       automatic = unaddressedPropertyQuestion(raw);
-      automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
+      // Ясный вопрос без обращения (24.11.2026): подбор вариантов и «как сделать в CRM» — тем же путём
+      // «только чтение», что и вопросы по объектам. Ответ на сообщение человека — разговор людей, мимо.
+      automaticRead = !automatic && (statusFollowUp
+        || (!msg.reply_to_message && (unaddressedReadRequest(raw) || unaddressedHelpQuestion(raw))));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
     if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) {
@@ -1623,6 +1679,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       return true;
     }
     const sender = membership === "people-joined" ? null : await senderOf(msg);
+    if (verb === "memory") {
+      await reply(await groupMemoryCommand(chatId, groupCommand?.[2]?.toLowerCase() ?? "", sender?.id));
+      return true;
+    }
     if (onOff || membership === "bot-added") {
       // Нет прав подключать (не привязан к CRM или не директор/админ): группу НЕ подключаем, но и не
       // молчим (23.11.2026). Добавление бота и /assistant_on в ещё не подключённой группе получают
@@ -1753,6 +1813,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    // Рубильник «Шабнам отвечает в группах без обращения» (24.11.2026, ВКЛ). Выключен — только тем, кто
+    // позвал; продолжение уже начатого разговора (окно диалога) остаётся: его начал человек обращением.
+    if (!addressed && windowText === null && !continuationRef
+        && !(await automationSwitchOn("shabnamGroupUnaddressedEnabled"))) return false;
     // Режим «слушает»: только запоминает, сама ни на что не отвечает; зовут по имени, /ai или ответом на её сообщение.
     if (!addressed && !groupCommand && resolveGroupMode(registered.chatMode) === "LISTEN") return false;
     const showWorking = () => void (msg.message_thread_id === undefined
@@ -1888,7 +1952,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         text = raw;
       } else {
         automatic = unaddressedPropertyQuestion(raw);
-        automaticRead = !automatic && (statusFollowUp || unaddressedReadRequest(raw));
+        automaticRead = !automatic && (statusFollowUp || unaddressedReadRequest(raw)
+          || (!msg.reply_to_message && unaddressedHelpQuestion(raw)));
         if (!automatic && !automaticRead && !isForwarded && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
         if (!automatic && !automaticRead && !automaticAction) return false;
       }
@@ -2011,6 +2076,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     if (!addressed && !continuationRef && windowText === null) return false;
 
     if (!sender) {
+      // Позвал, а CRM его не знает (24.11.2026): вместо «я вас не знаю» сразу кнопка привязки по номеру.
+      if (!msg.sender_chat && await offerTelegramLinkToNewcomer(msg, "addressed")) return true;
       await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
       return true;
     }

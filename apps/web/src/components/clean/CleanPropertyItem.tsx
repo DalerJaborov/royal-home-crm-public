@@ -6,6 +6,7 @@ import { formatArea, formatMoney, formatPricePerSqm, STAGE_OWNER_LABELS } from "
 import { formatPropertyCode } from "../../lib/clientFormat";
 import { statusChipClass, statusChipLabel } from "../../lib/theme2026";
 import { PropertyHealthDot } from "../PropertyHealthDot";
+import { RegistryBadge } from "../RegistryBadge";
 import { PropertyStats } from "../PropertyStats";
 import { CButton, CChip, cn } from "./ui";
 import { CleanPropertyIllustration } from "./CleanPropertyIllustration";
@@ -39,7 +40,7 @@ export function CleanPropertyItem({ property: p, health, variant = "row", select
         {p.photos.length > 0 && <span className="absolute top-3 right-3 rounded-full bg-card px-2.5 py-1 text-[13px] text-ink shadow-sm">Фото: {p.photos.length}</span>}
       </div>
       <div className={cn("min-w-0 flex-1", card && "flex flex-col p-4")}>
-        <div className={cn("relative flex flex-wrap items-center gap-2 text-[14px] text-gray-500", card ? "min-h-8" : "min-h-11")}><PropertyHealthDot health={health} /><span>{formatPropertyCode(p.shortId)}</span><span className={statusChipClass(p.status, p.pipeline)}>{statusChipLabel(p.status, p.pipeline)}</span>{p.publishedOnSite && <CChip tone="ok">На сайте</CChip>}</div>
+        <div className={cn("relative flex flex-wrap items-center gap-2 text-[14px] text-gray-500", card ? "min-h-8" : "min-h-11")}><PropertyHealthDot health={health} /><span>{formatPropertyCode(p.shortId)}</span><span className={statusChipClass(p.status, p.pipeline)}>{statusChipLabel(p.status, p.pipeline)}</span><RegistryBadge brief={p.registry} />{p.publishedOnSite && <CChip tone="ok">На сайте</CChip>}</div>
         <h2 className={cn("break-words font-semibold text-ink", card ? "mt-1 line-clamp-1 text-[17px]" : "mt-2 text-[18px]")}>{p.title}</h2>
         <p className={cn("mt-1 break-words text-[14px] text-gray-500", card && "line-clamp-2")}>{p.district?.name ?? "Район не указан"}{p.address ? ` · ${p.address}` : ""} · {formatArea(p.areaSqm)} м²{floors}</p>
         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1"><strong className="text-[20px] font-semibold text-ink">{formatMoney(p.price, p.currency)}</strong><span className="text-[14px] text-gray-500">{formatPricePerSqm(p.price, p.areaSqm, p.currency)}</span></div>

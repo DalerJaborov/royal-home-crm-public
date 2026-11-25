@@ -2,6 +2,9 @@ import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Check, Clock, Film, Image as ImageIcon, Loader2, Plus, RotateCw, Upload, X } from "lucide-react";
 import { WizIcon } from "../look/wizard/WizIcon";
 import { formatUploadSize } from "../UploadTaskRow";
+import { useUploadSpeed } from "../UploadProgressLine";
+import { formatUploadLive } from "../../lib/upload/progressText";
+import { KEEP_SCREEN_ON_HINT } from "../../lib/upload/wakeLock";
 import {
   addDraftPhotos,
   addDraftVideos,
@@ -561,8 +564,10 @@ function VideoRow({
   // ГЛАВНОЕ — СТАТУС ЗАГРУЗКИ, А НЕ ЧИП (задание, пункт 4: раньше при
   // «uploading» строка показывала только чип «Исходник монтажёру», и агент
   // видел его вместо честного прогресса — жалоба «видео не видно, что грузится»).
+  // Скорость и сколько осталось (25.11.2026, находка 12) — та же строка, что у всех загрузок.
+  const { speed, now } = useUploadSpeed(item.loaded, uploading);
   const meta = uploading
-    ? `${formatUploadSize(item.loaded)} из ${formatUploadSize(item.sizeBytes)} · ${percent}%`
+    ? `${percent}% · ${formatUploadLive({ phase: "uploading", loaded: item.loaded, total: item.sizeBytes }, speed, now)}`
     : item.status === "queued"
       ? videoWaitReason(item, photos, videos)
       : `${formatUploadSize(item.sizeBytes)} · ${statusText(item)}`;
@@ -590,6 +595,7 @@ function VideoRow({
             <ProgressBar percent={percent} tone={bad ? "warn" : "acc"} />
           </div>
         )}
+        {uploading && <div className="mt">{KEEP_SCREEN_ON_HINT}</div>}
       </div>
       <div className="act">
       <span className={bad ? "chip warn" : offSite ? "chip ok" : "chip acc"}>

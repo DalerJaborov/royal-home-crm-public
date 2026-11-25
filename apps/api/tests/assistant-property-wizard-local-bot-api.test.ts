@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { UPLOAD_PART_BYTES } from "@royal-home/shared";
 
 /**
  * СВОЙ BOT API-СЕРВЕР (прод, `--local`): ролик больше 20 МБ мастер объекта в
@@ -62,7 +63,7 @@ describe("мастер объекта на своём Bot API-сервере", (
     expect(TELEGRAM_DRAFT_VIDEO_LIMIT_BYTES).toBe(LOCAL_LIMIT);
   });
 
-  it("ролик 25 МБ с диска сервера попадает в черновик тремя частями по 8 МБ и хвостом", async () => {
+  it("ролик 25 МБ с диска сервера попадает в черновик частями плана (UPLOAD_PART_BYTES) и хвостом", async () => {
     const size = 25 * 1024 * 1024;
     const file = path.join(tmp, "big.mp4");
     const handle = await open(file, "w");
@@ -73,7 +74,7 @@ describe("мастер объекта на своём Bot API-сервере", (
     await send(2, { video: { file_id: "big", file_size: size, mime_type: "video/mp4" } });
     await waitForTelegramDraftUploadsForTests();
     const video = (await prisma.propertyDraftMedia.findMany({ where: { draft: { agentId }, kind: "VIDEO" } }))[0];
-    expect(video).toMatchObject({ status: "READY", sizeBytes: size, totalParts: 4 });
+    expect(video).toMatchObject({ status: "READY", sizeBytes: size, totalParts: Math.ceil(size / UPLOAD_PART_BYTES) });
     // Таймаут getFile — общий (свой сервер сначала сам докачивает файл у Telegram).
     expect(resolveFile).toHaveBeenCalledWith("big", LOCAL_LIMIT);
     expect(String((sendMessageWithButtons.mock.calls.at(-1) as unknown[] | undefined)?.[1])).toContain("Видео добавлено");

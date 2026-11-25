@@ -1321,7 +1321,7 @@ for (const width of [1440, 390]) test(`Clean settings tasks separate daily rules
   });
   const tasks = [
     ["agency", "company", "Компания"], ["agency", "locations", "Районы"],
-    ["money", "commission", "Структура комиссии сделки"], ["money", "currency", "Курс доллара к сомони"],
+    ["money", "commission", "План комиссии"], ["money", "currency", "Курс доллара к сомони"],
     ["leads", "intake", "Свой объект: свой клиент"], ["leads", "distribution", "Распределение заявок"], ["leads", "deadlines", "Бездействие по клиенту"],
     ["matching", "matching", "Автоподбор"], ["team", "people", "Люди"], ["team", "rating", "Royal Score — рубильник модуля"],
     ["channels", "messengers", "WhatsApp, Instagram и Messenger через Meta"], ["channels", "publishing", "Обложки для соцсетей"],
@@ -1358,7 +1358,7 @@ for (const width of [1440, 390]) test(`Clean settings tasks separate daily rules
       if (task === "commission") await expect(panel.getByRole("heading", { name: "Сроки и лимиты по заявкам", exact: true })).toHaveCount(0);
       if (task === "deadlines") {
         await expect(panel.getByRole("heading", { name: "Сроки и лимиты по заявкам", exact: true })).toBeVisible();
-        await expect(panel.getByRole("heading", { name: "Структура комиссии сделки", exact: true })).toHaveCount(0);
+        await expect(panel.getByRole("heading", { name: "План комиссии", exact: true })).toHaveCount(0);
       }
       if (task === "phone") {
         await expect(panel.getByRole("heading", { name: "Обложки для соцсетей", exact: true })).toHaveCount(0);
@@ -1410,14 +1410,14 @@ for (const width of [1440, 390]) test(`Clean commission and operations save only
   await page.setViewportSize({ width, height: width < 820 ? 844 : 1000 });
   await page.goto("/settings?tab=money&task=commission");
   let form = page.locator(".sset-body form").first();
-  await expect(form.getByLabel("Кто продал (риелтор), %", { exact: true })).toHaveValue(String(snapshot.commissionRealtorPercent));
+  await expect(form.getByLabel(/План комиссии на месяц/)).toHaveValue(String(Number(snapshot.monthlyCommissionPlan)));
   await form.getByRole("button", { name: "Сохранить", exact: true }).click();
   await expect.poll(() => attempted.length).toBe(1);
-  expect(Object.keys(attempted[0]).sort()).toEqual(["commissionCompanyPercent", "commissionRealtorPercent", "monthlyCommissionPlan"].sort());
+  expect(Object.keys(attempted[0]).sort()).toEqual(["monthlyCommissionPlan"]);
   expect(attempted[0].monthlyCommissionPlan).toBe(Number(snapshot.monthlyCommissionPlan));
   await page.goto("/settings?tab=leads&task=deadlines");
   form = page.locator(".sset-body form").first();
-  await expect(form.getByRole("heading", { name: "Структура комиссии сделки", exact: true })).toHaveCount(0);
+  await expect(form.getByRole("heading", { name: "План комиссии", exact: true })).toHaveCount(0);
   await form.getByRole("button", { name: "Сохранить", exact: true }).click();
   await expect.poll(() => attempted.length).toBe(2);
   expect(Object.keys(attempted[1]).sort()).toEqual([

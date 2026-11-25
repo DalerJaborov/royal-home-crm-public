@@ -15,9 +15,11 @@
  * одни и те же ключевые факты — адрес и цифры.
  *
  * Содержание — Нурмухаммад 28.09.2026 (отбирает кандидатов), решения Dan 28.09:
- * запрет на цифры снят (2% / 1% / 0,5%, $500 / $1000 / до $10 тыс.), адрес —
+ * запрет на цифры снят (2% / 1%, $500 / $1000 / до $10 тыс.), адрес —
  * Дом печати, Бухоро 49, машина + сильное желание = зелёный, 24 года проходит.
  */
+
+import { COMMISSION_COMPANY_PERCENT, COMMISSION_REALTOR_PERCENT, COMMISSION_TOTAL_PERCENT } from "@royal-home/shared";
 
 export const VACANCY_FACTS = {
   company: {
@@ -40,11 +42,9 @@ export const VACANCY_FACTS = {
   /** Деньги — только так, как сказал владелец. «От» и «до» — ориентиры, не гарантия. */
   pay: {
     salary: "оклада нет — доход только от процента со сделок",
-    commissionTotalPct: 2,
-    agentPct: 1,
-    companyPct: 1,
-    /** Объект одного агента, покупатель другого — 1% делится пополам. */
-    splitPct: 0.5,
+    commissionTotalPct: COMMISSION_TOTAL_PERCENT,
+    agentPct: COMMISSION_REALTOR_PERCENT,
+    companyPct: COMMISSION_COMPANY_PERCENT,
     newbieFromUsd: 500,
     experiencedFromUsd: 1000,
     topUpToUsd: "9–10 тысяч",
@@ -117,7 +117,6 @@ function payLines(): string {
   const p = VACANCY_FACTS.pay;
   return (
     `${p.salary}. Компания берёт ${p.commissionTotalPct}% с закрытой сделки: ${p.agentPct}% агенту, ${p.companyPct}% компании. ` +
-    `Если объект одного агента, а покупатель другого — ${p.agentPct}% делится пополам, по ${String(p.splitPct).replace(".", ",")}%. ` +
     `Новички зарабатывают от ${p.newbieFromUsd} долларов в месяц, опытные — от ${p.experiencedFromUsd} долларов, ` +
     `лучшие доходят до ${p.topUpToUsd} долларов; ${p.pitch}.`
   );

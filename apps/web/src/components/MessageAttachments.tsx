@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Clock, FileText, ImageOff, Lock, Mic, X } from "lucide-react";
-import { useAttachmentUrl } from "../lib/attachmentUrl";
+import { AlertTriangle, Clock, FileText, ImageOff, Lock, Mic, X } from "lucide-react";
+import { whereToLook } from "@royal-home/shared";
+import { browserPlays, useAttachmentUrl, usePlayableUrl } from "../lib/attachmentUrl";
 import type { MessageAttachment } from "../types";
 import { RhAudioPlayer } from "./look/RhAudioPlayer";
 
@@ -79,29 +80,105 @@ const KIND_LOCKED: Record<string, string> = {
   file: "Документ: доступно руководству",
 };
 
+/** Что не сохранилось и почему — простыми словами (lib/customerInputMedia.ts на сервере). */
+const LOST_WHAT: Record<string, string> = { image: "фото", audio: "голосовое", video: "видео", file: "файл" };
+const LOST_WHY: Record<string, string> = {
+  unsupported: "формат CRM не открывает",
+  failed: "не скачалось",
+  too_many: "слишком много файлов за раз",
+};
+const LOST_LIMIT: Record<string, string> = {
+  image: "больше 5 МБ",
+  audio: "длиннее 10 минут или больше 3 МБ",
+  video: "больше 16 МБ или длиннее 3 минут",
+  file: "больше 16 МБ",
+};
+
+export function lostAttachmentText(kind: string, reason: string, channel?: string | null): string {
+  const what = LOST_WHAT[kind] ?? "файл";
+  const why = reason === "too_big" || reason === "too_long" ? LOST_LIMIT[kind] ?? "слишком большой" : LOST_WHY[reason] ?? LOST_WHY.failed;
+  return `Клиент прислал ${what} — ${why}, в CRM не сохранилось. Откройте ${whereToLook(channel)}`;
+}
+
 function AttachmentItem({
   attachment,
   rh2,
   bubble,
   onImageClick,
+  channel,
 }: {
   attachment: MessageAttachment;
   rh2: boolean;
   /** Внутри пузыря переписки (инбокс и мобильный диалог) — голосовое рисуется без подложки. */
   bubble: boolean;
   /** Открыть кадр в просмотрщике ВСЕЙ переписки, а не в одиночном Fullscreen
-   *  ниже — задаётся только там, где просмотрщик есть (Messages.tsx,
-   *  MobileChatView.tsx). Без него — прежнее поведение «во весь экран». */
+   *  ниже — задаётся только там, где просмотрщик есть (Messages.tsx). Без него —
+   *  прежнее поведение «во весь экран». */
   onImageClick?: () => void;
+  channel?: string | null;
 }) {
+  /**
+   * ПРЯМАЯ ССЫЛКА (25.11.2026, «фото и видео не открываются»). Сервер кладёт в
+   * вложение подписанную ссылку `src` (lib/chatAttachmentLinks.ts на сервере), и
+   * тег грузит файл сам: лениво, кусками (Range — перемотка видео и голосовых),
+   * из кэша браузера. Раньше КАЖДЫЙ файл диалога качался целиком в момент
+   * открытия, и четыре видео по 16 МБ держали серую заглушку минутами.
+   * Прямая ссылка не сработала (устарела, сеть) — один раз прежним путём:
+   * скачать с заголовком Authorization.
+   */
+  /**
+   * УСТОЙЧИВЫЕ ССЫЛКИ (ревью #428). Переписка опрашивается, и раз в два часа сервер
+   * выдаёт ту же ссылку с новой подписью. Менять `src` у идущего видео нельзя — оно
+   * начнётся сначала. Поэтому держим первую выданную ссылку на ЭТОТ файл и берём
+   * новую только когда старая не открылась (подпись истекла). Новый файл (другое
+   * вложение на том же месте) — всё с начала: и ссылки, и состояние видео.
+   */
+  const fileKey = attachment.file ?? attachment.url ?? "";
+  const [links, setLinks] = useState({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+  const [videoStep, setVideoStep] = useState<"original" | "play" | "broken">("original");
+  if (links.key !== fileKey) {
+    setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+    setVideoStep("original");
+  }
+  /**
+   * Пришла свежая подпись той же ссылки (переписка опрашивается). Пока замороженная
+   * ссылка работает, её не трогаем; не открылась — сначала берём свежую, и только
+   * если свежей нет, считаем прямую ссылку сломанной (повторное ревью #428: истёкшая
+   * подпись у видео/голосового уводила в «не воспроизводится» с просроченной ссылкой).
+   */
+  const hasFresherLinks = !!attachment.src && attachment.src !== links.src;
+  const refreshLinks = () =>
+    setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
+  /** Прямая ссылка не открылась: есть свежая подпись — берём её, иначе прежний путь. */
+  const onDirectError = () => {
+    if (hasFresherLinks) refreshLinks();
+    else setLinks((l) => ({ ...l, broken: true }));
+  };
+  const direct = !attachment.url && !!links.src;
+  const useDirect = direct && !links.broken;
   // Фотография объекта, которую отправил бот, лежит в открытой папке /uploads и
-  // подставляется в <img> напрямую — качать её через маршрут с правом не нужно и
-  // незачем: те же снимки видны в карточке объекта и на сайте.
-  const stored = useAttachmentUrl(attachment.url ? null : attachment.file);
-  const url = attachment.url ?? stored.url;
-  const failed = attachment.url ? false : stored.failed;
-  const [zoomed, setZoomed] = useState(false);
+  // подставляется в <img> напрямую — качать её через маршрут с правом не нужно.
+  const stored = useAttachmentUrl(attachment.url || useDirect || attachment.lost ? null : attachment.file);
   const isImage = attachment.kind === "image";
+  const fullUrl = attachment.url ?? (useDirect ? links.src ?? null : stored.url);
+  const url = attachment.url ?? (useDirect ? (isImage ? links.thumb ?? links.src ?? null : links.src ?? null) : stored.url);
+  const failed = attachment.url || useDirect ? false : stored.failed;
+  const [zoomed, setZoomed] = useState(false);
+  // Голосовое ogg/opus, которое этот браузер не играет, — сразу версия m4a.
+  const audioNeedsPlay = attachment.kind === "audio" && useDirect && !!links.play && !browserPlays(attachment.mime);
+  // Версия для браузера готовится на сервере (503 + Retry-After) — ждём её, а не
+  // подсовываем плееру адрес, который пока отвечает ошибкой.
+  const playable = usePlayableUrl(links.play ?? null, (attachment.kind === "video" && videoStep === "play") || audioNeedsPlay);
+  // Версия для браузера ответила 403 — подпись истекла: берём свежую, как только она есть.
+  useEffect(() => {
+    if (playable.state === "expired" && hasFresherLinks) refreshLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- реагируем на смену состояния и свежую ссылку
+  }, [playable.state, attachment.src]);
+
+  // Клиент прислал, а сохранить не вышло — честная причина, а не пустота.
+  if (attachment.lost) {
+    return <Note icon={AlertTriangle} rh2={rh2}>{lostAttachmentText(attachment.kind, attachment.lost, channel)}</Note>;
+  }
 
   // Файл убран уборкой по сроку хранения (lib/outgoingMediaCleanup.ts, 7 дней) —
   // честная пометка вместо битой картинки/404. Проверяем ДО попытки скачать: сам
@@ -122,7 +199,7 @@ function AttachmentItem({
     return <Note icon={ImageOff} rh2={rh2}>Вложение не открылось</Note>;
   }
 
-  if (!url) {
+  if (!url || !fullUrl) {
     if (rh2) {
       // `.sk` прототипа: тот же скелетон, что у остальных состояний макета.
       return (
@@ -160,9 +237,13 @@ function AttachmentItem({
             className={rh2 ? undefined : "w-[88px] h-[88px] object-cover"}
             style={rh2 ? { width: "100%", height: "100%", objectFit: "cover", display: "block" } : undefined}
             loading="lazy"
+            decoding="async"
+            onError={() => {
+              if (useDirect) onDirectError();
+            }}
           />
         </button>
-        {zoomed && <Fullscreen url={url} onClose={() => setZoomed(false)} />}
+        {zoomed && <Fullscreen url={fullUrl} onClose={() => setZoomed(false)} />}
       </>
     );
   }
@@ -177,12 +258,50 @@ function AttachmentItem({
    * при открытии диалога значило бы отдать мобильный трафик агента впустую.
    */
   if (attachment.kind === "video") {
+    if (videoStep === "broken") {
+      return (
+        <Note icon={ImageOff} rh2={rh2}>
+          Видео не воспроизводится в браузере.{" "}
+          <a href={fullUrl} download style={{ textDecoration: "underline" }}>
+            Скачать
+          </a>
+        </Note>
+      );
+    }
+    if (videoStep === "play" && playable.state !== "ready") {
+      if (playable.state === "expired") {
+        return <Note icon={Clock} rh2={rh2}>Обновляем ссылку на видео…</Note>;
+      }
+      if (playable.state === "failed") {
+        return (
+          <Note icon={ImageOff} rh2={rh2}>
+            Видео не воспроизводится в браузере.{" "}
+            <a href={fullUrl} download style={{ textDecoration: "underline" }}>
+              Скачать
+            </a>
+          </Note>
+        );
+      }
+      return <Note icon={Clock} rh2={rh2}>Готовим видео для браузера…</Note>;
+    }
+    const videoSrc = videoStep === "play" && links.play ? links.play : url;
     return (
       <video
-        src={url}
+        // Ключ — файл и шаг, а не адрес: новая подпись той же ссылки не перезапускает ролик.
+        key={`${fileKey}:${videoStep}`}
+        src={videoSrc}
         controls
-        preload="none"
+        // metadata, а не none: по прямой ссылке браузер берёт только заголовок
+        // файла (несколько КБ кусками Range) — видна длина и первый кадр, а не
+        // чёрный прямоугольник. Сам ролик качается только по «играть».
+        preload={useDirect ? "metadata" : "none"}
         playsInline
+        onError={() => {
+          // Сначала — не истекла ли подпись: свежая ссылка, шаг тот же.
+          if (useDirect && hasFresherLinks) refreshLinks();
+          else if (videoStep === "original" && useDirect && links.play) setVideoStep("play");
+          else if (useDirect) setVideoStep("broken");
+        }}
         className={rh2 ? undefined : "rounded-lg border border-line max-w-[240px] w-full"}
         style={
           rh2
@@ -205,7 +324,7 @@ function AttachmentItem({
     return (
       <a
         href={url}
-        download
+        {...(useDirect ? { target: "_blank", rel: "noopener noreferrer" } : { download: true })}
         className={
           rh2
             ? "att"
@@ -218,6 +337,25 @@ function AttachmentItem({
     );
   }
 
+  // Голосовое WhatsApp/Telegram — ogg/opus; Safari старше iOS 18.4 его не играет.
+  // Браузер честно говорит это заранее (canPlayType) — тогда сразу версия m4a,
+  // иначе оригинал, а m4a — запасной путь на ошибку плеера.
+  if (audioNeedsPlay && playable.state !== "ready") {
+    return playable.state === "expired" ? (
+      <Note icon={Clock} rh2={rh2}>Обновляем ссылку на голосовое…</Note>
+    ) : playable.state === "failed" ? (
+      <Note icon={ImageOff} rh2={rh2}>
+        Голосовое не воспроизводится в этом браузере.{" "}
+        <a href={fullUrl} download style={{ textDecoration: "underline" }}>
+          Скачать
+        </a>
+      </Note>
+    ) : (
+      <Note icon={Clock} rh2={rh2}>Готовим голосовое…</Note>
+    );
+  }
+  const audioSrc = audioNeedsPlay && links.play ? links.play : url;
+  const audioFallback = useDirect && links.play && audioSrc !== links.play ? links.play : undefined;
   return (
     /**
      * ГОЛОСОВОЕ ДОЛЖНО БЫТЬ ЯВНО СЛЫШНО, А НЕ ТОЛЬКО ПРОЧИТАНО (16.08.2026, по
@@ -235,18 +373,18 @@ function AttachmentItem({
     rh2 ? (
       <div className="voice">
         <Mic className="i" strokeWidth={1.8} />
-        <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
       </div>
     ) : bubble ? (
       // Как в WhatsApp: плеер прямо в пузыре, без белой подложки и значка микрофона. Файл уже скачан
       // (blob), поэтому длина читается из него сразу — вместо «0:00» до первого нажатия.
       <div className="mt-1" data-voice-in-bubble="">
-        <RhAudioPlayer src={url} speeds preload="metadata" label="Голосовое" inBubble className="w-[280px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload="metadata" label="Голосовое" inBubble className="w-[280px] max-w-full" />
       </div>
     ) : (
       <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1.5">
         <Mic className="h-3.5 w-3.5 shrink-0 text-gray-400" strokeWidth={1.8} />
-        <RhAudioPlayer src={url} speeds preload="none" label="Голосовое" className="w-[300px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
       </div>
     )
   );
@@ -265,8 +403,11 @@ export function MessageAttachments({
   rh2 = false,
   inBubble = false,
   onImageClick,
+  channel,
 }: {
   attachments?: MessageAttachment[];
+  /** Канал переписки — для пометки «откройте в WhatsApp» у несохранённого файла. */
+  channel?: string | null;
   rh2?: boolean;
   /** Вложения лежат в пузыре переписки (`.bub`): голосовое без белой карточки. */
   inBubble?: boolean;
@@ -300,6 +441,7 @@ export function MessageAttachments({
             rh2={rh2}
             bubble={inBubble}
             onImageClick={isImage && onImageClick ? () => onImageClick(capturedIndex) : undefined}
+            channel={channel}
           />
         );
       })}

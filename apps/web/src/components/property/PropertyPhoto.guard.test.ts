@@ -14,8 +14,9 @@ const IMG_ALLOWED: Record<string, { count: number; why: string }> = {
   "components/property/PropertyPhoto.tsx": { count: 2, why: "сама дверь: фото и его размытая подложка (contain)" },
   // не фото объекта
   "components/MessageAttachments.tsx": { count: 2, why: "вложения переписки" },
-  "pages/Messages.tsx": { count: 2, why: "вложения и загрузка в чате" },
-  "components/mobile/MobileChatView.tsx": { count: 2, why: "вложения и загрузка в чате" },
+  "pages/Messages.tsx": { count: 1, why: "вложения в чате" },
+  "components/mobile/MobileChatView.tsx": { count: 1, why: "вложения в чате" },
+  "components/PendingMediaBubble.tsx": { count: 1, why: "превью фото, которое ещё уходит клиенту (общий пузырь ПК и телефона)" },
   "components/ProfileAvatar.tsx": { count: 1, why: "аватар сотрудника" },
   "components/Sidebar.tsx": { count: 1, why: "аватар сотрудника" },
   "components/SellerPicker.tsx": { count: 1, why: "аватар продавца" },

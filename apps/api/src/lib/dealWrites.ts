@@ -3,6 +3,9 @@ import { z } from "zod";
 import { closeWorkAfterLeavingSale } from "./propertyLeftSale.js";
 import type { Deal, Prisma } from "../generated/prisma/client.js";
 import {
+  COMMISSION_COMPANY_PERCENT,
+  COMMISSION_REALTOR_PERCENT,
+  COMMISSION_TOTAL_PERCENT,
   DEAL_DOCUMENT_KIND_LABELS,
   dealCreateSchema,
   dealPayoutSchema,
@@ -209,7 +212,7 @@ export async function createDealFor(
     });
   }
   if (!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)) {
-    return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от цены объекта)" });
   }
   // deletedAt: null — через интерфейс недостижимо (селекты питаются отфильтрованными
   // списками), но прямой вызов API заводил сделку по объекту из Корзины: объект уходил
@@ -272,22 +275,15 @@ export async function createDealFor(
   // закрытия живёт в PATCH, единственном пути закрытия сделки.
 
   // Для агента поля выше отвергнуты, так что здесь они всегда undefined — комиссия
-  // придёт из Настроек. Руководитель может задать свою (одно из двух полей).
+  // посчитается как 2% от цены объекта. Руководитель может задать свою (одно из двух полей).
   let commissionPercent = data.commissionPercent;
   let commissionAmount = data.commissionAmount;
   if (commissionPercent === undefined && commissionAmount === undefined) {
-    // Проверка без записи не заводит строку Настроек: нет строки — нет и оценки.
-    const settings = opts.dryRun
-      ? await prisma.settings.findUnique({ where: { id: "singleton" } })
-      : await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
-    if (settings) {
-      // Комиссия сделки = интейкер + риелтор + компания (по умолчанию 0.5+0.5+1 = 2%).
-      commissionPercent =
-        Number(settings.commissionIntakePercent) +
-        Number(settings.commissionRealtorPercent) +
-        Number(settings.commissionCompanyPercent);
-      commissionAmount = commissionOf(property.price, commissionPercent);
-    }
+    // Оценка комиссии: 2% от цены объекта (1% агенту + 1% компании, владелец 25.11.2026).
+    // Раньше брали сумму трёх долей из Настроек вместе с отменённым приёмом 0,5%: на проде
+    // выходило 2,5%. Настройки больше не читаем, строку Настроек тут не заводим.
+    commissionPercent = COMMISSION_TOTAL_PERCENT;
+    commissionAmount = commissionOf(property.price, commissionPercent);
   } else if (commissionAmount === undefined && commissionPercent !== undefined) {
     // Руководитель задал ТОЛЬКО процент. Раньше сумма так и оставалась null:
     // ветка выше срабатывает лишь когда пусты ОБА поля. В деньгах считается
@@ -685,7 +681,7 @@ export async function updateDealFor(
     });
   }
   if (!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)) {
-    return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от цены объекта)" });
   }
   // Суммы риелтора/компании — вводит сам агент, но ТОЛЬКО в момент отправки на
   // закрытие. Править их у уже отправленной или закрытой сделки — снова дело
@@ -1083,13 +1079,10 @@ export async function updateDealFor(
           refusedLeadSplit: existing.refusedLeadSplit,
         };
       } else if (isCompleting || isRepricingClosed) {
-        const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
-        const realtorP = Number(settings.commissionRealtorPercent);
-        // 0,5% «за приём объекта» отменены 11.09.2026: Settings.commissionIntakePercent
-        // остаётся в схеме как история (поле убрано из UI и Zod), но доля, которую
-        // оно когда-то отводило интейкеру, теперь всегда прибавляется к доле компании —
-        // ровно так, как уже было для объектов без интейкера.
-        const companyP = Number(settings.commissionCompanyPercent) + Number(settings.commissionIntakePercent);
+        // Деление при закрытии: 1% агенту, 1% компании (владелец 25.11.2026), приёма 0,5% нет.
+        // Раньше доля интейка из Настроек прибавлялась к компании: 40% агенту и 60% компании.
+        const realtorP = COMMISSION_REALTOR_PERCENT;
+        const companyP = COMMISSION_COMPANY_PERCENT;
         const totalP = realtorP + companyP;
         const base = Number(data.commissionAmount ?? existing.commissionAmount ?? 0);
         const baseCents = toCents(base);
