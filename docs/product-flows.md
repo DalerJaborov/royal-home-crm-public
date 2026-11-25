@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2480**; вместе с задачами по расписанию и фоновыми заданиями — **4190**. Модулей: **87**.
+Путей: **775**. Развилок в самих путях: **2478**; вместе с задачами по расписанию и фоновыми заданиями — **4188**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18667,7 +18667,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - traceOutcome("blocked", "dm_lane_held");
+              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -18710,17 +18710,6 @@
               - const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}…
                 · дословно из кода
               - if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …
-                · дословно из кода
-            - если DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")
-              - if (msg.channel === "WHATSAPP") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…
-                · дословно из кода
-            - если (msg.attachmentType === "share" || msg.attachmentType === "ig_post") && msg.channel !== "WHATSAPP" && isMetaC…
-              - attachments.push({ url: msg.attachmentUrl!, declaredKind: "image" });
-                · дословно из кода
-            - для каждого: const extra of msg.extraAttachments ?? []
-              - if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? "")) continue;
-                · дословно из кода
-              - if (extra.type === "ig_reel" && isInstagramLink(extra.url)) continue;
                 · дословно из кода
             - если msg.replyToStoryUrl
               - attachments.push({ url: msg.replyToStoryUrl });
@@ -23879,7 +23868,7 @@
         - если !m
           - continue;
             · переходит к следующему
-        - remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === "fail" && olderThanDay(full));
+        - remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));
           · зовёт privateFilePath()
       - если !remove
         - continue;

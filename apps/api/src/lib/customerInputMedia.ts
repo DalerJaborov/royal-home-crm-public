@@ -128,8 +128,20 @@ export async function attachOrPark(
               ${JSON.stringify(files)}::jsonb, ${JSON.stringify(lost)}::jsonb)
       ON CONFLICT ("channel", "subscriberId", "mid") DO NOTHING
       RETURNING "id"`;
-    // Строка уже была — это повтор вебхука: наши копии лишние, ждёт первая.
-    const drop = inserted.length ? [] : fileNames(files);
+    // Строка уже была — это повтор вебхука. Ждут её файлы, наши копии лишние; но если
+    // первая попытка ничего не скачала (только пометки), а эта скачала — ждать
+    // должны наши файлы (повторное ревью #428).
+    let drop: string[] = [];
+    if (!inserted.length) {
+      const updated = files.length
+        ? await tx.$queryRaw<{ id: string }[]>`
+            UPDATE "CustomerPendingMedia" SET "files" = ${JSON.stringify(files)}::jsonb, "lost" = ${JSON.stringify(lost)}::jsonb
+            WHERE "channel" = ${input.channel} AND "subscriberId" = ${input.subscriberId} AND "mid" = ${input.mid}
+              AND jsonb_array_length("files") = 0
+            RETURNING "id"`
+        : [];
+      if (!updated.length) drop = fileNames(files);
+    }
 
     const conversations = await tx.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "BotConversation"
@@ -145,7 +157,9 @@ export async function attachOrPark(
         return { result: "already" as const, drop: [...drop, ...fileNames(parked?.attachments)] };
       }
       if (parked?.attachments?.length) entry.attachments = parked.attachments as unknown as Prisma.JsonArray;
+      // Пометки — ровно от этой попытки: старая «не скачалось» после удачного повтора врала бы.
       if (parked?.attachmentsLost?.length) entry.attachmentsLost = parked.attachmentsLost as unknown as Prisma.JsonArray;
+      else if (parked?.attachments?.length) delete entry.attachmentsLost;
       await tx.botConversation.update({ where: { id }, data: { messages: row.messages as Prisma.InputJsonValue } });
       return { result: "attached" as const, conversationId: id, drop };
     }

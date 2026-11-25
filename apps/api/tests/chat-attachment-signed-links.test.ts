@@ -391,6 +391,11 @@ describe("Ревью #428: пропуск без входа, очередь, л�
     expect(fs.statSync(marker).mtimeMs).toBe(mtime);
   }, 60_000);
 
+  it("отметки неудачи у webm голосом и видео — разные файлы", () => {
+    const n = "00000000-0000-0000-0000-000000000000.webm";
+    expect(derivedFailMarker(`${n}.p.m4a`)).not.toBe(derivedFailMarker(`${n}.p.mp4`));
+  });
+
   it("webm голосом: подсказка m=a, а не «видео» по расширению", () => {
     const links = chatAttachmentLinks("00000000-0000-0000-0000-000000000000.webm", "audio", "audio/webm", agentId)!;
     expect(links.play).toContain("m=a");

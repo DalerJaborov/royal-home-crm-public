@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 775,
-  "forks": 4190,
+  "forks": 4188,
   "mounts": 87,
   "cron": 142,
   "jobs": 34,
@@ -82563,7 +82563,7 @@
                  "c": [
                   {
                    "k": "do",
-                   "t": "traceOutcome(\"blocked\", \"dm_lane_held\");",
+                   "t": "if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…",
                    "a": [
                     "дословно из кода"
                    ],
@@ -82750,59 +82750,6 @@
                   {
                    "k": "do",
                    "t": "if (written) { await processMessengerTurn({ channel: msg.channel, subscriberId: msg.senderId, text: written, …",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  }
-                 ]
-                },
-                {
-                 "k": "if",
-                 "t": "DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? \"\")",
-                 "a": [],
-                 "c": [
-                  {
-                   "k": "do",
-                   "t": "if (msg.channel === \"WHATSAPP\") { const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account…",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  }
-                 ]
-                },
-                {
-                 "k": "if",
-                 "t": "(msg.attachmentType === \"share\" || msg.attachmentType === \"ig_post\") && msg.channel !== \"WHATSAPP\" && isMetaC…",
-                 "a": [],
-                 "c": [
-                  {
-                   "k": "do",
-                   "t": "attachments.push({ url: msg.attachmentUrl!, declaredKind: \"image\" });",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  }
-                 ]
-                },
-                {
-                 "k": "loop",
-                 "t": "для каждого: const extra of msg.extraAttachments ?? []",
-                 "a": [],
-                 "c": [
-                  {
-                   "k": "do",
-                   "t": "if (!extra.url || !DOWNLOADABLE_ATTACHMENTS.has(extra.type ?? \"\")) continue;",
-                   "a": [
-                    "дословно из кода"
-                   ],
-                   "c": []
-                  },
-                  {
-                   "k": "do",
-                   "t": "if (extra.type === \"ig_reel\" && isInstagramLink(extra.url)) continue;",
                    "a": [
                     "дословно из кода"
                    ],
@@ -106816,7 +106763,7 @@
             },
             {
              "k": "do",
-             "t": "remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === \"fail\" && olderThanDay(full));",
+             "t": "remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));",
              "a": [
               "зовёт privateFilePath()"
              ],

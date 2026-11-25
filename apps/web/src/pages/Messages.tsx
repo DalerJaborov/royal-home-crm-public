@@ -2273,9 +2273,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           // мессенджерах на ПК (25.11.2026). Тот же путь, что у скрепки:
           // проверки канала и размера в planOutgoingMediaPick.
           onPaste={(e) => {
-            // Скопирован текст (часто вместе с картинкой-превью из Word/браузера) —
-            // это обычная вставка текста, её не перехватываем.
-            if (Array.from(e.clipboardData?.types ?? []).includes("text/plain")) return;
+            // Только текст — обычная вставка, не перехватываем. Файл из Finder/Проводника
+            // кладёт рядом и имя текстом — тогда это всё-таки файл (повторное ревью #428).
             const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
             if (!files.length) return;
             e.preventDefault();
