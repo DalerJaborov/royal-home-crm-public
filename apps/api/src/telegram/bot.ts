@@ -7,7 +7,7 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, findAgentByTelegramChatId, handleTelegramRelinkCallback } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
@@ -181,6 +181,9 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     await answerCallbackQuery(query.id);
     return;
   }
+  // «Перепривязать этот Telegram?» (lib/telegramAgentLink.ts, 25.11.2026) — tl:*. До помощницы:
+  // чат ещё может быть привязан к другой учётке, и её кнопки не должны перехватить ответ.
+  if (await handleTelegramRelinkCallback(query)) return;
   // Внутренний помощник (П5, telegram/assistantBot.ts) — as:ok|no:<связка>.
   if (await handleAssistantCallback(query)) return;
   // Модерация объектов (lib/telegramModeration, 22.09.2026) — свой диспетчер tm:*.
