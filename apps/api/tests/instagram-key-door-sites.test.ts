@@ -34,6 +34,14 @@ const SITES: Record<string, string> = {
   "lib/customerPublicPublicationSource.ts": "клиентское ядро (customer*) — по задаче 25.11 не трогали; слепое пятно",
 };
 
+/**
+ * Файл сам ничего из src не импортирует, и тогда первый холодный импорт графа делает beforeAll из tests/setup.ts
+ * (крючок выбора агента) — под нагрузкой это дольше его 20 секунд, и файл падал «Hook timed out» без единой проверки.
+ * Тот же импорт на верхнем уровне файла (без предела крючка) делает крючок мгновенным.
+ */
+await import("../src/services/leads/selection.js");
+await import("../src/lib/telephony/pickAgentForLeadHook.js");
+
 const SRC = join(import.meta.dirname, "..", "src");
 const CALL = /\binstagram(Request|ReadRequest|QueryTokenRequest)\(/;
 

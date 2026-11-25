@@ -141,15 +141,28 @@ describe("разные идентификаторы подписок", () => {
     expect(row?.message).not.toContain("подключите его заново");
   });
 
-  it("сохраняет предупреждение об отказе авторизации Meta", async () => {
+  // 25.11.2026: отказ ключа (401) — отметка «доступ потерян» через общую дверь (lib/instagramAccountAccess.ts), своей
+  // строки «не удалось проверить подписку» нет, следующий обход аккаунт не дёргает. Отказ не про ключ — строка как раньше.
+  it("отказ авторизации Meta — отметка через дверь, без своей строки; следующий обход аккаунт не трогает", async () => {
     const id = await saveAccount({ channel: "INSTAGRAM", externalId: IG_A, title: "Тест А", token: "test-denied", isDefault: true });
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Invalid OAuth access token" } }), { status: 401 }));
     vi.stubGlobal("fetch", fetch);
     expect(await checkInstagramSubscriptions()).toEqual({ ok: 0, restored: 0, failed: 1 });
+    expect((await prisma.messengerAccount.findUnique({ where: { id }, select: { accessLostAt: true } }))?.accessLostAt).not.toBeNull();
+    expect(await prisma.errorLog.count({ where: { dedupKey: `ig-subscription-failed:${id}` } })).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await checkInstagramSubscriptions();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${id}` } } });
+  });
+
+  it("отказ не про ключ — строка «не удалось проверить подписку», отметки нет", async () => {
+    const id = await saveAccount({ channel: "INSTAGRAM", externalId: IG_A, title: "Тест А", token: "test-other-fail", isDefault: true });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "An unknown error occurred", code: 1 } }), { status: 400 })));
+    expect(await checkInstagramSubscriptions()).toEqual({ ok: 0, restored: 0, failed: 1 });
+    expect((await prisma.messengerAccount.findUnique({ where: { id }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
     const row = await prisma.errorLog.findFirst({ where: { dedupKey: `ig-subscription-failed:${id}` } });
     expect(row?.message).toContain("не удалось проверить подписку");
-    expect(row?.message).toContain("Meta ответила 401");
-    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("сохраняет восстановление отсутствующих полей и его предупреждение", async () => {

@@ -32,7 +32,13 @@
   без запроса и без строки; проба мёртвая/ожившая; живой ключ и отказ «про клиента» — без отметки; профиль; повтор
   зависшего → `channel-paused` без ИИ и Meta, после «Заменить маркер» — `sent`; суточная проверка; «cant reply»),
   `tests/instagram-key-refused-door.test.ts`, сторож путей (сломан нарочно — красный). Снятие ворот в `callGraph`
-  нарочно — тест красный. `npm run precheck`.
+  нарочно — тест красный. Тесты прежнего решения «мёртвый ключ — не закрыт» переписаны под дверь:
+  `instagram-company-key`, `instagram-webhook-subscription` (+ случай «отказ не про ключ — строка, без отметки»),
+  `meta-eternal-tokens`. Соседние зелёные: `ai-reply-retry-job`, `stuck-conversations(-retry)`, `meta-send-policy-block`,
+  `meta-facebook-login`, `comment-day-review-23-11-postgres`, `customer-echo-then-reply-postgres`,
+  `one-brain-core-run-ledger`, `social-publish-instagram-delete`. `precheck`: build:shared/api зелёные, все audit-шаги,
+  map:check, сторож карты, журнал — зелёные; build:web в worktree красный только из-за отсутствия
+  `@testing-library/react`/`recharts` в общем node_modules (apps/web не тронут). Полный test:api — на ship.
 - **Что осталось (слепые пятна).** Пути клиентского ядра (`customer*`: медиа DM, имя отправителя, публикация для
   ответа ядра, durable-отправка) по задаче не трогали — они ещё ходят в Meta мёртвым ключом. Статистика
   (`instagramInsights.ts`, `postStats.ts`) и проверка контейнеров публикации — не через дверь. Живой входящий ход
