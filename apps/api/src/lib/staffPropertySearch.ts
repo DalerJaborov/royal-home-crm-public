@@ -6,6 +6,10 @@ import { boundingBoxAround, MAX_DESIRED_PLACE_RADIUS_M, ADAPTIVE_RADIUS_STEPS, M
 import { findDistrictIdByName } from "./districtLookup.js";
 import { loadMoneyContext, priceCeilingFilter } from "./money.js";
 import { officialDistrictIn, resolveSearchPlace, type ResolvedSearchPlace } from "./searchPlace.js";
+import { similarPlaceNames } from "../ai/geoMentions.js";
+import {
+  CORRIDOR_MAX_WIDTH_M, clampCorridorWidth, corridorBoundingBox, distanceToSegmentM, parseCorridorPhrase, segmentLengthM,
+} from "./corridorSearch.js";
 import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
 
 /**
@@ -40,6 +44,11 @@ export const STAFF_TRASH_SHOWN_WITH_LIVE = 5;
 export interface StaffPropertySearchInput {
   /** Ориентир словами человека: «Ашан», «в стороне Воданасоса», «82 мкр». */
   landmark?: string;
+  /** «От А до Б» (24.11.2026): два ориентира — искать в полосе вокруг отрезка между ними (lib/corridorSearch.ts). */
+  landmarkFrom?: string;
+  landmarkTo?: string;
+  /** Ширина полосы в метрах в каждую сторону, 200–3000; пусто — 800. */
+  corridorWidthM?: number;
   /** Радиус в метрах; пусто — по справочнику мест. */
   radiusM?: number;
   /** Слова адреса/названия/описания. */
@@ -131,7 +140,22 @@ export interface StaffPropertySearchResult {
   districtIgnored?: string;
   /** Место на карте в другом районе, чем назвал сам человек, — искали в названном районе. */
   placeOutsideDistrict?: string;
+  /** Поиск «от А до Б»: что именно искали и каких ориентиров нет на карте. */
+  corridor?: StaffCorridorInfo;
   error?: string;
+}
+
+export interface StaffCorridorInfo {
+  from: string;
+  to: string;
+  /** Ширина полосы, которой искали (после расширения). */
+  widthM: number | null;
+  lengthM: number | null;
+  /** Ориентиры, которых нет на карте (в словах человека). */
+  missing: string[];
+  /** Похожие названия из справочника — вместо молчаливого поиска «по тексту». */
+  suggestions: string[];
+  note: string;
 }
 
 function textVariantsClause(tokens: string[]): Prisma.PropertyWhereInput {
@@ -162,6 +186,34 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
     hits: [], totalFound: 0, liveCount: 0, trashCount: 0, placeResolved: false, placeName: null, radiusM: null, widened: false,
     scopeSearched: input.scope, error,
   });
+
+  // «От А до Б»: два ориентира → полоса; названы словами в landmark или двумя полями.
+  const phrase = input.landmarkFrom?.trim() && input.landmarkTo?.trim() ? null : parseCorridorPhrase(input.landmark);
+  const fromName = input.landmarkFrom?.trim() || phrase?.from || "";
+  const toName = input.landmarkTo?.trim() || phrase?.to || "";
+  let corridorPoints: { a: { lat: number; lng: number }; b: { lat: number; lng: number } } | null = null;
+  let corridorInfo: StaffCorridorInfo | undefined;
+  if (fromName && toName) {
+    const [ra, rb] = await Promise.all([resolveSearchPlace(fromName), resolveSearchPlace(toName)]);
+    const missing = [ra.place ? null : fromName, rb.place ? null : toName].filter((v): v is string => Boolean(v));
+    if (missing.length === 0) {
+      corridorPoints = { a: ra.place!, b: rb.place! };
+      input = { ...input, landmark: undefined };
+    } else {
+      const suggestions = [...new Set((await Promise.all(missing.map((m) => similarPlaceNames(m, 3)))).flat())].slice(0, 5);
+      const names = missing.map((m) => `«${m}»`).join(" и ");
+      const hint = suggestions.length ? ` Похожие на карте: ${suggestions.join(", ")}.` : "";
+      const base = `Ориентира ${names} нет на карте города — добавьте ${missing.length > 1 ? "их" : "его"} в справочнике ориентиров.${hint}`;
+      if (missing.length === 2) {
+        return { ...fail(base), corridor: { from: fromName, to: toName, widthM: null, lengthM: null, missing, suggestions, note: base } };
+      }
+      // Один из двух найден: ищем вокруг него и честно говорим, что полосы нет.
+      const found = ra.place ? fromName : toName;
+      const note = `${base} Полосу «от и до» построить нельзя — искала только вокруг «${found}».`;
+      const single = await searchPropertiesForStaff({ ...input, landmark: found, landmarkFrom: undefined, landmarkTo: undefined });
+      return { ...single, corridor: { from: fromName, to: toName, widthM: null, lengthM: null, missing, suggestions, note } };
+    }
+  }
 
   const priceNamed = (input.minPrice ?? 0) > 0 || (input.maxPrice ?? 0) > 0;
   const statedPrice = Math.max(input.minPrice ?? 0, input.maxPrice ?? 0);
@@ -253,6 +305,51 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
   // Район без места — жёсткий фильтр; с местом — одна из зацепок («район ИЛИ радиус»).
   // Район, названный самим человеком против района места, — тоже жёсткий (см. выше).
   if (districtId && (!hasPlaceQuery || humanDistrictOnly)) and.push({ districtId });
+
+  if (corridorPoints) {
+    const { a, b } = corridorPoints;
+    const width0 = clampCorridorWidth(input.corridorWidthM);
+    let width = width0;
+    let found: StaffPropertyHit[] = [];
+    for (const step of ADAPTIVE_RADIUS_STEPS) {
+      width = Math.min(width0 * step, CORRIDOR_MAX_WIDTH_M);
+      const box = corridorBoundingBox(a, b, width);
+      const rows = await prisma.property.findMany({
+        where: { AND: [...and, { lat: { gte: box.minLat, lte: box.maxLat }, lng: { gte: box.minLng, lte: box.maxLng } }] },
+        include: INCLUDE,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 500,
+      });
+      found = rows
+        .flatMap((p): StaffPropertyHit[] => {
+          const lat = p.lat != null ? Number(p.lat) : NaN;
+          const lng = p.lng != null ? Number(p.lng) : NaN;
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0) return [];
+          const d = Math.round(distanceToSegmentM({ lat, lng }, a, b));
+          return d <= width ? [{ property: p, distanceM: d, byText: false }] : [];
+        })
+        .sort((x, y) => (x.distanceM ?? 0) - (y.distanceM ?? 0) || y.property.createdAt.getTime() - x.property.createdAt.getTime());
+      if (found.length >= MIN_ADAPTIVE_CANDIDATES || width >= CORRIDOR_MAX_WIDTH_M) break;
+    }
+    const live = found.filter((h) => h.property.deletedAt === null);
+    const trash = found.filter((h) => h.property.deletedAt !== null);
+    const trashLimit = input.scope === "trash" ? limit : Math.min(limit, STAFF_TRASH_SHOWN_WITH_LIVE);
+    return {
+      hits: [...live.slice(0, limit), ...trash.slice(0, trashLimit)],
+      totalFound: found.length,
+      liveCount: live.length,
+      trashCount: trash.length,
+      placeResolved: true,
+      placeName: `${fromName} — ${toName}`,
+      radiusM: null,
+      widened: width > width0,
+      scopeSearched: input.scope,
+      corridor: {
+        from: fromName, to: toName, widthM: width, lengthM: Math.round(segmentLengthM(a, b)), missing: [], suggestions: [],
+        note: `Искала в полосе ${width} м вокруг линии «${fromName}» — «${toName}» (по прямой ${Math.round(segmentLengthM(a, b))} м); ближе к линии — выше.`,
+      },
+    };
+  }
 
   let radius = baseRadius;
   let hits: StaffPropertyHit[] = [];

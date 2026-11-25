@@ -196,7 +196,9 @@ beforeAll(async () => {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: null } });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Тесты этого файла берут одни и те же message_id: отметки «ответ ушёл» (lib/assistantTurnReplied.ts) между ними не нужны.
+  await prisma.processedMessage.deleteMany({ where: { channel: "ASSISTANT_TURN_REPLY" } });
   sendStaffCard.mockReset().mockResolvedValue("sent");
   for (const m of [sendMessage, removeKeyboard, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction]) {
     m.mockReset();
@@ -1416,7 +1418,8 @@ describe("новая доставка ответа помощника", () => {
     }));
     const [history, , options] = runner.mock.calls[0];
     expect(history.at(-1).content).toContain(`<client_content kind="document">\n${transcript}\n</client_content>`);
-    expect(history.at(-1).content).toContain("бо search_properties ҷустуҷӯ кун");
+    expect(history.at(-1).content).toContain("find_properties_by_place");
+    expect(history.at(-1).content).toContain("search_properties");
     expect(history.at(-1).content).toContain("withVideo");
     expect(history.at(-1).content).not.toContain("Кори дигаре дар CRM накун");
     expect(options).toMatchObject({ confirmUi: false, readOnly: true });
