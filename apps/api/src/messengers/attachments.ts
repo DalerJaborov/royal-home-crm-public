@@ -22,6 +22,7 @@ import { describeError } from "../lib/describeError.js";
 import { savePrivateFile } from "../lib/privateFiles.js";
 import { safeOpen, readCapped, UnsafeUrlError } from "../lib/safeFetch.js";
 import { probeDurationSec } from "../lib/propertyClipVideo.js";
+import { isHeic, sharpFromUpload } from "../lib/heicInput.js";
 import type { StoredAttachment } from "../ai/shared.js";
 
 const MAX_FILES = 3;
@@ -186,6 +187,12 @@ function detect(contentType: string, url: string, declaredKind?: string, managed
   }
 
   if (IMAGE_TYPES.has(ct)) return { kind: "image", mediaType: ct, ext: ct.split("/")[1] };
+  // Снимок iPhone документом (Telegram «файлом») — HEIC. Ни браузер на ПК, ни
+  // модель его не берут, поэтому при приёме он переводится в JPEG (heicToJpeg ниже),
+  // а не отсекается как «тип не распознан» (25.11.2026).
+  if (ct === "image/heic" || ct === "image/heif" || /\.(heic|heif)$/.test(path)) {
+    return { kind: "image", mediaType: HEIC_PENDING, ext: "heic" };
+  }
   if (AUDIO_TYPES.has(ct)) {
     if (ct === "audio/mpeg") return { kind: "audio", mediaType: ct, ext: "mp3" };
     if (ct === "audio/mp4" || ct === "audio/x-m4a") return { kind: "audio", mediaType: "audio/mp4", ext: "m4a" };
@@ -228,7 +235,46 @@ function detect(contentType: string, url: string, declaredKind?: string, managed
   return { kind: "unsupported", mediaType: "", ext: "" };
 }
 
-type FetchedAttachment = FetchedImage | FetchedAudio | FetchedMedia | { kind: "unsupported" };
+/** Почему файл клиента не сохранён — для пометки на месте вложения (25.11.2026). */
+export type LostReason = "too_big" | "too_long" | "unsupported" | "failed";
+export interface LostAttachment {
+  kind: "image" | "audio" | "video" | "file";
+  reason: LostReason;
+}
+type FetchedAttachment = FetchedImage | FetchedAudio | FetchedMedia | { kind: "unsupported"; lost?: LostAttachment };
+
+function lostKind(detected: Pick<Detected, "kind">, declaredKind?: string): LostAttachment["kind"] {
+  if (detected.kind === "image" || detected.kind === "audio" || detected.kind === "video") return detected.kind;
+  if (detected.kind === "document") return "file";
+  if (declaredKind === "image" || declaredKind === "video" || declaredKind === "audio") return declaredKind;
+  if (declaredKind === "voice") return "audio";
+  return "file";
+}
+
+function lostReason(reason: string): LostReason {
+  if (reason.includes("размеру")) return "too_big";
+  if (reason.includes("времени")) return "too_long";
+  if (reason.includes("не распознан")) return "unsupported";
+  return "failed";
+}
+
+/** Метка «это HEIC, перевести в JPEG после скачивания» — наружу не уходит никогда. */
+const HEIC_PENDING = "image/heic";
+
+/**
+ * HEIC → JPEG тем же декодером, что у фото объектов (lib/heicInput.ts: проверка
+ * размера до расшифровки). null — файл не расшифровался: тогда «не открылся»,
+ * как и раньше, а не битая картинка.
+ */
+async function heicToJpeg(buf: Buffer): Promise<Buffer | null> {
+  if (!isHeic(buf)) return null;
+  try {
+    const out = await (await sharpFromUpload(buf)).rotate().jpeg({ quality: 85 }).toBuffer();
+    return out.byteLength <= MAX_IMAGE_BYTES ? out : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Только хост — в журнал: полный адрес медиа содержит подписанный ключ доступа.
  *  Разбор не должен падать сам: он вызывается из обработчика ошибки. */
@@ -417,7 +463,7 @@ function rejectAttachment(
       dedupKey: head,
     });
   }
-  return { kind: "unsupported" };
+  return { kind: "unsupported", lost: { kind: lostKind(detected, declaredKind), reason: lostReason(reason) } };
 }
 
 /** Файл своего Bot API сервера: он уже на диске, сеть не нужна. */
@@ -444,6 +490,11 @@ async function readLocalOne(source: AttachmentSource): Promise<FetchedAttachment
     const buf = await fs.readFile(localPath);
     if (await isTooLong(buf, detected, "bot-api"))
       return rejectAttachment(detected, source.declaredKind, "", "запись длиннее предела по времени", "bot-api");
+    if (detected.mediaType === HEIC_PENDING) {
+      const jpeg = await heicToJpeg(buf);
+      if (!jpeg) return rejectAttachment(detected, source.declaredKind, "", "снимок HEIC не расшифровался", "bot-api");
+      return { kind: "image", mediaType: "image/jpeg", data: jpeg.toString("base64") };
+    }
     return shapeAttachment(buf, detected);
   } catch (err) {
     void logSystemError("telegram", `Вложение не прочитано с диска (${localPath}): ${describeError(err)}`);
@@ -531,6 +582,11 @@ async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDow
     if (await isTooLong(buf, detected, hostOf(url)))
       return rejectAttachment(detected, declaredKind, contentType, "запись длиннее предела по времени", hostOf(url));
 
+    if (detected.mediaType === HEIC_PENDING) {
+      const jpeg = await heicToJpeg(buf);
+      if (!jpeg) return rejectAttachment(detected, declaredKind, contentType, "снимок HEIC не расшифровался", hostOf(url));
+      return { kind: "image", mediaType: "image/jpeg", data: jpeg.toString("base64") };
+    }
     if (detected.kind === "image") {
       return { kind: "image", mediaType: detected.mediaType, data: buf.toString("base64") };
     }
@@ -570,18 +626,31 @@ export interface FetchedAttachments {
   /** Были вложения, которые мы не смогли обработать (неизвестный тип, слишком
    *  большое по весу или слишком длинное по времени). */
   hadUnsupported: boolean;
+  /** Что именно не сохранится и почему — по одному на каждый неудавшийся файл
+   *  (25.11.2026): пометка в переписке говорит «видео больше 16 МБ», а не тишина. */
+  lost?: LostAttachment[];
 }
 
-export function fetchAttachments(sources: AttachmentSource[], managed?: ManagedAttachmentDownload): Promise<FetchedAttachments> {
-  return traceMeasured("media_download", () => fetchAttachmentsImpl(sources, managed));
+export function fetchAttachments(
+  sources: AttachmentSource[],
+  managed?: ManagedAttachmentDownload,
+  /** Сколько файлов брать за раз. По умолчанию MAX_FILES — столько уходит модели;
+   *  сохранение для сотрудника (lib/customerInputMedia.ts) берёт больше. */
+  maxFiles: number = MAX_FILES
+): Promise<FetchedAttachments> {
+  return traceMeasured("media_download", () => fetchAttachmentsImpl(sources, managed, maxFiles));
 }
-async function fetchAttachmentsImpl(sources: AttachmentSource[], managed?: ManagedAttachmentDownload): Promise<FetchedAttachments> {
-  const results = await Promise.all(sources.slice(0, MAX_FILES).map(source => fetchOne(source, managed)));
+async function fetchAttachmentsImpl(sources: AttachmentSource[], managed: ManagedAttachmentDownload | undefined, maxFiles: number): Promise<FetchedAttachments> {
+  const results = await Promise.all(sources.slice(0, maxFiles).map(source => fetchOne(source, managed)));
+  const lost: LostAttachment[] = results.flatMap((r, i): LostAttachment[] => {
+    if (r === null) return [{ kind: lostKind({ kind: "unsupported" }, sources[i]?.declaredKind), reason: "failed" }];
+    return r.kind === "unsupported" && r.lost ? [r.lost] : [];
+  });
   const images = results.filter((r): r is FetchedImage => r?.kind === "image");
   const audios = results.filter((r): r is FetchedAudio => r?.kind === "audio");
   const medias = results.filter((r): r is FetchedMedia => r?.kind === "media");
-  const hadUnsupported = results.some((r) => r === null || r.kind === "unsupported") || sources.length > MAX_FILES;
-  return { images, audios, medias, hadUnsupported };
+  const hadUnsupported = results.some((r) => r === null || r.kind === "unsupported") || sources.length > maxFiles;
+  return { images, audios, medias, hadUnsupported, lost };
 }
 
 /**
@@ -600,8 +669,29 @@ export async function storeFetchedAttachments(fetched: {
   audios: FetchedAudio[];
   /** Видео и документы. Необязательное поле: у части вызывающих его нет вовсе. */
   medias?: FetchedMedia[];
+  /**
+   * ОТКАЗ СОХРАНЕНИЯ = НЕОТКРЫВШИЙСЯ ФАЙЛ (25.11.2026, жалоба «клиент прислал, а
+   * в CRM пусто»). Файл скачали, а записать не смогли (диск, неизвестный тип) —
+   * раньше он молча пропадал: в реплике ни файла, ни пометки. Теперь функция
+   * поднимает этот флаг, и вызывающий ставит в реплику ту же пометку
+   * «[📎 файл не открылся]», что и на нескачанный файл. Все вызывающие читают
+   * флаг ПОСЛЕ сохранения (conversation.ts, telegramDirectMessages.ts, bot.ts).
+   */
+  hadUnsupported?: boolean;
 }): Promise<StoredAttachment[]> {
   const saved: StoredAttachment[] = [];
+  const expected = fetched.images.length + fetched.audios.length + (fetched.medias?.length ?? 0);
+  try {
+    return await storeAll(fetched, saved);
+  } finally {
+    if (saved.length < expected) fetched.hadUnsupported = true;
+  }
+}
+
+async function storeAll(
+  fetched: { images: FetchedImage[]; audios: FetchedAudio[]; medias?: FetchedMedia[] },
+  saved: StoredAttachment[]
+): Promise<StoredAttachment[]> {
   for (const img of fetched.images) {
     const file = await savePrivateFile(Buffer.from(img.data, "base64"), img.mediaType);
     if (file) saved.push({ kind: "image", file, mime: img.mediaType });

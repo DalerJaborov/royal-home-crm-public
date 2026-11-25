@@ -30,6 +30,7 @@
  */
 
 import { maskPhonesForReader, type ConversationMessage, type MessageAttachment } from "@royal-home/shared";
+import { chatAttachmentLinks } from "./chatAttachmentLinks.js";
 
 /**
  * Виды вложений, которые уходят наружу.
@@ -50,14 +51,22 @@ type AttachmentKind = MessageAttachment["kind"];
 export type PresentedAttachment = MessageAttachment;
 export type PresentedMessage = ConversationMessage;
 
-function presentAttachments(raw: unknown, allowed: boolean): PresentedAttachment[] | undefined {
+const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed"]);
+
+function presentAttachments(raw: unknown, allowed: boolean, signedLinks: boolean): PresentedAttachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const items: PresentedAttachment[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
-    const { kind, file, mime, url } = entry as { kind?: unknown; file?: unknown; mime?: unknown; url?: unknown };
+    const { kind, file, mime, url, lost } = entry as { kind?: unknown; file?: unknown; mime?: unknown; url?: unknown; lost?: unknown };
     if (typeof kind !== "string" || !KINDS.has(kind)) continue;
     const presentedMime = typeof mime === "string" ? mime : "application/octet-stream";
+    // Клиент прислал, а сохранить не вышло (25.11.2026): пометка на месте
+    // вложения видна всем, кто видит переписку, — файла за ней нет, открывать нечего.
+    if (typeof lost === "string" && LOST_REASONS.has(lost)) {
+      items.push({ kind: kind as AttachmentKind, mime: presentedMime, file: null, lost: lost as PresentedAttachment["lost"] });
+      continue;
+    }
     // Фотография объекта (из `/uploads`) или фото/видео, отправленное сотрудником
     // клиенту через R2 (`/media/chat/...`, см. routes/mediaProxy.ts) — у обоих вместо
     // имени в закрытом хранилище готовый путь. Показываем всем, кто видит переписку, —
@@ -72,13 +81,28 @@ function presentAttachments(raw: unknown, allowed: boolean): PresentedAttachment
       continue;
     }
     if (typeof file !== "string" || !file) continue;
+    // Подписанная ссылка — только вместе с правом И подтверждённым владением
+    // (signedLinks считает вызывающий через canOpenChatAttachments).
+    const links = allowed && signedLinks ? chatAttachmentLinks(file, kind as AttachmentKind, presentedMime) : null;
     items.push({
       kind: kind as AttachmentKind,
       mime: presentedMime,
       file: allowed ? file : null,
+      ...(links ?? {}),
     });
   }
   return items.length > 0 ? items : undefined;
+}
+
+function withLost(items: PresentedAttachment[] | undefined, raw: unknown): PresentedAttachment[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return items;
+  const lost = presentAttachments(
+    raw.map((l) => (l && typeof l === "object" ? { kind: (l as { kind?: unknown }).kind, lost: (l as { reason?: unknown }).reason, mime: "" } : null)),
+    false,
+    false
+  );
+  if (!lost) return items;
+  return [...(items ?? []), ...lost];
 }
 
 /**
@@ -100,15 +124,22 @@ export function presentMessages(
    *  обязаны о нём знать и не должны молча начать что-то прятать. Маскируют
    *  только те два маршрута, что реально отдают переписку сотруднику: /clients/:id
    *  и /conversations/:id (см. их вызовы presentMessages). */
-  phonesAllowed = true
+  phonesAllowed = true,
+  /** Класть ли во вложения подписанные ссылки (`src`/`thumb`/`play`). Только
+   *  там, где вызывающий проверил владение клиентом тем же правилом, что у
+   *  маршрута выдачи файла, — `canOpenChatAttachments(req, assignedAgentId)`.
+   *  По умолчанию false: забытая проверка оставляет прежний путь, а не открывает
+   *  файл. */
+  signedLinks = false
 ): PresentedMessage[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
-    const { role, content, attachments, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu } = entry as {
+    const { role, content, attachments, attachmentsLost, by, at, mid, mid2, replyToMid, deliveryStatus, translatedRu } = entry as {
       role?: unknown;
       content?: unknown;
       attachments?: unknown;
+      attachmentsLost?: unknown;
       by?: unknown;
       at?: unknown;
       mid?: unknown;
@@ -131,7 +162,8 @@ export function presentMessages(
         // (wa.me/992…, tel:+992…) — для исходящих это решение владельца, для
         // читателя без права на номер это открытый номер (ACCESS-02).
         content: phonesAllowed ? text : maskPhonesForReader(text).text,
-        attachments: presentAttachments(attachments, attachmentsAllowed),
+        // Не сохранённые файлы (lib/customerInputMedia.ts) — пометками рядом с сохранёнными.
+        attachments: withLost(presentAttachments(attachments, attachmentsAllowed, signedLinks), attachmentsLost),
         // Только у role="assistant" и только тем же простым разбором, что и
         // остальные поля колонки: доверять форме jsonb нельзя. Отсутствует или
         // разобрать не удалось — интерфейс покажет это как ответ бота (см.

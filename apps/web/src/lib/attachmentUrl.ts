@@ -61,3 +61,29 @@ export async function fetchAttachmentUrl(file: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Играет ли этот браузер такой тип сам (25.11.2026). Голосовые WhatsApp и
+ * Telegram — ogg/opus: Chrome их играет, Safari до iOS 18.4 — нет, и честно
+ * отвечает пустой строкой на canPlayType. Тогда вложение сразу берёт версию
+ * m4a (`play`), не дожидаясь ошибки плеера. «maybe» считаем «да»: ошибку
+ * плеера ловит запасной путь (RhAudioPlayer → fallbackSrc).
+ */
+const playsCache = new Map<string, boolean>();
+export function browserPlays(mime: string): boolean {
+  const key = mime.split(";")[0].trim().toLowerCase();
+  const cached = playsCache.get(key);
+  if (cached !== undefined) return cached;
+  let ok = true;
+  try {
+    const el = document.createElement(key.startsWith("video/") ? "video" : "audio");
+    // ogg без указания кодека Safari иногда отвечает «maybe», а opus в ogg не играет —
+    // спрашиваем точнее, как реально лежат голосовые мессенджеров.
+    const probe = key === "audio/ogg" ? 'audio/ogg; codecs="opus"' : key;
+    ok = el.canPlayType(probe) !== "";
+  } catch {
+    ok = true;
+  }
+  playsCache.set(key, ok);
+  return ok;
+}

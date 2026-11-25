@@ -107,6 +107,7 @@ import { syncPropertyWhispers } from "./lib/telephony/propertyWhisper.js";
 import { pruneWhisperClips } from "./lib/telephony/whisperClips.js";
 import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js";
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
+import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
@@ -1367,6 +1368,10 @@ export function startCronJobs() {
               (capped ? ", потолок за проход исчерпан — остаток уйдёт следующей ночью" : "")
           );
         }
+        // Копии (миниатюры, версии для браузера) живут, пока жив оригинал —
+        // поэтому их уборка идёт сразу после уборки оригиналов (25.11.2026).
+        const derived = cleanupDerivedChatMedia();
+        if (derived.deleted) console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки вложений", err);
       }

@@ -76,7 +76,7 @@ import { conversationsRouter } from "./routes/conversations.js";
 import { auditLogRouter } from "./routes/auditLog.js";
 import { morningReportRouter } from "./routes/morningReport.js";
 import { botScenariosRouter } from "./routes/botScenarios.js";
-import { attachmentsRouter } from "./routes/attachments.js";
+import { attachmentsRouter, signedAttachmentsRouter } from "./routes/attachments.js";
 import { mediaProxyRouter } from "./routes/mediaProxy.js";
 import { instagramCommentsRouter } from "./routes/instagramComments.js";
 import { leadMagnetsRouter } from "./routes/leadMagnets.js";
@@ -595,6 +595,8 @@ const API_LIMIT_EXEMPT_PREFIXES = [
   // общего потолка: без исключения одна вкладка на переподключениях съедала бы
   // бюджет всего офиса, сидящего за одним внешним адресом.
   "/api/v1/events",
+  // Вложения переписки по подписанной ссылке — свой потолок signedAttachmentLimiter.
+  "/api/v1/attachments/s",
 ];
 
 /**
@@ -805,6 +807,24 @@ app.use("/api/v1/backups", backupsRouter);
 app.use("/api/v1/bot-scenarios", botScenariosRouter);
 // Фото и голосовые из переписки. НЕ статика: закрытое хранилище вне uploads и
 // проверка права messages.viewAttachments на каждый файл.
+/**
+ * Вложения переписки по ПОДПИСАННОЙ ссылке (25.11.2026) — `<img>`/`<video>` без
+ * заголовка Authorization. Раньше attachmentsRouter: у того requireAuth на весь
+ * роутер. Общий лимит запросов сюда не применяется (API_LIMIT_EXEMPT_PREFIXES):
+ * по одному видео браузер шлёт десятки запросов кусками (Range), и офис за
+ * одним адресом выбирал бы общий потолок за минуты. Вместо него — свой потолок,
+ * который считает только ОТКАЗЫ (подбор подписи), а честные ответы не трогает.
+ */
+const signedAttachmentLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? "unknown")}`,
+  message: { error: "Слишком много запросов, подождите немного" },
+});
+app.use("/api/v1/attachments/s", signedAttachmentLimiter, signedAttachmentsRouter);
 app.use("/api/v1/attachments", attachmentsRouter);
 // Фото/видео, отправленные АГЕНТОМ клиенту (R2, см. lib/outgoingMedia.ts) — без
 // requireAuth, тот же компромисс, что раньше был у публичной статики /uploads.

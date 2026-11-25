@@ -1056,7 +1056,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                     )}
                   </span>
                 )}
-                <MessageAttachments attachments={m.attachments} inBubble onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
+                <MessageAttachments attachments={m.attachments} inBubble channel={m.sourceChannel ?? defaultChannel} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
                     {m.at && <time dateTime={m.at}>{dushanbeTime(m.at)}</time>}
@@ -1117,6 +1117,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
               оставалась только пометка «[вложение: image]». */}
           <MessageAttachments
             attachments={m.attachments}
+            channel={m.sourceChannel ?? defaultChannel}
             onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
           />
           {/* Время — часами ДУШАНБЕ, а не устройства: директор может смотреть из
@@ -2239,6 +2240,24 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.preventDefault();
               handleSend();
             }
+          }}
+          // Вставка (Ctrl+V) и перетаскивание фото/видео прямо в поле — как в
+          // мессенджерах на ПК (25.11.2026). Тот же путь, что у скрепки:
+          // проверки канала и размера в planOutgoingMediaPick.
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files);
+          }}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files);
           }}
           rows={1}
           placeholder={royal

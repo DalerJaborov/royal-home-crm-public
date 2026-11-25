@@ -1,9 +1,11 @@
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
-import { canAccessAssignedAgent, requireAuth, requirePermission } from "../auth/middleware.js";
+import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { findAttachmentOwnerClientId, privateFilePath, privateMimeType } from "../lib/privateFiles.js";
 import { prisma } from "../db.js";
+import { canOpenChatAttachments, verifyAttachmentLink } from "../lib/chatAttachmentLinks.js";
+import { DerivedMediaUnavailable, derivedMime, ensureDerived } from "../lib/chatMediaDerived.js";
 
 /**
  * Выдача файлов, присланных клиентами в переписку (фото, голосовые).
@@ -61,7 +63,8 @@ attachmentsRouter.get("/:name", async (req, res) => {
     const owner = ownerClientId
       ? await prisma.client.findUnique({ where: { id: ownerClientId }, select: { assignedAgentId: true } })
       : null;
-    if (!owner || !canAccessAssignedAgent(req, owner.assignedAgentId)) {
+    // Та же дверь, что у выдачи подписанной ссылки (lib/chatAttachmentLinks.ts).
+    if (!owner || !canOpenChatAttachments(req, owner.assignedAgentId)) {
       return res.status(403).json({ error: "Нет доступа к этому вложению" });
     }
   }
@@ -90,5 +93,83 @@ attachmentsRouter.get("/:name", async (req, res) => {
     console.error("[attachments] не удалось отдать файл:", err instanceof Error ? err.message : err);
     if (res.headersSent) res.end();
     else res.status(500).json({ error: "Не удалось прочитать файл" });
+  });
+});
+
+/**
+ * ВЫДАЧА ПО ПОДПИСАННОЙ ССЫЛКЕ (25.11.2026) — `<img>`/`<video>`/`<audio>` грузят
+ * файл напрямую, без заголовка Authorization. Право и владелец проверены, когда
+ * ссылку выдавали вместе с перепиской (lib/messageAttachments.ts →
+ * canOpenChatAttachments); здесь — только подпись и срок. Подпись привязана к
+ * имени файла: подставить чужое имя под свою подпись нельзя.
+ *
+ * Монтируется ДО attachmentsRouter (app.ts), иначе его requireAuth перехватил бы
+ * запрос. Range отдаёт сам res.sendFile (пакет send): перемотка видео и
+ * голосовых, без которой Safari на iPhone видео по сети не играет вовсе.
+ *
+ * `v=t` — уменьшенное фото для ленты, `v=p` — версия, которую играет любой
+ * браузер (lib/chatMediaDerived.ts). Вид не подписывается: это тот же файл
+ * того же клиента.
+ */
+export const signedAttachmentsRouter = Router();
+
+const signedQuerySchema = z.object({
+  e: z.coerce.number().int().positive(),
+  k: z.string().min(16).max(64),
+  v: z.enum(["t", "p"]).optional(),
+});
+
+/** Срок кэша в браузере — до конца действия подписи, но не больше шести часов. */
+function privateMaxAge(expSec: number): number {
+  return Math.max(0, Math.min(6 * 60 * 60, expSec - Math.floor(Date.now() / 1000) - 60));
+}
+
+signedAttachmentsRouter.get("/:name", async (req, res) => {
+  const params = paramsSchema.safeParse(req.params);
+  const query = signedQuerySchema.safeParse(req.query);
+  // Один ответ на «подпись не та», «срок вышел» и «имя чужое»: перебором ничего не узнать.
+  if (!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.e, query.data.k)) {
+    return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+  }
+  const fullPath = privateFilePath(params.data.name);
+  if (!fullPath) return res.status(404).json({ error: "Файл не найден" });
+
+  let servePath = fullPath;
+  let mime = privateMimeType(params.data.name);
+  if (query.data.v) {
+    try {
+      servePath = await ensureDerived(params.data.name, query.data.v === "t" ? "thumb" : "play");
+      mime = derivedMime(servePath);
+    } catch (err) {
+      if (err instanceof DerivedMediaUnavailable && query.data.v === "t") {
+        // Миниатюры нет (sharp не справился) — отдаём оригинал: фото всё равно покажется.
+        servePath = fullPath;
+      } else {
+        const reason = err instanceof DerivedMediaUnavailable ? err.reason : "failed";
+        return res.status(reason === "disabled" ? 404 : 422).json({
+          error: reason === "disabled" ? "Копия для браузера выключена в Настройках" : "Этот файл браузер не воспроизводит — скачайте его",
+          reason,
+        });
+      }
+    }
+  }
+
+  res.setHeader("Content-Type", mime);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Disposition", "inline");
+  // Ссылка с подписью не должна уйти третьей стороне в заголовке Referer.
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  // private — только браузер этого сотрудника, общий кэш (Cloudflare) не хранит.
+  // Срок короче подписи: просроченная ссылка не отдаётся из кэша дольше, чем жила.
+  res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
+  res.sendFile(path.basename(servePath), { root: path.dirname(servePath), cacheControl: false, dotfiles: "deny", acceptRanges: true }, (err) => {
+    if (!err) return;
+    // Обрыв соединения браузером посреди видео — обычное дело (перемотка), не ошибка.
+    if ((err as NodeJS.ErrnoException).code === "ECONNABORTED" || res.headersSent) {
+      if (!res.writableEnded) res.end();
+      return;
+    }
+    res.status(500).json({ error: "Не удалось прочитать файл" });
   });
 });

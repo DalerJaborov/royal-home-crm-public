@@ -20,6 +20,7 @@ import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { agentSender, deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../lib/conversationDelivery.js";
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
+import { canOpenChatAttachments } from "../lib/chatAttachmentLinks.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
 import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
@@ -181,6 +182,8 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
   const attachmentsAllowed = can(req, "messages.viewAttachments");
   let clientId: string | null = null;
   let clientDetails: { id: string; shortId: number; fullName: string; phone: string | null } | null = null;
+  /** За кем закреплён клиент диалога — для прямых ссылок на вложения (canOpenChatAttachments). */
+  let ownerAgentId: string | null | undefined;
   let sources: Array<{ id: string; kind: "bot" | "telegram" | "telegram-direct"; channel: string; name: string | null; messages: unknown; pausedUntil: Date | null; readAt: Date | null; createdAt: Date; lastMessageAt: Date | null }> = [];
 
   if (key.startsWith("client:")) {
@@ -191,6 +194,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Диалог не найден" });
     }
     clientDetails = client;
+    ownerAgentId = client.assignedAgentId;
     const canReadAcceptedSources = !ownAgentId || (client.assignedAgentId === ownAgentId && !!client.acceptedAt);
     const [bots, telegrams, direct] = await Promise.all([
       prisma.botConversation.findMany({ where: { clientId, ...(ownAgentId ? ownBotConversationWhere(ownAgentId) : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, channel: true, name: true, messages: true, pausedUntil: true, readAt: true, createdAt: true, lastMessageAt: true } }),
@@ -216,6 +220,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     }
     clientId = direct.clientId;
     if (direct.client) clientDetails = direct.client;
+    ownerAgentId = direct.client && !direct.client.deletedAt ? direct.client.assignedAgentId : undefined;
     sources = [{
       id: direct.id, kind: "telegram-direct", channel: "TELEGRAM_DIRECT",
       name: direct.username ? `@${direct.username}` : null, messages: direct.messages,
@@ -244,12 +249,13 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
     return { id, channel: canSeeOrigin ? source.channel : null, canReply: source.kind !== "telegram-direct", pausedUntil: source.pausedUntil?.toISOString() ?? null };
   });
+  const signedLinks = canOpenChatAttachments(req, ownerAgentId);
   const messages: Array<GroupMessage & { sourceOrder: number }> = [];
   for (const [sourceOrder, source] of sources.entries()) {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
     if (!Array.isArray(source.messages)) continue;
     for (const [sourceMessageIndex, rawMessage] of source.messages.entries()) {
-      const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+      const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);
       if (!message) continue;
       messages.push({
         ...message,
@@ -1421,6 +1427,16 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
    */
   const canSeeOrigin = can(req, "clients.viewOrigin");
   const canSeePhoneDetail = can(req, "clients.viewPhone");
+  // Прямые ссылки на вложения — тем же правилом, что маршрут выдачи файла
+  // (право + свой клиент или clients.viewAll). Лишний запрос — только тем, у
+  // кого нет clients.viewAll, и только у диалога с клиентом.
+  const conversationClientId = conversation.client?.id ?? null;
+  const owner = conversationClientId && !can(req, "clients.viewAll")
+    ? await prisma.client.findUnique({ where: { id: conversationClientId }, select: { assignedAgentId: true, deletedAt: true } })
+    : null;
+  const signedLinks = can(req, "clients.viewAll")
+    ? canOpenChatAttachments(req, null)
+    : canOpenChatAttachments(req, owner && !owner.deletedAt ? owner.assignedAgentId : undefined);
   const shown = withHiddenConversationOrigin(
     {
       channel: conversation.channel,
@@ -1493,7 +1509,8 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
     messages: presentMessages(
       conversation.messages,
       can(req, "messages.viewAttachments"),
-      can(req, "clients.viewPhone")
+      can(req, "clients.viewPhone"),
+      signedLinks
     ),
     /** Что бот знает о человеке вообще — см. lib/contactProfileView.ts. */
     contact,
