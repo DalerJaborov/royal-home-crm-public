@@ -4612,6 +4612,10 @@ model MessengerAccount {
 
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
+  /// Коды «продолжение в WhatsApp», выданные этой переписке Instagram/Facebook (lib/whatsappContinuation.ts, 25.11.2026).
+  whatsappContinuationCodes WhatsappContinuationCode[] @relation("WhatsappContinuationSource")
+  /// Коды, по которым клиент пришёл в эту переписку WhatsApp.
+  whatsappContinuationsUsed WhatsappContinuationCode[] @relation("WhatsappContinuationTarget")
   id                 String            @id @default(uuid())
   /// Gate A keeps the legacy global unique; scoped cutover is a later release.
   endpointScopeId String?
@@ -7604,6 +7608,18 @@ model Settings {
   /// Номера проверяющих (владелец 20.11.2026): с ними бот говорит как с клиентом, хотя это сотрудники; заявка от них
   /// карточкой не становится. Читает lib/botReviewers.ts.
   botReviewerPhones                 String[]  @default([])
+  /// КНОПКА «ПОЗВОНИТЬ» В WHATSAPP (владелец 25.11.2026, lib/contactButtonPolicy.ts): на просьбу связаться и после заявки бот
+  /// шлёт сообщение с кнопкой звонка (бесплатный звонок клиента → шлюз → станция → агент). ВЫКЛ по умолчанию; кнопка уходит
+  /// только в рабочие часы и когда сторож звонков недавно видел номер готовым (waCallingReadyAt), иначе обычный текст.
+  botWaCallButton                   Boolean   @default(false)
+  /// ССЫЛКА НА WHATSAPP ИЗ INSTAGRAM И FACEBOOK (владелец 25.11.2026): на просьбу номера / звонка — кнопка wa.me с кодом
+  /// продолжения; в WhatsApp бот узнаёт код и продолжает разговор с того же места. ВЫКЛ по умолчанию.
+  botIgWhatsappLink                 Boolean   @default(false)
+  /// Номер WhatsApp агентства цифрами (display_phone_number), запоминается САМ из вебхука нашего номера. Не секрет.
+  metaWaDisplayPhone                String?
+  /// Когда сторож звонков WhatsApp (lib/whatsappCallingHealth.ts) последний раз видел звонки и SIP включёнными, а номер —
+  /// AVAILABLE. null — звонки выключены или номер не готов. Читает lib/contactButtonPolicy.ts.
+  waCallingReadyAt                  DateTime?
   /// «БОТ ОТВЕЧАЕТ САМ» (владелец 18.11.2026: «бот никак не вызывал администратора, директора… полностью сам все
   /// отвечает… и в комментариях»). ВКЛ — бот не зовёт руководство («клиент ждёт», «передаю сотруднику», «комментарий
   /// требует человека»), а сам отвечает безопасной фразой и ведёт к номеру. Остаются всегда: агенту — о его клиенте,
@@ -12106,4 +12122,25 @@ model ConstructionSyncRun {
   error          String?
 
   @@index([startedAt])
+}
+
+/// КОД «ПРОДОЛЖЕНИЕ В WHATSAPP» (владелец 25.11.2026, lib/whatsappContinuation.ts). Бот в Instagram/Facebook даёт ссылку
+/// wa.me с предзаполненным текстом «… #RH-XXXXXX»; клиент пишет в WhatsApp — бот узнаёт код и продолжает тот же разговор.
+/// Код короткий, случайный, одноразовый и с истечением: чужой, старый или повторный код — обычный разговор.
+model WhatsappContinuationCode {
+  /// «RH-» и шесть знаков без похожих букв и цифр.
+  code                 String           @id
+  sourceConversationId String
+  sourceConversation   BotConversation  @relation("WhatsappContinuationSource", fields: [sourceConversationId], references: [id], onDelete: Cascade)
+  /// INSTAGRAM | FACEBOOK.
+  sourceChannel        String
+  createdAt            DateTime         @default(now())
+  expiresAt            DateTime
+  usedAt               DateTime?
+  usedByConversationId String?
+  usedByConversation   BotConversation? @relation("WhatsappContinuationTarget", fields: [usedByConversationId], references: [id], onDelete: SetNull)
+
+  @@index([sourceConversationId])
+  @@index([usedByConversationId])
+  @@index([expiresAt])
 }

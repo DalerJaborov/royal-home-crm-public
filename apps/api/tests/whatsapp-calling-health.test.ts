@@ -124,4 +124,23 @@ describe("сторож звонков WhatsApp через SIP", () => {
     await runWhatsappCallingHealthCheck(graph({ body: { calling: { status: "DISABLED" } } }).get);
     expect(await open(WA_CALLING_CHECK_ALARM_KEY)).toHaveLength(0);
   });
+
+  it("готовность для кнопки «Позвонить» (25.11.2026): AVAILABLE ставит отметку, выключено и BLOCKED гасят, сбой запроса не трогает", async () => {
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { waCallingReadyAt: true } });
+    const readyAt = async () => (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { waCallingReadyAt: true } })).waCallingReadyAt;
+    try {
+      await runWhatsappCallingHealthCheck(graph(enabled, healthOf("AVAILABLE")).get);
+      const marked = await readyAt();
+      expect(marked).toBeInstanceOf(Date);
+      await runWhatsappCallingHealthCheck(graph(Object.assign(new Error("timeout"), { name: "TimeoutError" })).get);
+      expect(await readyAt()).toEqual(marked);
+      await runWhatsappCallingHealthCheck(graph(enabled, healthOf("BLOCKED")).get);
+      expect(await readyAt()).toBeNull();
+      await runWhatsappCallingHealthCheck(graph(enabled, healthOf("AVAILABLE")).get);
+      await runWhatsappCallingHealthCheck(graph({ body: { calling: { status: "DISABLED" } } }).get);
+      expect(await readyAt()).toBeNull();
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { waCallingReadyAt: before.waCallingReadyAt } });
+    }
+  });
 });

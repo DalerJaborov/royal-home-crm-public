@@ -105,6 +105,9 @@ export const SYSTEM_SETTINGS_FIELDS = [
   "metaAdsSyncedAt",
   "callWhisperFetchedAt",
   "metaWaBusinessAccountId",
+  // Номер WhatsApp из вебхука и готовность звонков от сторожа (25.11.2026): система находит сама.
+  "metaWaDisplayPhone",
+  "waCallingReadyAt",
 ] as const;
 
 const SYSTEM_FIELD_SET: ReadonlySet<string> = new Set(SYSTEM_SETTINGS_FIELDS);

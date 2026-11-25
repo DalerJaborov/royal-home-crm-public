@@ -34,6 +34,7 @@ import { customerInboxConsumeJob } from "./customerInboxConsume.js";
 import { customerOutboxDispatchJob } from "./customerOutboxDispatch.js";
 import { customerContactIntakeJob } from "./customerContactIntake.js";
 import { customerLeadOnlyIntakeJob } from "./customerLeadOnlyIntake.js";
+import { whatsappContinuationLinkJob } from "./whatsappContinuationLink.js";
 
 /**
  * Все обработчики очереди — одним списком. Импортируется ТОЛЬКО runner'ом
@@ -94,3 +95,4 @@ registerJobHandler(customerInboxConsumeJob);
 registerJobHandler(customerOutboxDispatchJob);
 registerJobHandler(customerContactIntakeJob);
 registerJobHandler(customerLeadOnlyIntakeJob);
+registerJobHandler(whatsappContinuationLinkJob);

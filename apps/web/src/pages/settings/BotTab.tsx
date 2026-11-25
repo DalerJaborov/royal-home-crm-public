@@ -1005,6 +1005,7 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
             }
             onToggle={() => onToggle("botUseWhatsappNumber", !useWhatsapp)}
           />
+          <ContactButtonFields settings={settings} onToggle={onToggle} />
           <SwitchRow
             title="«Хотим посмотреть» — сразу агенту"
             on={hot}
@@ -1053,6 +1054,56 @@ function LeadOnlyModeFields({ onToggle }: { onToggle: (field: string, next: bool
           <SpamFilteredList />
         </>
       )}
+    </>
+  );
+}
+
+/** Звонки WhatsApp сторож видел готовыми не раньше трёх часов назад (то же правило, что у сервера, lib/contactButtonPolicy.ts). */
+function callingReady(at: string | null | undefined): boolean {
+  const time = at ? Date.parse(at) : NaN;
+  return Number.isFinite(time) && Date.now() - time <= 3 * 60 * 60_000;
+}
+
+/** «+992 44 …» для подписи; номер хранится цифрами. */
+function shownPhone(digits: string | null | undefined): string | null {
+  return digits && /^\d{9,15}$/.test(digits) ? `+${digits}` : null;
+}
+
+/**
+ * КНОПКА ЗВОНКА И ССЫЛКА НА WHATSAPP (владелец 25.11.2026). Оба тумблера ВЫКЛ по умолчанию. Подпись говорит, что будет на
+ * деле: звонки не готовы или номер WhatsApp ещё не известен — бот пишет обычным текстом.
+ */
+function ContactButtonFields({ settings, onToggle }: { settings: ReturnType<typeof useSettings>["data"]; onToggle: (field: string, next: boolean) => void }) {
+  const call = settings?.botWaCallButton ?? false;
+  const link = settings?.botIgWhatsappLink ?? false;
+  const ready = callingReady(settings?.waCallingReadyAt);
+  const phone = shownPhone(settings?.metaWaDisplayPhone);
+  return (
+    <>
+      <SwitchRow
+        title="Кнопка «Позвонить» в WhatsApp"
+        on={call}
+        hint={
+          !call
+            ? "Выключено: бот отвечает обычным текстом."
+            : ready
+              ? "Клиент просит связаться или оставил заявку: под ответом кнопка звонка. Звонок бесплатный и идёт агенту, как обычный звонок. Ночью кнопки нет."
+              : "Включено, но звонки WhatsApp сейчас не готовы: бот пишет обычным текстом, пока проверка звонков не станет зелёной."
+        }
+        onToggle={() => onToggle("botWaCallButton", !call)}
+      />
+      <SwitchRow
+        title="Из Instagram и Facebook в WhatsApp"
+        on={link}
+        hint={
+          !link
+            ? "Выключено: бот просит номер, как раньше."
+            : phone
+              ? `Клиент просит номер или звонок: под ответом кнопка «Написать в WhatsApp» на ${phone}. В WhatsApp бот продолжит тот же разговор.`
+              : "Включено, но номер WhatsApp ещё не известен: он появится сам с первым сообщением в WhatsApp."
+        }
+        onToggle={() => onToggle("botIgWhatsappLink", !link)}
+      />
     </>
   );
 }

@@ -1083,6 +1083,9 @@ const settingsUpdateSchema = z.object({
   /** Бот клиентов по-человечески (20.11.2026): тишина после ответа сотрудника, слова модели, номера проверяющих. */
   botStaffQuietMinutes: z.number().int().min(5).max(240).optional(),
   botOwnWords: z.boolean().optional(),
+  /** Кнопка «Позвонить» в WhatsApp и ссылка на WhatsApp из Instagram/Facebook (владелец 25.11.2026, lib/contactButtonPolicy.ts). ВЫКЛ. */
+  botWaCallButton: z.boolean().optional(),
+  botIgWhatsappLink: z.boolean().optional(),
   botReviewerPhones: z.array(z.string().trim().max(32)).max(20)
     .transform((list) => [...new Set(list.map((phone) => phone.replace(/\D/g, "")).filter((digits) => digits.length >= 9 && digits.length <= 15))])
     .optional(),

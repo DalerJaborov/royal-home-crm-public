@@ -107,6 +107,7 @@ import {
   noteFirstContactReply,
   rememberBusinessAccountFromWebhook,
 } from "../lib/whatsappFirstContact.js";
+import { rememberWhatsappDisplayPhoneFromWebhook } from "../lib/whatsappDisplayPhone.js";
 // «Человеческий ритм»: мгновенный ответ — главный поведенческий маркер бота и для
 // клиента, и для антиспам-эвристик Meta. Значения общие с показом фотографий
 // (messengers/humanPacing.ts): пока они лежали копией здесь, у показа объекта пауз
@@ -1887,6 +1888,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // Кабинет WhatsApp (для одобренных текстов первого сообщения) узнаётся сам
       // из вебхука — владельцу не нужно искать его в панели Meta.
       void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
+      // Номер WhatsApp агентства для ссылки wa.me из Instagram/Facebook (25.11.2026) — тоже сам, из вебхука.
+      void rememberWhatsappDisplayPhoneFromWebhook(req.body, waPhoneId);
 
       for (const s of parseMetaStatusUpdates(req.body)) {
         void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: null }, async () => {

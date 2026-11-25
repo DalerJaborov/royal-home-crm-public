@@ -505,3 +505,26 @@ export function operatorServerLine(line: string): boolean {
   }
   return serverLinePattern.test(text);
 }
+
+/**
+ * КНОПКА ЗВОНКА И ССЫЛКА НА WHATSAPP (владелец 25.11.2026, ai/operator/contactButton.ts). Не шаги оператора: строка
+ * дописывается к его ответу, когда под ответом уходит кнопка. Без «?», без «—», на «вы» / «шумо», без срока звонка.
+ * Название кнопки — не длиннее 20 знаков (предел Meta). `{source}` — Instagram / Facebook, `{code}` — код продолжения.
+ */
+export const OPERATOR_CONTACT_BUTTON_TEXTS = {
+  callLine: {
+    ru: ["Можете и сами позвонить нам прямо в WhatsApp, кнопка ниже.", "Если удобнее, позвоните нам прямо в WhatsApp, кнопка ниже."],
+    tg: ["Метавонед худатон ба мо бевосита дар WhatsApp занг занед, тугма дар поён аст.",
+      "Агар хоҳед, худатон ба мо дар WhatsApp занг занед, тугма дар поён аст."],
+  },
+  callTitle: { ru: "Позвонить", tg: "Занг задан" },
+  linkLine: {
+    ru: ["Можете написать нам в WhatsApp, там же можно и позвонить, кнопка ниже.",
+      "Если удобнее, продолжим в WhatsApp, там же можно позвонить, кнопка ниже."],
+    tg: ["Метавонед ба мо дар WhatsApp нависед, он ҷо занг задан ҳам мумкин, тугма дар поён аст.",
+      "Агар хоҳед, суҳбатро дар WhatsApp идома медиҳем, он ҷо занг задан ҳам мумкин."],
+  },
+  linkTitle: { ru: "Написать в WhatsApp", tg: "Ба WhatsApp нависед" },
+  /** Предзаполненный текст в WhatsApp: клиент видит его в поле ввода и может отправить как есть. */
+  prefill: { ru: "Здравствуйте! Продолжение из {source} {code}", tg: "Салом! Идома аз {source} {code}" },
+} as const satisfies Record<string, Readonly<Record<OperatorLanguage, string | readonly string[]>>>;

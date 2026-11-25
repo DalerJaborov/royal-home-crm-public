@@ -26,6 +26,15 @@ import { loadOperatorTurnSetup } from "./operatorTurn.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { logSystemError } from "./systemError.js";
 import { LEAD_MODEL_FAILED_NOTE } from "../services/leads/intentUnknown.js";
+import { AGENCY_FACTS } from "../ai/agencyFacts.js";
+import { findContinuationCode, operatorContactAsk, planOperatorContactButton, stripContinuationMarker } from "../ai/operator/contactButton.js";
+import { serializeOperatorState } from "../ai/operator/state.js";
+import type { CustomerContactButton } from "./customerDeliveryContracts.js";
+import { loadContactButtonPolicy } from "./contactButtonPolicy.js";
+import { leadOnlyCardAgentActive } from "./leadOnlyHandover.js";
+import { consumeWhatsappContinuationCode, continuationSeedState, enqueueWhatsappContinuationLinkTx, insertWhatsappContinuationCodeTx,
+  operatorStateFresh, prepareWhatsappContinuationCode, type PreparedContinuationCode, type WhatsappContinuation,
+  type WhatsappContinuationLink } from "./whatsappContinuation.js";
 
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./operatorTurn.js";
 export { CUSTOMER_LEAD_ONLY_INTAKE_JOB };
@@ -112,7 +121,23 @@ export interface CustomerLeadOnlyTurnPlan {
   handoff?: "recruiter";
   /** Отметка времени памяти, от которой оператор решал (Р14): запись сверяет её, устаревшее решение не пишется. */
   baseUpdatedAt: string | null;
+  /** Кнопка под ответом: звонок в WhatsApp или ссылка wa.me из Instagram/Facebook (ai/operator/contactButton.ts). */
+  button?: CustomerContactButton;
+  /** Код продолжения в ссылке wa.me: пишется в той же транзакции, что и ответ (persistCustomerLeadOnlyExtrasTx). */
+  continuationCode?: PreparedContinuationCode;
+  /** Клиент пришёл в WhatsApp по ссылке: связать переписки с одной карточкой после хода. */
+  continuationLink?: Omit<WhatsappContinuationLink, "version">;
 }
+
+/** В транзакции ответа хода: код ссылки wa.me и задание связи переписок — вместе с ответом, не отдельно. */
+export async function persistCustomerLeadOnlyExtrasTx(tx: TxClient, plan: Pick<CustomerLeadOnlyTurnPlan, "continuationCode" | "continuationLink">,
+  now: Date): Promise<void> {
+  if (plan.continuationCode) await insertWhatsappContinuationCodeTx(tx, plan.continuationCode, now);
+  if (plan.continuationLink) await enqueueWhatsappContinuationLinkTx(tx, plan.continuationLink);
+}
+
+/** Пустое после выреза кода сообщение («#RH-…» без слов) — короткое приветствие на языке разговора, чтобы ход был ответом. */
+const CONTINUATION_HELLO = { ru: "Здравствуйте", tg: "Салом" } as const;
 
 /** Память разговора изменил параллельный ход, пока этот думал (Р14): решение на устаревшей памяти не записывается. */
 export class OperatorStateStaleError extends Error {
@@ -167,16 +192,50 @@ const LEAD_SCENARIO = (action: Extract<OperatorAction, { type: "accept_lead" }>)
 export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput): Promise<CustomerLeadOnlyTurnPlan | null> {
   if (!input.config.enabled || !leadOnlyAppliesTo(input.channel)) return null;
   const now = input.now ?? new Date();
-  const own = clientOwnWords(input.inputText);
+  // ПРОДОЛЖЕНИЕ ИЗ INSTAGRAM / FACEBOOK (владелец 25.11.2026): код из ссылки бота — служебная метка. Из слов клиента он уходит
+  // всегда (и из заметки агенту), а живой код этого же клиента переносит память разговора-источника (lib/whatsappContinuation.ts).
+  // Чужой, старый, погашенный другим разговором код — обычный разговор, из источника не читается ничего.
+  let inputText = input.inputText;
+  let continuation: WhatsappContinuation | null = null;
+  const continuationCode = input.channel === "WHATSAPP" ? findContinuationCode(input.inputText) : null;
+  if (continuationCode) {
+    continuation = await consumeWhatsappContinuationCode({ code: continuationCode, conversationId: input.conversationId, now }).catch(error => {
+      void logSystemError("ai", `Продолжение из Instagram: код не проверен (диалог ${input.conversationId}): ${error instanceof Error ? error.message : String(error)}`
+        .slice(0, 400), { dedupKey: "whatsapp-continuation-consume" });
+      return null;
+    });
+    inputText = stripContinuationMarker(input.inputText);
+  }
+  const seedLeadExists = !!continuation?.sourceClientId;
+  const seed = continuation ? continuationSeedState(continuation.sourceState, seedLeadExists) : null;
+  if (continuationCode && !clientOwnWords(inputText).trim()) inputText = CONTINUATION_HELLO[seed?.language ?? "tg"];
+  const own = clientOwnWords(inputText);
   const wa = input.channel === "WHATSAPP" && input.config.useWhatsappNumber ? await resolveWhatsAppLeadIdentity(input.channel, input.peer) : null;
-  const setup = await loadOperatorTurnSetup({ channel: input.channel, conversationId: input.conversationId, config: input.config,
-    focusPropertyId: input.focusPropertyId, phoneKnownByChannel: !!wa?.leadPhone, peerPhone: input.channel === "WHATSAPP" ? input.peer : null, now });
+  const loadSetup = (focusPropertyId: string | null) => loadOperatorTurnSetup({ channel: input.channel, conversationId: input.conversationId,
+    config: input.config, focusPropertyId, phoneKnownByChannel: !!wa?.leadPhone, peerPhone: input.channel === "WHATSAPP" ? input.peer : null, now });
+  let setup = await loadSetup(input.focusPropertyId);
+  // Память переносится только в пустой разговор WhatsApp без карточки: начатое здесь не перетираем.
+  const seeded = !!seed && !setup.clientId && operatorStateFresh(setup.state);
+  // Объект, о котором говорили в Instagram, — объект и этого разговора (если это сообщение не назвало свой).
+  if (seeded && seed?.propertyId && !input.focusPropertyId && setup.ctx.focus?.propertyId !== seed.propertyId) setup = await loadSetup(seed.propertyId);
+  let storedForTurn: unknown = setup.stored;
+  let ctx = setup.ctx;
+  if (seeded && seed) {
+    storedForTurn = serializeOperatorState(seed, now);
+    if (seedLeadExists && continuation?.sourceClientId) {
+      // У клиента уже есть карточка (из Instagram): новой заявки не заводим — задание после хода привяжет этот разговор к ней.
+      ctx = { ...ctx, leadExists: true, leadPending: false,
+        cardAgentActive: await leadOnlyCardAgentActive(continuation.sourceClientId).catch(() => true) };
+    }
+  }
   // Сбой чтения — прежняя сверка по одной доставленной памяти (не причина ронять ход).
   const sentBotTexts = input.endpointScopeId ? await readCustomerLeadOnlySentTexts({ conversationId: input.conversationId,
     endpointScopeId: input.endpointScopeId, before: now }).catch(() => [] as string[]) : [];
-  const operator = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, now, ...(input.model ? { model: input.model } : {}),
+  const operator = await runOperatorTurn({ storedState: storedForTurn, ctx, now, ...(input.model ? { model: input.model } : {}),
     ownWords: { enabled: input.config.ownWords === true, ...(input.composeModel ? { model: input.composeModel } : {}) },
-    input: { current: input.inputText, recent: input.turns, sentBotTexts, conversationId: input.conversationId, ...(input.attachments ? { attachments: input.attachments } : {}) } });
+    input: { current: inputText, recent: input.turns, sentBotTexts, conversationId: input.conversationId, ...(input.attachments ? { attachments: input.attachments } : {}) } });
+  const continuedNote = continuation ? `Продолжение переписки из ${continuation.sourceChannel === "FACEBOOK" ? "Facebook" : "Instagram"} ` +
+    "(клиент перешёл в WhatsApp по ссылке бота). " : "";
   const intakes: CustomerLeadOnlyIntake[] = [];
   let signal: CustomerLeadOnlyTurnPlan["signal"];
   for (const action of operator.actions) {
@@ -190,7 +249,7 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
       intakes.push(sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: LEAD_SCENARIO(action),
         propertyId: action.propertyId, ...(action.outOfArea ? { outOfArea: true as const } : {}) },
       { phone, whatsappPhone: wa?.waPhone ?? null, clientText: own.slice(0, 1500), promised: action.textOnly || action.noCall ? "chat" : "call", lead: true,
-        callbackWhen: action.callbackWhen, ...(action.textOnly || action.noCall ? { noCall: true } : {}), note: action.note.slice(0, 800) }));
+        callbackWhen: action.callbackWhen, ...(action.textOnly || action.noCall ? { noCall: true } : {}), note: `${continuedNote}${action.note}`.slice(0, 800) }));
     } else if (action.type === "append_note") {
       intakes.push(sealCustomerLeadOnlyIntake({ eventKey: input.eventKey, conversationId: input.conversationId, scenario: "note", propertyId: null,
         ...(action.outOfArea ? { outOfArea: true as const } : {}) },
@@ -204,9 +263,33 @@ export async function planCustomerLeadOnlyTurn(input: CustomerLeadOnlyTurnInput)
     }
   }
   // Последняя дверь текста режима (ai/leadOnlyMode.ts::leadOnlyOutgoing): начало-согласие не уходит никогда.
-  const text = operator.text ? leadOnlyOutgoing(operator.text, operator.language) : null;
+  let text = operator.text ? leadOnlyOutgoing(operator.text, operator.language) : null;
+  // Кнопка под ответом (владелец 25.11.2026): звонок в WhatsApp / ссылка wa.me из Instagram и Facebook. Решает код по рубильникам
+  // и готовности звонков; нельзя — обычный текст, как раньше.
+  const contactAsk = operatorContactAsk(inputText);
+  const leadAcceptedNow = operator.actions.some(action => action.type === "accept_lead");
+  let button: CustomerContactButton | undefined;
+  let preparedCode: PreparedContinuationCode | undefined;
+  if (text && (contactAsk || (leadAcceptedNow && input.channel === "WHATSAPP"))) {
+    const policy = await loadContactButtonPolicy(now);
+    const linkChannel = input.channel === "INSTAGRAM" || input.channel === "FACEBOOK" ? input.channel : null;
+    const mainBrand = ctx.brandName === AGENCY_FACTS.name;
+    if (linkChannel && contactAsk && policy.igWhatsappLink && policy.waNumber && mainBrand) {
+      preparedCode = await prepareWhatsappContinuationCode({ conversationId: input.conversationId, channel: linkChannel, now }).catch(() => undefined);
+    }
+    const planned = planOperatorContactButton({ channel: ctx.channel, language: operator.language, text,
+      contactAsk, leadAcceptedNow, closed: operator.state.closed, mainBrand, policy, code: preparedCode?.code ?? null, sentBotTexts });
+    if (planned) { text = planned.text; button = planned.button; }
+    else preparedCode = undefined;
+  }
+  // Задание связи переписок: у источника карточка (этот разговор к ней) или этим ходом заводится заявка (источник к ней).
+  const continuationLink = continuation && (continuation.sourceClientId || leadAcceptedNow)
+    ? { waConversationId: input.conversationId, sourceConversationId: continuation.sourceConversationId,
+      sourceChannel: continuation.sourceChannel, eventKey: input.eventKey } : undefined;
   return { text, intakes, operator, baseUpdatedAt: operatorStoredUpdatedAt(setup.stored),
-    ...(signal ? { signal } : {}), ...(operator.handoff ? { handoff: operator.handoff } : {}) };
+    ...(signal ? { signal } : {}), ...(operator.handoff ? { handoff: operator.handoff } : {}),
+    ...(button ? { button } : {}), ...(preparedCode ? { continuationCode: preparedCode } : {}),
+    ...(continuationLink ? { continuationLink } : {}) };
 }
 
 /** Ставится в той же транзакции, что и ответ хода: ответ без заявки или заявка без ответа не остаются. */

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { customerFenceSchema, customerMutationReceiptSchema, customerPropertyDeliverySchema, customerRevisionSchema, customerHandoverAckFenceSchema } from "@royal-home/shared";
 import { customerApprovedFilePlanSchema } from "./customerApprovedFiles.js";
+import { CONTACT_BUTTON_URL_RE } from "./contactButtonUrl.js";
 
 export const customerDeliveryMediaEndpointSchema = z.object({ channel: z.enum(["INSTAGRAM", "FACEBOOK", "WHATSAPP"]), endpointScopeId: z.string().uuid(),
   accountId: z.string().uuid().nullable(), peerId: z.string().min(1).max(512), transportKey: z.string().min(1).max(1024),
@@ -52,8 +53,19 @@ export const customerApprovedFileMediaWitnessSchema = z.object({ version: z.lite
 });
 export type CustomerApprovedFileMediaWitness = z.infer<typeof customerApprovedFileMediaWitnessSchema>;
 
+/**
+ * Кнопка под текстом ответа (владелец 25.11.2026): звонок в WhatsApp или ссылка wa.me с кодом продолжения в Instagram/Facebook.
+ * Канал сверяет адаптер (customerDeliveryAdapters.ts), предел Meta и вид ссылки — дверь отправки (messengers/meta.ts).
+ */
+export const customerContactButtonSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("voice_call"), displayText: z.string().trim().min(1).max(20), ttlMinutes: z.number().int().min(1).max(43200) }).strict(),
+  z.object({ type: z.literal("web_url"), title: z.string().trim().min(1).max(20),
+    url: z.string().max(700).regex(CONTACT_BUTTON_URL_RE) }).strict(),
+]);
+export type CustomerContactButton = z.infer<typeof customerContactButtonSchema>;
+
 export const customerDeliveryPayloadSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(12000) }).strict(),
+  z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(12000), button: customerContactButtonSchema.optional() }).strict(),
   z.object({ kind: z.literal("image"), url: z.string().url().max(4096).refine(value => value.startsWith("https://")),
     mediaWitness: customerPropertyMediaWitnessSchema }).strict().superRefine((payload, context) => {
       if (payload.url !== payload.mediaWitness.publicUrl) context.addIssue({ code: "custom", message: "image_url_witness_mismatch" });

@@ -67,7 +67,7 @@ import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
 import { fetchInstagramProfile, loadCredentials } from "../messengers/meta.js";
 import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
-import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, planCustomerLeadOnlyTurn,
+import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, persistCustomerLeadOnlyExtrasTx, planCustomerLeadOnlyTurn,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine } from "../ai/leadOnlyMode.js";
 import { selfAnswerLeadIntake } from "./selfAnswerLead.js";
@@ -340,9 +340,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const partIds = await prisma.$transaction(async tx => {
         // Параллельный ход того же разговора успел записать память, пока этот ждал модель (Р14): решение устарело.
         await assertOperatorStateCurrentTx(tx, lane.ticket.conversationId, plan.baseUpdatedAt);
+        // Кнопка под ответом (звонок в WhatsApp / ссылка wa.me с кодом продолжения, 25.11.2026) едет в той же части очереди.
         const ids = plan.text ? await createCustomerOutboxPartsTx(tx, { principal: mutations.principal, agentClaim: claim,
-          parts: [{ payload: { kind: "text" as const, text: plan.text } }] }) : [];
+          parts: [{ payload: { kind: "text" as const, text: plan.text, ...(plan.button ? { button: plan.button } : {}) } }] }) : [];
         for (const intake of plan.intakes) await enqueueCustomerLeadOnlyIntakeTx(tx, intake);
+        // Код ссылки wa.me и связь переписок — вместе с ответом: ссылка без кода в базе была бы «чужим кодом».
+        await persistCustomerLeadOnlyExtrasTx(tx, plan, now);
         // Память оператора — в той же транзакции, что и ответ, но за точкой сохранения: сбой памяти ответ не откатывает.
         stateError = await saveOperatorStateIsolatedTx(tx, lane.ticket.conversationId, plan.operator.state, now);
         return ids;

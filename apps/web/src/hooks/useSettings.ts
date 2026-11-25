@@ -488,6 +488,14 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   botStaffQuietMinutes?: number;
   /** «Бот пишет своими словами» (20.11.2026), по умолчанию выключен. */
   botOwnWords?: boolean;
+  /** Кнопка «Позвонить» под ответом бота в WhatsApp (25.11.2026), по умолчанию выключена. */
+  botWaCallButton?: boolean;
+  /** Ссылка на WhatsApp с кодом продолжения в ответах Instagram/Facebook (25.11.2026), по умолчанию выключена. */
+  botIgWhatsappLink?: boolean;
+  /** Номер WhatsApp агентства цифрами — система запоминает сама из вебхука. */
+  metaWaDisplayPhone?: string | null;
+  /** Когда сторож звонков последний раз видел звонки WhatsApp готовыми (null — не готовы). */
+  waCallingReadyAt?: string | null;
   /** Номера проверяющих: с ними бот говорит как с клиентом, заявка карточкой не становится (20.11.2026). */
   botReviewerPhones?: string[];
   /** «Бот отвечает сам» (18.11.2026): не зовёт руководство, сам отвечает шагом к номеру. По умолчанию false. */

@@ -15,11 +15,11 @@
   "screens": 50,
   "paths": 774,
   "cron": 142,
-  "jobs": 34,
-  "conditions": 4134,
-  "untranslatedUnique": 474,
-  "untranslatedTotal": 609,
-  "partialUnique": 1113,
+  "jobs": 35,
+  "conditions": 4157,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 610,
+  "partialUnique": 1118,
   "translatedShare": 85
  },
  "untranslated": [
@@ -492,6 +492,7 @@
   "uploadedParts.length !== session.totalParts",
   "value.startsWith(\"••••\")",
   "voiceMuted || result.rendered + result.failed >= BATCH_LIMIT",
+  "waCard.id === sourceCard.id",
   "wall.getUTCDay() !== settings.digestWeekday",
   "wall.getUTCHours() !== settings.digestHourDushanbe",
   "workStart === workEnd",
@@ -85817,6 +85818,193 @@
          "k": "catch",
          "a": [],
          "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "whatsappContinuationLinkJob",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: wa или нет: source или канал не «WHATSAPP»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть wa карточка и есть source карточка",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если waCard.id === sourceCard.id",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "waCard.id === sourceCard.id"
+        }
+       ]
+      },
+      {
+       "t": "если есть source карточка",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "меняет: переписка с ботом",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если количество (изменённые) — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть wa телефон",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть wa карточка",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "меняет: переписка с ботом",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если количество (изменённые) — «0»",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если статус (ответ) — «wait»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «result.reason»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "внутри этого шага",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: wa или нет: source или канал не «WHATSAPP»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть wa карточка и есть source карточка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть source карточка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть wa карточка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если это private operation",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если source — «investigation»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если сервер сейчас выключается",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         }
        ]
       }

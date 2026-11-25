@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4173**. Модулей: **86**.
+Путей: **774**. Развилок в самих путях: **2471**; вместе с задачами по расписанию и фоновыми заданиями — **4196**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18531,6 +18531,8 @@
       · зовёт ingestInstagramComments()
   - void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
     · зовёт rememberBusinessAccountFromWebhook()
+  - void rememberWhatsappDisplayPhoneFromWebhook(req.body, waPhoneId);
+    · зовёт rememberWhatsappDisplayPhoneFromWebhook()
   - для каждого: const s of parseMetaStatusUpdates(req.body)
     - void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: …
       - если ["sent", "delivered", "read", "failed"].includes(s.status)
@@ -26285,6 +26287,8 @@
   - const { alarmed, sipAvailability } = await runWhatsappCallingHealthCheck();
     · зовёт runWhatsappCallingHealthCheck()
     - если !(await isMetaChannelEnabled("WHATSAPP"))
+      - await markCallingReady(false);
+        · дословно из кода
       - return { ...result, skipped: "channel_off" };
         · дословно из кода
     - const creds = await loadCredentials();
@@ -26292,18 +26296,20 @@
     - const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.wa…
       · зовёт resolveIncomingAccount()
     - если !creds.waPhoneId || !token
+      - await markCallingReady(false);
+        · дословно из кода
       - return { ...result, skipped: "not_configured" };
         · дословно из кода
     - пробует
       - если !callingOn
         - await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);
           · дословно из кода
-        - return { ...result, skipped: "calling_off" };
+        - await markCallingReady(false);
           · дословно из кода
       - если availability === "AVAILABLE"
         - await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
           · дословно из кода
-        - return result;
+        - await markCallingReady(true);
           · дословно из кода
       - если availability !== "BLOCKED" && availability !== "LIMITED"
         - console.log(`[whatsapp-звонки] Meta не сообщила can_receive_call_sip (значение: ${availability ?? "нет поля"}…
@@ -30705,4 +30711,113 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+
+### whatsappContinuationLinkJob
+
+`apps/api/src/jobs/whatsappContinuationLink.ts`
+
+- const result = await runWhatsappContinuationLink(payload);
+  · зовёт runWhatsappContinuationLink()
+  - const link = whatsappContinuationLinkSchema.parse(raw);
+    · проверяет данные схемой whatsappContinuationLinkSchema
+  - const [wa, source] = await Promise.all([ prisma.botConversation.findUnique({ where: { id: link.waConversation…
+    · читает в базе: botConversation
+  - если !wa || !source || wa.channel !== "WHATSAPP"
+    - return { status: "skipped", reason: "conversation_missing" };
+      · дословно из кода
+  - const note = (clientId: string, agentId: string | null, text: string)
+    · зовёт logTimeline()
+  - если waCard && sourceCard
+    - если waCard.id === sourceCard.id
+      - return { status: "same_card" };
+        · дословно из кода
+  - если sourceCard
+    - const changed = await prisma.botConversation.updateMany({ where: { id: wa.id, clientId: null }, data: { clien…
+      · меняет в базе: botConversation
+    - если changed.count === 0
+      - return { status: "skipped", reason: "already_linked" };
+        · дословно из кода
+    - const waPhone = whatsAppPhoneFromSubscriberId("WHATSAPP", wa.subscriberId);
+      · зовёт whatsAppPhoneFromSubscriberId()
+    - если waPhone
+      - await rememberWhatsAppPhone(sourceCard.id, waPhone);
+        · зовёт rememberWhatsAppPhone()
+  - если waCard
+    - const changed = await prisma.botConversation.updateMany({ where: { id: source.id, clientId: null }, data: { c…
+      · меняет в базе: botConversation
+    - если changed.count === 0
+      - return { status: "skipped", reason: "already_linked" };
+        · дословно из кода
+- если result.status === "wait"
+  - throw new Error(result.reason);
+    · ошибка Error — «result.reason»
+- когда попытки кончились
+  - пробует
+    - await runWhatsappContinuationLink(payload, { force: true });
+      · зовёт runWhatsappContinuationLink()
+      - const link = whatsappContinuationLinkSchema.parse(raw);
+        · проверяет данные схемой whatsappContinuationLinkSchema
+      - const [wa, source] = await Promise.all([ prisma.botConversation.findUnique({ where: { id: link.waConversation…
+        · читает в базе: botConversation
+      - если !wa || !source || wa.channel !== "WHATSAPP"
+        - return { status: "skipped", reason: "conversation_missing" };
+          · дословно из кода
+      - const note = (clientId: string, agentId: string | null, text: string)
+        · зовёт logTimeline()
+      - если waCard && sourceCard
+        - если waCard.id === sourceCard.id
+          - return { status: "same_card" };
+            · дословно из кода
+      - если sourceCard
+        - const changed = await prisma.botConversation.updateMany({ where: { id: wa.id, clientId: null }, data: { clien…
+          · меняет в базе: botConversation
+        - если changed.count === 0
+          - return { status: "skipped", reason: "already_linked" };
+            · дословно из кода
+        - const waPhone = whatsAppPhoneFromSubscriberId("WHATSAPP", wa.subscriberId);
+          · зовёт whatsAppPhoneFromSubscriberId()
+        - если waPhone
+          - await rememberWhatsAppPhone(sourceCard.id, waPhone);
+            · зовёт rememberWhatsAppPhone()
+      - если waCard
+        - const changed = await prisma.botConversation.updateMany({ where: { id: source.id, clientId: null }, data: { c…
+          · меняет в базе: botConversation
+        - если changed.count === 0
+          - return { status: "skipped", reason: "already_linked" };
+            · дословно из кода
+  - если сорвалось
+    - await logSystemError("background-jobs", `Продолжение из ${payload.sourceChannel === "FACEBOOK" ? "Facebook" :…
+      · запись в журнал ошибок
+      - message = maskPhoneNumbersInText(String(message));
+        · зовёт maskPhoneNumbersInText()
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
+      - если isShuttingDown()
+        - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+          · пишет строку в журнал сервера
+        - return;
+          · дальше не идёт, ничего не меняя
+      - пробует
+        - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+          · читает в базе: errorLog
+        - если recent
+          - return;
+            · дальше не идёт, ничего не меняя
+        - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+          · читает в базе: errorLog
+        - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+          · создаёт в базе: errorLog
+        - если !context?.quietPult
+          - requestPultSnapshot();
+            · зовёт requestPultSnapshot()
+        - если !everSeen && !context?.silent
+          - пробует
+          - если сорвалось
+      - если сорвалось
+        - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+          · пишет строку в журнал сервера
 

@@ -8,7 +8,10 @@ import { customerDeliveryControllerFence, customerDeliveryTransportSchema, custo
 
 /** Legacy URL-only rows have decoder-only discriminants and cannot pass this guard. */
 export function supportsCustomerDeliveryPayload(row: CustomerOutboxRow, payload: CustomerDecodedDeliveryPayload): payload is CustomerDeliveryPayload {
-  if (payload.kind === "text") return ["INSTAGRAM", "FACEBOOK", "WHATSAPP", "WEBSITE"].includes(row.channel);
+  // Кнопка под текстом — только в свой канал: звонок — WhatsApp, ссылка wa.me — Instagram и Facebook (25.11.2026).
+  if (payload.kind === "text") return payload.button?.type === "voice_call" ? row.channel === "WHATSAPP"
+    : payload.button?.type === "web_url" ? ["INSTAGRAM", "FACEBOOK"].includes(row.channel)
+    : ["INSTAGRAM", "FACEBOOK", "WHATSAPP", "WEBSITE"].includes(row.channel);
   if (payload.kind === "image") return ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(row.channel) &&
     payload.url === payload.mediaWitness.publicUrl && payload.mediaWitness.endpoint.channel === row.channel;
   if (payload.kind === "audio") return ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(row.channel) &&
@@ -32,7 +35,8 @@ export async function sendCustomerDeliveryPayload(row: CustomerOutboxRow, payloa
   // A managed part bound to its genuine inbound ticket answers THAT input: the
   // shield must not reclassify a queued/retried reply as an initiative by clock.
   return sendMessage(transport.channel, fence.endpoint.peerId, payload.text, undefined,
-    { origin: "bot", transport, answersInbound: !!row.ticketEventKey && (row.sourceKind === "BOT_TURN" || row.sourceKind === "HANDOVER_ACK") });
+    { origin: "bot", transport, answersInbound: !!row.ticketEventKey && (row.sourceKind === "BOT_TURN" || row.sourceKind === "HANDOVER_ACK"),
+      ...(payload.button ? { button: payload.button } : {}) });
 }
 
 /** Called under the original native/canonical lock. A durable projection marker
@@ -52,7 +56,7 @@ export async function projectCustomerDeliveryPartTx(tx: TxClient, row: CustomerO
   const at = new Date(Math.max(Date.now(), ...times.map(time => time + 1))).toISOString();
   const property = row.p03Json === null ? null : customerDeliveryP03Schema.parse(row.p03Json);
   const message: ChatMessage & { customerOutboxPartId: string; customerPropertyMedia?: Record<string, string | number>;
-    customerApprovedFile?: Record<string, string | number> } = payload.kind === "image" ? {
+    customerApprovedFile?: Record<string, string | number>; contactButton?: { type: string; title: string } } = payload.kind === "image" ? {
     role: "assistant", by: { kind: "bot" }, content: "", at, customerOutboxPartId: row.id,
     ...(mid ? { mid } : {}), customerPropertyReference: { scopeKey: payload.mediaWitness.scopeKey, propertyId: payload.mediaWitness.propertyId },
     attachments: [{ kind: "image", url: payload.mediaWitness.assetPath, mime: "image/jpeg", ...(mid ? { mid } : {}) }],
@@ -63,6 +67,9 @@ export async function projectCustomerDeliveryPartTx(tx: TxClient, row: CustomerO
   } : payload.kind === "text" ? {
     role: "assistant", by: { kind: "bot" }, content: payload.text, at, customerOutboxPartId: row.id,
     ...(mid ? { mid } : {}),
+    // Под текстом была кнопка (звонок / WhatsApp): в переписке CRM видно, что клиенту её показали. Ссылку не храним: в ней код.
+    ...(payload.button ? { contactButton: payload.button.type === "voice_call"
+      ? { type: "voice_call", title: payload.button.displayText } : { type: "web_url", title: payload.button.title } } : {}),
     ...(property ? { customerPropertyDelivery: { ...property, partId: row.id, status: "accepted", publishedAt: at },
       ...(property.propertyId ? { customerPropertyReference: { scopeKey: property.scopeKey, propertyId: property.propertyId } } : {}) } : {}),
   } : {

@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 774,
-  "forks": 4173,
+  "forks": 4196,
   "mounts": 86,
   "cron": 142,
-  "jobs": 34,
+  "jobs": 35,
   "hidden": 0
  },
  "hidden": [],
@@ -81974,6 +81974,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "void rememberWhatsappDisplayPhoneFromWebhook(req.body, waPhoneId);",
+       "a": [
+        "зовёт rememberWhatsappDisplayPhoneFromWebhook()"
+       ],
+       "c": []
+      },
+      {
        "k": "loop",
        "t": "для каждого: const s of parseMetaStatusUpdates(req.body)",
        "a": [],
@@ -118146,6 +118154,14 @@
          "c": [
           {
            "k": "do",
+           "t": "await markCallingReady(false);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
            "t": "return { ...result, skipped: \"channel_off\" };",
            "a": [
             "дословно из кода"
@@ -118177,6 +118193,14 @@
          "c": [
           {
            "k": "do",
+           "t": "await markCallingReady(false);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
            "t": "return { ...result, skipped: \"not_configured\" };",
            "a": [
             "дословно из кода"
@@ -118205,7 +118229,7 @@
             },
             {
              "k": "do",
-             "t": "return { ...result, skipped: \"calling_off\" };",
+             "t": "await markCallingReady(false);",
              "a": [
               "дословно из кода"
              ],
@@ -118228,7 +118252,7 @@
             },
             {
              "k": "do",
-             "t": "return result;",
+             "t": "await markCallingReady(true);",
              "a": [
               "дословно из кода"
              ],
@@ -138780,6 +138804,522 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "whatsappContinuationLinkJob",
+   "file": "apps/api/src/jobs/whatsappContinuationLink.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const result = await runWhatsappContinuationLink(payload);",
+     "a": [
+      "зовёт runWhatsappContinuationLink()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const link = whatsappContinuationLinkSchema.parse(raw);",
+       "a": [
+        "проверяет данные схемой whatsappContinuationLinkSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [wa, source] = await Promise.all([ prisma.botConversation.findUnique({ where: { id: link.waConversation…",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!wa || !source || wa.channel !== \"WHATSAPP\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"skipped\", reason: \"conversation_missing\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const note = (clientId: string, agentId: string | null, text: string)",
+       "a": [
+        "зовёт logTimeline()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "waCard && sourceCard",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "waCard.id === sourceCard.id",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"same_card\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "sourceCard",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const changed = await prisma.botConversation.updateMany({ where: { id: wa.id, clientId: null }, data: { clien…",
+         "a": [
+          "меняет в базе: botConversation"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "changed.count === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"skipped\", reason: \"already_linked\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const waPhone = whatsAppPhoneFromSubscriberId(\"WHATSAPP\", wa.subscriberId);",
+         "a": [
+          "зовёт whatsAppPhoneFromSubscriberId()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "waPhone",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await rememberWhatsAppPhone(sourceCard.id, waPhone);",
+           "a": [
+            "зовёт rememberWhatsAppPhone()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "waCard",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const changed = await prisma.botConversation.updateMany({ where: { id: source.id, clientId: null }, data: { c…",
+         "a": [
+          "меняет в базе: botConversation"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "changed.count === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"skipped\", reason: \"already_linked\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "runWhatsappContinuationLink() — apps/api/src/lib/whatsappContinuation.ts"
+    },
+    {
+     "k": "if",
+     "t": "result.status === \"wait\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(result.reason);",
+       "a": [
+        "ошибка Error — «result.reason»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await runWhatsappContinuationLink(payload, { force: true });",
+         "a": [
+          "зовёт runWhatsappContinuationLink()"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const link = whatsappContinuationLinkSchema.parse(raw);",
+           "a": [
+            "проверяет данные схемой whatsappContinuationLinkSchema"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const [wa, source] = await Promise.all([ prisma.botConversation.findUnique({ where: { id: link.waConversation…",
+           "a": [
+            "читает в базе: botConversation"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!wa || !source || wa.channel !== \"WHATSAPP\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { status: \"skipped\", reason: \"conversation_missing\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const note = (clientId: string, agentId: string | null, text: string)",
+           "a": [
+            "зовёт logTimeline()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "waCard && sourceCard",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "waCard.id === sourceCard.id",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"same_card\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "sourceCard",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const changed = await prisma.botConversation.updateMany({ where: { id: wa.id, clientId: null }, data: { clien…",
+             "a": [
+              "меняет в базе: botConversation"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "changed.count === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"skipped\", reason: \"already_linked\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const waPhone = whatsAppPhoneFromSubscriberId(\"WHATSAPP\", wa.subscriberId);",
+             "a": [
+              "зовёт whatsAppPhoneFromSubscriberId()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "waPhone",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await rememberWhatsAppPhone(sourceCard.id, waPhone);",
+               "a": [
+                "зовёт rememberWhatsAppPhone()"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "waCard",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const changed = await prisma.botConversation.updateMany({ where: { id: source.id, clientId: null }, data: { c…",
+             "a": [
+              "меняет в базе: botConversation"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "changed.count === 0",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"skipped\", reason: \"already_linked\" };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ],
+         "from": "runWhatsappContinuationLink() — apps/api/src/lib/whatsappContinuation.ts"
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"background-jobs\", `Продолжение из ${payload.sourceChannel === \"FACEBOOK\" ? \"Facebook\" :…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "message = maskPhoneNumbersInText(String(message));",
+           "a": [
+            "зовёт maskPhoneNumbersInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "isShuttingDown()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "recent",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+             "a": [
+              "создаёт в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!everSeen && !context?.silent",
+             "a": [],
+             "c": [
+              {
+               "k": "try",
+               "t": "пробует",
+               "a": [],
+               "c": []
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+        }
+       ]
       }
      ]
     }

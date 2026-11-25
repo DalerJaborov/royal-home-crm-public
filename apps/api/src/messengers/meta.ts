@@ -1,6 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
+import { isAllowedContactButtonUrl } from "../lib/contactButtonUrl.js";
+import { noteContactButtonRejection } from "../lib/contactButtonPolicy.js";
 import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
@@ -1404,20 +1406,61 @@ function sharedPostFields(
  * Вынесено отдельно: три канала с разными адресами и форматами тела внутри
  * одного `if` превращались в нечитаемую цепочку тернарников.
  */
-function buildSendRequest(
+/**
+ * КНОПКА ПОД ТЕКСТОМ ОТВЕТА (владелец 25.11.2026: «кнопка звонка в WhatsApp, а в Instagram ссылка на наш WhatsApp»).
+ *  - `voice_call` — только WhatsApp: интерактивное сообщение `voice_call`, клиент жмёт и звонит нам бесплатно (звонок
+ *    приходит на шлюз ops/whatsapp-gateway → станция, как любой звонок WhatsApp). Пределы Meta: текст кнопки ≤ 20 знаков,
+ *    `ttl_minutes` 1…43200, тело ≤ 1024 [developers.facebook.com/documentation/business-messaging/whatsapp/calling/
+ *    call-button-messages-deep-links].
+ *  - `web_url` — только Instagram и Messenger: шаблон `button` с кнопкой-ссылкой (кнопки звонка там нет; текст ≤ 640,
+ *    название ≤ 20). Ссылка — только `https://wa.me/…`: никакая другая сюда не проходит.
+ * Тот же путь отправки, что у текста (щит, запрет Meta, окно 24 ч, учёт mid) — второй двери нет.
+ */
+export type OutboundContactButton =
+  | { type: "voice_call"; displayText: string; ttlMinutes: number }
+  | { type: "web_url"; title: string; url: string };
+export const WA_CALL_BUTTON_BODY_MAX = 1024;
+export const MESSENGER_BUTTON_TEXT_MAX = 640;
+export const CONTACT_BUTTON_TITLE_MAX = 20;
+function assertContactButton(channel: MetaChannel, text: string, button: OutboundContactButton): void {
+  const title = button.type === "voice_call" ? button.displayText : button.title;
+  if (!title.trim() || [...title].length > CONTACT_BUTTON_TITLE_MAX) throw new Error("Кнопка: название пустое или длиннее 20 знаков");
+  if (button.type === "voice_call") {
+    if (channel !== "WHATSAPP") throw new Error("Кнопка звонка отправляется только в WhatsApp");
+    if (!Number.isInteger(button.ttlMinutes) || button.ttlMinutes < 1 || button.ttlMinutes > 43200) throw new Error("Кнопка звонка: срок вне 1…43200 минут");
+    if ([...text].length > WA_CALL_BUTTON_BODY_MAX) throw new Error("Кнопка звонка: текст длиннее 1024 знаков");
+    return;
+  }
+  if (channel === "WHATSAPP") throw new Error("Кнопка-ссылка в WhatsApp этим способом не отправляется");
+  if (!isAllowedContactButtonUrl(button.url)) throw new Error("Кнопка-ссылка: разрешена только ссылка https://wa.me/<номер>");
+  if ([...text].length > MESSENGER_BUTTON_TEXT_MAX) throw new Error("Кнопка-ссылка: текст длиннее 640 знаков");
+}
+
+/** Экспортируется ради теста: форма тела у каналов разная, и молча ломается именно она. */
+export function buildSendRequest(
   c: MetaCredentials,
   channel: MetaChannel,
   recipientId: string,
-  text: string
+  text: string,
+  button?: OutboundContactButton
 ): { token?: string; url: string; body: unknown } {
+  if (button) assertContactButton(channel, text, button);
   if (channel === "WHATSAPP") {
     if (!c.waPhoneId) throw new Error("Идентификатор номера WhatsApp не задан в Настройках");
     return {
       token: c.waToken,
       url: `https://graph.facebook.com/${GRAPH_VERSION}/${c.waPhoneId}/messages`,
-      body: { messaging_product: "whatsapp", to: recipientId, type: "text", text: { body: text } },
+      body: button?.type === "voice_call"
+        ? { messaging_product: "whatsapp", recipient_type: "individual", to: recipientId, type: "interactive",
+          interactive: { type: "voice_call", body: { text },
+            action: { name: "voice_call", parameters: { display_text: button.displayText, ttl_minutes: button.ttlMinutes } } } }
+        : { messaging_product: "whatsapp", to: recipientId, type: "text", text: { body: text } },
     };
   }
+  const message = button?.type === "web_url"
+    ? { attachment: { type: "template", payload: { template_type: "button", text,
+      buttons: [{ type: "web_url", url: button.url, title: button.title }] } } }
+    : { text };
   if (channel === "FACEBOOK") {
     if (!c.pageId) throw new Error("Идентификатор Страницы Facebook не задан в Настройках");
     return {
@@ -1425,13 +1468,13 @@ function buildSendRequest(
       url: `https://graph.facebook.com/${GRAPH_VERSION}/${c.pageId}/messages`,
       // messaging_type: RESPONSE — ответ на сообщение клиента. Без него Meta
       // считает письмо инициативным и режет его вне 24-часового окна.
-      body: { recipient: { id: recipientId }, message: { text }, messaging_type: "RESPONSE" },
+      body: { recipient: { id: recipientId }, message, messaging_type: "RESPONSE" },
     };
   }
   return {
     token: c.igToken,
     url: instagramApiUrl(`/${GRAPH_VERSION}/me/messages`),
-    body: { recipient: { id: recipientId }, message: { text } },
+    body: { recipient: { id: recipientId }, message },
   };
 }
 
@@ -2119,6 +2162,10 @@ export async function callGraph<T = unknown>(
        * запрос к заблокированному аккаунту только продлевает запрет. Метка ставится
        * до ветки нового ядра — она тоже должна её увидеть.
        */
+      // Отказ сообщению с нашей кнопкой (звонок / ссылка wa.me): рубильник кнопки гаснет сам, дальше обычный текст (25.11.2026).
+      // Запрет по правилам, окно 24 ч, недоступный человек, частота, «переписку ведёт другое приложение» — не про кнопку.
+      if (method === "POST") await noteContactButtonRejection(routed.body, res.status, graphError,
+        !!policy || sendErrorKind(graphError.code, graphError.subcode) !== null);
       let policyBlock: MetaSendBlock | null = null;
       let policyWarning: MetaSendBlock | null = null;
       if (policy && sendSurface && sendSurface !== "action") {
@@ -2278,7 +2325,9 @@ async function sendMessageImpl(
   outbound?: { origin?: OutboundOrigin; recipientName?: string | null; transport?: CustomerTransportReference;
     customerReplyPrincipal?: CustomerPrincipal;
     /** Ответ ядра на конкретное входящее (см. OutboundRequest.answersInbound). */
-    answersInbound?: boolean }
+    answersInbound?: boolean;
+    /** Кнопка под текстом (звонок в WhatsApp, ссылка wa.me в Instagram/Messenger) — см. OutboundContactButton. */
+    button?: OutboundContactButton }
 ): Promise<string | null> {
   const loaded = await loadCredentials();
   const captured = outbound?.transport ?? await resolveLegacyMetaSendTransport(loaded, channel, recipientId, tokenOverride);
@@ -2301,7 +2350,7 @@ async function sendMessageImpl(
   }
 
   const c = bound?.credentials ?? loaded;
-  const { token: fallbackToken, url, body } = buildSendRequest(c, channel, recipientId, text);
+  const { token: fallbackToken, url, body } = buildSendRequest(c, channel, recipientId, text, outbound?.button);
   const token = bound?.token || tokenOverride || fallbackToken;
   if (!token) {
     void noteOutboundUndelivered(verdict); // не ушло вовсе: в счёт щита «подряд» не идёт (18.11.2026)

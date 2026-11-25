@@ -124,14 +124,23 @@ function describeBlock(entity: HealthEntity): string {
   return parts.length ? parts.join("; ") : "Meta причину не назвала";
 }
 
+/**
+ * Готовность звонков для кнопки «Позвонить» в ответах бота (lib/contactButtonPolicy.ts, 25.11.2026): отметка ставится, только
+ * когда Meta прямо сказала «звонки и SIP включены, номер AVAILABLE», и гаснет при «выключено», BLOCKED и LIMITED. Сбой самого
+ * запроса отметку не трогает: она стареет сама (кнопка выключается через три часа без свежей проверки).
+ */
+async function markCallingReady(ready: boolean): Promise<void> {
+  await prisma.settings.updateMany({ where: { id: "singleton" }, data: { waCallingReadyAt: ready ? new Date() : null } });
+}
+
 /** Тик крона. Наружу бросает только сбой базы. */
 export async function runWhatsappCallingHealthCheck(get: CallingGraphGet = defaultGet): Promise<WhatsappCallingHealthResult> {
   const result: WhatsappCallingHealthResult = { skipped: null, sipAvailability: null, alarmed: false, checkFailed: false };
-  if (!(await isMetaChannelEnabled("WHATSAPP"))) return { ...result, skipped: "channel_off" };
+  if (!(await isMetaChannelEnabled("WHATSAPP"))) { await markCallingReady(false); return { ...result, skipped: "channel_off" }; }
   const creds = await loadCredentials();
   // Маркер номера — из «Каналов» (MessengerAccount), запасной — из Настроек; как у сторожа вебхука.
   const token = creds.waPhoneId ? (await resolveIncomingAccount("WHATSAPP", creds.waPhoneId)).token || creds.waToken : undefined;
-  if (!creds.waPhoneId || !token) return { ...result, skipped: "not_configured" };
+  if (!creds.waPhoneId || !token) { await markCallingReady(false); return { ...result, skipped: "not_configured" }; }
   const phoneId = encodeURIComponent(creds.waPhoneId);
 
   try {
@@ -140,6 +149,7 @@ export async function runWhatsappCallingHealthCheck(get: CallingGraphGet = defau
     if (!callingOn) {
       // Выключено намеренно — не поломка. Прошлую тревогу о проверке гасим: Meta ответила.
       await resolveAlarm(WA_CALLING_CHECK_ALARM_KEY);
+      await markCallingReady(false);
       return { ...result, skipped: "calling_off" };
     }
     const health = await graphJson<HealthBody>(get, `${phoneId}?fields=health_status`, token, "Состояние номера");
@@ -149,8 +159,11 @@ export async function runWhatsappCallingHealthCheck(get: CallingGraphGet = defau
     result.sipAvailability = availability;
     if (availability === "AVAILABLE") {
       await resolveAlarm(WA_CALLING_SIP_ALARM_KEY);
+      await markCallingReady(true);
       return result;
     }
+    // Не AVAILABLE (или Meta не сказала) — кнопку звонка не показываем: клиент звонил бы в пустоту.
+    await markCallingReady(false);
     if (availability !== "BLOCKED" && availability !== "LIMITED") {
       // Поля нет (или значение новое): Meta о звонках ничего не сказала — это не поломка.
       // Тревогу не поднимаем и не гасим: открытая останется до настоящего AVAILABLE.
