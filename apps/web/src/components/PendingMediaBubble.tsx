@@ -1,5 +1,6 @@
 import { AlertCircle, RotateCw } from "lucide-react";
 import type { PendingMediaUpload } from "../store/mediaUploads";
+import { UploadProgressLine } from "./UploadProgressLine";
 
 /**
  * Пузырь фото/видео, которое ещё уходит клиенту (18.08.2026; общий для ПК и телефона с
@@ -30,7 +31,10 @@ export function PendingMediaBubble({
 }) {
   const processingLabel =
     u.stage === "compress" ? (u.progress > 0 ? `Сжимаем ${u.progress}%` : "Сжимаем…") : u.stage === "send" ? "Отправляем…" : "В очереди…";
-  const canCancel = u.status === "uploading" || (u.status === "processing" && u.stage !== "send");
+  // Пока байты идут на сервер, одна строка (МБ из МБ, скорость, «ждём связь», «Отменить») на все загрузки
+  // (components/UploadProgressLine.tsx, 25.11.2026); отдельный «Отменить» тогда не нужен.
+  const showLive = u.status === "uploading" && !!u.live;
+  const canCancel = (u.status === "uploading" || (u.status === "processing" && u.stage !== "send")) && !showLive;
   return (
     <div className="bub me">
       <div className="att-img" style={{ position: "relative" }}>
@@ -77,6 +81,14 @@ export function PendingMediaBubble({
         )}
       </div>
       {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
+      {showLive && (
+        <UploadProgressLine
+          live={u.live!}
+          keepAwakeHint={u.kind === "video"}
+          onCancel={() => onCancel(u.localId)}
+          style={{ marginTop: 6 }}
+        />
+      )}
       {u.status === "error" && (
         <div className="wrap" style={{ marginTop: 6 }}>
           <span className="txt" style={{ color: "var(--crit)" }}>

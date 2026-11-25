@@ -8,13 +8,11 @@ import { useCan, useIsReadOnly } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  AlertCircle,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   MessageSquare,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";

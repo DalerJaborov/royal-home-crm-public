@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { UploadLive } from "../lib/upload/progressText";
 
 /**
  * Загрузка фото/видео в переписку с прогрессом (18.08.2026, WhatsApp/Telegram-стиль
@@ -32,12 +33,15 @@ export interface PendingMediaUpload {
   retryable?: boolean;
   /** Ключ повтора загрузки; новый — когда файл грузится заново (сервер его уже убрал). */
   uploadKey?: string;
+  /** МБ из МБ, «ждём связь», «повтор через N с» — строка под пузырём (25.11.2026). */
+  live?: UploadLive;
 }
 
 interface MediaUploadsState {
   byConversation: Record<string, PendingMediaUpload[]>;
   add: (conversationId: string, upload: PendingMediaUpload) => void;
   setProgress: (conversationId: string, localId: string, progress: number) => void;
+  setLive: (conversationId: string, localId: string, live: UploadLive) => void;
   setError: (conversationId: string, localId: string, error: string, retryable?: boolean) => void;
   setUploading: (conversationId: string, localId: string) => void;
   setProcessing: (conversationId: string, localId: string, patch: { jobId: string; stage: PendingMediaUpload["stage"]; progress: number }) => void;
@@ -57,6 +61,13 @@ export const useMediaUploadsStore = create<MediaUploadsState>((set) => ({
         [conversationId]: (s.byConversation[conversationId] ?? []).map((u) => (u.localId === localId ? { ...u, progress } : u)),
       },
     })),
+  setLive: (conversationId, localId, live) =>
+    set((s) => ({
+      byConversation: {
+        ...s.byConversation,
+        [conversationId]: (s.byConversation[conversationId] ?? []).map((u) => (u.localId === localId ? { ...u, live } : u)),
+      },
+    })),
   setError: (conversationId, localId, error, retryable = true) =>
     set((s) => ({
       byConversation: {
@@ -71,7 +82,7 @@ export const useMediaUploadsStore = create<MediaUploadsState>((set) => ({
       byConversation: {
         ...s.byConversation,
         [conversationId]: (s.byConversation[conversationId] ?? []).map((u) =>
-          u.localId === localId ? { ...u, status: "uploading", progress: 0, error: undefined } : u
+          u.localId === localId ? { ...u, status: "uploading", progress: 0, error: undefined, live: undefined } : u
         ),
       },
     })),

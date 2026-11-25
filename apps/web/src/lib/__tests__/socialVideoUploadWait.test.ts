@@ -119,7 +119,8 @@ describe("загрузка свободного ролика частями", ()
     const { promise } = start();
     await answerStart();
     last().respond(502, {});
-    await vi.advanceTimersByTimeAsync(1000);
+    // Пауза по общему расписанию (lib/uploadRetry.ts): 5 с перед вторым разом.
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(last().url).toBe("/api/v1/social-videos/upload-sessions/s1/parts/1");
     await answerParts();
     last().respond(201, { id: "v1" });
@@ -129,9 +130,12 @@ describe("загрузка свободного ролика частями", ()
   it("часть молчит каждый раз — после всех попыток понятная ошибка", async () => {
     const { promise } = start();
     await answerStart();
-    const assertion = expect(promise).rejects.toThrow("Связь пропала");
-    for (let i = 0; i < PART_ATTEMPTS; i++) await vi.advanceTimersByTimeAsync(STALL_MS + 10_000);
+    // Каждый заход: минута тишины → обрыв → пауза по расписанию (до 5 минут). Попыток
+    // столько же, сколько у очередей объекта; текст — по причине, а не «файл повредился».
+    const assertion = expect(promise).rejects.toThrow("Связь так и не наладилась");
+    for (let i = 0; i < PART_ATTEMPTS + 1; i++) await vi.advanceTimersByTimeAsync(STALL_MS + 5 * 60_000 + 1_000);
     await assertion;
+    expect(FakeXhr.all.filter((x) => x.method === "PUT")).toHaveLength(PART_ATTEMPTS);
   });
 
   it("отказ по смыслу (400) не повторяется", async () => {

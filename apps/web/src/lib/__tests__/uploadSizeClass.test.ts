@@ -126,6 +126,9 @@ describe("загрузка частями: ролик карточки и фай
     last().respond(201, { sessionId: "s1", partSize: 2, totalParts: 1 });
     await flush();
     last().respond(502, {});
+    // Пауза — по общему расписанию очередей (lib/uploadRetry.ts, 25.11.2026): 5 с перед вторым разом.
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(FakeXhr.all.filter((x) => x.method === "PUT")).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(FakeXhr.all.filter((x) => x.method === "PUT")).toHaveLength(2);
     last().respond(200, { ok: true });

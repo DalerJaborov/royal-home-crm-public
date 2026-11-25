@@ -374,6 +374,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const queryClient = useQueryClient();
   const add = useMediaUploadsStore((s) => s.add);
   const setProgress = useMediaUploadsStore((s) => s.setProgress);
+  const setLive = useMediaUploadsStore((s) => s.setLive);
   const setError = useMediaUploadsStore((s) => s.setError);
   const setUploading = useMediaUploadsStore((s) => s.setUploading);
   const remove = useMediaUploadsStore((s) => s.remove);
@@ -425,7 +426,8 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           upload.caption,
           (percent) => setProgress(conversationId, upload.localId, percent),
           upload.uploadKey ?? `media:${upload.localId}`,
-          upload.localId
+          upload.localId,
+          (live) => setLive(conversationId, upload.localId, live)
         );
         if (result?.queued && result.jobId) {
           await follow(conversationId, upload, result.jobId);
@@ -441,7 +443,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось отправить");
       }
     },
-    [queryClient, setProgress, setError, remove, follow]
+    [queryClient, setProgress, setLive, setError, remove, follow]
   );
 
   const start = useCallback(

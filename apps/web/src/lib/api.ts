@@ -315,6 +315,13 @@ export async function api<T>(
     /** Переопределить потолок ожидания (мс). Обычно указывать не нужно — см. DEFAULT_TIMEOUT_MS/BLOB_TIMEOUT_MS. */
     timeoutMs?: number;
     /**
+     * Отмена человеком (ревью 26.11.2026): обрывает запрос и отдаёт `AbortError`, а не текст
+     * про обрыв связи — «отмена» и «связь прервалась» вызывающему нужно различать. Без
+     * сигнала поведение прежнее. Оборвать можно только то, что безопасно бросить на полпути
+     * (старт сессии загрузки); запрос, который сервер мог уже выполнить, отменять нельзя.
+     */
+    signal?: AbortSignal;
+    /**
      * Ключ повтора (23.09.2026, apps/api/src/lib/idempotency.ts): повтор с тем же
      * ключом получает ответ первого запроса, а не создаёт вторую запись. Один
      * ключ — одно намерение: форма, которую можно нажать «Сохранить» дважды,
@@ -404,7 +411,16 @@ export async function api<T>(
 
     const controller = new AbortController();
     let timer = setTimeout(() => controller.abort(), timeoutMs);
-    const done = () => clearTimeout(timer);
+    const external = options.signal;
+    const onExternalAbort = () => controller.abort();
+    if (external) {
+      if (external.aborted) controller.abort();
+      else external.addEventListener("abort", onExternalAbort, { once: true });
+    }
+    const done = () => {
+      clearTimeout(timer);
+      external?.removeEventListener("abort", onExternalAbort);
+    };
     const restart = (ms: number) => {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(), ms);
@@ -426,6 +442,7 @@ export async function api<T>(
       // очередей загрузки, чтобы retry/офлайн-очередь ниже видели «сеть», а
       // не незнакомую ошибку.
       if (err instanceof DOMException && err.name === "AbortError") {
+        if (external?.aborted) throw err;
         throw new Error(TIMEOUT_ERROR_MESSAGE);
       }
       throw err;
@@ -438,6 +455,8 @@ export async function api<T>(
   try {
     attempt = await doFetch(token);
   } catch (err) {
+    // Отмена человеком — это не обрыв связи: ни в офлайн-очередь, ни в «Нет связи».
+    if (options.signal?.aborted) throw err;
     // fetch кидает TypeError только при сетевой ошибке — тела и статуса нет.
     if (queueOffline && !isForm) {
       assertSameAgent();

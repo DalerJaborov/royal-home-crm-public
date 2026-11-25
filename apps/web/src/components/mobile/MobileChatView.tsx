@@ -2,7 +2,6 @@ import { messageTimeText } from "../../lib/messageTime";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertCircle,
   ArrowUp,
   Bot,
   ChevronDown,
@@ -10,7 +9,6 @@ import {
   ChevronUp,
   MoreHorizontal,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";
