@@ -78,6 +78,7 @@ import { callbackRequestConversationIds, CustomerRequestsPanel } from "../chat/C
 import { ChatPhotoViewer } from "../chat/ChatPhotoViewer";
 import { buildChatPhotoList, chatPhotoOffsetForMessage } from "../../lib/chatPhotos";
 import { clearIfUnchanged } from "../../lib/clearSentText";
+import { UploadProgressLine } from "../UploadProgressLine";
 
 /**
  * Мобильная переписка — эталон темы «Royal Home 2026»
@@ -313,6 +314,14 @@ const MobileMessageList = memo(function MobileMessageList({
             )}
           </div>
           {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
+          {u.status === "uploading" && u.live && (
+            <UploadProgressLine
+              live={u.live}
+              keepAwakeHint={u.kind === "video"}
+              onCancel={() => onCancelUpload(u.localId)}
+              style={{ marginTop: 6 }}
+            />
+          )}
           {u.status === "error" && (
             <div className="wrap" style={{ marginTop: 6 }}>
               <span className="txt" style={{ color: "var(--crit)" }}>

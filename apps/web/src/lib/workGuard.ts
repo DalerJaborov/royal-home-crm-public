@@ -19,6 +19,9 @@
  * Без зависимостей от React и от остальных модулей приложения.
  */
 
+/** online — появилась сеть; visible — вернулись в приложение; heartbeat — плановый тик. */
+export type ResumeReason = "online" | "visible" | "heartbeat";
+
 export interface WorkItem {
   /** Один id — одна запись: повторная регистрация заменяет прежнюю. */
   id: string;
@@ -26,8 +29,13 @@ export interface WorkItem {
   label: string;
   /** true — закрытие вкладки должно спросить подтверждение браузера. */
   blocksUnload: boolean;
-  /** Вернулись в приложение / появилась сеть / тик — подтолкнуть работу. */
-  resume?: () => void;
+  /**
+   * Вернулись в приложение / появилась сеть / тик — подтолкнуть работу. Повод передаётся
+   * (25.11.2026, находка 3): сердцебиение раз в 30 с не должно стирать паузу после отказа
+   * сервера — иначе 10 попыток сгорали за пять минут вместо двадцати пяти. Сбрасывать
+   * паузу честно только по `online` и возврату в приложение, и только у обрыва связи.
+   */
+  resume?: (reason: ResumeReason) => void;
   /** Вкладка ушла в фон или закрывается — досохранить то, что ещё не уехало. */
   flush?: () => void;
 }
@@ -51,9 +59,13 @@ function safeCall(fn: (() => void) | undefined): void {
   }
 }
 
-function resumeAll(): void {
-  for (const item of [...registry.values()]) safeCall(item.resume);
+function resumeAll(reason: ResumeReason): void {
+  for (const item of [...registry.values()]) safeCall(item.resume && (() => item.resume!(reason)));
 }
+
+const resumeOnline = () => resumeAll("online");
+const resumeVisible = () => resumeAll("visible");
+const resumeHeartbeat = () => resumeAll("heartbeat");
 
 function flushAll(): void {
   for (const item of [...registry.values()]) safeCall(item.flush);
@@ -61,7 +73,7 @@ function flushAll(): void {
 
 function onVisibilityChange(): void {
   if (typeof document === "undefined") return;
-  if (document.visibilityState === "visible") resumeAll();
+  if (document.visibilityState === "visible") resumeAll("visible");
   else if (document.visibilityState === "hidden") flushAll();
 }
 
@@ -83,17 +95,17 @@ function syncListeners(): void {
 
   if (hasWork && !attached) {
     attached = true;
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", flushAll);
-    window.addEventListener("pageshow", resumeAll);
-    window.addEventListener("online", resumeAll);
-    heartbeat = setInterval(resumeAll, WORK_HEARTBEAT_MS);
+    window.addEventListener("pageshow", resumeVisible);
+    window.addEventListener("online", resumeOnline);
+    heartbeat = setInterval(resumeHeartbeat, WORK_HEARTBEAT_MS);
   } else if (!hasWork && attached) {
     attached = false;
-    document.removeEventListener("visibilitychange", onVisibilityChange);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("pagehide", flushAll);
-    window.removeEventListener("pageshow", resumeAll);
-    window.removeEventListener("online", resumeAll);
+    window.removeEventListener("pageshow", resumeVisible);
+    window.removeEventListener("online", resumeOnline);
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = null;
   }

@@ -94,6 +94,7 @@ import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
 import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../components/look/chats/chatThread";
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
+import { UploadProgressLine } from "../components/UploadProgressLine";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -1170,6 +1171,16 @@ const ConversationMessageList = memo(function ConversationMessageList({
             )}
           </div>
           {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
+          {/* МБ из МБ, скорость, «ждём связь», «Отменить» — одна строка на все загрузки
+              (components/UploadProgressLine.tsx, 25.11.2026). */}
+          {u.status === "uploading" && u.live && (
+            <UploadProgressLine
+              live={u.live}
+              keepAwakeHint={u.kind === "video"}
+              onCancel={() => onCancelUpload(u.localId)}
+              style={{ marginTop: 6 }}
+            />
+          )}
           {u.status === "error" && (
             <div className="wrap" style={{ marginTop: 6 }}>
               <span className="txt" style={{ color: "var(--crit)" }}>

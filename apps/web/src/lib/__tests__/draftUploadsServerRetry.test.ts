@@ -16,6 +16,10 @@ vi.mock("../draftUploadStore", async (original) => ({ ...await original<typeof i
   putDraftFile: async () => {}, readAllDraftFiles: async () => [], deleteDraftFile: async () => {}, clearAllDraftFiles: async () => {},
 }));
 
+// Двенадцать заходов по сети-заглушке: на занятом раннере (сборка api + web параллельно)
+// пять секунд по умолчанию не хватало (precheck 25.11.2026) — запас, а не ожидание.
+vi.setConfig({ testTimeout: 30_000 });
+
 const PARTS = 12;
 const PART_SIZE = 8;
 const accepted = new Set<number>();
@@ -127,11 +131,81 @@ describe("очередь мастера: отказ сервера после п
   });
 });
 
+/**
+ * Находка 3 (25.11.2026): сердцебиение workGuard раз в 30 с звало resumeUploads(), а тот
+ * стирал паузу у ВСЕХ ждущих — в том числе паузу после отказа сервера. 10 попыток
+ * сгорали за ~5 минут вместо ~25. Теперь тик паузу не трогает, `online` снимает её только
+ * у обрыва связи, а явное действие человека — у всех.
+ */
+describe("очередь мастера: пауза после отказа сервера не стирается сердцебиением", () => {
+  it("heartbeat и online не будят файл раньше паузы сервера; явный повтор — будит", async () => {
+    cutOnSend = 1; // каждый заход — 502 на первой же части
+    const { useAuthStore } = await import("../../store/auth");
+    useAuthStore.setState({ agent: { id: "test-agent", fullName: "Тестовый агент", role: "AGENT", phone: "" }, accessToken: "test-local-token", hasSession: true });
+    (await import("../propertyDraftSession")).adoptPropertyDraftSession({ draft: view(), revision: 1 });
+    const queue = await import("../draftUploads");
+
+    queue.addDraftVideos([new File([new Uint8Array(PARTS * PART_SIZE)], "test-video.mov", { type: "video/quicktime" })]);
+    await roundSettled(queue);
+    expect(queue.getDraftMediaSnapshot()[0].errorKind).toBe("server");
+    const after = sends;
+
+    queue.resumeUploads("heartbeat");
+    queue.resumeUploads("online");
+    queue.resumeUploads("visible");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sends).toBe(after); // пауза сервера цела
+
+    queue.resumeUploads(); // явное «продолжить» — пауза снимается
+    await roundSettled(queue);
+    expect(sends).toBeGreaterThan(after);
+  });
+
+  it("обрыв связи (статус 0): появление сети снимает паузу сразу", async () => {
+    const { useAuthStore } = await import("../../store/auth");
+    useAuthStore.setState({ agent: { id: "test-agent", fullName: "Тестовый агент", role: "AGENT", phone: "" }, accessToken: "test-local-token", hasSession: true });
+    (await import("../propertyDraftSession")).adoptPropertyDraftSession({ draft: view(), revision: 1 });
+    const queue = await import("../draftUploads");
+    vi.stubGlobal("XMLHttpRequest", class extends Upload {
+      send() {
+        sends++;
+        queueMicrotask(() => this.onerror?.()); // нет связи
+      }
+      onerror: (() => void) | null = null;
+    });
+    queue.addDraftVideos([new File([new Uint8Array(PARTS * PART_SIZE)], "test-video.mov", { type: "video/quicktime" })]);
+    await roundSettled(queue);
+    expect(queue.getDraftMediaSnapshot()[0].errorKind).toBe("net");
+    const after = sends;
+    queue.resumeUploads("heartbeat");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sends).toBe(after);
+    queue.resumeUploads("online");
+    await roundSettled(queue);
+    expect(sends).toBeGreaterThan(after);
+  });
+});
+
+/** Находка 4: сборка ролика мастера — со своим потолком у самого api(), а не общими 30 с. */
+describe("очередь мастера: сборка ролика ждёт дольше общего предела api()", () => {
+  it("POST …/complete уходит с timeoutMs = 120 с", async () => {
+    cutOnSend = 99; // ни одного отказа
+    const { useAuthStore } = await import("../../store/auth");
+    useAuthStore.setState({ agent: { id: "test-agent", fullName: "Тестовый агент", role: "AGENT", phone: "" }, accessToken: "test-local-token", hasSession: true });
+    (await import("../propertyDraftSession")).adoptPropertyDraftSession({ draft: view(), revision: 1 });
+    const queue = await import("../draftUploads");
+    queue.addDraftVideos([new File([new Uint8Array(PARTS * PART_SIZE)], "test-video.mov", { type: "video/quicktime" })]);
+    await vi.waitFor(() => expect(queue.getDraftMediaSnapshot()[0]?.status).toBe("ready"), { timeout: 10_000 });
+    const complete = mocks.api.mock.calls.find(([path]) => String(path).endsWith("/complete"));
+    expect(complete?.[1]).toMatchObject({ method: "POST", timeoutMs: 120_000 });
+  });
+});
+
 /** Дождаться конца захода: в сеть ушла новая часть, и очередь уже не «грузит». */
 async function roundSettled(queue: typeof import("../draftUploads")): Promise<void> {
   const before = sends;
   await vi.waitFor(() => {
     expect(sends).toBeGreaterThan(before);
     expect(queue.getDraftMediaSnapshot()[0]?.status).not.toBe("uploading");
-  });
+  }, { timeout: 10_000 });
 }
