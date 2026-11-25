@@ -14,6 +14,7 @@ import { revokePropertyShareLinks } from "../lib/propertyShareLink.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { fromTjs, loadMoneyContext, roundMoney } from "../lib/money.js";
+import { autoLinkPropertyById } from "../lib/constructionRegistry/autoLinkOnSave.js";
 import type { Currency } from "@royal-home/shared";
 
 export const siteNotificationsRouter = Router();
@@ -298,6 +299,8 @@ async function resolveOneNotification(id: string, resolution: "ACCEPTED" | "REJE
         const updateData = await buildPropertyUpdateFromSiteChanges(changes, notification.property.currency);
         if (Object.keys(updateData).length > 0) {
           await prisma.property.update({ where: { id: notification.propertyId }, data: updateData });
+          // Адрес или описание с сайта — пересверить с реестром строек (фон, наружу ничего не отдаёт).
+          void autoLinkPropertyById(notification.propertyId);
         }
       }
     } catch (err) {

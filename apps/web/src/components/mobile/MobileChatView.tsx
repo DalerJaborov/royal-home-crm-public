@@ -2,7 +2,6 @@ import { messageTimeText } from "../../lib/messageTime";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertCircle,
   ArrowUp,
   Bot,
   ChevronDown,
@@ -10,7 +9,6 @@ import {
   ChevronUp,
   MoreHorizontal,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";
@@ -72,6 +70,7 @@ import { ChannelIcon } from "../ChannelIcon";
 import { RH2_SCR_BARE } from "../rh2/Rh2Scope";
 import { planOutgoingMediaPick } from "../../lib/mediaUpload";
 import { usePendingMediaUploads, type PendingMediaUpload } from "../../store/mediaUploads";
+import { PendingMediaBubble } from "../PendingMediaBubble";
 import { useSellerObject } from "../../hooks/useSellerObject";
 import { SellerObjectStrip } from "../chat/SellerObjectStrip";
 import { callbackRequestConversationIds, CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
@@ -289,44 +288,7 @@ const MobileMessageList = memo(function MobileMessageList({
           store/mediaUploads.ts на уровне conversationId и переживает
           переключение диалогов. */}
       {pendingUploads.map((u) => (
-        <div key={u.localId} className="bub me">
-          <div className="att-img" style={{ position: "relative" }}>
-            {u.kind === "image" ? (
-              <img src={u.previewUrl} alt="Загружается" className="w-full h-full object-cover" />
-            ) : (
-              <video src={u.previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
-            )}
-            {u.status === "uploading" && (
-              <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1">
-                <RotateCw className="w-5 h-5 text-white animate-spin" />
-                <span className="text-[13px] font-semibold text-white tabular-nums">{u.progress}%</span>
-                <div className="w-[70%] h-1 rounded-full bg-white/30 overflow-hidden">
-                  <div className="h-full bg-white" style={{ width: `${u.progress}%` }} />
-                </div>
-              </div>
-            )}
-            {u.status === "error" && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1 px-2 text-center">
-                <AlertCircle className="w-5 h-5 text-white" />
-                <span className="text-[13px] font-semibold text-white">Не отправлено</span>
-              </div>
-            )}
-          </div>
-          {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
-          {u.status === "error" && (
-            <div className="wrap" style={{ marginTop: 6 }}>
-              <span className="txt" style={{ color: "var(--crit)" }}>
-                {u.error || "Не удалось отправить"}
-              </span>
-              <button type="button" className="lnk" onClick={() => onRetryUpload(u)}>
-                Повторить
-              </button>
-              <button type="button" className="lnk" onClick={() => onCancelUpload(u.localId)}>
-                Убрать
-              </button>
-            </div>
-          )}
-        </div>
+        <PendingMediaBubble key={u.localId} upload={u} onRetry={onRetryUpload} onCancel={onCancelUpload} />
       ))}
     </>
   );

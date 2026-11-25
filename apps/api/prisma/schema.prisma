@@ -7449,6 +7449,11 @@ model Settings {
   /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
   botRetryCapEnabled                    Boolean @default(true)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
+  /// Копия голосового/видео клиента в формате, который играет любой браузер (25.11.2026, ВКЛ).
+  chatMediaTranscodeEnabled             Boolean @default(true)
+  /// Сервер сжимает фото и видео сотрудника под предел канала клиента и шлёт их в фоне (25.11.2026,
+  /// lib/outgoingMediaJobs.ts). ВКЛ. Выключено — прежняя отправка как есть: видео больше предела уходит ссылкой.
+  outgoingMediaCompressEnabled          Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -12112,6 +12117,9 @@ model ConstructionPropertyLink {
   distanceM   Int?
   reasons     String[]
   createdById String?
+  /// Когда событие «связали» обработано: время сообщения агенту про жёлтый или красный, либо начало эпохи, если сообщения не было.
+  /// Повторно не уведомляем; смену цвета позже ведёт ConstructionStatusChange.
+  notifiedAt  DateTime?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 
@@ -12136,4 +12144,59 @@ model ConstructionSyncRun {
   error          String?
 
   @@index([startedAt])
+}
+
+/// Фото или видео сотрудника клиенту, которое сервер готовит под канал и отправляет в фоне
+/// (25.11.2026, lib/outgoingMediaJobs.ts). Исходник лежит в спуле на общем томе api и worker
+/// до успеха; при сбое — сутки, чтобы «Повторить» не грузило файл заново.
+model OutgoingMediaJob {
+  id             String    @id @default(uuid())
+  /// Идентификатор переписки как в инбоксе: «<uuid>» или «tg_<uuid>».
+  conversationId String
+  agentId        String
+  /// QUEUED → PREPARING → SENDING → SENT | FAILED | CANCELLED.
+  status         String    @default("QUEUED")
+  /// 0–100 по ходу сжатия видео.
+  progress       Int       @default(0)
+  /// Имя исходника в спуле (только имя, не путь).
+  inputName      String
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  caption        String?
+  /// Понятный итог для сотрудника: «сжато 180 → 15 МБ», «видео длинное — ушла ссылка».
+  note           String?
+  /// Причина отказа простыми словами (status FAILED).
+  error          String?
+  /// false — исход отправки неизвестен (файл мог дойти): «Повторить» не предлагаем, чтобы не задвоить.
+  retryable      Boolean   @default(true)
+  /// Снимок паузы бота, поставленной при приёме (conversationDelivery.ts::placeQueuedMediaPause) — для отката.
+  pauseUndo      Json?
+  outBytes       Int?
+  outMime        String?
+  prepareMs      Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  startedAt      DateTime?
+  finishedAt     DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([status, updatedAt])
+}
+
+/// Файлы клиента, скачанные для сотрудника раньше, чем ядро записало саму реплику
+/// (lib/customerInputMedia.ts, 25.11.2026). Реплика забирает их в той же транзакции,
+/// в которой пишется (customerQualifierLedger.ts); ничьи старше двух суток убирает
+/// ночная уборка вместе с файлами.
+model CustomerPendingMedia {
+  id           String   @id @default(uuid())
+  channel      String
+  subscriberId String
+  mid          String
+  files        Json     @default("[]")
+  lost         Json     @default("[]")
+  createdAt    DateTime @default(now())
+
+  @@unique([channel, subscriberId, mid])
+  @@index([createdAt])
 }

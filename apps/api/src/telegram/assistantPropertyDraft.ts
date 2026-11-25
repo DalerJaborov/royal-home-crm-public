@@ -67,6 +67,8 @@ import {
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 import { loadNarrationConfiguration } from "../lib/narrationGeneration.js";
 import { narrationRate } from "../lib/propertyNarration.js";
+import { registryNoteAfterCreate } from "../ai/assistant/tools/registryBrief.js";
+import { mergeAssistantDialog } from "./assistantDialogState.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -1724,13 +1726,42 @@ async function createFromPreview(ctx: Context, id: string, messageId?: number): 
   const baseText = media?.error || skipped
     ? `${t(lang).createdPrefix} ${media?.error ?? t(lang).createdPartly(skipped)}`
     : t(lang).created;
-  const createdText = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
+  const withVideoNote = readyMedia(claimed.draft, "VIDEO").length ? baseText : `${baseText}\n${t(lang).noVideoAfterCreate}`;
+  // Реестр строек — строкой в том же сообщении (25.11.2026): новостройку сверяем сразу, а не ждём недельного забора.
+  const registryNote = await registryNoteAfterCreate(created.id, lang, ctx.agentId);
+  const createdText = registryNote ? `${withVideoNote}\n\n${registryNote}` : withVideoNote;
   if (messageId) {
     try { await editMessageText(chatId, messageId, createdText, buttons); }
     catch { await sendMessageWithButtons(chatId, createdText, buttons); }
   } else await sendMessageWithButtons(chatId, createdText, buttons);
+  // Итог создания — и в историю разговора помощницы (ревью PR #441): иначе на «привяжи к ЖК …» сразу после мастера
+  // модель не знает, о каком объекте речь, и подсказка из строки выше не работает. Чужое состояние чата не трогаем.
+  if (registryNote) await rememberCreatedProperty(chatId, ctx.agentId, `${number}: ${createdText}`);
   // Кому подходит объект — одно сообщение, клиентам ничего не уходит.
   await sendPropertyMatchesCard(chatId, { agent: ctx.access }, created.id, lang);
+}
+
+/** Сколько держим запись о созданном объекте в истории, если живого разговора с помощницей нет. */
+const CREATED_NOTE_TTL_MS = 30 * 60_000;
+
+/**
+ * Строка «объект создан + реестр строек» — репликой помощницы в истории разговора (дверь assistantDialogState.ts).
+ * Сбой записи не мешает созданию объекта: это подсказка для следующего хода, а не данные.
+ */
+export async function rememberCreatedProperty(chatId: string, agentId: string, text: string): Promise<boolean> {
+  try {
+    return await mergeAssistantDialog({
+      chatId,
+      agentId,
+      change: (payload) => {
+        const messages = Array.isArray(payload.messages) ? payload.messages : [];
+        return { ...payload, messages: [...messages, { role: "assistant", content: text }] };
+      },
+      expiresAt: (live) => live ?? new Date(Date.now() + CREATED_NOTE_TTL_MS),
+    });
+  } catch {
+    return false;
+  }
 }
 
 /* ─────────────────────────── по просьбе помощницы ─────────────────────────── */

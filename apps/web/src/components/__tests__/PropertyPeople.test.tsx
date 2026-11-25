@@ -100,7 +100,9 @@ describe("PropertyPeople", () => {
     );
     expect(html.split("Умед Каримов").length - 1).toBe(1);
     expect(html).toContain("Ответственный за объект");
-    expect(html).toContain("Приёмка объекта у собственника");
+    // Владелец 25.11.2026: про приёмку и проценты на карточке не пишем вовсе.
+    expect(html).not.toContain("Приёмка");
+    expect(html).not.toMatch(/0[,.]5\s?%|со сделки/);
   });
 
   it("разные люди — две строки; монтажёру собственник не показывается", () => {

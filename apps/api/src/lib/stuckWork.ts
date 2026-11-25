@@ -62,6 +62,8 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "deferred-push": "Отложенное уведомление",
   "geo-match-sweep": "Ночной подбор объектов по карте",
   geocode: "Определение адреса на карте",
+  "outgoing-media-photo": "Отправка фото клиенту (сжатие и доставка)",
+  "outgoing-media-send": "Отправка видео клиенту (сжатие и доставка)",
   "photo-post-publish": "Публикация фото-поста",
   "property-status-story": "История-ролик «цена снижена» / «продано»",
   "recording-search-retry": "Поиск записи разговора",

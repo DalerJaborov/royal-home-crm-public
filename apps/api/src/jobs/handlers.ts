@@ -1,4 +1,5 @@
 import { registerJobHandler } from "./registry.js";
+import { outgoingMediaPhotoSendJob, outgoingMediaSendJob } from "./outgoingMediaSend.js";
 import { recruitmentRecoveryJob } from "./recruitmentRecovery.js";
 registerJobHandler(recruitmentRecoveryJob);
 import { geocodeJob } from "./geocode.js";
@@ -96,3 +97,5 @@ registerJobHandler(customerInboxConsumeJob);
 registerJobHandler(customerOutboxDispatchJob);
 registerJobHandler(customerContactIntakeJob);
 registerJobHandler(customerLeadOnlyIntakeJob);
+registerJobHandler(outgoingMediaSendJob);
+registerJobHandler(outgoingMediaPhotoSendJob);

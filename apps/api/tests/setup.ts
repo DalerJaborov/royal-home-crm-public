@@ -228,6 +228,10 @@ process.env.PUSH_QUIET_HOURS ??= "off";
 // Окно подтверждения личности для директора/админа отключено в проде (23.11.2026); тесты прежних
 // проверок 428 гоняют с защитой, а новое поведение включают явно (tests/step-up-owner-exempt.test.ts).
 process.env.STEP_UP_OWNERS_EXEMPT ??= "0";
+// Проверка места на диске при загрузке частями (lib/localVideoStorage.ts::assertUploadDiskSpace):
+// тесты стартуют сессии «на 2 ГБ» без единого байта — на почти полном диске ноутбука-раннера они
+// краснели бы по месту, а не по коду. Свою проверку tests/upload-storage-hardening.test.ts включает сам.
+process.env.UPLOAD_DISK_CHECK ??= "off";
 const envAtFileStart = { ...process.env };
 
 afterAll(() => {

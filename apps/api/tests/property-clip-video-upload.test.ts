@@ -229,25 +229,27 @@ describe("POST /properties/:id/clip-video", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400 когда ffprobe не смог определить длительность", async () => {
+  it("422 NOT_VIDEO, когда ffprobe не смог определить длительность", async () => {
     const p = await makeProperty();
     nextProbeBehavior = { stdout: undefined, exitCode: 1 };
     const res = await request(app)
       .post(`/api/v1/properties/${p.id}/clip-video`)
       .set("Authorization", `Bearer ${agentToken}`)
       .attach("video", Buffer.from("fake"), "clip.mp4");
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: "NOT_VIDEO", retryable: false });
     expect(res.body.error).toMatch(/длительность/i);
   });
 
-  it("400 и не запускает сжатие, если ролик длиннее 5 минут", async () => {
+  it("422 TOO_LONG и не запускает сжатие, если ролик длиннее 5 минут", async () => {
     const p = await makeProperty();
     nextProbeBehavior = { stdout: "320.5", exitCode: 0 };
     const res = await request(app)
       .post(`/api/v1/properties/${p.id}/clip-video`)
       .set("Authorization", `Bearer ${agentToken}`)
       .attach("video", Buffer.from("fake"), "clip.mp4");
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: "TOO_LONG", retryable: false });
     expect(res.body.error).toMatch(/300 секунд/);
 
     const reloaded = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
