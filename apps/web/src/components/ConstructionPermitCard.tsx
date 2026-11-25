@@ -9,12 +9,14 @@ import {
 } from "@royal-home/shared";
 import {
   useLinkRegistryProject,
+  useMarkNotInRegistry,
   usePropertyRegistry,
-  useRejectRegistryProject,
   useUnlinkRegistryProject,
 } from "../hooks/useConstructionRegistry";
+import { RegistryPicker, type RegistryFieldState } from "./registry/RegistryPicker";
+import { optionFromProject } from "./registry/RegistryField";
 import { Card } from "./rh2/Card";
-import { Chip, type ChipTone } from "./rh2/Chip";
+import { type ChipTone } from "./rh2/Chip";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MutationError } from "./MutationError";
 
@@ -91,15 +93,23 @@ function ProjectFacts({ project }: { project: RegistryProjectDto }) {
 export interface ConstructionPermitViewProps {
   data: RegistryPropertyResponse;
   busy?: boolean;
-  onLink?: (projectId: string) => void;
-  onReject?: (projectId: string) => void;
+  /** Точка объекта: в поиске по реестру ближние проекты выше. */
+  point?: { lat: number; lng: number } | null;
+  /** Выбран проект в поле (ручная связь). */
+  onPick?: (projectId: string) => void;
+  /** «Нет в реестре / не новостройка». */
+  onNone?: () => void;
   onUnlink?: () => void;
   /** Ошибки последних действий (например, «нет права менять привязку»). */
   children?: ReactNode;
 }
 
-/** Только разметка, без запросов: её и проверяет тест. */
-export function ConstructionPermitView({ data, busy = false, onLink, onReject, onUnlink, children }: ConstructionPermitViewProps) {
+/**
+ * Только разметка, без запросов карточки: её и проверяет тест. Вместо вопроса «Это ваш дом? Это он / Не он» (владелец
+ * 25.11.2026: «лишний») одно поле «Застройщик и разрешение»: связь есть — она и «Изменить»; связи нет — лучшая догадка
+ * с «проверьте» или пустое поле поиска по всему реестру.
+ */
+export function ConstructionPermitView({ data, busy = false, point = null, onPick, onNone, onUnlink, children }: ConstructionPermitViewProps) {
   if (!data.enabled) return null;
   // Реестр ещё ни разу не загружался: честно говорим об этом, а не «не найден».
   if (data.notLoaded) {
@@ -117,20 +127,45 @@ export function ConstructionPermitView({ data, busy = false, onLink, onReject, o
   const { link } = data;
   const color = link?.project.color;
   const label = color ? REGISTRY_COLOR_LABEL[color] : null;
+  const guess = !link ? data.suggestions[0] : undefined;
+  const state: RegistryFieldState = link
+    ? { kind: "linked", method: link.method, option: optionFromProject(link.project, link.developer.name, link.distanceM) }
+    : guess
+      ? { kind: "guess", option: optionFromProject(guess.project, guess.developer.name, guess.distanceM) }
+      : { kind: "empty" };
+  const nearby = data.suggestions.slice(0, 3).map((s) => optionFromProject(s.project, s.developer.name, s.distanceM));
 
   return (
     <Card tight title="Разрешение на строительство" data-testid="construction-permit">
+      {!link && data.noPoint && (
+        <div className="quiet" data-testid="permit-no-point">
+          <span className="dot" />
+          <span className="txt">У объекта нет точки на карте, реестр сопоставить не с чем. Укажите адрес или точку, или выберите проект ниже.</span>
+        </div>
+      )}
+
+      {!link && !data.noPoint && data.suggestions.length === 0 && data.notFound && (
+        <div className="quiet" data-testid="permit-not-found">
+          <span className="dot warn" />
+          <span className="txt">
+            В реестре не найден. Если это новостройка, это повод запросить документы на разрешение у застройщика.
+          </span>
+        </div>
+      )}
+
+      <RegistryPicker
+        state={state}
+        updatedAt={data.updatedAt}
+        point={point}
+        nearby={nearby}
+        busy={busy}
+        label={null}
+        onPick={(option) => onPick?.(option.id)}
+        onNone={() => onNone?.()}
+      />
+
       {link && label && color && (
         <>
-          <div className="row rh-row">
-            <div className="t">
-              <b>{link.project.title}</b>
-              <span>{label.hint}</span>
-            </div>
-            <Chip tone={COLOR_TONE[color]} data-testid="permit-status">
-              {label.title}
-            </Chip>
-          </div>
           {label.warning && (
             <div className="quiet" data-testid="permit-warning">
               <span className={`dot ${COLOR_TONE[color]}`} />
@@ -153,52 +188,6 @@ export function ConstructionPermitView({ data, busy = false, onLink, onReject, o
         </>
       )}
 
-      {!link && data.noPoint && (
-        <div className="quiet" data-testid="permit-no-point">
-          <span className="dot" />
-          <span className="txt">У объекта нет точки на карте, реестр сопоставить нечем. Укажите адрес или точку, и проверка заработает.</span>
-        </div>
-      )}
-
-      {!link && !data.noPoint && data.suggestions.length > 0 && (
-        <div data-testid="permit-suggestions">
-          <div className="quiet">
-            <span className="dot" />
-            <span className="txt">Рядом с объектом нашлись стройки из реестра. Это ваш дом?</span>
-          </div>
-          {data.suggestions.slice(0, 3).map((s) => (
-            <div className="row rh-row" key={s.project.id} data-testid="permit-suggestion" style={{ flexWrap: "wrap", rowGap: 8 }}>
-              {/* На телефоне название на всю ширину, а статус и кнопки под ним: иначе текст сжимается в столбик. */}
-              <div className="t" style={{ flex: "1 1 100%", minWidth: 0 }}>
-                <b>{s.project.title}</b>
-                <span>
-                  {s.developer.name}
-                  {s.distanceM != null ? `, ${Math.round(s.distanceM)} м от точки объекта` : ""}
-                </span>
-              </div>
-              <Chip tone={COLOR_TONE[s.project.color]}>{REGISTRY_COLOR_LABEL[s.project.color].title}</Chip>
-              <div className="act">
-                <button type="button" className="pill sm" disabled={busy} onClick={() => onLink?.(s.project.id)}>
-                  Это он
-                </button>
-                <button type="button" className="pill sm ghost" disabled={busy} onClick={() => onReject?.(s.project.id)}>
-                  Не он
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!link && !data.noPoint && data.suggestions.length === 0 && data.notFound && (
-        <div className="quiet" data-testid="permit-not-found">
-          <span className="dot warn" />
-          <span className="txt">
-            В реестре не найден. Если это новостройка, это повод запросить документы на разрешение у застройщика.
-          </span>
-        </div>
-      )}
-
       {children}
 
       <div className="quiet" data-testid="permit-source">
@@ -211,27 +200,28 @@ export function ConstructionPermitView({ data, busy = false, onLink, onReject, o
 }
 
 /** Блок для карточки объекта. `propertyId` — короткий номер (/properties/1042) или uuid. */
-export function ConstructionPermitCard({ propertyId }: { propertyId: string | number }) {
+export function ConstructionPermitCard({ propertyId, point = null }: { propertyId: string | number; point?: { lat: number; lng: number } | null }) {
   const { data, isError } = usePropertyRegistry(propertyId);
   const link = useLinkRegistryProject(propertyId);
-  const reject = useRejectRegistryProject(propertyId);
+  const none = useMarkNotInRegistry(propertyId);
   const unlink = useUnlinkRegistryProject(propertyId);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
 
   if (isError || !data || !data.enabled) return null;
-  const busy = link.isPending || reject.isPending || unlink.isPending;
+  const busy = link.isPending || none.isPending || unlink.isPending;
 
   return (
     <>
       <ConstructionPermitView
         data={data}
         busy={busy}
-        onLink={(id) => link.mutate(id)}
-        onReject={(id) => reject.mutate(id)}
+        point={point}
+        onPick={(id) => link.mutate(id)}
+        onNone={() => none.mutate()}
         onUnlink={() => setConfirmUnlink(true)}
       >
         <MutationError mutation={link} fallback="Не удалось связать с проектом реестра" variant="rh2" />
-        <MutationError mutation={reject} fallback="Не удалось отклонить предложение" variant="rh2" />
+        <MutationError mutation={none} fallback="Не удалось отметить «нет в реестре»" variant="rh2" />
         <MutationError mutation={unlink} fallback="Не удалось отвязать проект" variant="rh2" />
       </ConstructionPermitView>
       {confirmUnlink && (

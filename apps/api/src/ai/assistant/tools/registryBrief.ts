@@ -3,6 +3,8 @@ import { prisma } from "../../../db.js";
 import { ASSISTANT_REGISTRY_GUIDE } from "../promptSections.js";
 import { autoLinkPropertyById } from "../../../lib/constructionRegistry/autoLinkOnSave.js";
 import { loadRegistryBriefs } from "../../../lib/constructionRegistry/view.js";
+import { previewRegistryMatch } from "../../../lib/constructionRegistry/search.js";
+import { plainField } from "./safeField.js";
 
 /**
  * СТРОКА РЕЕСТРА СТРОЕК В ОТВЕТАХ ШАБНАМ ПРО ОБЪЕКТЫ (25.11.2026): find_property, search_properties, get_property_card и
@@ -69,6 +71,41 @@ export function tajikRegistryLine(status: RegistryBriefStatus, date: string | nu
 }
 
 /**
+ * Подсказка «как исправить» под строкой реестра, когда проект не определён уверенно: догадка (если есть) и просьба назвать
+ * застройщика или комплекс. Привязку делает инструмент link_property_to_registry. Без «—»: текст уходит сотруднику как есть.
+ * Таджикские строки: проверить носителем.
+ */
+export async function howToFixLine(
+  property: { id: string; lat: unknown; lng: unknown },
+  lang: "ru" | "tg",
+): Promise<string> {
+  const lat = property.lat === null ? null : Number(property.lat);
+  const lng = property.lng === null ? null : Number(property.lng);
+  let guess: { title: string; developer: string } | null = null;
+  try {
+    const row = await prisma.property.findUnique({ where: { id: property.id }, select: { address: true, title: true, description: true, condition: true } });
+    const preview = await previewRegistryMatch({
+      propertyId: property.id,
+      lat: lat !== null && Number.isFinite(lat) ? lat : null,
+      lng: lng !== null && Number.isFinite(lng) ? lng : null,
+      address: row?.address ?? null,
+      title: row?.title ?? null,
+      description: row?.description ?? null,
+      isNewBuilding: row?.condition === "NEW_BUILDING",
+    });
+    if (preview.best) guess = { title: plainField(preview.best.title, 120) ?? "", developer: plainField(preview.best.developer, 120) ?? "" };
+  } catch {
+    // Догадка лишь помогает: без неё остаётся просьба назвать застройщика.
+  }
+  if (lang === "tg") {
+    const hint = guess ? `\nШояд ин «${guess.title}» (${guess.developer}) бошад: агар ҳамин бошад, нависед «пайваст кун».` : "";
+    return `${hint}\nНоми ширкати сохтмонӣ ё маҷмааро нависед, пайваст мекунам.`;
+  }
+  const hint = guess ? `\nПохоже на «${guess.title}» (застройщик ${guess.developer}): если это он, напишите «привяжи».` : "";
+  return `${hint}\nНазовите застройщика или комплекс, привяжу.`;
+}
+
+/**
  * Строка после создания объекта (черновик в Telegram): сначала сверка с реестром (ждём её, а не фоновую), потом статус.
  * Автор объекта видит строку здесь, поэтому дверь зовётся от его имени: сообщения в ленту ему не уходит.
  * Нет точки на карте или реестр выключен: null. Сверит геокодер, когда точка появится, и молчать здесь честнее.
@@ -83,9 +120,11 @@ export async function registryNoteAfterCreate(propertyId: string, lang: "ru" | "
     const brief = briefs.get(propertyId);
     if (!brief) return null;
     const date = registryUpdatedDate(updatedAt);
-    if (lang === "tg") return tajikRegistryLine(brief.status, date);
+    // Не определили уверенно — тут же сказать, как поправить словами (25.11.2026): назвать застройщика или комплекс.
+    const fix = brief.status === "none" ? await howToFixLine(property, lang) : "";
+    if (lang === "tg") return `${tajikRegistryLine(brief.status, date)}${fix}`;
     const note = noteOf(brief, date, {});
-    return `${note.registry}${note.registryWarning ? `\nВнимание: ${note.registryWarning}` : ""}`;
+    return `${note.registry}${note.registryWarning ? `\nВнимание: ${note.registryWarning}` : ""}${fix}`;
   } catch {
     return null;
   }

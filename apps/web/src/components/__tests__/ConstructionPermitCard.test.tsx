@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { REGISTRY_COLOR_LABEL, type RegistryColor, type RegistryPropertyResponse } from "@royal-home/shared";
 import { ConstructionPermitView } from "../ConstructionPermitCard";
 import { applyPermitFilter, registryProjectsForMap } from "../../lib/registryMapFilter";
@@ -66,7 +67,13 @@ function response(color: RegistryColor, letter: "A" | "B" | "C" | "D" | null = "
   };
 }
 
-const render = (data: RegistryPropertyResponse) => renderToString(<ConstructionPermitView data={data} onUnlink={() => {}} />);
+// Поле выбора ищет по реестру через React Query: провайдер нужен даже при закрытом списке (запрос не идёт).
+const render = (data: RegistryPropertyResponse) =>
+  renderToString(
+    <QueryClientProvider client={new QueryClient()}>
+      <ConstructionPermitView data={data} onUnlink={() => {}} />
+    </QueryClientProvider>,
+  );
 
 describe("блок «Разрешение на строительство»", () => {
   it("красный: подпись статуса и предупреждение из общих подписей, документы и этажность", () => {
@@ -115,22 +122,48 @@ describe("блок «Разрешение на строительство»", ()
     expect(html).toContain("У объекта нет точки на карте");
   });
 
-  it("предложения: «Это он» и «Не он», не больше трёх", () => {
+  it("связи нет: лучшая догадка в поле с «проверьте», без вопроса «Это он / Не он» и без списка из трёх (владелец 25.11.2026)", () => {
     const base = response("green");
     const one = { project: base.link!.project, developer: base.link!.developer, confidence: 60, distanceM: 120, reasons: [] };
     const html = render({
       enabled: true,
       updatedAt: UPDATED,
       link: null,
-      suggestions: [one, { ...one, project: { ...one.project, id: "p2" } }, { ...one, project: { ...one.project, id: "p3" } }, { ...one, project: { ...one.project, id: "p4" } }],
+      suggestions: [one, { ...one, project: { ...one.project, id: "p2", title: "ЖК Второй" } }, { ...one, project: { ...one.project, id: "p3" } }],
       notFound: false, notLoaded: false,
       noPoint: false,
     });
-    expect(html).toContain("Это он");
-    expect(html).toContain("Не он");
-    expect(html.match(/data-testid="permit-suggestion"/g)).toHaveLength(3);
+    expect(html).toContain('data-testid="registry-pick-guess"');
+    expect(html).toContain("Похоже: ");
+    expect(html).toContain("Проверьте");
+    expect(html).toContain("120 м от точки");
+    expect(html).toContain("Изменить");
+    expect(html).not.toContain("Это он");
+    expect(html).not.toContain("Не он");
+    expect(html).not.toContain("Это ваш дом");
+    expect(html).not.toContain('data-testid="permit-suggestion"');
+    // Догадка не выдаётся за связь: нет «Отвязать» и предупреждений проекта.
+    expect(html).not.toContain("Отвязать");
   });
 
+  it("связь есть: поле показывает её с «Изменить»; автоматическая и ручная подписаны по-разному", () => {
+    const auto = render(response("green"));
+    expect(auto).toContain('data-testid="registry-pick-linked"');
+    expect(auto).toContain("Определено автоматически");
+    expect(auto).toContain("Изменить");
+    expect(auto).toContain("Отвязать");
+    const manual = response("green");
+    manual.link!.method = "MANUAL";
+    expect(render(manual)).toContain("Выбрано вручную");
+  });
+
+  it("не найден или нет точки: пустое поле поиска по всему реестру", () => {
+    const html = render({ enabled: true, updatedAt: UPDATED, link: null, suggestions: [], notFound: true, notLoaded: false, noPoint: false });
+    expect(html).toContain('data-testid="registry-pick-input"');
+    expect(html).toContain('role="combobox"');
+    const noPoint = render({ enabled: true, updatedAt: UPDATED, link: null, suggestions: [], notFound: false, notLoaded: false, noPoint: true });
+    expect(noPoint).toContain('data-testid="registry-pick-input"');
+  });
   it("подпись источника есть всегда, дата по Душанбе", () => {
     const html = render(response("green"));
     expect(html).toContain('data-testid="permit-source"');

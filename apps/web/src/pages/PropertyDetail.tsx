@@ -866,7 +866,12 @@ function PropertyViewCard({
     </div>
   );
   const promotionBlock = <>
-    {!isTrashed && <ConstructionPermitCard propertyId={property.shortId} />}
+    {!isTrashed && (
+      <ConstructionPermitCard
+        propertyId={property.shortId}
+        point={property.lat != null && property.lng != null ? { lat: Number(property.lat), lng: Number(property.lng) } : null}
+      />
+    )}
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
     {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}

@@ -51,6 +51,7 @@ import { DraftGate, type OfferedDraft } from "./DraftGate";
 import { StepMedia } from "./StepMedia";
 import { StepMain } from "./StepMain";
 import { StepPlace } from "./StepPlace";
+import { RegistryField, registryChoicePayload, type RegistryUserChoice } from "../registry/RegistryField";
 import { StepSeller } from "./StepSeller";
 import { StepReview } from "./StepReview";
 import { runRestartDraft } from "./restartDraft";
@@ -142,6 +143,8 @@ export function PropertyWizard({
   const createKey = useRetryKey();
   const create = useCreateProperty(createKey);
   const pendingCreateBody = useRef<Record<string, unknown> | null>(null);
+  // Поле «Застройщик и разрешение» на шаге «Где» (25.11.2026): только выбор человека; догадку считает сервер по точке.
+  const [registryChoice, setRegistryChoice] = useState<RegistryUserChoice | null>(null);
   // Руководитель обязан указать интейкера явно; рядовому агенту сервер
   // подставляет его самого (routes/properties/crud.ts).
   const requireIntakeAgent = can("properties.editForeign");
@@ -588,6 +591,9 @@ export function PropertyWizard({
       // Озвучка ролика: шаблон, голос и правка текста из конца мастера (NarrationChoice).
       const narrationChoice = narrationChoiceForCreate(narration);
       if (!pendingCreateBody.current && narrationChoice) body.narration = narrationChoice;
+      // «Застройщик и разрешение»: выбор сотрудника уходит вместе с объектом; не трогал поле — решит автосвязь на сервере.
+      const registry = registryChoicePayload(registryChoice);
+      if (!pendingCreateBody.current && registry) body.registry = registry;
       pendingCreateBody.current = body;
       const completedDraftId = typeof body.draftId === "string" ? body.draftId : null;
       const saved = await create.mutateAsync(body);
@@ -1110,6 +1116,15 @@ export function PropertyWizard({
           districtsLoading={districtsLoading}
           onChange={patch}
           mapNote={photoSnapNote}
+          registrySlot={
+            <RegistryField
+              point={values.lat !== null && values.lng !== null ? { lat: values.lat, lng: values.lng } : null}
+              address={values.address}
+              isNewBuilding={values.condition === "NEW_BUILDING"}
+              choice={registryChoice}
+              onChoice={setRegistryChoice}
+            />
+          }
           warnings={stepWarnings}
           onConfirmWarning={confirmWarning}
         />

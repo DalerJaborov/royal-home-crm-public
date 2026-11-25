@@ -44,6 +44,8 @@ import { PhoneInput } from "./FormField";
 import { useSheetMode, useSwipeToDismiss } from "./BottomSheet";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { LocationPicker } from "./LocationPicker";
+import { RegistryField, registryChoicePayload, type RegistryUserChoice } from "./registry/RegistryField";
+import { usePropertyRegistry } from "../hooks/useConstructionRegistry";
 import { usePointLandmarks } from "./property-wizard/usePointLandmarks";
 import { SearchableSelect } from "./SearchableSelect";
 import { SellerPicker } from "./SellerPicker";
@@ -266,6 +268,11 @@ export function PropertyFormModal({
     property?.lat != null && property?.lng != null ? { lat: Number(property.lat), lng: Number(property.lng) } : null
   );
   const [showMap, setShowMap] = useState(false);
+  // «Застройщик и разрешение» (реестр строек, 25.11.2026): выбор человека уходит вместе с сохранением; не трогал — автосвязь.
+  const [registryChoice, setRegistryChoice] = useState<RegistryUserChoice | null>(null);
+  const savedRegistry = usePropertyRegistry(isEdit ? property!.id : undefined);
+  const registryPointChanged =
+    isEdit && !!coords && (Number(property!.lat) !== coords.lat || Number(property!.lng) !== coords.lng);
   // Ориентир по точке (владелец 25.09.2026) — в форме правки только
   // предлагается кнопкой под пустым полем, сам не подставляется: открыть
   // объект и закрыть его не должно менять форму.
@@ -613,6 +620,8 @@ export function PropertyFormModal({
         // смены адреса не пересчитывал точку — метка оставалась на старом месте.
         // Сброс сохранённой точки уходит как lat/lng = null (см. coordsPayload).
         ...coordsPayload(isEdit, coords, property),
+        // Выбор в поле «Застройщик и разрешение»; нет ключа — сервер решает автосвязью, как раньше.
+        ...(registryChoicePayload(registryChoice) ? { registry: registryChoicePayload(registryChoice) } : {}),
         // Продавец: выбранный в форме (SellerPicker) либо предзаполненный, когда
         // объект создают прямо из его карточки. Одно поле формы на оба случая —
         // раньше сюда попадал ТОЛЬКО fromSeller, и при обычном создании связь
@@ -1107,6 +1116,23 @@ export function PropertyFormModal({
                   </span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Застройщик и разрешение по реестру строек (25.11.2026): рядом с точкой, по ней и определяется. */}
+          {!form.offSite && (
+            <div className="fld wide" data-testid="property-form-registry">
+              <RegistryField
+                point={coords}
+                address={form.address}
+                isNewBuilding={form.condition === "NEW_BUILDING"}
+                propertyId={isEdit ? property!.id : undefined}
+                // Связь не загрузилась (isError) — поле работает как у нового объекта: догадка по точке и поиск.
+                saved={isEdit && !savedRegistry.isError ? savedRegistry.data : undefined}
+                pointChanged={registryPointChanged}
+                choice={registryChoice}
+                onChoice={setRegistryChoice}
+              />
             </div>
           )}
 

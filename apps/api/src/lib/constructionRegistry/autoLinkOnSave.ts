@@ -1,5 +1,7 @@
+import type { RegistryChoice } from "@royal-home/shared";
+import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
-import { autoLinkProperty, type AutoLinkOutcome } from "./link.js";
+import { autoLinkProperty, linkPropertyManually, markNotInRegistry, type AutoLinkOutcome } from "./link.js";
 import { loadRegistrySettings } from "./settings.js";
 
 /**
@@ -19,6 +21,40 @@ export async function autoLinkPropertyById(propertyId: string, actorId: string |
     return await autoLinkProperty(propertyId, { actorId, notify: true });
   } catch (err) {
     void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+export type RegistryChoiceOutcome = AutoLinkOutcome | "picked" | "not-in-registry" | "unknown-project";
+
+/**
+ * ВЫБОР СОТРУДНИКА В ПОЛЕ «ЗАСТРОЙЩИК И РАЗРЕШЕНИЕ» ВМЕСТЕ С СОХРАНЕНИЕМ ОБЪЕКТА (25.11.2026): мастер, форма правки.
+ * Той же дверью, что и автосвязь: без выбора — автосвязь как раньше; выбран проект — ручная связь (MANUAL, автоматика её
+ * больше не трогает); «нет в реестре» — связь снимается, проекты рядом отвергаются. Фон: не роняет сохранение, ошибка в
+ * журнал. Рубильник выключен — ничего. Права проверяет маршрут сохранения (создатель объекта или тот, кто его правит).
+ */
+export async function applyRegistryChoice(
+  propertyId: string,
+  choice: RegistryChoice | undefined,
+  actorId: string,
+): Promise<RegistryChoiceOutcome | null> {
+  if (!choice) return autoLinkPropertyById(propertyId, actorId);
+  try {
+    if (!(await loadRegistrySettings()).enabled) return null;
+    if (choice.kind === "none") {
+      await markNotInRegistry(propertyId, actorId);
+      return "not-in-registry";
+    }
+    const project = await prisma.constructionProject.findUnique({ where: { id: choice.projectId }, select: { id: true } });
+    // Проекта нет (подложный id или реестр перезабрали) — решает автоматика, как будто выбора не было.
+    if (!project) {
+      await autoLinkProperty(propertyId, { actorId, notify: true });
+      return "unknown-project";
+    }
+    await linkPropertyManually(propertyId, project.id, actorId);
+    return "picked";
+  } catch (err) {
+    void logSystemError("api", `Реестр строек: выбор сотрудника для объекта ${propertyId} не сохранён: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }

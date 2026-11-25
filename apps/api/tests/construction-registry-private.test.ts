@@ -32,12 +32,14 @@ const ALLOWED = new Set([
   "apps/api/src/lib/constructionRegistry/sync.ts",
   "apps/api/src/lib/constructionRegistry/link.ts",
   "apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts",
+  "apps/api/src/lib/constructionRegistry/search.ts", // поиск по реестру и предпросмотр для поля выбора (25.11.2026)
   "apps/api/src/routes/constructionRegistry.ts",
   "apps/api/src/app.ts", // подключение маршрута сотрудников
   "apps/api/src/routes/properties/crud.ts", // автосвязь при создании и правке объекта (фон, только внутри CRM)
   "apps/api/src/cron.ts", // еженедельный забор
   "apps/api/src/ai/assistant/tools/registryReadTool.ts", // внутренняя помощница Шабнам (только сотрудники: личка и рабочие группы)
   "apps/api/src/ai/assistant/tools/registryBrief.ts", // строка реестра в ответах Шабнам про объекты (25.11.2026)
+  "apps/api/src/ai/assistant/tools/registryLinkTool.ts", // «привяжи объект к застройщику» Шабнам, только личка сотрудника (25.11.2026)
   "apps/api/src/ai/assistant/runtime.ts", // рубильник реестра в кэше настроек помощника сотрудников (раздел подсказки)
   "apps/api/src/routes/properties/list.ts", // значок реестра в списке объектов сотрудникам (25.11.2026)
   // Дверь автосвязи (только запись связи, наружу ничего не отдаёт) — из путей создания объекта и смены точки (25.11.2026).
@@ -53,6 +55,7 @@ const ALLOWED = new Set([
 /** Внутренний помощник сотрудников (Шабнам): единственные места в ai/, которым реестр разрешён. */
 const INTERNAL_ASSISTANT_FILES = new Set([
   "apps/api/src/ai/assistant/tools/registryReadTool.ts",
+  "apps/api/src/ai/assistant/tools/registryLinkTool.ts",
   "apps/api/src/ai/assistant/tools/registryBrief.ts",
   // Снимок настроек помощника сотрудников: знает только булев рубильник constructionRegistryEnabled для раздела подсказки, данных реестра нет.
   "apps/api/src/ai/assistant/runtime.ts",
@@ -124,6 +127,8 @@ describe("реестр строек: охрана от утечки (стати�
     const hidden = /GROUP_HIDDEN_TOOLS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(bot)?.[1] ?? "";
     expect(hidden.length).toBeGreaterThan(100);
     expect(hidden).not.toContain('"get_construction_registry"');
+    // Запись «привяжи объект к застройщику» (уровень B, без кнопки) — только в личке (25.11.2026).
+    expect(hidden).toContain('"link_property_to_registry"');
     const customerFacing = files.filter((f) => /apps\/api\/src\/(messengers\/|lib\/telephony\/)/.test(rel(f)));
     expect(customerFacing.length).toBeGreaterThan(10);
     expect(customerFacing.filter((f) => /get_construction_registry/.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
@@ -142,7 +147,7 @@ describe("реестр строек: охрана от утечки (стати�
     const route = readFileSync(path.join(SRC, "routes/constructionRegistry.ts"), "utf8");
     const handlers = route.match(/constructionRegistryRouter\.(get|post|put|patch|delete)\(/g) ?? [];
     const guarded = route.match(/constructionRegistryRouter\.(get|post|put|patch|delete)\([^,]+,\s*requireAuth/g) ?? [];
-    expect(handlers.length).toBeGreaterThanOrEqual(6);
+    expect(handlers.length).toBeGreaterThanOrEqual(10);
     expect(guarded.length).toBe(handlers.length);
   });
 });
@@ -253,6 +258,9 @@ describe("реестр строек: охрана от утечки (повед�
     const anon = await request(appRef).get(`/api/v1/construction-registry/property/${propertyId}`);
     expect(anon.status).toBe(401);
     expect((await request(appRef).get("/api/v1/construction-registry/map")).status).toBe(401);
+    expect((await request(appRef).get("/api/v1/construction-registry/projects?q=секрет")).status).toBe(401);
+    expect((await request(appRef).post("/api/v1/construction-registry/match-preview").send({ lat: 38.5556, lng: 68.7575 })).status).toBe(401);
+    expect((await request(appRef).post(`/api/v1/construction-registry/property/${propertyId}/none`)).status).toBe(401);
     const staff = await request(appRef).get(`/api/v1/construction-registry/property/${propertyId}`).set("Authorization", `Bearer ${agentToken}`);
     expect(staff.status).toBe(200);
     expect(staff.body.link.project.customer).toBe(CUSTOMER);

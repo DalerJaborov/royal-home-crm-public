@@ -58,7 +58,7 @@ import {
 import { describeError } from "../../lib/describeError.js";
 import { completeEditing } from "../../lib/propertyCompleteEditing.js";
 import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
-import { propertyRemovalSchema, narrationWizardChoiceSchema } from "@royal-home/shared";
+import { propertyRemovalSchema, narrationWizardChoiceSchema, registryChoiceSchema } from "@royal-home/shared";
 import {
   propertyStatusChangeBlock,
   recordStatusRemovalInTx,
@@ -83,7 +83,7 @@ import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
 import { closeAutoTasks } from "../../lib/autoTasks.js";
-import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
+import { applyRegistryChoice } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { SELF_CREATED_ASSIGN_REASON } from "../../services/leads/firstCall.js";
 
 export const crudRouter = Router();
@@ -159,7 +159,12 @@ const createFromDraftSchema = z.object({
   coverUploadKey: z.string().min(8).max(128).optional(),
   /** Выбор агента в конце мастера (CRM и Шабнам): текст, шаблон и голос озвучки. */
   narration: narrationWizardChoiceSchema.optional(),
+  /** Поле «Застройщик и разрешение» мастера (25.11.2026): выбор сотрудника; нет поля — решает автосвязь. */
+  registry: registryChoiceSchema.optional(),
 });
+
+/** Тот же выбор при правке объекта (форма правки): свойство запроса, не поле карточки. */
+const registryChoiceBodySchema = z.object({ registry: registryChoiceSchema.optional() });
 
 class PropertySellerAccessError extends Error {}
 
@@ -754,7 +759,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
 
   // Реестр строек — СРАЗУ после создания, до любых веток ответа (25.11.2026): раньше вызов стоял в самом конце, после
   // раннего выхода «объект в конвейере», и новый объект почти никогда не сверялся с реестром при создании.
-  void autoLinkPropertyById(property.id, req.agent.id);
+  // Выбор сотрудника в поле «Застройщик и разрешение» — той же дверью (25.11.2026); без выбора — автосвязь.
+  // Явный выбор ждём: карточка, которую мастер откроет сразу, должна его уже показать. Без выбора — фоном, как раньше.
+  if (parsedDraftRef.data.registry) await applyRegistryChoice(property.id, parsedDraftRef.data.registry, req.agent.id);
+  else void applyRegistryChoice(property.id, undefined, req.agent.id);
 
   /**
    * ФАЙЛЫ ЧЕРНОВИКА ПЕРЕЕЗЖАЮТ В КАРТОЧКУ (11.09.2026). Снимки и ролики агент
@@ -920,6 +928,8 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
+  const registryChoice = registryChoiceBodySchema.safeParse(req.body ?? {});
+  if (!registryChoice.success) return res.status(400).json({ error: "Неверные данные", details: registryChoice.error.flatten() });
   const existing = await prisma.property.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.deletedAt) return res.status(404).json({ error: "Объект не найден" });
   if (!canManageProperty(req, existing)) {
@@ -1489,7 +1499,9 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   });
 
   // Реестр строек: пересчёт связи до ветки автопубликации (25.11.2026), иначе правка «Готово» уходила мимо сверки.
-  void autoLinkPropertyById(updated.id, req.agent!.id);
+  // Выбор сотрудника в поле «Застройщик и разрешение» формы правки — той же дверью; без выбора — автосвязь.
+  if (registryChoice.data.registry) await applyRegistryChoice(updated.id, registryChoice.data.registry, req.agent!.id);
+  else void applyRegistryChoice(updated.id, undefined, req.agent!.id);
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
   // ручная кнопка «Готово»: сырое видео из R2, аудит, синхронизация с сайтом.

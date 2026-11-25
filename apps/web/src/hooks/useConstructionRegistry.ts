@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { RegistryMapResponse, RegistryPropertyResponse } from "@royal-home/shared";
+import type {
+  RegistryMapResponse,
+  RegistryMatchPreviewResponse,
+  RegistryProjectSearchResponse,
+  RegistryPropertyResponse,
+} from "@royal-home/shared";
 import { api } from "../lib/api";
 
 /**
@@ -68,6 +73,75 @@ export function useUnlinkRegistryProject(id: string | number) {
   return usePropertyMutation(id, (_: void) =>
     api<RegistryPropertyResponse>(`/construction-registry/property/${encodeURIComponent(String(id))}/link`, { method: "DELETE" }),
   );
+}
+
+/** «Нет в реестре / не новостройка»: связь снимается, проекты рядом больше не предлагаются. */
+export function useMarkNotInRegistry(id: string | number) {
+  return usePropertyMutation(id, (_: void) =>
+    api<RegistryPropertyResponse>(`/construction-registry/property/${encodeURIComponent(String(id))}/none`, { method: "POST" }),
+  );
+}
+
+/** Округление точки в ключе запроса: сдвиг метки на сантиметры не должен перезапрашивать сервер. */
+const roundCoord = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100_000) / 100_000 : null);
+
+/**
+ * Поиск по всему жилому реестру для поля «Застройщик и разрешение». Запрос идёт, только пока список открыт (`enabled`);
+ * пустой запрос с точкой — ближайшие проекты.
+ */
+export function useRegistryProjectSearch(q: string, point: { lat: number; lng: number } | null, enabled: boolean) {
+  const lat = roundCoord(point?.lat);
+  const lng = roundCoord(point?.lng);
+  return useQuery({
+    queryKey: ["construction-registry", "projects", q, lat, lng],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (lat !== null && lng !== null) {
+        params.set("lat", String(lat));
+        params.set("lng", String(lng));
+      }
+      return api<RegistryProjectSearchResponse>(`/construction-registry/projects?${params.toString()}`);
+    },
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export interface RegistryPreviewInput {
+  propertyId?: string;
+  lat: number | null;
+  lng: number | null;
+  address?: string | null;
+  title?: string | null;
+  isNewBuilding: boolean;
+}
+
+/** Лучший проект реестра у точки ДО сохранения объекта (мастер, форма правки). Ничего не пишет. */
+export function useRegistryMatchPreview(input: RegistryPreviewInput, enabled: boolean) {
+  const lat = roundCoord(input.lat);
+  const lng = roundCoord(input.lng);
+  const address = (input.address ?? "").trim();
+  return useQuery({
+    queryKey: ["construction-registry", "preview", input.propertyId ?? "", lat, lng, address, input.isNewBuilding],
+    queryFn: () =>
+      api<RegistryMatchPreviewResponse>("/construction-registry/match-preview", {
+        method: "POST",
+        body: {
+          ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+          lat,
+          lng,
+          address: address || null,
+          title: input.title ?? null,
+          isNewBuilding: input.isNewBuilding,
+        },
+      }),
+    enabled: enabled && lat !== null && lng !== null,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
 }
 
 /** Слой «Реестр строек» на карте; запрос идёт, только когда слой или фильтр реально нужны. */
