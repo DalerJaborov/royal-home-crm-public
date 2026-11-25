@@ -203,10 +203,10 @@ let templatePhrasePattern: RegExp | null = null;
 
 /**
  * Слова клиента без готовых фраз рекламы (шаблоны кнопок и быстрые вопросы Meta) — для выбора ЯЗЫКА, не для смысла. Фраза ищется
- * целиком, с любыми знаками и пробелами между словами. Осталось одно приветствие или пусто — "" (решает вызывающий: обычно это
- * «только шаблон», и тогда язык берётся прежним путём).
+ * целиком, с любыми знаками и пробелами между словами. `cut` — явный признак «шаблон нашёлся и вырезан» (ревью #425); ничего не
+ * вырезано — текст как есть. Осталось одно приветствие или пусто — rest "" (обычно это «только шаблон»: язык прежним путём).
  */
-export function withoutAdTemplatePhrases(text: string | null | undefined): string {
+export function adTemplatePhraseCut(text: string | null | undefined): { rest: string; cut: boolean } {
   const own = clientOwnWords(text ?? "");
   if (!templatePhrasePattern) {
     const words = [...TEMPLATE_OPENERS, ...AD_QUESTION_TEMPLATES].map(normalize).filter(Boolean)
@@ -214,6 +214,14 @@ export function withoutAdTemplatePhrases(text: string | null | undefined): strin
       .map(template => template.split(" ").map(word => escapeRe(word).replace(/е/gu, "[её]")).join("[^\\p{L}\\p{N}]+"));
     templatePhrasePattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.join("|")})(?![\\p{L}\\p{N}])[^\\p{L}\\p{N}\\n]*`, "giu");
   }
-  const rest = own.replace(templatePhrasePattern, " ").replace(/[ \t]+/gu, " ").replace(/\s*\n\s*/gu, "\n").trim();
-  return stripGreetings(normalize(rest)) ? rest : "";
+  let cut = false;
+  const replaced = own.replace(templatePhrasePattern, () => { cut = true; return " "; });
+  if (!cut) return { rest: own, cut: false };
+  const rest = replaced.replace(/[ \t]+/gu, " ").replace(/\s*\n\s*/gu, "\n").trim();
+  return { rest: stripGreetings(normalize(rest)) ? rest : "", cut: true };
+}
+
+/** Слова клиента без готовых фраз рекламы; ничего не вырезано — текст как есть; остался один шаблон — "". */
+export function withoutAdTemplatePhrases(text: string | null | undefined): string {
+  return adTemplatePhraseCut(text).rest;
 }

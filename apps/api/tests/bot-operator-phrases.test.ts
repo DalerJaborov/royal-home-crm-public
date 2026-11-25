@@ -31,6 +31,7 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   callback_time_noted: { wish: "завтра в 13:00" }, lead_callback_time: { wish: "завтра в 13:00" },
   property_details: { id: 164, facts: "комнат: 3, площадь: 95 м², этаж: 5 из 9" },
   property_details_price: { id: 164, facts: "комнат: 3, площадь: 95 м², этаж: 5 из 9", price: "520 000 сомони" },
+  property_details_other: { id: 164, facts: "комнат: 2" },
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */

@@ -3,7 +3,7 @@ import { clientLanguageScores as baseClientLanguageScores, detectClientLanguage 
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
-import { adTemplateLanguage, isAdTemplateOpener, SALAAM_WORDS, withoutAdTemplatePhrases } from "./adTemplatePhrase.js";
+import { adTemplateLanguage, adTemplatePhraseCut, isAdTemplateOpener, SALAAM_WORDS } from "./adTemplatePhrase.js";
 
 /**
  * CUSTOMER-CORE WORD LISTS (audit 16.11.2026; review #206 С2: only this path, the legacy bot and the voice keep theirs).
@@ -209,7 +209,8 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
  */
 function customerLanguageWords(raw: string): string {
   const text = customerHistoryOwnWords(raw);
-  return withoutAdTemplatePhrases(text) || text;
+  const cut = adTemplatePhraseCut(text);
+  return cut.cut && cut.rest ? cut.rest : text;
 }
 
 /**

@@ -265,7 +265,8 @@ describe("оператор приёма заявок на настоящем п�
     await settle(f.eventKey);
     const second = await f.receive("С 11 до 2.30 удобно");
     // Пожелание клиента повторяем его словами (живая находка 33, 25.11.2026); своего срока бот не называет.
-    expect(await plannedText(second)).toBe("Передал агенту удобное вам время: с 11:00 до 14:30.");
+    // Часы не досчитываем: «с 11 до 2:30» — слова клиента (ревью #425).
+    expect(await plannedText(second)).toBe("Записал для агента удобное вам время: «с 11 до 2:30».");
     expect((await intakeJob(second, true))?.payload).toMatchObject({ scenario: "note" });
     coreModelUntouched(f);
   });

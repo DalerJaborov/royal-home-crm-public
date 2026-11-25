@@ -45,12 +45,18 @@ describe("п.1 срок звонка агента не называется ни
     // Все переменные фраз — образцами данных (часы работы — настоящими часами: ревью #418, сторож вырезал их из «Мы на связи с…»).
     const vars = { id: 214, price: "75 000 USD", place: "Сино, Душанбе", percent: 2, phone: "+992 00 000 00 02", brand: "Royal Home",
       from: "09:30", to: "18:00", missing: ["district", "price"], where: "WHATSAPP", list: ["менеджер"], position: "менеджер", time: "с 11:00 до 14:30",
-      // Время клиента (25.11.2026) — его словами, без глагола связи: последняя дверь его не режет.
       wish: "завтра в 13:00", facts: "комнат: 3, площадь: 95 м²" };
+    // ЯВНОЕ ИСКЛЮЧЕНИЕ (25.11.2026, ревью #425): {wish} — повтор слов клиента, не наш срок. Такая фраза несёт время только
+    // переменной (разобранной кодом из слов клиента), в кавычках и без глагола связи — сторож срока её не трогает.
+    const CLIENT_WISH_KEYS = new Set(["callback_time_noted", "lead_callback_time"]);
     for (const [key, phrase] of Object.entries(OPERATOR_PHRASES)) {
       for (const [language, variants] of [["ru", phrase.ru], ["tg", phrase.tg]] as const) {
         variants.forEach((template, variant) => {
           expect(template, key).not.toMatch(/\{when\}|\{time\}/u);
+          if (CLIENT_WISH_KEYS.has(key)) {
+            expect(template, key).toContain("«{wish}»");
+            expect(template, key).not.toMatch(/позвон|свяж|занг|тамос/iu);
+          } else expect(template, key).not.toContain("{wish}");
           expect(template, key).not.toMatch(/сегодня|завтра|имрӯз|пагоҳ|ба зудӣ|в ближайшее время/iu);
           const text = renderOperatorStep({ key: key as PhraseKey, vars, variant }, language);
           expect(leadOnlyOutgoing(text, language), `${key}/${language}/${variant}`).toBe(text);

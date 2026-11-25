@@ -62,7 +62,7 @@ export const OPERATOR_PHRASE_KEYS = [
   "no_installment", "stock_yes", "next_step", "services_intro", "photo_by_agent",
   // Удобное клиенту время звонка — повторяем ЕГО словами (разобранными кодом), своего срока не называем (живая находка 33, 25.11.2026);
   // «конкретней / подробнее» по известному объекту — факты карточки, а не «это скажет агент» (живая находка 34, 25.11.2026).
-  "callback_time_noted", "lead_callback_time", "property_details", "property_details_price",
+  "callback_time_noted", "lead_callback_time", "property_details", "property_details_price", "property_details_other",
   // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
   "reviewer_reset",
 ] as const;
@@ -257,9 +257,10 @@ export interface Understanding {
   nextStepQuestion?: boolean;
   /**
    * Вопрос о фактах объекта, которые есть в карточке (код, 25.11.2026): `all` — «конкретней», «подробнее», «батафсил»,
-   * «маълумоти бештар»; `asked` — названная характеристика («сколько комнат?», «чанд ошёна?», «ремонт есть?»).
+   * «маълумоти бештар»; `asked` — названная характеристика («сколько комнат?», «чанд ошёна?», «ремонт есть?»); `search` — поиск по
+   * своему запросу («У вас есть 3 комнатные?»): факт этого объекта и «подберём другие варианты», а не «комнат: 2» как ответ.
    */
-  propertyFacts?: "all" | "asked" | null;
+  propertyFacts?: "all" | "asked" | "search" | null;
   /** В словах ЭТОГО сообщения спрошена цена (код): только тогда цену объекта, уже названную, говорим снова (25.11.2026). */
   priceAsked?: boolean;
   /**
@@ -281,11 +282,10 @@ export interface OperatorPropertyFocus {
   place?: string | null;
   /**
    * Характеристики карточки для «конкретней / подробнее» (живая находка 34, 25.11.2026): комнаты, площадь, этаж из скольких,
-   * состояние — из публичных фактов объекта (lib/customerPropertyFacts.ts); ориентир — короткая фраза без цифр (без номера
-   * дома). Нет поля — фактов нет, ответ «скажет агент».
+   * состояние — из публичных фактов объекта (lib/customerPropertyFacts.ts). Адрес — только район и город (`place`, правило
+   * district_city_only): ориентира и улицы здесь нет. Нет поля — фактов нет, ответ «скажет агент».
    */
   characteristics?: CustomerPropertyCharacteristics | null;
-  landmark?: string | null;
 }
 
 /**
@@ -295,10 +295,12 @@ export interface OperatorPropertyFocus {
 export interface OperatorCallbackTime {
   day: "today" | "tomorrow" | "after_tomorrow" | null;
   part: "morning" | "day" | "afternoon" | "evening" | null;
-  /** «в 13:00» (at), «после 15:00» (after), «до 12:00» (before), «с 11:00 до 14:30» (range: clock и clockTo). */
+  /** «в 13:00» (at), «после 15» (after), «до 12» (before), «с 11 до 2:30» (range: clock и clockTo). Час — словами клиента, без досчёта. */
   relation: "at" | "after" | "before" | "range" | null;
   clock: string | null;
   clockTo: string | null;
+  /** Сообщение по сути целиком — пожелание времени: только тогда бот повторяет время вслух; иначе — только пометка агенту. */
+  confident: boolean;
 }
 
 export interface OperatorContext {

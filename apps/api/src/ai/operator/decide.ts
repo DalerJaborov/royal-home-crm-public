@@ -157,7 +157,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       if (!answers.length && !flow.length && !u.ackOnly && !u.thanksOnly &&
         !actions.some(action => action.type === "call_staff" || action.type === "follow_up")) actions.push({ type: "call_staff", reason: "repeat_question" });
     }
-    const decision = compose(s, language, answers, flow, actions);
+    const decision = compose(s, language, answers, flow, actions, ctx.focus?.propertyId ?? null);
     // ИНВАРИАНТ (ревью #333): после заявки карточка без живого агента, бот молчит не на «ок» и человека в этом ходе не
     // звали — руководство узнаёт дверью «клиент ждёт». С живым агентом сигнал — его штатный пуш о каждом сообщении.
     if (decision.silent && !handoff && s.leadAccepted && !ctx.cardAgentActive && !u.ackOnly && !u.thanksOnly &&
@@ -367,7 +367,6 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       const f = ctx.focus;
       answers.push(f.sold ? draft("property_sold", { id: f.shortId }) : f.priceText ? draft("property_price", { id: f.shortId, price: f.priceText[language] })
         : draft("property_no_price", { id: f.shortId }));
-      s.flags.propertyLineFor = f.propertyId;
       note(`Спрашивает объект №${f.shortId}${u.quote ? `: «${u.quote}»` : ""}`);
     }
     const answeredProperty = answers.some(item => item.key.startsWith("property_"));
@@ -381,7 +380,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     } else if (newCallback) {
       note(`Когда звонить: «${s.callback.when}»${u.callback.time && u.quote ? `. Слова клиента: «${u.quote}»` : ""}`);
       // Время, разобранное кодом из слов клиента, повторяем как ЕГО пожелание (не наш срок); иначе — без времени, оно в заметке.
-      const wish = operatorCallbackTimeText(u.callback.time, language);
+      // Вслух — только при уверенном совпадении (сообщение по сути целиком — пожелание времени, ревью #425).
+      const wish = u.callback.time?.confident ? operatorCallbackTimeText(u.callback.time, language) : null;
       if (wish) noted("callback_time_noted", { wish }, false); else noted("callback_noted", {}, false);
     } else if (u.callback.noCall) {
       s.noCall = true;
@@ -523,7 +523,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (s.callback.textOnly || s.noCall) return draft("lead_text_only", { where: operatorWhereVar(ctx.channel) });
     if (s.callback.when) {
       // Время из слов ЭТОГО хода, разобранное кодом, — повторяем как пожелание клиента; своего срока нет (живая находка 33).
-      const wish = operatorCallbackTimeText(u.callback.time, language);
+      const wish = u.callback.time?.confident ? operatorCallbackTimeText(u.callback.time, language) : null;
       return wish ? draft("lead_callback_time", { wish }) : draft("lead_callback");
     }
     const details = detailsWithLead();
@@ -673,7 +673,6 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
         flow.push(facts.sold ? draft("property_sold", { id }) : facts.priceText ? draft("property_price", { id, price: facts.priceText[language] })
           : draft("property_no_price", { id }));
       }
-      s.flags.propertyLineFor = facts.propertyId;
     } else if (!facts) {
       if (u.question === "property_price" || u.aboutThisProperty || u.question === "fee") s.flags.adPriceAsked = true;
       // Объект не определён: на вопрос — честный ответ, а не голая просьба номера (владелец 21.11.2026, прод fc9996a9).
@@ -719,20 +718,21 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
 function propertyFactsWanted(s: OperatorState, u: Understanding, focus: OperatorContext["focus"]): boolean {
   // Продавец говорит о своём жилье: факты нашего объекта ему не ответ.
   if (!focus || focus.sold || !u.propertyFacts || s.role === "seller" || u.role === "seller") return false;
-  return u.propertyFacts === "asked" || !u.adOpener || s.flags.propertyLineFor === focus.propertyId;
+  return u.propertyFacts !== "all" || !u.adOpener || s.flags.propertyLineFor === focus.propertyId;
 }
 
 /**
- * Шаг с фактами карточки (комнаты, площадь, этаж, состояние; на «подробнее» — и ориентир). Строка объекта ещё не звучала, и клиент
- * просит «подробнее» — та же фраза несёт номер и цену (и помечается названной). Фактов нет — null: решит «скажет агент».
+ * Шаг с фактами карточки (комнаты, площадь, этаж, состояние). Строка объекта ещё не звучала, и клиент просит «подробнее» — та же
+ * фраза несёт номер и цену («названа» она станет, только если правда прозвучит: compose). Поиск по своему запросу («У вас есть
+ * 3 комнатные?») — факт этого объекта и «другие варианты подберёт агент». Фактов нет — null: решит «скажет агент».
  */
 function propertyFactsStep(s: OperatorState, u: Understanding, focus: OperatorContext["focus"], language: OperatorLanguage,
   lineSaid: boolean): Draft | null {
   if (!focus || !propertyFactsWanted(s, u, focus)) return null;
-  const text = operatorPropertyFactsText(focus, language, u.propertyFacts === "asked" ? u.quote : "");
+  const text = operatorPropertyFactsText(focus, language, u.propertyFacts === "all" ? "" : u.quote);
   if (!text) return null;
+  if (u.propertyFacts === "search") return draft("property_details_other", { id: focus.shortId, facts: text });
   if (!lineSaid && u.propertyFacts === "all" && focus.priceText) {
-    s.flags.propertyLineFor = focus.propertyId;
     return draft("property_details_price", { id: focus.shortId, facts: text, price: focus.priceText[language] });
   }
   return draft("property_details", { id: focus.shortId, facts: text });
@@ -811,8 +811,12 @@ function jobAnswer(s: OperatorState, u: Understanding, ctx: OperatorContext, lan
 }
 
 /** Не больше двух шагов: ответ на вопрос клиента первым, последний шаг потока (просьба, заявка) остаётся всегда. */
+/** Фразы, после которых объект «назван» (номер и цена или «цены нет», «продан»): помечаем только когда она правда в ответе. */
+const PROPERTY_LINE_KEYS: ReadonlySet<PhraseKey> = new Set(["property_price", "property_no_price", "property_sold", "property_place",
+  "property_place_price", "property_details_price"]);
+
 function compose(s: OperatorState, language: OperatorLanguage, answers: readonly Draft[], flow: readonly Draft[],
-  actions: OperatorAction[]): OperatorDecision {
+  actions: OperatorAction[], lineFor: string | null = null): OperatorDecision {
   // Приветствие в ответ на приветствие (SPEC «Тон») — одно-два слова, в предел шагов не входит и идёт первым.
   const isGreeting = (item: Draft) => item.key === "greet" || item.key === "greet_assalom";
   const greeting = flow.find(isGreeting) ?? null;
@@ -833,5 +837,7 @@ function compose(s: OperatorState, language: OperatorLanguage, answers: readonly
   if (steps.length) s.flags.lastAck = steps.every(step => ACK_KEYS.has(step.key));
   // Тишина «последнюю фразу» не меняет: клиент мог помолчать и ответить «👍» на то же предложение.
   if (steps.length) s.flags.lastOffer = steps.some(step => OFFER_KEYS.has(step.key));
+  // «Цену назвали» — только когда строка объекта правда вошла в ответ, а не когда её выбрали и потом вытеснил предел шагов (ревью #425).
+  if (lineFor && steps.some(step => PROPERTY_LINE_KEYS.has(step.key))) s.flags.propertyLineFor = lineFor;
   return { state: s, language, steps, actions, silent: steps.length === 0 };
 }
