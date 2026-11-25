@@ -28,6 +28,10 @@ function load(name: string, dependencies: Record<string, unknown>) {
 export function assistantGroupFixture() {
   let registered = true, enabled = true, active = true, role = "DIRECTOR", now = 1000, registeredAt = 0;
   let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, contextEnabledAt: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
+  // Рубильник «Шабнам отвечает в группах без обращения» и память, выключенная командой (24.11.2026).
+  let unaddressedOn = true, contextOptOutAt: Date | null = null;
+  const offer = vi.fn(async (_msg: unknown, _mode: string) => false);
+  const contextPurge = vi.fn(async (_args: unknown) => ({ count: 0 }));
   const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE", instagramUrl: null as string | null }] }));
   const plain = vi.fn(async (..._args: unknown[]) => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
   const buttons = vi.fn((...args: unknown[]) => plain(...args));
@@ -100,9 +104,15 @@ export function assistantGroupFixture() {
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
       assistantGroupStartPress: startPress,
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
-        findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
+        findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt, contextOptOutAt } : null,
         updateMany: async ({ where, data }: any) => {
-          if (!registered || where.createdAt.getTime() !== registeredAt) return { count: 0 };
+          if (!registered || (where.createdAt && where.createdAt.getTime() !== registeredAt)) return { count: 0 };
+          if ("contextEnabledAt" in data || "contextOptOutAt" in data) {
+            if (where.contextEnabledAt === null && contextEnabledAt) return { count: 0 };
+            if ("contextEnabledAt" in data) contextEnabledAt = data.contextEnabledAt;
+            if ("contextOptOutAt" in data) contextOptOutAt = data.contextOptOutAt;
+            return { count: 1 };
+          }
           if ("lastProactiveReplyAt" in data) {
             if (mutedUntil && mutedUntil.getTime() > now || lastProactive && lastProactive.getTime() > now - participation.PROACTIVE_GROUP_INTERVAL_MS) return { count: 0 };
             lastProactive = data.lastProactiveReplyAt;
@@ -112,7 +122,10 @@ export function assistantGroupFixture() {
           } else mutedUntil = data.proactiveMutedUntil;
           return { count: 1 };
         },
-        deleteMany: async () => { registered = false; return { count: 1 }; } } } },
+        deleteMany: async () => { registered = false; return { count: 1 }; } },
+      assistantTelegramContext: { deleteMany: contextPurge } } },
+    "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer },
+    "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run, assistantErrorMessage: (code: string) => code },
@@ -158,7 +171,9 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, presses, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, presses, offer, contextPurge,
+    setUnaddressed: (value: boolean) => { unaddressedOn = value; },
+    memory: () => ({ contextEnabledAt, contextOptOutAt }), plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

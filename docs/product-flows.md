@@ -19632,6 +19632,10 @@
       · дословно из кода
   - return (await prisma.assistantTelegramContext.deleteMany({ where: { ...stale, id: { in: batch.map(row
     · удаляет в базе: assistantTelegramContext
+- await cleanupTelegramLinkOffers();
+  · зовёт cleanupTelegramLinkOffers()
+  - return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;
+    · удаляет в базе: assistantTelegramLinkOffer
 
 ### background-jobs — * * * * *
 

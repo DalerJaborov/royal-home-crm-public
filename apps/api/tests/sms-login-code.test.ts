@@ -230,3 +230,48 @@ describe("вход по коду без пароля", () => {
     expect(good.body.elevated).toBe(true);
   });
 });
+
+/**
+ * НАЗНАЧЕНИЕ КОДА (повторное ревью 25.11.2026): код привязки Telegram по номеру не пускает в CRM и не
+ * подтверждает личность, код входа не привязывает Telegram. Выдача кода привязки не гасит код входа.
+ */
+describe("код привязки Telegram и код входа не взаимозаменяемы", () => {
+  const purposePhone = `+99276${String(Date.now()).slice(-7)}`;
+  let purposeAgentId = "";
+
+  beforeAll(async () => {
+    purposeAgentId = (await prisma.agent.create({ data: { fullName: "Агент назначение кода", phone: purposePhone, role: "AGENT" } })).id;
+  });
+  afterAll(async () => {
+    await prisma.loginSmsCode.deleteMany({ where: { agentId: purposeAgentId } });
+    await prisma.session.deleteMany({ where: { agentId: purposeAgentId } }).catch(() => {});
+    await prisma.agent.deleteMany({ where: { id: purposeAgentId } }).catch(() => {});
+  });
+
+  it("код telegram-link не пускает в /login, код входа после него жив и не тратится догадками в боте", async () => {
+    const { verifyLoginCode } = await import("../src/lib/loginSmsCode.js");
+    const login = await askCode(purposePhone);
+    expect(login.status).toBe(200);
+    const loginCode = lastCode();
+    // Пауза между кодами общая (одна дверь): сдвигаем время выдачи кода входа.
+    await prisma.loginSmsCode.updateMany({ where: { agentId: purposeAgentId }, data: { createdAt: new Date(Date.now() - 2 * 60_000) } });
+    const issued = await issueLoginCode({ id: purposeAgentId, phone: purposePhone, telegramChatId: null }, undefined, { purpose: "telegram-link" });
+    expect(issued.ok).toBe(true);
+    expect(sent.at(-1)?.text).toContain("код привязки Telegram");
+    const linkCode = lastCode();
+    // Код входа в боте привязки не подходит и попытки кода входа не тратит.
+    expect((await verifyLoginCode(purposeAgentId, loginCode, "telegram-link")).ok).toBe(false);
+    const loginRow = await prisma.loginSmsCode.findFirstOrThrow({ where: { agentId: purposeAgentId, purpose: "login" } });
+    expect(loginRow.attempts).toBe(0);
+    // Код привязки — не вход в CRM (и не подтверждение личности: обе двери зовут verifyLoginCode с «login»).
+    if (linkCode !== loginCode) {
+      expect((await verify(login.body.pendingToken, linkCode)).status).not.toBe(200);
+      expect((await verifyLoginCode(purposeAgentId, linkCode)).ok).toBe(false);
+    }
+    const ok = await verify(login.body.pendingToken, loginCode);
+    expect(ok.status).toBe(200);
+    expect(ok.body.accessToken).toBeTruthy();
+    // А код привязки по-прежнему годится для привязки.
+    expect((await verifyLoginCode(purposeAgentId, linkCode, "telegram-link")).ok).toBe(true);
+  });
+});
