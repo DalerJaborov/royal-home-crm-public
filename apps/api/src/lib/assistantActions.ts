@@ -209,6 +209,11 @@ export function getAssistantActionExecutor(tool: string): AssistantActionExecuto
   return executors.get(tool) ?? null;
 }
 
+/** Имена всех действий за подтверждением личности (stepUp) — для сторожа «директору код не нужен нигде». */
+export function listStepUpAssistantTools(): string[] {
+  return [...executors.values()].filter((e) => e.stepUp === true).map((e) => e.tool);
+}
+
 function toView(row: AssistantAction): AssistantActionView {
   const executor = getAssistantActionExecutor(row.tool);
   const preview = row.preview as AssistantActionPreview;

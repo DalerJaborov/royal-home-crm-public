@@ -199,7 +199,11 @@ export function useUpdateProperty(id: string) {
     mutationFn: (body: Record<string, unknown>) => api<Property>(`/properties/${id}`, { method: "PATCH", body }),
     // Префикс без id, как в useUploadPhotos: карточка закеширована под shortId
     // из URL, а сюда приходит UUID — точечная инвалидация по UUID не находила запись.
-    onSuccess: () => invalidatePropertyEverywhere(qc),
+    onSuccess: () => {
+      invalidatePropertyEverywhere(qc);
+      // Правка адреса, точки или выбор «Застройщик и разрешение» меняют связь с реестром строек (25.11.2026).
+      void qc.invalidateQueries({ queryKey: ["construction-registry"] });
+    },
   });
 }
 

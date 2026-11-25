@@ -19,11 +19,13 @@ import { AUDIO_SPEEDS, audioClock, audioSpeedLabel, claimAudio, nextAudioSpeed, 
  * вне этого файла не пройдёт сторож `ruFieldsGuard.test.ts`.
  */
 export function RhAudioPlayer({
-  src: primarySrc, fallbackSrc, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
+  src: primarySrc, fallbackSrc, onLoadError, autoPlay = false, speeds = false, preload = "metadata", knownSec, className, style, label = "Запись", inBubble = false,
 }: {
   src: string;
   /** Запасной адрес на ошибку плеера — голосовое в m4a, если браузер не сыграл ogg (25.11.2026). */
   fallbackSrc?: string;
+  /** Ошибка загрузки — сначала вызывающему (истёкшая подпись: он даст свежий адрес). true — обработано. */
+  onLoadError?: () => boolean;
   autoPlay?: boolean;
   /** Кнопка скорости 1×/1,5×/2× — для голосовых и разговоров. */
   speeds?: boolean;
@@ -129,6 +131,7 @@ export function RhAudioPlayer({
           setPlaying(false); setPos(0); e.currentTarget.currentTime = 0;
         }}
         onError={() => {
+          if (onLoadError?.()) return;
           if (!onFallback && fallbackSrc) setOnFallback(true);
           else setFailed(true);
         }}

@@ -1,4 +1,4 @@
-import { AUTOMATION_SWITCH_GROUPS, automationSwitchLabel, type AutomationSwitchKey } from "@royal-home/shared";
+import { AUTOMATION_SWITCH_GROUPS, automationSwitchLabel, isAutomationSwitchOn, type AutomationSwitchKey } from "@royal-home/shared";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 
@@ -22,13 +22,16 @@ export function AutomationSwitchesSection() {
     <section className="card">
       <div className="sec-h stack">
         <h2>Автоматика ИИ и напоминания</h2>
-        <span className="note">Всё включено. Выключенное просто молчит, ничего не удаляется, остальная работа идёт как обычно</span>
+        <span className="note">Выключенное просто молчит, ничего не удаляется, остальная работа идёт как обычно</span>
       </div>
       {AUTOMATION_SWITCH_GROUPS.map((group) => (
         <div key={group.id}>
           <div className="sec-t">{group.title}</div>
           {group.keys.map((key) => {
-            const on = settings[key as AutomationSwitchKey | "dealStaleSellersEnabled"] ?? true;
+            // Умолчание — из общего правила (там же список «по умолчанию ВЫКЛ»), а не `?? true` здесь.
+            const on = key === "dealStaleSellersEnabled"
+              ? (settings.dealStaleSellersEnabled ?? true)
+              : isAutomationSwitchOn(settings as Partial<Record<AutomationSwitchKey, boolean>>, key);
             const label = automationSwitchLabel(key);
             return (
               <SwitchRow

@@ -1,7 +1,9 @@
 import path from "node:path";
+import type { Readable } from "node:stream";
 import { SOCIAL_VIDEO_ALLOWED_EXTENSIONS, SOCIAL_VIDEO_UPLOAD_MAX_BYTES } from "@royal-home/shared";
 import {
   assembleChunkedUpload,
+  assertOwnChunkedUpload,
   startChunkedUpload,
   writeChunkedUploadPart,
 } from "./chunkedUploadSessions.js";
@@ -27,6 +29,7 @@ export async function startSocialVideoUpload(input: {
   agentId: string;
   filename: string;
   sizeBytes: number;
+  partSize?: number;
 }): Promise<{ sessionId: string; partSize: number; totalParts: number }> {
   const ext = path.extname(input.filename).toLowerCase();
   if (!(SOCIAL_VIDEO_ALLOWED_EXTENSIONS as readonly string[]).includes(ext)) {
@@ -39,6 +42,9 @@ export async function startSocialVideoUpload(input: {
       filename: input.filename,
       sizeBytes: input.sizeBytes,
       maxBytes: SOCIAL_VIDEO_UPLOAD_MAX_BYTES,
+      partSize: input.partSize,
+      // Свободный ролик после склейки перепаковывается — копия на диске.
+      extraCopy: true,
       tooLargeMessage: "Файл больше 2 ГБ — сожмите ролик и загрузите снова",
     })
   );
@@ -48,12 +54,18 @@ export async function writeSocialVideoPart(input: {
   sessionId: string;
   agentId: string;
   partNumber: number;
-  body: Buffer;
-}): Promise<void> {
-  await asSocialError(() => writeChunkedUploadPart({ kind: KIND, ...input }));
+  body: Buffer | Readable;
+}): Promise<number> {
+  return asSocialError(() => writeChunkedUploadPart({ kind: KIND, ...input }));
 }
 
-/** Склеивает части во временный файл и отдаёт его путь и исходное имя. */
+/** Своя ли сессия свободного ролика — до замка сборки (404 иначе). */
+export async function assertOwnSocialVideoUpload(sessionId: string, agentId: string): Promise<void> {
+  await assertOwnChunkedUpload({ kind: KIND, sessionId, agentId });
+}
+
+/** Склеивает части во временный файл и отдаёт его путь и исходное имя. Только под замком сборки
+ *  (runUploadCompletion в routes/socialVideos.ts); части убирает он же после успеха. */
 export async function assembleSocialVideoUpload(
   sessionId: string,
   agentId: string

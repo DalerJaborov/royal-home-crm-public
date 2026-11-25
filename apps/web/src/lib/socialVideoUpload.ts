@@ -7,6 +7,9 @@ import { refreshAccessToken } from "./api";
 import { PART_ATTEMPTS, STALL_MS, uploadInParts } from "./chunkedUpload";
 import { assertFitsSingleRequest } from "./singleRequestLimit";
 import { compressImage } from "./compressImage";
+import { reportUploadIssue } from "./errorReporter";
+import { registerWork } from "./workGuard";
+import type { UploadLive } from "./upload/progressText";
 
 /**
  * Загрузка свободного ролика в соцсети С ПРОГРЕССОМ (12.10.2026).
@@ -41,6 +44,8 @@ export interface SocialVideoUploadInput {
   /** Адреса «канал + аккаунт»; на сервере главнее `channels`. */
   destinations?: SocialVideoDestination[];
   onProgress: (percent: number) => void;
+  /** Подробное состояние для строки прогресса: МБ из МБ, «ждём связь», «повтор через N с». */
+  onLive?: (live: UploadLive) => void;
   /** Все байты ушли: дальше сервер обрабатывает файл — экран пишет «Обрабатываем ролик на сервере…». */
   onUploaded?: () => void;
 }
@@ -94,7 +99,10 @@ function sendOnce(input: SocialVideoUploadInput, token: string | null): Promise<
 
     xhr.upload.onprogress = (e) => {
       beat();
-      if (e.lengthComputable) input.onProgress(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable) {
+        input.onProgress(Math.round((e.loaded / e.total) * 100));
+        input.onLive?.({ phase: "uploading", loaded: e.loaded, total: e.total });
+      }
     };
     // Тело ушло целиком — дальше сервер разбирает и перепаковывает файл. Тишины тут не бойтесь:
     // сторожа по движению байт снимаем, ставим один длинный предел ожидания ответа.
@@ -171,7 +179,9 @@ function uploadVideoInParts(input: SocialVideoUploadInput, file: File): Promise<
     completeWaitMs: RESPONSE_WAIT_MS,
     completeWaitMessage: DRAFT_WAIT_MESSAGE,
     onProgress: input.onProgress,
+    onLive: input.onLive,
     onUploaded: input.onUploaded,
+    report: { kind: "social", label: "ролики в соцсети" },
   });
 }
 
@@ -182,16 +192,39 @@ export async function uploadSocialVideo(input: SocialVideoUploadInput): Promise<
   // Сжимаем до 2560 px (compressImage, обычно 1-3 МБ на снимок; сервер всё равно перекладывает
   // их в JPEG под сети), а вес всей пачки проверяет sendOnce до отправки.
   if (input.photos?.length) input = { ...input, photos: await Promise.all(input.photos.map((p) => compressImage(p))) };
+  // Пока фото уходят — вкладку тихо не закрыть и не обновить (находка 9, 25.11.2026).
+  const unregister = registerWork({ id: "social-photo-post", label: "Загрузка фото в соцсети", blocksUnload: true });
   try {
-    return await sendOnce(input, useAuthStore.getState().accessToken);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 401 && useAuthStore.getState().hasSession) {
-      const token = await refreshAccessToken();
-      if (token) {
-        input.onProgress(0);
-        return sendOnce(input, token);
+    try {
+      return await sendOnce(input, useAuthStore.getState().accessToken);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401 && useAuthStore.getState().hasSession) {
+        const token = await refreshAccessToken();
+        if (token) {
+          input.onProgress(0);
+          return await sendOnce(input, token);
+        }
       }
+      throw err;
     }
+  } catch (err) {
+    // Отказ фото-поста — в журнал, как у остальных загрузок (находка 7).
+    const photos = input.photos ?? [];
+    reportUploadIssue({
+      kind: "social",
+      name: photos.length === 1 ? photos[0].name : `${photos.length} фото`,
+      sizeBytes: photos.reduce((s, p) => s + p.size, 0),
+      propertyLabel: "фото-пост в соцсети",
+      attempts: 1,
+      maxAttempts: 1,
+      status: err instanceof ApiError ? err.status : 0,
+      error: err instanceof Error ? err.message : null,
+      online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+      final: true,
+    });
     throw err;
+  } finally {
+    unregister();
   }
 }

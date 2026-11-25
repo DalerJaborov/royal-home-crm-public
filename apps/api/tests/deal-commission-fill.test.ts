@@ -111,7 +111,7 @@ describe("Комиссия сделки заполняется целиком", 
     expect(Number(deal?.commissionPercent)).toBeCloseTo(2.5, 5);
   });
 
-  it("не задано ничего — обе величины берутся из Настроек", async () => {
+  it("не задано ничего — оценка 2% от цены объекта (1% агенту + 1% компании)", async () => {
     const property = await makeProperty(150000);
     const res = await createDeal(property.id, {});
     expect(res.status).toBe(201);
@@ -120,5 +120,8 @@ describe("Комиссия сделки заполняется целиком", 
     expect(deal?.commissionPercent).not.toBeNull();
     expect(deal?.commissionAmount).not.toBeNull();
     expect(Number(deal?.commissionAmount)).toBeGreaterThan(0);
+    // Доли зашиты в shared (владелец 25.11.2026): ровно 2% от цены 150000.
+    expect(Number(deal?.commissionPercent)).toBe(2);
+    expect(Number(deal?.commissionAmount)).toBe(3000);
   });
 });

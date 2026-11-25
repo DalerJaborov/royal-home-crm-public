@@ -111,7 +111,8 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
     // (в коде её не включал никто), и в новой рабочей группе Шабнам не помнила разговор и не видела новичков.
     // Подключённая группа теперь запоминает сама, начиная с первого сообщения; выключить — Настройки → Автоматика ИИ.
     const claimed = await prisma.assistantTelegramGroup.updateMany({
-      where: { chatId: groupChatId, contextEnabledAt: null },
+      // Выключенную директором (/assistant_memory off) память автопамять обратно не включает.
+      where: { chatId: groupChatId, contextEnabledAt: null, contextOptOutAt: null },
       data: { contextEnabledAt: occurredAt, contextIncludeUnlinked: true },
     });
     if (claimed.count === 1) { enabledAt = occurredAt; includeUnlinked = true; }

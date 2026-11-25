@@ -3,18 +3,23 @@ import { isInsideDushanbe, type PropertyDraftMediaView } from "@royal-home/share
 import { api, refreshAccessToken } from "./api";
 import { ApiError } from "./apiError";
 import { compressImage } from "./compressImage";
-import { clearAllDraftFiles, deleteDraftFile, putDraftFile, readAllDraftFiles, type StoredDraftFile } from "./draftUploadStore";
+import { clearAllDraftFiles, deleteDraftFile, putDraftFile, readAllDraftFiles, updateDraftFileMeta, type StoredDraftFile } from "./draftUploadStore";
 import { getOrCreateDeviceId } from "./deviceId";
 import { reportUploadIssue } from "./errorReporter";
 import { createLightPreview } from "./imagePreview";
 import type { ExifGpsPoint } from "./exifGps";
 import { readGpsFromFile } from "./mediaGps";
-import { isBlobReadable, unreadableFileMessage } from "./uploadFormat";
+import { isBlobReadable, unreadableFileMessage, type UploadIssueInfo } from "./uploadFormat";
 import { httpStatusMessage } from "./httpStatusMessage";
 import { useAuthStore } from "../store/auth";
-import { registerWork } from "./workGuard";
+import { registerWork, type ResumeReason } from "./workGuard";
+import { holdScreenAwake } from "./upload/wakeLock";
+import { isOffline, retryAfterFromXhr } from "./upload/network";
+import { probeReadable, readFailureMessage } from "./upload/readProbe";
+import { giveUpMessage, zeroCauseLabel, zeroCauseMessage, type ZeroCause } from "./upload/progressText";
 import { setDraftReminder } from "./draftReminder";
 import { ensurePropertyDraftSession, getPropertyDraftSession, isPropertyDraftSessionCurrent, propertyDraftSessionToken } from "./propertyDraftSession";
+import { MAX_RETRY_ATTEMPTS, planServerRetry } from "./uploadRetry";
 
 /**
  * ФАЙЛЫ МАСТЕРА УХОДЯТ СРАЗУ, А НЕ ПОСЛЕ «СОХРАНИТЬ» (владелец 11.09.2026:
@@ -50,13 +55,15 @@ import { ensurePropertyDraftSession, getPropertyDraftSession, isPropertyDraftSes
  */
 
 const API_PREFIX = "/api/v1/properties/drafts/current";
-/** Пауза перед повтором отказа сервера (5xx/429) — растёт с числом попыток. */
-const RETRY_BASE_MS = 4_000;
-/** Потолок паузы — и она же периодичность «пробного» повтора при обрыве связи. */
+/** Периодичность «пробного» повтора при обрыве связи (status 0). */
 const RETRY_MAX_MS = 60_000;
-/** Отказов подряд от СЕРВЕРА (не обрыва связи — см. ниже), после которых
- *  перестаём пробовать сами и ждём кнопку «Повторить». */
-const MAX_SERVER_ATTEMPTS = 6;
+/**
+ * Отказов СЕРВЕРА подряд без продвижения (не обрыва связи — см. ниже), после
+ * которых перестаём пробовать сами и ждём кнопку «Повторить». Паузы и потолок —
+ * общие с очередью карточки (lib/uploadRetry.ts, 25.11.2026): прежние 6 попыток
+ * за ~2 минуты сдавались на ролике, у которого части уходили через раз.
+ */
+const MAX_SERVER_ATTEMPTS = MAX_RETRY_ATTEMPTS;
 
 export type DraftMediaKind = "photo" | "video";
 /**
@@ -147,6 +154,10 @@ interface QueueEntry {
   stage?: "session" | "parts" | "complete";
   partsDone?: number;
   partsTotal?: number;
+  /** Файл поднят из IndexedDB после перезагрузки (а не выбран в этом заходе) — для журнала. */
+  fromStore?: boolean;
+  /** Подробности последнего отказа для журнала (25.11.2026, находка 7). */
+  lastFail?: { cause?: ZeroCause; partNumber?: number; partSentBytes?: number; partBytes?: number; startedAt?: number; sentBytes?: number };
 }
 
 const entries = new Map<string, QueueEntry>();
@@ -285,13 +296,19 @@ function syncWorkGuard(): void {
  * бэкоффа у ждущих файлов и сразу пробовать. Без сброса `nextAttemptAt` файл,
  * ждавший 60 секунд паузы после обрыва, стоял бы, хотя связь давно вернулась.
  */
-export function resumeUploads(): void {
+export function resumeUploads(reason: ResumeReason | "manual" = "manual"): void {
   let touched = false;
   for (const e of entries.values()) {
-    if (e.item.status === "queued" && e.nextAttemptAt) {
-      e.nextAttemptAt = undefined;
-      touched = true;
-    }
+    if (e.item.status !== "queued" || !e.nextAttemptAt) continue;
+    // Находка 3 (25.11.2026): сердцебиение workGuard (раз в 30 с) стирало паузу у ВСЕХ
+    // ждущих, в том числе паузу после отказа сервера, и 10 попыток сгорали за ~5 минут
+    // вместо ~25. Теперь: тик паузы не трогает вовсе; появление сети и возврат в приложение
+    // снимают паузу только у обрыва связи — серверу пауза нужна, сеть тут ни при чём.
+    // Без повода («manual») — явное действие: снять все паузы.
+    if (reason === "heartbeat") continue;
+    if (reason !== "manual" && e.item.errorKind !== "net") continue;
+    e.nextAttemptAt = undefined;
+    touched = true;
   }
   if (touched && wakeTimer) {
     clearTimeout(wakeTimer);
@@ -543,6 +560,7 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[], draftId
       attempts: 0,
       connectivityFails: 0,
       cancelled: false,
+      fromStore: true,
     });
     if (rec.kind === "photo") queuePreview(rec.uploadKey);
     queuedSomething = true;
@@ -860,6 +878,7 @@ export function replaceLostDraftFile(uploadKey: string, file: File): void {
     return;
   }
   entry.file = file;
+  entry.fromStore = false;
   entry.attempts = 0;
   entry.connectivityFails = 0;
   entry.nextAttemptAt = undefined;
@@ -874,27 +893,22 @@ export function replaceLostDraftFile(uploadKey: string, file: File): void {
 
 // ─────────────────────────── очередь отправки ───────────────────────────
 
-/** Читаем первые 64 КБ файла до отправки — та же проверка и по той же причине,
- *  что и в uploadQueue.ts::filesReadable (D1, 23.09.2026): WebKit может отдать
- *  нечитаемый Blob из IndexedDB после перезапуска вкладки, и без этой проверки
- *  агент узнаёт об этом только после MAX_SERVER_ATTEMPTS/RETRY_MAX_MS попыток. */
-async function fileReadable(file: File): Promise<boolean> {
-  try {
-    await file.slice(0, 65536).arrayBuffer();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Телеметрия отказа одного файла мастера (D2) — объекта у черновика ещё нет
  *  (Property заводится только на последнем шаге мастера), поэтому подпись
  *  фиксированная, в отличие от uploadQueue.ts, где есть propertyShortId. */
 function reportDraftUploadIssue(
   entry: QueueEntry,
-  info: { attempts: number; status: number; error: string | null; retryable: boolean }
+  info: { attempts: number; status: number; error: string | null; retryable: boolean; final?: boolean; extra?: Partial<UploadIssueInfo> }
 ): void {
+  const fail = entry.lastFail;
+  const elapsed = fail?.startedAt ? (Date.now() - fail.startedAt) / 1000 : 0;
   reportUploadIssue({
+    ...(fail?.cause ? { cause: zeroCauseLabel(fail.cause) } : {}),
+    ...(fail?.partNumber != null ? { partNumber: fail.partNumber, partSentBytes: fail.partSentBytes ?? 0, partBytes: fail.partBytes } : {}),
+    ...(fail?.sentBytes && elapsed > 0 ? { avgSpeedBps: fail.sentBytes / elapsed } : {}),
+    ...(entry.file ? { fileType: entry.file.type, lastModified: entry.file.lastModified } : {}),
+    readSource: entry.fromStore ? "копия в IndexedDB" : "выбранный файл",
+    final: info.final === true,
     kind: entry.item.kind,
     name: entry.item.name,
     sizeBytes: entry.item.sizeBytes,
@@ -909,6 +923,7 @@ function reportDraftUploadIssue(
     // iPhone Safari — сессия, части или сборка.
     ...(entry.stage ? { stage: entry.stage } : {}),
     ...(entry.partsTotal != null ? { partsDone: entry.partsDone ?? 0, partsTotal: entry.partsTotal } : {}),
+    ...info.extra,
   });
 }
 
@@ -946,16 +961,29 @@ async function run(): Promise<void> {
       }
 
       // D1 — файл, который телефон не даёт прочитать: сказать сразу, а не
-      // после MAX_SERVER_ATTEMPTS/RETRY_MAX_MS повторов (см. uploadQueue.ts —
-      // тот же разбор, та же починка, своя копия по докстрингу наверху файла).
-      if (!(await fileReadable(next.file!))) {
-        const message = unreadableFileMessage(false);
+      // после MAX_SERVER_ATTEMPTS/RETRY_MAX_MS повторов. С 25.11.2026 — общая проверка
+      // (lib/upload/readProbe.ts): до трёх попыток с паузой 0,5/1,5 с, причина словами.
+      // Пока идёт проверка, плитка показывает «готовим», а не «ждёт очереди».
+      next.item.status = "uploading";
+      next.item.error = null;
+      publish();
+      const probe = await probeReadable([{ blob: next.file!, source: next.fromStore ? "idb" : "file" }]);
+      if (next.cancelled || !entries.has(next.item.uploadKey)) continue;
+      if (!probe.ok) {
+        const message = readFailureMessage(probe.reason);
         next.item.status = "failed";
         next.item.error = message;
         next.item.errorKind = "type";
         next.nextAttemptAt = undefined;
         publish();
-        reportDraftUploadIssue(next, { attempts: next.attempts + 1, status: 0, error: message, retryable: false });
+        reportDraftUploadIssue(next, {
+          attempts: probe.attempts,
+          status: 0,
+          error: message,
+          retryable: false,
+          final: true,
+          extra: { cause: "файл не читается", errorName: `${probe.errorName}: ${probe.errorMessage}`, maxAttempts: probe.attempts },
+        });
         continue;
       }
 
@@ -968,7 +996,15 @@ async function run(): Promise<void> {
       next.partsTotal = undefined;
       publish();
 
-      const result = next.item.kind === "photo" ? await sendPhoto(next) : await sendVideo(next);
+      // Экран не гаснет, пока файл уходит (находка 8): блокировка экрана iPhone рвёт запрос.
+      const releaseAwake = holdScreenAwake();
+      next.lastFail = { startedAt: Date.now() };
+      let result: SendOutcome;
+      try {
+        result = next.item.kind === "photo" ? await sendPhoto(next) : await sendVideo(next);
+      } finally {
+        releaseAwake();
+      }
       if (next.cancelled || !entries.has(next.item.uploadKey)) {
         // Плитку убрали, пока файл летел: сервер уже мог его принять и теперь
         // держит READY-файл, который при создании объекта попадёт в объект (WEB-04).
@@ -997,14 +1033,17 @@ async function run(): Promise<void> {
         // пробным повтором раз в RETRY_MAX_MS на случай, если браузер/WebView
         // событие не пришлёт (бывает на некоторых мобильных прошивках).
         next.item.status = "queued";
-        next.item.error = result.error;
+        // Причина словами, а не одно «Нет связи» на всё (находка 7/13): свернули
+        // приложение, замолчал канал, нет интернета — человеку это разные вещи.
+        next.item.error = isOffline() ? zeroCauseMessage("offline") : result.cause ? zeroCauseMessage(result.cause) : result.error;
         next.item.errorKind = "net";
-        next.nextAttemptAt = now + RETRY_MAX_MS;
+        next.nextAttemptAt = Date.now() + RETRY_MAX_MS;
         publish();
         next.connectivityFails++;
         // D2 — телеметрия начиная со 2-го подряд обрыва связи на этом файле
-        // (первый — обычное дело: лифт, метро, не сигнал).
-        if (next.connectivityFails >= 2) {
+        // (первый — обычное дело: лифт, метро, не сигнал). Ролик — с первого:
+        // штучная отправка, а после обрыва Safari может закрыть вкладку.
+        if (next.connectivityFails >= 2 || next.item.kind === "video") {
           reportDraftUploadIssue(next, { attempts: next.attempts, status: 0, error: result.error, retryable: true });
         }
         continue; // другие файлы очереди не должны ждать чужой обрыв связи
@@ -1012,12 +1051,18 @@ async function run(): Promise<void> {
       next.connectivityFails = 0;
 
       if (result.retryable) {
-        next.attempts++;
-        if (next.attempts < MAX_SERVER_ATTEMPTS) {
+        // Части ролика, принятые за этот заход, обнуляют счёт: считаем отказы
+        // подряд без продвижения (lib/uploadRetry.ts::planServerRetry).
+        const plan = planServerRetry(next.attempts, result.progressed === true);
+        next.attempts = plan.attempts;
+        if (plan.delayMs !== null) {
           next.item.status = "queued";
           next.item.error = result.error;
           next.item.errorKind = "server";
-          next.nextAttemptAt = now + Math.min(RETRY_BASE_MS * 2 ** (next.attempts - 1), RETRY_MAX_MS);
+          // От момента отказа, а не от начала захода: отдача ролика идёт минутами,
+          // и `now + пауза` к этому времени уже в прошлом — повтор шёл без паузы.
+          // Сервер сказал «подождите N секунд» (429/503 с Retry-After) — не раньше.
+          next.nextAttemptAt = Date.now() + Math.max(plan.delayMs, result.retryAfterMs ?? 0);
           publish();
           // D2 — начиная со 2-й попытки сервера.
           if (next.attempts >= 2) {
@@ -1027,17 +1072,19 @@ async function run(): Promise<void> {
         }
       }
       // Отказ по существу (не тот формат, лимит объекта) или исчерпаны
-      // попытки сервера — ждём человека, кнопку «Повторить».
+      // попытки сервера — ждём человека, кнопку «Повторить». Исчерпанные попытки —
+      // своим текстом по причине (находка 13), а не последним ответом сервера.
       next.item.status = "failed";
-      next.item.error = result.error;
+      next.item.error = result.retryable ? giveUpMessage(result.status, next.attempts) : result.error;
       next.item.errorKind = classifyDraftError(result.status, result.error);
       next.nextAttemptAt = undefined;
       publish();
       reportDraftUploadIssue(next, {
         attempts: next.attempts || 1,
         status: result.status,
-        error: result.error,
+        error: next.item.error,
         retryable: result.retryable,
+        final: true,
       });
     }
   } finally {
@@ -1074,6 +1121,22 @@ interface SendOutcome {
   /** Настоящий статус ответа — 0 у обрыва связи, отдельного от отказа
    *  сервера (см. разбор в run()). */
   status: number;
+  /** Сервер принял хоть одну часть ролика за этот заход — счёт попыток
+   *  начинается заново (lib/uploadRetry.ts::planServerRetry). */
+  progressed?: boolean;
+  /** Отчего статус 0 (сеть, тишина, обрыв браузером, предел ожидания) — для текста и журнала. */
+  cause?: ZeroCause;
+  /** Сервер попросил подождать (Retry-After у 429/503), мс. */
+  retryAfterMs?: number;
+}
+
+/** Результат XHR → исход отправки, с причиной обрыва и паузой сервера. */
+function outcomeFromXhr(res: XhrResult): SendOutcome {
+  return {
+    ...outcomeFromStatus(res.status, res.error),
+    ...(res.cause ? { cause: res.cause } : {}),
+    ...(res.retryAfterMs != null ? { retryAfterMs: res.retryAfterMs } : {}),
+  };
 }
 
 function outcomeFromStatus(status: number, error: string | null): SendOutcome {
@@ -1102,7 +1165,10 @@ async function bindDraft(entry: QueueEntry): Promise<SendOutcome | null> {
     if (entry.draftId && entry.draftId !== draft.id) return outcomeFromStatus(409, "Черновик удалён или заменён. Этот файл не отправлен в новый объект");
     if (!entry.draftId) {
       entry.draftId = draft.id;
-      void persistDraftFile(entry);
+      // Только метка черновика, без перезаписи самого файла (находка 2): в Chromium каждая
+      // запись блоба копирует его заново — 271 МБ ради одного поля. Ещё не записанный
+      // файл возьмёт draftId сам: persistDraftFile читает его после сжатия.
+      void updateDraftFileMeta(entry.item.uploadKey, { draftId: draft.id }).catch(() => undefined);
     }
     return null;
   } catch (err) {
@@ -1148,7 +1214,8 @@ async function sendPhoto(entry: QueueEntry): Promise<SendOutcome> {
       entry.item.thumbUrl = mine.thumbUrl;
     }
   }
-  return outcomeFromStatus(res.status, res.error);
+  if (res.status === 0) entry.lastFail = { ...entry.lastFail, cause: res.cause, sentBytes: entry.item.loaded };
+  return outcomeFromXhr(res);
 }
 
 interface VideoSession {
@@ -1184,7 +1251,7 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
     const timer = setTimeout(
       // status 0 — тот же смысл, что у обрыва связи: очередь подождёт сети и
       // повторит круг, не тратя попыток сервера.
-      () => reject(Object.assign(new Error("Связь пропала — продолжу, когда появится"), { status: 0 })),
+      () => reject(Object.assign(new Error(zeroCauseMessage("deadline")), { status: 0, zeroCause: "deadline" as ZeroCause })),
       ms
     );
     promise.then(
@@ -1228,7 +1295,9 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
     );
   } catch (err) {
     const status = (err as { status?: number }).status ?? 0;
-    return outcomeFromStatus(status, (err as { message?: string }).message ?? null);
+    const cause = (err as { zeroCause?: ZeroCause }).zeroCause;
+    if (status === 0) entry.lastFail = { ...entry.lastFail, cause: cause ?? "network" };
+    return { ...outcomeFromStatus(status, (err as { message?: string }).message ?? null), ...(cause ? { cause } : {}) };
   }
 
   if (session.status === "done") {
@@ -1246,6 +1315,8 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
   entry.partsTotal = totalParts;
 
   const done = new Set(session.uploadedPartNumbers ?? []);
+  /** Частей, принятых сервером за ЭТОТ заход (не за прошлые). */
+  let acceptedThisRound = 0;
   let sentBytes = done.size * partSize;
   entry.partsDone = done.size;
   entry.item.loaded = Math.min(sentBytes, file.size);
@@ -1256,11 +1327,13 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
     if (done.has(n)) continue;
     const chunk = file.slice((n - 1) * partSize, Math.min(n * partSize, file.size));
     const base = sentBytes;
+    let partSent = 0;
     const res = await xhrSendAuthed(
       "PUT",
       `${API_PREFIX}/videos/${mediaId}/parts/${n}`,
       chunk,
       (loaded) => {
+        partSent = loaded;
         entry.item.loaded = Math.min(base + loaded, file.size);
         publish();
       },
@@ -1269,6 +1342,14 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
       entry.draftId ?? undefined
     );
     if (res.status < 200 || res.status >= 300) {
+      entry.lastFail = {
+        ...entry.lastFail,
+        cause: res.status === 0 ? res.cause : undefined,
+        partNumber: n,
+        partSentBytes: partSent,
+        partBytes: chunk.size,
+        sentBytes: Math.max(0, entry.item.loaded - done.size * partSize),
+      };
       // D1, «два повтора подряд одной и той же части» (23.09.2026) — та же
       // проверка, что и в очереди карточки (uploadQueue.ts::sendVideoTask),
       // отдельная копия: этот файл её тоже не разделяет с той очередью
@@ -1288,8 +1369,9 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
       } else {
         lastZeroProgressPart.delete(entry.item.uploadKey);
       }
-      return outcomeFromStatus(res.status, res.error);
+      return { ...outcomeFromXhr(res), progressed: acceptedThisRound > 0 };
     }
+    acceptedThisRound++;
     sentBytes = Math.min(base + chunk.size, file.size);
     entry.item.loaded = sentBytes;
     entry.partsDone = (entry.partsDone ?? 0) + 1;
@@ -1303,6 +1385,10 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
         method: "POST",
         expectAgentId: entry.agentId ?? undefined,
         propertyDraftId: entry.draftId ?? undefined,
+        // Находка 4 (25.11.2026): без своего потолка `api()` обрывал сборку на обычных
+        // 30 с — раньше, чем срабатывал COMPLETE_DEADLINE_MS (120 с). В очереди карточки
+        // это починили 24.09 (lib/uploadQueue.ts), в мастере — нет.
+        timeoutMs: COMPLETE_DEADLINE_MS,
       }),
       COMPLETE_DEADLINE_MS
     );
@@ -1310,7 +1396,11 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
     const status = (err as { status?: number }).status ?? 0;
     // 409 на сборке — часть до сервера всё же не дошла: повторяем круг, а не
     // объявляем файл испорченным.
-    return outcomeFromStatus(status === 409 ? 0 : status, (err as { message?: string }).message ?? null);
+    return {
+      ...outcomeFromStatus(status === 409 ? 0 : status, (err as { message?: string }).message ?? null),
+      ...((err as { zeroCause?: ZeroCause }).zeroCause ? { cause: (err as { zeroCause?: ZeroCause }).zeroCause } : {}),
+      progressed: acceptedThisRound > 0,
+    };
   }
   return { ok: true, error: null, retryable: false, status: 201 };
 }
@@ -1331,6 +1421,10 @@ interface XhrResult {
    *  обрыва связи на середине (D1, 23.09.2026). Только для сравнения в
    *  sendVideo — у sendPhoto не смотрим. */
   zeroProgress?: boolean;
+  /** Отчего статус 0: сеть, тишина в канале, обрыв браузером, предел, смена сотрудника. */
+  cause?: ZeroCause;
+  /** Retry-After у 429/503, мс. */
+  retryAfterMs?: number;
 }
 
 /**
@@ -1388,7 +1482,7 @@ async function xhrSendAuthed(
   draftId?: string
 ): Promise<XhrResult> {
   const sessionChanged = () => !!ownerId && currentAgentId() !== ownerId;
-  const SESSION_CHANGED: XhrResult = { status: 0, text: "", error: "Сессия сменилась" };
+  const SESSION_CHANGED: XhrResult = { status: 0, text: "", error: "Сессия сменилась", cause: "session-changed" };
   if (sessionChanged()) return SESSION_CHANGED;
   const first = await xhrSend(method, path, body, onProgress, contentType, draftId);
   if (first.status !== 401 || !useAuthStore.getState().hasSession) return first;
@@ -1427,8 +1521,8 @@ function xhrSend(
       stallTimer = setTimeout(() => {
         // abort() поднимет onabort, тот и исполнит обещание — но настаиваем
         // сами на случай, если событие не придёт.
+        settle({ status: 0, text: "", error: zeroCauseMessage("stall"), cause: "stall" });
         xhr.abort();
-        settle({ status: 0, text: "", error: "Связь пропала — продолжу, когда появится" });
       }, STALL_MS);
     };
 
@@ -1445,15 +1539,19 @@ function xhrSend(
       if (e.lengthComputable) onProgress(e.loaded, e.total);
     };
     xhr.upload.onload = beat;
-    xhr.onerror = () => settle({ status: 0, text: "", error: "Нет связи" });
-    xhr.ontimeout = () => settle({ status: 0, text: "", error: "Превышено время ожидания" });
-    xhr.onabort = () => settle({ status: 0, text: "", error: "Связь пропала — продолжу, когда появится" });
+    xhr.onerror = () => {
+      const cause: ZeroCause = isOffline() ? "offline" : "network";
+      settle({ status: 0, text: "", error: zeroCauseMessage(cause), cause });
+    };
+    xhr.ontimeout = () => settle({ status: 0, text: "", error: zeroCauseMessage("deadline"), cause: "deadline" });
+    xhr.onabort = () => settle({ status: 0, text: "", error: zeroCauseMessage("abort"), cause: "abort" });
     xhr.onload = () => {
       let error: string | null = null;
       if (xhr.status < 200 || xhr.status >= 300) {
         error = parseJson<{ error?: string }>(xhr.responseText)?.error ?? null;
       }
-      settle({ status: xhr.status, text: xhr.responseText, error });
+      const retryAfterMs = retryAfterFromXhr(xhr);
+      settle({ status: xhr.status, text: xhr.responseText, error, ...(retryAfterMs != null ? { retryAfterMs } : {}) });
     };
     beat();
     xhr.send(body);

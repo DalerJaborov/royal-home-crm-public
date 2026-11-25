@@ -73,6 +73,46 @@ describe("MessageAttachments: прямые ссылки", () => {
     }
   });
 
+  it("подпись истекла: ошибка видео берёт свежую ссылку из переписки, а не уходит в «не воспроизводится»", () => {
+    const one = { kind: "video" as const, mime: "video/mp4", file: "v.mp4", src: `${SRC}&n=1`, play: `${SRC}&n=1&v=p` };
+    const { container, rerender } = render(<MessageAttachments attachments={[one]} />);
+    // Опрос переписки принёс свежую подпись, а плеер держит старую — и она истекла (403).
+    rerender(<MessageAttachments attachments={[{ ...one, src: `${SRC}&n=2`, play: `${SRC}&n=2&v=p` }]} />);
+    fireEvent.error(container.querySelector("video")!);
+    expect(container.querySelector("video")!.getAttribute("src")).toBe(`${SRC}&n=2`);
+    expect(screen.queryByText(/не воспроизводится/)).toBeNull();
+    expect(apiCalls).toEqual([]);
+  });
+
+  it("подпись истекла у версии для браузера (HEAD 403): берём свежую ссылку, а не «Скачать»", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => {
+      seen.push(u);
+      const status = u.includes("n=1") ? 403 : 200;
+      return { ok: status === 200, status, headers: new Headers() } as Response;
+    }));
+    try {
+      const one = { kind: "video" as const, mime: "video/quicktime", file: "v.mov", src: `${SRC}&n=1`, play: `${SRC}&n=1&v=p` };
+      const { container, rerender } = render(<MessageAttachments attachments={[one]} />);
+      fireEvent.error(container.querySelector("video")!); // MOV не играет → версия для браузера
+      await vi.waitFor(() => expect(screen.getByText(/Обновляем ссылку на видео/)).toBeTruthy());
+      rerender(<MessageAttachments attachments={[{ ...one, src: `${SRC}&n=2`, play: `${SRC}&n=2&v=p` }]} />);
+      await vi.waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe(`${SRC}&n=2&v=p`));
+      expect(seen.some((u) => u.includes("n=2"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("голосовое с истёкшей подписью: плеер берёт свежую ссылку, а не пишет «не открылась»", () => {
+    const one = { kind: "audio" as const, mime: "audio/mpeg", file: "a.mp3", src: `${SRC}&n=1` };
+    const { container, rerender } = render(<MessageAttachments attachments={[one]} inBubble />);
+    rerender(<MessageAttachments attachments={[{ ...one, src: `${SRC}&n=2` }]} inBubble />);
+    fireEvent.error(container.querySelector("audio")!);
+    expect(container.querySelector("audio")!.getAttribute("src")).toBe(`${SRC}&n=2`);
+    expect(screen.queryByTestId("rh-audio-failed")).toBeNull();
+  });
+
   it("новая подпись той же ссылки не перезапускает идущее видео; новый файл — с начала", () => {
     const one = { kind: "video" as const, mime: "video/mp4", file: "v.mp4", src: `${SRC}&n=1` };
     const { container, rerender } = render(<MessageAttachments attachments={[one]} />);

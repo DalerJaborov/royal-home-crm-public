@@ -8,6 +8,8 @@ import {
   formatDurationRu,
 } from "@royal-home/shared";
 import type { SocialVideoFacts } from "@royal-home/shared";
+import { UploadProgressLine } from "../UploadProgressLine";
+import type { UploadLive } from "../../lib/upload/progressText";
 
 /**
  * Загрузка ролика: перетащить файл или выбрать, сразу показать превью и параметры.
@@ -29,6 +31,8 @@ export interface VideoDropzoneProps {
   facts: SocialVideoFacts | null;
   /** 0..100, пока идёт загрузка. */
   uploadProgress: number | null;
+  /** МБ из МБ, скорость, осталось, «ждём связь» — общая строка прогресса (25.11.2026). */
+  uploadLive?: UploadLive | null;
   /** Все байты ушли, сервер обрабатывает файл (до нескольких минут) — вместо процентов честная подпись. */
   processing?: boolean;
   disabled?: boolean;
@@ -98,7 +102,7 @@ function FactChip({ icon, children, tone = "neutral" }: { icon: ReactNode; child
   );
 }
 
-export function VideoDropzone({ file, existing, facts, uploadProgress, processing = false, disabled = false, onPick, onClear }: VideoDropzoneProps) {
+export function VideoDropzone({ file, existing, facts, uploadProgress, uploadLive = null, processing = false, disabled = false, onPick, onClear }: VideoDropzoneProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -312,6 +316,8 @@ export function VideoDropzone({ file, existing, facts, uploadProgress, processin
                   style={{ width: `${processing ? 100 : Math.min(100, Math.max(0, uploadProgress))}%` }}
                 />
               </div>
+              {/* МБ из МБ, скорость, сколько осталось, «ждём связь / повтор через N с». */}
+              {uploadLive && !processing && <UploadProgressLine live={uploadLive} keepAwakeHint bar={false} />}
             </div>
           )}
 

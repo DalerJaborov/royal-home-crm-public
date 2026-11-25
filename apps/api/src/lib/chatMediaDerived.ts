@@ -47,16 +47,20 @@ const MAX_INPUT_PIXELS = 50_000_000;
 const FAIL_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Сколько запрос ждёт готовую копию, прежде чем ответить «готовится». Голос успевает. */
+let prepareWaitOverrideMs: number | null = null;
+/** Только для тестов: сколько ждать готовую копию (null — вернуть 8 с). Не окружение: имя из env не доходит до контейнера. */
+export function setPrepareWaitMsForTests(ms: number | null): void {
+  prepareWaitOverrideMs = ms;
+}
 function prepareWaitMs(): number {
-  const fromEnv = Number(process.env.CHAT_MEDIA_PREPARE_WAIT_MS);
-  return process.env.CHAT_MEDIA_PREPARE_WAIT_MS !== undefined && Number.isFinite(fromEnv) && fromEnv >= 0 ? fromEnv : 8_000;
+  return prepareWaitOverrideMs ?? 8_000;
 }
 
 function derivedDir(): string {
   return path.join(privateDirRoot(), DERIVED_SUBDIR);
 }
 
-const DERIVED_NAME_RE = /^([0-9a-f-]{36}\.[a-z0-9]{2,4})\.(t|p)\.(webp|m4a|mp4|fail)$/i;
+const DERIVED_NAME_RE = /^([0-9a-f-]{36}\.[a-z0-9]{2,4})\.(t|p)\.(webp|m4a|mp4)(\.fail)?$/i;
 
 export function derivedName(source: string, variant: DerivedVariant, kind: "image" | MediaKindHint): string {
   if (variant === "thumb") return `${source}.t.webp`;
@@ -100,7 +104,10 @@ function makeQueue(concurrency: number) {
 }
 
 const thumbQueue = makeQueue(2);
-const transcodeQueue = makeQueue(1);
+// Голос и видео — разные очереди (повторное ревью #428): голосовое перекодируется
+// за секунды и не должно ждать видео, которое идёт до 4 минут.
+const audioQueue = makeQueue(1);
+const videoQueue = makeQueue(1);
 const inFlight = new Map<string, Promise<string | null>>();
 
 function existingDerived(name: string): string | null {
@@ -108,8 +115,9 @@ function existingDerived(name: string): string | null {
   return fs.existsSync(full) ? full : null;
 }
 
+/** Отметка неудачи — своя у каждой копии: у webm голосом (.p.m4a) и видео (.p.mp4) разные. */
 export function derivedFailMarker(name: string): string {
-  return path.join(derivedDir(), name.replace(/\.(webp|m4a|mp4)$/i, ".fail"));
+  return path.join(derivedDir(), `${name}.fail`);
 }
 
 function recentlyFailed(name: string): boolean {
@@ -197,7 +205,7 @@ export async function ensureDerived(source: string, variant: DerivedVariant, hin
 
   let job = inFlight.get(name);
   if (!job) {
-    const queue = variant === "thumb" ? thumbQueue : transcodeQueue;
+    const queue = variant === "thumb" ? thumbQueue : kind === "audio" ? audioQueue : videoQueue;
     job = queue(() => build(sourcePath, name, variant, kind as "image" | MediaKindHint)).finally(() => inFlight.delete(name));
     inFlight.set(name, job);
   }
@@ -267,7 +275,7 @@ export function cleanupDerivedChatMedia(options?: { maxDeletions?: number }): De
         result.kept++;
         continue;
       }
-      remove = !privateFilePath(m[1]) || (m[3].toLowerCase() === "fail" && olderThanDay(full));
+      remove = !privateFilePath(m[1]) || (!!m[4] && olderThanDay(full));
     }
     if (!remove) {
       result.kept++;

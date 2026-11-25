@@ -140,13 +140,19 @@ function AttachmentItem({
     setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
     setVideoStep("original");
   }
+  /**
+   * Пришла свежая подпись той же ссылки (переписка опрашивается). Пока замороженная
+   * ссылка работает, её не трогаем; не открылась — сначала берём свежую, и только
+   * если свежей нет, считаем прямую ссылку сломанной (повторное ревью #428: истёкшая
+   * подпись у видео/голосового уводила в «не воспроизводится» с просроченной ссылкой).
+   */
+  const hasFresherLinks = !!attachment.src && attachment.src !== links.src;
+  const refreshLinks = () =>
+    setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
   /** Прямая ссылка не открылась: есть свежая подпись — берём её, иначе прежний путь. */
   const onDirectError = () => {
-    if (attachment.src && attachment.src !== links.src) {
-      setLinks({ key: fileKey, src: attachment.src, thumb: attachment.thumb, play: attachment.play, broken: false });
-    } else {
-      setLinks((l) => ({ ...l, broken: true }));
-    }
+    if (hasFresherLinks) refreshLinks();
+    else setLinks((l) => ({ ...l, broken: true }));
   };
   const direct = !attachment.url && !!links.src;
   const useDirect = direct && !links.broken;
@@ -163,6 +169,11 @@ function AttachmentItem({
   // Версия для браузера готовится на сервере (503 + Retry-After) — ждём её, а не
   // подсовываем плееру адрес, который пока отвечает ошибкой.
   const playable = usePlayableUrl(links.play ?? null, (attachment.kind === "video" && videoStep === "play") || audioNeedsPlay);
+  // Версия для браузера ответила 403 — подпись истекла: берём свежую, как только она есть.
+  useEffect(() => {
+    if (playable.state === "expired" && hasFresherLinks) refreshLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- реагируем на смену состояния и свежую ссылку
+  }, [playable.state, attachment.src]);
 
   // Клиент прислал, а сохранить не вышло — честная причина, а не пустота.
   if (attachment.lost) {
@@ -258,6 +269,9 @@ function AttachmentItem({
       );
     }
     if (videoStep === "play" && playable.state !== "ready") {
+      if (playable.state === "expired") {
+        return <Note icon={Clock} rh2={rh2}>Обновляем ссылку на видео…</Note>;
+      }
       if (playable.state === "failed") {
         return (
           <Note icon={ImageOff} rh2={rh2}>
@@ -283,7 +297,9 @@ function AttachmentItem({
         preload={useDirect ? "metadata" : "none"}
         playsInline
         onError={() => {
-          if (videoStep === "original" && useDirect && links.play) setVideoStep("play");
+          // Сначала — не истекла ли подпись: свежая ссылка, шаг тот же.
+          if (useDirect && hasFresherLinks) refreshLinks();
+          else if (videoStep === "original" && useDirect && links.play) setVideoStep("play");
           else if (useDirect) setVideoStep("broken");
         }}
         className={rh2 ? undefined : "rounded-lg border border-line max-w-[240px] w-full"}
@@ -325,7 +341,9 @@ function AttachmentItem({
   // Браузер честно говорит это заранее (canPlayType) — тогда сразу версия m4a,
   // иначе оригинал, а m4a — запасной путь на ошибку плеера.
   if (audioNeedsPlay && playable.state !== "ready") {
-    return playable.state === "failed" ? (
+    return playable.state === "expired" ? (
+      <Note icon={Clock} rh2={rh2}>Обновляем ссылку на голосовое…</Note>
+    ) : playable.state === "failed" ? (
       <Note icon={ImageOff} rh2={rh2}>
         Голосовое не воспроизводится в этом браузере.{" "}
         <a href={fullUrl} download style={{ textDecoration: "underline" }}>
@@ -355,18 +373,18 @@ function AttachmentItem({
     rh2 ? (
       <div className="voice">
         <Mic className="i" strokeWidth={1.8} />
-        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
       </div>
     ) : bubble ? (
       // Как в WhatsApp: плеер прямо в пузыре, без белой подложки и значка микрофона. Файл уже скачан
       // (blob), поэтому длина читается из него сразу — вместо «0:00» до первого нажатия.
       <div className="mt-1" data-voice-in-bubble="">
-        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} speeds preload="metadata" label="Голосовое" inBubble className="w-[280px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload="metadata" label="Голосовое" inBubble className="w-[280px] max-w-full" />
       </div>
     ) : (
       <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1.5">
         <Mic className="h-3.5 w-3.5 shrink-0 text-gray-400" strokeWidth={1.8} />
-        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
+        <RhAudioPlayer src={audioSrc} fallbackSrc={audioFallback} onLoadError={useDirect && hasFresherLinks ? () => { refreshLinks(); return true; } : undefined} speeds preload={useDirect ? "metadata" : "none"} label="Голосовое" className="w-[300px] max-w-full" />
       </div>
     )
   );

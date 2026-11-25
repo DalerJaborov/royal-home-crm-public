@@ -7,7 +7,7 @@ import { useAuthStore, type SessionAgent } from "../store/auth";
 import { useUiPrefs } from "../store/uiPrefs";
 import { useBranding } from "../hooks/useBranding";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
-import { loginRetryAfterMs } from "../lib/loginRetry";
+import { loginBlockInfo, loginBlockText, loginRetryAfterMs } from "../lib/loginRetry";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RECORDS_SECTION, usePublicRoyalLook } from "../components/look/records/publicLook";
 import "./Login.css";
@@ -227,7 +227,14 @@ export function Login() {
         setResendAt(Date.now() + waitMs);
         setError(null);
       } else {
-        setError(err instanceof Error ? err.message : "Не удалось отправить код");
+        const block = loginBlockInfo(err);
+        if (block) {
+          // Лимит общий для всех каналов: до снятия гасим и «ещё раз», и Telegram.
+          setResendAt(block.retryAt.getTime());
+          setError(loginBlockText(block));
+        } else {
+          setError(err instanceof Error ? err.message : "Не удалось отправить код");
+        }
       }
     } finally {
       requestInFlight.current = false;
@@ -396,6 +403,7 @@ export function Login() {
               </p>
             )}
             <p className="alt">Пришлём код уведомлением на ваш телефон или в СМС.</p>
+            <p className="login-code-hint">Код приходит до минуты, повторно не нажимайте.</p>
           </form>
         )}
       </div>
@@ -512,6 +520,12 @@ function CodeStep({
       <button className={goClass} type="submit" disabled={loading || code.length !== 6}>
         {loading ? "Проверяем…" : "Подтвердить"}
       </button>
+      {!totp && <p className="login-code-hint">Код приходит до минуты, повторно не нажимайте.</p>}
+      {!totp && onTelegram && (
+        <button className="pill ghost login-code-tg" type="button" onClick={onTelegram} disabled={waitSec > 0 || loading}>
+          Прислать в Telegram
+        </button>
+      )}
       {!totp && onResend && (
         <div className="login-code-secondary">
           <p className="login-code-status" role="status" aria-live="off">
@@ -521,9 +535,6 @@ function CodeStep({
             <button className="lnk" type="button" onClick={onResend} disabled={waitSec > 0 || loading}>
               Отправить ещё раз
             </button>
-            {onTelegram && <button className="lnk" type="button" onClick={onTelegram} disabled={waitSec > 0 || loading}>
-              Через Telegram
-            </button>}
           </div>
         </div>
       )}

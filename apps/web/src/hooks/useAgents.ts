@@ -143,6 +143,14 @@ export function useReset2fa() {
   });
 }
 
+/** Директор снимает блок «5 кодов за час» со входа сотрудника (карточка сотрудника, 25.11.2026). */
+export function useResetLoginCodeBlock() {
+  return useMutation({
+    mutationFn: (id: string) => api<{ removedCodes: number }>(`/agents/${id}/login-code/reset`, { method: "POST" }),
+    meta: { successText: "Блок входа по коду снят" },
+  });
+}
+
 export function useDeleteAgent() {
   const qc = useQueryClient();
   return useMutation({

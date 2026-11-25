@@ -22,6 +22,7 @@ import { prisma } from "../db.js";
 import { setKindMuted } from "./notificationPrefs.js";
 import { invalidateAgentAccess } from "../auth/middleware.js";
 import { logAgentAudit } from "./audit.js";
+import { resetLoginCodeBlock } from "./loginSmsCode.js";
 import { syncAgentQueuePresence } from "./telephony/operatorQueue.js";
 import { syncAgentMobileFallback } from "./telephony/agentMobileFallback.js";
 import {
@@ -757,6 +758,25 @@ export async function resetStaffTwoFactor(actor: StaffActor, targetId: string, o
   });
   notice(actor, opts, "reset2fa", target);
   return done({ totpEnabled: false });
+}
+
+/**
+ * Снять блок входа по коду («5 кодов за час», lib/loginSmsCode.ts). Только директор:
+ * админ с правом agents.reset2fa сюда не проходит — блок защищает деньги на СМС и
+ * вход, снимать его вправе тот, кто за них отвечает. Лимиты других сотрудников не
+ * трогаются; в журнал аудита пишется, кто и кому сбросил.
+ */
+export async function resetStaffLoginCodeBlock(actor: StaffActor, targetId: string, opts?: StaffCallOptions): Promise<StaffOutcome> {
+  if (actor.role !== "DIRECTOR") return fail(403, "Снять блок входа по коду может только директор");
+  const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true } });
+  if (!target) return fail(404, "Сотрудник не найден");
+  const removed = await resetLoginCodeBlock(target.id);
+  logAgentAudit(actor.id, "LOGIN_CODE_BLOCK_RESET", "Agent", target.id, {
+    targetName: target.fullName,
+    removedCodes: removed,
+    ...(opts?.via ? { source: opts.via } : {}),
+  });
+  return done({ ok: true, removedCodes: removed });
 }
 
 // ───────────────────────────── удаление ─────────────────────────────

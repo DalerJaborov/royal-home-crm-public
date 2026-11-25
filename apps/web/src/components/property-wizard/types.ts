@@ -14,6 +14,7 @@ import {
   type PropertyDetailKey,
   type PropertyStage,
   type PropertyType,
+  type PropertyWizardRegistryPick,
 } from "@royal-home/shared";
 
 /** Готовые варианты «Документов» — те же, что в PropertyFormModal.tsx
@@ -63,7 +64,7 @@ export interface WizardValues {
   /** Телефон продавца — уходит в ownerContact. */
   sellerPhone: string;
   /**
-   * Кто принял объект у продавца (0.5% со сделки). Рядовому агенту сервер
+   * Кто принял объект у продавца (денег со сделки за приём нет). Рядовому агенту сервер
    * подставляет его самого и поле не показывается; руководителю оно
    * обязательно — иначе POST /properties отвечает 400 «Укажите, кто принял
    * объект» (routes/properties/crud.ts).
@@ -93,6 +94,8 @@ export interface WizardValues {
   documentsOther: string;
   /** Стадия стройки — только у новостройки и котлована (packages/shared/src/propertyFinish.ts). */
   stage: PropertyStage | "";
+  /** «Застройщик и разрешение» (реестр строек): выбор человека; null — решает автосвязь. Живёт в черновике. */
+  registryPick: PropertyWizardRegistryPick | null;
 }
 
 /**
@@ -157,6 +160,7 @@ export const EMPTY_WIZARD_VALUES: WizardValues = {
   documentsPreset: "",
   documentsOther: "",
   stage: "",
+  registryPick: null,
 };
 
 /** Комнаты есть у всех, кроме участка (у коммерции — необязательны). Что у

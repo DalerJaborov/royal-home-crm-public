@@ -6,6 +6,7 @@
  * а строка задания всё это время показывала «0% · в очереди», без единой цифры
  * о том, что вообще происходит).
  */
+import { readBlobEnds } from "./upload/readProbe";
 
 /** `formatUploadSize` жила в UploadTaskRow.tsx — переехала сюда как более общая
  *  чистая функция формата; UploadTaskRow.tsx реэкспортирует её для прежних
@@ -163,7 +164,9 @@ export function formatShortUserAgent(ua: string): string {
  *  сообщения телеметрии ниже, а не весь StoredTask/DraftMediaItem целиком
  *  (у очереди карточки и очереди мастера разные типы задания). */
 export interface UploadIssueInfo {
-  kind: "photo" | "video" | "clip";
+  /** photo/video/clip — очереди объекта; chat — файл в переписку; social — ролик в соцсети;
+   *  handoff — готовый ролик монтажёра; source — новый исходник для перемонтажа. */
+  kind: "photo" | "video" | "clip" | "chat" | "social" | "handoff" | "source";
   name: string;
   sizeBytes: number;
   /** Уже готовая подпись объекта — «объект ОБ-000134» или «черновик объекта»
@@ -180,13 +183,63 @@ export interface UploadIssueInfo {
   /** Шаг, на котором оборвался ролик мастера: session | parts | complete. */
   stage?: "session" | "parts" | "complete";
   userAgent: string;
+  /**
+   * Подробности, без которых разбор жалобы шёл вслепую (25.11.2026, находка 7).
+   * Всё необязательное: вызывающий кладёт то, что знает, остальное заполняет
+   * errorReporter.reportUploadIssue сам (видимость вкладки, канал).
+   */
+  /** Отчего статус 0 — «сеть», «тишина в канале», «обрыв браузером», «предел ожидания», «сменился сотрудник». */
+  cause?: string;
+  /** Номер части, на которой остановились. */
+  partNumber?: number;
+  /** Сколько байт этой части ушло до обрыва и сколько в ней всего; 0 — «ни одного байта». */
+  partSentBytes?: number;
+  partBytes?: number;
+  /** Средняя скорость захода, байт/с. */
+  avgSpeedBps?: number;
+  fileType?: string;
+  /** Имя ошибки браузера (`NotReadableError` и т.п.) — у отказа чтения файла. */
+  errorName?: string;
+  /** Откуда читали файл: копия в IndexedDB или исходник в памяти. */
+  readSource?: string;
+  lastModified?: number;
+  /** visible / hidden — свернули ли приложение в момент отказа. */
+  visibility?: string;
+  /** Канал по данным браузера: «4g 1,5 Мбит/с». */
+  connection?: string;
+  /** Окончательный отказ: пишется всегда, предел записей за сессию на него не действует. */
+  final?: boolean;
 }
 
 const KIND_LABEL: Record<UploadIssueInfo["kind"], string> = {
   photo: "фото",
   video: "видео",
   clip: "ролик",
+  chat: "файл в переписку",
+  social: "ролик в соцсети",
+  handoff: "готовый ролик",
+  source: "исходник ролика",
 };
+
+/** Хвост строки журнала: подробности после ключа дедупа (первые 200 знаков держат попытку). */
+function issueDetails(info: UploadIssueInfo): string {
+  const out: string[] = [];
+  if (info.final) out.push("сдалась");
+  if (info.cause) out.push(`причина ${info.cause}`);
+  if (info.partNumber != null) out.push(`часть №${info.partNumber}`);
+  if (info.partSentBytes != null) {
+    out.push(info.partSentBytes === 0 ? "ни одного байта части" : `ушло ${formatUploadSize(info.partSentBytes)} части`);
+  }
+  if (info.partBytes != null) out.push(`часть ${formatUploadSize(info.partBytes)}`);
+  if (info.avgSpeedBps != null && info.avgSpeedBps > 0) out.push(`скорость ${formatSpeedBps(info.avgSpeedBps)}`);
+  if (info.fileType != null) out.push(`тип ${info.fileType || "пусто"}`);
+  if (info.errorName) out.push(`ошибка ${info.errorName}`);
+  if (info.readSource) out.push(`источник ${info.readSource}`);
+  if (info.lastModified != null) out.push(`изменён ${new Date(info.lastModified).toISOString().slice(0, 16)}`);
+  if (info.visibility) out.push(`вкладка ${info.visibility}`);
+  if (info.connection) out.push(`канал ${info.connection}`);
+  return out.length ? `; ${out.join(", ")}` : "";
+}
 
 /**
  * «[загрузка] видео IMG_0065.mov 183 МБ, объект ОБ-000134, попытка 3/10,
@@ -204,7 +257,7 @@ export function formatUploadIssueMessage(info: UploadIssueInfo): string {
   return (
     `[загрузка] ${KIND_LABEL[info.kind]} ${info.name} ${formatUploadSize(info.sizeBytes)}, ${info.propertyLabel}, ` +
     `попытка ${info.attempts}/${info.maxAttempts}, статус ${info.status}, «${errorLabel}», ` +
-    `online=${info.online}${parts}${stage}, ${formatShortUserAgent(info.userAgent)}`
+    `online=${info.online}${parts}${stage}, ${formatShortUserAgent(info.userAgent)}${issueDetails(info)}`
   );
 }
 
@@ -219,9 +272,6 @@ export function unreadableFileMessage(connectivityConfirmedOk: boolean): string 
   return connectivityConfirmedOk ? `${base} (связь есть, файл не читается)` : base;
 }
 
-/** Сколько с каждого края части читаем при проверке «файл вообще читается». */
-const READ_PROBE_BYTES = 64 * 1024;
-
 /**
  * Реально ли читается этот кусок файла (WEB-10, аудит 04.10.2026). Нечитаемым
  * Blob из IndexedDB на WebKit объявляем только после попытки прочитать его начало
@@ -230,10 +280,10 @@ const READ_PROBE_BYTES = 64 * 1024;
  * проверять нечего, считаем читаемым.
  */
 export async function isBlobReadable(blob: Blob): Promise<boolean> {
-  if (blob.size === 0) return true;
+  // Одно чтение «начало и конец» на все проверки (lib/upload/readProbe.ts, 25.11.2026);
+  // здесь — без повторов: кусок уже дважды не ушёл ни байтом, третий раз ждать незачем.
   try {
-    await blob.slice(0, Math.min(blob.size, READ_PROBE_BYTES)).arrayBuffer();
-    if (blob.size > READ_PROBE_BYTES) await blob.slice(Math.max(0, blob.size - READ_PROBE_BYTES)).arrayBuffer();
+    await readBlobEnds(blob);
     return true;
   } catch {
     return false;

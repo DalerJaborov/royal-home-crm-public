@@ -3,6 +3,7 @@ import { Clock, Loader2, RotateCcw, X } from "lucide-react";
 import { useNow } from "../hooks/useNow";
 import { removeTask, retryTask, type UploadTaskView } from "../lib/uploadQueue";
 import { formatActiveUploadLine, formatRetryCountdown, formatUploadSize } from "../lib/uploadFormat";
+import { KEEP_SCREEN_ON_HINT } from "../lib/upload/wakeLock";
 
 /** Живёт теперь в uploadFormat.ts (чистая функция формата, тестируется без
  *  браузера) — реэкспорт, чтобы StepMedia.tsx/StepReview.tsx не переписывать. */
@@ -75,7 +76,10 @@ export function UploadTaskRow({
    */
   useNow(retrying && !!task.nextAttemptAt);
 
-  const activeLine = `${formatActiveUploadLine(task.totalBytes, loadedBytes ?? Math.round((task.totalBytes * percent) / 100), speedBps ?? null)}${note ? ` · ${note}` : ""}`;
+  const activeLine = `${formatActiveUploadLine(task.totalBytes, loadedBytes ?? Math.round((task.totalBytes * percent) / 100), speedBps ?? null)}${note ? ` · ${note}` : ""}${
+    // Ролик едет минутами — блокировка экрана iPhone рвёт запрос (находка 8).
+    task.kind !== "photo" ? ` · ${KEEP_SCREEN_ON_HINT.toLowerCase()}` : ""
+  }`;
   const retryLine =
     retrying && task.nextAttemptAt
       ? formatRetryCountdown(task.error ?? "Связь прервалась", task.nextAttemptAt)
@@ -102,7 +106,10 @@ export function UploadTaskRow({
               : `${formatUploadSize(task.totalBytes)}${note ? ` · ${note}` : ""}${
                   retryLine
                     ? ` · ${retryLine}`
-                    : " · можно закрыть — продолжится, когда снова откроете CRM"
+                    : task.volatile
+                      ? // Не влез в память телефона (находка 9): живёт только во вкладке.
+                        " · не закрывайте вкладку, пока не уйдёт: файл слишком большой, чтобы сохранить его до отправки"
+                      : " · можно закрыть — продолжится, когда снова откроете CRM"
                 }`}
         </span>
       </div>

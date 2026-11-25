@@ -37,6 +37,9 @@ export const AUTOMATION_SWITCH_KEYS = [
   "shabnamSocialPublishEnabled",
   "shabnamGroupAutoMemoryEnabled",
   "chatMediaTranscodeEnabled",
+  "outgoingMediaCompressEnabled",
+  "shabnamGroupUnaddressedEnabled",
+  "telegramPhoneLinkEnabled",
   "instagramCompanyKeyEnabled",
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
@@ -52,7 +55,11 @@ export const AUTOMATION_SWITCH_DEFAULT = true;
  * Исключения из общего умолчания. «Записать результат» в карточке клиента (владелец 22.11.2026) по умолчанию ВЫКЛЮЧЕНА:
  * ИИ пишет итог звонка не для коротких звонков, и ручная кнопка рядом только путает. Колонка в базе тоже `DEFAULT false`.
  */
-export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>(["clientRecordResultEnabled"]);
+export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = new Set<AutomationSwitchKey>([
+  "clientRecordResultEnabled",
+  // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
+  "telegramPhoneLinkEnabled",
+]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
 export type AutomationSwitches = Record<AutomationSwitchKey, boolean>;
@@ -152,6 +159,18 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 24.11.2026: «молчит, пока не напишешь "Шабнам"», новички пишут, она не отвечает.
+  shabnamGroupUnaddressedEnabled: {
+    title: "Шабнам отвечает в группах без обращения",
+    on: "В рабочей группе Шабнам сама отвечает на ясный рабочий вопрос (цена и статус объекта, «найдите варианты», как сделать что-то в CRM), не чаще раза в 12 секунд. На болтовню и разговор людей между собой не отвечает. «Шабнам, помолчи» выключает это на полчаса.",
+    off: "В группах Шабнам отвечает только тем, кто её позвал: по имени, через /ai или ответом на её сообщение.",
+  },
+  // Ревью 25.11.2026: в привязанный Telegram приходит код входа, поэтому по умолчанию выключено.
+  telegramPhoneLinkEnabled: {
+    title: "Привязка Telegram по номеру",
+    on: "Новичок в группе жмёт кнопку, делится номером в личке с ботом и вводит код из СМС на этот номер. Директора и администратора по номеру не привязывает: им только через профиль.",
+    off: "Telegram привязывают только в CRM: Профиль → Telegram. Шабнам новичку в группе подсказывает этот путь.",
+  },
   // Владелец 24-25.11.2026: «Шабнам в группах молчит без обращения»: память группы никто не включал.
   shabnamGroupAutoMemoryEnabled: {
     title: "Шабнам запоминает разговор в подключённой группе",
@@ -159,6 +178,11 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     off: "Новые подключённые группы ничего не запоминают, пока память не включена вручную. Уже запомненное остаётся до срока.",
   },
   // Владелец 25.11.2026: «фото, видео, голосовые клиентов не открываются в CRM».
+  outgoingMediaCompressEnabled: {
+    title: "Фото и видео клиенту — как в WhatsApp",
+    on: "CRM сама сжимает фото и видео под предел канала (WhatsApp 16 МБ, Instagram 25 МБ) и отправляет в фоне: клиент получает настоящее видео, а не ссылку. Очень длинное видео уходит ссылкой на просмотр. Геометка с фото удаляется.",
+    off: "Файл уходит как есть: видео больше предела канала — ссылкой, тяжёлое фото — отказом.",
+  },
   chatMediaTranscodeEnabled: {
     title: "Голосовые и видео клиентов открываются на любом телефоне",
     on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
@@ -201,7 +225,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
@@ -210,7 +234,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

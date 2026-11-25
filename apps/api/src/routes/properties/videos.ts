@@ -4,7 +4,7 @@
  * В исходном файле между clip-video и остальными видео-маршрутами стояли
  * share-links — их группа подключается в index.ts после этой; пересечений
  * путей у групп нет (см. комментарий там). */
-import express, { Router, type Request } from "express";
+import { Router, type Request } from "express";
 import path from "node:path";
 import { makePropertyCover, storeManualCover } from "../../lib/video/coverOpenAi.js";
 import fs from "node:fs/promises";
@@ -39,7 +39,10 @@ import {
   discardReceivedFinalVideo,
 } from "../../lib/videoHandoff.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, assertOwnChunkedUpload, chunkedUploadOwner } from "../../lib/chunkedUploadSessions.js";
+import { UploadError, toStorageError } from "../../lib/uploadErrors.js";
+import { logUploadPart, partBodySource, sendUploadError } from "../../lib/uploadHttp.js";
+import { readUploadState, replyStoredUpload, runUploadCompletion } from "../../lib/uploadCompletion.js";
 import { describeError } from "../../lib/describeError.js";
 import { logAudit } from "../../lib/audit.js";
 import { acceptFinalVideoFromStaff, selfApprovedClipOptsFor } from "../../lib/finalVideoIntake.js";
@@ -69,9 +72,13 @@ import {
 } from "../../lib/publishedVideoFix.js";
 import {
   abortLocalUploadSession,
+  assertUploadDiskSpace,
+  uploadStartDiskBytes,
   completeLocalUploadSession,
   completeLocalUploadSessionToPath,
   createLocalUploadSession,
+  listLocalUploadParts,
+  localUploadPartSizes,
   localVideoDelete,
   localVideoExists,
   localVideoFilePath,
@@ -94,6 +101,12 @@ import {
   UPLOAD_VIDEO_MAX_BYTES,
   VIDEO_TOO_LARGE_CODE,
   videoTooLargeMessage,
+  UPLOAD_PART_MAX_BYTES,
+  UPLOAD_PART_MIN_BYTES,
+  computeUploadPartPlan,
+  expectedUploadPartBytes,
+  uploadErrorBody,
+  type UploadSessionStatusView,
 } from "@royal-home/shared";
 import { generateStoryCard } from "../../lib/video/storyCard.js";
 import { resyncPhotosIfPublished } from "../../lib/siteSync.js";
@@ -336,19 +349,34 @@ videosRouter.post("/:id/clip-video/upload-sessions/:sessionId/complete", require
   const lock = propertyEditLockBody(req, property);
   if (lock) return res.status(409).json(lock);
 
-  let assembled: { tmpPath: string; sizeBytes: number };
+  const sessionId = String(req.params.sessionId);
+  const agentId = req.agent!.id;
   try {
-    assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId: String(req.params.sessionId), agentId: req.agent!.id });
+    await assertOwnChunkedUpload({ kind: "clip-video", sessionId, agentId });
+    // Сборка — lib/uploadCompletion.ts: части убираются только после приёма, повтор отдаёт
+    // тот же итог, `X-Upload-Async: 1` — ответ 202 сразу.
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId,
+      owner: chunkedUploadOwner(agentId),
+      what: "ролик карточки",
+      work: async (setPhase) => {
+        const assembled = await assembleChunkedUpload({ kind: "clip-video", sessionId, agentId });
+        try {
+          setPhase("processing");
+          const outcome = await acceptClipVideoFile(property, { path: assembled.tmpPath, size: assembled.sizeBytes });
+          // Отказ по содержимому (не видео, длиннее предела) — повтор бесполезен, части убираем.
+          return { ...outcome, finalize: outcome.status < 500 };
+        } finally {
+          // acceptClipVideoFile переносит файл; это страховка на падение до переноса.
+          await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
+        }
+      },
+    });
   } catch (err) {
-    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
+    if (sendUploadError(res, err, "ролик карточки")) return;
     throw err;
-  }
-  try {
-    const outcome = await acceptClipVideoFile(property, { path: assembled.tmpPath, size: assembled.sizeBytes });
-    res.status(outcome.status).json(outcome.body);
-  } finally {
-    // acceptClipVideoFile переносит файл; это страховка на падение до переноса.
-    await fs.rm(assembled.tmpPath, { force: true }).catch(() => {});
   }
 });
 
@@ -366,18 +394,20 @@ async function acceptClipVideoFile(
   const inputPath = path.join(clipVideoDir, inputFilename);
   await moveUploadedFile(file.path, inputPath);
 
+  // Отказы по содержимому — 422 с машинным кодом (единый формат, packages/shared/src/uploadErrors.ts);
+  // поле `error` прежнее — его читают старые вкладки.
   const durationSec = await probeDurationSec(inputPath);
   if (durationSec === null) {
     await fs.rm(inputPath, { force: true });
-    return { status: 400, body: { error: "Не удалось определить длительность видео" } };
+    return { status: 422, body: uploadErrorBody("NOT_VIDEO", { message: "Не удалось определить длительность видео" }) };
   }
   if (durationSec > MAX_CLIP_VIDEO_DURATION_SEC) {
     await fs.rm(inputPath, { force: true });
     return {
-      status: 400,
-      body: {
-        error: `Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд (${Math.round(durationSec)}с) — обхода квартиры должно хватать короче`,
-      },
+      status: 422,
+      body: uploadErrorBody("TOO_LONG", {
+        message: `Видео длиннее ${MAX_CLIP_VIDEO_DURATION_SEC} секунд (${Math.round(durationSec)}с) — обхода квартиры должно хватать короче`,
+      }),
     };
   }
 
@@ -911,7 +941,7 @@ videosRouter.post("/:id/videos", requireAuth, anyParams(videoUpload.array("video
  * минутами, и такое повторение — не редкий случай, а обычный вечер на площадке
  * со слабым интернетом.
  *
- * Здесь файл режется на части (планом распоряжается сервер — computeVideoPartPlan),
+ * Здесь файл режется на части (планом распоряжается сервер — computeUploadPartPlan, packages/shared),
  * каждая часть шлётся своим запросом с собственным номером и пишется на диск
  * своим файлом (lib/localVideoStorage.ts). Оборвалась связь — очередь на клиенте
  * (lib/uploadQueue.ts) досылает только недостающие части, а не файл заново.
@@ -921,22 +951,11 @@ videosRouter.post("/:id/videos", requireAuth, anyParams(videoUpload.array("video
  * дублей; COMPLETE собирает части по порядку в готовый файл, когда все на месте.
  */
 
-/** 8 МБ — компромисс между числом запросов на большом ролике и ценой повтора
- *  одной части при обрыве. 10 000 частей — тот же потолок, что был у R2:
- *  если при таком размере файл в него не укладывается (десятки терабайт, у нас
- *  такого не бывает), берём часть крупнее, лишь бы уложиться. */
-const VIDEO_PART_SIZE = 8 * 1024 * 1024;
-const MAX_UPLOAD_PARTS = 10_000;
-
-function computeVideoPartPlan(sizeBytes: number): { partSize: number; totalParts: number } {
-  let partSize = VIDEO_PART_SIZE;
-  let totalParts = Math.max(1, Math.ceil(sizeBytes / partSize));
-  if (totalParts > MAX_UPLOAD_PARTS) {
-    partSize = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS);
-    totalParts = Math.ceil(sizeBytes / partSize);
-  }
-  return { partSize, totalParts };
-}
+/**
+ * План частей — общий на все виды загрузки частями (packages/shared::computeUploadPartPlan,
+ * UPLOAD_PART_BYTES), а не своя копия «8 МБ» здесь: клиенты берут размер части из плана,
+ * поэтому новые сессии получают новый размер, а открытые доезжают со своим.
+ */
 
 /**
  * `purpose` (23.09.2026): RAW (по умолчанию, для обратной совместимости со
@@ -952,15 +971,18 @@ const startVideoSessionSchema = z.object({
   sizeBytes: z.number().int().positive(),
   contentType: z.string().min(1).max(100),
   purpose: z.enum(["raw", "handoff"]).default("raw"),
+  /** Необязательно (25.11.2026): размер части, удобный клиенту (медленный канал — меньше). */
+  partSize: z.number().int().min(UPLOAD_PART_MIN_BYTES).max(UPLOAD_PART_MAX_BYTES).optional(),
 });
 
-function sessionUploadedParts(session: { parts: Prisma.JsonValue }): number[] {
-  const raw = session.parts;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((p) => (p && typeof p === "object" && "partNumber" in p ? Number((p as { partNumber: unknown }).partNumber) : null))
-    .filter((n): n is number => n !== null && Number.isInteger(n))
-    .sort((a, b) => a - b);
+/** Владелец итога сборки (lib/uploadCompletion.ts) — объект: повтор «собрать» видят все, у кого есть права. */
+function videoSessionOwner(propertyId: string): string {
+  return `property:${propertyId}`;
+}
+
+/** Право на сессию: HANDOFF пускает и назначенного монтажёра, RAW — только canManageProperty. */
+async function mayUseVideoSession(req: Request, property: NonNullable<Awaited<ReturnType<typeof prisma.property.findUnique>>>, purpose: string): Promise<boolean> {
+  return purpose === "HANDOFF" ? canManageOrIsHandoffMontajer(req, property) : canManageProperty(req, property);
 }
 
 /**
@@ -996,6 +1018,8 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
       limitBytes: MAX_VIDEO_SESSION_BYTES,
     });
   }
+  const plan = computeUploadPartPlan(sizeBytes, parsed.data.partSize);
+  if (!plan) return res.status(400).json(uploadErrorBody("PART_SIZE_INVALID"));
   // Сырое видео на монтаже — под замком; готовый ролик монтажёра (handoff) — нет.
   if (purpose !== "handoff") {
     const lock = propertyEditLockBody(req, property);
@@ -1016,8 +1040,8 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
     return res.status(200).json({ status: "done", video: presentVideo(existingVideo, existingVideo.uploadedBy.fullName) });
   }
 
-  // Сессия уже открыта — присылаем её план и то, что уже приняли, вместо второй
-  // папки сессии на тот же файл.
+  // Сессия уже открыта — присылаем её план и то, что уже приняли (по диску — он правда,
+  // список в базе при параллельных частях мог потерять номер), вместо второй папки.
   const existingSession = await prisma.videoUploadSession.findUnique({ where: { uploadKey } });
   if (existingSession) {
     if (existingSession.propertyId !== property.id) {
@@ -1028,8 +1052,17 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
       sessionId: existingSession.id,
       partSize: existingSession.partSize,
       totalParts: existingSession.totalParts,
-      uploadedPartNumbers: sessionUploadedParts(existingSession),
+      uploadedPartNumbers: await listLocalUploadParts(existingSession.id),
     });
+  }
+
+  // Место на диске — ДО любых действий с объектом (реоткрытие готового ролика ниже): части и
+  // склейка — два размера файла, плюс запас под базу (assertUploadDiskSpace).
+  try {
+    await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
+  } catch (err) {
+    if (sendUploadError(res, err, "видео объекта: старт")) return;
+    throw err;
   }
 
   if (purpose === "handoff") {
@@ -1069,7 +1102,7 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
     // видео объекта больше не настраивается (Settings.propertyVideoMaxSizeMb, 07.10.2026).
   }
 
-  const { partSize, totalParts } = computeVideoPartPlan(sizeBytes);
+  const { partSize, totalParts } = plan;
   const ext = startExt;
   // Для HANDOFF это поле не читается на COMPLETE (тот собирает во временный
   // файл и переносит через receiveEditedVideoFromFile) — заполняем тем же
@@ -1078,14 +1111,15 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
 
   // Свой id сессии заранее (а не тот, что выдаст Prisma после create) — папка
   // частей на диске заводится ДО записи в базу: если сервер упадёт между этими
-  // двумя шагами, максимум останется пустая папка без записи (её подберёт
-  // videoUploadCleanup.ts по возрасту), а не запись без папки для частей.
+  // двумя шагами, максимум останется пустая папка без записи (её подберёт уборка
+  // сирот по возрасту, lib/videoUploadCleanup.ts::cleanupOrphanUploadDirs), а не
+  // запись без папки для частей.
   const sessionId = randomUUID();
   try {
     await createLocalUploadSession(sessionId);
   } catch (err) {
-    void logSystemError("storage", `Не удалось открыть загрузку видео на диск: ${err instanceof Error ? err.message : String(err)}`);
-    return res.status(502).json({ error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
+    if (sendUploadError(res, err, "видео объекта: старт")) return;
+    throw err;
   }
 
   const session = await prisma.videoUploadSession.create({
@@ -1108,69 +1142,89 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
 });
 
 /**
- * Тело — сырые байты части, не JSON и не multipart/form-data: express.json()
- * выше пропускает его молча (парсит только Content-Type: application/json),
- * поэтому express.raw ставится прямо на этот маршрут, а не на всё приложение —
- * остальным роутам гигабайтный лимит не нужен и был бы риском.
+ * Тело — сырые байты части. Пишутся на диск ПОТОКОМ (lib/uploadHttp.ts::partBodySource →
+ * writeLocalUploadPart): раньше express.raw держал до 32 МБ на запрос в памяти, и это
+ * читалось ещё до проверки прав и сессии.
  *
- * Часть с уже принятым номером НЕ ошибка: writeFile её просто перезапишет
- * тем же файлом на диске — и очередь на клиенте может смело повторять
- * последнюю часть после любого сомнения в том, дошла ли она.
+ * Часть с уже принятым номером НЕ ошибка: файл части просто перезапишется — и очередь
+ * на клиенте может смело повторять последнюю часть после любого сомнения в том, дошла ли она.
+ * Список частей в базе — справочный (уборка смотрит на него и на время); правда — диск.
  */
-videosRouter.put(
-  "/:id/videos/upload-sessions/:sessionId/parts/:partNumber",
-  requireAuth,
-  express.raw({ type: () => true, limit: "32mb" }),
-  async (req, res) => {
-    const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-    if (isGone(property)) return replyGone(req, res);
+videosRouter.put("/:id/videos/upload-sessions/:sessionId/parts/:partNumber", requireAuth, async (req, res) => {
+  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+  if (isGone(property)) return replyGone(req, res);
 
-    const session = await prisma.videoUploadSession.findUnique({ where: { id: req.params.sessionId } });
-    if (!session || session.propertyId !== property.id) return res.status(404).json({ error: "Загрузка не найдена" });
+  const session = await prisma.videoUploadSession.findUnique({ where: { id: req.params.sessionId } });
+  if (!session || session.propertyId !== property.id) return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
 
-    // Право зависит от сессии, а не от заранее объявленного purpose в теле
-    // запроса: HANDOFF пускает и назначенного монтажёра, RAW — только
-    // canManageProperty, как раньше.
-    const permitted = session.purpose === "HANDOFF" ? await canManageOrIsHandoffMontajer(req, property) : canManageProperty(req, property);
-    if (!permitted) return res.status(403).json({ error: "Недостаточно прав" });
+  // Право зависит от сессии, а не от заранее объявленного purpose в теле
+  // запроса: HANDOFF пускает и назначенного монтажёра, RAW — только
+  // canManageProperty, как раньше.
+  if (!(await mayUseVideoSession(req, property, session.purpose))) return res.status(403).json({ error: "Недостаточно прав" });
 
-    const partNumber = Number(req.params.partNumber);
+  const partNumber = Number(req.params.partNumber);
+  const startedAt = Date.now();
+  try {
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > session.totalParts) {
-      return res.status(400).json({ error: "Неверный номер части" });
-    }
-
-    const body = req.body as Buffer;
-    if (!Buffer.isBuffer(body) || body.length === 0) {
-      return res.status(400).json({ error: "Пустая часть" });
+      throw new UploadError("PART_OUT_OF_RANGE");
     }
     // Части, кроме последней, обязаны совпадать по размеру с планом — иначе части
     // сдвинутся относительно друг друга и собранный файл не совпадёт с исходным.
-    // Последняя часть — хвост файла, она короче плана почти всегда.
-    const isLastPart = partNumber === session.totalParts;
-    if (!isLastPart && body.length !== session.partSize) {
-      return res.status(400).json({ error: "Размер части не совпадает с планом загрузки" });
-    }
-
-    try {
-      await writeLocalUploadPart(session.id, partNumber, body);
-    } catch (err) {
-      void logSystemError("storage", `Не удалось записать часть видео на диск: ${err instanceof Error ? err.message : String(err)}`);
-      return res.status(502).json({ error: "Часть не дошла до хранилища — попробуйте ещё раз" });
-    }
-
-    const parts = sessionUploadedParts(session)
-      .filter((n) => n !== partNumber)
-      .concat(partNumber)
-      .sort((a, b) => a - b);
-
-    await prisma.videoUploadSession.update({
-      where: { id: session.id },
-      data: { parts: parts.map((n) => ({ partNumber: n })) },
-    });
-
-    res.json({ ok: true, partNumber });
+    // Последняя часть — хвост файла, её размер тоже известен из плана.
+    const expectedBytes = expectedUploadPartBytes(session, partNumber);
+    await assertUploadDiskSpace(expectedBytes);
+    const bytes = await writeLocalUploadPart(session.id, partNumber, partBodySource(req), { expectedBytes });
+    logUploadPart(req, { kind: "property-video", sessionId: session.id, partNumber, bytes, startedAt });
+  } catch (err) {
+    if (err instanceof UploadError) logUploadPart(req, { kind: "property-video", sessionId: session.id, partNumber, startedAt, code: err.code });
+    if (sendUploadError(res, err, "видео объекта: часть")) return;
+    throw err;
   }
-);
+
+  // Список в базе пишется под замком строки и по диску, прочитанному ПОД замком: последняя
+  // из параллельных частей видит все уже переименованные — номера не теряются (раньше —
+  // read-modify-write JSON, и параллельные части затирали друг друга).
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "VideoUploadSession" WHERE id = ${session.id} FOR UPDATE`;
+    const parts = await listLocalUploadParts(session.id);
+    await tx.videoUploadSession.updateMany({ where: { id: session.id }, data: { parts: parts.map((n) => ({ partNumber: n })) } });
+  });
+
+  res.json({ ok: true, partNumber });
+});
+
+/**
+ * СОСТОЯНИЕ ЗАГРУЗКИ (25.11.2026): принятые части и байты (по диску), состояние сборки и её
+ * итог — для докачки после обрыва и для асинхронной сборки (`X-Upload-Async: 1` на complete).
+ * Сессия уже собрана и строка удалена — отдаём сохранённый итог (сутки).
+ */
+videosRouter.get("/:id/videos/upload-sessions/:sessionId", requireAuth, async (req, res) => {
+  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+  if (!property) return res.status(404).json({ error: PROPERTY_GONE_MESSAGE });
+  const sessionId = String(req.params.sessionId);
+  const session = await prisma.videoUploadSession.findUnique({ where: { id: sessionId } });
+  if (session && session.propertyId !== property.id) return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND"));
+  const permitted = session ? await mayUseVideoSession(req, property, session.purpose) : canManageProperty(req, property) || (await canManageOrIsHandoffMontajer(req, property));
+  if (!permitted) return res.status(403).json({ error: "Недостаточно прав" });
+
+  const stored = await readUploadState(sessionId, videoSessionOwner(property.id));
+  if (!session && !stored) return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND"));
+  const sizes = await localUploadPartSizes(sessionId);
+  const receiving = !stored || (stored.state === "failed" && stored.error?.code === "PARTS_MISSING");
+  const view: UploadSessionStatusView = {
+    sessionId,
+    state: receiving ? "receiving" : stored.state,
+    partSize: session?.partSize ?? 0,
+    totalParts: session?.totalParts ?? 0,
+    sizeBytes: session?.sizeBytes ?? 0,
+    uploadedPartNumbers: [...sizes.keys()],
+    receivedBytes: [...sizes.values()].reduce((a, b) => a + b, 0),
+    ...(stored?.state === "done" && stored.result ? { result: stored.result } : {}),
+    ...(stored?.error && !receiving ? { error: stored.error } : {}),
+    updatedAt: stored?.updatedAt ?? (session?.updatedAt ?? new Date()).toISOString(),
+  };
+  res.json(view);
+});
 
 /**
  * СОБИРАЕТ ФАЙЛ ИЗ ЧАСТЕЙ. Два разных итога по `session.purpose`:
@@ -1181,16 +1235,28 @@ videosRouter.put(
  *    одиночного POST /:id/video-handoff/upload (finishHandoffAfterStateCheck
  *    выше уже отработал на СТАРТЕ сессии — здесь состояние объекта заново не
  *    проверяем, оно не могло смениться иначе как через ту же передачу).
+ *
+ * Порядок сборки — общий (lib/uploadCompletion.ts, 25.11.2026): замок на сессию (две вкладки
+ * больше не пишут один файл с обрезкой), части убираются только ПОСЛЕ записи видео в базу
+ * (раньше упавшая запись делала каждый повтор «не удалось собрать» навсегда), повтор после
+ * успеха отдаёт тот же ответ, `X-Upload-Async: 1` — ответ 202 сразу и сборка в фоне.
  */
 videosRouter.post("/:id/videos/upload-sessions/:sessionId/complete", requireAuth, async (req, res) => {
   const property = await prisma.property.findUnique({ where: { id: req.params.id } });
   if (isGone(property)) return replyGone(req, res);
+  const owner = videoSessionOwner(property.id);
 
   const session = await prisma.videoUploadSession.findUnique({ where: { id: req.params.sessionId } });
-  if (!session || session.propertyId !== property.id) return res.status(404).json({ error: "Загрузка не найдена" });
+  if (!session || session.propertyId !== property.id) {
+    // Строки нет — сессия уже собрана: повтор после обрыва получает тот же итог, а не 404.
+    const stored = !session ? await readUploadState(String(req.params.sessionId), owner) : null;
+    if (stored?.state === "done" && (canManageProperty(req, property) || (await canManageOrIsHandoffMontajer(req, property)))) {
+      return replyStoredUpload(req, res, stored, String(req.params.sessionId));
+    }
+    return res.status(404).json(uploadErrorBody("SESSION_NOT_FOUND", { message: "Загрузка не найдена" }));
+  }
 
-  const permitted = session.purpose === "HANDOFF" ? await canManageOrIsHandoffMontajer(req, property) : canManageProperty(req, property);
-  if (!permitted) return res.status(403).json({ error: "Недостаточно прав" });
+  if (!(await mayUseVideoSession(req, property, session.purpose))) return res.status(403).json({ error: "Недостаточно прав" });
   // Докачка, начатая до одобрения, не должна дописать сырьё монтажёру задним числом.
   if (session.purpose !== "HANDOFF") {
     const lock = propertyEditLockBody(req, property);
@@ -1201,105 +1267,117 @@ videosRouter.post("/:id/videos/upload-sessions/:sessionId/complete", requireAuth
   if (!completeBody.success) return res.status(400).json({ error: "Неверные данные" });
   const isMontajerSource = completeBody.data?.purpose === "MONTAJER_SOURCE";
 
-  const uploadedParts = sessionUploadedParts(session);
+  const uploadedParts = await listLocalUploadParts(session.id);
   if (uploadedParts.length !== session.totalParts) {
     // Не отказ — ждём: очередь на клиенте досылает недостающие части и повторит
     // завершение сама. 409, а не 400: это про состояние, а не про сам запрос.
-    return res.status(409).json({ error: "Не все части получены", uploadedPartNumbers: uploadedParts });
+    return res.status(409).json(uploadErrorBody("PARTS_MISSING", { message: "Не все части получены", extra: { uploadedPartNumbers: uploadedParts } }));
   }
-
-  if (session.purpose === "HANDOFF") {
-    const ext = videoExtensionOf(session.filename) ?? ".mp4";
-    // Собираем во временный каталог видео-загрузчиков (upload.ts::videoTmpDir),
-    // тот же, куда multer кладёт файл одиночной загрузки — receiveEditedVideoFromFile
-    // переносит его в videoHandoffDir РОВНО ТЕМ ЖЕ кодом, что и multer-путь.
-    const assembledPath = path.join(videoTmpDir, `${randomUUID()}${ext}`);
-    try {
-      await completeLocalUploadSessionToPath(session.id, assembledPath, session.totalParts);
-    } catch (err) {
-      void logSystemError("storage", `Не удалось собрать ролик монтажёра из частей на диске: ${err instanceof Error ? err.message : String(err)}`);
-      // Части на диске остаются: повтор завершения не требует загружать файл заново.
-      return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
-    }
-    const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfApprovedClipOpts(req));
-    // Сессия свою роль сыграла независимо от исхода приёма — часть на диске уже
-    // разобрана (успешно или нет, файл перенесён/удалён внутри receiveEditedVideoFromFile).
-    await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
-    if (!result.ok) {
-      // Отказ приёма не отменяет уже принятый прежний ролик (24.09.2026).
-      await closeManualFinalVideoWait(property.id);
-      return res.status(409).json({ error: result.error });
-    }
-    return res.status(200).json(handoffReceivedBody(result));
-  }
+  const plan = { totalParts: session.totalParts, partSize: session.partSize, sizeBytes: session.sizeBytes };
 
   try {
-    await completeLocalUploadSession(session.id, session.storageKey, session.totalParts);
-  } catch (err) {
-    void logSystemError("storage", `Не удалось собрать видео из частей на диске: ${err instanceof Error ? err.message : String(err)}`);
-    // Части на диске остаются: повтор завершения не требует загружать файл заново.
-    return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
-  }
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId: session.id,
+      owner,
+      what: session.purpose === "HANDOFF" ? "ролик монтажёра" : "видео объекта",
+      work: async (setPhase) => {
+        if (session.purpose === "HANDOFF") {
+          const ext = videoExtensionOf(session.filename) ?? ".mp4";
+          // Собираем во временный каталог видео-загрузчиков (upload.ts::videoTmpDir),
+          // тот же, куда multer кладёт файл одиночной загрузки — receiveEditedVideoFromFile
+          // переносит его в videoHandoffDir РОВНО ТЕМ ЖЕ кодом, что и multer-путь.
+          const assembledPath = path.join(videoTmpDir, `${randomUUID()}${ext}`);
+          try {
+            try {
+              await completeLocalUploadSessionToPath(session.id, assembledPath, plan);
+            } catch (err) {
+              // Части на диске остаются: повтор завершения не требует загружать файл заново.
+              throw toStorageError(err, "сборка ролика монтажёра");
+            }
+            setPhase("processing");
+            const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfApprovedClipOpts(req));
+            // Сессия свою роль сыграла независимо от исхода приёма — файл перенесён/удалён
+            // внутри receiveEditedVideoFromFile; части убирает runUploadCompletion (finalize).
+            await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
+            if (!result.ok) {
+              // Отказ приёма не отменяет уже принятый прежний ролик (24.09.2026).
+              await closeManualFinalVideoWait(property.id);
+              return { status: 409, body: { error: result.error }, finalize: true };
+            }
+            return { status: 200, body: handoffReceivedBody(result) };
+          } finally {
+            await fs.rm(assembledPath, { force: true }).catch(() => {});
+          }
+        }
 
-  const uploader = await prisma.agent.findUnique({ where: { id: session.createdById }, select: { fullName: true } });
+        try {
+          await completeLocalUploadSession(session.id, session.storageKey, plan);
+        } catch (err) {
+          // Части на диске остаются: повтор завершения не требует загружать файл заново.
+          throw toStorageError(err, "сборка видео объекта");
+        }
+        setPhase("processing");
 
-  /**
-   * Гонка двух завершений одной сессии (двойное нажатие «повторить», два тика
-   * очереди на разных вкладках) — пишем и смотрим, не упало ли на уникальном
-   * ограничении uploadKey, а не проверяем заранее: между проверкой и записью
-   * тот же зазор, в котором и рождается гонка (тот же приём, что и в
-   * lib/webhookDedupe.ts — арбитром выступает сама база, а не наша проверка).
-   */
-  let video;
-  try {
-    video = await prisma.propertyVideo.create({
-      data: {
-        propertyId: property.id,
-        storageKey: session.storageKey,
-        filename: session.filename,
-        sizeBytes: session.sizeBytes,
-        uploadedById: session.createdById,
-        uploadKey: session.uploadKey,
+        const uploader = await prisma.agent.findUnique({ where: { id: session.createdById }, select: { fullName: true } });
+
+        /**
+         * Гонка двух завершений одной сессии теперь разведена замком сборки, но разные
+         * сессии с одним uploadKey (две вкладки, один ключ) по-прежнему решает база:
+         * пишем и смотрим, не упало ли на уникальном ограничении uploadKey (тот же приём,
+         * что и в lib/webhookDedupe.ts — арбитром выступает сама база, а не наша проверка).
+         */
+        let video;
+        try {
+          video = await prisma.propertyVideo.create({
+            data: {
+              propertyId: property.id,
+              storageKey: session.storageKey,
+              filename: session.filename,
+              sizeBytes: session.sizeBytes,
+              uploadedById: session.createdById,
+              uploadKey: session.uploadKey,
+            },
+          });
+        } catch (err) {
+          if ((err as { code?: string }).code !== "P2002") throw err;
+          const raced = await prisma.propertyVideo.findUniqueOrThrow({
+            where: { uploadKey: session.uploadKey },
+            include: { uploadedBy: { select: { fullName: true } } },
+          });
+          await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
+          // Проигравший гонку файл уже собран на диске — без удаления здесь он остался бы
+          // сиротой. НО ТОЛЬКО ЕСЛИ ЭТО НЕ ФАЙЛ ПОБЕДИТЕЛЯ (аудит 04.10.2026, PUB12): запись
+          // победителя может ссылаться именно на этот ключ.
+          if (raced.storageKey !== session.storageKey) void localVideoDelete(session.storageKey);
+          return { status: 200, body: presentVideo(raced, raced.uploadedBy.fullName) };
+        }
+        scheduleRawVideoFactsProbe(video);
+        // Сессия свою роль сыграла — удаляем её ПОСЛЕ успешной записи видео: если
+        // отвалиться раньше, повтор complete() найдёт видео уже созданным (P2002 выше)
+        // и лишь подчистит сессию, ничего не потеряв.
+        await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
+
+        // Тот же возврат на проверку, что и у обычной загрузки: докачка с середины —
+        // такое же «агент переснял и залил», просто файл шёл частями. КРОМЕ нового
+        // исходника из «Вернуть монтажёру» (владелец 22.09.2026): это сырьё для
+        // перемонтажа, а не новая версия объявления — объект остаётся на своём этапе.
+        if (!isMontajerSource) {
+          void revertToReviewAfterVideoUpload(property)
+            .then(() => autoApproveIfRawReviewOff(property.id))
+            .catch((err) => console.error("[конвейер] возврат на проверку после докачки видео:", err));
+        }
+        logAudit(req, "PROPERTY_VIDEOS_ADDED", "Property", property.id, { shortId: property.shortId, count: 1 });
+        if (!isMontajerSource) void notifySourceFilesChanged(property.id, "video", "добавлен 1", req.agent!.id);
+
+        return { status: 201, body: presentVideo(video, uploader?.fullName ?? "") };
       },
     });
   } catch (err) {
-    if ((err as { code?: string }).code !== "P2002") throw err;
-    const raced = await prisma.propertyVideo.findUniqueOrThrow({
-      where: { uploadKey: session.uploadKey },
-      include: { uploadedBy: { select: { fullName: true } } },
-    });
-    await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
-    // Проигравший гонку файл уже собран на диске (completeLocalUploadSession
-    // выше это сделала до того, как create() узнал о победителе) — без удаления
-    // здесь он остался бы сиротой: ни одна уборочная задача не находит файлы
-    // без строки VideoUploadSession, только по ней и ходит.
-    //
-    // НО ТОЛЬКО ЕСЛИ ЭТО НЕ ФАЙЛ ПОБЕДИТЕЛЯ (аудит 04.10.2026, PUB12): два завершения
-    // ОДНОЙ сессии собирают части в один и тот же session.storageKey, и запись
-    // победителя ссылается именно на него — удалив его, мы стёрли бы видео, о котором
-    // отвечаем 200 «есть». Сиротой файл бывает только когда у победителя другой ключ.
-    if (raced.storageKey !== session.storageKey) void localVideoDelete(session.storageKey);
-    return res.status(200).json(presentVideo(raced, raced.uploadedBy.fullName));
+    if (sendUploadError(res, err, "видео объекта: сборка")) return;
+    throw err;
   }
-  scheduleRawVideoFactsProbe(video);
-  // Сессия свою роль сыграла — удаляем её ПОСЛЕ успешной записи видео: если
-  // отвалиться раньше, повтор complete() найдёт видео уже созданным (P2002 выше)
-  // и лишь подчистит сессию, ничего не потеряв.
-  await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});
-
-  // Тот же возврат на проверку, что и у обычной загрузки: докачка с середины —
-  // такое же «агент переснял и залил», просто файл шёл частями. КРОМЕ нового
-  // исходника из «Вернуть монтажёру» (владелец 22.09.2026): это сырьё для
-  // перемонтажа, а не новая версия объявления — объект остаётся на своём этапе.
-  if (!isMontajerSource) {
-    void revertToReviewAfterVideoUpload(property)
-      .then(() => autoApproveIfRawReviewOff(property.id))
-      .catch((err) => console.error("[конвейер] возврат на проверку после докачки видео:", err));
-  }
-  logAudit(req, "PROPERTY_VIDEOS_ADDED", "Property", property.id, { shortId: property.shortId, count: 1 });
-  if (!isMontajerSource) void notifySourceFilesChanged(property.id, "video", "добавлен 1", req.agent!.id);
-
-  res.status(201).json(presentVideo(video, uploader?.fullName ?? ""));
 });
 
 /** Отмена — «убрать из очереди» по незавершённой загрузке. Отвечает сразу: агент

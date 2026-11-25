@@ -20,7 +20,6 @@ import type { Property } from "../types";
  */
 export function PropertyPeople({
   property,
-  showIntakeShare = false,
   showOwner = true,
   ownerPhoneInField = false,
 }: {
@@ -28,8 +27,6 @@ export function PropertyPeople({
     Property,
     "assignedAgent" | "intakeAgent" | "ownerContact" | "ownerContactHidden" | "ownerContactMasked" | "sellerClient"
   >;
-  /** Доля принявшего объект — финансовая информация, только при finance.view. */
-  showIntakeShare?: boolean;
   /** Монтажёру собственник не нужен вовсе (решение владельца 17.08.2026). */
   showOwner?: boolean;
   /** В режиме правки номер стоит полем прямо под блоком — второй раз строкой его
@@ -38,16 +35,15 @@ export function PropertyPeople({
 }) {
   const assigned = property.assignedAgent ?? null;
   const intake = property.intakeAgent ?? null;
-  // Подписи — ролью, а не глаголом: «Принял» про Мадину читалось как ошибка
-  // (кадры 24.09.2026), а «Ведёт сделку» стояло и там, где сделки ещё нет.
-  const intakeNote = `Приёмка объекта у собственника${showIntakeShare ? ", 0,5% со сделки" : ""}`;
-
-  const rows: { key: string; name: string; note: string }[] = [];
+  // Подпись только у ответственного: «Принял» про Мадину читалось как ошибка
+  // (кадры 24.09.2026). Про приёмку и проценты ничего не пишем вовсе — владелец
+  // 25.11.2026: «0,5% нет», комиссия делится вручную при закрытии сделки.
+  const rows: { key: string; name: string; note?: string }[] = [];
   if (assigned && intake && assigned.id === intake.id) {
-    rows.push({ key: assigned.id, name: assigned.fullName, note: `Ответственный за объект. ${intakeNote}` });
+    rows.push({ key: assigned.id, name: assigned.fullName, note: "Ответственный за объект" });
   } else {
     if (assigned) rows.push({ key: assigned.id, name: assigned.fullName, note: "Ответственный за объект" });
-    if (intake) rows.push({ key: intake.id, name: intake.fullName, note: intakeNote });
+    if (intake) rows.push({ key: intake.id, name: intake.fullName });
   }
 
   return (
@@ -59,7 +55,7 @@ export function PropertyPeople({
               <span className="av">{initials(r.name)}</span>
               <div className="t">
                 <b>{r.name}</b>
-                <span>{r.note}</span>
+                {r.note && <span>{r.note}</span>}
               </div>
             </div>
           ))

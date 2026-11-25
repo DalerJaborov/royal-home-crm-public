@@ -19,6 +19,7 @@ import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
 import { runClipOwnerAutoPublishTick } from "./lib/clipReview.js";
 import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
+import { cleanupTelegramLinkOffers } from "./telegram/assistantGroupNewcomer.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
@@ -111,8 +112,10 @@ import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
 import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
-import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
+import { cleanupOrphanUploadDirs, cleanupStaleVideoUploadSessions, notifyAbandonedChunkedUpload } from "./lib/videoUploadCleanup.js";
+import { flushUploadPartStats } from "./lib/uploadHttp.js";
 import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
+import { sweepOutgoingMediaSpool } from "./lib/outgoingMediaJobs.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
 import { cleanupTelegramBotApiVolume } from "./lib/telegramBotApiCleanup.js";
@@ -1164,6 +1167,8 @@ export function startCronJobs() {
   );
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
+    // Отметки «новичку уже предлагали привязку» и брошенные окна кода (ревью 25.11.2026): не дольше 90 дней.
+    await cleanupTelegramLinkOffers();
   }, { timezone: "Asia/Dushanbe" });
   /**
    * «Заметки без ярлыков» (Client.requirementsNotesPlain, PR #382) — ночная сверка всех карточек
@@ -1471,6 +1476,12 @@ export function startCronJobs() {
         if (sessions) {
           console.log(`[cron] Уборка брошенных загрузок видео: сессий ${sessions}` + (failed ? `, не удалось ${failed}` : ""));
         }
+        // Папки частей без строки в базе и старые итоги сборки (lib/videoUploadCleanup.ts).
+        const orphans = await cleanupOrphanUploadDirs();
+        if (orphans) console.log(`[cron] Уборка сирот загрузки частями: папок ${orphans}`);
+        // Сводка частей за сутки: доля неудач > 5 % — запись в «Здоровье системы» (lib/uploadHttp.ts).
+        const parts = flushUploadPartStats();
+        if (parts.ok + parts.failed) console.log(`[cron] Части загрузки за сутки: принято ${parts.ok}, отказов ${parts.failed}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки брошенных загрузок видео", err);
       }
@@ -1479,12 +1490,24 @@ export function startCronJobs() {
   );
 
   /** Брошенные загрузки частями без записи в базе (общие сессии — ролик карточки, файл в
-   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
-   *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
+   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части сутки
+   *  (до 25.11.2026 — два часа; автору теперь уходит пуш) или итог сборки старше суток
+   *  — брошена: части лежат на диске, и без уборки копились бы до следующего
    *  старта загрузки. Каждый час, в 17 минут. */
+  /** Спул отправки фото/видео клиентам (lib/outgoingMediaJobs.ts): исходники упавших старше
+   *  суток, брошенные файлы, старые строки; ждущие дольше 20 минут — тревога в журнал. */
+  scheduleTracked("outgoing-media-sweep", "*/30 * * * *", async () => {
+    try {
+      const r = await sweepOutgoingMediaSpool();
+      if (r.removedFiles || r.removedRows) console.log(`[cron] Спул отправки файлов: файлов ${r.removedFiles}, строк ${r.removedRows}`);
+    } catch (err) {
+      reportCronTickError("Ошибка уборки спула отправки файлов", err);
+    }
+  });
+
   scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
     try {
-      const removed = await sweepStaleChunkedUploads();
+      const removed = await sweepStaleChunkedUploads(Date.now(), notifyAbandonedChunkedUpload);
       if (removed) console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
     } catch (err) {
       reportCronTickError("Ошибка уборки брошенных загрузок частями", err);
@@ -3421,6 +3444,15 @@ export function startCronJobs() {
   scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
     await runCustomerJobsTick("intake");
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото и видео сотрудника клиенту (25.11.2026, lib/outgoingMediaJobs.ts): своя полоса — сжатие
+  // идёт минуты и не должно задерживать ответы клиентам, а агент ждёт отправку секунды, не минуту.
+  scheduleTracked("outgoing-media-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("media");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  // Фото — своя полоса и тик каждые 2 секунды: фото готовится за секунду и не ждёт видео.
+  scheduleTracked("outgoing-media-photo-jobs", "*/2 * * * * *", async () => {
+    await runCustomerJobsTick("mediaPhoto");
+  }, undefined, undefined, { timeoutMs: 5 * 60_000 });
 
   // После выката ядро бота ждало кнопку «Обновить версию бота» (03–05.11.2026
   // двое суток без ответов). Обычный выкат, где поменялся только код, ядро

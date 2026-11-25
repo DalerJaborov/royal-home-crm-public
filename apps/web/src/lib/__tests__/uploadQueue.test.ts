@@ -162,7 +162,8 @@ describe("uploadQueue: guardXhr — обещание всегда заканчи
 
     xhr.abort();
 
-    expect(result).toEqual({ status: 0, error: STALLED_ERROR });
+    // Причина в журнал (25.11.2026, находка 7): обрыв браузером, а не тишина.
+    expect(result).toEqual({ status: 0, error: STALLED_ERROR, cause: "abort" });
   });
 
   it("молчание дольше сторожа рвёт запрос само", () => {
@@ -176,7 +177,8 @@ describe("uploadQueue: guardXhr — обещание всегда заканчи
 
     vi.advanceTimersByTime(1);
     expect(xhr.aborted).toBe(1);
-    expect(result).toEqual({ status: 0, error: STALLED_ERROR });
+    // Сам сторож рвёт по тишине — в журнале «тишина в канале», а не «обрыв браузером».
+    expect(result).toEqual({ status: 0, error: STALLED_ERROR, cause: "stall" });
   });
 
   it("пока байты идут, сторож отодвигается и живую отдачу не убивает", () => {
