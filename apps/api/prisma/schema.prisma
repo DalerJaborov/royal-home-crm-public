@@ -7439,6 +7439,13 @@ model Settings {
   botSpamFilterEnabled                  Boolean @default(true)
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
+  /// «Шабнам отвечает в группах без обращения» (24.11.2026, жалоба владельца «молчит, пока не позовёшь»).
+  /// ВКЛ. ВЫКЛ — в рабочих группах Шабнам отвечает только тем, кто её позвал. telegram/assistantBot.ts.
+  shabnamGroupUnaddressedEnabled        Boolean @default(true)
+  /// «Привязка Telegram по номеру телефона» (ревью 25.11.2026). ВЫКЛ по умолчанию: контакт Telegram доказывает
+  /// только, что на номер когда-то завели аккаунт. Включена — номер ещё подтверждается кодом по СМС, директора и
+  /// администратора по номеру не привязываем никогда. lib/telegramAgentLink.ts.
+  telegramPhoneLinkEnabled              Boolean @default(false)
   /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
   botRetryCapEnabled                    Boolean @default(true)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
@@ -10768,6 +10775,9 @@ model LoginSmsCode {
   codeHash   String
   /// Куда ушёл код: sms | telegram (19.10.2026).
   channel    String    @default("sms")
+  /// Для чего код (25.11.2026): login (вход и подтверждение личности) | telegram-link (привязка Telegram по номеру).
+  /// verifyLoginCode принимает код только своего назначения.
+  purpose    String    @default("login")
   expiresAt  DateTime
   attempts   Int       @default(0)
   consumedAt DateTime?
@@ -10779,6 +10789,7 @@ model LoginSmsCode {
   fallbackSentAt DateTime?
 
   @@index([agentId, createdAt])
+  @@index([agentId, purpose, createdAt])
   @@index([ackTokenHash])
 }
 
@@ -11482,7 +11493,26 @@ model AssistantTelegramGroup {
   /// Separate opt-in. A later opt-in starts a new evidence window.
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
+  /// Директор или админ выключил память группы командой /assistant_memory off (24.11.2026).
+  /// Пока стоит, автопамять (рубильник shabnamGroupAutoMemoryEnabled) её не включает обратно.
+  contextOptOutAt      DateTime?
   context             AssistantTelegramContext[]
+}
+
+/// Новичку в рабочей группе, которого CRM не узнаёт (Telegram не привязан), Шабнам ОДИН раз
+/// предлагает привязку по номеру (24.11.2026). Одна строка на Telegram-аккаунт: второй раз не
+/// предлагаем. contactRequestedAt — человек открыл ссылку в личке и бот попросил номер: только в
+/// это окно контакт из лички идёт на привязку, а не в клиентский диалог. lib/telegramAgentLink.ts.
+model AssistantTelegramLinkOffer {
+  telegramUserId     String    @id
+  chatId             String
+  offeredAt          DateTime  @default(now())
+  contactRequestedAt DateTime?
+  /// Учётка, на номер которой ушёл код подтверждения, и когда (привязка по номеру, шаг 2). Без кода не привязываем.
+  pendingAgentId     String?
+  codeSentAt         DateTime?
+
+  @@index([offeredAt])
 }
 
 /// Кто нажал /start или написал «меню» в ещё НЕ подключённой группе (23.11.2026). Когда группу
