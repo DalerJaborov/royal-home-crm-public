@@ -47,7 +47,7 @@ function pauseWaitHours(c: ConversationListItem, now: number): number | null {
  */
 export function previewText(content: string, channel?: string | null): string {
   // Служебная пометка бота — словами (одна функция на все места: @royal-home/shared/serviceMarkers).
-  const marker = describeServiceMarker(content, { channel });
+  const marker = describeServiceMarker(content, { channel, attachmentsUnknown: true });
   return (marker ?? content).split(MESSAGE_PHONE_MASK).join("номер скрыт");
 }
 
