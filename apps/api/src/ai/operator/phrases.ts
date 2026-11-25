@@ -11,8 +11,10 @@
  *  - имя компании — переменная {brand}, номер объекта, цена, время — переменные из базы и Настроек, ничего своего.
  * Таджикский — по скиллу tajik-phrasebook: тёплый и простой, без «лутфан», «безаҳмат», «мутахассис», «қулай».
  */
+import { customerPropertyCharacteristicLines } from "@royal-home/shared";
 import { SERVICE_AREA_WORK_RU, SERVICE_AREA_WORK_TG } from "../../lib/serviceArea.js";
-import type { OperatorChannel, OperatorDetailField, OperatorLanguage, OperatorStepOut, PhraseKey, PhraseVars } from "./types.js";
+import type { OperatorCallbackTime, OperatorChannel, OperatorDetailField, OperatorLanguage, OperatorPropertyFocus, OperatorStepOut, PhraseKey,
+  PhraseVars } from "./types.js";
 
 /** Фраза о зоне живёт в lib/serviceArea.ts (сторож одной двери в voice-anna-fixes-16-11.test.ts); здесь только заглавная буква. */
 const capitalize = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
@@ -333,6 +335,35 @@ export const OPERATOR_PHRASES: Readonly<Record<PhraseKey, Phrase>> = {
     ru: ["Фото и видео объекта пришлёт агент.", "Фото и видео агент пришлёт вам сам."],
     tg: ["Акс ва видеои объектро агент мефиристад.", "Аксу видеоро агент худаш ба шумо мефиристад."],
   },
+  // Удобное время звонка, которое назвал клиент (живая находка 33, 25.11.2026: «Пагоҳ ба соатои 13:00 занг зананд» получило цену
+  // объекта). Повторяем ЕГО пожелание ({wish} — разобрано кодом из слов клиента, understand.ts::operatorCallbackTime) и только как
+  // «удобное вам время»: без глагола связи («позвонит», «занг мезанад»), иначе это читалось бы нашим сроком, а сторож срока
+  // (ai/callTimePromiseGuard.ts) вырезал бы время. Своего срока бот не называет никогда (владелец 22.11.2026).
+  callback_time_noted: {
+    ru: ["Записал для агента удобное вам время: «{wish}».", "Передал агенту удобное вам время: «{wish}»."],
+    tg: ["Вақти дар назар доштаатонро ба агент навиштам: «{wish}».", "Вақти гуфтаатонро барои агент навиштам: «{wish}»."],
+  },
+  lead_callback_time: {
+    ru: ["Спасибо, передаю агенту и удобное вам время: «{wish}».", "Спасибо, заявку передаю агенту вместе с удобным вам временем: «{wish}»."],
+    tg: ["Ташаккур, дархост ва вақти дар назар доштаатонро ба агент мерасонам: «{wish}».",
+      "Ташаккур, ба агент мерасонам, вақти дар назар доштаатонро ҳам навиштам: «{wish}»."],
+  },
+  // «Конкретней», «подробнее», «сколько комнат?» по известному объекту (живая находка 34, 25.11.2026: «Это точно скажет агент»,
+  // хотя комнаты, площадь, этаж и состояние лежат в карточке). {facts} — только из карточки (operatorPropertyFactsText).
+  property_details: {
+    ru: ["Объект №{id}: {facts}.", "По объекту №{id}: {facts}."],
+    tg: ["Объекти №{id}: {facts}.", "Дар бораи объекти №{id}: {facts}."],
+  },
+  property_details_price: {
+    ru: ["Объект №{id}: {facts}, цена {price}.", "Объект №{id}: {facts}, стоит {price}."],
+    tg: ["Объекти №{id}: {facts}, нархаш {price}.", "Объекти №{id}: {facts}, нарх {price}."],
+  },
+  // «У вас есть 3 комнатные?» на рекламе объекта (ревью #425): это поиск по своему запросу — факт ЭТОГО объекта и что агент
+  // подберёт другие варианты, а не голое «комнат: 2» как ответ на вопрос.
+  property_details_other: {
+    ru: ["У объекта №{id} {facts}, другие варианты подберёт агент.", "В объекте №{id} {facts}, агент подберёт и другие варианты."],
+    tg: ["Объекти №{id}: {facts}, вариантҳои дигарро агент пешниҳод мекунад.", "Дар объекти №{id} {facts}, агент вариантҳои дигар ҳам меёбад."],
+  },
   // «Что нужно делать?» после заявки (прод 23.11.2026, 58fa7438): ответ по сути, а не «передал ваш вопрос».
   next_step: {
     ru: ["Вам ничего делать не нужно, агент сам с вами свяжется и всё расскажет.", "Делать ничего не нужно, агент сам свяжется и всё объяснит."],
@@ -358,6 +389,44 @@ export function operatorWhenText(when: { kind: "soon" } | { kind: "today_from" |
   if (when.kind === "soon") return { ru: "в ближайшее время", tg: "ба зудӣ" };
   if (when.kind === "today_from") return { ru: `сегодня с ${when.from}`, tg: `имрӯз аз соати ${when.from}` };
   return { ru: `завтра с ${when.from}`, tg: `пагоҳ аз соати ${when.from}` };
+}
+
+/**
+ * Удобное клиенту время звонка словами на языке ответа — ровно то, что разобрал код из его слов (понимание хода), ничего своего:
+ * «завтра в 13:00» / «пагоҳ соати 13:00», «после обеда» / «баъд аз нисфирӯзӣ», «вечером» / «бегоҳӣ». null — нечего повторить.
+ */
+export function operatorCallbackTimeText(time: OperatorCallbackTime | null | undefined, language: OperatorLanguage): string | null {
+  if (!time) return null;
+  const tg = language === "tg";
+  const day = time.day === "today" ? (tg ? "имрӯз" : "сегодня") : time.day === "tomorrow" ? (tg ? "пагоҳ" : "завтра")
+    : time.day === "after_tomorrow" ? (tg ? "пасфардо" : "послезавтра") : null;
+  const part = time.part === "morning" ? (tg ? "саҳар" : "утром") : time.part === "day" ? (tg ? "рӯзона" : "днём")
+    : time.part === "afternoon" ? (tg ? "баъд аз нисфирӯзӣ" : "после обеда") : time.part === "evening" ? (tg ? "бегоҳӣ" : "вечером") : null;
+  let clock: string | null = null;
+  if (time.clock && time.relation === "range" && time.clockTo) clock = tg ? `аз соати ${time.clock} то ${time.clockTo}` : `с ${time.clock} до ${time.clockTo}`;
+  else if (time.clock && time.relation === "after") clock = tg ? `баъд аз соати ${time.clock}` : `после ${time.clock}`;
+  else if (time.clock && time.relation === "before") clock = tg ? `то соати ${time.clock}` : `до ${time.clock}`;
+  else if (time.clock) clock = tg ? `соати ${time.clock}` : `в ${time.clock}`;
+  const text = [day, part, clock].filter(Boolean).join(" ");
+  return text || null;
+}
+
+/**
+ * Факты карточки одной строкой для {facts}: комнаты, площадь, этаж из скольких, состояние — общей подачей характеристик
+ * (@royal-home/shared::customerPropertyCharacteristicLines, та же, что в ответах ядра и комментариях). Адреса здесь нет: место —
+ * только район и город отдельной фразой (правило district_city_only; ориентир в переписке не называем, ревью #425).
+ * `question` — слова клиента: спросил «сколько комнат?» — только комнаты. Чего в карточке нет, здесь нет: пусто — null, и бот
+ * честно говорит «скажет агент».
+ */
+export function operatorPropertyFactsText(focus: Pick<OperatorPropertyFocus, "characteristics"> | null | undefined,
+  language: OperatorLanguage, question = ""): string | null {
+  if (!focus) return null;
+  const lines = focus.characteristics ? customerPropertyCharacteristicLines(focus.characteristics, language, question) : [];
+  const known = lines.filter(line => !/не\s+указан|нишон\s+дода\s+нашуда/iu.test(line))
+    .map(line => line.replace(/[.]\s*$/u, "").trim()).filter(Boolean)
+    // Посреди строки — с маленькой буквы и подпись, и значение («состояние: новостройка», а не «Состояние: Новостройка»).
+    .map(line => line.charAt(0).toLowerCase() + line.slice(1)).map(line => line.replace(/:\s+(\p{Lu})/u, (_, ch: string) => `: ${ch.toLowerCase()}`));
+  return known.length ? known.join(", ") : null;
 }
 
 function joinList(items: readonly string[], language: OperatorLanguage): string {

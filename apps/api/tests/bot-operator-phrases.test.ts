@@ -28,6 +28,10 @@ const SAMPLE: Readonly<Record<PhraseKey, PhraseVars>> = {
   property_place_price: { id: 164, place: "Сино, Душанбе", price: "520 000 сомони" }, place_by_agent: {}, details_by_agent: {},
   offer_call: {}, got_it: {}, ask_phone_seller: {}, role_details_buyer: {}, role_details_seller: {},
   role_details_missing: { missing: ["district", "budget"] }, phone_where: {}, topic_by_agent: {},
+  callback_time_noted: { wish: "завтра в 13:00" }, lead_callback_time: { wish: "завтра в 13:00" },
+  property_details: { id: 164, facts: "комнат: 3, площадь: 95 м², этаж: 5 из 9" },
+  property_details_price: { id: 164, facts: "комнат: 3, площадь: 95 м², этаж: 5 из 9", price: "520 000 сомони" },
+  property_details_other: { id: 164, facts: "комнат: 2" },
 };
 const LANGUAGES: readonly OperatorLanguage[] = ["ru", "tg"];
 /** Вопрос («?») — только у вопроса о роли: тогда в ответе из двух шагов вопрос всегда один. */
@@ -102,9 +106,9 @@ describe("сторож фраз оператора", () => {
     // Фразы, которые звучат ТОЛЬКО вместе с принятой заявкой: сторож обязан узнать в них обещание, иначе незаведённая заявка
     // прошла бы мимо него. Пометки после заявки (callback_noted, text_only_noted, note_added, no_agent_noted) — свободны.
     const LEAD_KEYS = ["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing", "lead_known_phone", "lead_callback",
-      "lead_text_only", "phone_received", "out_of_area_accepted"];
+      "lead_callback_time", "lead_text_only", "phone_received", "out_of_area_accepted"];
     // next_step («делать ничего не нужно, агент свяжется») звучит только после заявки (decide.ts: `s.leadAccepted`).
-    const AFTER_LEAD = ["callback_noted", "text_only_noted", "note_added", "no_agent_noted", "question_noted", "lead_status", "lead_reminder",
+    const AFTER_LEAD = ["callback_noted", "callback_time_noted", "text_only_noted", "note_added", "no_agent_noted", "question_noted", "lead_status", "lead_reminder",
       "next_step"];
     for (const { key, language, text } of rendered()) {
       if (LEAD_KEYS.includes(key)) expect(promisesAgentContact(text), `${key}/${language}: ${text}`).toBe(true);
