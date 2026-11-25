@@ -9,6 +9,7 @@ import { recentMonths, upsertAiExpenses } from "../lib/ads/adExpenseSync.js";
 import { loadMetaAdsCredentials, isMetaAdsConfigured } from "../lib/ads/metaAdsApi.js";
 import { syncMetaAdsQuietly } from "../lib/ads/syncMetaAds.js";
 import { z } from "zod";
+import { COMMISSION_COMPANY_PERCENT, COMMISSION_REALTOR_PERCENT } from "@royal-home/shared";
 import { centsToTjs, fromCents, loadMoneyContext, splitCents, toCents } from "../lib/money.js";
 import { dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -130,7 +131,7 @@ expensesRouter.get("/export", async (req, res) => {
   const monthsBack = Math.min(Math.max(Number(req.query.months) || 6, 1), 60);
   const from = dushanbeMonthStart(monthsBack - 1);
 
-  const [deals, expenses, settings, money] = await Promise.all([
+  const [deals, expenses, money] = await Promise.all([
     prisma.deal.findMany({
       where: { stage: "COMPLETED", closedAt: { gte: from } },
       orderBy: { closedAt: "asc" },
@@ -155,7 +156,6 @@ expensesRouter.get("/export", async (req, res) => {
       orderBy: { month: "asc" },
       take: FINANCE_ROW_LIMIT,
     }),
-    prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } }),
     loadMoneyContext(),
   ]);
   const truncated = deals.length >= FINANCE_ROW_LIMIT || expenses.length >= FINANCE_ROW_LIMIT;
@@ -166,10 +166,9 @@ expensesRouter.get("/export", async (req, res) => {
     );
   }
 
-  // 0,5% «за приём объекта» отменены 11.09.2026: доля интейка (текущая и
-  // историческая) в выгрузке больше не выделяется отдельно, всегда идёт в доход компании.
-  const pRealtor = Number(settings.commissionRealtorPercent);
-  const pCompany = Number(settings.commissionCompanyPercent) + Number(settings.commissionIntakePercent);
+  // Доли для старых сделок без снапшота: 1% агенту и 1% компании (владелец 25.11.2026).
+  const pRealtor = COMMISSION_REALTOR_PERCENT;
+  const pCompany = COMMISSION_COMPANY_PERCENT;
 
   // csvSafeText — защита от CSV-инъекции (№216): имя клиента/объекта/примечание
   // не должны начинаться формулой (= + - @).

@@ -21,27 +21,30 @@ import fs from "node:fs";
  */
 
 const completeLocalUploadSession =
-  vi.fn<(sessionId: string, storageKey: string, totalParts: number) => Promise<void>>();
+  vi.fn<(sessionId: string, storageKey: string, plan: unknown) => Promise<{ reused: boolean }>>();
 const abortLocalUploadSession = vi.fn<(sessionId: string) => Promise<boolean>>();
 vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/localVideoStorage.js")>();
-  completeLocalUploadSession.mockImplementation(actual.completeLocalUploadSession);
+  completeLocalUploadSession.mockImplementation((id, key, plan) => actual.completeLocalUploadSession(id, key, plan as number));
   abortLocalUploadSession.mockImplementation(actual.abortLocalUploadSession);
   return {
     ...actual,
-    completeLocalUploadSession: (sessionId: string, storageKey: string, totalParts: number) =>
-      completeLocalUploadSession(sessionId, storageKey, totalParts),
+    completeLocalUploadSession: (sessionId: string, storageKey: string, plan: unknown) =>
+      completeLocalUploadSession(sessionId, storageKey, plan),
     abortLocalUploadSession: (sessionId: string) => abortLocalUploadSession(sessionId),
   };
 });
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
-const { localVideoFilePath } = await import("../src/lib/localVideoStorage.js");
+const { localVideoFilePath, abortLocalUploadSession: abortSessionDir } = await import("../src/lib/localVideoStorage.js");
+const { UPLOAD_PART_BYTES } = await import("@royal-home/shared");
 
 const runId = Date.now();
 const password = "testpass123";
+/** Тесты ниже считают части по 8 МБ — просят этот размер на старте (`partSize`, 25.11.2026). */
 const PART_SIZE = 8 * 1024 * 1024;
+const startedSessionIds: string[] = [];
 
 let districtId: string;
 let agentId: string;
@@ -72,11 +75,13 @@ function newKey(label: string) {
   return `${runId}-${label}-${Math.random().toString(36).slice(2)}`;
 }
 
-async function startSession(propertyId: string, uploadKey: string, sizeBytes: number) {
-  return request(app)
+async function startSession(propertyId: string, uploadKey: string, sizeBytes: number, partSize: number | null = PART_SIZE) {
+  const res = await request(app)
     .post(`/api/v1/properties/${propertyId}/videos/upload-sessions`)
     .set("Authorization", `Bearer ${token}`)
-    .send({ uploadKey, filename: "showing.mp4", sizeBytes, contentType: "video/mp4" });
+    .send({ uploadKey, filename: "showing.mp4", sizeBytes, contentType: "video/mp4", ...(partSize ? { partSize } : {}) });
+  if (typeof res.body?.sessionId === "string") startedSessionIds.push(res.body.sessionId);
+  return res;
 }
 
 function uploadPart(propertyId: string, sessionId: string, partNumber: number, body: Buffer) {
@@ -126,6 +131,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  for (const id of startedSessionIds) await abortSessionDir(id);
   await prisma.videoUploadSession.deleteMany({ where: { propertyId: { in: propertyIds } } });
   const videos = await prisma.propertyVideo.findMany({ where: { propertyId: { in: propertyIds } }, select: { storageKey: true } });
   await prisma.propertyVideo.deleteMany({ where: { propertyId: { in: propertyIds } } });
@@ -140,11 +146,27 @@ afterAll(async () => {
 });
 
 describe("Начало сессии", () => {
-  it("считает план по 8 МБ и заводит сессию докачки", async () => {
+  it("план по умолчанию — общий размер части (UPLOAD_PART_BYTES) — и заводит сессию докачки", async () => {
     const p = await makeProperty();
-    const res = await startSession(p.id, newKey("plan"), 20 * 1024 * 1024);
+    const res = await startSession(p.id, newKey("plan"), 20 * 1024 * 1024, null);
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ status: "started", partSize: PART_SIZE, totalParts: 3, uploadedPartNumbers: [] });
+    expect(res.body).toMatchObject({
+      status: "started",
+      partSize: UPLOAD_PART_BYTES,
+      totalParts: Math.ceil((20 * 1024 * 1024) / UPLOAD_PART_BYTES),
+      uploadedPartNumbers: [],
+    });
+  });
+
+  it("клиент может попросить свой размер части в пределах; вне пределов — 400 PART_SIZE_INVALID", async () => {
+    const p = await makeProperty();
+    const ok = await startSession(p.id, newKey("plan-own"), 20 * 1024 * 1024, PART_SIZE);
+    expect(ok.body).toMatchObject({ partSize: PART_SIZE, totalParts: 3 });
+    const bad = await request(app)
+      .post(`/api/v1/properties/${p.id}/videos/upload-sessions`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ uploadKey: newKey("plan-bad"), filename: "a.mp4", sizeBytes: 100, contentType: "video/mp4", partSize: 1024 });
+    expect(bad.status).toBe(400);
   });
 
   it("повторный старт с тем же ключом до завершения — та же сессия, вторую не заводим", async () => {
@@ -257,7 +279,9 @@ describe("Завершение", () => {
 
     completeLocalUploadSession.mockRejectedValueOnce(new Error("диск недоступен"));
     const failed = await complete(p.id, started.body.sessionId);
-    expect(failed.status).toBe(502);
+    // Сбой хранилища — 500 с кодом и «можно повторить», а не 502 (тот клиент принимал за обрыв прокси).
+    expect(failed.status).toBe(500);
+    expect(failed.body).toMatchObject({ code: "STORAGE_FAILED", retryable: true });
     expect(await prisma.videoUploadSession.findUnique({ where: { id: started.body.sessionId } })).not.toBeNull();
 
     const retried = await complete(p.id, started.body.sessionId);

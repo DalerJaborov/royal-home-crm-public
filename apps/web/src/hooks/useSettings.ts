@@ -20,13 +20,8 @@ export type ModelSource = "settings" | "env" | "default";
 /** Выключатели «работа с продавцами» (14.11.2026) — поля и тип из packages/shared, здесь не повторяются. */
 export interface Settings extends SellerAutomationSwitches, SecurityAutomationSwitch, AssistantStaffTotpSwitch, AutomationSwitches {
   id: string;
-  /** Структура комиссии: доли риелтора/компании, % от цены объекта.
-   *  commissionIntakePercent («за приём объекта», отменено 11.09.2026) сервер ещё
-   *  возвращает как историческое поле БД, но в Настройках оно больше не
-   *  редактируется — не показывайте его как действующую настройку. */
-  commissionIntakePercent: string;
-  commissionRealtorPercent: string;
-  commissionCompanyPercent: string;
+  /** Проценты комиссии убраны из Настроек 25.11.2026 (1% компании, 1% агенту — в shared/commissionShares.ts);
+   *  сервер ещё возвращает commission*Percent как историческое поле БД — не показывайте его. */
   monthlyCommissionPlan: string;
   geminiApiKeyConfigured: boolean;
   geminiApiKeyMasked: string | null;

@@ -16,8 +16,9 @@ import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
 import { notifyFeedOnly } from "../notifications.js";
 import { propertyOwnerAgentId } from "../propertyOwner.js";
-import { autoLinkAllProperties } from "./link.js";
+import { autoLinkAllProperties, LINK_NOTIFY_COOLDOWN_MS } from "./link.js";
 import { COLOR_DB } from "./view.js";
+import { loadRegistrySettings } from "./settings.js";
 import { parseRegistryList, parseRegistryProjectPage, registryProjectUrl, REGISTRY_LIST_URL, type ParsedList, type ParsedProjectPage } from "./parse.js";
 
 export const REGISTRY_USER_AGENT = "RoyalHomeCRM-registry-sync/1.0 (internal use; weekly)";
@@ -72,17 +73,7 @@ export const liveRegistrySource: RegistrySource = {
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 };
 
-export async function loadRegistrySettings(): Promise<{ enabled: boolean; notify: boolean }> {
-  try {
-    const row = await prisma.settings.findUnique({
-      where: { id: "singleton" },
-      select: { constructionRegistryEnabled: true, constructionRegistryNotify: true },
-    });
-    return { enabled: row?.constructionRegistryEnabled !== false, notify: row?.constructionRegistryNotify !== false };
-  } catch {
-    return { enabled: true, notify: true };
-  }
-}
+export { loadRegistrySettings };
 
 export interface RegistrySyncResult {
   ok: boolean;
@@ -331,6 +322,8 @@ export async function notifyStatusChanges(): Promise<number> {
     for (const link of links) {
       const agentId = propertyOwnerAgentId(link.property);
       if (!agentId || from === to) continue;
+      // Не больше одного сообщения в сутки про одну связь: только что связали и тут же сменился цвет — одно (25.11.2026).
+      if (link.notifiedAt && Date.now() - link.notifiedAt.getTime() < LINK_NOTIFY_COOLDOWN_MS) continue;
       const label = REGISTRY_COLOR_LABEL[to];
       await notifyFeedOnly([agentId], {
         kind: "task",
@@ -339,6 +332,7 @@ export async function notifyStatusChanges(): Promise<number> {
         url: `/properties/${link.property.shortId}`,
         tag: `construction-registry-${link.property.id}-${to}`,
       });
+      await prisma.constructionPropertyLink.update({ where: { id: link.id }, data: { notifiedAt: new Date() } });
       sent += 1;
     }
     await prisma.constructionStatusChange.update({ where: { id: c.id }, data: { notifiedAt: new Date() } });

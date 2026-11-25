@@ -232,8 +232,9 @@ describe("Вложения в переписке", () => {
     expect(res.status).toBe(200);
     const withFiles = res.body.messages[2];
     expect(withFiles.attachments).toHaveLength(2);
-    expect(withFiles.attachments[0]).toEqual({ kind: "image", mime: "image/jpeg", file: photoFile });
-    expect(withFiles.attachments[1]).toEqual({ kind: "audio", mime: "audio/ogg", file: voiceFile });
+    // С 25.11.2026 у того, кто открыл бы файл, рядом с именем лежат и прямые ссылки (src/thumb/play).
+    expect(withFiles.attachments[0]).toMatchObject({ kind: "image", mime: "image/jpeg", file: photoFile });
+    expect(withFiles.attachments[1]).toMatchObject({ kind: "audio", mime: "audio/ogg", file: voiceFile });
   });
 
   it("руководителю имя файла не приезжает вовсе — только пометка о вложении", async () => {

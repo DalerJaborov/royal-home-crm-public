@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { daysOffSentenceRu, isDayOff, normalizeDaysOff, startOfWorkingDayAtOrAfter, type DaysOffCalendar } from "@royal-home/shared";
+import { COMMISSION_TOTAL_PERCENT, daysOffSentenceRu, isDayOff, normalizeDaysOff, startOfWorkingDayAtOrAfter, type DaysOffCalendar } from "@royal-home/shared";
 import {
   dushanbeDateString,
   dushanbeNextOccurrence,
@@ -53,7 +53,7 @@ export const AGENCY_FACTS = {
    *  станет правдой — поменять здесь, и сторож правил перестанет их гасить. */
   installments: false,
   mortgage: false,
-  commission: { sellerPercent: 2, buyerPercent: 0 },
+  commission: { sellerPercent: COMMISSION_TOTAL_PERCENT, buyerPercent: 0 },
   /** Торг ведёт агент с собственником; размер скидки бот не называет никогда. */
   botNamesDiscount: false,
   /** Юр. справка: «всё чисто» не гарантируем — проверяют нотариус и МБТИ. */

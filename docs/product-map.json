@@ -979,7 +979,7 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 140,
+      "endpoints": 142,
       "label": "Объекты: список, карточка, фото, видео, публикация",
       "usedBy": 37
     },
@@ -987,7 +987,7 @@
       "mount": "/api/v1/construction-registry",
       "router": "constructionRegistryRouter",
       "file": "apps/api/src/routes/constructionRegistry.ts",
-      "endpoints": 7,
+      "endpoints": 10,
       "label": null,
       "usedBy": 1
     },
@@ -1454,6 +1454,14 @@
       "endpoints": 1,
       "label": "Сценарии продаж для бота",
       "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/attachments/s",
+      "router": "signedAttachmentsRouter",
+      "file": "apps/api/src/routes/attachments.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/attachments",

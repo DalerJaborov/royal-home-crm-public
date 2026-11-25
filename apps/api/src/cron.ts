@@ -108,9 +108,12 @@ import { syncPropertyWhispers } from "./lib/telephony/propertyWhisper.js";
 import { pruneWhisperClips } from "./lib/telephony/whisperClips.js";
 import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js";
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
+import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
+import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
-import { cleanupStaleVideoUploadSessions } from "./lib/videoUploadCleanup.js";
+import { cleanupOrphanUploadDirs, cleanupStaleVideoUploadSessions, notifyAbandonedChunkedUpload } from "./lib/videoUploadCleanup.js";
+import { flushUploadPartStats } from "./lib/uploadHttp.js";
 import { sweepStaleChunkedUploads } from "./lib/chunkedUploadSessions.js";
 import { cleanupExpiredPropertyDrafts } from "./routes/properties/draftAttach.js";
 import { cleanupExpiredOutgoingMedia } from "./lib/outgoingMediaCleanup.js";
@@ -1370,6 +1373,13 @@ export function startCronJobs() {
               (capped ? ", потолок за проход исчерпан — остаток уйдёт следующей ночью" : "")
           );
         }
+        // Копии (миниатюры, версии для браузера) живут, пока жив оригинал —
+        // поэтому их уборка идёт сразу после уборки оригиналов (25.11.2026).
+        const derived = cleanupDerivedChatMedia();
+        if (derived.deleted) console.log(`[cron] Уборка копий вложений: удалено ${derived.deleted}`);
+        // Файлы клиента, так и не дождавшиеся своей реплики (lib/customerInputMedia.ts).
+        const stale = await cleanupStalePendingCustomerMedia();
+        if (stale.deleted) console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки вложений", err);
       }
@@ -1465,6 +1475,12 @@ export function startCronJobs() {
         if (sessions) {
           console.log(`[cron] Уборка брошенных загрузок видео: сессий ${sessions}` + (failed ? `, не удалось ${failed}` : ""));
         }
+        // Папки частей без строки в базе и старые итоги сборки (lib/videoUploadCleanup.ts).
+        const orphans = await cleanupOrphanUploadDirs();
+        if (orphans) console.log(`[cron] Уборка сирот загрузки частями: папок ${orphans}`);
+        // Сводка частей за сутки: доля неудач > 5 % — запись в «Здоровье системы» (lib/uploadHttp.ts).
+        const parts = flushUploadPartStats();
+        if (parts.ok + parts.failed) console.log(`[cron] Части загрузки за сутки: принято ${parts.ok}, отказов ${parts.failed}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки брошенных загрузок видео", err);
       }
@@ -1473,12 +1489,13 @@ export function startCronJobs() {
   );
 
   /** Брошенные загрузки частями без записи в базе (общие сессии — ролик карточки, файл в
-   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части два
-   *  часа — брошена: части по 8 МБ лежат на диске, и без уборки копились бы до следующего
+   *  переписку, свободный ролик; lib/chunkedUploadSessions.ts). Сессия без новой части сутки
+   *  (до 25.11.2026 — два часа; автору теперь уходит пуш) или итог сборки старше суток
+   *  — брошена: части лежат на диске, и без уборки копились бы до следующего
    *  старта загрузки. Каждый час, в 17 минут. */
   scheduleTracked("chunked-uploads-cleanup", "17 * * * *", async () => {
     try {
-      const removed = await sweepStaleChunkedUploads();
+      const removed = await sweepStaleChunkedUploads(Date.now(), notifyAbandonedChunkedUpload);
       if (removed) console.log(`[cron] Уборка брошенных загрузок частями: сессий ${removed}`);
     } catch (err) {
       reportCronTickError("Ошибка уборки брошенных загрузок частями", err);

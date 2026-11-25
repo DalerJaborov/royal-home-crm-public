@@ -77,6 +77,11 @@ export interface LightboxItem {
   url: string | null;
   caption?: string | null;
   failed?: boolean;
+  /** Уменьшенная копия для ленты миниатюр (25.11.2026): без неё лента качала
+   *  полный размер каждого кадра переписки разом. */
+  thumbUrl?: string | null;
+  /** Кадр не загрузился (прямая ссылка устарела) — вызывающий даёт запасной путь. */
+  onError?: () => void;
 }
 
 /**
@@ -226,6 +231,7 @@ export function PhotoLightbox({
               src={current.url}
               alt={`Фото ${index + 1} из ${resolved.length}`}
               onClick={stop}
+              onError={current.onError}
               className="max-w-full max-h-full object-contain select-none"
               style={{
                 borderRadius: "var(--r-md)",
@@ -263,8 +269,8 @@ export function PhotoLightbox({
                   background: "var(--soft)",
                 }}
               >
-                {it.url && (
-                  <img src={it.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                {(it.thumbUrl ?? it.url) && (
+                  <img src={(it.thumbUrl ?? it.url)!} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 )}
               </button>
             ))}

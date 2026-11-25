@@ -42,14 +42,17 @@ import {
 } from "../lib/socialVideoPosts.js";
 import { markSocialVideoRemovedByHand, removeSocialVideoFromSocials } from "../lib/socialVideoRemoval.js";
 import fs from "node:fs";
-import express from "express";
 import { z } from "zod";
 import {
   assembleSocialVideoUpload,
+  assertOwnSocialVideoUpload,
   startSocialVideoUpload,
   writeSocialVideoPart,
 } from "../lib/socialVideoUploadSessions.js";
-import { ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
+import { ChunkedUploadError, chunkedUploadOwner } from "../lib/chunkedUploadSessions.js";
+import { UPLOAD_PART_MAX_BYTES, UPLOAD_PART_MIN_BYTES } from "@royal-home/shared";
+import { logUploadPart, partBodySource, sendUploadError } from "../lib/uploadHttp.js";
+import { runUploadCompletion } from "../lib/uploadCompletion.js";
 
 /**
  * СВОБОДНЫЕ РОЛИКИ В СОЦСЕТИ — API (12.10.2026). Промо-ролик без объекта: загрузить,
@@ -77,10 +80,7 @@ function guarded(fn: AsyncHandler) {
         res.status(err.status).json({ error: err.message, ...(err.extra ?? {}) });
         return;
       }
-      if (err instanceof ChunkedUploadError) {
-        res.status(err.status).json(chunkedUploadErrorBody(err));
-        return;
-      }
+      if (sendUploadError(res, err, "свободный ролик")) return;
       if (err instanceof SocialVideoAiError) {
         res.status(502).json({ error: err.message });
         return;
@@ -234,6 +234,8 @@ socialVideosRouter.post("/", socialVideoUpload.single("video"), async (req, res,
 const uploadStartSchema = z.object({
   filename: z.string().trim().min(1).max(255),
   sizeBytes: z.number().int().positive(),
+  /** Необязательно: размер части, который удобен клиенту (медленный канал — меньше). */
+  partSize: z.number().int().min(UPLOAD_PART_MIN_BYTES).max(UPLOAD_PART_MAX_BYTES).optional(),
 });
 
 socialVideosRouter.post(
@@ -248,59 +250,80 @@ socialVideosRouter.post(
   })
 );
 
+/** Часть пишется на диск потоком (lib/uploadHttp.ts::partBodySource), без копии в памяти. */
 socialVideosRouter.put(
   "/upload-sessions/:sessionId/parts/:partNumber",
-  express.raw({ type: () => true, limit: "16mb" }),
   guarded(async (req, res) => {
-    const body: unknown = req.body;
-    if (!Buffer.isBuffer(body)) {
-      res.status(400).json({ error: "Пустая часть" });
-      return;
+    const sessionId = String(req.params.sessionId);
+    const partNumber = Number(req.params.partNumber);
+    const startedAt = Date.now();
+    try {
+      const bytes = await writeSocialVideoPart({ sessionId, agentId: req.agent!.id, partNumber, body: partBodySource(req) });
+      logUploadPart(req, { kind: "social", sessionId, partNumber, bytes, startedAt });
+    } catch (err) {
+      if (err instanceof ChunkedUploadError) logUploadPart(req, { kind: "social", sessionId, partNumber, startedAt, code: err.code });
+      throw err;
     }
-    await writeSocialVideoPart({
-      sessionId: String(req.params.sessionId),
-      agentId: req.agent!.id,
-      partNumber: Number(req.params.partNumber),
-      body,
-    });
-    res.json({ ok: true });
+    res.json({ ok: true, partNumber });
   })
 );
 
+/**
+ * Сборка (lib/uploadCompletion.ts): части убираются только после того, как пост заведён;
+ * повтор «собрать» после обрыва отдаёт тот же пост, а не второй; `X-Upload-Async: 1` —
+ * ответ 202 сразу (склейка, хеш, ffprobe и перепаковка 2 ГБ идут минутами), итог — GET
+ * /api/v1/upload-sessions/:sessionId.
+ */
 socialVideosRouter.post("/upload-sessions/:sessionId/complete", async (req, res, next) => {
-  let tmpPath: string | undefined;
   try {
     const fields = socialVideoCreateFieldsSchema.safeParse(req.body ?? {});
     if (!fields.success) {
       res.status(400).json({ error: fields.error.issues[0]?.message ?? "Неверные поля формы" });
       return;
     }
-    const assembled = await assembleSocialVideoUpload(String(req.params.sessionId), req.agent!.id);
-    tmpPath = assembled.tmpPath;
-    const item = await createSocialVideoFromUpload({
-      tmpPath: assembled.tmpPath,
-      originalName: assembled.originalName,
-      title: fields.data.title,
-      caption: fields.data.caption,
-      brief: fields.data.brief ?? null,
-      channels: fields.data.channels,
-      destinations: fields.data.destinations,
-      createdById: req.agent!.id,
+    const sessionId = String(req.params.sessionId);
+    const agentId = req.agent!.id;
+    await assertOwnSocialVideoUpload(sessionId, agentId);
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId,
+      owner: chunkedUploadOwner(agentId),
+      what: "свободный ролик",
+      work: async (setPhase) => {
+        let tmpPath: string | undefined;
+        try {
+          const assembled = await assembleSocialVideoUpload(sessionId, agentId);
+          tmpPath = assembled.tmpPath;
+          setPhase("processing");
+          const item = await createSocialVideoFromUpload({
+            tmpPath: assembled.tmpPath,
+            originalName: assembled.originalName,
+            title: fields.data.title,
+            caption: fields.data.caption,
+            brief: fields.data.brief ?? null,
+            channels: fields.data.channels,
+            destinations: fields.data.destinations,
+            createdById: agentId,
+            // id поста = id сессии: повтор приёма (выкат посреди обработки) не заводит второй пост.
+            id: sessionId,
+          });
+          logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: item.durationSec });
+          return { status: 201, body: item };
+        } catch (err) {
+          // Файл не принят по содержимому (не ролик, дубль…) — повтор ничего не изменит, части убираем.
+          if (err instanceof SocialVideoError) {
+            return { status: err.status, body: { error: err.message, ...(err.extra ?? {}) }, finalize: err.status < 500 };
+          }
+          throw err;
+        } finally {
+          if (tmpPath) await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+        }
+      },
     });
-    logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: item.durationSec });
-    res.status(201).json(item);
   } catch (err) {
-    if (err instanceof SocialVideoError) {
-      res.status(err.status).json({ error: err.message });
-      return;
-    }
-    if (err instanceof ChunkedUploadError) {
-      res.status(err.status).json(chunkedUploadErrorBody(err));
-      return;
-    }
+    if (sendUploadError(res, err, "свободный ролик")) return;
     next(err);
-  } finally {
-    if (tmpPath) await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
   }
 });
 

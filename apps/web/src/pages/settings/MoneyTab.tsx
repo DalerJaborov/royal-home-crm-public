@@ -4,8 +4,9 @@ import { RefreshCw } from "lucide-react";
 import { Switch } from "../../components/Switch";
 import { useSettings, useUpdateSettings, useRefreshExchangeRate } from "../../hooks/useSettings";
 
-/** Вкладка «Деньги»: доли комиссии между агентством и агентами и курс доллара,
- *  по которому долларовые сделки сводятся в сомони.
+/** Вкладка «Деньги»: план комиссии на месяц и курс доллара (проценты комиссии убраны
+ *  25.11.2026: 1% компании и 1% агенту зашиты в shared, при закрытии сделки суммы
+ *  указываются вручную), по которому долларовые сделки сводятся в сомони.
  *
  *  Разметка — эталон темы «Royal Home 2026»
  *  (docs/pult/theme-2026/screens/settings.html, раздел «Деньги»): карточки
@@ -28,8 +29,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
    * переписывались денежные правила агентства.
    */
   const loaded = !!settings;
-  const [realtorP, setRealtorP] = useState("");
-  const [companyP, setCompanyP] = useState("");
   const [plan, setPlan] = useState("");
   const [acceptMinutes, setAcceptMinutes] = useState("");
   const [callMinutes, setCallMinutes] = useState("");
@@ -46,8 +45,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
 
   useServerSyncedFields(
     settings && {
-      realtorP: String(settings.commissionRealtorPercent ?? "0.5"),
-      companyP: String(settings.commissionCompanyPercent ?? "1"),
       plan: settings.monthlyCommissionPlan,
       acceptMinutes: String(settings.leadAcceptMinutes ?? 15),
       callMinutes: String(settings.leadCallMinutes ?? 15),
@@ -63,8 +60,6 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       reassignOnMissedCall: settings.leadReassignOnMissedCallEnabled ?? false,
     },
     {
-      realtorP: [realtorP, setRealtorP],
-      companyP: [companyP, setCompanyP],
       plan: [plan, setPlan],
       acceptMinutes: [acceptMinutes, setAcceptMinutes],
       callMinutes: [callMinutes, setCallMinutes],
@@ -81,13 +76,9 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
     }
   );
 
-  const total = (Number(realtorP) || 0) + (Number(companyP) || 0);
-
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     const commission = {
-      commissionRealtorPercent: Number(realtorP),
-      commissionCompanyPercent: Number(companyP),
       monthlyCommissionPlan: Number(plan),
     };
     const operations = {
@@ -120,21 +111,10 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       {part !== "operations" && (
       <section className="card">
         <div className="sec-h stack">
-          <h2>Структура комиссии сделки</h2>
-          <span className="note">Клиент платит сумму двух долей: сейчас {total}% от цены</span>
+          <h2>План комиссии</h2>
+          <span className="note">Для сравнения плана и факта на главной</span>
         </div>
-        <p className="sub" style={{ marginBottom: "var(--s4)" }}>
-          Доли фиксируются в сделке в момент закрытия: смена этих цифр не меняет уже выплаченные деньги.
-        </p>
         <div className="fgrid">
-          <label className="fld">
-            <span className="lab">Кто продал (риелтор), %</span>
-            <input type="number" step="0.1" min="0" value={realtorP} onChange={(e) => setRealtorP(e.target.value)} />
-          </label>
-          <label className="fld">
-            <span className="lab">Компания, %</span>
-            <input type="number" step="0.1" min="0" value={companyP} onChange={(e) => setCompanyP(e.target.value)} />
-          </label>
           <label className="fld">
             <span className="lab">План комиссии на месяц, сомони</span>
             <input type="number" value={plan} onChange={(e) => setPlan(e.target.value)} />
