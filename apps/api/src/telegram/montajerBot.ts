@@ -50,7 +50,7 @@ import {
   startFreeNarrationFromAsk,
 } from "./assistantFreeNarration.js";
 import { pendingFreeNarrationTextWait } from "../lib/freeNarration.js";
-import { sendMessage, type TelegramIncomingMessage } from "./api.js";
+import type { TelegramIncomingMessage } from "./api.js";
 
 /** Полные правила передачи — по слову «помощь», а не в каждом сообщении с роликом
  *  (владелец 19.09.2026: компактный текст при передаче). */
@@ -379,7 +379,7 @@ export async function handleMontajerNarration(msg: TelegramIncomingMessage, agen
     return true;
   }
   if (isBareNarrationAsk(text)) {
-    await sendMessage(chatId, await startFreeNarrationFromAsk(agent.id, chatId, lang));
+    await reply(chatId, { text: await startFreeNarrationFromAsk(agent.id, chatId, lang) });
     return true;
   }
   return false;
