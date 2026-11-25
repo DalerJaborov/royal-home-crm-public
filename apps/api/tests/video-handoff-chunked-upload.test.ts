@@ -115,7 +115,7 @@ function startSession(propertyId: string, token: string, uploadKey: string, size
   return request(app)
     .post(`/api/v1/properties/${propertyId}/videos/upload-sessions`)
     .set("Authorization", `Bearer ${token}`)
-    .send({ uploadKey, filename: "final.mp4", sizeBytes, contentType: "video/mp4", ...(purpose ? { purpose } : {}) });
+    .send({ uploadKey, filename: "final.mp4", sizeBytes, contentType: "video/mp4", partSize: PART_SIZE, ...(purpose ? { purpose } : {}) });
 }
 
 function uploadPart(propertyId: string, token: string, sessionId: string, partNumber: number, body: Buffer) {

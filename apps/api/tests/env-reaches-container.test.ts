@@ -21,6 +21,9 @@ const KNOWN_OUTSIDE: Record<string, string> = {
   VITEST: "set by the test runner only",
   DEV_CRONS: "local development only",
   LOGIN_CODE_DEV_ECHO: "local development only",
+  UPLOAD_DISK_CHECK: "test-only switch (tests/setup.ts); the production check is always on",
+  UPLOAD_DISK_RESERVE_BYTES: "optional tuning of the upload disk reserve; the code default (5% of disk, 2-5 GB) is right for production",
+  UPLOAD_PART_RATE_LIMIT: "optional tuning of the upload-part limit; the code default (4800 per 5 min) is right for production",
 };
 /**
  * FOUND BY THIS GUARD ON 17.11.2026, NOT FIXED HERE: names the code reads but compose never passed. Each one is either a

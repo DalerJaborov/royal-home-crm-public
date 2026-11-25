@@ -26,6 +26,9 @@ vi.mock("../src/lib/localVideoStorage.js", async (importOriginal) => ({
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
+// Части на диске нужны настоящие: завершение сверяет их по диску (25.11.2026), а не по списку в базе.
+const storage = await import("../src/lib/localVideoStorage.js");
+const sessionIds: string[] = [];
 
 const runId = Date.now();
 const password = "testpass123";
@@ -74,6 +77,10 @@ async function seed(winnerSameKey: boolean) {
       createdById: agentId,
     },
   });
+  sessionIds.push(session.id);
+  await storage.createLocalUploadSession(session.id);
+  await storage.writeLocalUploadPart(session.id, 1, Buffer.alloc(1024, 1));
+  await storage.writeLocalUploadPart(session.id, 2, Buffer.alloc(1024, 2));
   await prisma.propertyVideo.create({
     data: {
       propertyId: property.id,
@@ -106,6 +113,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
+  for (const id of sessionIds) await storage.abortLocalUploadSession(id);
   await prisma.videoUploadSession.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.propertyVideo.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.auditLog.deleteMany({ where: { entityId: { in: propertyIds } } });

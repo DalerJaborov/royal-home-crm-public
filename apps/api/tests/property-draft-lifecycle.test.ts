@@ -100,7 +100,7 @@ describe("versioned draft lifecycle with real PostgreSQL", () => {
 
   it("parallel video parts retain both acknowledgments and reject wrong byte lengths", async () => {
     const a = await actor(); const draft = await start(a.auth);
-    const opened = await request(app).post(`${route}/videos/sessions`).set("Authorization", a.auth).set("X-Property-Draft-Id", draft.id).send({ uploadKey: randomUUID(), filename: "two-parts.mp4", sizeBytes: 8388609, contentType: "video/mp4" });
+    const opened = await request(app).post(`${route}/videos/sessions`).set("Authorization", a.auth).set("X-Property-Draft-Id", draft.id).send({ uploadKey: randomUUID(), filename: "two-parts.mp4", sizeBytes: 8388609, contentType: "video/mp4", partSize: 8388608 });
     expect(opened.status).toBe(201); const mediaId = opened.body.mediaId; sessions.push(mediaId);
     const bad = await request(app).put(`${route}/videos/${mediaId}/parts/1`).set("Authorization", a.auth).set("X-Property-Draft-Id", draft.id).set("Content-Type", "application/octet-stream").send(Buffer.alloc(1));
     expect(bad.status).toBe(400);
