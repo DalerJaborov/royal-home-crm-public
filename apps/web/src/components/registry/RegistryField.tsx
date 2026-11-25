@@ -62,6 +62,8 @@ export function RegistryField({ point, address, isNewBuilding, propertyId, saved
   const data = preview.data;
   if (saved && !saved.enabled) return null;
   if (data && (!data.enabled || data.notLoaded)) return null;
+  // Первый ответ по точке ещё в пути: не мигаем пустым полем (и полем, которого при выключенном реестре не будет).
+  if (point && !keepSaved && !choice && !data && preview.isFetching) return null;
 
   let state: RegistryFieldState = { kind: "empty" };
   if (choice?.kind === "project") state = { kind: "picked", option: choice.option };

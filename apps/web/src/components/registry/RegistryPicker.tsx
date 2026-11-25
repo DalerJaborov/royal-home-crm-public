@@ -29,6 +29,49 @@ export type RegistryFieldState =
 
 const COLOR_TONE: Record<RegistryColor, ChipTone> = { green: "ok", yellow: "warn", red: "crit" };
 
+/** Своя разметка поля: классы списков темы живут внутри карты мастера и здесь не действуют. Только токены темы. */
+const INPUT_STYLE = {
+  width: "100%",
+  minHeight: 44,
+  padding: "10px 12px",
+  borderRadius: "var(--r-md)",
+  border: "1px solid var(--line)",
+  background: "var(--card)",
+  color: "var(--ink)",
+  fontSize: "var(--fs-15)",
+} as const;
+const LIST_STYLE = {
+  position: "absolute",
+  zIndex: 30,
+  left: 0,
+  right: 0,
+  top: "calc(100% + 4px)",
+  maxHeight: 320,
+  overflowY: "auto",
+  background: "var(--card)",
+  border: "1px solid var(--line)",
+  borderRadius: "var(--r-md)",
+  boxShadow: "0 12px 32px rgba(0, 0, 0, 0.18)",
+  padding: 4,
+} as const;
+const OPTION_STYLE = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: 2,
+  width: "100%",
+  minHeight: 44,
+  padding: "8px 12px",
+  border: 0,
+  borderRadius: "var(--r-sm)",
+  background: "transparent",
+  color: "var(--ink)",
+  textAlign: "left",
+  fontSize: "var(--fs-14)",
+  cursor: "pointer",
+} as const;
+const NOTE_STYLE = { padding: "8px 12px", color: "var(--muted)", fontSize: "var(--fs-14)" } as const;
+
 type Item = { type: "project"; option: RegistryProjectOption; hint?: string } | { type: "none" };
 
 export interface RegistryPickerProps {
@@ -46,7 +89,9 @@ export interface RegistryPickerProps {
 }
 
 function distanceText(option: RegistryProjectOption): string {
-  return option.distanceM != null ? `, ${Math.round(option.distanceM)} м от точки` : "";
+  if (option.distanceM == null) return "";
+  // Ближе 30 м — это та же точка (погрешность карты): «0 м от точки» читается странно.
+  return option.distanceM < 30 ? ", у точки объекта" : `, ${Math.round(option.distanceM)} м от точки`;
 }
 
 function StatusChip({ color }: { color: RegistryColor }) {
@@ -138,7 +183,7 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
   return (
     <div className="f" data-testid="registry-pick">
       {label && (
-        <label htmlFor={showInput ? inputId : undefined} id={`${id}-label`}>
+        <label className="lab" htmlFor={showInput ? inputId : undefined} id={`${id}-label`}>
           {label}
         </label>
       )}
@@ -187,10 +232,9 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
       )}
 
       {showInput && (
-        <div className="msearch" style={{ position: "relative" }}>
+        <div style={{ position: "relative" }}>
           <input
             id={inputId}
-            className="txt"
             value={query}
             autoComplete="off"
             ref={inputRef}
@@ -203,6 +247,7 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
             aria-activedescendant={activeId}
             aria-label={label ? undefined : "Застройщик и разрешение"}
             data-testid="registry-pick-input"
+            style={INPUT_STYLE}
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
@@ -216,7 +261,7 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
             onKeyDown={onKeyDown}
           />
           {open && (
-            <div id={listId} className="sugg" role="listbox" aria-label="Проекты реестра строек" data-testid="registry-pick-list">
+            <div id={listId} role="listbox" aria-label="Проекты реестра строек" data-testid="registry-pick-list" style={LIST_STYLE}>
               {items.map((item, index) => (
                 <button
                   key={item.type === "none" ? "none" : item.option.id}
@@ -225,19 +270,19 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
                   role="option"
                   tabIndex={-1}
                   aria-selected={active === index}
-                  style={active === index ? { background: "var(--hover)" } : undefined}
+                  style={{ ...OPTION_STYLE, ...(active === index ? { background: "var(--hover)" } : {}) }}
                   data-testid={item.type === "none" ? "registry-pick-none" : "registry-pick-option"}
                   onPointerDown={(e) => e.preventDefault()}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(item)}
                 >
                   {item.type === "none" ? (
-                    <span className="nm">Нет в реестре / не новостройка</span>
+                    <b>Нет в реестре / не новостройка</b>
                   ) : (
                     <>
-                      <span className="tag">{REGISTRY_COLOR_LABEL[item.option.color].title}</span>
-                      <span className="nm">
-                        {item.option.title}, {item.option.developer}
+                      <b>{item.option.title}</b>
+                      <span style={{ color: "var(--muted)" }}>
+                        {item.option.developer} · {REGISTRY_COLOR_LABEL[item.option.color].title.toLowerCase()}
                         {distanceText(item.option)}
                         {item.hint ? ` (${item.hint})` : ""}
                       </span>
@@ -245,12 +290,11 @@ export function RegistryPicker({ state, updatedAt, point, nearby = [], busy = fa
                   )}
                 </button>
               ))}
-              {search.isFetching && <div className="empty">Ищу в реестре…</div>}
-              {search.isError && <div className="empty">Реестр не ответил. Попробуйте ещё раз.</div>}
+              {search.isFetching && <div style={NOTE_STYLE}>Ищу в реестре…</div>}
+              {search.isError && <div style={NOTE_STYLE}>Реестр не ответил. Попробуйте ещё раз.</div>}
             </div>
           )}
         </div>
-      )}
-    </div>
+      )}    </div>
   );
 }

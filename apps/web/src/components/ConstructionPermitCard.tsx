@@ -37,7 +37,8 @@ function DeveloperBlock({ developer }: { developer: RegistryDeveloperDto }) {
     <div data-testid="permit-developer">
       <div className="row rh-row">
         <div className="t">
-          <b>Застройщик: {developer.name}</b>
+          {/* Имя застройщика уже в поле выше; здесь только его оценка по реестру. */}
+          <b>Оценка застройщика</b>
           <span data-testid="permit-rating">{verdict}</span>
         </div>
       </div>

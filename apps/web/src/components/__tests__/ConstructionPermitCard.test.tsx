@@ -104,7 +104,9 @@ describe("блок «Разрешение на строительство»", ()
   it("у застройщика нет буквы: «Мало данных», без балла", () => {
     const html = render(response("green", null));
     expect(html).toContain("Мало данных");
-    expect(html).not.toContain("Оценка ");
+    // Заголовок блока «Оценка застройщика» есть всегда; выдуманной буквы и балла — нет.
+    expect(html).not.toMatch(/Оценка [A-D]/);
+    expect(html).not.toContain("из 100");
   });
 
   it("с буквой: оценка и балл", () => {
