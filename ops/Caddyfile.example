@@ -42,12 +42,13 @@
 			# read_body — потолок на ВСЁ тело запроса (Go ReadTimeout), а не на паузу
 			# между байтами. 10s резал загрузку ролика (25.11.2026, разбор 502 мастера):
 			# часть 8 МБ на мобильном канале 2–6 Мбит/с идёт 11–30 с, nginx писал
-			# «400 time=10.000 upstream=-», телефон получал 502 «Сервер временно
-			# недоступен». Число держит сторож scripts/audit-limits.mjs: тело размером
-			# с request_body.max_size должно успеть дойти на канале 1 Мбит/с.
-			# От медленного заголовка защищает read_header, от молчащего тела —
-			# client_body_timeout у nginx (apps/web/nginx.conf, пауза между байтами).
-			read_body   5m
+			# «400 time=10.000 upstream=-», телефон получал 502. 5m (первая правка того дня)
+			# хватало на 1 Мбит/с, но не на худший канал 300 Кбит/с: часть 8 МБ там ≈ 224 с,
+			# с запасом ×2 — 448 с. И одиночный запрос до max_size (95 МиБ) на 1 Мбит/с идёт
+			# ≈ 797 с. 15m закрывает оба случая. Число держит сторож scripts/audit-limits.mjs
+			# (правило 5): оба расчёта, оба с запасом. От медленного заголовка защищает
+			# read_header, от молчащего тела — client_body_timeout у nginx (пауза между байтами).
+			read_body   15m
 			read_header 5s
 			# write 15m (16.11.2026): Instagram/Facebook забирают ролики до ~250 МБ по ссылке
 			# /uploads/…; при 30 с/200 с медленное скачивание рвалось на середине.
@@ -80,11 +81,31 @@
 }
 
 crm.royalhome.tj {
-	# Тело запроса: вложения переписки идут через сам API (multer), не через
-	# Caddy напрямую — 25m с запасом под фото/голосовые; видеозаливка объектов
-	# идёт чанками (см. lib/localVideoStorage.ts), крупный body здесь не нужен.
+	# Тело запроса (25.11.2026). Потолок ОДИНОЧНОГО запроса — PROXY_SINGLE_REQUEST_MAX_BYTES
+	# (packages/shared/src/uploadLimits.ts, 90 МиБ): фото пачкой, импорт, расшифровка и
+	# одиночные видео идут через API одним запросом, и 25MB отбивало файлы 25–90 МБ
+	# HTML-страницей 413 без кода. 95MiB = потолок + запас на multipart-обёртку и ровно
+	# под Cloudflare (100 МБ = 95,4 МиБ): файл больше всё равно не пройдёт выше по цепи.
+	# Видео едет частями по 8 МБ (UPLOAD_PART_BYTES), им это число не мешает.
+	# Сторож scripts/audit-limits.mjs (правило 7): max_size не ниже потолка.
 	request_body {
-		max_size 25MB
+		max_size 95MiB
+	}
+
+	# Ответы Caddy при его собственных ошибках (413 по max_size, 502/503/504 при недоступном
+	# upstream) — JSON того же вида, что у nginx (apps/web/nginx.conf, @proxy_NNN): экран
+	# читает code/message/retryable, а не разбирает HTML. Ответы API сюда не попадают.
+	# Сторож (правило 8) требует этот блок. Синтаксис Caddy v2; проверка — `caddy validate`.
+	handle_errors {
+		@tooLarge expression {http.error.status_code} == 413
+		handle @tooLarge {
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"code":"PROXY_413","message":"Файл слишком большой для одного запроса. Сожмите файл или отправьте его частями.","error":"Файл слишком большой для одного запроса. Сожмите файл или отправьте его частями.","retryable":false}` 413
+		}
+		handle {
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"code":"PROXY_{http.error.status_code}","message":"Сервер временно недоступен, обычно это несколько секунд. Повторите попытку.","error":"Сервер временно недоступен, обычно это несколько секунд. Повторите попытку.","retryable":true}` {http.error.status_code}
+		}
 	}
 
 	header {
