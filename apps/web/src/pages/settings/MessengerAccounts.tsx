@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound, Tag } from "lucide-react";
 import { api } from "../../lib/api";
+import { dushanbeDateTime } from "../../lib/date";
 import { Rh2LoadProblem } from "../../components/rh2/Rh2ErrorState";
 import { InstagramAppBinding } from "./InstagramAppBinding";
 
@@ -38,6 +39,8 @@ interface AccountRow {
   hasToken: boolean;
   systemPrompt: string | null;
   brandName: string | null;
+  /** Meta не принимает ключ (смена пароля, выход) или закрыла доступ — бот здесь молчит до «Заменить маркер». */
+  accessLostAt?: string | null;
 }
 
 const CHANNEL_TITLES: Record<string, string> = {
@@ -139,6 +142,15 @@ export function MessengerAccounts() {
                   <span>
                     {CHANNEL_TITLES[a.channel] ?? a.channel} · {a.externalId}
                   </span>
+                  {/* Мёртвый ключ (401/190) или закрытый доступ — громко и с одним действием: в Meta
+                      система больше не ходит, вернуть канал может только новый маркер. */}
+                  {a.accessLostAt && (
+                    <span role="alert" data-testid="account-access-lost">
+                      <span className="chip crit">бот молчит с {dushanbeDateTime(a.accessLostAt)}</span>{" "}
+                      Meta не принимает ключ этого аккаунта (обычно после смены пароля). Войдите в аккаунт заново и нажмите
+                      «Заменить маркер» — бот вернётся сам.
+                    </span>
+                  )}
                 </div>
                 <div className="act">
                   <button
