@@ -10,7 +10,7 @@
  * Номер телефона клиента в состоянии НЕ хранится (только признак «номер есть»): колонка — память разговора,
  * а не карточка. Номер этого хода уходит в действие `accept_lead`, дальше его держит приём заявки.
  */
-import type { RecruitmentPosition } from "@royal-home/shared";
+import type { CustomerPropertyCharacteristics, RecruitmentPosition } from "@royal-home/shared";
 
 export type OperatorLanguage = "ru" | "tg";
 export type OperatorChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "TELEGRAM";
@@ -60,6 +60,9 @@ export const OPERATOR_PHRASE_KEYS = [
   // Простые вопросы, ответ на которые знаем (прод 23–24.11.2026): ипотеки и рассрочки нет, в Душанбе объекты есть, после заявки
   // делать ничего не нужно.
   "no_installment", "stock_yes", "next_step", "services_intro", "photo_by_agent",
+  // Удобное клиенту время звонка — повторяем ЕГО словами (разобранными кодом), своего срока не называем (живая находка 33, 25.11.2026);
+  // «конкретней / подробнее» по известному объекту — факты карточки, а не «это скажет агент» (живая находка 34, 25.11.2026).
+  "callback_time_noted", "lead_callback_time", "property_details", "property_details_price",
   // Только проверяющему из Настроек: «сброс» — разговор с нуля (lib/botReviewers.ts).
   "reviewer_reset",
 ] as const;
@@ -169,7 +172,8 @@ export interface Understanding {
   hasDetails: boolean;
   /** Номер телефона из слов клиента (код, не модель). */
   phone: string | null;
-  callback: { when: string | null; textOnly: boolean; noCall: boolean };
+  /** `time` — то же время, разобранное кодом (только его бот повторяет вслух); нет — время только в заметке агенту. */
+  callback: { when: string | null; textOnly: boolean; noCall: boolean; time?: OperatorCallbackTime | null };
   /** Язык, который решает ЭТОТ текст. null — текст язык не решает (ок, цифры, кнопка рекламы). */
   language: OperatorLanguage | null;
   /** Слабая подсказка языка (одно «Салом»): берётся, только если язык разговора ещё не известен. */
@@ -252,6 +256,13 @@ export interface Understanding {
   /** «Что нужно делать?» (код, 24.11.2026): после заявки — ничего, агент сам свяжется. */
   nextStepQuestion?: boolean;
   /**
+   * Вопрос о фактах объекта, которые есть в карточке (код, 25.11.2026): `all` — «конкретней», «подробнее», «батафсил»,
+   * «маълумоти бештар»; `asked` — названная характеристика («сколько комнат?», «чанд ошёна?», «ремонт есть?»).
+   */
+  propertyFacts?: "all" | "asked" | null;
+  /** В словах ЭТОГО сообщения спрошена цена (код): только тогда цену объекта, уже названную, говорим снова (25.11.2026). */
+  priceAsked?: boolean;
+  /**
    * Сообщение может сменить язык разговора (код, 21.11.2026): переход на русский — только по русской фразе (служебные слова,
    * без таджикских букв), а не по перечню «этаж, комната, цена» от таджикоязычного клиента (прод b16a44b4).
    */
@@ -268,6 +279,26 @@ export interface OperatorPropertyFocus {
   sold: boolean;
   /** Район и город — ровно то, что опубликовано на сайте (siteSync: `location`); без улицы, дома и ориентира. */
   place?: string | null;
+  /**
+   * Характеристики карточки для «конкретней / подробнее» (живая находка 34, 25.11.2026): комнаты, площадь, этаж из скольких,
+   * состояние — из публичных фактов объекта (lib/customerPropertyFacts.ts); ориентир — короткая фраза без цифр (без номера
+   * дома). Нет поля — фактов нет, ответ «скажет агент».
+   */
+  characteristics?: CustomerPropertyCharacteristics | null;
+  landmark?: string | null;
+}
+
+/**
+ * Удобное клиенту время звонка, разобранное КОДОМ из его слов (understand.ts::operatorCallbackTime): «завтра в 13:00»,
+ * «пагоҳ соати 13», «после обеда», «вечером». Бот повторяет его вслух как пожелание клиента; своего срока не называет.
+ */
+export interface OperatorCallbackTime {
+  day: "today" | "tomorrow" | "after_tomorrow" | null;
+  part: "morning" | "day" | "afternoon" | "evening" | null;
+  /** «в 13:00» (at), «после 15:00» (after), «до 12:00» (before), «с 11:00 до 14:30» (range: clock и clockTo). */
+  relation: "at" | "after" | "before" | "range" | null;
+  clock: string | null;
+  clockTo: string | null;
 }
 
 export interface OperatorContext {

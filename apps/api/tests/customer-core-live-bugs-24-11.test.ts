@@ -44,7 +44,9 @@ describe("п.1 срок звонка агента не называется ни
   it("ни одна фраза оператора не несёт срока звонка — ни переменной {when}/{time}, ни дня; последняя дверь не меняет ни одной фразы", () => {
     // Все переменные фраз — образцами данных (часы работы — настоящими часами: ревью #418, сторож вырезал их из «Мы на связи с…»).
     const vars = { id: 214, price: "75 000 USD", place: "Сино, Душанбе", percent: 2, phone: "+992 00 000 00 02", brand: "Royal Home",
-      from: "09:30", to: "18:00", missing: ["district", "price"], where: "WHATSAPP", list: ["менеджер"], position: "менеджер", time: "с 11:00 до 14:30" };
+      from: "09:30", to: "18:00", missing: ["district", "price"], where: "WHATSAPP", list: ["менеджер"], position: "менеджер", time: "с 11:00 до 14:30",
+      // Время клиента (25.11.2026) — его словами, без глагола связи: последняя дверь его не режет.
+      wish: "завтра в 13:00", facts: "комнат: 3, площадь: 95 м²" };
     for (const [key, phrase] of Object.entries(OPERATOR_PHRASES)) {
       for (const [language, variants] of [["ru", phrase.ru], ["tg", phrase.tg]] as const) {
         variants.forEach((template, variant) => {

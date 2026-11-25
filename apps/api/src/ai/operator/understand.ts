@@ -27,7 +27,7 @@ import { detectOutsideCoverage } from "../coverageGuard.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
 import { customerRecruitmentRequested, selectedRecruitmentPosition } from "../customerAgentRecruitmentProtocol.js";
 import { looksLikeRentRequest } from "../rentGuard.js";
-import { clientSaidNothingSubstantive, isAdTemplateOpener } from "../adTemplatePhrase.js";
+import { clientSaidNothingSubstantive, isAdTemplateOpener, withoutAdTemplatePhrases } from "../adTemplatePhrase.js";
 import { customerSearchIntent } from "../customerAgentSearchIntent.js";
 import { customerDmAbuseKind } from "../customerAgentAbuse.js";
 import { customerPolicyTermAsked } from "../customerAgentPolicyAsked.js";
@@ -36,8 +36,8 @@ import { extractVolunteeredPhone } from "../../lib/shared/phoneText.js";
 import { classifyCustomerPropertyFactIntent } from "../../lib/customerPropertyFactIntent.js";
 import { mentionsRudakiDistrict, RUDAKI_ANY_SOURCE } from "../../lib/serviceArea.js";
 import {
-  OPERATOR_DETAIL_FIELDS, type OperatorContext, type OperatorDetails, type OperatorLanguage, type OperatorQuestion, type OperatorState,
-  type OperatorVoice, type Understanding,
+  OPERATOR_DETAIL_FIELDS, type OperatorCallbackTime, type OperatorContext, type OperatorDetails, type OperatorLanguage, type OperatorQuestion,
+  type OperatorState, type OperatorVoice, type Understanding,
 } from "./types.js";
 
 export interface OperatorTurnInput {
@@ -254,6 +254,104 @@ export function operatorCallbackRange(text: string, language: OperatorLanguage):
   return language === "tg" ? `аз ${hhmm(from, fromMin)} то ${hhmm(to, toMin)}` : `с ${hhmm(from, fromMin)} до ${hhmm(to, toMin)}`;
 }
 
+/**
+ * УДОБНОЕ ВРЕМЯ ЗВОНКА — РАЗБОР КОДОМ (живая находка 33, 25.11.2026: «Пагоҳ ба соатои 13 : 00 занг зананд» после заявки получило
+ * цену объекта, время не попало ни агенту, ни в ответ). Понимает день («сегодня / завтра / послезавтра», «имрӯз / пагоҳ /
+ * пасфардо»), час («в 13:00», «к 9», «после 15», «до 12», «соати 13», «ба соатои 13 : 00», голое «13:00»), часть дня («утром»,
+ * «днём», «после обеда», «вечером», «саҳар», «рӯзона», «баъд аз нисфирӯзӣ», «бегоҳ»). Часы 1–7 — дневные (рабочее окно), как в
+ * диапазоне выше. Берётся, только когда это правда про звонок: рядом слово о звонке («позвоните», «занг зананд», «свяжитесь»),
+ * или сообщение целиком из слов о времени («Завтра в 13:00», «Вечером»). Комнаты, этаж, суммы, площадь, вопрос без слова о
+ * звонке, показ без слова о звонке — не время звонка. Возвращает только то, что клиент сказал, ничего не досчитывая.
+ */
+const CB_FOLD: Readonly<Record<string, string>> = { "ӯ": "у", "ў": "у", "ҳ": "х", "ҷ": "ч", "ӣ": "и", "қ": "к", "ғ": "г", "ё": "е" };
+const CB_CALL_WORD = new RegExp(`${BW}(?:(?:пере|по)?звон${TAIL}|набер${TAIL}|свяж${TAIL}|занг${TAIL}|тамос${TAIL}|звонок|звонк${TAIL})`, "u");
+const CB_NOT_WISH = new RegExp(`${BW}(?:не\\s+(?:по|пере)?звон${TAIL}|не\\s+надо\\s+звон${TAIL}|занг\\s+назан${TAIL}|тамос\\s+нагир${TAIL}|` +
+  `(?:сам\\s+)?(?:по|пере)звоню|наберу|занг\\s+мезанам|худам\\s+занг${TAIL})`, "u");
+const CB_DAY: ReadonlyArray<[OperatorCallbackTime["day"], RegExp]> = [
+  ["after_tomorrow", new RegExp(`${BW}(?:послезавтра|пасфардо)${EW}`, "u")],
+  ["today", new RegExp(`${BW}(?:сегодня|имруз)${EW}`, "u")],
+  ["tomorrow", new RegExp(`${BW}(?:завтра|пагох)${EW}`, "u")],
+];
+const CB_PART: ReadonlyArray<[OperatorCallbackTime["part"], RegExp]> = [
+  ["afternoon", new RegExp(`${BW}(?:после\\s+обеда|после\\s+обед|(?:баъд${TAIL}|пас)\\s+(?:аз\\s+)?(?:обед${TAIL}|нисфируз${TAIL}|пешин${TAIL}|хуроки\\s+пешин${TAIL}))${EW}`, "u")],
+  ["evening", new RegExp(`${BW}(?:вечер${TAIL}|бегох${TAIL})`, "u")],
+  ["morning", new RegExp(`${BW}(?:утр${TAIL}|с\\s+утра|сахар${TAIL}|пагохи${TAIL}|субх${TAIL})`, "u")],
+  ["day", new RegExp(`${BW}(?:дн[её]м|днем|рузона|нисфи\\s+руз${TAIL})${EW}`, "u")],
+];
+const CB_CLOCK = String.raw`(\d{1,2})(?:\s*[:.]\s*(\d{2}))?`;
+const CB_HOUR_WORD = String.raw`(?:соат\p{L}*\s*|час\p{L}*\s*)?`;
+const CB_AFTER = new RegExp(`${BW}(?:после|баъд${TAIL}(?:\\s+аз)?|пас\\s+аз)\\s*${CB_HOUR_WORD}${CB_CLOCK}(?![\\d])`, "u");
+const CB_BEFORE = new RegExp(`${BW}(?:до|то)\\s+${CB_HOUR_WORD}${CB_CLOCK}(?![\\d])`, "u");
+const CB_AT = new RegExp(`(?:${BW}(?:в|к|около|ба|дар)\\s+${CB_HOUR_WORD}|${BW}(?:соат\\p{L}*|час\\p{L}*)\\s*)${CB_CLOCK}(?![\\d])`, "u");
+const CB_BARE_CLOCK = /(?<![\d])(\d{1,2})\s*:\s*(\d{2})(?![\d])/u;
+/** Слова, которые могут стоять рядом со временем и сами ничего не сообщают («мне удобно завтра», «пагоҳ ба соати 13 хуб аст»). */
+const CB_FILLER = new Set(["мне", "нам", "удобно", "лучше", "можно", "пожалуйста", "хорошо", "давайте", "ок", "только", "где", "то", "или",
+  "ба", "дар", "аз", "то", "соат", "соати", "соатои", "соатхои", "часов", "часа", "час", "мувофик", "вакт", "вакти", "хуб", "аст", "ман", "барои",
+  "ва", "и", "в", "к", "с", "до", "после", "около", "баъд", "баъди", "пас", "утра", "дня", "вечера", "уже", "лутфан", "рахмат", "спасибо",
+  "ташаккур", "ака", "апа"]);
+
+export function operatorCallbackTime(raw: string): OperatorCallbackTime | null {
+  const own = clientOwnWords(raw).trim();
+  if (!own || NOT_TIME_WORD.test(own) || NOT_TIME_WORD.test(foldCustomerText(own))) return null;
+  const text = own.normalize("NFKC").toLowerCase().replace(/[ӯўҳҷӣқғё]/gu, ch => CB_FOLD[ch] ?? ch);
+  // «Не звоните завтра», «занг назанед», «завтра сам позвоню» — не пожелание, когда звонить нам.
+  if (CB_NOT_WISH.test(text)) return null;
+  const callWord = CB_CALL_WORD.test(text);
+  // Вопрос без слова о звонке («Завтра в 13:00 можно посмотреть?») и показ — не пожелание о звонке.
+  if (!callWord && (/[?؟]/u.test(own) || SHOWING_WORD.test(foldCustomerText(own)))) return null;
+  const day = CB_DAY.find(([, re]) => re.test(text))?.[0] ?? null;
+  const part = CB_PART.find(([, re]) => re.test(text))?.[0] ?? null;
+  const hhmm = (h: string, m: string | undefined): string | null => {
+    let hour = Number(h); const minute = Number(m ?? 0);
+    if ((hour >= 1 && hour <= 7 && part !== "morning") || ((part === "evening" || part === "afternoon") && hour >= 1 && hour < 12)) hour += 12;
+    return hour <= 23 && minute <= 59 ? `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}` : null;
+  };
+  let relation: OperatorCallbackTime["relation"] = null, clock: string | null = null, clockTo: string | null = null;
+  const range = operatorCallbackRange(own, "ru");
+  const rangeMatch = range ? /^с (\d{2}:\d{2}) до (\d{2}:\d{2})$/u.exec(range) : null;
+  const after = CB_AFTER.exec(text), before = CB_BEFORE.exec(text), at = CB_AT.exec(text) ?? CB_BARE_CLOCK.exec(text);
+  if (rangeMatch) { relation = "range"; clock = rangeMatch[1]!; clockTo = rangeMatch[2]!; }
+  else if (after) { clock = hhmm(after[1]!, after[2]); relation = clock ? "after" : null; }
+  else if (before) { clock = hhmm(before[1]!, before[2]); relation = clock ? "before" : null; }
+  else if (at) { clock = hhmm(at[1]!, at[2]); relation = clock ? "at" : null; }
+  if (!day && !part && !clock) return null;
+  if (!callWord) {
+    // Без слова о звонке голый час или промежуток («с 11 до 14», «до 14») — не пожелание: нужен день, часть дня или «13:00».
+    // Промежуток, который принял разбор диапазона («С 11 до 2.30 удобно» — рядом слово о времени), — пожелание.
+    if (!day && !part && !rangeMatch && !CB_BARE_CLOCK.test(text)) return null;
+    if (/(?:^|[^\p{L}])(?:с|аз|от)\s*\d{1,2}(?:[:.]\d{2})?\s*(?:до|то|-|–)\s*\d/u.test(text) && !rangeMatch) return null;
+    // Без слова о звонке — только сообщение целиком из слов о времени: «Завтра в 13:00», «Вечером», «Пагоҳ соати 13».
+    const residue = text.replace(/[^\p{L}\s]+/gu, " ").split(/\s+/u).filter(Boolean).filter(word => !CB_FILLER.has(word) &&
+      !CB_DAY.some(([, re]) => re.test(word)) && !/^(?:утр|вечер|бегох|сахар|днем|днём|рузона|обед|нисфируз|пешин|хуроки|пагохи|субх)/u.test(word));
+    if (residue.length) return null;
+  }
+  return { day, part, relation, clock, clockTo };
+}
+
+/** В словах клиента прямая просьба о звонке («позвоните», «занг зананд», «свяжитесь»). */
+function operatorAsksCall(own: string): boolean {
+  return CB_CALL_WORD.test(clientOwnWords(own).normalize("NFKC").toLowerCase().replace(/[ӯўҳҷӣқғё]/gu, ch => CB_FOLD[ch] ?? ch));
+}
+
+/** Время звонка коротко по-русски — для заметки агенту («Когда звонить: «завтра в 13:00»»). */
+function callbackTimeNote(time: OperatorCallbackTime): string {
+  const day = time.day === "today" ? "сегодня" : time.day === "tomorrow" ? "завтра" : time.day === "after_tomorrow" ? "послезавтра" : null;
+  const part = time.part === "morning" ? "утром" : time.part === "day" ? "днём" : time.part === "afternoon" ? "после обеда" : time.part === "evening" ? "вечером" : null;
+  const clock = !time.clock ? null : time.relation === "range" ? `с ${time.clock} до ${time.clockTo}` : time.relation === "after" ? `после ${time.clock}`
+    : time.relation === "before" ? `до ${time.clock}` : `в ${time.clock}`;
+  return [day, part, clock].filter(Boolean).join(" ");
+}
+
+/**
+ * «Конкретней», «подробнее», «детали», «батафсил», «маълумоти бештар» — просьба рассказать об объекте больше (живая находка 34,
+ * 25.11.2026). Целиком короткая просьба или с вопросом; «подробнее расскажет агент» в словах бота сюда не попадает (только клиент).
+ */
+const MORE_DETAILS = new RegExp(`${BW}(?:конкретн${TAIL}|подробн${TAIL}|поподробн${TAIL}|детал${TAIL}|больше\\s+информаци${TAIL}|` +
+  `батафсил${TAIL}|муфассал${TAIL}|маълумоти\\s+бештар|малумоти\\s+бештар|бештар\\s+(?:маълумот|малумот|гуед|нависед)${TAIL}|тафсилот${TAIL})`, "u");
+/** Названная характеристика объекта («сколько комнат», «чанд ошёна», «ремонт есть?») — те же слова, что у общей подачи фактов. */
+const FACT_WORD = new RegExp(`${BW}(?:комнат${TAIL}|хучра${TAIL}|хонаг(?:и|ӣ)${EW}|площад${TAIL}|метраж${TAIL}|квадрат${TAIL}|масохат${TAIL}|` +
+  `этаж${TAIL}|ошена${TAIL}|ремонт${TAIL}|состояни${TAIL}|таъмир${TAIL}|тамир${TAIL})`, "u");
+
 function textPreference(own: string): { textOnly: boolean; noCall: boolean } {
   const folded = foldCustomerText(own);
   const refused = leadOnlyPhoneRefused(own);
@@ -330,6 +428,11 @@ function codeFacts(input: OperatorTurnInput) {
   const letters = letterCount(own);
   const neutral = isNeutralShortReply(own);
   const adOpener = isAdTemplateOpener(own);
+  // Язык решают слова клиента, а не готовая фраза рекламы Meta рядом с ними (живая находка 34, 25.11.2026: «Какие услуги вы
+  // предлагаете?» + «нарх / хона / сурога» — ответ ушёл по-русски). Только шаблон — прежний путь (кнопка рекламы языка не даёт).
+  const langOwn = withoutAdTemplatePhrases(own) || own;
+  const langLetters = letterCount(langOwn);
+  const langNeutral = isNeutralShortReply(langOwn);
   const attachments = { voice: input.attachments?.voice ?? "none", ownPost: !!input.attachments?.ownPost,
     foreignPost: !!input.attachments?.foreignPost,
     // Приговор «чужой шум» — только вместе с самим чужим постом и не для своего (защита по умолчанию — ответ, а не тишина).
@@ -337,10 +440,10 @@ function codeFacts(input: OperatorTurnInput) {
     media: !!input.attachments?.media } as Understanding["attachments"];
   const abuse = customerDmAbuseKind(own);
   return {
-    own, folded, phone, letters, adOpener, attachments,
+    own, folded, phone, letters, adOpener, attachments, langOwn,
     hasText: letters >= 2 || !!phone,
-    language: letters >= 2 && !neutral && !adOpener ? (tajikOnlyWords(own) ? "tg" : customerDmDialogueLanguage([own]) ?? russianGuess(own)) : null,
-    languageHint: letters >= 1 ? tajikHint(own) ?? resolveCustomerDmLanguage(own) : null,
+    language: langLetters >= 2 && !langNeutral && !adOpener ? (tajikOnlyWords(langOwn) ? "tg" : customerDmDialogueLanguage([langOwn]) ?? russianGuess(langOwn)) : null,
+    languageHint: langLetters >= 1 ? tajikHint(langOwn) ?? resolveCustomerDmLanguage(langOwn) : null,
     contextLanguage: operatorContextLanguage(input.recent),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
@@ -375,14 +478,20 @@ function codeFacts(input: OperatorTurnInput) {
     // переход на русский — по русской фразе без таджикских букв (ревью #358).
     languagePreference: customerDmLanguagePreference(own),
     // Вопрос со знаком «?» без таджикских букв и слов («Документы готовы?») — тоже фраза, а не перечень.
-    languageSwitchOk: !!customerDmLanguagePreference(own) || (!TAJIK_LETTER.test(own) && (RUSSIAN_SENTENCE.test(foldCustomerTextForRole(own)) ||
-      /[?؟]/u.test(own) && !TAJIK_WORD.test(foldCustomerTextForRole(own)))),
+    languageSwitchOk: !!customerDmLanguagePreference(own) || (!TAJIK_LETTER.test(langOwn) && (RUSSIAN_SENTENCE.test(foldCustomerTextForRole(langOwn)) ||
+      /[?؟]/u.test(langOwn) && !TAJIK_WORD.test(foldCustomerTextForRole(langOwn)))),
     showing: !isAdTemplateOpener(own) && SHOWING_WORD.test(folded),
     // Вопрос («Не далеко от центра?», «Нет, а где он?») — не отказ, а вопрос по делу.
     agrees: (AGREE_WORD.test(folded) || AGREE_SIGN.test(own)) && !DECLINE_WORD.test(folded), declines: DECLINE_WORD.test(folded) && !/[?؟]/u.test(own),
     refusalOnly: refusalOnly(folded) && !/[?؟]/u.test(own),
     quote: own.replace(/\s+/gu, " ").slice(0, 200),
     questionSignal: codeQuestionSignal(own, folded),
+    callbackTime: operatorCallbackTime(own),
+    // «Конкретней», «подробнее», «батафсил» (кнопка рекламы «можно поподробнее» — тоже, decide.ts берёт её только после строки
+    // объекта); названная характеристика — только вопросом и не о своём жилье продавца.
+    propertyFacts: MORE_DETAILS.test(folded) ? "all" as const
+      : FACT_WORD.test(folded) && codeQuestionSignal(own, folded) && !customerRoleSignals(own).sell && !customerRoleSignals(own).ownHouse ? "asked" as const : null,
+    priceAsked: PRICE_WORD.test(folded),
   };
 }
 
@@ -437,7 +546,8 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     source: "fallback", role, question: code.linkOnly ? "none" : code.servicesQuestion && (question === "other" || question === "none") ? "services" : question === "none" && code.agentTopic ? "other" : question, aboutThisProperty, details,
     hasDetails: Object.keys(details).length > 0 || (digitsBeyondPhone && code.letters > 0),
     phone: code.phone,
-    callback: { when: operatorCallbackRange(code.own, language), ...preference },
+    callback: { when: code.callbackTime ? callbackTimeNote(code.callbackTime) : operatorCallbackRange(code.own, language), time: code.callbackTime,
+      ...preference },
     language: ownLanguage, languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
     reaction: code.reaction, agreeSign: code.agreeSign, greetingLanguage: code.greetingLanguage,
     ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,
@@ -450,6 +560,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
     agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
     installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
+    propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
     // ни продавец, ни покупатель объекта — вопрос «купить или продать?» (третий круг ревью #345).
     ...(ownHouseOnly(role, code) ? { roleConflict: true } : {}),
@@ -666,6 +777,7 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
     (input.recent ?? []).some(turn => turn.role === "user" && isAdTemplateOpener(clientOwnWords(turn.text)))) {
     rejected.push("question"); question = "none";
   }
+  const codeTime = code.callbackTime && (when || rejected.includes("callbackWhen") || operatorAsksCall(code.own)) ? code.callbackTime : null;
   const preference = { textOnly: answer.textOnly || fallback.callback.textOnly, noCall: (answer.noCall || fallback.callback.noCall) && !answer.textOnly };
   return {
     rejected,
@@ -677,18 +789,25 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       ...(roleConflict ? { roleConflict: true } : {}),
       agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
       installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
+      propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
       roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
       details, hasDetails: Object.keys(details).length > 0 || fallback.hasDetails,
       phone: code.phone,
       // Модель ответила (пусто — значит времени нет): запасные правила её не перебивают; только если ответ отброшен кодом.
-      callback: { when: when || (rejected.includes("callbackWhen") ? fallback.callback.when : null), ...preference },
+      // Время, разобранное кодом, сильнее слов модели: только его бот повторяет клиенту, и агент видит ту же строку (25.11.2026).
+      // Модель сказала «времени нет» — код её перебивает, только когда клиент прямо просит позвонить («занг зананд», «позвоните»):
+      // прежнее правило Р7 (модель сильнее запасного разбора) для «С 11 до 2.30 удобно» без слова о звонке остаётся.
+      callback: { when: codeTime ? callbackTimeNote(codeTime) : when || (rejected.includes("callbackWhen") ? fallback.callback.when : null),
+        time: codeTime, ...preference },
       // Язык: код побеждает модель, только когда ручается (ai/customerDmLanguage.ts::groundedCustomerDmLanguage — кириллица
       // с признаками языка или явная просьба). 19.11 модель назвала русским таджикское «телефон номера нависед» (маркер
       // «нависед»), и ответ ушёл по-русски. Латиница («Skolko stoit kvartira?») и текст без признаков — решает модель, как
       // раньше; модель промолчала — прежнее слово кода.
       // «Не. Рахмат»: таджикские слова и одно общее «не» — таджикский, даже если детектор ручается за русский (разбор 23.11, C1).
-      language: (code.language === "tg" && tajikOnlyWords(code.own) ? "tg" : null) ?? groundedCustomerDmLanguage(code.own) ?? answered?.language
-        ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" ? answer.language : code.language) ?? code.language,
+      // Шаблон рекламы Meta рядом со словами клиента язык не решает (живая находка 34): и код, и ответ модели — по словам клиента.
+      language: (code.language === "tg" && tajikOnlyWords(code.langOwn) ? "tg" : null) ?? groundedCustomerDmLanguage(code.langOwn) ?? answered?.language
+        ?? (code.letters >= 2 && !isNeutralShortReply(code.own) && answer.language !== "none" && code.langOwn === code.own ? answer.language : code.language)
+        ?? code.language,
       languageHint: code.languageHint, contextLanguage: code.contextLanguage, greeting: code.greeting, greetingOnly: code.greetingOnly,
       reaction: code.reaction, agreeSign: code.agreeSign, greetingLanguage: code.greetingLanguage,
       ackOnly: code.ackOnly, thanksOnly: code.thanksOnly, adOpener: code.adOpener,

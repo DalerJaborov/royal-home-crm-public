@@ -259,12 +259,13 @@ describe("оператор приёма заявок на настоящем п�
     expect((await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } })).kind).toBe("SELLER");
   });
 
-  it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время агенту заметкой, вслух не повторяем", async () => {
+  it("случай 4, WhatsApp: «С 11 до 2.30 удобно» после заявки — время агенту заметкой, клиенту — его же время без нашего срока", async () => {
     const f = await coreFixture("Продать недвижимость, 3 комнаты", "WHATSAPP");
     expect(await plannedText(f.eventKey)).toContain("а пока можете");
     await settle(f.eventKey);
     const second = await f.receive("С 11 до 2.30 удобно");
-    expect(await plannedText(second)).toBe("Передам агенту, когда вам удобно.");
+    // Пожелание клиента повторяем его словами (живая находка 33, 25.11.2026); своего срока бот не называет.
+    expect(await plannedText(second)).toBe("Передал агенту удобное вам время: с 11:00 до 14:30.");
     expect((await intakeJob(second, true))?.payload).toMatchObject({ scenario: "note" });
     coreModelUntouched(f);
   });

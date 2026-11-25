@@ -131,7 +131,9 @@ describe("ответ модели проверяет код", () => {
     expect(check("Хона дар Сино", answer({ outsidePlace: "Вахдат" }))!.understanding.outsidePlace).toBeNull();
     const when = check("Позвоните после обеда", answer({ callbackWhen: "завтра в 10:00", callbackQuote: "завтра в 10" }))!;
     expect(when.rejected).toContain("callbackWhen");
-    expect(when.understanding.callback.when).toBeNull();
+    // Слова модели без цитаты отброшены; остаётся то, что код сам прочёл в словах клиента (25.11.2026, operatorCallbackTime).
+    expect(when.understanding.callback.when).toBe("после обеда");
+    expect(when.understanding.callback.time).toMatchObject({ day: null, part: "afternoon", clock: null });
     const ok = check("С 11 до 2.30 удобно", answer({ callbackWhen: "с 11:00 до 14:30", callbackQuote: "С 11 до 2.30" }))!;
     expect(ok.understanding.callback.when).toBe("с 11:00 до 14:30");
     // Р7: модель ответила «времени нет» — запасные правила её не перебивают.

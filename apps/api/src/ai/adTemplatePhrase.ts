@@ -188,3 +188,32 @@ export function adTemplateLanguage(text: string | null | undefined): "ru" | "tg"
   const rest = stripGreetings(normalize(clientOwnWords(text ?? "")));
   return /[ҳҷӣӯқғ]|маълумот|бештар|донам/u.test(rest) ? "tg" : "ru";
 }
+
+/**
+ * Готовые вопросы рекламы Meta, которые клиент не набирал сам (кнопки быстрых ответов): на них бот отвечает по сути (ai/operator,
+ * «Какие услуги?» — услуги), но ЯЗЫКА они не решают (живая находка 34, 25.11.2026: «Какие услуги вы предлагаете?» первой строкой,
+ * дальше «нарх / хона / сурога» по-таджикски — ответ ушёл по-русски). Поэтому они не в TEMPLATE_OPENERS (там — «ничего своего»).
+ */
+const AD_QUESTION_TEMPLATES = [
+  "какие услуги вы предлагаете",
+];
+
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+let templatePhrasePattern: RegExp | null = null;
+
+/**
+ * Слова клиента без готовых фраз рекламы (шаблоны кнопок и быстрые вопросы Meta) — для выбора ЯЗЫКА, не для смысла. Фраза ищется
+ * целиком, с любыми знаками и пробелами между словами. Осталось одно приветствие или пусто — "" (решает вызывающий: обычно это
+ * «только шаблон», и тогда язык берётся прежним путём).
+ */
+export function withoutAdTemplatePhrases(text: string | null | undefined): string {
+  const own = clientOwnWords(text ?? "");
+  if (!templatePhrasePattern) {
+    const words = [...TEMPLATE_OPENERS, ...AD_QUESTION_TEMPLATES].map(normalize).filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .map(template => template.split(" ").map(word => escapeRe(word).replace(/е/gu, "[её]")).join("[^\\p{L}\\p{N}]+"));
+    templatePhrasePattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.join("|")})(?![\\p{L}\\p{N}])[^\\p{L}\\p{N}\\n]*`, "giu");
+  }
+  const rest = own.replace(templatePhrasePattern, " ").replace(/[ \t]+/gu, " ").replace(/\s*\n\s*/gu, "\n").trim();
+  return stripGreetings(normalize(rest)) ? rest : "";
+}

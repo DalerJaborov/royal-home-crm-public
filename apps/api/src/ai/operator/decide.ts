@@ -24,7 +24,7 @@
  *  - грубость и жалоба — одна спокойная фраза, сотрудник, дальше молчим (сотрудника зовём ТОЛЬКО здесь).
  * Ответ — не больше двух шагов (в каждой фразе одно предложение), вопрос — только у вопроса о роли.
  */
-import { operatorWhereVar } from "./phrases.js";
+import { operatorCallbackTimeText, operatorPropertyFactsText, operatorWhereVar } from "./phrases.js";
 import {
   OPERATOR_DETAIL_FIELDS, type OperatorAction, type OperatorContext, type OperatorDecision, type OperatorDetailField, type OperatorDetails,
   type OperatorLanguage, type OperatorRole, type OperatorState, type OperatorStepOut, type PhraseKey, type PhraseVars, type Understanding,
@@ -342,18 +342,36 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     const goalRole = u.role === "seller" ? "seller" as const : u.role === "buyer" ? "buyer" as const : null;
     const newGoal = !!goalRole && leadRole(s.role) !== goalRole;
     const noteState = goalRole ? { ...s, role: goalRole } : s;
+    // Объект, номер и цену которого уже назвали, второй раз не называем, пока клиент снова не спросит цену словами (живая находка 33,
+    // 25.11.2026: «Пагоҳ ба соатои 13:00 занг зананд» и «Ҳамин вариантро» после заявки получили ту же цену дважды).
+    const lineSaid = !!ctx.focus && s.flags.propertyLineFor === ctx.focus.propertyId;
     const askedProperty = !!ctx.focus && (u.attachments.ownPost || (u.aboutThisProperty && !u.adOpener) || u.question === "property_price" ||
-      (u.adOpener && ctx.ad.topic === "property"));
+      (u.adOpener && ctx.ad.topic === "property")) && (!lineSaid || u.priceAsked === true);
+    // «Конкретней», «сколько комнат?» — факты карточки (живая находка 34); кнопка рекламы «поподробнее» — только после строки объекта.
+    const factsStep = propertyFactsStep(s, u, ctx.focus, language, lineSaid);
     // Что-то по делу, что не легло ни в одну полку ниже: «адрес офиса?», «а документы нужны?», «звоните завтра днём».
     // Одно слово без вопроса («Ершп», «Мр») — не дело для агента: ни «передал», ни заметки (прод 20.11, 8598aef1).
     const substantive = u.hasText && !u.ackOnly && !u.thanksOnly && !u.greetingOnly && !u.adOpener && u.quote.trim().length >= 4 &&
       (u.question !== "none" || u.quote.trim().split(/\s+/u).length >= 2);
-    if (askedProperty && ctx.focus) {
+    // Ответ об объекте — ответ на вопрос (первым), а пожелание звонка, номер, детали в том же сообщении идут своей полкой ниже:
+    // раньше строка объекта стояла первой полкой и глотала время звонка (живая находка 33).
+    if (factsStep && ctx.focus) {
+      answers.push(factsStep);
+      note(`Спрашивает подробности объекта №${ctx.focus.shortId}${u.quote ? `: «${u.quote}»` : ""}`);
+    } else if (u.placeQuestion && ctx.focus && !ctx.focus.sold && ctx.focus.place && !/р[уӯ]дак/iu.test(ctx.focus.place) &&
+      s.role !== "seller" && u.role !== "seller" && !/офис|office/iu.test(u.quote)) {
+      // «Сурога?», «где находится?» после заявки — место с сайта (район и город), а не «передал вопрос» (живая находка 34).
+      answers.push(draft("property_place", { id: ctx.focus.shortId, place: ctx.focus.place }));
+      note(`Спрашивает, где объект №${ctx.focus.shortId}${u.quote ? `: «${u.quote}»` : ""}`);
+    } else if (askedProperty && ctx.focus) {
       const f = ctx.focus;
-      flow.push(f.sold ? draft("property_sold", { id: f.shortId }) : f.priceText ? draft("property_price", { id: f.shortId, price: f.priceText[language] })
+      answers.push(f.sold ? draft("property_sold", { id: f.shortId }) : f.priceText ? draft("property_price", { id: f.shortId, price: f.priceText[language] })
         : draft("property_no_price", { id: f.shortId }));
+      s.flags.propertyLineFor = f.propertyId;
       note(`Спрашивает объект №${f.shortId}${u.quote ? `: «${u.quote}»` : ""}`);
-    } else if (newOutOfArea) {
+    }
+    const answeredProperty = answers.some(item => item.key.startsWith("property_"));
+    if (newOutOfArea) {
       // Заявка уже ушла, а объект оказался не в Душанбе: пометка с признаком (этап 1.5 — решение директора), клиенту без отказа.
       note(operatorLeadNote(s, u, ctx), { outOfArea: true });
       if (noAgent) noted("out_of_area_accepted"); else flow.push(draft("out_of_area_accepted"));
@@ -361,8 +379,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       note(textOnlyNote(ctx));
       noted("text_only_noted", { where: operatorWhereVar(ctx.channel) }, false);
     } else if (newCallback) {
-      note(`Когда звонить: «${s.callback.when}»`);
-      noted("callback_noted", {}, false);
+      note(`Когда звонить: «${s.callback.when}»${u.callback.time && u.quote ? `. Слова клиента: «${u.quote}»` : ""}`);
+      // Время, разобранное кодом из слов клиента, повторяем как ЕГО пожелание (не наш срок); иначе — без времени, оно в заметке.
+      const wish = operatorCallbackTimeText(u.callback.time, language);
+      if (wish) noted("callback_time_noted", { wish }, false); else noted("callback_noted", {}, false);
     } else if (u.callback.noCall) {
       s.noCall = true;
       note("Просит не звонить");
@@ -370,6 +390,8 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     } else if (u.phone) {
       note("Клиент написал номер для звонка", { phone: u.phone });
       noted("note_added");
+    } else if (answeredProperty) {
+      // Ответили об объекте — второй фразы «передал агенту» не нужно (заметка уже ушла).
     } else if (u.hasDetails || u.outsidePlace || u.bargain || newGoal) {
       note(operatorLeadNote(noteState, u, ctx));
       if (!u.bargain) noted("note_added");
@@ -462,6 +484,7 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   const facts = s.role === "buyer_property" && ctx.focus && ctx.focus.propertyId === s.propertyId ? ctx.focus : null;
   const propertyLineComing = !!facts && (s.flags.propertyLineFor !== facts.propertyId || u.question === "property_price");
   answerQuestions();
+  const factsStep = facts ? propertyFactsStep(s, u, facts, language, !propertyLineComing) : null;
 
   // ── «не звоните, я просто смотрю» (случай 25): номер больше не просим ─────
   if (u.callback.noCall && !u.phone) {
@@ -498,7 +521,11 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     if (s.outOfArea) return draft("out_of_area_accepted");
     // «Пишите» или «не звоните» (Р3): заявка без обещания звонка — агент напишет.
     if (s.callback.textOnly || s.noCall) return draft("lead_text_only", { where: operatorWhereVar(ctx.channel) });
-    if (s.callback.when) return draft("lead_callback");
+    if (s.callback.when) {
+      // Время из слов ЭТОГО хода, разобранное кодом, — повторяем как пожелание клиента; своего срока нет (живая находка 33).
+      const wish = operatorCallbackTimeText(u.callback.time, language);
+      return wish ? draft("lead_callback_time", { wish }) : draft("lead_callback");
+    }
     const details = detailsWithLead();
     if (details) return details;
     // Клиент сам написал номер (в WhatsApp тоже — может быть другой): «номер получил», а не «на этот номер WhatsApp».
@@ -523,8 +550,11 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
    * Второй вопрос по делу после предложения звонка — тоже интерес (слепое ревью #345: на рекламе объекта клиент спрашивал цену,
    * место, этаж, документы, ремонт, а бот отвечал «скажет агент», номер не просил, заявку не заводил). В WhatsApp — заявка.
    */
+  // «Конкретней» после предложения звонка, а факты карточки бот назвал сам, — ещё не «звоните» (живая находка 34: заявка из одного
+  // слова «конкретней»); нечего назвать — прежнее правило (вопрос агенту — интерес).
   const askedAgain = said("offer_call") && u.declines !== true &&
-    (QUESTION_FOR_AGENT.has(u.question) || u.question === "fee" || !!u.placeQuestion || u.aboutThisProperty);
+    !(factsStep && u.propertyFacts === "all" && !u.priceAsked && !u.placeQuestion) &&
+    (QUESTION_FOR_AGENT.has(u.question) || u.question === "fee" || !!u.placeQuestion || u.aboutThisProperty || (!!u.propertyFacts && !!facts));
   // Роль названа словами — интерес; покупатель только по вопросу этого хода («Квартира продаётся?») — ещё нет: ответ и
   // предложение звонка, номер (в WhatsApp — заявка) — при следующем шаге клиента (слепое ревью #345).
   // «Интересует эта квартира», «хочу купить эту» на объекте — роль словами этого хода, тоже интерес.
@@ -625,7 +655,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
 
   if (s.role === "buyer_property") {
     const placeAsked = !!u.placeQuestion;
-    if (facts && (propertyLineComing || placeAsked)) {
+    // «Конкретней», «подробнее», «сколько комнат?» по известному объекту — факты карточки; «скажет агент» только когда их нет
+    // (живая находка 34, 25.11.2026). Строки объекта ещё не было — факты вместе с номером и ценой одной фразой.
+    if (factsStep) answers.push(factsStep);
+    if (facts && !factsStep && (propertyLineComing || placeAsked)) {
       const id = facts.shortId;
       // «Где объект?» — район и город с сайта (и цена, если есть); места в карточке нет — честно «расскажет агент».
       // Место — ровно район и город с сайта (siteSync: location = район, город); «Рудаки» вслух не называем (SPEC «Тон»).
@@ -650,7 +683,9 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
       }
     }
     // Объект известен, его строка уже звучала, а клиент спрашивает другое («документы готовы?»): не голая просьба номера.
-    if (facts && !answers.length && !flow.length && QUESTION_FOR_AGENT.has(u.question) && u.question !== "property_price" && contactPathOpen()) {
+    // «Конкретней» / «сколько комнат?», а в карточке этого нет — честное «скажет агент» (живая находка 34).
+    if (facts && !answers.length && !flow.length && (QUESTION_FOR_AGENT.has(u.question) || propertyFactsWanted(s, u, facts)) &&
+      u.question !== "property_price" && contactPathOpen()) {
       answers.push(draft(u.agentTopic ? "topic_by_agent" : "details_by_agent"));
     }
     contact();
@@ -678,6 +713,29 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   contact();
   greetBack();
   return finish();
+}
+
+/** Клиент просит факты объекта: «конкретней» (кнопку «поподробнее» — только после строки объекта) или названную характеристику. */
+function propertyFactsWanted(s: OperatorState, u: Understanding, focus: OperatorContext["focus"]): boolean {
+  // Продавец говорит о своём жилье: факты нашего объекта ему не ответ.
+  if (!focus || focus.sold || !u.propertyFacts || s.role === "seller" || u.role === "seller") return false;
+  return u.propertyFacts === "asked" || !u.adOpener || s.flags.propertyLineFor === focus.propertyId;
+}
+
+/**
+ * Шаг с фактами карточки (комнаты, площадь, этаж, состояние; на «подробнее» — и ориентир). Строка объекта ещё не звучала, и клиент
+ * просит «подробнее» — та же фраза несёт номер и цену (и помечается названной). Фактов нет — null: решит «скажет агент».
+ */
+function propertyFactsStep(s: OperatorState, u: Understanding, focus: OperatorContext["focus"], language: OperatorLanguage,
+  lineSaid: boolean): Draft | null {
+  if (!focus || !propertyFactsWanted(s, u, focus)) return null;
+  const text = operatorPropertyFactsText(focus, language, u.propertyFacts === "asked" ? u.quote : "");
+  if (!text) return null;
+  if (!lineSaid && u.propertyFacts === "all" && focus.priceText) {
+    s.flags.propertyLineFor = focus.propertyId;
+    return draft("property_details_price", { id: focus.shortId, facts: text, price: focus.priceText[language] });
+  }
+  return draft("property_details", { id: focus.shortId, facts: text });
 }
 
 /**

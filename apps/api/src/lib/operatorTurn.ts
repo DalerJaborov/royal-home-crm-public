@@ -13,7 +13,7 @@ import { prisma } from "../db.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
 import type { LeadOnlyConfig } from "../ai/leadOnlyMode.js";
-import { operatorPriceText, operatorWhenText } from "../ai/operator/phrases.js";
+import { operatorPriceText, operatorSafeLandmark, operatorWhenText } from "../ai/operator/phrases.js";
 import { readOperatorState } from "../ai/operator/state.js";
 import type { OperatorAction, OperatorChannel, OperatorContext, OperatorPropertyFocus, OperatorState } from "../ai/operator/types.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
@@ -43,8 +43,13 @@ async function focusOf(propertyId: string | null, channel: string): Promise<Oper
   if (!propertyId) return null;
   const facts = await readCustomerPropertyFacts(propertyId, channel).catch(() => null);
   if (!facts) return null;
+  const sold = facts.availability === "SOLD";
+  // Ориентир — только для «подробнее» и только безопасной короткой фразой (operatorSafeLandmark: без цифр, без номера дома).
+  const landmark = sold ? null : await prisma.property.findUnique({ where: { id: propertyId }, select: { landmark: true } })
+    .then(row => operatorSafeLandmark(row?.landmark)).catch(() => null);
   return { propertyId, shortId: facts.shortId, priceText: facts.price ? operatorPriceText(facts.price, facts.currency) : null,
-    sold: facts.availability === "SOLD", place: facts.availability === "SOLD" ? null : facts.publicAddress ?? null };
+    sold, place: sold ? null : facts.publicAddress ?? null,
+    characteristics: sold ? null : facts.characteristics ?? null, landmark };
 }
 
 /** Открытые вакансии и включён ли приём вакансий (Настройки: botCanHandleVacancies → путь рекрутёра). */
