@@ -40,6 +40,8 @@ export interface AssistantSettingsSnapshot {
   maxRounds: number;
   /** Срок одного ответа, мс — Settings.aiAssistantDeadlineSec, в пределах. */
   deadlineMs: number;
+  /** Рубильник реестра строек (Settings.constructionRegistryEnabled): раздел промта про реестр. Тот же кэш на 15 с: отдельного чтения Settings на ход нет. */
+  registryEnabled: boolean;
 }
 
 interface CacheEntry<T> {
@@ -80,12 +82,12 @@ async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
   const base = { aiAssistantEnabled: true, groundedSearchEnabled: true, semanticSearchEnabled: true } as const;
   let row: {
     aiAssistantEnabled: boolean; groundedSearchEnabled: boolean; semanticSearchEnabled: boolean;
-    aiAssistantMaxRounds?: number; aiAssistantDeadlineSec?: number;
+    aiAssistantMaxRounds?: number; aiAssistantDeadlineSec?: number; constructionRegistryEnabled?: boolean;
   } | null;
   try {
     row = await prisma.settings.findUnique({
       where: { id: "singleton" },
-      select: { ...base, aiAssistantMaxRounds: true, aiAssistantDeadlineSec: true },
+      select: { ...base, aiAssistantMaxRounds: true, aiAssistantDeadlineSec: true, constructionRegistryEnabled: true },
     });
   } catch (err) {
     // Код выкачен раньше миграции (или она не дошла): ответ не роняем — шаги и срок по умолчанию,
@@ -105,6 +107,7 @@ async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
     semanticSearchEnabled: row?.semanticSearchEnabled ?? false,
     maxRounds: clampAssistantLimit(row?.aiAssistantMaxRounds, ASSISTANT_MAX_ROUNDS),
     deadlineMs: clampAssistantLimit(row?.aiAssistantDeadlineSec, ASSISTANT_DEADLINE_SEC) * 1000,
+    registryEnabled: row?.constructionRegistryEnabled !== false,
   };
 }
 

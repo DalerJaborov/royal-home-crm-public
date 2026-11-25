@@ -14,12 +14,14 @@ import {
   type ConversationMessage,
   type ClientKind,
   type ClientSource,
+  uploadErrorBody,
 } from "@royal-home/shared";
 import { loadClientDisplayLabels, type ClientLabel } from "../lib/clientDisplayLabel.js";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { agentSender, deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../lib/conversationDelivery.js";
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
+import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { chatScopeAgentId, conversationBelongsTo } from "../lib/chatScope.js";
 import { conversationWaitingParts, waitingForHumanSql, type WaitingSqlParts } from "../lib/inboxWaiting.js";
@@ -28,7 +30,18 @@ import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
 import { listAccounts } from "../messengers/accounts.js";
 import { voiceMessageUpload, mediaMessageUpload } from "../upload.js";
-import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, assertOwnChunkedUpload, chunkedUploadOwner } from "../lib/chunkedUploadSessions.js";
+import {
+  cancelOutgoingMediaJob,
+  enqueueOutgoingMedia,
+  normalizeOutgoingMime,
+  outgoingMediaCompressOn,
+  outgoingMediaJobView,
+  outgoingMediaSpoolDir,
+  retryOutgoingMediaJob,
+} from "../lib/outgoingMediaJobs.js";
+import { sendUploadError } from "../lib/uploadHttp.js";
+import { runUploadCompletion } from "../lib/uploadCompletion.js";
 import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
@@ -181,6 +194,8 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
   const attachmentsAllowed = can(req, "messages.viewAttachments");
   let clientId: string | null = null;
   let clientDetails: { id: string; shortId: number; fullName: string; phone: string | null } | null = null;
+  /** За кем закреплён клиент диалога — для прямых ссылок на вложения (canOpenChatAttachments). */
+  let ownerAgentId: string | null | undefined;
   let sources: Array<{ id: string; kind: "bot" | "telegram" | "telegram-direct"; channel: string; name: string | null; messages: unknown; pausedUntil: Date | null; readAt: Date | null; createdAt: Date; lastMessageAt: Date | null }> = [];
 
   if (key.startsWith("client:")) {
@@ -191,6 +206,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Диалог не найден" });
     }
     clientDetails = client;
+    ownerAgentId = client.assignedAgentId;
     const canReadAcceptedSources = !ownAgentId || (client.assignedAgentId === ownAgentId && !!client.acceptedAt);
     const [bots, telegrams, direct] = await Promise.all([
       prisma.botConversation.findMany({ where: { clientId, ...(ownAgentId ? ownBotConversationWhere(ownAgentId) : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, channel: true, name: true, messages: true, pausedUntil: true, readAt: true, createdAt: true, lastMessageAt: true } }),
@@ -216,6 +232,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     }
     clientId = direct.clientId;
     if (direct.client) clientDetails = direct.client;
+    ownerAgentId = direct.client && !direct.client.deletedAt ? direct.client.assignedAgentId : undefined;
     sources = [{
       id: direct.id, kind: "telegram-direct", channel: "TELEGRAM_DIRECT",
       name: direct.username ? `@${direct.username}` : null, messages: direct.messages,
@@ -244,12 +261,13 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
     return { id, channel: canSeeOrigin ? source.channel : null, canReply: source.kind !== "telegram-direct", pausedUntil: source.pausedUntil?.toISOString() ?? null };
   });
+  const signedLinks = attachmentLinkSigner(req, ownerAgentId);
   const messages: Array<GroupMessage & { sourceOrder: number }> = [];
   for (const [sourceOrder, source] of sources.entries()) {
     const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
     if (!Array.isArray(source.messages)) continue;
     for (const [sourceMessageIndex, rawMessage] of source.messages.entries()) {
-      const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+      const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone, signedLinks);
       if (!message) continue;
       messages.push({
         ...message,
@@ -1421,6 +1439,16 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
    */
   const canSeeOrigin = can(req, "clients.viewOrigin");
   const canSeePhoneDetail = can(req, "clients.viewPhone");
+  // Прямые ссылки на вложения — тем же правилом, что маршрут выдачи файла
+  // (право + свой клиент или clients.viewAll). Лишний запрос — только тем, у
+  // кого нет clients.viewAll, и только у диалога с клиентом.
+  const conversationClientId = conversation.client?.id ?? null;
+  const owner = conversationClientId && !can(req, "clients.viewAll")
+    ? await prisma.client.findUnique({ where: { id: conversationClientId }, select: { assignedAgentId: true, deletedAt: true } })
+    : null;
+  const signedLinks = can(req, "clients.viewAll")
+    ? attachmentLinkSigner(req, null)
+    : attachmentLinkSigner(req, owner && !owner.deletedAt ? owner.assignedAgentId : undefined);
   const shown = withHiddenConversationOrigin(
     {
       channel: conversation.channel,
@@ -1493,7 +1521,8 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
     messages: presentMessages(
       conversation.messages,
       can(req, "messages.viewAttachments"),
-      can(req, "clients.viewPhone")
+      can(req, "clients.viewPhone"),
+      signedLinks
     ),
     /** Что бот знает о человеке вообще — см. lib/contactProfileView.ts. */
     contact,
@@ -1663,7 +1692,9 @@ conversationsRouter.post("/:id/reply-media", requireAuth, anyParams(mediaMessage
   }
 
   const file = { path: req.file.path, size: req.file.size, mimetype: req.file.mimetype, originalname: req.file.originalname };
-  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+  const outcome = (await outgoingMediaCompressOn())
+    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption })
+    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
   res.status(outcome.status).json(outcome.body);
 });
 
@@ -1683,20 +1714,98 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  let assembled: { tmpPath: string; sizeBytes: number; originalName: string; contentType: string | null };
+  const sessionId = parsed.data.sessionId;
+  const agentId = req.agent!.id;
   try {
-    assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId: parsed.data.sessionId, agentId: req.agent!.id });
+    await assertOwnChunkedUpload({ kind: "conversation-media", sessionId, agentId });
+    // Сборка — lib/uploadCompletion.ts: части убираются только после доставки, повтор отдаёт
+    // тот же итог (клиенту не уйдёт дубль), `X-Upload-Async: 1` — ответ 202 сразу.
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId,
+      owner: chunkedUploadOwner(agentId),
+      what: "файл в переписку",
+      work: async (setPhase, ctx) => {
+        // Прошлую попытку оборвал перезапуск посреди отправки — файл мог уже уйти клиенту.
+        // Второй раз не шлём (дубль клиенту хуже, чем просьба проверить переписку).
+        if (ctx.interruptedInProcessing) {
+          return {
+            status: 409,
+            body: uploadErrorBody("ALREADY_ASSEMBLED", {
+              message: "Отправка прервалась при перезапуске сервера — проверьте переписку: если файла там нет, отправьте его заново",
+            }),
+            finalize: true,
+          };
+        }
+        // Сжатие включено — файл склеивается сразу в спул очереди отправки (общий том api и worker).
+        const queued = await outgoingMediaCompressOn();
+        const assembled = await assembleChunkedUpload({
+          kind: "conversation-media",
+          sessionId,
+          agentId,
+          ...(queued ? { destDir: outgoingMediaSpoolDir() } : {}),
+        });
+        setPhase("processing");
+        const file = {
+          path: assembled.tmpPath,
+          size: assembled.sizeBytes,
+          mimetype: normalizeOutgoingMime(assembled.contentType, assembled.originalName),
+          originalname: assembled.originalName,
+        };
+        // Очередь забирает файл себе и убирает его сама; deliverReplyMedia убирает временный файл в любом исходе.
+        const outcome = queued
+          ? await enqueueOutgoingMedia({ agentId, conversationId: req.params.id, file, caption: parsed.data.caption })
+          : await deliverReplyMedia(agentId, req.params.id, file, parsed.data.caption);
+        return { ...outcome, finalize: outcome.status < 500 };
+      },
+    });
   } catch (err) {
-    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
+    if (sendUploadError(res, err, "файл в переписку")) return;
     throw err;
   }
-  const file = {
-    path: assembled.tmpPath,
-    size: assembled.sizeBytes,
-    mimetype: assembled.contentType || "application/octet-stream",
-    originalname: assembled.originalName,
-  };
-  const outcome = await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+});
+
+/**
+ * Состояние отправки фото/видео (25.11.2026, lib/outgoingMediaJobs.ts): экран спрашивает раз в
+ * пару секунд, пока пузырь «Сжимаем… / Отправляем…». Своё задание видит отправивший сотрудник.
+ */
+conversationsRouter.get("/:id/media-jobs/:jobId", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) } });
+  if (!job || job.conversationId !== req.params.id || job.agentId !== req.agent!.id) {
+    return res.status(404).json({ error: "Отправка не найдена" });
+  }
+  res.json(outgoingMediaJobView(job));
+});
+
+/** Незавершённые и упавшие за сутки отправки сотрудника в этой переписке — пузыри после перезагрузки вкладки. */
+conversationsRouter.get("/:id/media-jobs", requireAuth, async (req, res) => {
+  const jobs = await prisma.outgoingMediaJob.findMany({
+    where: {
+      conversationId: req.params.id,
+      agentId: req.agent!.id,
+      status: { in: ["QUEUED", "PREPARING", "SENDING", "FAILED"] },
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+  });
+  res.json({ jobs: jobs.map(outgoingMediaJobView) });
+});
+
+/** «Повторить» упавшую отправку — исходник ещё на сервере, загружать заново не нужно. */
+conversationsRouter.post("/:id/media-jobs/:jobId/retry", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { conversationId: true } });
+  if (!job || job.conversationId !== req.params.id) return res.status(404).json({ error: "Отправка не найдена" });
+  const outcome = await retryOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
+  res.status(outcome.status).json(outcome.body);
+});
+
+/** «Отменить» — пока файл не начал уходить клиенту. */
+conversationsRouter.delete("/:id/media-jobs/:jobId", requireAuth, async (req, res) => {
+  const job = await prisma.outgoingMediaJob.findUnique({ where: { id: String(req.params.jobId) }, select: { conversationId: true } });
+  if (!job || job.conversationId !== req.params.id) return res.status(404).json({ error: "Отправка не найдена" });
+  const outcome = await cancelOutgoingMediaJob(String(req.params.jobId), req.agent!.id);
   res.status(outcome.status).json(outcome.body);
 });
 
@@ -1710,6 +1819,16 @@ async function deliverReplyMedia(
   if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
     await fs.rm(file.path, { force: true });
     return { status: 400, body: { error: "Допустимы только изображения или видео" } };
+  }
+  // Прежний путь (сжатие выключено) HEIC не перекодирует, а канал его не примет. Раньше такой
+  // файл отбивался ещё на входе (пустой тип в Chrome), теперь тип узнаётся по расширению — отказ
+  // тот же, сразу и с понятной причиной, а не «не удалось отправить» после загрузки в R2.
+  if (/^image\/hei[cf]/i.test(file.mimetype)) {
+    await fs.rm(file.path, { force: true });
+    return {
+      status: 400,
+      body: { error: "Фото HEIC без сжатия канал не примет — отправьте JPG или включите в Настройках «Фото и видео клиенту — как в WhatsApp»" },
+    };
   }
   const isTelegram = rawId.startsWith(TG_PREFIX);
   const conversation = isTelegram

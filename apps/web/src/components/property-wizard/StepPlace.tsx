@@ -1,6 +1,6 @@
 import { PROPERTY_WIZARD_WARNING_CONFIRM, type PropertyWizardWarningField, type PropertyWizardWarnings } from "@royal-home/shared";
 import { WizardWarning } from "./WizardWarning";
-import { Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { District } from "../../types";
 import { DISTRICT_COORDS, districtCenter } from "../../lib/districtCoords";
 import { api } from "../../lib/api";
@@ -54,6 +54,7 @@ export function StepPlace({
   districtsLoading,
   onChange,
   mapNote,
+  registrySlot,
   warnings = {},
   onConfirmWarning,
 }: {
@@ -64,6 +65,8 @@ export function StepPlace({
   onChange: (patch: Partial<WizardValues>) => void;
   /** Строка под картой от мастера — «точку по фото поставили на дом …». */
   mapNote?: string | null;
+  /** «Застройщик и разрешение» по точке (реестр строек, 25.11.2026): сразу под картой и адресом. */
+  registrySlot?: ReactNode;
   /** Предупреждения шага (не ошибки): адрес из одного слова (21.11.2026). */
   warnings?: PropertyWizardWarnings;
   onConfirmWarning?: (field: PropertyWizardWarningField) => void;
@@ -344,6 +347,8 @@ export function StepPlace({
           </button>
         )}
       </section>
+
+      {registrySlot && <section className="blk" data-testid="wizard-registry">{registrySlot}</section>}
 
       <section className="blk">
         <LandmarkField

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import os from "node:os";
 
 /**
  * Общая обёртка над ffmpeg/ffprobe — вместо шести независимых копий шаблона
@@ -41,6 +42,11 @@ export interface FfmpegRunOptions {
    *  `stderrTail` (800 символов по умолчанию, для текста ошибки) обрежет
    *  почти все события. Нужен полный текст — не только на отказ. */
   captureFullStderr?: boolean;
+  /** Пониженный приоритет процесса (nice 10): фоновое сжатие файлов переписки
+   *  не должно отнимать процессор у разбора звонков и ответов бота (25.11.2026). */
+  lowPriority?: boolean;
+  /** Куски stdout по мере прихода — для `-progress pipe:1` (проценты сжатия). */
+  onStdoutChunk?: (chunk: string) => void;
 }
 
 export interface FfmpegResult {
@@ -88,10 +94,28 @@ export function runFfmpeg(options: FfmpegRunOptions): Promise<FfmpegResult> {
   const startedAt = Date.now();
 
   return new Promise<FfmpegResult>((resolve, reject) => {
+    // Уже отменено — процесс не запускаем вовсе (ревью 25.11.2026): иначе отменённое сжатие
+    // успевало стартовать и жило до первого события abort, которого больше не будет.
+    if (options.signal?.aborted) {
+      reject(
+        new FfmpegError(`ffmpeg (${options.label}) отменён`, {
+          label: options.label, code: null, signal: null, timedOut: false, aborted: true, stderrTail: "",
+        })
+      );
+      return;
+    }
+    const wantStdout = Boolean(options.captureStdout || options.onStdoutChunk);
     const proc = spawn(bin, options.args, {
       cwd: options.cwd,
-      stdio: ["ignore", options.captureStdout ? "pipe" : "ignore", "pipe"],
+      stdio: ["ignore", wantStdout ? "pipe" : "ignore", "pipe"],
     });
+    if (options.lowPriority && proc.pid) {
+      try {
+        os.setPriority(proc.pid, 10);
+      } catch {
+        /* нет прав или платформа не умеет — работаем с обычным приоритетом */
+      }
+    }
 
     let stdout = "";
     let stderr = "";
@@ -115,8 +139,12 @@ export function runFfmpeg(options: FfmpegRunOptions): Promise<FfmpegResult> {
       options.signal?.removeEventListener("abort", onAbort);
     };
 
-    if (options.captureStdout) {
-      proc.stdout?.on("data", (chunk) => (stdout += chunk.toString()));
+    if (wantStdout) {
+      proc.stdout?.on("data", (chunk) => {
+        const text = chunk.toString();
+        if (options.captureStdout) stdout += text;
+        options.onStdoutChunk?.(text);
+      });
     }
     proc.stderr?.on("data", (chunk) => (stderr += chunk.toString()));
 

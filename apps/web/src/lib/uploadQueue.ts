@@ -10,6 +10,11 @@ import { registerWork } from "./workGuard";
 import { uploadClipVideo } from "./clipVideoUpload";
 import type { ChunkedSessionHolder } from "./chunkedUpload";
 import { assertFitsSingleRequest } from "./singleRequestLimit";
+import { MAX_RETRY_ATTEMPTS, planServerRetry, retryDelayMs } from "./uploadRetry";
+import { holdScreenAwake } from "./upload/wakeLock";
+import { isOffline, retryAfterFromXhr, sleepAbortable, waitForOnline } from "./upload/network";
+import { probeReadable, readFailureMessage, type ReadCandidate, type ReadProbeResult } from "./upload/readProbe";
+import { giveUpMessage, zeroCauseLabel, zeroCauseMessage, type ZeroCause } from "./upload/progressText";
 
 /**
  * Очередь загрузки фотографий и видео: прогресс видно, ничего не пропадает.
@@ -87,8 +92,9 @@ export interface StoredTask {
   nextAttemptAt?: number;
 }
 
-/** То же задание без файлов — всё, что нужно экрану. */
-export type UploadTaskView = Omit<StoredTask, "files">;
+/** То же задание без файлов — всё, что нужно экрану. `volatile` — задание не влезло в
+ *  хранилище телефона и живёт только во вкладке: закрывать её нельзя (находка 9). */
+export type UploadTaskView = Omit<StoredTask, "files"> & { volatile?: boolean };
 
 export interface UploadQueueState {
   tasks: UploadTaskView[];
@@ -171,14 +177,28 @@ export function batchPhotos(files: File[], maxCount = PHOTO_BATCH_SIZE, maxBytes
 
 const DB_NAME = "royal-home-uploads";
 const STORE = "tasks";
-const DB_VERSION = 1;
-
-/** Пауза перед повтором: 5с, 10с, 20с… но не длиннее пяти минут. */
-export function retryDelayMs(attempts: number): number {
-  return Math.min(5_000 * 2 ** Math.max(0, attempts - 1), 5 * 60_000);
-}
+/**
+ * ФАЙЛЫ — ОТДЕЛЬНО ОТ ЗАДАНИЯ (версия 2, 25.11.2026, находка 2).
+ *
+ * В версии 1 задание лежало одной записью вместе с файлами, и КАЖДАЯ смена статуса
+ * («грузится» → «ждёт повтора» → «грузится»…) перекладывала запись целиком. Chromium
+ * при каждой такой записи копирует блоб заново: ролик 271 МБ — 271 МБ на каждый статус.
+ * Квота кончалась, браузер отказывал записи («Error preparing Blob/File data…») и затем
+ * чтению — вероятный корень «Телефон не даёт прочитать файл… попытка 1/10» на Android.
+ *
+ * Теперь `tasks` — только метаданные (их и правит каждый статус), `blobs` — файлы по
+ * ключу `<id задания>:<номер файла>`, кладутся ОДИН раз при постановке. Задания версии 1
+ * (файлы внутри записи) читаются как есть и переезжают при первой правке статуса или при
+ * старте очереди (migrateLegacyUploadTasks) — без потери незавершённых.
+ */
+const BLOBS = "blobs";
+const DB_VERSION = 2;
 
 /**
+ * Пауза перед повтором (5 с … 5 мин) и потолок попыток живут в lib/uploadRetry.ts
+ * с 25.11.2026: то же расписание берёт очередь мастера (lib/draftUploads.ts).
+ * Здесь — переизлучение, чтобы прежние импорты не менялись.
+ *
  * Потолок автоматических попыток для «повторяемого» отказа (найдено 17.09.2026:
  * объект ОБ-000095 у Нозы — 112 попыток за 6,5 часов, ни одна не прошла).
  *
@@ -195,7 +215,7 @@ export function retryDelayMs(attempts: number): number {
  * Дальше — это уже не сеть, а сам файл, и агенту нужно увидеть отказ и решить
  * (обычно: убрать и переснять/выбрать фото заново).
  */
-export const MAX_RETRY_ATTEMPTS = 10;
+export { MAX_RETRY_ATTEMPTS, retryDelayMs };
 
 // ─────────────────────────── хранилище ───────────────────────────
 
@@ -205,11 +225,40 @@ function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     const attempt = new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
+      // 1 → 2 только заводит хранилище файлов: перенос данных — отдельными транзакциями
+      // (по заданию), чтобы отказ квоты на одном ролике не оборвал обновление базы целиком.
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: "id" });
+        if (!req.result.objectStoreNames.contains(BLOBS)) req.result.createObjectStore(BLOBS);
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("IndexedDB недоступна"));
+      // Старая вкладка со схемой v1 держит базу открытой и блокирует обновление до v2:
+      // без этого обещание висело бы вечно, а очередь молча стояла (ревью 26.11.2026).
+      // Отказываем понятно и забываем попытку (см. ниже) — следующий вызов попробует заново;
+      // запрос открытия остаётся в браузере и сам закроет своё соединение, если успеет позже.
+      let settled = false;
+      req.onblocked = () => {
+        settled = true;
+        reject(new Error("Хранилище загрузок занято другой вкладкой приложения — закройте её и повторите"));
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        // Другая вкладка просит обновить схему — отпускаем базу и забываем соединение,
+        // иначе уже НАША вкладка заблокирует её (то же самое, только с другой стороны).
+        db.onversionchange = () => {
+          db.close();
+          if (dbPromise === attempt) dbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        settled = true;
+        reject(req.error ?? new Error("IndexedDB недоступна"));
+      };
     });
     // Неудачную попытку не запоминаем: приватный режим или запрет хранилища —
     // состояние временное, и следующий вызов обязан попробовать заново, а не
@@ -223,20 +272,39 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+/** Транзакция по хранилищам; обещание исполняется по её завершению, отказ — целиком. */
+function txRun<T>(stores: string[], mode: IDBTransactionMode, body: (t: IDBTransaction) => () => T): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const transaction = db.transaction(STORE, mode);
-        const request = run(transaction.objectStore(STORE));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error("Ошибка хранилища загрузок"));
+        const transaction = db.transaction(stores, mode);
+        let result: () => T = () => undefined as T;
+        transaction.oncomplete = () => resolve(result());
+        transaction.onerror = () => reject(transaction.error ?? new Error("Ошибка хранилища загрузок"));
         // Chromium отказывает записи блоба («Error preparing Blob/File data to be
         // stored in object store») не ошибкой запроса, а обрывом транзакции.
-        transaction.onabort = () => reject(transaction.error ?? request.error ?? new Error("Ошибка хранилища загрузок"));
+        transaction.onabort = () => reject(transaction.error ?? new Error("Ошибка хранилища загрузок"));
+        result = body(transaction);
       })
   );
 }
+
+/** Запись задания в `tasks` (версия 2): без файлов, с их числом. У версии 1 `files` лежат внутри. */
+type StoredTaskMeta = Omit<StoredTask, "files"> & { files?: Blob[]; fileCount?: number };
+
+const blobKey = (taskId: string, index: number) => `${taskId}:${index}`;
+
+function metaOf(task: StoredTask): StoredTaskMeta {
+  const { files, ...meta } = task;
+  return { ...meta, fileCount: files.length };
+}
+
+/**
+ * Исходные файлы заданий, поставленных в ЭТОЙ вкладке (находка 1, 25.11.2026): если копия
+ * в IndexedDB не читается (Android, ролик из галереи), вторая попытка чтения — по исходнику,
+ * который человек только что выбрал и который у вкладки ещё на руках.
+ */
+const originalFiles = new Map<string, Blob[]>();
 
 /**
  * Задания, которые не влезли в IndexedDB (найдено 22.09.2026: видео к объекту
@@ -254,10 +322,37 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
  */
 const volatileTasks = new Map<string, StoredTask>();
 
+/** Все записи `tasks` и все файлы `blobs` одной транзакцией (блоб из базы — ссылка, не копия). */
+function readStored(): Promise<StoredTask[]> {
+  return txRun([STORE, BLOBS], "readonly", (t) => {
+    let metas: StoredTaskMeta[] = [];
+    const blobs = new Map<string, Blob>();
+    const all = t.objectStore(STORE).getAll();
+    all.onsuccess = () => {
+      metas = (all.result as StoredTaskMeta[]) ?? [];
+    };
+    const cursor = t.objectStore(BLOBS).openCursor();
+    cursor.onsuccess = () => {
+      const c = cursor.result;
+      if (!c) return;
+      blobs.set(String(c.key), c.value as Blob);
+      c.continue();
+    };
+    return () =>
+      metas.map((m) => {
+        const { fileCount, files, ...rest } = m;
+        // Версия 1 — файлы внутри; версия 2 — по ключам. Пропавший файл остаётся «дырой»
+        // (undefined) — run() её увидит и попробует исходник или скажет человеку.
+        const resolved = files ?? Array.from({ length: fileCount ?? 0 }, (_, i) => blobs.get(blobKey(m.id, i)) as Blob);
+        return { ...rest, files: resolved } as StoredTask;
+      });
+  });
+}
+
 async function readAll(): Promise<StoredTask[]> {
   let stored: StoredTask[] = [];
   try {
-    stored = await tx<StoredTask[]>("readonly", (s) => s.getAll() as IDBRequest<StoredTask[]>);
+    stored = await readStored();
   } catch {
     // Хранилище недоступно целиком (приватный режим) — очередь живёт на памяти.
     if (volatileTasks.size === 0) throw new Error("Хранилище загрузок недоступно");
@@ -268,26 +363,128 @@ async function readAll(): Promise<StoredTask[]> {
   return [...byId.values()];
 }
 
-async function put(task: StoredTask): Promise<void> {
-  if (!volatileTasks.has(task.id)) {
-    try {
-      await tx("readwrite", (s) => s.put(task) as IDBRequest<IDBValidKey>);
-      return;
-    } catch {
-      // Не записалось — держим задание в памяти, файл всё равно отправится.
-    }
+/** Новое задание: файлы — в `blobs` (один раз), метаданные — в `tasks`, одной транзакцией. */
+async function putNew(task: StoredTask): Promise<void> {
+  try {
+    await txRun([STORE, BLOBS], "readwrite", (t) => {
+      const blobs = t.objectStore(BLOBS);
+      task.files.forEach((file, i) => blobs.put(file, blobKey(task.id, i)));
+      t.objectStore(STORE).put(metaOf(task));
+      return () => undefined;
+    });
+  } catch {
+    // Не записалось (квота, гигабайтный ролик) — держим задание в памяти, файл всё равно уйдёт.
+    volatileTasks.set(task.id, task);
   }
-  volatileTasks.set(task.id, task);
+}
+
+/**
+ * Смена статуса/попыток — ТОЛЬКО метаданные, файлы не перекладываются. Задание версии 1
+ * (файлы внутри записи) при этом один раз переезжает: файлы — в `blobs`.
+ */
+async function put(task: StoredTask): Promise<void> {
+  if (volatileTasks.has(task.id)) {
+    volatileTasks.set(task.id, task);
+    return;
+  }
+  try {
+    await txRun([STORE, BLOBS], "readwrite", (t) => {
+      const tasks = t.objectStore(STORE);
+      const req = tasks.get(task.id);
+      req.onsuccess = () => {
+        const existing = req.result as StoredTaskMeta | undefined;
+        // Задание уже убрали (человек нажал «убрать», пока шла попытка) — статус его не
+        // воскрешает: без файлов в хранилище оно было бы пустой строкой «не ушло».
+        if (!existing) return;
+        if (existing.files) existing.files.forEach((file, i) => t.objectStore(BLOBS).put(file, blobKey(task.id, i)));
+        tasks.put({ ...metaOf(task), fileCount: existing?.files?.length ?? existing?.fileCount ?? task.files.length });
+      };
+      return () => undefined;
+    });
+    return;
+  } catch {
+    /* ниже — запасные пути */
+  }
+  // Переезд файла не влез (квота): пишем по-старому, одной записью, — статус важнее экономии.
+  try {
+    await txRun([STORE], "readwrite", (t) => {
+      t.objectStore(STORE).put({ ...metaOf(task), files: task.files });
+      return () => undefined;
+    });
+    return;
+  } catch {
+    // Хранилище не пишет вовсе — статус держим в памяти, иначе очередь брала бы то же
+    // задание по кругу (статус «не ушло» не записан, оно снова «ждёт»).
+    volatileTasks.set(task.id, task);
+  }
 }
 
 async function drop(id: string): Promise<void> {
   const wasVolatile = volatileTasks.delete(id);
+  originalFiles.delete(id);
   try {
-    await tx("readwrite", (s) => s.delete(id) as unknown as IDBRequest<undefined>);
+    await txRun([STORE, BLOBS], "readwrite", (t) => {
+      const tasks = t.objectStore(STORE);
+      const req = tasks.get(id);
+      req.onsuccess = () => {
+        const existing = req.result as StoredTaskMeta | undefined;
+        const count = existing?.fileCount ?? 0;
+        for (let i = 0; i < count; i++) t.objectStore(BLOBS).delete(blobKey(id, i));
+        tasks.delete(id);
+      };
+      return () => undefined;
+    });
   } catch (err) {
     // Задание, которого в хранилище и не было, удалять оттуда не нужно.
     if (!wasVolatile) throw err;
   }
+}
+
+/**
+ * Перенос заданий версии 1 (файлы внутри записи) в раскладку версии 2 — при старте очереди,
+ * по одному заданию на транзакцию: не влез один ролик — остальные переезжают, а он живёт
+ * по-старому до своей следующей правки статуса.
+ */
+export async function migrateLegacyUploadTasks(): Promise<number> {
+  let legacy: StoredTaskMeta[] = [];
+  try {
+    legacy = await txRun([STORE], "readonly", (t) => {
+      let rows: StoredTaskMeta[] = [];
+      const all = t.objectStore(STORE).getAll();
+      all.onsuccess = () => {
+        rows = ((all.result as StoredTaskMeta[]) ?? []).filter((r) => Array.isArray(r.files));
+      };
+      return () => rows;
+    });
+  } catch {
+    return 0;
+  }
+  let moved = 0;
+  for (const row of legacy) {
+    try {
+      // Строку читаем ЗАНОВО внутри этой же транзакции (ревью 26.11.2026): список выше собран
+      // отдельной транзакцией, и пока шёл перенос соседних заданий, run() мог сменить этому
+      // статус или убрать его вовсе — запись по устаревшей строке воскресила бы убранное задание
+      // и затёрла бы свежий статус.
+      const did = await txRun([STORE, BLOBS], "readwrite", (t) => {
+        let written = false;
+        const get = t.objectStore(STORE).get(row.id);
+        get.onsuccess = () => {
+          const fresh = get.result as StoredTaskMeta | undefined;
+          if (!fresh || !Array.isArray(fresh.files)) return; // убрано или уже переехало
+          fresh.files.forEach((file, i) => t.objectStore(BLOBS).put(file, blobKey(row.id, i)));
+          const { files, ...meta } = fresh;
+          t.objectStore(STORE).put({ ...meta, fileCount: files!.length });
+          written = true;
+        };
+        return () => written;
+      });
+      if (did) moved++;
+    } catch {
+      /* квота — задание остаётся в версии 1, очередь его читает и так */
+    }
+  }
+  return moved;
 }
 
 // ─────────────────────────── состояние для экрана ───────────────────────────
@@ -323,7 +520,7 @@ async function refreshTasks() {
   try {
     const tasks = tasksOfAgent(await readAll(), currentAgentId())
       .sort((a, b) => a.createdAt - b.createdAt)
-      .map(({ files: _files, ...view }) => view);
+      .map(({ files: _files, ...view }) => (volatileTasks.has(view.id) ? { ...view, volatile: true } : view));
     setState({ tasks });
   } catch {
     // Хранилище недоступно — показывать нечего, но и падать не из-за чего.
@@ -351,7 +548,8 @@ export function tasksOfAgent<T extends { agentId?: string }>(tasks: T[], me: str
 }
 
 async function addTask(task: StoredTask) {
-  await put({ ...task, agentId: task.agentId ?? currentAgentId() });
+  originalFiles.set(task.id, task.files);
+  await putNew({ ...task, agentId: task.agentId ?? currentAgentId() });
   await refreshTasks();
   void run();
 }
@@ -439,29 +637,6 @@ export async function enqueueVideos(propertyId: string, files: File[], propertyS
   }
 }
 
-/**
- * Короткий ролик карточки объекта — один на объект, повторная загрузка заменяет
- * предыдущий. Сжимает сервер, поэтому здесь файл не трогаем: браузер видео
- * не пережимает, а отдать его как есть дешевле, чем не отдать вовсе.
- */
-export async function enqueueClipVideo(propertyId: string, file: File, propertyShortId?: number) {
-  await addTask({
-    id: newKey(),
-    kind: "clip",
-    propertyId,
-    propertyShortId,
-    label: file.name,
-    files: [file],
-    filenames: [file.name],
-    uploadKeys: [newKey()],
-    totalBytes: file.size,
-    status: "pending",
-    attempts: 0,
-    error: null,
-    createdAt: Date.now(),
-  });
-}
-
 /** Убрать задание руками — единственный способ потерять файл, и он осознанный. */
 export async function removeTask(id: string) {
   // Кнопка «убрать» видна только у остановленных заданий (UploadTaskRow) — то
@@ -539,6 +714,16 @@ export interface SendResult {
    *  только у отказа многочастевой докачки. */
   partsDone?: number;
   partsTotal?: number;
+  /** Сервер принял хоть одну часть ролика за этот заход — run() начинает счёт
+   *  попыток заново (lib/uploadRetry.ts::planServerRetry, 25.11.2026). */
+  progressed?: boolean;
+  /** Отчего статус 0 — сеть, тишина в канале, обрыв браузером, предел ожидания,
+   *  смена сотрудника (находка 7, 25.11.2026): для текста человеку и журнала. */
+  cause?: ZeroCause;
+  /** Сервер попросил подождать (Retry-After у 429/503), мс. */
+  retryAfterMs?: number;
+  /** Сколько байт упавшей части ушло до обрыва (0 — ни одного). */
+  failedPartSent?: number;
 }
 
 /** ApiError → тот же формат результата, что и у прямых XHR-запросов ниже:
@@ -550,13 +735,20 @@ function isPartsMismatch(data: unknown): boolean {
 }
 
 function apiErrorToResult(err: unknown): SendResult {
-  if (err instanceof ApiError) return { status: err.status, error: err.message };
+  if (err instanceof ApiError) {
+    return {
+      status: err.status,
+      error: err.message,
+      ...(err.status === 0 ? { cause: isOffline() ? ("offline" as const) : ("network" as const) } : {}),
+      ...(err.retryAfterMs != null ? { retryAfterMs: err.retryAfterMs } : {}),
+    };
+  }
   // Потолок ожидания из withDeadline ниже: не ApiError, но свой честный текст.
   if ((err as { status?: number } | null)?.status === 0 && err instanceof Error) {
-    return { status: 0, error: err.message };
+    return { status: 0, error: err.message, cause: (err as { zeroCause?: ZeroCause }).zeroCause ?? "deadline" };
   }
   // TypeError сети, обрыв до получения статуса — тот же смысл, что и XHR.onerror.
-  return { status: 0, error: "Нет связи" };
+  return { status: 0, error: "Нет связи", cause: isOffline() ? "offline" : "network" };
 }
 
 /**
@@ -609,13 +801,13 @@ export function guardXhr(xhr: XMLHttpRequest, resolve: (result: SendResult) => v
   const beat = () => {
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
-      // abort() поднимет onabort, тот и исполнит обещание — но настаиваем
-      // сами на случай, если событие не придёт.
+      // Сначала свой итог («тишина в канале»), потом abort(): иначе onabort записал бы
+      // «обрыв браузером», и журнал врал бы о причине.
+      settle({ status: 0, error: STALLED_ERROR, cause: "stall" });
       xhr.abort();
-      settle({ status: 0, error: STALLED_ERROR });
     }, STALL_MS);
   };
-  xhr.onabort = () => settle({ status: 0, error: STALLED_ERROR });
+  xhr.onabort = () => settle({ status: 0, error: STALLED_ERROR, cause: "abort" });
   return { settle, beat };
 }
 
@@ -638,7 +830,7 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
     const timer = setTimeout(
       // status 0 — тот же смысл, что у обрыва связи: очередь подождёт сети и
       // повторит круг, не тратя попыток человека.
-      () => reject(Object.assign(new Error(STALLED_ERROR), { status: 0 })),
+      () => reject(Object.assign(new Error(STALLED_ERROR), { status: 0, zeroCause: "deadline" as ZeroCause })),
       ms
     );
     promise.then(
@@ -689,6 +881,20 @@ function sendTask(task: StoredTask, token: string | null, onProgress: (loaded: n
   return sendVideoTask(task, onProgress);
 }
 
+/** Ответ сервера на XHR → итог: текст ошибки из тела, пауза из Retry-After. Один на обе отправки. */
+function xhrOutcome(xhr: XMLHttpRequest): SendResult {
+  let error: string | null = null;
+  if (xhr.status < 200 || xhr.status >= 300) {
+    try {
+      error = (JSON.parse(xhr.responseText) as { error?: string })?.error ?? null;
+    } catch {
+      error = null;
+    }
+  }
+  const retryAfterMs = retryAfterFromXhr(xhr);
+  return retryAfterMs != null ? { status: xhr.status, error, retryAfterMs } : { status: xhr.status, error };
+}
+
 /** Пачка фотографий — одним запросом, как и раньше. */
 function sendPhotoTask(task: StoredTask, token: string | null, onProgress: (loaded: number, total: number) => void) {
   return new Promise<SendResult>((resolve) => {
@@ -728,19 +934,9 @@ function sendPhotoTask(task: StoredTask, token: string | null, onProgress: (load
     xhr.upload.onload = beat;
     // Обрыв связи. status 0 — «до сервера не дошло или ответ не вернулся»:
     // повторяем, за дубли отвечает ключ отправки на сервере.
-    xhr.onerror = () => settle({ status: 0, error: "Нет связи" });
-    xhr.ontimeout = () => settle({ status: 0, error: "Загрузка заняла слишком долго" });
-    xhr.onload = () => {
-      let error: string | null = null;
-      if (xhr.status < 200 || xhr.status >= 300) {
-        try {
-          error = (JSON.parse(xhr.responseText) as { error?: string })?.error ?? null;
-        } catch {
-          error = null;
-        }
-      }
-      settle({ status: xhr.status, error });
-    };
+    xhr.onerror = () => settle({ status: 0, error: "Нет связи", cause: isOffline() ? "offline" : "network" });
+    xhr.ontimeout = () => settle({ status: 0, error: "Загрузка заняла слишком долго", cause: "deadline" });
+    xhr.onload = () => settle(xhrOutcome(xhr));
     beat();
     xhr.send(form);
   });
@@ -755,9 +951,14 @@ function putVideoPart(
   sessionId: string,
   partNumber: number,
   blob: Blob,
-  onProgress: (loaded: number) => void
+  onProgress: (loaded: number) => void,
+  signal?: AbortSignal
 ) {
   return new Promise<SendResult>((resolve) => {
+    if (signal?.aborted) {
+      resolve({ status: CANCELLED_STATUS, error: null });
+      return;
+    }
     const token = useAuthStore.getState().accessToken;
     const xhr = new XMLHttpRequest();
     // Видел ли этот запрос хоть один байт прогресса — признак того, что часть
@@ -780,19 +981,17 @@ function putVideoPart(
     };
     // Часть ушла целиком — дальше ждём запись на диск, и это тоже движение.
     xhr.upload.onload = beat;
-    xhr.onerror = () => settle({ status: 0, error: "Нет связи" });
-    xhr.ontimeout = () => settle({ status: 0, error: "Превышено время ожидания" });
-    xhr.onload = () => {
-      let error: string | null = null;
-      if (xhr.status < 200 || xhr.status >= 300) {
-        try {
-          error = (JSON.parse(xhr.responseText) as { error?: string })?.error ?? null;
-        } catch {
-          error = null;
-        }
-      }
-      settle({ status: xhr.status, error });
-    };
+    xhr.onerror = () => settle({ status: 0, error: "Нет связи", cause: isOffline() ? "offline" : "network" });
+    xhr.ontimeout = () => settle({ status: 0, error: "Превышено время ожидания", cause: "deadline" });
+    xhr.onload = () => settle(xhrOutcome(xhr));
+    signal?.addEventListener(
+      "abort",
+      () => {
+        settle({ status: CANCELLED_STATUS, error: null });
+        xhr.abort();
+      },
+      { once: true }
+    );
     beat();
     xhr.send(blob);
   });
@@ -833,7 +1032,26 @@ export interface ChunkedVideoUploadInput {
   /** Загрузка принадлежит этому сотруднику (WEB-02): если вошёл другой, ни следующая
    *  часть, ни START/COMPLETE не уходят его токеном. */
   expectAgentId?: string;
+  /**
+   * Отмена человеком (находка 10, 25.11.2026): «Отмена» у исходника прятала полосу, а
+   * байты продолжали уходить. Сигнал рвёт идущую часть и не шлёт оставшиеся.
+   */
+  signal?: AbortSignal;
+  /**
+   * Сборка файла на сервере началась (ревью 26.11.2026): с этого момента «Отмена» её не
+   * остановит — запрос мог быть уже выполнен, оборвать его на нашей стороне значит остаться
+   * в неведении, создан ролик или нет. Экран говорит человеку честно: «Сборка уже идёт».
+   */
+  onCompleting?: () => void;
+  /**
+   * Загрузка живёт только во вкладке (не в IndexedDB) — закрытие вкладки обязано
+   * переспросить (находка 9). Очередь передаёт его для заданий, не влезших в хранилище.
+   */
+  unloadLabel?: string;
 }
+
+/** Итог отменённой человеком загрузки — не ошибка: показывать и повторять нечего. */
+export const CANCELLED_STATUS = -1;
 
 /**
  * ДОКАЧКА ВИДЕО С СЕРЕДИНЫ — ОДНА ФУНКЦИЯ НА ОБА НАЗНАЧЕНИЯ (23.09.2026).
@@ -855,7 +1073,26 @@ export async function uploadVideoChunked(
   input: ChunkedVideoUploadInput,
   onProgress: (loaded: number, total: number) => void
 ): Promise<SendResult> {
-  const { propertyId, file, uploadKey, filename, purpose, completePurpose, expectAgentId } = input;
+  // Экран не гаснет, пока ролик уходит (находка 8): на iPhone блокировка рвёт запрос.
+  const releaseAwake = holdScreenAwake();
+  const unregister = input.unloadLabel
+    ? registerWork({ id: `video-upload:${input.uploadKey}`, label: input.unloadLabel, blocksUnload: true })
+    : null;
+  try {
+    return await uploadVideoChunkedInner(input, onProgress);
+  } finally {
+    releaseAwake();
+    unregister?.();
+  }
+}
+
+async function uploadVideoChunkedInner(
+  input: ChunkedVideoUploadInput,
+  onProgress: (loaded: number, total: number) => void
+): Promise<SendResult> {
+  const { propertyId, file, uploadKey, filename, purpose, completePurpose, expectAgentId, signal } = input;
+  const cancelled = (): SendResult => ({ status: CANCELLED_STATUS, error: null });
+  if (signal?.aborted) return cancelled();
 
   // Два круга: если после отправки всех частей сервер при COMPLETE ответит «не
   // все части получены» (409 — расхождение между тем, что дошло, и тем, что мы
@@ -870,10 +1107,13 @@ export async function uploadVideoChunked(
           method: "POST",
           body: { uploadKey, filename, sizeBytes: file.size, contentType: file.type || "video/mp4", purpose },
           expectAgentId,
+          // Старт идемпотентен (тот же uploadKey): оборвать его по «Отмене» безопасно.
+          signal,
         }),
         SESSION_DEADLINE_MS
       );
     } catch (err) {
+      if (signal?.aborted) return cancelled();
       return apiErrorToResult(err);
     }
 
@@ -908,11 +1148,32 @@ export async function uploadVideoChunked(
       // Части идут минутами, токен читается заново на каждую (см. putVideoPart):
       // сменился сотрудник, чужим токеном файл не досылаем, очередь повторит позже.
       if (expectAgentId && currentAgentId() !== expectAgentId) {
-        return { status: 0, error: "Сессия сменилась — продолжим после входа автора" };
+        return { status: 0, error: "Сессия сменилась — продолжим после входа автора", cause: "session-changed" };
       }
-      const result = await putVideoPart(propertyId, sessionId, n, blob, (loaded) => onProgress(confirmedBytes + loaded, file.size));
+      if (signal?.aborted) return cancelled();
+      let partSent = 0;
+      const result = await putVideoPart(
+        propertyId,
+        sessionId,
+        n,
+        blob,
+        (loaded) => {
+          partSent = loaded;
+          onProgress(confirmedBytes + loaded, file.size);
+        },
+        signal
+      );
+      if (signal?.aborted) return cancelled();
       if (result.status < 200 || result.status >= 300) {
-        partFailed = { ...result, failedPartNumber: n, failedPartBlob: blob, partsDone: partsDoneCount, partsTotal: totalParts };
+        partFailed = {
+          ...result,
+          failedPartNumber: n,
+          failedPartBlob: blob,
+          failedPartSent: partSent,
+          partsDone: partsDoneCount,
+          partsTotal: totalParts,
+          progressed: partsDoneCount > uploaded.size,
+        };
         break;
       }
       confirmedBytes += blob.size;
@@ -920,8 +1181,14 @@ export async function uploadVideoChunked(
       onProgress(confirmedBytes, file.size);
     }
     if (partFailed) return partFailed;
+    // Отменили после последней части — сборку не зовём: файл не должен «появиться» сам.
+    if (signal?.aborted) return cancelled();
 
     try {
+      // Сборку по «Отмене» НЕ рвём (ревью 26.11.2026): сервер мог её уже выполнить, и
+      // оборванный запрос оставил бы нас в неведении — «отменено», а ролик создан. Ждём
+      // настоящий ответ; вызывающий сам решает, что делать с собранным (убрать сироту).
+      input.onCompleting?.();
       const data = await withDeadline(
         api<{ id?: string }>(`/properties/${propertyId}/videos/upload-sessions/${sessionId}/complete`, {
           method: "POST",
@@ -989,6 +1256,9 @@ export function sendVideoTask(
     },
     onProgress
   ).then(async (result) => {
+    // Отмены у задания очереди нет (убирают только остановленные), но на всякий случай
+    // отменённое не выдаём за успех и не повторяем вслепую.
+    if (result.status === CANCELLED_STATUS) return { ...result, status: 0, error: STALLED_ERROR, cause: "abort" as const };
     if (result.status === 0 && result.zeroProgress && result.failedPartNumber != null) {
       const prevPart = lastZeroProgressPart.get(task.id);
       if (prevPart === result.failedPartNumber) {
@@ -1020,17 +1290,78 @@ export function sendVideoTask(
 export async function uploadVideoNow(
   propertyId: string,
   file: File,
-  onProgress: (loaded: number, total: number) => void
-): Promise<{ ok: true; videoId: string } | { ok: false; error: string }> {
+  onProgress: (loaded: number, total: number) => void,
+  /** «Отмена» рвёт отправку по-настоящему (находка 10), а не только прячет полосу. */
+  signal?: AbortSignal,
+  /** «ждём связь», «повтор через N с» — для строки прогресса. */
+  onWait?: (wait: { error: string; nextAttemptAt: number | null } | null) => void,
+  /** Сборка на сервере пошла — отменить её уже нельзя (см. ChunkedVideoUploadInput.onCompleting). */
+  onCompleting?: () => void
+): Promise<{ ok: true; videoId: string } | { ok: false; error: string; cancelled?: boolean }> {
   // purpose="raw": это сырой исходник объекта (PropertyVideo), как обычная
   // загрузка очереди — completePurpose="MONTAJER_SOURCE" лишь отменяет
   // автоматический возврат объекта на проверку (сервер это решает по нему).
-  const result = await uploadVideoChunked(
-    { propertyId, file, uploadKey: newKey(), filename: file.name, purpose: "raw", completePurpose: "MONTAJER_SOURCE" },
-    onProgress
-  );
-  if (result.status >= 200 && result.status < 300 && result.videoId) return { ok: true, videoId: result.videoId };
-  return { ok: false, error: result.error ?? "Загрузка не завершилась — попробуйте ещё раз" };
+  //
+  // Повторы (находка 10): раньше любой обрыв сразу был «честным отказом», и исходник в
+  // сотни мегабайт приходилось начинать заново. Теперь — то же расписание, что у очереди
+  // (lib/uploadRetry.ts), с тем же ключом: сервер дольёт только недостающие части.
+  const uploadKey = newKey();
+  let attempts = 0;
+  // Вкладку нельзя тихо закрыть на ВСЁ время загрузки, включая паузы 5 с … 5 мин между
+  // повторами (ревью 26.11.2026): раньше запись жила внутри одной попытки и в паузе пропадала.
+  const unregister = registerWork({ id: `video-upload:${uploadKey}`, label: "Загрузка исходника ролика", blocksUnload: true });
+  try {
+    for (;;) {
+      const result = await uploadVideoChunked(
+        { propertyId, file, uploadKey, filename: file.name, purpose: "raw", completePurpose: "MONTAJER_SOURCE", signal, onCompleting },
+        onProgress
+      );
+      // Сборка, которую «Отмена» не остановила, могла создать ролик: говорим как есть, а
+      // сироту убирает вызывающий (он знает, что человек отказался).
+      if (result.status >= 200 && result.status < 300 && result.videoId) return { ok: true, videoId: result.videoId };
+      if (result.status === CANCELLED_STATUS || signal?.aborted) return { ok: false, error: "Загрузка отменена", cancelled: true };
+      const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
+      const plan = planServerRetry(attempts, result.progressed === true);
+      attempts = plan.attempts;
+      if (!retryable || plan.delayMs === null) {
+        const error = retryable ? giveUpMessage(result.status, attempts, result.cause) : result.error ?? "Загрузка не завершилась — попробуйте ещё раз";
+        reportUploadIssue({
+          kind: "source",
+          name: file.name,
+          sizeBytes: file.size,
+          propertyLabel: "исходник для перемонтажа",
+          attempts,
+          maxAttempts: MAX_RETRY_ATTEMPTS,
+          status: result.status,
+          error,
+          online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+          fileType: file.type,
+          ...(result.cause ? { cause: zeroCauseLabel(result.cause) } : {}),
+          ...(result.failedPartNumber != null ? { partNumber: result.failedPartNumber, partSentBytes: result.failedPartSent ?? 0 } : {}),
+          partsDone: result.partsDone,
+          partsTotal: result.partsTotal,
+          final: true,
+        });
+        return { ok: false, error };
+      }
+      try {
+        if (isOffline()) {
+          onWait?.({ error: zeroCauseMessage("offline"), nextAttemptAt: null });
+          await waitForOnline(signal);
+        } else {
+          const delay = Math.max(plan.delayMs, result.retryAfterMs ?? 0);
+          onWait?.({ error: result.status === 0 ? zeroCauseMessage(result.cause) : result.error ?? httpStatusMessage(result.status), nextAttemptAt: Date.now() + delay });
+          await sleepAbortable(delay, signal);
+        }
+      } catch {
+        return { ok: false, error: "Загрузка отменена", cancelled: true };
+      }
+      onWait?.(null);
+    }
+  } finally {
+    unregister();
+  }
 }
 
 /**
@@ -1075,13 +1406,33 @@ export function pickNextPendingTask(
  * arrayBuffer()` бросает ровно на том же отказе, что и настоящая отправка,
  * только сразу, а не после начала долгой отдачи.
  */
-async function filesReadable(files: Blob[]): Promise<boolean> {
-  try {
-    for (const file of files) await file.slice(0, 65536).arrayBuffer();
-    return true;
-  } catch {
-    return false;
+/**
+ * С 25.11.2026 (находка 1) — общая проверка lib/upload/readProbe.ts: до трёх попыток
+ * с паузой 0,5/1,5 с; вторая и третья — по исходному файлу в памяти вкладки, если
+ * копия в IndexedDB не читается. Успех отдаёт те файлы, что прочитались, — их и шлём.
+ */
+export async function probeTaskFiles(
+  task: Pick<StoredTask, "id" | "files" | "filenames">,
+  originals: Blob[] | undefined,
+  fromStore: boolean,
+  probe: typeof probeReadable = probeReadable
+): Promise<{ ok: true; files: Blob[] } | { ok: false; index: number; result: Extract<ReadProbeResult, { ok: false }> }> {
+  const out: Blob[] = [];
+  const count = Math.max(task.files.length, task.filenames.length);
+  for (let i = 0; i < count; i++) {
+    const candidates: ReadCandidate[] = [];
+    const stored = task.files[i];
+    if (stored) candidates.push({ blob: stored, source: fromStore ? "idb" : "file" });
+    const original = originals?.[i];
+    if (original && original !== stored) candidates.push({ blob: original, source: "original" });
+    if (candidates.length === 0) {
+      return { ok: false, index: i, result: { ok: false, reason: "not-found", errorName: "NotFoundError", errorMessage: "файла нет в хранилище", source: "idb", attempts: 0 } };
+    }
+    const r = await probe(candidates);
+    if (!r.ok) return { ok: false, index: i, result: r };
+    out.push(r.blob);
   }
+  return { ok: true, files: out };
 }
 
 /** Подпись объекта для сообщения телеметрии (D2) — тот же формат, что и везде
@@ -1135,25 +1486,39 @@ async function run(): Promise<void> {
       if (!task) return;
 
       // D1 — файл, который телефон не даёт прочитать: сказать сразу, до
-      // начала долгой отдачи, а не через ~25 минут повторов (см. filesReadable).
-      if (!(await filesReadable(task.files))) {
-        const errorText = unreadableFileMessage(false);
-        await put({ ...task, status: "failed", attempts: task.attempts + 1, error: errorText, nextAttemptAt: undefined });
+      // начала долгой отдачи, а не через ~25 минут повторов (см. probeTaskFiles):
+      // до трёх попыток, вторая — по исходнику в памяти, причина — словами.
+      const originals = originalFiles.get(task.id);
+      const readable = await probeTaskFiles(task, originals, !volatileTasks.has(task.id));
+      if (!readable.ok) {
+        const r = readable.result;
+        const errorText = readFailureMessage(r.reason);
+        const bad = task.files[readable.index] ?? originals?.[readable.index];
+        await put({ ...task, status: "failed", error: errorText, nextAttemptAt: undefined });
         await refreshTasks();
         reportUploadIssue({
           kind: task.kind,
-          name: task.label,
-          sizeBytes: task.totalBytes,
+          name: task.filenames[readable.index] ?? task.label,
+          sizeBytes: bad?.size ?? task.totalBytes,
           propertyLabel: propertyLabel(task),
-          attempts: task.attempts + 1,
-          maxAttempts: MAX_RETRY_ATTEMPTS,
+          // Попытки ЧТЕНИЯ (3/3), а не «1/10» отправки (находка 13): на сервер файл не уходил.
+          attempts: r.attempts,
+          maxAttempts: r.attempts,
           status: 0,
           error: errorText,
-          online: typeof navigator !== "undefined" ? navigator.onLine : true,
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+          online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+          cause: "файл не читается",
+          errorName: `${r.errorName}: ${r.errorMessage}`,
+          readSource: r.source === "idb" ? "копия в IndexedDB" : r.source === "original" ? "исходный файл" : "файл",
+          fileType: bad?.type,
+          ...(bad instanceof File ? { lastModified: bad.lastModified } : {}),
+          final: true,
         });
         continue;
       }
+      // Прочитался исходник, а не копия — шлём исходник.
+      const sendable: StoredTask = readable.files.every((f, i) => f === task.files[i]) ? task : { ...task, files: readable.files };
 
       await put({ ...task, status: "uploading" });
       // Задание пошло в работу — прежний бэкофф (если баннер его показывал)
@@ -1182,17 +1547,24 @@ async function run(): Promise<void> {
         continue;
       }
       let token = useAuthStore.getState().accessToken;
-      let result = await sendTask(task, token, onSendProgress);
-      if (result.status === 401 && useAuthStore.getState().hasSession) {
-        token = await refreshAccessToken();
-        if (token) {
-          // refresh мог пройти уже под другим аккаунтом: файл А его токеном не шлём.
-          if (currentAgentId() !== me) {
-            await handBack();
-            continue;
+      // Экран не гаснет, пока файл уходит (находка 8): блокировка экрана iPhone рвёт запрос.
+      const releaseAwake = holdScreenAwake();
+      let result: SendResult;
+      try {
+        result = await sendTask(sendable, token, onSendProgress);
+        if (result.status === 401 && useAuthStore.getState().hasSession) {
+          token = await refreshAccessToken();
+          if (token) {
+            // refresh мог пройти уже под другим аккаунтом: файл А его токеном не шлём.
+            if (currentAgentId() !== me) {
+              await handBack();
+              continue;
+            }
+            result = await sendTask(sendable, token, onSendProgress);
           }
-          result = await sendTask(task, token, onSendProgress);
         }
+      } finally {
+        releaseAwake();
       }
 
       setState({ activeId: null, activeLoaded: 0, activeTotal: 0, activeSpeedBps: null });
@@ -1223,12 +1595,19 @@ async function run(): Promise<void> {
        * Такое задание останавливается и ЖДЁТ человека, а не исчезает молча.
        */
       const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
-      const attempts = task.attempts + 1;
+      // Ролик, у которого за этот заход ушла хоть одна часть, — не «файл
+      // повредился»: счёт начинается заново (lib/uploadRetry.ts::planServerRetry).
+      const attempts = retryable ? planServerRetry(task.attempts, result.progressed === true).attempts : task.attempts + 1;
       const giveUp = attempts >= MAX_RETRY_ATTEMPTS;
-      const errorText = giveUp
-        ? `Не ушло за ${attempts} попыток — файл мог повредиться при сохранении. Уберите и добавьте заново.`
-        : result.error ?? (retryable ? "Связь прервалась — попробуем ещё раз" : httpStatusMessage(result.status));
-      const delay = retryDelayMs(attempts);
+      // Текст — по причине (находка 13): «файл мог повредиться» печаталось и при сбое
+      // сети или 502, хотя файл был цел. Обрыв — словами, отчего именно.
+      const errorText = giveUp && retryable
+        ? giveUpMessage(result.status, attempts, result.cause)
+        : result.status === 0
+          ? zeroCauseMessage(isOffline() ? "offline" : result.cause)
+          : result.error ?? (retryable ? "Связь прервалась — попробуем ещё раз" : httpStatusMessage(result.status));
+      // Пауза не короче той, что попросил сервер (Retry-After у 429/503).
+      const delay = Math.max(retryDelayMs(attempts), result.retryAfterMs ?? 0);
       const nextAttemptAt = retryable && !giveUp ? Date.now() + delay : undefined;
       await put({ ...task, status: retryable && !giveUp ? "pending" : "failed", attempts, error: errorText, nextAttemptAt });
       await refreshTasks();
@@ -1250,10 +1629,16 @@ async function run(): Promise<void> {
           maxAttempts: MAX_RETRY_ATTEMPTS,
           status: result.status,
           error: errorText,
-          online: typeof navigator !== "undefined" ? navigator.onLine : true,
+          online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
           partsDone: result.partsDone,
           partsTotal: result.partsTotal,
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+          fileType: sendable.files[0]?.type,
+          ...(result.cause ? { cause: zeroCauseLabel(result.cause) } : {}),
+          ...(result.failedPartNumber != null
+            ? { partNumber: result.failedPartNumber, partSentBytes: result.failedPartSent ?? 0, partBytes: result.failedPartBlob?.size }
+            : {}),
+          final: !retryable || giveUp,
         });
       }
 
@@ -1297,7 +1682,9 @@ const HEARTBEAT_MS = 60_000;
 
 /** Запуск при старте приложения. Вызывать один раз — из main.tsx. */
 export function startUploadQueue() {
-  void refreshTasks().then(() => {
+  // Задания версии 1 (файлы внутри записи) — в раскладку версии 2 (находка 2): по одному на
+  // транзакцию, до первого прохода очереди, чтобы смены статуса уже не перекладывали файлы.
+  void migrateLegacyUploadTasks().catch(() => 0).then(() => refreshTasks()).then(() => {
     /**
      * Задания, застрявшие в `uploading`, — это прерванные посреди отправки:
      * вкладку закрыли, телефон уснул, браузер выгрузил страницу. Сами они уже
@@ -1354,15 +1741,28 @@ export function startUploadQueue() {
 
   // Очередь карточки в реестре работы (lib/workGuard.ts): пока есть задания, не
   // упавшие насовсем, автообновление и автовыход не перезагружают страницу.
-  // Закрытие вкладки не блокируем — задания лежат в IndexedDB и доедут сами.
+  // Закрытие вкладки блокируем, только если есть задание, НЕ влезшее в IndexedDB
+  // (тяжёлый ролик, находка 9, 25.11.2026): оно живёт лишь во вкладке и с ней пропало
+  // бы молча. Остальные лежат в хранилище и доедут сами при следующем запуске.
   let unregisterWork: (() => void) | null = null;
+  let registeredBlocking = false;
   subscribe(() => {
-    const active = state.tasks.some((t) => t.status !== "failed");
-    if (active && !unregisterWork) {
-      unregisterWork = registerWork({ id: "upload-queue", label: "Загрузка файлов объекта", blocksUnload: false, resume: () => void run() });
+    const live = state.tasks.filter((t) => t.status !== "failed");
+    const active = live.length > 0;
+    const blocking = live.some((t) => t.volatile);
+    if (active && (!unregisterWork || blocking !== registeredBlocking)) {
+      unregisterWork?.();
+      registeredBlocking = blocking;
+      unregisterWork = registerWork({
+        id: "upload-queue",
+        label: blocking ? "Загрузка большого видео — не закрывайте вкладку" : "Загрузка файлов объекта",
+        blocksUnload: blocking,
+        resume: () => void run(),
+      });
     } else if (!active && unregisterWork) {
       unregisterWork();
       unregisterWork = null;
+      registeredBlocking = false;
     }
   });
 }

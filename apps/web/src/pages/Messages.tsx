@@ -8,13 +8,11 @@ import { useCan, useIsReadOnly } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  AlertCircle,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   MessageSquare,
   Paperclip,
-  RotateCw,
   Search,
   Video,
 } from "lucide-react";
@@ -41,6 +39,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
 import { Pagination } from "../components/Pagination";
 import { MessageAttachments } from "../components/MessageAttachments";
+import { PendingMediaBubble } from "../components/PendingMediaBubble";
 import { DeliveryTicks } from "../components/DeliveryTicks";
 import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBadge";
@@ -1056,7 +1055,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
                     )}
                   </span>
                 )}
-                <MessageAttachments attachments={m.attachments} inBubble onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
+                <MessageAttachments attachments={m.attachments} inBubble channel={m.sourceChannel ?? defaultChannel} onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)} />
                 {(m.at || (m.role === "assistant" && m.deliveryStatus)) && (
                   <span className="tm">
                     {m.at && <time dateTime={m.at}>{dushanbeTime(m.at)}</time>}
@@ -1117,6 +1116,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
               оставалась только пометка «[вложение: image]». */}
           <MessageAttachments
             attachments={m.attachments}
+            channel={m.sourceChannel ?? defaultChannel}
             onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
           />
           {/* Время — часами ДУШАНБЕ, а не устройства: директор может смотреть из
@@ -1139,50 +1139,7 @@ const ConversationMessageList = memo(function ConversationMessageList({
           его не сбрасывает. Настоящая реплика придёт из истории после успеха —
           тогда этот пузырь убирается (см. useUploadConversationMediaWithProgress). */}
       {pendingUploads.map((u) => (
-        <div key={u.localId} className="bub me">
-          {/* Плитка эталона `.att-img` (180x120) — та же, которой приходит уже
-              доставленное фото (components/MessageAttachments.tsx): пузырь во
-              время отправки и после неё не должен менять размер и рамку. */}
-          <div className="att-img" style={{ position: "relative" }}>
-            {u.kind === "image" ? (
-              <img src={u.previewUrl} alt="Загружается" className="w-full h-full object-cover" />
-            ) : (
-              <video src={u.previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
-            )}
-            {u.status === "uploading" && (
-              <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-1">
-                <RotateCw className="w-5 h-5 text-white animate-spin" />
-                <span className="text-[13px] font-semibold text-white tabular-nums">{u.progress}%</span>
-                <div className="w-[70%] h-1 rounded-full bg-white/30 overflow-hidden">
-                  <div className="h-full bg-white" style={{ width: `${u.progress}%` }} />
-                </div>
-              </div>
-            )}
-            {u.status === "error" && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1 px-2 text-center">
-                {/* Значок белый, а не красный: подложка тут всегда тёмная, и
-                    красный `--crit` на ней не добирает 4.5 контраста ни в одной
-                    из тем. Красным остаётся строка отказа под пузырём. */}
-                <AlertCircle className="w-5 h-5 text-white" />
-                <span className="text-[13px] font-semibold text-white">Не отправлено</span>
-              </div>
-            )}
-          </div>
-          {u.caption && <p style={{ marginTop: 6 }}>{u.caption}</p>}
-          {u.status === "error" && (
-            <div className="wrap" style={{ marginTop: 6 }}>
-              <span className="txt" style={{ color: "var(--crit)" }}>
-                {u.error || "Не удалось отправить"}
-              </span>
-              <button type="button" className="lnk" onClick={() => onRetryUpload(u)}>
-                Повторить
-              </button>
-              <button type="button" className="lnk" onClick={() => onCancelUpload(u.localId)}>
-                Убрать
-              </button>
-            </div>
-          )}
-        </div>
+        <PendingMediaBubble key={u.localId} upload={u} onRetry={onRetryUpload} onCancel={onCancelUpload} />
       ))}
     </>
   );
@@ -1268,6 +1225,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const pendingUploads = usePendingMediaUploads(replyTargetId);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
+  /** Несколько файлов вставкой или перетаскиванием — сначала показать, потом слать (ревью #428). */
+  const [pendingBatch, setPendingBatch] = useState<File[] | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   useEffect(() => {
     if (!pendingMedia?.type.startsWith("image/")) { setMediaPreview(null); return; }
@@ -1446,7 +1405,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   /** Файл выбран в скрытом `<input>` — проверяем размер СРАЗУ, до загрузки: канал
    *  диалога уже известен, дожидаться ответа сервера ради очевидного отказа незачем.
    *  У видео это больше не отказ по каналу (гибридный режим) — только 1 ГБ предохранитель. */
-  function handlePickMedia(files: ArrayLike<File> | null | undefined) {
+  function handlePickMedia(files: ArrayLike<File> | null | undefined, opts: { confirmBatch?: boolean } = {}) {
     if (!files?.length || readOnly || !replyTargetId) return;
     setMediaError(null);
     const plan = planOutgoingMediaPick(files, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
@@ -1458,7 +1417,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       setPendingMedia(plan.single);
       return;
     }
-    // Несколько файлов — сразу в отправку; подпись из поля уходит с первым.
+    // Вставка и перетаскивание: файлы могли попасть случайно — сначала полоска
+    // «N файлов — Отправить / Отменить», а не отправка клиенту сразу.
+    if (opts.confirmBatch) {
+      setPendingBatch(plan.batch);
+      return;
+    }
+    // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
     plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
     setText("");
   }
@@ -2047,6 +2012,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           <span className="txt">{mediaError}</span>
         </div>
       )}
+      {pendingBatch && pendingBatch.length > 0 && (
+        <div className="suggest">
+          <Video className="i" />
+          <span className="txt">Файлов к отправке: {pendingBatch.length}</span>
+          <button type="button" className="lnk" onClick={() => setPendingBatch(null)}>
+            Отменить
+          </button>
+          <button
+            type="button"
+            className="pill sm"
+            onClick={() => {
+              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+              setPendingBatch(null);
+              setText("");
+            }}
+          >
+            Отправить
+          </button>
+        </div>
+      )}
       {pendingMedia && (
         <div className="suggest">
           {pendingMedia.type.startsWith("image/") ? (
@@ -2239,6 +2224,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.preventDefault();
               handleSend();
             }
+          }}
+          // Вставка (Ctrl+V) и перетаскивание фото/видео прямо в поле — как в
+          // мессенджерах на ПК (25.11.2026). Тот же путь, что у скрепки:
+          // проверки канала и размера в planOutgoingMediaPick.
+          onPaste={(e) => {
+            // Только текст — обычная вставка, не перехватываем. Файл из Finder/Проводника
+            // кладёт рядом и имя текстом — тогда это всё-таки файл (повторное ревью #428).
+            const files = Array.from(e.clipboardData?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files, { confirmBatch: true });
+          }}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => /^(image|video)\//.test(f.type));
+            if (!files.length) return;
+            e.preventDefault();
+            handlePickMedia(files, { confirmBatch: true });
           }}
           rows={1}
           placeholder={royal

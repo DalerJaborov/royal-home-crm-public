@@ -98,17 +98,41 @@ export type IssueResult =
 
 export type CodeAgent = { id: string; phone: string; telegramChatId: string | null };
 
+export type CodePurpose = "login" | "step-up" | "telegram-link";
+
+/** Назначение в базе (LoginSmsCode.purpose): вход и подтверждение личности — одно «login», привязка — своё. */
+function codeKind(purpose: CodePurpose): "login" | "telegram-link" {
+  return purpose === "telegram-link" ? "telegram-link" : "login";
+}
+
+/** Текст кода по назначению. Код привязки Telegram вводят в чате с ботом — ему своя строка, без «никогда не спрашивают». */
+function codeText(purpose: CodePurpose, code: string): { text: string; journal: string; pushTitle: string } {
+  if (purpose === "telegram-link") {
+    return {
+      text: `Royal Home CRM: код привязки Telegram ${code}. Если Telegram привязываете не вы, никому его не сообщайте.`,
+      journal: "Royal Home CRM: код привязки Telegram ••••••",
+      pushTitle: "Код привязки Telegram",
+    };
+  }
+  return {
+    text: `Royal Home CRM: код входа ${code}. Никому не сообщайте его — сотрудники Royal Home его никогда не спрашивают.`,
+    journal: "Royal Home CRM: код входа ••••••",
+    pushTitle: "Код входа Royal Home CRM",
+  };
+}
+
 async function deliver(
   agent: CodeAgent,
   channel: "sms" | "telegram",
-  code: string
+  code: string,
+  purpose: CodePurpose = "login"
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const text = `Royal Home CRM: код входа ${code}. Никому не сообщайте его — сотрудники Royal Home его никогда не спрашивают.`;
+  const { text, journal } = codeText(purpose, code);
   if (channel === "sms") {
     const sent = await sendSms({
       phone: agent.phone,
       text,
-      journalText: "Royal Home CRM: код входа ••••••",
+      journalText: journal,
       purpose: "LOGIN_CODE",
       agentId: agent.id,
     });
@@ -138,7 +162,7 @@ export interface IssueOptions {
    * Он защищает ровно от «чужого у открытой сессии», поэтому пушем — на те же
    * устройства, где сессия и открыта, — не уходит (аудит безопасности 17.11.2026, S2).
    */
-  purpose?: "login" | "step-up";
+  purpose?: CodePurpose;
   /** Подписка устройства, которое просит код (для step-up без других каналов). */
   excludePushEndpoint?: string;
 }
@@ -163,7 +187,10 @@ export function hasNonPushCodeChannel(agent: CodeAgent): boolean {
  */
 export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChannel, options: IssueOptions = {}): Promise<IssueResult> {
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  const stepUp = options.purpose === "step-up";
+  const purpose: CodePurpose = options.purpose ?? "login";
+  // Код привязки Telegram (ревью 25.11.2026) — как подтверждение личности: доказать нужно владение номером
+  // (СМС), а не открытую сессию, поэтому пушем — только если другого пути нет.
+  const stepUp = purpose === "step-up" || purpose === "telegram-link";
   const pushAllowed = !channel && !(stepUp && hasNonPushCodeChannel(agent));
   let candidateSubs = pushAllowed ? await loadLiveSubscriptions(agent.id) : [];
   if (stepUp && options.excludePushEndpoint) {
@@ -209,6 +236,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
       data: {
         agentId: agent.id,
         codeHash: hashCode(agent.id, code),
+        purpose: codeKind(purpose),
         channel: wanted,
         expiresAt: new Date(now + LOGIN_SMS_CODE_TTL_MS),
         ...(ackToken ? { ackTokenHash: hashAck(ackToken) } : {}),
@@ -232,7 +260,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
           kind: "login-code",
           code,
           ackToken,
-          title: "Код входа Royal Home CRM",
+          title: codeText(purpose, code).pushTitle,
           body: `${code} — никому не сообщайте`,
           tag: "login-code",
         }).catch((err) => {
@@ -240,7 +268,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
           return 0;
         });
         if (accepted > 0) {
-          scheduleSmsFallback(agent, rowId, code);
+          scheduleSmsFallback(agent, rowId, code, purpose);
           return {
             ok: true,
             channel: "push",
@@ -252,7 +280,7 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
         errors.push("пуш не принят устройствами");
         continue;
       }
-      const sent = await deliver(agent, ch, code);
+      const sent = await deliver(agent, ch, code, purpose);
       if (sent.ok) return { ok: true, channel: ch, resendAfterSec: resendAfterSec(), ...(devCodeEchoEnabled() ? { devCode: code } : {}) };
       errors.push(sent.error);
     }
@@ -279,19 +307,19 @@ export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChanne
  * живёт в процессе: перезапуск сервера его теряет — это допустимо, у человека есть
  * «Отправить ещё раз».
  */
-export function scheduleSmsFallback(agent: CodeAgent, rowId: string, code: string): void {
+export function scheduleSmsFallback(agent: CodeAgent, rowId: string, code: string, purpose: CodePurpose = "login"): void {
   const timer = setTimeout(() => {
-    void runSmsFallback(agent, rowId, code).catch((err) =>
+    void runSmsFallback(agent, rowId, code, purpose).catch((err) =>
       logSystemError("api", `Запасная СМС с кодом входа не отправлена: ${err instanceof Error ? err.message : String(err)}`)
     );
   }, pushFallback.delayMs);
   timer.unref?.();
 }
 
-export async function runSmsFallback(agent: CodeAgent, rowId: string, code: string): Promise<void> {
+export async function runSmsFallback(agent: CodeAgent, rowId: string, code: string, purpose: CodePurpose = "login"): Promise<void> {
   const row = await prisma.loginSmsCode.findUnique({ where: { id: rowId } });
   if (!row || row.ackedAt || row.consumedAt || row.fallbackSentAt || row.expiresAt.getTime() < Date.now()) return;
-  const latest = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" }, select: { id: true } });
+  const latest = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id, purpose: row.purpose }, orderBy: { createdAt: "desc" }, select: { id: true } });
   if (latest?.id !== rowId) return;
   // Условно: два срабатывания подряд не отправят две СМС.
   const claimed = await prisma.loginSmsCode.updateMany({
@@ -302,9 +330,9 @@ export async function runSmsFallback(agent: CodeAgent, rowId: string, code: stri
   const errors: string[] = [];
   for (const ch of ["sms", ...(agent.telegramChatId ? (["telegram"] as const) : [])] as const) {
     // A newer request/verification may finish while the previous provider waits.
-    const current = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" } });
+    const current = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id, purpose: row.purpose }, orderBy: { createdAt: "desc" } });
     if (current?.id !== rowId || current.ackedAt || current.consumedAt || current.expiresAt.getTime() < Date.now()) return;
-    const sent = await deliver(agent, ch, code);
+    const sent = await deliver(agent, ch, code, purpose);
     if (sent.ok) {
       await prisma.loginSmsCode.updateMany({ where: { id: rowId }, data: { channel: ch } });
       return;
@@ -338,9 +366,15 @@ export async function ackLoginCodePush(ackToken: string, endpoint?: string): Pro
 
 export type VerifyResult = { ok: true } | { ok: false; error: string };
 
-export async function verifyLoginCode(agentId: string, code: string): Promise<VerifyResult> {
+/**
+ * Проверка кода. `purpose` — для чего его вводят (повторное ревью 25.11.2026): код привязки Telegram не
+ * пускает в CRM и не подтверждает личность, код входа не привязывает Telegram. «Последний» считается в
+ * своём назначении: выдача кода привязки не гасит код входа, а неверные догадки в боте не тратят его попытки.
+ * Вход и подтверждение личности по-прежнему одно назначение («login»): так было и раньше.
+ */
+export async function verifyLoginCode(agentId: string, code: string, purpose: CodePurpose = "login"): Promise<VerifyResult> {
   const latest = await prisma.loginSmsCode.findFirst({
-    where: { agentId },
+    where: { agentId, purpose: codeKind(purpose) },
     orderBy: { createdAt: "desc" },
   });
   if (!latest || latest.consumedAt || latest.expiresAt.getTime() < Date.now()) {

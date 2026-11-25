@@ -61,3 +61,75 @@ export async function fetchAttachmentUrl(file: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Играет ли этот браузер такой тип сам (25.11.2026). Голосовые WhatsApp и
+ * Telegram — ogg/opus: Chrome их играет, Safari до iOS 18.4 — нет, и честно
+ * отвечает пустой строкой на canPlayType. Тогда вложение сразу берёт версию
+ * m4a (`play`), не дожидаясь ошибки плеера. «maybe» считаем «да»: ошибку
+ * плеера ловит запасной путь (RhAudioPlayer → fallbackSrc).
+ */
+const playsCache = new Map<string, boolean>();
+export function browserPlays(mime: string): boolean {
+  const key = mime.split(";")[0].trim().toLowerCase();
+  const cached = playsCache.get(key);
+  if (cached !== undefined) return cached;
+  let ok = true;
+  try {
+    const el = document.createElement(key.startsWith("video/") ? "video" : "audio");
+    // ogg без указания кодека Safari иногда отвечает «maybe», а opus в ogg не играет —
+    // спрашиваем точнее, как реально лежат голосовые мессенджеров.
+    const probe = key === "audio/ogg" ? 'audio/ogg; codecs="opus"' : key;
+    ok = el.canPlayType(probe) !== "";
+  } catch {
+    ok = true;
+  }
+  playsCache.set(key, ok);
+  return ok;
+}
+
+/**
+ * Версия для браузера готова? (ревью #428). Сервер не держит запрос, пока
+ * перекодирует: отвечает 503 + Retry-After и считает в фоне. Плеер на 503
+ * просто «ломается», поэтому сначала спрашиваем адрес запросом HEAD и даём его
+ * плееру только после 200. Ждём до двух минут, потом честно «не вышло».
+ */
+export type PlayableState = "idle" | "preparing" | "ready" | "failed" | "expired";
+const PLAYABLE_MAX_TRIES = 24;
+
+export function usePlayableUrl(url: string | null, active: boolean): { state: PlayableState } {
+  const [state, setState] = useState<PlayableState>("idle");
+  useEffect(() => {
+    if (!active || !url) {
+      setState("idle");
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setState("preparing");
+    const attempt = async (n: number) => {
+      try {
+        const res = await fetch(url, { method: "HEAD", credentials: "omit", cache: "no-store" });
+        if (cancelled) return;
+        if (res.ok) return setState("ready");
+        // Подпись истекла (диалог открыт часами): это не «файл не играет» — вызывающий
+        // возьмёт свежую ссылку из переписки и спросит снова.
+        if (res.status === 403) return setState("expired");
+        if (res.status === 503 && n < PLAYABLE_MAX_TRIES) {
+          const wait = Math.min(15, Math.max(2, Number(res.headers.get("Retry-After")) || 5)) * 1000;
+          timer = setTimeout(() => void attempt(n + 1), wait);
+          return;
+        }
+        setState("failed");
+      } catch {
+        if (!cancelled) setState("failed");
+      }
+    };
+    void attempt(1);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [url, active]);
+  return { state };
+}

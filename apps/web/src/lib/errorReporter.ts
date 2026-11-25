@@ -1,6 +1,7 @@
 import { api } from "./api";
 import { useAuthStore } from "../store/auth";
 import { formatUploadIssueMessage, type UploadIssueInfo } from "./uploadFormat";
+import { connectionSnapshot } from "./upload/network";
 
 /**
  * Автоматический репорт ошибок браузера в CRM (POST /errors): баги фронта видны
@@ -25,15 +26,36 @@ function withBuild(stack?: string): string | undefined {
   return stack ? `сборка ${build}\n${stack}` : `сборка ${build}`;
 }
 
+/**
+ * Окончательные отказы загрузок пишутся ВСЕГДА (25.11.2026, находка 7): предел в 20
+ * записей за сессию забивали повторы ролика («попытка 2/10, 3/10…»), и самая нужная
+ * строка — «сдалась» — до журнала не доходила. У них свой запас, отдельный от общего.
+ */
+const MAX_FINAL_PER_SESSION = 50;
+let finalSent = 0;
+/**
+ * Промежуточные отчёты загрузки («попытка 2/10…») не едят общий предел в 20 записей
+ * (ревью 26.11.2026): ролик с десятью повторами выбирал половину, и обычные ошибки
+ * скрипта после него не доходили до журнала. У них свой потолок и свой счётчик.
+ */
+const MAX_UPLOAD_PROGRESS_PER_SESSION = 10;
+let uploadProgressSent = 0;
+
 /** Отправка записи; промис — принял ли её сервер (false — не ушла: нет сессии, предел, повтор, сеть). */
-function send(message: string, stack?: string): Promise<boolean> {
+function send(message: string, stack?: string, opts: { final?: boolean; upload?: boolean } = {}): Promise<boolean> {
   if (!useAuthStore.getState().hasSession) return Promise.resolve(false);
-  if (totalSent >= MAX_PER_SESSION) return Promise.resolve(false);
-  const key = message.slice(0, 200);
+  const progress = !opts.final && opts.upload === true;
+  const used = opts.final ? finalSent : progress ? uploadProgressSent : totalSent;
+  const limit = opts.final ? MAX_FINAL_PER_SESSION : progress ? MAX_UPLOAD_PROGRESS_PER_SESSION : MAX_PER_SESSION;
+  if (used >= limit) return Promise.resolve(false);
+  // Окончательный отказ не глушится дедупом промежуточных строк с тем же началом.
+  const key = (opts.final ? "final:" : "") + message.slice(0, 200);
   const last = sentAt.get(key);
   if (last && Date.now() - last < DEDUPE_MS) return Promise.resolve(false);
   sentAt.set(key, Date.now());
-  totalSent++;
+  if (opts.final) finalSent++;
+  else if (progress) uploadProgressSent++;
+  else totalSent++;
   return api("/errors", {
     method: "POST",
     body: { message: message.slice(0, 2000), stack: withBuild(stack)?.slice(0, 8000), url: location.pathname },
@@ -55,7 +77,20 @@ function report(message: string, stack?: string) {
  * отчёта директора.
  */
 export function reportUploadIssue(info: UploadIssueInfo): void {
-  report(formatUploadIssueMessage(info));
+  void send(formatUploadIssueMessage(withUploadEnv(info)), undefined, { final: info.final === true, upload: true });
+}
+
+/** Видимость вкладки и канал — одно место заполняет их у всех пяти загрузок. */
+function withUploadEnv(info: UploadIssueInfo): UploadIssueInfo {
+  const out = { ...info };
+  if (!out.visibility && typeof document !== "undefined") out.visibility = document.visibilityState;
+  if (!out.connection) {
+    const c = connectionSnapshot();
+    const parts = [c.effectiveType, c.downlinkMbps != null ? `${String(c.downlinkMbps).replace(".", ",")} Мбит/с` : null, c.saveData ? "экономия трафика" : null];
+    const label = parts.filter(Boolean).join(" ");
+    if (label) out.connection = label;
+  }
+  return out;
 }
 
 /**
@@ -95,4 +130,12 @@ export function initErrorReporter() {
       reason instanceof Error ? reason.stack : undefined
     );
   });
+}
+
+/** Только для тестов: сбросить счётчики и дедуп. */
+export function resetErrorReporterForTests(): void {
+  sentAt.clear();
+  totalSent = 0;
+  finalSent = 0;
+  uploadProgressSent = 0;
 }

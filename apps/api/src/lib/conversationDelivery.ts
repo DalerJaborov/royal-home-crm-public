@@ -30,9 +30,10 @@ import {
 // Из отдельного модуля, а не из meta.js: чистая проверка, которую тест доставки
 // теперь берёт настоящую вместо копии (см. lib/messagingWindow.ts).
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
-import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
-import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
+import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, META_OUTGOING_MEDIA_LIMITS, formatChannelLimit, type MessagingWindowState } from "@royal-home/shared";
+import { isMetaSendBlockError, metaSendBlockStaffText, MetaGraphCallError } from "./metaSendBlock.js";
 import { isInstagramAccessLostError } from "./instagramAccountAccess.js";
+import { isProviderDefinitiveRejection } from "./metaProviderRejection.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -41,6 +42,7 @@ import {
   sendVoice as sendTelegramVoice,
   isTelegramEnabled,
   TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
+  TelegramApiError,
 } from "../telegram/api.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
@@ -232,6 +234,112 @@ async function applyDeliveryPauseUndoable(
         placed: effective, placedBotPausedAt: placedRow.botPausedAt, ownershipFence, claimUndo: claim.undo, pauseChanged },
     };
   });
+}
+
+/** Пауза, снятая в JSON (строка задания очереди отправки): даты строками. */
+export type StoredPauseUndo = {
+  target: Pick<DeliveryTarget, "kind" | "id">;
+  prevPausedUntil: string | null;
+  prevBotPausedAt: string | null;
+  placed: string;
+  placedBotPausedAt: string | null;
+  ownershipFence: DeliveryOwnershipFence;
+  claimUndo?: (Omit<PropertyChatClaimUndo, "at"> & { at: string }) | null;
+  pauseChanged?: boolean;
+};
+
+function storePauseUndo(u: PauseUndo): StoredPauseUndo {
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return {
+    target: { kind: u.target.kind, id: u.target.id },
+    prevPausedUntil: iso(u.prevPausedUntil),
+    prevBotPausedAt: iso(u.prevBotPausedAt),
+    placed: u.placed.toISOString(),
+    placedBotPausedAt: iso(u.placedBotPausedAt),
+    ownershipFence: u.ownershipFence,
+    claimUndo: u.claimUndo ? { ...u.claimUndo, at: u.claimUndo.at.toISOString() } : null,
+    pauseChanged: u.pauseChanged,
+  };
+}
+
+function revivePauseUndo(s: StoredPauseUndo): PauseUndo {
+  const d = (v: string | null) => (v ? new Date(v) : null);
+  return {
+    target: s.target,
+    prevPausedUntil: d(s.prevPausedUntil),
+    prevBotPausedAt: d(s.prevBotPausedAt),
+    placed: new Date(s.placed),
+    placedBotPausedAt: d(s.placedBotPausedAt),
+    ownershipFence: s.ownershipFence,
+    claimUndo: s.claimUndo ? { ...s.claimUndo, at: new Date(s.claimUndo.at) } : null,
+    pauseChanged: s.pauseChanged,
+  };
+}
+
+/**
+ * ПАУЗА БОТА В МОМЕНТ ПРИЁМА ФАЙЛА В ОЧЕРЕДЬ (ревью 25.11.2026). Сотрудник нажал «Отправить» —
+ * он взял диалог; пока видео сжимается (до 12 минут), бот не должен отвечать клиенту «вторым
+ * голосом». Те же правила срока, что у самой отправки (deliveryPauseFor); при отправке
+ * доставка ставит ту же паузу ещё раз — без изменения (keepLonger), то есть без двойной.
+ * Возвращает снимок для отката — его хранит строка задания (JSON).
+ */
+export async function placeQueuedMediaPause(
+  target: DeliveryTarget,
+  sender: MessageSender
+): Promise<{ ok: true; undo: StoredPauseUndo | null } | { ok: false; status: number; error: string }> {
+  const pause = await deliveryPauseFor(target, undefined, sender, () => defaultPauseForSender(target, sender));
+  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, sender);
+  if (!placed.ok) return placed;
+  return { ok: true, undo: placed.undo ? storePauseUndo(placed.undo) : null };
+}
+
+/**
+ * Продлить паузу перед отправкой файла из очереди (без новой записи отката в базе). Срок — те же правила,
+ * что у приёма. Если пауза в базе всё ещё ТА, что поставил приём (значения совпали со снимком), откат
+ * переписывается на продлённые значения: при заведомом отказе вернётся прежняя пауза. Если там уже
+ * чужая (человек поставил свою) — откат не нужен и чужого не затрёт.
+ */
+async function extendQueuedMediaPause(
+  target: DeliveryTarget,
+  sender: MessageSender,
+  override: Date | undefined,
+  queued: StoredPauseUndo | null | undefined
+): Promise<{ pausedUntil: Date; undo: PauseUndo | null }> {
+  const pause = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  const select = { pausedUntil: true, botPausedAt: true } as const;
+  // Одной транзакцией: любое изменение паузы двигает ownership-эпоху, и откат допускается только при
+  // совпадении «отпечатка» — поэтому новый отпечаток снимаем здесь же, сразу после записи.
+  return prisma.$transaction(async tx => {
+    const read = () =>
+      target.kind === "telegram"
+        ? tx.telegramConversation.findUnique({ where: { id: target.id }, select })
+        : tx.botConversation.findUnique({ where: { id: target.id }, select });
+    const fenceBefore = await lockDeliveryOwnershipFence(tx, target);
+    const before = await read();
+    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx);
+    const after = await read();
+    const fenceAfter = await lockDeliveryOwnershipFence(tx, target);
+    const ours =
+      !!queued && queued.pauseChanged !== false && !!before && !!after && !!fenceBefore && !!fenceAfter &&
+      sameDeliveryOwnershipFence(fenceBefore, queued.ownershipFence) &&
+      before.pausedUntil?.toISOString() === queued.placed && (before.botPausedAt?.toISOString() ?? null) === queued.placedBotPausedAt;
+    const moved = !!before && !!after &&
+      (before.pausedUntil?.getTime() !== after.pausedUntil?.getTime() || before.botPausedAt?.getTime() !== after.botPausedAt?.getTime());
+    if (!ours || !moved || !after?.pausedUntil || !fenceAfter) return { pausedUntil, undo: null };
+    // Откат вместе с заявкой (claim): после продления «отпечаток» сменился, и снимок приёма в задании
+    // уже ничего не откатит — этот откат единственный и со свежим отпечатком.
+    const revived = revivePauseUndo(queued!);
+    return {
+      pausedUntil,
+      undo: { ...revived, placed: after.pausedUntil, placedBotPausedAt: after.botPausedAt, ownershipFence: fenceAfter },
+    };
+  });
+}
+
+/** Откат паузы очереди: отправка отменена или ЗАВЕДОМО не ушла. Чужую паузу не трогает (тот же откат). */
+export async function rollbackQueuedMediaPause(stored: StoredPauseUndo | null | undefined): Promise<void> {
+  if (!stored) return;
+  await rollbackDeliveryPause(revivePauseUndo(stored));
 }
 
 /**
@@ -937,12 +1045,15 @@ export async function deliverBotVoiceReply(
  * «отправить файлом через Graph API или ссылкой на R2» (владелец 18.08.2026:
  * ролик объекта в исходном качестве может весить 100-300 МБ, а перекодирование
  * ради лимита Meta отклонено — теряет качество). См. deliverMediaToConversation.
+ *
+ * 25.11.2026 ВЛАДЕЛЕЦ ОТМЕНИЛ «НЕ ПЕРЕКОДИРУЕМ»: «пусть наш сервер быстренько сожмёт и
+ * отправит, прямо как сам WhatsApp». Сжатие под эти пределы делает очередь отправки
+ * (lib/outgoingMediaJobs.ts → lib/outgoingMediaPrepare.ts) ДО этой функции; здесь пределы
+ * остались последней проверкой. Числа — одно место на сервер и экран:
+ * packages/shared/src/outgoingMediaLimits.ts (фото Instagram/Messenger — 8 МБ по
+ * документации Meta, а не прежние 25).
  */
-const OUTGOING_MEDIA_LIMITS: Record<MetaChannel, { image: number; video: number }> = {
-  WHATSAPP: { image: 5 * 1024 * 1024, video: 16 * 1024 * 1024 },
-  INSTAGRAM: { image: 25 * 1024 * 1024, video: 25 * 1024 * 1024 },
-  FACEBOOK: { image: 25 * 1024 * 1024, video: 25 * 1024 * 1024 },
-};
+const OUTGOING_MEDIA_LIMITS: Record<MetaChannel, { image: number; video: number }> = META_OUTGOING_MEDIA_LIMITS;
 /**
  * Тот же лимит, что и у getFile (telegram/api.ts::TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
  * «сколько бот может скачать») — здесь Telegram точно так же сам скачивает файл
@@ -956,12 +1067,81 @@ const OUTGOING_MEDIA_LIMITS: Record<MetaChannel, { image: number; video: number 
  */
 
 function humanMb(bytes: number): string {
-  return `${Math.round(bytes / (1024 * 1024))} МБ`;
+  return formatChannelLimit(bytes);
+}
+
+/**
+ * ЗАВЕДОМЫЙ ОТКАЗ ПЛАТФОРМЫ (ревью 26.11.2026): канал ответил кодом 4xx — файл не принят и
+ * клиенту не ушёл (формат, предел, нет прав), «Повторить» уместно, пауза бота откатывается.
+ * Всё остальное (таймаут, обрыв, ошибка без HTTP-ответа, 5xx) — исход неизвестен: файл мог дойти.
+ */
+export function isDefiniteSendRejection(err: unknown): boolean {
+  if (err instanceof MetaGraphCallError) return err.graph.status >= 400 && err.graph.status < 500;
+  if (err instanceof TelegramApiError) return typeof err.errorCode === "number" && err.errorCode >= 400 && err.errorCode < 500;
+  // Остальное по Meta — одно правило с транспортом, ядром и трассой (lib/metaProviderRejection.ts): текст «Graph API
+  // HTTP 4xx» или «доступ к аккаунту Instagram потерян» — запроса в Meta не было, файл точно не ушёл.
+  return isProviderDefinitiveRejection(err);
 }
 
 export type MediaDeliveryResult =
-  | { ok: true; pausedUntil: Date }
-  | { ok: false; status: number; error: string; code?: "window_closed" };
+  /** sentAsLink — видео больше предела канала ушло клиенту ссылкой на просмотр, а не файлом. */
+  | { ok: true; pausedUntil: Date; sentAsLink: boolean }
+  /** outcomeUnknown — транспорт упал так, что файл МОГ дойти (таймаут, обрыв): повторять нельзя,
+   *  иначе клиент получит его дважды (ревью 25.11.2026). */
+  | { ok: false; status: number; error: string; code?: "window_closed" | "start_lost"; outcomeUnknown?: boolean };
+
+type MediaPrecheckFail = { ok: false; status: number; error: string; code?: "window_closed" };
+
+/**
+ * Проверки ДО приёма файла в очередь и ДО самой отправки — одни и те же (25.11.2026):
+ * очередь сжатия (lib/outgoingMediaJobs.ts) зовёт их сразу, чтобы сотрудник узнал
+ * «окно закрыто» или «канал выключен» за секунду, а не после минуты сжатия; доставка —
+ * ещё раз перед отправкой, потому что за время сжатия окно могло закрыться.
+ */
+export async function mediaDeliveryPrecheck(
+  target: DeliveryTarget,
+  sender: MessageSender,
+  mimetype: string
+): Promise<{ ok: true; capturedTransport: CustomerTransportReference | null; metaChannel: MetaChannel | null } | MediaPrecheckFail> {
+  const isTelegram = target.kind === "telegram";
+  const capturedTransport = await captureDeliveryTransport(target);
+  if (!isTelegram && target.channel !== WEBSITE_CHANNEL && !capturedTransport) return TRANSPORT_CHANGED;
+  const isWebsite = !isTelegram && target.channel === WEBSITE_CHANNEL;
+  // Та же честная причина, что у голосовых выше: канал сайта работает, файлы
+  // в веб-чат просто пока не доставляются, ключи Meta тут ни при чём.
+  if (isWebsite) {
+    return { ok: false, status: 422, error: "Чат на сайте пока не умеет отправлять файлы и голосовые, отправьте текстом" };
+  }
+  const metaChannel = isTelegram ? null : asMetaChannel(target.channel);
+  if (isTelegram ? !isTelegramEnabled() : !metaChannel || !(await isMetaChannelEnabled(metaChannel))) {
+    return {
+      ok: false,
+      status: 503,
+      error: isTelegram
+        ? "Отправка не настроена (TELEGRAM_BOT_TOKEN)"
+        : `Ответ в ${target.channel} не отправить: канал выключен или не заданы ключи в Настройках → Meta.`,
+    };
+  }
+
+  const windowClosed = await windowClosedBeforeSend(target, sender);
+  if (windowClosed) return windowClosed;
+
+  if (!mimetype.startsWith("image/") && !mimetype.startsWith("video/")) {
+    return { ok: false, status: 400, error: "Допустимы только изображения или видео" };
+  }
+  // SVG — это исполняемый документ (скрипты внутри), а не фотография: заявленный
+  // клиентом Content-Type сохраняется как есть и отдаётся при раздаче через
+  // mediaProxy, то есть пропущенный svg открывался бы в браузере с исполнением.
+  // Фото из мессенджеров всегда растровые — честному сценарию запрет не мешает.
+  if (/svg/i.test(mimetype)) {
+    return { ok: false, status: 400, error: "SVG не поддерживается — отправьте фото (JPG/PNG/WebP)" };
+  }
+  // До сжатия, а не после: на стенде 25.11 минута сжатия кончалась отказом «R2 не настроено».
+  if (!isR2Configured()) {
+    return { ok: false, status: 503, error: "Хранилище файлов (R2) не настроено — фото/видео отправить нельзя" };
+  }
+  return { ok: true, capturedTransport, metaChannel };
+}
 
 /**
  * Отправка ФОТО/ВИДЕО сотрудника клиенту (18.08.2026, тот же запрос владельца,
@@ -1004,43 +1184,25 @@ export async function deliverMediaToConversation(
     pausedUntilOverride?: Date;
     sender: MessageSender;
     caption?: string;
+    /** Зовётся прямо перед сетевой отправкой клиенту (после паузы и загрузки в R2): очередь
+     *  отмечает «отправляется» — после сбоя процесса в этой точке файл не шлётся второй раз.
+     *  false — отправку отменили (сотрудник нажал «Отменить»): клиенту ничего не уходит,
+     *  пауза бота откатывается. */
+    beforeTransport?: () => Promise<boolean>;
+    /** Пауза бота уже стоит с момента приёма в очередь (placeQueuedMediaPause) — вторую не ставим:
+     *  иначе её «отпечаток» сменился бы, и откат очереди при заведомом отказе не сработал бы. */
+    pausePlacedByQueue?: boolean;
+    /** Снимок паузы приёма (строка задания). С ним продление паузы перед отправкой остаётся откатываемым:
+     *  при заведомом отказе пауза возвращается к прежнему, а не висит лишние 10 минут. */
+    queuedPauseUndo?: StoredPauseUndo | null;
   }
 ): Promise<MediaDeliveryResult> {
   const isTelegram = target.kind === "telegram";
-  const capturedTransport = await captureDeliveryTransport(target);
-  if (!isTelegram && target.channel !== WEBSITE_CHANNEL && !capturedTransport) return TRANSPORT_CHANGED;
-  const isWebsite = !isTelegram && target.channel === WEBSITE_CHANNEL;
-  // Та же честная причина, что у голосовых выше: канал сайта работает, файлы
-  // в веб-чат просто пока не доставляются, ключи Meta тут ни при чём.
-  if (isWebsite) {
-    return { ok: false, status: 422, error: "Чат на сайте пока не умеет отправлять файлы и голосовые, отправьте текстом" };
-  }
-  const metaChannel = isTelegram ? null : asMetaChannel(target.channel);
-  if (isTelegram ? !isTelegramEnabled() : !metaChannel || !(await isMetaChannelEnabled(metaChannel))) {
-    return {
-      ok: false,
-      status: 503,
-      error: isTelegram
-        ? "Отправка не настроена (TELEGRAM_BOT_TOKEN)"
-        : `Ответ в ${target.channel} не отправить: канал выключен или не заданы ключи в Настройках → Meta.`,
-    };
-  }
-
-  const windowClosed = await windowClosedBeforeSend(target, options.sender);
-  if (windowClosed) return windowClosed;
-
+  const pre = await mediaDeliveryPrecheck(target, options.sender, media.mimetype);
+  if (!pre.ok) return pre;
+  const { capturedTransport, metaChannel } = pre;
   const isImage = media.mimetype.startsWith("image/");
   const isVideo = media.mimetype.startsWith("video/");
-  if (!isImage && !isVideo) {
-    return { ok: false, status: 400, error: "Допустимы только изображения или видео" };
-  }
-  // SVG — это исполняемый документ (скрипты внутри), а не фотография: заявленный
-  // клиентом Content-Type сохраняется как есть и отдаётся при раздаче через
-  // mediaProxy, то есть пропущенный svg открывался бы в браузере с исполнением.
-  // Фото из мессенджеров всегда растровые — честному сценарию запрет не мешает.
-  if (/svg/i.test(media.mimetype)) {
-    return { ok: false, status: 400, error: "SVG не поддерживается — отправьте фото (JPG/PNG/WebP)" };
-  }
 
   const limit = isTelegram ? TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES : OUTGOING_MEDIA_LIMITS[metaChannel!][isImage ? "image" : "video"];
   const size = "buffer" in media ? media.buffer.length : media.size;
@@ -1074,10 +1236,17 @@ export async function deliverMediaToConversation(
 
   // Срок по умолчанию и отправка от имени бота действующую паузу не укорачивают
   // (applyDeliveryPause); явный срок оператора ставится как есть.
-  const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
-  const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
-  if (!placed.ok) return placed;
-  const { pausedUntil, undo: pauseUndo } = placed;
+  let pausedUntil: Date;
+  let pauseUndo: PauseUndo | null = null;
+  if (options.pausePlacedByQueue) {
+    pausedUntil = await currentPausedUntil(target);
+  } else {
+    const pause = await deliveryPauseFor(target, options.pausedUntilOverride, options.sender, () => defaultPauseForSender(target, options.sender));
+    const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, options.sender);
+    if (!placed.ok) return placed;
+    pausedUntil = placed.pausedUntil;
+    pauseUndo = placed.undo;
+  }
 
   const ext = (media.mimetype.split("/")[1] || (isImage ? "jpg" : "mp4")).split(";")[0];
   let r2Key: string;
@@ -1111,6 +1280,25 @@ export async function deliverMediaToConversation(
   const accountToken = undefined;
 
   const { text: caption, masked: _masked } = options.caption ? maskPhones(options.caption) : { text: "", masked: false };
+
+  if (options.beforeTransport && !(await options.beforeTransport())) {
+    await rollbackDeliveryPause(pauseUndo);
+    // Не «отменили», а «не мы начинаем»: задание уже отменено сотрудником ИЛИ его взял другой исполнитель.
+    return { ok: false, status: 409, error: "Отправка отменена", code: "start_lost" };
+  }
+
+  // Пауза приёма могла истечь, пока файл сжимался и стоял в очереди (короткая пауза — 10 минут, сжатие —
+  // до 12): без продления бот ответил бы клиенту поверх уходящего файла сотрудника (ревью 26.11.2026).
+  // Продлеваем ПОСЛЕ отметки «отправляется» (отмена уже невозможна, проигравший гонку сюда не доходит), а сбой продления глотаем: он не должен превратиться в «исход неизвестен».
+  if (options.pausePlacedByQueue) {
+    try {
+      const extended = await extendQueuedMediaPause(target, options.sender, options.pausedUntilOverride, options.queuedPauseUndo);
+      pausedUntil = extended.pausedUntil;
+      pauseUndo = extended.undo;
+    } catch (err) {
+      void logSystemError("background-jobs", `Пауза бота не продлена перед отправкой файла: ${describeError(err)}`, { dedupKey: "outgoing-media-pause-extend" });
+    }
+  }
 
   let sentMid: string | null = null;
   let historyContent: string;
@@ -1154,8 +1342,19 @@ export async function deliverMediaToConversation(
         error: windowClosedStaffText(target.channel),
       };
     }
+    // Доступ к аккаунту Instagram потерян — как у текста выше: причина сотруднику, журнал и тревогу дала отметка.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: `${isImage ? "Фото" : "Видео"} не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы.` };
+    }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
-    return { ok: false, status: 502, error: `Не удалось отправить ${isImage ? "фото" : "видео"}` };
+    // Канал ответил 4xx — файл заведомо не принят: «Повторить» уместно, пауза возвращается. Таймаут,
+    // обрыв и 5xx — файл мог дойти, паузу оставляем и повтор не предлагаем.
+    if (isDefiniteSendRejection(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: `Не удалось отправить ${isImage ? "фото" : "видео"}` };
+    }
+    return { ok: false, status: 502, error: `Не удалось отправить ${isImage ? "фото" : "видео"}`, outcomeUnknown: true };
   }
 
   const message = [
@@ -1171,7 +1370,7 @@ export async function deliverMediaToConversation(
   else await appendConversationMessages(target.id, message);
   void closeStaleNextActionsForTarget(target);
 
-  return { ok: true, pausedUntil };
+  return { ok: true, pausedUntil, sentAsLink: sendAsLink };
 }
 
 /**
