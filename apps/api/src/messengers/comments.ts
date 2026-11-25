@@ -65,6 +65,7 @@ import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
 import { onBotOffCommentsStored } from "../lib/commentBotOffHook.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { isAccountSendBlocked, isMetaSendBlockError, MetaGraphCallError } from "../lib/metaSendBlock.js";
+import { isInstagramAccessLostError, lostInstagramAccount, noteInstagramKeyRefused, noteInstagramWorkHeld } from "../lib/instagramAccountAccess.js";
 import { sendErrorKind } from "../lib/metaEternalTokens.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
@@ -679,13 +680,21 @@ async function fetchMedia(
   const path = facebook
     ? `/${GRAPH_VERSION}/${encodeURIComponent(mediaId)}?fields=permalink_url,message`
     : `/${GRAPH_VERSION}/${encodeURIComponent(mediaId)}?fields=permalink,caption`;
+  // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходим и строку не пишем — отметка уже
+  // дала запись и тревогу (прод 24.11: «Публикация Instagram … не получена» ×20 за сутки по мёртвому ключу).
+  if (!facebook && await lostInstagramAccount({ token })) return null;
   try {
     const req = instagramRequest(
       facebook ? `https://graph.facebook.com${path}` : instagramApiUrl(path),
       token
     );
     const res = await fetchWithRetry(req.url, { headers: req.headers });
-    if (!res.ok) throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const body = await res.text();
+      // Отказ ключа Instagram — отметка через общую дверь, своя строка не нужна.
+      if (!facebook && (await noteInstagramKeyRefused({ token, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return null;
+      throw new Error(`Graph API HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
     const media = (await res.json()) as {
       permalink?: string;
       caption?: string;
@@ -1286,6 +1295,18 @@ async function processClaimedComment(row: QueuedComment, stats: CommentRunStats)
         await finish(row.id, { status: "SKIPPED", note: "bot_off" });
         stats.skipped++;
         return;
+      }
+      /**
+       * ДОСТУП К АККАУНТУ INSTAGRAM ПОТЕРЯН (25.11.2026, lib/instagramAccountAccess.ts): ни ИИ, ни Meta — комментарий ждёт
+       * в очереди (попытка не тратится) и разберётся, когда ключ заменят. Публичный ответ у Meta без срока, личное — 7 суток.
+       */
+      if (row.channel === "INSTAGRAM" && row.accountExternalId) {
+        const lost = await lostInstagramAccount({ externalId: row.accountExternalId });
+        if (lost) {
+          await parkCommentWhileAccessLost(row, lost.id);
+          stats.skipped++;
+          return;
+        }
       }
       const outcome = await handleComment(row);
       stats[outcome]++;
@@ -2268,9 +2289,19 @@ async function maybeSendPrivateReply(
     // Личное — дополнение к публичному ответу; его отказ (человек закрыл личку, окно истекло, нет права у приложения) ответ не
     // отменяет. Причина — в пометке комментария и в журнале с кодом Meta (разбор суток 23.11.2026: 7 из 7 личных по Facebook
     // не ушли, а в пометке было голое «dm_failed» — почему, видно не было).
+    // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходили, запись дала отметка.
+    if (isInstagramAccessLostError(err)) return { sent: false, note: "dm_access_lost" };
     const why = privateReplyFailure(err);
+    /**
+     * ОЖИДАЕМЫЙ ОТКАЗ — СТРОКА В СУТКИ НА ВИД (25.11.2026, прод: «… This user cant reply» ×7 за сутки). Окно ответа на
+     * комментарий закрыто или человек не принимает личные — это не поломка CRM, чинить нечего: одна строка на канал и вид
+     * в сутки, без пуша. Права приложения, ключ и прочие отказы — как раньше (6 часов на код).
+     */
+    const expected = why.kind === "window" || why.kind === "recipient";
     void logSystemError("meta", `Личное по комментарию ${row.channel} ${row.commentId} не ушло (${why.label}): ${describeError(err)}`,
-      { dedupKey: `comment-dm-failed:${row.channel}:${why.code}`, dedupWindowMs: 6 * 60 * 60_000 });
+      expected
+        ? { dedupKey: `comment-dm-expected:${row.channel}:${why.kind}`, dedupWindowMs: 24 * 60 * 60_000, silent: true, quietPult: true }
+        : { dedupKey: `comment-dm-failed:${row.channel}:${why.code}`, dedupWindowMs: 6 * 60 * 60_000 });
     return { sent: false, note: `dm_failed:${why.kind}:${why.code}` };
   }
 }
@@ -2284,7 +2315,9 @@ export function privateReplyFailure(err: unknown): { kind: "permission" | "windo
   const { code, subcode, message } = err.graph;
   const tag = `${code ?? "—"}/${subcode ?? "-"}`;
   const text = message ?? "";
-  const known = sendErrorKind(code, subcode);
+  // «This user can't reply / cant reply to this comment» — человеку нельзя написать по этому комментарию (закрыл личные,
+  // ограничил аккаунт): отказ «про получателя», а не поломка (прод 24.11, ×7). Код у Meta плавает — узнаём по тексту.
+  const known = sendErrorKind(code, subcode) ?? (/\b(can'?t|cannot)\s+(reply|receive)\b/iu.test(text) ? "recipient" : null);
   const kind = known ?? (code === 10 || code === 200 || code === 230 || code === 3 || (code !== null && code >= 200 && code < 300) ||
     /permission|pages_messaging|instagram_manage_messages|app review|advanced access/iu.test(text) ? "permission" : "other");
   const label = kind === "permission" ? "у приложения Meta нет права на личные (App Review / разрешения)"
@@ -2846,7 +2879,20 @@ async function finishModeration(
   return deleted ? "deleted" : "hidden";
 }
 
+/** Пока доступ к аккаунту потерян, комментарий ждёт: снова PENDING через полчаса, захват попытку не тратит. */
+const ACCESS_LOST_RECHECK_MS = 30 * 60 * 1000;
+async function parkCommentWhileAccessLost(row: QueuedComment, accountId: string): Promise<void> {
+  await noteInstagramWorkHeld(accountId, "разбор комментариев");
+  await finish(row.id, { status: "PENDING", attempts: row.attempts, replyDueAt: new Date(Date.now() + ACCESS_LOST_RECHECK_MS) });
+}
+
 async function failComment(row: QueuedComment, err: unknown): Promise<void> {
+  // Доступ к аккаунту Instagram потерян посреди разбора (отметку поставил этот же или соседний вызов): строку не пишем,
+  // попытку не тратим — ждём ключа (lib/instagramAccountAccess.ts).
+  if (isInstagramAccessLostError(err)) {
+    await parkCommentWhileAccessLost(row, err.accountId);
+    return;
+  }
   if (isCommentGone(err) && !(await commentStillExists(row))) {
     // В журнал ошибок не пишем и человека не зовём: отвечать физически некуда.
     console.warn(`[comments] Комментарий ${row.commentId} удалён или недоступен — закрыт без ответа`);

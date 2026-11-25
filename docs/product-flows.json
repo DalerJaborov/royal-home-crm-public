@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 775,
-  "forks": 4176,
+  "forks": 4178,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -83167,12 +83167,19 @@
                  ]
                 },
                 {
-                 "k": "do",
-                 "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
-                 "a": [
-                  "запись в журнал ошибок"
-                 ],
-                 "c": []
+                 "k": "if",
+                 "t": "!isInstagramAccessLostError(err)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
+                   "a": [
+                    "запись в журнал ошибок"
+                   ],
+                   "c": []
+                  }
+                 ]
                 },
                 {
                  "k": "if",
@@ -120692,7 +120699,7 @@
         },
         {
          "k": "elseif",
-         "t": "result === \"channel-dead\"",
+         "t": "result === \"channel-dead\" || result === \"channel-paused\"",
          "a": [],
          "c": [
           {
@@ -120735,6 +120742,21 @@
        "t": "throw new Error(\"ИИ всё ещё недоступен\");",
        "a": [
         "ошибка Error — «ИИ всё ещё недоступен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"channel-paused\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
        ],
        "c": []
       }

@@ -20,6 +20,7 @@ import { deliverBotVoiceReply } from "./conversationDelivery.js";
 import { sleep } from "../messengers/humanPacing.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
+import { isInstagramAccessLostError, lostInstagramAccount, noteInstagramWorkHeld } from "./instagramAccountAccess.js";
 
 /**
  * Вердикт «ключ канала мёртв» выносит ОДИН раз транспорт (messengers/meta.ts::callGraph → MetaGraphCallError.channelKeyDead,
@@ -29,8 +30,12 @@ import { describeError } from "./describeError.js";
 export function channelKeyDeathOf(err: unknown): { fingerprint: string } | null {
   return err instanceof MetaGraphCallError ? err.channelKeyDead : null;
 }
-/** Исход повтора. `channel-dead` — Meta не приняла ключ канала (HTTP 401, код 190/102): повторять бессмысленно. */
-export type StuckRetryOutcome = "sent" | "no-reply" | "failed" | "ai-down" | "channel-dead";
+/**
+ * Исход повтора. `channel-dead` — Meta не приняла ключ канала (HTTP 401, код 190/102): повторять бессмысленно.
+ * `channel-paused` — у аккаунта Instagram отметка «доступ потерян» (lib/instagramAccountAccess.ts): ни ИИ, ни Meta не
+ * звали; ответ ждёт замены ключа и повторится сам, когда отметку снимут (25.11.2026).
+ */
+export type StuckRetryOutcome = "sent" | "no-reply" | "failed" | "ai-down" | "channel-dead" | "channel-paused";
 
 /**
  * ЗАВИСШИЕ ДИАЛОГИ — общая логика для ручной кнопки (routes/errorLog.ts) и
@@ -198,7 +203,7 @@ export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manu
     knownContacts: row.name ? [row.name] : [] }, async () => {
     const result = await retryStuckConversationImpl(row, attempt, observed);
     if (result === "failed" || result === "ai-down") traceOutcome("failed");
-    else if (result === "channel-dead") traceOutcome("blocked", "channel_key_dead");
+    else if (result === "channel-dead" || result === "channel-paused") traceOutcome("blocked", "channel_key_dead");
     else if (result === "no-reply") traceNoReply();
     return result;
   });
@@ -249,6 +254,16 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
     // повтором нельзя (CHANNEL-NEW-11). До хода ИИ, чтобы не платить за ответ, который не
     // уйдёт; завершаем как «отвечать не нужно»: включат аккаунт, и клиент напишет снова.
     if (metaChannel && row.accountId && (await accountTokenById(row.accountId, metaChannel)).disabled) { traceNoReply("account_disabled"); return "no-reply"; }
+    /**
+     * ДОСТУП К АККАУНТУ INSTAGRAM ПОТЕРЯН (25.11.2026, прод 24.11: «Повтор зависшего диалога (INSTAGRAM, …) не удался»
+     * ×100+ за сутки — одни и те же переписки раз в 30 минут звали ИИ и бились в мёртвый ключ). До хода ИИ: ни модели,
+     * ни Meta; одна строка журнала на аккаунт в сутки. Переписка остаётся «зависшей» — после «Заменить маркер» (отметка
+     * снимается, messengers/accounts.ts) крон health-automation поставит повтор, и ответ уйдёт.
+     */
+    if (metaChannel === "INSTAGRAM" && row.accountId && await lostInstagramAccount({ accountId: row.accountId })) {
+      await noteInstagramWorkHeld(row.accountId, "повтор ответа бота");
+      return "channel-paused";
+    }
     const customerTransport = await loadCustomerTransportForConversation(row.id);
     if (!customerTransport) { traceNoReply("no_transport"); return "no-reply"; }
     if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) { traceNoReply("already_attempted"); return "no-reply"; }
@@ -342,6 +357,12 @@ async function retryStuckConversationBody(row: StuckRow, originalMid?: string, a
      * руководству уже поставил транспорт (messengers/meta.ts → channelKeyAlarm.ts), а задание решает, что дальше
      * (jobs/aiReplyRetryCap.ts: стоп повторов этого сообщения и сигнал ответственному).
      */
+    // Отметку «доступ потерян» поставил соседний вызов, пока шёл этот ход: в Meta не ходили, писать нечего.
+    if (metaChannel && isInstagramAccessLostError(err)) {
+      await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
+      if (row.accountId) await noteInstagramWorkHeld(row.accountId, "повтор ответа бота");
+      return "channel-paused";
+    }
     const keyDeath = metaChannel ? channelKeyDeathOf(err) : null;
     if (metaChannel && keyDeath) {
       await markLastReplyUndelivered(metaChannel, row.subscriberId, deliveryTransport ?? row.accountId);
@@ -386,7 +407,7 @@ export async function retryAllStuckConversations(rows: StuckRow[]): Promise<{ se
     if (result === "sent") sent++;
     // «ИИ лежит» для нажавшего кнопку — тоже неуспех: ответа клиент не получил.
     // Сам диалог при этом уже стоит в очереди ai-reply-retry и догонит позже.
-    else if (result === "failed" || result === "ai-down" || result === "channel-dead") failed++;
+    else if (result === "failed" || result === "ai-down" || result === "channel-dead" || result === "channel-paused") failed++;
     if (i < rows.length - 1) await sleep(1200);
   }
   return { sent, failed };

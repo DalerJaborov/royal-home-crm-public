@@ -101,6 +101,7 @@ import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
+import { isInstagramAccessLostError } from "../lib/instagramAccountAccess.js";
 import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply, staffRelayPauseMs } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
@@ -2921,7 +2922,9 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // A real provider MID precedes history stamping. Losing that local stamp
       // must not reopen the whole turn or claim that no answer reached the user.
       if (providerAcceptedReply) replySent = true;
-      void logSystemError(
+      // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходили, запись и тревогу дала
+      // отметка — строка на каждое входящее была бы шумом (прод 24.11: ×18 за сутки). Остальное — как при любом отказе.
+      if (!isInstagramAccessLostError(err)) void logSystemError(
         "meta",
         `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message : String(err)}`
       );

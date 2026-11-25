@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4176**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4178**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18797,8 +18797,9 @@
             - если providerAcceptedReply
               - replySent = true;
                 · дословно из кода
-            - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
-              · запись в журнал ошибок
+            - если !isInstagramAccessLostError(err)
+              - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
+                · запись в журнал ошибок
             - если !providerAcceptedReply
               - void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryA…
                 · зовёт trackBackgroundTask()
@@ -26827,7 +26828,7 @@
     - если result === "failed" || result === "ai-down"
       - traceOutcome("failed");
         · зовёт traceOutcome()
-    - иначе если result === "channel-dead"
+    - иначе если result === "channel-dead" || result === "channel-paused"
       - traceOutcome("blocked", "channel_key_dead");
         · зовёт traceOutcome()
     - иначе если result === "no-reply"
@@ -26836,6 +26837,9 @@
 - если outcome === "ai-down"
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
+- если outcome === "channel-paused"
+  - return;
+    · дальше не идёт, ничего не меняя
 - если outcome === "channel-dead"
   - если !capBase
     - throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");

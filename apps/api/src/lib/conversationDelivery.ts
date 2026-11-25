@@ -32,6 +32,7 @@ import {
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
 import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText } from "./metaSendBlock.js";
+import { isInstagramAccessLostError } from "./instagramAccountAccess.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -494,6 +495,12 @@ export async function deliverToConversation(
         code: "window_closed",
         error: windowClosedStaffText(target.channel),
       };
+    }
+    // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): сотрудник видит причину и что делать;
+    // журнал и руководство уже знают — одна запись и одна тревога на эпизод.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: "Сообщение не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы." };
     }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
     // собственника» без карточки под рукой): там нет запроса, ждущего 502, и без

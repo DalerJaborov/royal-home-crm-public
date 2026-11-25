@@ -58,7 +58,8 @@ import {
   type RoutedCall,
 } from "../lib/metaEternalTokens.js";
 import { isMetaAuthFailure, raiseChannelKeyAlarm } from "../lib/channelKeyAlarm.js";
-import { instagramAccountPageRouted, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "../lib/instagramAccountAccess.js";
+import { instagramAccessGate, InstagramAccessLostError, isInstagramAccessLostError, isInstagramKeyRefusal, lostInstagramAccount, noteInstagramAccountLocked,
+  noteInstagramBackupKeyDead, noteInstagramKeyRefused, noteInstagramProbeSucceeded } from "../lib/instagramAccountAccess.js";
 export type { MetaCredentials, MetaChannel } from "./metaTypes.js";
 export { verifyAndRegisterMetaCustomerIssuer as verifyCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
 export { verifyAndRegisterPublicMetaCustomerIssuer as verifyPublicCustomerAccountSignature } from "../lib/customerIngressAuthority.js";
@@ -1736,6 +1737,9 @@ export async function fetchInstagramProfile(senderId: string, tokenOverride?: st
   const igToken = tokenOverride || fallbackToken;
   if (!igToken) return {};
   const fields = "username,name,profile_pic,follower_count,is_user_follow_business";
+  // Доступ к аккаунту потерян (lib/instagramAccountAccess.ts): профиль — украшение, без пробы и без строки в журнале.
+  // Отказ ключа здесь же ставит отметку через общую дверь (прод 24.11: «Профиль Instagram … не получен» ×19 за сутки).
+  if (await lostInstagramAccount({ token: igToken })) return {};
   try {
     // Вечный ключ (lib/metaEternalTokens.ts): профиль читается маркером Страницы
     // на graph.facebook.com — поля те же (User Profile API Instagram Messaging).
@@ -1743,6 +1747,7 @@ export async function fetchInstagramProfile(senderId: string, tokenOverride?: st
     const res = await fetchWithRetry(req.url, { headers: req.headers });
     if (!res.ok) {
       const body = await res.text();
+      if ((await noteInstagramKeyRefused({ token: igToken, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return {};
       // Subcode 33 = «Object does not exist»: профиль удалён или заблокирован.
       // Кэшируем пустой ответ на 24ч и логируем ОДИН раз, чтобы не спамить API.
       if (res.status === 400) {
@@ -1800,7 +1805,21 @@ export async function fetchMessengerName(psid: string, tokenOverride?: string): 
       `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(psid)}?fields=first_name,last_name&access_token=${encodeURIComponent(token)}`,
       {}
     );
-    if (!res.ok) throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) {
+      const body = await res.text();
+      /**
+       * ОЖИДАЕМЫЙ ОТКАЗ META — ОДНА СТРОКА В СУТКИ (25.11.2026, прод: «Профиль Messenger … не получен: HTTP 400 Unsupported
+       * get request» ×13 за сутки). Так Meta отвечает на PSID, чьё имя Странице читать не дают (человек ограничил доступ,
+       * удалил аккаунт, пишет из рекламы без согласия) — чинить нечего, имя остаётся пустым. Одна строка на вид в сутки,
+       * без пуша; остальные отказы (ключ, права, 5xx) пишутся как раньше.
+       */
+      if (res.status === 400 && /Unsupported get request/i.test(body)) {
+        void logSystemError("meta", `Профиль Messenger не получен: Meta не отдаёт имя по части собеседников (HTTP 400 Unsupported get request) — имя остаётся пустым, это не поломка.`,
+          { dedupKey: "messenger-profile-unsupported", dedupWindowMs: 24 * 60 * 60_000, silent: true, quietPult: true });
+        return undefined;
+      }
+      throw new Error(`Graph API HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
     const data = (await res.json()) as { first_name?: string; last_name?: string };
     const name = [data.first_name, data.last_name].filter(Boolean).join(" ").trim();
     return name || undefined;
@@ -2004,6 +2023,8 @@ function logMetaSendError(label: string, err: unknown): void {
   if (err instanceof Error && isMessagingWindowClosedError(err.message)) return;
   // Запрет Meta по правилам журналирует lib/metaSendBlock.ts — один раз на эпизод, с кодом и подкодом отдельными полями.
   if (isMetaSendBlockError(err)) return;
+  // Доступ к аккаунту Instagram потерян: в Meta не ходили, запись и тревогу дала отметка (lib/instagramAccountAccess.ts).
+  if (isInstagramAccessLostError(err)) return;
   // Код и подкод — в начале строки: хвост текста журнал обрезает, а подкод — это и есть причина.
   // fbtrace (свой у каждого запроса) — в конце: в начале он сломал бы склейку повторов журнала.
   const g = err instanceof MetaGraphCallError ? err.graph : null;
@@ -2060,6 +2081,14 @@ export async function callGraph<T = unknown>(
   const personal: RoutedCall = { url, token, body, route: "unchanged" };
   let routed: RoutedCall = method === "POST" ? await routeMetaMessagingCall(url, token, body) : personal;
   traceKnownSecrets([routed.token]);
+  /**
+   * ДОСТУП К АККАУНТУ INSTAGRAM ПОТЕРЯН (25.11.2026, lib/instagramAccountAccess.ts). Личным ключом аккаунта с отметкой
+   * в Meta не ходим — кроме пробы раз в PROBE_EVERY_MS (успех снимает отметку). Отказ без запроса — InstagramAccessLostError:
+   * вызывающие его в журнал не пишут, отметка уже дала одну запись и одну тревогу. Путь ядра (durable) не трогаем: у него
+   * своя квитанция попытки (lib/customerDeliveryDispatcher.ts). Ключи, которых нет среди аккаунтов с отметкой, — как раньше.
+   */
+  const access = routed.route === "unchanged" && !currentCustomerDeliveryTransport() ? await instagramAccessGate({ token }) : null;
+  if (access && !access.probe) throw new InstagramAccessLostError(access.account.id, access.account.reason);
   /**
    * ЭХО С ДРУГОГО ПУТИ (21.11.2026). Отправка через Страницу, эхо — по подписке входа через
    * Instagram. Помним «кому + что» ДО отправки (эхо обгоняет ответ Meta), чтобы эхо узнавалось
@@ -2165,17 +2194,12 @@ export async function callGraph<T = unknown>(
             await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`, { pageRefused });
             return;
           }
-          // Meta закрыла сам аккаунт Instagram (21.11.2026, Arvan): одна отметка и одна
-          // тревога на случай (lib/instagramAccountAccess.ts), а не тревога на каждый вызов.
-          if (who.instagramAccountId && isInstagramAccountLockedText(text)) {
+          // Ключ аккаунта Instagram не принят — «Meta закрыла доступ» (21.11.2026, Arvan) ИЛИ мёртвый после смены
+          // пароля ключ (25.11.2026, прод 24.11): одна отметка и одна тревога на эпизод (lib/instagramAccountAccess.ts),
+          // а не тревога на каждый вызов. Отметка уже стоит — дверь ничего не пишет. Аккаунт с рабочим путём Страницы
+          // дверь не метит, а говорит «запасной личный ключ не работает» раз в сутки (ревью #344).
+          if (who.instagramAccountId && isInstagramKeyRefusal(res.status, text)) {
             await noteInstagramAccountLocked(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 200)}`);
-            return;
-          }
-          if (who.accessLost) return;
-          // Аккаунт отвечает через Страницу — умер только запасной личный ключ (ревью #344):
-          // не «ключ канала перестал работать», а «переподключите аккаунт», раз в сутки.
-          if (who.instagramAccountId && (await instagramAccountPageRouted(who.instagramAccountId))) {
-            await noteInstagramBackupKeyDead(who.instagramAccountId, `HTTP ${res.status}: ${readableGraphBody(text).slice(0, 160)}`);
             return;
           }
           await raiseChannelKeyAlarm({
@@ -2186,6 +2210,8 @@ export async function callGraph<T = unknown>(
           });
         });
       }
+      // Проба аккаунта с отметкой не прошла: отметка уже стоит, писать нечего — тот же отказ, что без запроса.
+      if (access?.probe && isInstagramKeyRefusal(res.status, text)) throw new InstagramAccessLostError(access.account.id, access.account.reason);
       const durable = currentCustomerDeliveryTransport();
       if (durable && method === "POST") {
         await durable.rejected(res.status);
@@ -2208,6 +2234,8 @@ export async function callGraph<T = unknown>(
     // Проба прошла (или сотрудник отправил во время запрета) — метка снята.
     gateSettled = true;
     await settleMetaSendAccepted(gate);
+    // Проба аккаунта Instagram с отметкой «доступ потерян» прошла — ключ снова принимается, отметка снимается.
+    if (access?.probe) await noteInstagramProbeSucceeded(access.account.id);
     // Тело успешного ответа Meta не гарантировано (у sender_action оно пустое) —
     // отсутствие JSON здесь не ошибка.
     let parsed: T | null;
@@ -2333,6 +2361,8 @@ async function sendMessageImpl(
 export function isDefinitiveSendRejection(err: unknown): boolean {
   // Блокировка Meta (#273): не отправляли вовсе, отказ по правилам или предупреждение — сообщение у клиента не появилось.
   if (err instanceof CustomerReplyHeldError || isMetaSendBlockError(err)) return true;
+  // Доступ к аккаунту Instagram потерян: запроса не было, а неудачная проба — отказ 401/190. Не ушло точно.
+  if (isInstagramAccessLostError(err)) return true;
   // Только 4xx: Meta отклонила запрос. 5xx и таймаут — исход неизвестен (могло дойти), счёт щита не возвращаем, иначе
   // повтор того же текста пройдёт щит и клиент получит дубль (ревью #283, Н1).
   return /^Graph API HTTP 4\d{2}:/.test(err instanceof Error ? err.message : "");

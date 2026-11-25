@@ -11,6 +11,7 @@ import {
 import { logSystemError } from "../lib/systemError.js";
 import { readInstalledCustomerTransport } from "../lib/customerInstalledTransport.js";
 import { resetMetaEternalCache } from "../lib/metaEternalTokens.js";
+import { releaseAiRetryKeyStops } from "../jobs/aiReplyRetryCap.js";
 
 /**
  * Подключённые аккаунты мессенджеров: какой Instagram (WhatsApp, Facebook) чей.
@@ -661,6 +662,9 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   });
 
   resetAccountsCache();
+  // Новый ключ существующего аккаунта: остановки повтора ответа «ключ мёртв» по его перепискам снимаются, и ответы
+  // клиентам, ждавшие ключа, уходят с ближайшим кроном, а не через два часа (jobs/aiReplyRetryCap.ts, 25.11.2026).
+  if (token && input.id) await releaseAiRetryKeyStops(id);
   return id;
 }
 

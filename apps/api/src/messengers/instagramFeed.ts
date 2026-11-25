@@ -210,7 +210,7 @@ export async function getAllOwnMedia(
           const detail = `Лента аккаунта Instagram: Graph API HTTP ${res.status} (${sanitizeFeedUrl(req.url)}): ${bodyText.slice(0, 300)}`;
           // «Meta закрыла доступ» — одна отметка и одна тревога через общую дверь; ключ просто мёртв —
           // одна строка на аккаунт в сутки, а не каждые 15 минут (прод 21.11: 66 строк за сутки).
-          const { locked } = await noteInstagramKeyRefused({ accountId, token, text: bodyText, detail: `HTTP ${res.status}: ${bodyText.slice(0, 200)}` });
+          const { locked } = await noteInstagramKeyRefused({ accountId, token, status: res.status, text: bodyText, detail: `HTTP ${res.status}: ${bodyText.slice(0, 200)}` });
           if (!locked) {
             void logSystemError("meta", detail, { dedupKey: `ig-feed-failed:${accountId ?? "settings"}:${res.status}`, dedupWindowMs: 24 * 60 * 60_000 });
           }
