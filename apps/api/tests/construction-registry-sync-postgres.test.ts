@@ -113,7 +113,7 @@ describe("забор реестра", () => {
 
     expect(await unlinkProperty(propertyNear, agentId)).toBe(1);
     const prop = toMatchInput(await prisma.property.findUniqueOrThrow({ where: { id: propertyNear } }));
-    expect(await autoLinkProperty(prop)).toBe(false); // отвергнутое автосвязь не возвращает
+    expect(await autoLinkProperty(prop)).toBe("none"); // отвергнутое автосвязь не возвращает
     const after = await buildPropertyResponse(prop, true);
     expect(after.link).toBeNull();
     expect(after.suggestions).toHaveLength(0);

@@ -31,6 +31,7 @@ import { prisma, type PropertyRecord } from "../../db.js";
 import { withPropertyLock } from "../../lib/videoHandoff.js";
 import { logAgentAudit } from "../../lib/audit.js";
 import { logSystemError } from "../../lib/systemError.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { closeLeadPushNotifications, sendPushToAgent } from "../../push.js";
 import { publishPropertyUpdated, publishRequestUpdated } from "../../lib/livePublish.js";
@@ -312,6 +313,9 @@ export async function approvePropertyChangeRequest(input: {
         case "PRICE_CHANGE":
         case "CARD_DATA":
           error = await executeFieldsChange({ pre, claim: claim.write, pricePlan, cardPlan, result, actorId });
+          // Адрес, состояние или описание поменялись заявкой — сверка с реестром та же, что у правки карточки (25.11.2026).
+          // Сменился адрес у точки геокодера — точка стёрта, и сверку позже сделает геокодер.
+          if (claim.write && !claim.write.priceChanged) void autoLinkPropertyById(property.id);
           break;
         case "REMAKE_VIDEO": {
           const body = remakeVideoPayloadSchema.safeParse(pre.payload);

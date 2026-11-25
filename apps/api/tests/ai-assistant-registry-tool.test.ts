@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
  * Шабнам и реестр строек (21.11.2026, ai/assistant/tools/registryReadTool.ts): поиск по названию отдаёт цвет, оценку
- * застройщика и дату обновления; в общей группе отказ; рубильник выключен — отказ. Данные тестовые, со своим runId.
+ * застройщика и дату обновления; в рабочей группе тоже (с 25.11.2026); рубильник выключен — отказ. Данные тестовые, со своим runId.
  */
 const { prisma } = await import("../src/db.js");
 const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
@@ -49,9 +49,12 @@ describe("get_construction_registry", () => {
     expect(r.items[0].status).toBeTruthy();
     expect(r.updatedCaption).toBeTruthy();
   });
-  it("в общей группе отказ, имя скрыто в группе", async () => {
-    expect((await call({ query: "ЖК" }, "telegram-group")).error).toBeTruthy();
-    expect(groupHiddenToolsForTests().has("get_construction_registry")).toBe(true);
+  it("в рабочей группе тоже отвечает (25.11.2026: данные публичные), имя не скрыто в группе", async () => {
+    const r = await call({ query: `Тестовый ${runId}` }, "telegram-group");
+    expect(r.error).toBeUndefined();
+    expect(r.found).toBe(1);
+    expect(plugin.allowed?.(actor("telegram-group")) ?? true).toBe(true);
+    expect(groupHiddenToolsForTests().has("get_construction_registry")).toBe(false);
   });
   it("без аргументов — просьба уточнить", async () => {
     expect((await call({})).error).toBeTruthy();

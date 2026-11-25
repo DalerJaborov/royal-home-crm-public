@@ -12112,6 +12112,9 @@ model ConstructionPropertyLink {
   distanceM   Int?
   reasons     String[]
   createdById String?
+  /// Когда событие «связали» обработано: ответственному агенту сказали про жёлтый или красный цвет (зелёный — просто отмечено).
+  /// Повторно не уведомляем; смену цвета позже ведёт ConstructionStatusChange.
+  notifiedAt  DateTime?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 

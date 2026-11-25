@@ -1,21 +1,28 @@
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
-import { autoLinkProperty, toMatchInput } from "./link.js";
+import { autoLinkProperty, MATCH_PROPERTY_SELECT, toMatchInput, type AutoLinkOutcome } from "./link.js";
 import { loadRegistrySettings } from "./sync.js";
 
 /**
- * Автосвязь сразу при создании и правке объекта (21.11.2026), не дожидаясь недельного забора. Фоновый вызов: не роняет сохранение.
- * Ничего не делает, если рубильник выключен, у объекта нет точки или связь уже есть; сомнительное оставляет человеку.
+ * ОДНА ДВЕРЬ «ОБЪЕКТ ПОЯВИЛСЯ ИЛИ СМЕНИЛ АДРЕС/ТОЧКУ → СВЕРИТЬ С РЕЕСТРОМ» (21.11.2026, расширено 25.11.2026).
+ * Зовут её все пути, которые создают объект или меняют то, по чему он сопоставляется (адрес, точка, состояние, название,
+ * описание): форма CRM и мастер, черновик Шабнам (тот же createProperty), объект с сайта и принятая правка с сайта,
+ * принятая заявка на правку, геокодер, точка из GPS фото. Импорт CSV точку не ставит — ему сверять нечем.
+ * Список путей держит сторож tests/construction-registry-autolink-paths.test.ts.
+ *
+ * Фоновый вызов: не роняет сохранение, ошибка — в журнал. Ничего не делает, если рубильник выключен или у объекта нет
+ * точки; ручную связь не трогает; сомнительное оставляет человеку; уже стоящую AUTO-связь пересчитывает (link.ts).
  */
-export async function autoLinkPropertyById(propertyId: string): Promise<void> {
+export async function autoLinkPropertyById(propertyId: string): Promise<AutoLinkOutcome | null> {
   try {
-    if (!(await loadRegistrySettings()).enabled) return;
+    if (!(await loadRegistrySettings()).enabled) return null;
     const p = await prisma.property.findFirst({
       where: { id: propertyId, deletedAt: null, lat: { not: null }, lng: { not: null } },
-      select: { id: true, lat: true, lng: true, address: true, title: true, description: true, condition: true },
+      select: MATCH_PROPERTY_SELECT,
     });
-    if (p) await autoLinkProperty(toMatchInput(p));
+    return p ? await autoLinkProperty(toMatchInput(p)) : null;
   } catch (err) {
     void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
 }

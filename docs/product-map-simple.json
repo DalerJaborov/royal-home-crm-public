@@ -16,9 +16,9 @@
   "paths": 775,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4137,
-  "untranslatedUnique": 474,
-  "untranslatedTotal": 609,
+  "conditions": 4140,
+  "untranslatedUnique": 475,
+  "untranslatedTotal": 610,
   "partialUnique": 1113,
   "translatedShare": 85
  },
@@ -33,6 +33,7 @@
   "!(await exemptCustomerSpam(id.data))",
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
+  "!(await loadRegistrySettings()).enabled",
   "!(await metaCatalogKeyOk(req))",
   "!(await securityAutomationOn())",
   "!(await sellerSwitchOn(\"sellerAiAnalysisEnabled\"))",
@@ -41007,6 +41008,12 @@
         {
          "t": "меняет: объект",
          "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если количество больше 0",
+         "k": "if",
          "a": [],
          "c": []
         }
@@ -82343,6 +82350,40 @@
         }
        ],
        "raw": "now && !now.deletedAt && now.address !== property.address"
+      }
+     ]
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await loadRegistrySettings()).enabled",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await loadRegistrySettings()).enabled"
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     },

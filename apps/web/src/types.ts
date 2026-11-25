@@ -1,5 +1,6 @@
 import type {
   NotificationLevel,
+  RegistryBrief,
   PropertyType,
   PropertyCondition,
   PropertyStatus,
@@ -82,6 +83,8 @@ export interface AgentRef {
 
 export interface Property {
   id: string;
+  /** Реестр разрешённых строек: короткий статус. Только в ответе списка GET /properties (сотрудникам); null — нет данных. */
+  registry?: RegistryBrief | null;
   /** Короткий числовой ID для URL (/properties/1042) — id остаётся настоящим для API-вызовов. */
   shortId: number;
   title: string;

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **775**. Развилок в самих путях: **2474**; вместе с задачами по расписанию и фоновыми заданиями — **4176**. Модулей: **86**.
+Путей: **775**. Развилок в самих путях: **2475**; вместе с задачами по расписанию и фоновыми заданиями — **4179**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11367,8 +11367,11 @@
       - если guessedAddress
         - data.canonicalAddress = normalizePropertyAddress(guessedAddress);
           · зовёт normalizePropertyAddress()
-    - await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …
+    - const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…
       · меняет в базе: property
+    - если written.count > 0
+      - void autoLinkPropertyById(property.id);
+        · зовёт autoLinkPropertyById()
   - если сорвалось
     - void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.…
       · запись в журнал ошибок
@@ -12810,6 +12813,8 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
+- void autoLinkPropertyById(updated.id);
+  · зовёт autoLinkPropertyById()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12822,8 +12827,6 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
-- void autoLinkPropertyById(updated.id);
-  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -13909,9 +13912,9 @@
     - [items, total] = await Promise.all([ prisma.property.findMany({ where: fuzzyWhere, orderBy: [{ createdAt: "de…
       · читает в базе: property
       · считает в базе: property
-- const result = await presentPropertyListItems(items, req);
+- const [result, registry] = await Promise.all([presentPropertyListItems(items, req), loadRegistryBriefs(items)…
   · зовёт presentPropertyListItems()
-- res.json({ items: result, total, page: pageNum, pageSize });
+- res.json({ items: result.map((p)
   · ответ 200
 
 ### POST /api/v1/properties
@@ -19062,6 +19065,8 @@
     · меняет в базе: property
     - const p = await tx.property.update({ where: { id: raced.id }, data: updateData });
       · меняет в базе: property
+- void autoLinkPropertyById(property.id);
+  · зовёт autoLinkPropertyById()
 - res.status(created ? 201 : 200).json({ ok: true, propertyId: property.id, created });
   · ответ (код зависит от условия)
 
@@ -27155,6 +27160,9 @@
       - смотря что в: pre.kind
         - вариант case "PRICE_CHANGE"
         - вариант case "CARD_DATA"
+          - если claim.write && !claim.write.priceChanged
+            - void autoLinkPropertyById(property.id);
+              · зовёт autoLinkPropertyById()
           - break;
             · прекращает перебор
         - вариант case "REMAKE_VIDEO"
@@ -28945,6 +28953,19 @@
       · ошибка Error — «Адрес объекта ${payload.propertyId} сменился во время геокодирования —»
   - return;
     · дальше не идёт, ничего не меняя
+- await autoLinkPropertyById(payload.propertyId);
+  · зовёт autoLinkPropertyById()
+  - пробует
+    - если !(await loadRegistrySettings()).enabled
+      - return null;
+        · дословно из кода
+    - const p = await prisma.property.findFirst({ where: { id: propertyId, deletedAt: null, lat: { not: null }, lng…
+      · читает в базе: property
+    - return p ? await autoLinkProperty(toMatchInput(p)) : null;
+      · зовёт autoLinkProperty()
+  - если сорвалось
+    - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+      · запись в журнал ошибок
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()

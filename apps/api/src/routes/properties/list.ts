@@ -17,6 +17,7 @@ import { maskOwnerContact, presentProperty, stripEmbedding, stripOwnerContact } 
 import { ownsProperty } from "../../lib/propertyAccess.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { PROPERTY_LIST_INCLUDE, presentPropertyListItems } from "../../lib/propertyListItem.js";
+import { loadRegistryBriefs } from "../../lib/constructionRegistry/view.js";
 import { logAudit } from "../../lib/audit.js";
 import { toSearchTokens, toTokenVariants } from "../../lib/searchTokens.js";
 import { fuzzyPropertyIds } from "../../lib/fuzzySearch.js";
@@ -335,8 +336,10 @@ listRouter.get("/", requireAuth, async (req, res) => {
     }
   }
 
-  const result = await presentPropertyListItems(items, req);
-  res.json({ items: result, total, page: pageNum, pageSize });
+  const [result, registry] = await Promise.all([presentPropertyListItems(items, req), loadRegistryBriefs(items)]);
+  // Значок реестра строек в списке (25.11.2026): пакетом на страницу, только в этом ответе сотрудникам — общий
+  // presentPropertyListItems (его зовёт и маркетинг) про реестр не знает.
+  res.json({ items: result.map((p) => ({ ...p, registry: registry.briefs.get(p.id) ?? null })), total, page: pageNum, pageSize });
 });
 
 /** Потолок выгрузки каталога (22.09.2026, класс «Пагинация» из CLAUDE.md). Без

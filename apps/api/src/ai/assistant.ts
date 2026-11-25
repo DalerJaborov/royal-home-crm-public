@@ -30,6 +30,7 @@ import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/r
 import { assistantLanguage, assistantLanguagePolicy, repliesInTajik } from "./assistant/languageRouting.js";
 import type { ClientLanguage } from "./clientLanguage.js";
 import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
+import { registryNotesFor, registryPromptGuide } from "./assistant/tools/registryBrief.js";
 import { loadMoneyContext, priceCeilingFilter, roundMoney, toTjs } from "../lib/money.js";
 import {
   dushanbeDateString,
@@ -696,7 +697,10 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       });
     }
 
-    return ordered.slice(0, 8).map((p) => ({
+    const shown = ordered.slice(0, 8);
+    // Реестр строек — строкой у каждого объекта, одним запросом на весь список (25.11.2026, только сотрудникам).
+    const registry = await registryNotesFor(shown);
+    return shown.map((p) => ({
       id: p.id,
       shortId: p.shortId,
       title: safeField(p.title),
@@ -711,6 +715,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       currency: p.currency,
       district: p.district?.name ?? "Без района",
       status: p.status,
+      ...registry.get(p.id),
     }));
   }
 
@@ -1719,10 +1724,12 @@ export async function runAssistantDetailed(
       console.warn("[assistant] company knowledge unavailable");
     }
     const glossary = tajikTurn ? tajikGlossaryFor(userQuestion) : "";
+    // Реестр строек: раздел есть, пока включён рубильник (25.11.2026). Неизменный текст — префикс промта не дрожит.
+    const registryGuide = await registryPromptGuide();
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
       .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor))
-      .replace("{{CHANNEL}}", () => assistantChannelGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
+      .replace("{{CHANNEL}}", () => assistantChannelGuide(actor)) + registryGuide + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);

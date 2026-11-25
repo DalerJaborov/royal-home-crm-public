@@ -33,6 +33,7 @@ import { formatGeoAddressGuess } from "./crud.js";
 import { mapWithConcurrency } from "../../lib/concurrency.js";
 import { removePropertyPhoto } from "../../lib/propertyPhotoRemoval.js";
 import { removeMessagePhoto } from "../../lib/messagePhoto.js";
+import { autoLinkPropertyById } from "../../lib/constructionRegistry/autoLinkOnSave.js";
 
 export const photosRouter = Router();
 
@@ -334,10 +335,12 @@ photosRouter.post("/:id/photos", requireAuth, anyParams(memoryUploadBudget), any
           data.canonicalAddress = normalizePropertyAddress(guessedAddress);
         }
       }
-      await prisma.property.updateMany({
+      const written = await prisma.property.updateMany({
         where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } }] },
         data,
       });
+      // Точка из снимка — сверить с реестром строек (25.11.2026), как после геокодера.
+      if (written.count > 0) void autoLinkPropertyById(property.id);
     } catch (err) {
       void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.message : String(err)}`);
     }

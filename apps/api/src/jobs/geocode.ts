@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { logSystemError } from "../lib/systemError.js";
 import { districtByPoint } from "../lib/propertyDistrict.js";
+import { autoLinkPropertyById } from "../lib/constructionRegistry/autoLinkOnSave.js";
 import { buildPropertyTitle } from "@royal-home/shared";
 import type { JobHandler } from "./registry.js";
 
@@ -113,6 +114,9 @@ export const geocodeJob: JobHandler<z.infer<typeof schema>> = {
       }
       return;
     }
+    // Точка появилась или сменилась — сверить с реестром строек (25.11.2026). Объект из мастера часто создаётся без точки,
+    // и сверка при создании ничего не находила: точка приходит позже, отсюда. Никогда не бросает.
+    await autoLinkPropertyById(payload.propertyId);
     // Район по новой точке — ТОЛЬКО в пустое поле (24.09.2026): выбранный агентом
     // район автогеокодер не переписывает — точка по строке адреса догадка, а не
     // факт, которым lib/propertyDistrict.ts разрешает перебить выбор человека.

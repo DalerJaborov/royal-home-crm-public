@@ -9,6 +9,7 @@ import { avatarTone } from "../lib/avatarTone";
 import { dushanbeTime } from "../lib/date";
 import { PropertyStats } from "./PropertyStats";
 import { PropertyHealthDot } from "./PropertyHealthDot";
+import { RegistryBadge } from "./RegistryBadge";
 import { propertyFloorsLabel, type PropertyHealthBrief } from "@royal-home/shared";
 
 /** «, 5 из 9 этаж» у квартиры, «, 2 этажа» у дома, ничего у участка. */
@@ -190,6 +191,7 @@ export function PropertyRow({
         <small>{formatPricePerSqm(p.price, p.areaSqm, p.currency)}</small>
       </span>
       <span className={statusChipClass(p.status, p.pipeline)}>{statusChipLabel(p.status, p.pipeline)}</span>
+      <RegistryBadge brief={p.registry} />
       {p.publishedOnSite && <span className="chip ok">На сайте</span>}
       {!!p.handoverPendingSince && !!myId && p.intakeAgent?.id === myId && (
         <span className="chip warn">Передан вам · примите</span>

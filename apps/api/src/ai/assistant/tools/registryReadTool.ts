@@ -8,7 +8,8 @@ import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 /**
- * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК ДЛЯ ШАБНАМ (21.11.2026). Только сотрудникам, только в личке (имя в GROUP_HIDDEN_TOOLS).
+ * РЕЕСТР РАЗРЕШЁННЫХ СТРОЕК ДЛЯ ШАБНАМ (21.11.2026). Только сотрудникам: в личке и в рабочих группах (с 25.11.2026, решение
+ * владельца: данные публичные — memor.pro, объекты в группе и так видны через поиск). Клиентам и на сайт не уходит.
  * Та же логика, что у карточки объекта (lib/constructionRegistry/view.ts): второй реализации нет. Ничего не пишет.
  * Клиенту это не отдаётся: сотрудник пересказывает своими словами и называет дату обновления реестра.
  */
@@ -34,9 +35,7 @@ export const getConstructionRegistryTool: AssistantReadToolPlugin = {
       query: { type: "string", description: "Название комплекса или застройщика" },
     },
   },
-  allowed: (actor) => actor.surface !== "telegram-group",
-  async run(raw, { actor }) {
-    if (actor.surface === "telegram-group") return { error: "Это — только в личном чате с Шабнам" };
+  async run(raw) {
     const parsed = args.safeParse(raw ?? {});
     if (!parsed.success || (!parsed.data.property && !parsed.data.query)) return { error: "Нужен номер объекта или название комплекса/застройщика" };
     const { enabled } = await loadRegistrySettings();

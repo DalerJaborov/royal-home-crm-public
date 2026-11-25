@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  addressAgreement,
+  registryBriefLine,
+  registryBriefWarning,
   RATING_MIN_PROJECTS,
   decisionYearFromQaror,
   letterForScore,
@@ -120,9 +123,83 @@ describe("сопоставление с нашим объектом", () => {
     const m = scoreRegistryMatch({ property: { ...base, title: "Новостройка от Мирзокаримов Р. А." }, project });
     expect(m.level).toBe("auto");
   });
-  it("в 150 м даже с улицей и номером — только предложение", () => {
-    const m = scoreRegistryMatch({ property: { ...base, lat: 38.55695, address: "Р. Набиев 12" }, project });
-    expect(m.distanceM).toBeGreaterThan(80);
+  it("в 200 м даже с улицей и номером — только предложение", () => {
+    const m = scoreRegistryMatch({ property: { ...base, lat: 38.5574, address: "Р. Набиев 12" }, project });
+    expect(m.distanceM).toBeGreaterThan(150);
     expect(m.level).toBe("suggest");
+  });
+  it("в 120 м совпали улица И номер дома — связываем само (адрес сильнее точки геокодера)", () => {
+    const m = scoreRegistryMatch({ property: { ...base, lat: 38.55668, address: "Р. Набиев 12" }, project });
+    expect(m.distanceM).toBeGreaterThan(80);
+    expect(m.distanceM).toBeLessThanOrEqual(150);
+    expect(m.level).toBe("auto");
+  });
+  it("в 120 м одна улица без номера, даже у новостройки — только предложение", () => {
+    const m = scoreRegistryMatch({ property: { ...base, lat: 38.55668, address: "улица Набиев", isNewBuilding: true }, project });
+    expect(m.level).toBe("suggest");
+  });
+});
+
+/**
+ * ТАДЖИКСКАЯ И РУССКАЯ ЗАПИСЬ АДРЕСА (25.11.2026). Живой замер на проде: из 47 новостроек само связались 3, потому что
+ * «кӯчаи М. Турсунзода №7 ва №9» и «улица Мирзо Турсунзаде, 9» не склеивались. Кейсы ниже придуманы по образцу, не выгрузка.
+ */
+describe("адрес: таджикская и русская запись", () => {
+  it("транслитерация и указатель улицы: Турсунзаде = Турсунзода, номер из перечня", () => {
+    const a = addressAgreement("улица Мирзо Турсунзаде, 15", "кӯчаи М. Турсунзода №13 ва №15");
+    expect(a).toMatchObject({ street: true, streetFuzzy: true, house: true, houseConflict: false });
+  });
+  it("буквы ӣ/ӯ/ҳ/қ/ғ и хиёбони = проспект: Рӯдакӣ = Рудаки, Ҳисор = Хисор", () => {
+    expect(addressAgreement("проспект Рудаки, 120", "хиёбони Рӯдакӣ, 120")).toMatchObject({ street: true, streetFuzzy: false, house: true });
+    expect(addressAgreement("ул. Хисор 7", "кӯчаи Ҳисор №7")).toMatchObject({ street: true, house: true });
+    expect(addressAgreement("ул. Гафуров 3", "кӯчаи Б.Ғафуров №3")).toMatchObject({ street: true, house: true });
+  });
+  it("русское «дж» = таджикское «ҷ»", () => {
+    expect(addressAgreement("улица Джалола Икроми, 7", "кӯчаи Ҷалол Икромӣ №7")).toMatchObject({ street: true, house: true });
+  });
+  it("перечень с диапазоном: дом внутри «10-14» засчитан, а «1-2020» диапазоном не считается", () => {
+    expect(addressAgreement("Шевченко 12", "кӯчаи Шевченко №№4, 10-14 ва 21")).toMatchObject({ house: true });
+    expect(addressAgreement("Шевченко 1500", "кӯчаи Шевченко №1-2020")).toMatchObject({ house: false });
+  });
+  it("номер другой улицы того же проекта не считается номером нашей улицы", () => {
+    const a = addressAgreement("улица Айни, 31", "кӯчаи Шоҳин 31, 33 ва кӯчаи Айнӣ №50");
+    expect(a).toMatchObject({ street: true, house: false, houseConflict: true });
+  });
+  it("номера квартир и комнат — не номера домов; район после «ноҳияи» — не улица", () => {
+    expect(addressAgreement("Шевченко 41", "кӯчаи Шевченко №6 квартираҳои 41, 42")).toMatchObject({ house: false, houseConflict: true });
+    expect(addressAgreement("улица Сино, 5", "кӯчаи Навоӣ №5, ноҳияи Сино")).toMatchObject({ street: false });
+  });
+  it("буква корпуса через дефис и кавычки: 20-А = 20 «а»", () => {
+    expect(addressAgreement("Шевченко 20а", "кӯчаи Шевченко №20-А")).toMatchObject({ house: true });
+    expect(addressAgreement("Шевченко 20-А", "кӯчаи Шевченко №20 «а»")).toMatchObject({ house: true });
+  });
+  it("рядом новостройка на улице «похожего написания» без номера — только предложение; с номером — само", () => {
+    const project = { lat: 38.5556, lng: 68.7575, address: "кӯчаи Қазоқон №№90, 95", customer: "Застройщик" };
+    const near = { lat: 38.5559, lng: 68.7575, title: "2-комн", description: null, isNewBuilding: true };
+    expect(scoreRegistryMatch({ property: { ...near, address: "ориентир Казакон" }, project }).level).toBe("suggest");
+    expect(scoreRegistryMatch({ property: { ...near, address: "улица Казакон, 95" }, project }).level).toBe("auto");
+  });
+  it("рядом новостройка на той же улице, но дом другой — только предложение (соседний дом)", () => {
+    const project = { lat: 38.5556, lng: 68.7575, address: "Кӯчаи Айнӣ, № 58 ва 60", customer: "Застройщик" };
+    const m = scoreRegistryMatch({
+      property: { lat: 38.5559, lng: 68.7575, address: "улица Садриддина Айни, 56", title: "2-комн", description: null, isNewBuilding: true },
+      project,
+    });
+    expect(m.level).toBe("suggest");
+    expect(m.reasons.join(" ")).toContain("соседний дом");
+  });
+});
+
+describe("короткий статус реестра для списка и Шабнам", () => {
+  it("зелёный — без предупреждения, с оценкой застройщика", () => {
+    expect(registryBriefLine({ status: "green", letter: "B" })).toBe("Реестр строек: разрешение есть, оценка застройщика B.");
+    expect(registryBriefWarning({ status: "green", letter: "B" })).toBeNull();
+  });
+  it("жёлтый и красный — прямое предупреждение сотруднику", () => {
+    expect(registryBriefWarning({ status: "yellow", letter: null })).toContain("Документы ещё оформляются");
+    expect(registryBriefWarning({ status: "red", letter: "D" })).toContain("предупредите клиента");
+  });
+  it("нет связи у новостройки — проверить вручную", () => {
+    expect(registryBriefLine({ status: "none", letter: null })).toContain("проверьте вручную");
   });
 });

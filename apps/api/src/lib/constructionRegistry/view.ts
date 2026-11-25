@@ -12,6 +12,7 @@ import {
   type RegistryPropertyResponse,
   type RegistrySuggestionDto,
   type RegistryColor,
+  type RegistryBrief,
 } from "@royal-home/shared";
 import type { ConstructionProject, Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
@@ -129,7 +130,40 @@ export async function rankCandidates(property: PropertyForMatch, projects?: Cons
     if (m.level === "none") continue;
     out.push({ project, level: m.level, confidence: m.confidence, distanceM: m.distanceM, reasons: m.reasons });
   }
-  return out.sort((a, b) => b.confidence - a.confidence || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9));
+  // «Само» раньше «предложить»: у соседнего дома на той же улице уверенность по расстоянию бывает выше, чем у проекта
+  // с совпавшим номером дома чуть дальше (25.11.2026), а связывать надо второй.
+  const rank = { auto: 0, suggest: 1 } as const;
+  return out.sort((a, b) => rank[a.level] - rank[b.level] || b.confidence - a.confidence || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9));
+}
+
+/**
+ * КОРОТКИЙ СТАТУС ДЛЯ СПИСКОВ (25.11.2026): список объектов CRM и ответы Шабнам про объекты. Только сотрудникам.
+ * Пакетом, без N+1: связи — одним запросом, рейтинги — одним (loadDeveloperDtos). Рубильник выключен или реестр ещё не
+ * загружался — пустая карта (значок не рисуется, Шабнам молчит). Новостройка без связи — status "none" («проверьте вручную»);
+ * у вторички без связи записи нет: её отсутствие в реестре ничего не значит.
+ */
+export async function loadRegistryBriefs(
+  properties: readonly { id: string; condition: string }[],
+): Promise<{ briefs: Map<string, RegistryBrief>; updatedAt: Date | null }> {
+  const briefs = new Map<string, RegistryBrief>();
+  if (properties.length === 0) return { briefs, updatedAt: null };
+  const { loadRegistrySettings } = await import("./sync.js");
+  const [settings, updatedAt] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  if (!settings.enabled || !updatedAt) return { briefs, updatedAt };
+  const ids = [...new Set(properties.map((p) => p.id))];
+  const links = await prisma.constructionPropertyLink.findMany({
+    where: { propertyId: { in: ids }, state: "LINKED", project: { removedAt: null } },
+    select: { propertyId: true, project: { select: { colorStatus: true, developerId: true } } },
+    take: ids.length * 2,
+  });
+  const devs = await loadDeveloperDtos(links.map((l) => l.project.developerId));
+  for (const l of links) {
+    briefs.set(l.propertyId, { status: COLOR_OUT[l.project.colorStatus], letter: devs.get(l.project.developerId)?.rating.letter ?? null });
+  }
+  for (const p of properties) {
+    if (!briefs.has(p.id) && p.condition === "NEW_BUILDING") briefs.set(p.id, { status: "none", letter: null });
+  }
+  return { briefs, updatedAt };
 }
 
 /** Готовый ответ для карточки объекта. Ничего не пишет в базу. */
