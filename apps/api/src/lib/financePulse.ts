@@ -238,7 +238,7 @@ export async function buildFinancePulse(): Promise<PulseBucket[]> {
     const companyShareOf = (d: (typeof deals)[number]) => {
       if (d.commissionCompanyAmount !== null) return toTjs(d.commissionCompanyAmount, d.currency, money);
       const baseCents = toCents(toTjs(d.commissionAmount ?? 0, d.currency, money));
-      return fromCents(splitCents(baseCents, [pCompany, pRealtor])[0]);
+      return fromCents(splitCents(baseCents, [pRealtor, pCompany])[1]);
     };
 
     const sumIncome = (a: Date, b: Date) =>

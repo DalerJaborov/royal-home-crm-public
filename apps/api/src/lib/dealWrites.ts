@@ -212,7 +212,7 @@ export async function createDealFor(
     });
   }
   if (!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)) {
-    return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от цены объекта)" });
   }
   // deletedAt: null — через интерфейс недостижимо (селекты питаются отфильтрованными
   // списками), но прямой вызов API заводил сделку по объекту из Корзины: объект уходил
@@ -275,7 +275,7 @@ export async function createDealFor(
   // закрытия живёт в PATCH, единственном пути закрытия сделки.
 
   // Для агента поля выше отвергнуты, так что здесь они всегда undefined — комиссия
-  // придёт из Настроек. Руководитель может задать свою (одно из двух полей).
+  // посчитается как 2% от цены объекта. Руководитель может задать свою (одно из двух полей).
   let commissionPercent = data.commissionPercent;
   let commissionAmount = data.commissionAmount;
   if (commissionPercent === undefined && commissionAmount === undefined) {
@@ -681,7 +681,7 @@ export async function updateDealFor(
     });
   }
   if (!canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)) {
-    return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от цены объекта)" });
   }
   // Суммы риелтора/компании — вводит сам агент, но ТОЛЬКО в момент отправки на
   // закрытие. Править их у уже отправленной или закрытой сделки — снова дело

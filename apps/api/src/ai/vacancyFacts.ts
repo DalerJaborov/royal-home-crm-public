@@ -19,6 +19,8 @@
  * Дом печати, Бухоро 49, машина + сильное желание = зелёный, 24 года проходит.
  */
 
+import { COMMISSION_COMPANY_PERCENT, COMMISSION_REALTOR_PERCENT, COMMISSION_TOTAL_PERCENT } from "@royal-home/shared";
+
 export const VACANCY_FACTS = {
   company: {
     name: "Royal Home",
@@ -40,9 +42,9 @@ export const VACANCY_FACTS = {
   /** Деньги — только так, как сказал владелец. «От» и «до» — ориентиры, не гарантия. */
   pay: {
     salary: "оклада нет — доход только от процента со сделок",
-    commissionTotalPct: 2,
-    agentPct: 1,
-    companyPct: 1,
+    commissionTotalPct: COMMISSION_TOTAL_PERCENT,
+    agentPct: COMMISSION_REALTOR_PERCENT,
+    companyPct: COMMISSION_COMPANY_PERCENT,
     newbieFromUsd: 500,
     experiencedFromUsd: 1000,
     topUpToUsd: "9–10 тысяч",

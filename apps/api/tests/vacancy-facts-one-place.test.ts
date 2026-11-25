@@ -56,7 +56,7 @@ describe("Факты о вакансии — одно место для чата
     // Владелец 25.11.2026: агент берёт 1% целиком, дележа и «0,5%» в тексте вакансии нет.
     expect(SCENARIO_JOB).toContain("1% агенту, 1% компании");
     expect(SCENARIO_JOB).not.toContain("пополам");
-    expect(SCENARIO_JOB).not.toMatch(/0[,.]5s?%/);
+    expect(SCENARIO_JOB).not.toMatch(/0[,.]5\s?%/);
   });
 
   it("ни чат, ни робот не обещают само трудоустройство", () => {
