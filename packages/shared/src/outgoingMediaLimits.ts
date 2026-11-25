@@ -25,6 +25,18 @@ const MB = 1024 * 1024;
  */
 const DMB = 1_000_000;
 
+/**
+ * Подпись веса или предела файла для сотрудника в ДЕСЯТИЧНЫХ мегабайтах — теми же, что
+ * заданы пределы каналов выше (16 000 000 байт = «16 МБ»). Двоичный `formatUploadLimit`
+ * показал бы «15,3 МБ» при заявленных 16 (ревью 26.11.2026). Дробь отбрасывается вниз до
+ * десятой: предел никогда не называется больше настоящего.
+ */
+export function formatChannelLimit(bytes: number): string {
+  const trim = (n: number) => String(Math.floor(n * 10 + 1e-9) / 10).replace(".", ",");
+  if (bytes >= 1_000_000_000) return `${trim(bytes / 1_000_000_000)} ГБ`;
+  return `${trim(bytes / DMB)} МБ`;
+}
+
 export type MetaOutgoingChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK";
 
 export const META_OUTGOING_MEDIA_LIMITS: Record<MetaOutgoingChannel, { image: number; video: number }> = {

@@ -151,6 +151,32 @@ export function fetchOutgoingMediaJobs(conversationId: string): Promise<{ jobs: 
   return api<{ jobs: OutgoingMediaJobView[] }>(`/conversations/${conversationId}/media-jobs`);
 }
 
+/** Номер пузыря, поднятого с сервера по заданию (а не созданного загрузкой в этой вкладке). */
+export function serverJobLocalId(jobId: string): string {
+  return `job-${jobId}`;
+}
+
+/**
+ * СВЕРКА ПУЗЫРЕЙ С СЕРВЕРОМ при открытии переписки (ревью 26.11.2026).
+ * `uploads` — пузыри в сторе, `followed` — задания, за которыми вкладка следит прямо сейчас.
+ *  - задание есть на сервере, пузыря и слежки нет → завести пузырь (вкладку закрывали или обновляли);
+ *  - пузырь с заданием есть, слежки нет, а сервер его уже не называет (список — только незавершённые и
+ *    упавшие за сутки) → задание ушло (SENT) или отменено, пока вкладка не следила (опрос сдался через
+ *    30 минут «проверьте позже»): пузырь убрать, иначе он висит вечно.
+ */
+export function reconcileJobBubbles(
+  jobs: readonly OutgoingMediaJobView[],
+  uploads: ReadonlyArray<{ localId: string; jobId?: string }>,
+  followed: ReadonlySet<string>
+): { add: OutgoingMediaJobView[]; removeLocalIds: string[] } {
+  const present = new Set(uploads.map((u) => u.jobId).filter((id): id is string => !!id));
+  const listed = new Set(jobs.map((j) => j.id));
+  return {
+    add: jobs.filter((j) => !present.has(j.id) && !followed.has(j.id)),
+    removeLocalIds: uploads.filter((u) => u.jobId && !listed.has(u.jobId) && !followed.has(u.jobId)).map((u) => u.localId),
+  };
+}
+
 /** Дольше этого не спрашиваем: сервер сам сдаётся раньше (12 минут сжатия), дальше — «проверьте позже». */
 export const OUTGOING_MEDIA_WAIT_MAX_MS = 30 * 60_000;
 

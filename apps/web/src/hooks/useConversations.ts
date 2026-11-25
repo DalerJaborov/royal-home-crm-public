@@ -12,6 +12,8 @@ import {
   requestOutgoingMediaCancel,
   requestOutgoingMediaRetry,
   fetchOutgoingMediaJobs,
+  reconcileJobBubbles,
+  serverJobLocalId,
   uploadConversationMedia,
   waitOutgoingMediaJob,
   type OutgoingMediaJobView,
@@ -389,6 +391,9 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         job.status === "QUEUED" ? "queued" : job.status === "PREPARING" ? "compress" : "send";
       followedMediaJobs.add(jobId);
       try {
+        // Ответ GET /media-jobs мог прийти раньше ответа на загрузку и завести второй пузырь на то же
+        // задание — теперь, когда у загрузки есть номер, дубль убирается (его опрос завершится сам).
+        if (upload.localId !== serverJobLocalId(jobId)) remove(conversationId, serverJobLocalId(jobId));
         setProcessing(conversationId, upload.localId, { jobId, stage: "queued", progress: 0 });
         const done = await waitOutgoingMediaJob(conversationId, jobId, (job) => {
           if (job.status === "QUEUED" || job.status === "PREPARING" || job.status === "SENDING") {
@@ -503,11 +508,11 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
     void fetchOutgoingMediaJobs(conversationId)
       .then(({ jobs }) => {
         if (!alive) return;
-        const present = new Set((useMediaUploadsStore.getState().byConversation[conversationId] ?? []).map((u) => u.jobId));
-        for (const job of jobs) {
-          if (present.has(job.id) || followedMediaJobs.has(job.id)) continue;
+        const plan = reconcileJobBubbles(jobs, useMediaUploadsStore.getState().byConversation[conversationId] ?? [], followedMediaJobs);
+        for (const localId of plan.removeLocalIds) remove(conversationId, localId);
+        for (const job of plan.add) {
           const upload: PendingMediaUpload = {
-            localId: `job-${job.id}`,
+            localId: serverJobLocalId(job.id),
             file: null,
             previewUrl: "",
             kind: job.kind ?? "video",
@@ -526,7 +531,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
     return () => {
       alive = false;
     };
-  }, [id, add, follow]);
+  }, [id, add, remove, follow]);
 
   const cancel = useCallback(
     (localId: string) => {
