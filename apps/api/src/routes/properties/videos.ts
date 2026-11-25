@@ -39,7 +39,7 @@ import {
   discardReceivedFinalVideo,
 } from "../../lib/videoHandoff.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { assembleChunkedUpload, assertOwnChunkedUpload, chunkedUploadOwner, DISK_SPACE_FACTOR } from "../../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, assertOwnChunkedUpload, chunkedUploadOwner } from "../../lib/chunkedUploadSessions.js";
 import { UploadError, toStorageError } from "../../lib/uploadErrors.js";
 import { logUploadPart, partBodySource, sendUploadError } from "../../lib/uploadHttp.js";
 import { readUploadState, replyStoredUpload, runUploadCompletion } from "../../lib/uploadCompletion.js";
@@ -73,6 +73,7 @@ import {
 import {
   abortLocalUploadSession,
   assertUploadDiskSpace,
+  uploadStartDiskBytes,
   completeLocalUploadSession,
   completeLocalUploadSessionToPath,
   createLocalUploadSession,
@@ -1055,10 +1056,10 @@ videosRouter.post("/:id/videos/upload-sessions", requireAuth, async (req, res) =
     });
   }
 
-  // Место на диске — ДО любых действий с объектом (реоткрытие готового ролика ниже): части,
-  // склейка и копия у назначения — до трёх размеров файла, плюс запас под базу.
+  // Место на диске — ДО любых действий с объектом (реоткрытие готового ролика ниже): части и
+  // склейка — два размера файла, плюс запас под базу (assertUploadDiskSpace).
   try {
-    await assertUploadDiskSpace(sizeBytes * DISK_SPACE_FACTOR);
+    await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
   } catch (err) {
     if (sendUploadError(res, err, "видео объекта: старт")) return;
     throw err;

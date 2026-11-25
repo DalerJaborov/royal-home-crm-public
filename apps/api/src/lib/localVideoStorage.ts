@@ -3,7 +3,6 @@ import fs from "node:fs";
 import { createReadStream, createWriteStream } from "node:fs";
 import path from "node:path";
 import { Transform, type Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { UploadError, isDiskFullError, toStorageError } from "./uploadErrors.js";
 
 /**
@@ -110,26 +109,49 @@ export async function localVideoExists(key: string): Promise<boolean> {
  *   - сборка НЕ удаляет части: их убирает finishLocalUploadSession ПОСЛЕ того, как
  *     результат закреплён (запись в базе, перенос файла) — иначе упавшая запись в базу
  *     превращала каждый повтор в «не удалось собрать» навсегда.
- * Сторож: tests/upload-storage-one-door.test.ts (часть пишется только через этот модуль).
+ * Сторожа: tests/upload-completion-and-guards.test.ts (часть пишется только через этот модуль),
+ * tests/upload-storage-hardening.test.ts (атомарность, сверка, замок).
  */
 
-/** Запас свободного места, ниже которого загрузки не принимаются (по умолчанию 5 ГБ):
- *  на том же диске живёт база, и ENOSPC валит её вместе с загрузкой. */
-const DEFAULT_DISK_RESERVE_BYTES = 5 * 1024 * 1024 * 1024;
+/**
+ * Запас свободного места, ниже которого загрузки не принимаются: на том же диске живёт база,
+ * и ENOSPC валит её вместе с загрузкой. 5 % диска, но не меньше 2 ГБ и не больше 5 ГБ
+ * (диск 77 ГБ → ~3,9 ГБ). Переменная UPLOAD_DISK_RESERVE_BYTES задаёт число явно.
+ */
+const MIN_DISK_RESERVE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_DISK_RESERVE_BYTES = 5 * 1024 * 1024 * 1024;
+const DISK_RESERVE_SHARE = 0.05;
 
-export function uploadDiskReserveBytes(): number {
+export function uploadDiskReserveBytes(diskTotalBytes?: number): number {
   const raw = Number(process.env.UPLOAD_DISK_RESERVE_BYTES);
-  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_DISK_RESERVE_BYTES;
+  if (process.env.UPLOAD_DISK_RESERVE_BYTES !== undefined && Number.isFinite(raw) && raw >= 0) return raw;
+  if (!diskTotalBytes || !Number.isFinite(diskTotalBytes)) return MAX_DISK_RESERVE_BYTES;
+  return Math.min(MAX_DISK_RESERVE_BYTES, Math.max(MIN_DISK_RESERVE_BYTES, Math.round(diskTotalBytes * DISK_RESERVE_SHARE)));
 }
 
-/** Свободно байт на диске сессий загрузки; null — измерить нельзя (тогда не блокируем). */
-export async function uploadDiskFreeBytes(): Promise<number | null> {
+/** Диск сессий загрузки: свободно и всего байт; null — измерить нельзя (тогда не блокируем). */
+export async function uploadDiskSpace(): Promise<{ free: number; total: number } | null> {
   try {
     const st = await fs.promises.statfs(sessionsDir);
-    return Number(st.bavail) * Number(st.bsize);
+    return { free: Number(st.bavail) * Number(st.bsize), total: Number(st.blocks) * Number(st.bsize) };
   } catch {
     return null;
   }
+}
+
+/** Свободно байт на диске сессий загрузки; null — измерить нельзя. */
+export async function uploadDiskFreeBytes(): Promise<number | null> {
+  return (await uploadDiskSpace())?.free ?? null;
+}
+
+/**
+ * Сколько места просить на старте загрузки: части + склеенный файл (2×), а там, где после
+ * склейки есть ещё копия (перепаковка свободного ролика, сжатие ролика карточки), — 2,5×.
+ * Плюс запас — внутри assertUploadDiskSpace. Параллельные старты не суммируются: грубая сумма
+ * по брошенным сессиям (48 ч) давала бы ложные 507, а часть и склейку проверяют свои шаги.
+ */
+export function uploadStartDiskBytes(sizeBytes: number, withExtraCopy = false): number {
+  return Math.ceil(sizeBytes * (withExtraCopy ? 2.5 : 2));
 }
 
 /**
@@ -141,9 +163,10 @@ export async function assertUploadDiskSpace(bytesNeeded: number): Promise<void> 
   // Выключатель только для тестов (tests/setup.ts): прогон на ноутбуке с почти полным диском
   // не должен краснеть на ролике «2 ГБ», которого в тесте нет. На сервере не задаётся — проверка есть.
   if (process.env.UPLOAD_DISK_CHECK === "off") return;
-  const free = await uploadDiskFreeBytes();
-  if (free === null) return;
-  const need = Math.max(0, bytesNeeded) + uploadDiskReserveBytes();
+  const disk = await uploadDiskSpace();
+  if (disk === null) return;
+  const free = disk.free;
+  const need = Math.max(0, bytesNeeded) + uploadDiskReserveBytes(disk.total);
   if (free < need) {
     throw new UploadError("DISK_FULL", {
       detail: `свободно ${Math.round(free / 1024 / 1024)} МБ, нужно ${Math.round(need / 1024 / 1024)} МБ (с запасом)`,
@@ -192,7 +215,9 @@ const SESSION_META = "meta.json";
 /** Итог сборки (state, результат или отказ) — переживает удаление частей на сутки. */
 const SESSION_STATE = "state.json";
 const LOCK_FILE = "assemble.lock";
-const KEEP_AFTER_FINISH = new Set([SESSION_META, SESSION_STATE]);
+/** Замок сборки тоже не трогаем: его снимает только тот, кто держит (AssemblyLock.release) —
+ *  иначе второй запрос успевал взять замок между итогом и снятием и собирал заново. */
+const KEEP_AFTER_FINISH = new Set([SESSION_META, SESSION_STATE, LOCK_FILE]);
 
 export async function writeLocalUploadSessionMeta(sessionId: string, meta: unknown): Promise<void> {
   const dir = resolveSessionDir(sessionId);
@@ -277,10 +302,10 @@ export async function listLocalUploadSessionDirs(): Promise<Array<{ id: string; 
     if (!dir) continue;
     const st = await fs.promises.stat(dir).catch(() => null);
     if (!st?.isDirectory()) continue;
-    const hasMeta = await fs.promises
-      .access(path.join(dir, SESSION_META))
-      .then(() => true)
-      .catch(() => false);
+    // «Есть план» — только читаемый план: обрезанный сбоем meta.json не держит папку вечно,
+    // такую уборщик сирот снимает по возрасту, как папку без плана.
+    const meta = await readJson(id, SESSION_META);
+    const hasMeta = !!meta && typeof meta === "object" && typeof (meta as { kind?: unknown }).kind === "string";
     out.push({ id, mtimeMs: st.mtimeMs, hasMeta });
   }
   return out;
@@ -294,6 +319,61 @@ function isAbortError(err: unknown): boolean {
     e?.code === "ERR_STREAM_PREMATURE_CLOSE" ||
     /^aborted$/i.test(e?.message ?? "")
   );
+}
+
+/** Сколько ждать, пока дочитается тело запроса после отказа диска, прежде чем сдаться. */
+const DRAIN_AFTER_FAILURE_MS = 30_000;
+
+/**
+ * Поток запроса → счётчик → файл. В отличие от `pipeline`, сбой ЗАПИСИ (ENOSPC, EIO) не рвёт
+ * поток запроса: файл отцепляется, остаток тела дочитывается в никуда, и только потом отказ
+ * уходит наверх — маршрут успевает ответить понятным 507/500, а не обрывом сокета (клиент
+ * принял бы его за пропавшую связь и слал бы ту же часть по кругу). Обрыв со стороны клиента
+ * и переполнение сверх предела дочитки по-прежнему закрывают поток.
+ */
+function pipeStreamToFile(body: Readable, counter: Transform, filePath: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const out = fs.createWriteStream(filePath);
+    let settled = false;
+    const finish = (err?: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve();
+    };
+    body.once("error", (err) => {
+      out.destroy();
+      finish(err);
+    });
+    body.once("aborted", () => {
+      out.destroy();
+      finish(Object.assign(new Error("aborted"), { code: "ECONNRESET" }));
+    });
+    counter.once("error", (err) => {
+      body.unpipe(counter);
+      out.destroy();
+      body.destroy();
+      finish(err);
+    });
+    out.once("error", (err) => {
+      // Диск отказал: отцепляем файл и дочитываем тело, чтобы ответ дошёл до клиента.
+      body.unpipe(counter);
+      counter.unpipe(out);
+      out.destroy();
+      if (body.readableEnded) return finish(err);
+      const timer = setTimeout(() => finish(err), DRAIN_AFTER_FAILURE_MS);
+      timer.unref();
+      const done = () => {
+        clearTimeout(timer);
+        finish(err);
+      };
+      body.once("end", done);
+      body.once("close", done);
+      body.resume();
+    });
+    out.once("finish", () => finish());
+    body.pipe(counter).pipe(out);
+  });
 }
 
 /**
@@ -342,7 +422,7 @@ export async function writeLocalUploadPart(
           cb(null, chunk);
         },
       });
-      await pipeline(body, counter, fs.createWriteStream(tmpPath));
+      await pipeStreamToFile(body, counter, tmpPath);
       if (overflow) throw new UploadError("PART_SIZE_MISMATCH");
     }
   } catch (err) {

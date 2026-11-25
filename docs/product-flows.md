@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2487**; вместе с задачами по расписанию и фоновыми заданиями — **4197**. Модулей: **86**.
+Путей: **777**. Развилок в самих путях: **2488**; вместе с задачами по расписанию и фоновыми заданиями — **4198**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4533,6 +4533,9 @@
   - await assertOwnChunkedUpload({ kind: "conversation-media", sessionId, agentId });
     · зовёт assertOwnChunkedUpload()
   - await runUploadCompletion({ req, res, sessionId, owner: chunkedUploadOwner(agentId), what: "файл в переписку"…
+    - если ctx.interruptedInProcessing
+      - return { status: 409, body: uploadErrorBody("ALREADY_ASSEMBLED", { message: "Отправка прервалась при перезапу…
+        · дословно из кода
     - const assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId, agentId });
       · зовёт assembleChunkedUpload()
 - если сорвалось
@@ -12478,7 +12481,7 @@
   - return res.status(200).json({ status: "in-progress", sessionId: existingSession.id, partSize: existingSession…
     · ответ 200
 - пробует
-  - await assertUploadDiskSpace(sizeBytes * DISK_SPACE_FACTOR);
+  - await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
     · зовёт assertUploadDiskSpace()
 - если сорвалось
   - если sendUploadError(res, err, "видео объекта: старт")

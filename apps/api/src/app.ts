@@ -632,6 +632,20 @@ const uploadPartRateLimit =
     ? Number(process.env.UPLOAD_PART_RATE_LIMIT)
     : 4800;
 
+/** Часть загрузки с ДЕЙСТВУЮЩИМ токеном: только она идёт под свой потолок. Без токена (или с
+ *  истёкшим) запрос считает общий потолок по адресу — иначе адрес частей был бы лазейкой мимо него. */
+function isAuthedUploadPart(req: express.Request): boolean {
+  if (!isUploadPartRequest(req)) return false;
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return false;
+  try {
+    verifyAccessToken(header.slice("Bearer ".length));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function rateLimitKey(req: express.Request): string {
   const header = req.headers.authorization;
   if (header?.startsWith("Bearer ")) {
@@ -650,7 +664,7 @@ const uploadPartLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: rateLimitKey,
-  skip: (req) => !isUploadPartRequest(req),
+  skip: (req) => !isAuthedUploadPart(req),
   message: uploadErrorBody("RATE_LIMITED"),
 });
 
@@ -677,8 +691,8 @@ const apiLimiter = rateLimit({
     if (API_LIMIT_EXEMPT_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) {
       return true;
     }
-    // Части загрузки считает свой потолок (uploadPartLimiter выше).
-    if (isUploadPartRequest(req)) return true;
+    // Части загрузки с действующим токеном считает свой потолок (uploadPartLimiter выше).
+    if (isAuthedUploadPart(req)) return true;
     // GET активного звонка опрашивается с фронта каждые несколько секунд из
     // памяти процесса (не БД) — исключаем только чтение, POST-действия
     // (cancel и т.п.) под общим лимитом остаются.

@@ -14,6 +14,7 @@ import {
   type ConversationMessage,
   type ClientKind,
   type ClientSource,
+  uploadErrorBody,
 } from "@royal-home/shared";
 import { loadClientDisplayLabels, type ClientLabel } from "../lib/clientDisplayLabel.js";
 import { prisma } from "../db.js";
@@ -1697,7 +1698,18 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
       sessionId,
       owner: chunkedUploadOwner(agentId),
       what: "файл в переписку",
-      work: async (setPhase) => {
+      work: async (setPhase, ctx) => {
+        // Прошлую попытку оборвал перезапуск посреди отправки — файл мог уже уйти клиенту.
+        // Второй раз не шлём (дубль клиенту хуже, чем просьба проверить переписку).
+        if (ctx.interruptedInProcessing) {
+          return {
+            status: 409,
+            body: uploadErrorBody("ALREADY_ASSEMBLED", {
+              message: "Отправка прервалась при перезапуске сервера — проверьте переписку: если файла там нет, отправьте его заново",
+            }),
+            finalize: true,
+          };
+        }
         const assembled = await assembleChunkedUpload({ kind: "conversation-media", sessionId, agentId });
         setPhase("processing");
         const file = {

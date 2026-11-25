@@ -11,6 +11,11 @@ import { randomUUID } from "node:crypto";
  * асинхронный режим отвечает 202 сразу. База не нужна — db.js подменён.
  */
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
+const pushSpy = vi.hoisted(() => vi.fn(async (_agentId: string, _payload: { tag?: string }) => 1));
+vi.mock("../src/push.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/push.js")>()),
+  sendPushToAgent: pushSpy,
+}));
 const logged: string[] = [];
 vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
@@ -270,14 +275,15 @@ describe("сторожа одной двери: часть пишется тол
 });
 
 describe("таймауты сервера и сводка частей (№7, №13)", () => {
-  it("тело части успевает на 300 Кбит/с; заголовки — прежние 60 с; keep-alive дольше прокси", async () => {
+  it("тело части успевает на 300 Кбит/с; keep-alive дольше прокси; заголовки — дольше keep-alive", async () => {
     const server = { requestTimeout: 0, headersTimeout: 0, keepAliveTimeout: 0 };
     timeouts.applyHttpServerTimeouts(server);
     const { UPLOAD_PART_MAX_BYTES } = await import("@royal-home/shared");
     expect(server.requestTimeout).toBeGreaterThanOrEqual(15 * 60_000);
     expect(server.requestTimeout).toBeGreaterThan(((UPLOAD_PART_MAX_BYTES * 8) / 300_000) * 1000);
-    expect(server.headersTimeout).toBe(60_000);
     expect(server.keepAliveTimeout).toBeGreaterThan(60_000);
+    expect(server.headersTimeout).toBeGreaterThan(server.keepAliveTimeout);
+    expect(server.headersTimeout).toBeLessThanOrEqual(120_000);
     const index = fs.readFileSync(path.resolve(__dirname, "../src/index.ts"), "utf8");
     expect(index).toMatch(/applyHttpServerTimeouts\(server\)/);
   });
@@ -296,5 +302,105 @@ describe("таймауты сервера и сводка частей (№7, �
     for (let i = 0; i < 99; i++) http.logUploadPart(req, { kind: "t", sessionId: "s", partNumber: i, startedAt: Date.now() });
     http.logUploadPart(req, { kind: "t", sessionId: "s", partNumber: 1, startedAt: Date.now(), code: "PART_INCOMPLETE" });
     expect(http.flushUploadPartStats()).toMatchObject({ ok: 99, failed: 1, alarmed: false });
+  });
+});
+
+describe("ревью волны B: гонки, повтор после выката, пуш (26.11.2026)", () => {
+  it("гонка «готово → второй complete»: итог появился между первым чтением и замком — работа второй раз не идёт", async () => {
+    const id = await sessionWithParts();
+    // Первая сборка закончилась ровно в момент, когда второй запрос брал замок.
+    const realOpen = fs.promises.open.bind(fs.promises);
+    vi.spyOn(fs.promises, "open").mockImplementation(async (p, flags, mode) => {
+      if (String(p).endsWith("assemble.lock")) {
+        await storage.writeLocalUploadSessionState(id, {
+          state: "done",
+          owner,
+          updatedAt: new Date().toISOString(),
+          result: { status: 201, body: { id: "first" } },
+        });
+      }
+      return realOpen(p, flags, mode);
+    });
+    const work = vi.fn(async () => ({ status: 201, body: { id: "second" } }));
+    const out = fakeRes();
+    await runUploadCompletion({ req: fakeReq(), res: out.res, sessionId: id, owner, what: "тест", work });
+    expect(out.out).toMatchObject({ statusCode: 201, body: { id: "first" } });
+    expect(work).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(storage.localUploadSessionDir(id)!, "assemble.lock"))).toBe(false);
+  });
+
+  it("итог закрепили — замок снимает только тот, кто его держал (finish его не трогает)", async () => {
+    const id = await sessionWithParts();
+    const lock = await storage.lockLocalUploadAssembly(id);
+    await storage.finishLocalUploadSession(id, { state: "done", owner, updatedAt: new Date().toISOString() });
+    expect(await storage.lockLocalUploadAssembly(id)).toBeNull();
+    await lock!.release();
+    const next = await storage.lockLocalUploadAssembly(id);
+    expect(next).not.toBeNull();
+    await next!.release();
+  });
+
+  it("прошлую попытку оборвал перезапуск посреди обработки — работа узнаёт об этом (защита от второго поста)", async () => {
+    const id = await sessionWithParts();
+    const old = new Date(Date.now() - storage.ASSEMBLY_LOCK_STALE_MS - 10_000).toISOString();
+    await storage.writeLocalUploadSessionState(id, { state: "processing", owner, updatedAt: old, processingStartedAt: old });
+    const seen: boolean[] = [];
+    await runUploadCompletion({
+      req: fakeReq(),
+      res: fakeRes().res,
+      sessionId: id,
+      owner,
+      what: "тест",
+      work: async (_set, ctx) => {
+        seen.push(ctx.interruptedInProcessing);
+        return { status: 409, body: { error: "проверьте переписку" }, finalize: true };
+      },
+    });
+    expect(seen).toEqual([true]);
+    // Оборванная в сборке (до обработки) попытка — повторять можно.
+    const id2 = await sessionWithParts();
+    await storage.writeLocalUploadSessionState(id2, { state: "assembling", owner, updatedAt: old });
+    await runUploadCompletion({
+      req: fakeReq(),
+      res: fakeRes().res,
+      sessionId: id2,
+      owner,
+      what: "тест",
+      work: async (_set, ctx) => {
+        seen.push(ctx.interruptedInProcessing);
+        return { status: 201, body: {} };
+      },
+    });
+    expect(seen).toEqual([true, false]);
+  });
+
+  it("часть в собранную или собираемую сессию общего ядра не пишется", async () => {
+    const core = await import("../src/lib/chunkedUploadSessions.js");
+    const agentId = `agent-${randomUUID()}`;
+    const s = await core.startChunkedUpload({ kind: "clip-video", agentId, filename: "a.mp4", sizeBytes: 10, maxBytes: 100, tooLargeMessage: "x" });
+    created.push(s.sessionId);
+    const coreOwner = core.chunkedUploadOwner(agentId);
+    const part = () => core.writeChunkedUploadPart({ kind: "clip-video", sessionId: s.sessionId, agentId, partNumber: 1, body: Buffer.alloc(10) });
+    await storage.writeLocalUploadSessionState(s.sessionId, { state: "assembling", owner: coreOwner, updatedAt: new Date().toISOString() });
+    await expect(part()).rejects.toMatchObject({ code: "ASSEMBLING" });
+    await storage.writeLocalUploadSessionState(s.sessionId, { state: "done", owner: coreOwner, updatedAt: new Date().toISOString() });
+    await expect(part()).rejects.toMatchObject({ code: "ALREADY_ASSEMBLED" });
+    expect(await storage.listLocalUploadParts(s.sessionId)).toEqual([]);
+  });
+
+  it("пуш «загрузка отменена» — только для файлов от 50 МБ", async () => {
+    pushSpy.mockClear();
+    const cleanup = await import("../src/lib/videoUploadCleanup.js");
+    const meta = { kind: "conversation-media", agentId: "a1", filename: "photo.jpg", contentType: null, partSize: 1, totalParts: 1, createdAt: "" };
+    await cleanup.notifyAbandonedChunkedUpload({ id: "s1", meta: { ...meta, sizeBytes: 3 * 1024 * 1024 } });
+    await cleanup.notifyAbandonedChunkedUpload({ id: "s2", meta: { ...meta, sizeBytes: cleanup.ABANDONED_UPLOAD_PUSH_MIN_BYTES } });
+    expect(pushSpy.mock.calls.map((c) => c[1].tag)).toEqual(["chunked-upload-cancelled-s2"]);
+  });
+
+  it("свой потолок частоты — только для частей с действующим токеном", () => {
+    const app = fs.readFileSync(path.resolve(__dirname, "../src/app.ts"), "utf8");
+    expect(app).toMatch(/skip: \(req\) => !isAuthedUploadPart\(req\)/);
+    expect(app).toMatch(/if \(isAuthedUploadPart\(req\)\) return true;/);
+    expect(app).not.toMatch(/if \(isUploadPartRequest\(req\)\) return true;/);
   });
 });

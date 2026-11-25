@@ -17,6 +17,7 @@ import {
 } from "./localVideoStorage.js";
 import { reportUploadError, sendUploadError } from "./uploadHttp.js";
 import { logSystemError } from "./systemError.js";
+import { trackBackgroundTask } from "./shutdownState.js";
 
 /**
  * СБОРКА ФАЙЛА ИЗ ЧАСТЕЙ — ОДИН ПОРЯДОК ДЛЯ ТРЁХ ВИДОВ ЗАГРУЗКИ (25.11.2026, волна B).
@@ -48,6 +49,23 @@ export interface StoredUploadState {
   updatedAt: string;
   result?: { status: number; body: unknown };
   error?: UploadErrorBody;
+  /**
+   * Прошлая попытка дошла до обработки (запись в базу, отправка клиенту) и оборвалась вместе
+   * с процессом (выкат посреди сборки). Признак липкий: держится, пока итог не записан.
+   * По нему работа решает, можно ли повторять побочный шаг (см. WorkContext).
+   */
+  processingStartedAt?: string;
+  /** Выставляется при чтении: «processing» без пульса — процесс умер посреди обработки. */
+  interruptedInProcessing?: boolean;
+}
+
+/** Что работа знает о прошлых попытках. */
+export interface WorkContext {
+  /**
+   * Прошлую попытку оборвал перезапуск ПОСЛЕ начала обработки: побочный шаг (пост, отправка
+   * клиенту) мог уже случиться. Работа без своей защиты от повтора не должна делать его снова.
+   */
+  interruptedInProcessing: boolean;
 }
 
 export interface CompletionOutcome {
@@ -83,6 +101,7 @@ export async function readUploadState(sessionId: string, owner: string, now = Da
     return {
       ...raw,
       state: "failed",
+      interruptedInProcessing: !!raw.processingStartedAt,
       error: uploadErrorBody("STORAGE_FAILED", { message: "Сборка файла прервалась — нажмите «собрать» ещё раз, части на месте" }),
     };
   }
@@ -136,7 +155,7 @@ export interface RunUploadCompletionInput {
   /** Для журнала: «видео объекта», «ролик черновика»… */
   what: string;
   /** Сборка и закрепление результата. Бросок — части остаются. `setPhase` — «обрабатываю». */
-  work: (setPhase: (phase: "assembling" | "processing") => void) => Promise<CompletionOutcome>;
+  work: (setPhase: (phase: "assembling" | "processing") => void, ctx: WorkContext) => Promise<CompletionOutcome>;
 }
 
 export async function runUploadCompletion(input: RunUploadCompletionInput): Promise<void> {
@@ -157,6 +176,15 @@ export async function runUploadCompletion(input: RunUploadCompletionInput): Prom
   } catch (err) {
     if (sendUploadError(res, err, what)) return;
     throw err;
+  }
+  if (lock) {
+    // Гонка «готово затирается»: между первым чтением и замком другой запрос мог закончить
+    // сборку и снять замок — тогда итог уже есть, и работать второй раз нельзя.
+    const fresh = await readUploadState(sessionId, owner);
+    if (fresh?.state === "done") {
+      await lock.release();
+      return replyStored(res, fresh, asyncMode, sessionId);
+    }
   }
   if (!lock) {
     if (asyncMode) {
@@ -180,10 +208,15 @@ export async function runUploadCompletion(input: RunUploadCompletionInput): Prom
    * как прерванная.
    */
   let phase: "assembling" | "processing" = "assembling";
+  // Липкий признак «обработка уже начиналась» переносится из оборванной попытки.
+  let processingStartedAt = prior?.interruptedInProcessing ? prior.processingStartedAt : undefined;
+  const ctx: WorkContext = { interruptedInProcessing: !!prior?.interruptedInProcessing };
   let closed = false;
   let chain: Promise<void> = Promise.resolve();
   const queueState = (): Promise<void> => {
-    chain = chain.then(() => (closed ? undefined : saveState(sessionId, { state: phase, owner })));
+    chain = chain.then(() =>
+      closed ? undefined : saveState(sessionId, { state: phase, owner, ...(processingStartedAt ? { processingStartedAt } : {}) })
+    );
     return chain;
   };
   await queueState();
@@ -191,6 +224,7 @@ export async function runUploadCompletion(input: RunUploadCompletionInput): Prom
   heartbeat.unref();
   const setPhase = (next: "assembling" | "processing") => {
     phase = next;
+    if (next === "processing") processingStartedAt ??= new Date().toISOString();
     void queueState();
   };
   const closeStates = async () => {
@@ -201,7 +235,7 @@ export async function runUploadCompletion(input: RunUploadCompletionInput): Prom
 
   const execute = async (): Promise<{ outcome?: CompletionOutcome; error?: unknown }> => {
     try {
-      const outcome = await input.work(setPhase);
+      const outcome = await input.work(setPhase, ctx);
       const finalize = outcome.finalize ?? (outcome.status >= 200 && outcome.status < 300);
       await closeStates();
       if (finalize) {
@@ -237,7 +271,9 @@ export async function runUploadCompletion(input: RunUploadCompletionInput): Prom
 
   if (asyncMode) {
     res.status(202).json({ sessionId, state: "assembling" });
-    void execute().then(({ error }) => {
+    // Мягкая остановка при выкате ждёт фоновые задачи (lib/shutdownState.ts). Сборку 2 ГБ она не
+    // дождётся — на этот случай состояние «оборвано» и защита работы от повтора (WorkContext).
+    void trackBackgroundTask(execute()).then(({ error }) => {
       if (error && !(error instanceof UploadError)) {
         void logSystemError("storage", `Фоновая сборка загрузки (${what}) упала: ${error instanceof Error ? error.message : String(error)}`, {
           dedupKey: `upload-async:${what}`,

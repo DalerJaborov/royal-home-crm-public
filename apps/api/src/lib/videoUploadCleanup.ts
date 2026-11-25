@@ -137,7 +137,11 @@ export async function cleanupOrphanUploadDirs(now = Date.now()): Promise<number>
  * уборка, что раньше (lib/chunkedUploadSessions.ts::sweepStaleChunkedUploads), но автор
  * теперь получает пуш, как у видео объекта: загрузка пропала не молча.
  */
+/** Мелкие файлы (фото в переписку) не беспокоят: человек и не заметит, что загрузка ушла. */
+export const ABANDONED_UPLOAD_PUSH_MIN_BYTES = 50 * 1024 * 1024;
+
 export async function notifyAbandonedChunkedUpload(s: { id: string; meta: ChunkedUploadMeta }): Promise<void> {
+  if (!(s.meta.sizeBytes >= ABANDONED_UPLOAD_PUSH_MIN_BYTES)) return;
   await sendPushToAgent(s.meta.agentId, {
     title: "⚠️ Загрузка отменена",
     body: `Загрузка «${s.meta.filename}» не была завершена за сутки — выберите файл заново`,

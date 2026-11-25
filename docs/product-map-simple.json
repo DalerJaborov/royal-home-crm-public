@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4158,
+  "conditions": 4159,
   "untranslatedUnique": 480,
   "untranslatedTotal": 616,
-  "partialUnique": 1112,
+  "partialUnique": 1113,
   "translatedShare": 85
  },
  "untranslated": [
@@ -21499,7 +21499,21 @@
      "t": "пробует сделать",
      "k": "try",
      "a": [],
-     "c": []
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть interrupted in processing",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     },
     {
      "t": "если не получилось",

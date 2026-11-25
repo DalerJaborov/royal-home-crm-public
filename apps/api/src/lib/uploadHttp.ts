@@ -53,7 +53,12 @@ export function sendUploadError(res: Response, err: unknown, what: string): bool
     const ms = err.retryAfterMs ?? err.body().retryAfterMs;
     if (typeof ms === "number") res.setHeader("Retry-After", String(Math.ceil(ms / 1000)));
   }
-  if (!res.headersSent) res.status(err.status).json(err.body());
+  if (!res.headersSent) {
+    // Сбой диска посреди тела части: соединение закрываем после ответа — остаток тела уже
+    // дочитан (lib/localVideoStorage.ts::pipeStreamToFile), держать его открытым незачем.
+    if (err.status >= 500) res.setHeader("Connection", "close");
+    res.status(err.status).json(err.body());
+  }
   return true;
 }
 

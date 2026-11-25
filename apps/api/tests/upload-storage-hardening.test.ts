@@ -126,6 +126,31 @@ describe("запись части — атомарно и со сверкой р
     expect(sessionFiles(id)).toEqual([]);
   });
 
+  it("диск отказал посреди потока части — тело дочитано, ответ DISK_FULL, а не обрыв сокета", async () => {
+    const id = await newSession();
+    const { Writable } = await import("node:stream");
+    vi.spyOn(fs, "createWriteStream").mockImplementationOnce(
+      () =>
+        new Writable({
+          write(_chunk, _enc, cb) {
+            cb(Object.assign(new Error("no space left on device"), { code: "ENOSPC" }));
+          },
+        }) as unknown as fs.WriteStream
+    );
+    const body = new PassThrough();
+    const pending = storage.writeLocalUploadPart(id, 1, body, { expectedBytes: 300 });
+    body.write(Buffer.alloc(100));
+    setTimeout(() => {
+      body.write(Buffer.alloc(100));
+      body.end(Buffer.alloc(100));
+    }, 20);
+    await expectCode(pending, "DISK_FULL");
+    // Поток запроса не уничтожен, а дочитан — маршрут ответит понятным JSON.
+    expect(body.destroyed && !body.readableEnded).toBe(false);
+    expect(body.readableEnded).toBe(true);
+    expect(sessionFiles(id)).toEqual([]);
+  });
+
   it("сессии нет — SESSION_NOT_FOUND, а не сбой диска", async () => {
     await expectCode(storage.writeLocalUploadPart(randomUUID(), 1, Buffer.alloc(1)), "SESSION_NOT_FOUND");
   });
@@ -152,14 +177,36 @@ describe("место на диске проверяется до записи (�
     await expect(storage.assertUploadDiskSpace(1024)).resolves.toBeUndefined();
   });
 
-  it("запас настраивается переменной UPLOAD_DISK_RESERVE_BYTES; по умолчанию 5 ГБ", () => {
+  it("запас = 5 % диска в пределах 2–5 ГБ; переменная UPLOAD_DISK_RESERVE_BYTES задаёт число явно", () => {
+    const GB = 1024 * 1024 * 1024;
     const prev = process.env.UPLOAD_DISK_RESERVE_BYTES;
     delete process.env.UPLOAD_DISK_RESERVE_BYTES;
-    expect(storage.uploadDiskReserveBytes()).toBe(5 * 1024 * 1024 * 1024);
+    expect(storage.uploadDiskReserveBytes(77 * GB)).toBe(Math.round(77 * GB * 0.05));
+    expect(storage.uploadDiskReserveBytes(10 * GB)).toBe(2 * GB);
+    expect(storage.uploadDiskReserveBytes(500 * GB)).toBe(5 * GB);
+    expect(storage.uploadDiskReserveBytes()).toBe(5 * GB);
     process.env.UPLOAD_DISK_RESERVE_BYTES = "123";
-    expect(storage.uploadDiskReserveBytes()).toBe(123);
+    expect(storage.uploadDiskReserveBytes(77 * GB)).toBe(123);
     if (prev === undefined) delete process.env.UPLOAD_DISK_RESERVE_BYTES;
     else process.env.UPLOAD_DISK_RESERVE_BYTES = prev;
+  });
+
+  it("старт просит 2× размера (части + склейка), 2,5× — где после склейки есть копия", () => {
+    expect(storage.uploadStartDiskBytes(1000)).toBe(2000);
+    expect(storage.uploadStartDiskBytes(1000, true)).toBe(2500);
+  });
+
+  it("на диске 77 ГБ ролик 2 ГБ проходит при 8,5 ГБ свободных (раньше требовалось 11 ГБ)", async () => {
+    process.env.UPLOAD_DISK_CHECK = "on";
+    const prev = process.env.UPLOAD_DISK_RESERVE_BYTES;
+    delete process.env.UPLOAD_DISK_RESERVE_BYTES;
+    const GB = 1024 * 1024 * 1024;
+    const fake = (freeGb: number) => ({ bavail: freeGb * 1024, bsize: 1024 * 1024, blocks: 77 * 1024 } as unknown as fs.StatsFs);
+    vi.spyOn(fs.promises, "statfs").mockResolvedValueOnce(fake(8.5));
+    await expect(storage.assertUploadDiskSpace(storage.uploadStartDiskBytes(2 * GB))).resolves.toBeUndefined();
+    vi.spyOn(fs.promises, "statfs").mockResolvedValueOnce(fake(7));
+    await expectCode(storage.assertUploadDiskSpace(storage.uploadStartDiskBytes(2 * GB)), "DISK_FULL");
+    if (prev !== undefined) process.env.UPLOAD_DISK_RESERVE_BYTES = prev;
   });
 });
 

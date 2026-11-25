@@ -1180,12 +1180,22 @@ describe("загрузка ролика частями (17.11.2026, 413 на 87 
     expect(done.body.width).toBe(540);
     expect(done.body.sizeBytes).toBeGreaterThan(0);
 
-    // Сессия израсходована: повтор сборки не делает второй черновик.
+    // Повтор сборки (обрыв ответа, повтор клиента) не делает второй черновик: сервер помнит итог
+    // сутки и отдаёт ТОТ ЖЕ пост (25.11.2026; раньше — 404, и клиент заливал файл заново).
     const again = await request(app)
       .post(`/api/v1/social-videos/upload-sessions/${sessionId}/complete`)
       .set(auth("MARKETING"))
       .send({ title: "x" });
-    expect(again.status).toBe(404);
+    expect(again.status).toBe(201);
+    expect(again.body.id).toBe(done.body.id);
+    expect(again.body.title).toBe(`Частями ${runId}`);
+    // И новых частей в собранную сессию не принимаем.
+    const late = await request(app)
+      .put(`/api/v1/social-videos/upload-sessions/${sessionId}/parts/1`)
+      .set(auth("MARKETING"))
+      .set("Content-Type", "application/octet-stream")
+      .send(bytes);
+    expect(late.status).toBe(409);
   });
 
   it("не тот формат и не та роль — отказ на старте", async () => {

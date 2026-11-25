@@ -43,6 +43,8 @@ export async function startSocialVideoUpload(input: {
       sizeBytes: input.sizeBytes,
       maxBytes: SOCIAL_VIDEO_UPLOAD_MAX_BYTES,
       partSize: input.partSize,
+      // Свободный ролик после склейки перепаковывается — копия на диске.
+      extraCopy: true,
       tooLargeMessage: "Файл больше 2 ГБ — сожмите ролик и загрузите снова",
     })
   );

@@ -77,6 +77,8 @@ uploadSessionsRouter.post("/", async (req, res, next) => {
       contentType,
       maxBytes,
       partSize,
+      // Ролик карточки после склейки ещё сжимается — копия на диске.
+      extraCopy: purpose === "clip-video",
       tooLargeMessage: `Файл «${filename}» больше предела ${formatUploadLimit(maxBytes)} — сожмите его и отправьте снова`,
     });
     res.status(201).json(session);

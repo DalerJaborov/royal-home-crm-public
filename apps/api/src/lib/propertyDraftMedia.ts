@@ -35,6 +35,7 @@ import { canAccessAssignedAgent, scopeToOwnAgent } from "../auth/middleware.js";
 import {
   abortLocalUploadSession,
   assertUploadDiskSpace,
+  uploadStartDiskBytes,
   completeLocalUploadSession,
   createLocalUploadSession,
   finishLocalUploadSession,
@@ -61,8 +62,6 @@ const result = <T>(status: number, body: T): DraftResult<T> => ({ status, body }
 export const MAX_UPLOAD_PARTS = UPLOAD_MAX_PARTS;
 /** Потолок файлов черновика — общий с экраном мастера (packages/shared). */
 export { MAX_DRAFT_PHOTOS, MAX_DRAFT_VIDEOS };
-/** Запас места на старте: части + склейка + копия при переносе в объект. */
-const DISK_SPACE_FACTOR = 3;
 
 /** Владелец итога сборки ролика черновика (lib/uploadCompletion.ts). */
 export function draftVideoOwner(agentId: string): string {
@@ -227,7 +226,7 @@ export async function startDraftVideoSession(agentId: string, draftHeaderId: str
     // Место на диске — до папки: нет места — 507 DISK_FULL, а не 500 посреди записи.
     const mediaId = randomUUID();
     try {
-      await assertUploadDiskSpace(sizeBytes * DISK_SPACE_FACTOR);
+      await assertUploadDiskSpace(uploadStartDiskBytes(sizeBytes));
       await createLocalUploadSession(mediaId);
     } catch (err) {
       return uploadFailure(err, "ролик черновика: старт");

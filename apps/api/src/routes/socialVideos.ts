@@ -305,6 +305,8 @@ socialVideosRouter.post("/upload-sessions/:sessionId/complete", async (req, res,
             channels: fields.data.channels,
             destinations: fields.data.destinations,
             createdById: agentId,
+            // id поста = id сессии: повтор приёма (выкат посреди обработки) не заводит второй пост.
+            id: sessionId,
           });
           logAudit(req, "SOCIAL_VIDEO_CREATED", "SocialVideoPost", item.id, { sizeBytes: item.sizeBytes, durationSec: item.durationSec });
           return { status: 201, body: item };

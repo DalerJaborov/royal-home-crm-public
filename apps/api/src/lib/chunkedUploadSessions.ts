@@ -13,6 +13,7 @@ import {
   abortLocalUploadSession,
   assertUploadDiskSpace,
   completeLocalUploadSessionToPath,
+  uploadStartDiskBytes,
   createLocalUploadSession,
   listLocalUploadParts,
   listLocalUploadSessionIds,
@@ -51,8 +52,6 @@ export const MAX_SESSIONS_PER_AGENT = 8;
 export const SESSION_IDLE_TTL_MS = UPLOAD_SESSION_IDLE_TTL_MS;
 /** Сессию без новой части дольше этого новая может вытеснить. */
 export const EVICTABLE_IDLE_MS = 10 * 60 * 1000;
-/** Запас места на старте: части + склейка + копия у назначения (перепаковка, перенос). */
-export const DISK_SPACE_FACTOR = 3;
 
 /** Совместимость: ошибки ядра — это UploadError (единый формат отказа). */
 export { UploadError as ChunkedUploadError };
@@ -160,6 +159,8 @@ export interface StartChunkedUploadInput {
   tooLargeMessage: string;
   /** Размер части, который просит клиент (UPLOAD_PART_MIN_BYTES…UPLOAD_PART_MAX_BYTES). */
   partSize?: number | null;
+  /** После склейки у назначения есть ещё копия (перепаковка, сжатие) — на старте просим 2,5× места. */
+  extraCopy?: boolean;
 }
 
 export async function startChunkedUpload(
@@ -173,7 +174,7 @@ export async function startChunkedUpload(
   if (!plan) throw new UploadError("PART_SIZE_INVALID");
   await sweepStaleChunkedUploads().catch(() => 0);
   await enforceAgentCap(input.agentId);
-  await assertUploadDiskSpace(input.sizeBytes * DISK_SPACE_FACTOR);
+  await assertUploadDiskSpace(uploadStartDiskBytes(input.sizeBytes, input.extraCopy));
   const sessionId = randomUUID();
   await createLocalUploadSession(sessionId);
   const now = new Date().toISOString();
@@ -242,9 +243,11 @@ export async function writeChunkedUploadPart(input: {
   if (!Number.isInteger(input.partNumber) || input.partNumber < 1 || input.partNumber > meta.totalParts) {
     throw new UploadError("PART_OUT_OF_RANGE");
   }
-  // Файл уже собран (итог хранится сутки) — новые части в эту сессию не пишем.
-  const stored = (await readLocalUploadSessionState(input.sessionId)) as { state?: string } | null;
+  // Файл уже собран (итог хранится сутки) или собирается прямо сейчас — новые части в эту
+  // сессию не пишем: подменённая на ходу часть дала бы файл, не совпадающий с итогом.
+  const stored = await readUploadState(input.sessionId, chunkedUploadOwner(input.agentId));
   if (stored?.state === "done") throw new UploadError("ALREADY_ASSEMBLED");
+  if (stored?.state === "assembling" || stored?.state === "processing") throw new UploadError("ASSEMBLING");
   const expected = expectedUploadPartBytes(meta, input.partNumber);
   await assertUploadDiskSpace(expected);
   // Повтор той же части просто перезаписывает файл — клиент может смело повторять.
