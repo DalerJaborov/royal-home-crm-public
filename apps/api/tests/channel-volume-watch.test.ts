@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelVolumeVerdict, isChannelWatchHour } from "../src/lib/channelVolumeWatch.js";
+import { channelVolumeVerdict, isChannelWatchDay, isChannelWatchHour } from "../src/lib/channelVolumeWatch.js";
 
 /** Живой случай 22.11.2026: Instagram 10–18 новых диалогов в день, в тот день — 2; Facebook 5–8, в тот день — 0. */
 describe("channelVolumeVerdict", () => {
@@ -43,13 +43,28 @@ describe("isChannelWatchHour — только днём по Душанбе", () 
   });
 });
 
+describe("isChannelWatchDay — только будни по Душанбе", () => {
+  it("вторник — смотрим", () => {
+    expect(isChannelWatchDay(new Date("2026-11-24T07:00:00Z"))).toBe(true);
+  });
+
+  it("суббота и воскресенье (по Душанбе) — молчим", () => {
+    expect(isChannelWatchDay(new Date("2026-11-28T07:00:00Z"))).toBe(false);
+    expect(isChannelWatchDay(new Date("2026-11-29T07:00:00Z"))).toBe(false);
+  });
+
+  it("воскресенье 23:00 UTC уже понедельник по Душанбе — смотрим", () => {
+    expect(isChannelWatchDay(new Date("2026-11-29T20:00:00Z"))).toBe(true);
+  });
+});
+
 describe("runChannelVolumeWatchTick — на базе", () => {
   const prefix = `cvw-${Date.now()}`;
   const at = new Date("2026-11-24T07:00:00Z"); // полдень по Душанбе
 
   it("канал с обычным потоком замолчал — одна тревога руководству, повтор в тот же день не дублирует", async () => {
     const { prisma } = await import("../src/db.js");
-    const { runChannelVolumeWatchTick } = await import("../src/lib/channelVolumeWatch.js");
+    const { runChannelVolumeWatchTick, resetChannelVolumeWatchMemory } = await import("../src/lib/channelVolumeWatch.js");
     // Три диалога в каждом из 7 прошлых дней, в окне «последние 8 часов» тех суток.
     const rows = [];
     for (let day = 1; day <= 7; day += 1) {
@@ -67,10 +82,20 @@ describe("runChannelVolumeWatchTick — на базе", () => {
       expect(first.alerted).toContain("INSTAGRAM");
       const second = await runChannelVolumeWatchTick(at);
       expect(second.alerted).not.toContain("INSTAGRAM");
+      // Перезапуск сервера (память процесса пуста): запись в очереди не даёт тревоге повториться.
+      resetChannelVolumeWatchMemory();
+      const afterRestart = await runChannelVolumeWatchTick(at);
+      expect(afterRestart.alerted).not.toContain("INSTAGRAM");
+      expect(await prisma.pendingDirectorAlert.count({ where: { tag: "channel-volume-INSTAGRAM-2026-11-24" } })).toBe(1);
     } finally {
       await prisma.botConversation.deleteMany({ where: { subscriberId: { startsWith: prefix } } });
       await prisma.pendingDirectorAlert.deleteMany({ where: { tag: "channel-volume-INSTAGRAM-2026-11-24" } });
     }
+  });
+
+  it("в выходной по Душанбе тихо", async () => {
+    const { runChannelVolumeWatchTick } = await import("../src/lib/channelVolumeWatch.js");
+    expect((await runChannelVolumeWatchTick(new Date("2026-11-28T07:00:00Z"))).alerted).toEqual([]);
   });
 
   it("ночью по Душанбе тихо", async () => {

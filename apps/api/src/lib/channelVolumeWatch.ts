@@ -17,7 +17,11 @@ import { dushanbeDateString, dushanbeWallClock } from "./dushanbeTime.js";
  *
  * КОГДА ТРЕВОГА. Среднее за 7 дней в этом окне ≥ 3, а сейчас 0; или среднее ≥ 8, а
  * сейчас меньше четверти. Только днём по Душанбе (10:00–22:00): ночью поток
- * пустой всегда. Одна тревога на канал в сутки.
+ * пустой всегда. В субботу и воскресенье по Душанбе не тревожим вовсе: поток
+ * в выходные ниже обычного, и тревога была бы ложной (праздники сторож не знает:
+ * в праздник возможна одна лишняя тревога, её можно погасить рубильником).
+ * Одна тревога на канал в сутки: запись о ней лежит в очереди руководства
+ * (`PendingDirectorAlert.tag`), поэтому перезапуск сервера (выкат) её не дублирует.
  *
  * РУБИЛЬНИК: тот же `notifyClientWaitingEnabled` (Настройки → автоматика), что у
  * сторожей «клиент ждёт ответа»: это та же семья уведомлений. Сторож только читает
@@ -43,12 +47,24 @@ export function isChannelWatchHour(at: Date = new Date()): boolean {
   return hour >= DAY_FROM_HOUR && hour < DAY_TO_HOUR;
 }
 
+/** Будни по Душанбе (понедельник–пятница): в выходные поток ниже обычного, тревога была бы ложной. */
+export function isChannelWatchDay(at: Date = new Date()): boolean {
+  const weekday = dushanbeWallClock(at).getUTCDay();
+  return weekday !== 0 && weekday !== 6;
+}
+
+// Быстрый путь внутри процесса; настоящая защита от повтора — запись в очереди с тем же tag (после перезапуска память пуста).
 const alertedToday = new Set<string>();
+
+/** Для тестов: забыть память процесса, оставив только записи в базе. */
+export function resetChannelVolumeWatchMemory(): void {
+  alertedToday.clear();
+}
 
 type VolumeRow = { channel: string; cur: bigint | number; past: bigint | number };
 
 export async function runChannelVolumeWatchTick(at: Date = new Date()): Promise<{ alerted: string[] }> {
-  if (!isChannelWatchHour(at)) return { alerted: [] };
+  if (!isChannelWatchHour(at) || !isChannelWatchDay(at)) return { alerted: [] };
   if (!(await automationSwitchOn("notifyClientWaitingEnabled"))) return { alerted: [] };
   const windowSec = WATCH_WINDOW_HOURS * 3600;
   const spanSec = WATCH_BASELINE_DAYS * 86400 + windowSec;
@@ -73,6 +89,11 @@ export async function runChannelVolumeWatchTick(at: Date = new Date()): Promise<
     const { alert, average } = channelVolumeVerdict(current, Number(row?.past ?? 0));
     const key = `${channel}:${day}`;
     if (!alert || alertedToday.has(key)) continue;
+    const tag = `channel-volume-${channel}-${day}`;
+    if (await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })) {
+      alertedToday.add(key);
+      continue;
+    }
     const queued = await enqueueDirectorAlert({
       title: `📉 ${channelName(channel)}: новых обращений почти нет`,
       body:
@@ -82,7 +103,7 @@ export async function runChannelVolumeWatchTick(at: Date = new Date()): Promise<
       kind: "system",
       level: "CRITICAL",
       severity: "info",
-      tag: `channel-volume-${channel}-${day}`,
+      tag,
       recipientRoles: [...CLIENT_WAITING_LEADERSHIP],
     });
     if (queued) {

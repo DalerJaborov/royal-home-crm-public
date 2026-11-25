@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 785,
-  "cron": 145,
+  "cron": 146,
   "jobs": 36,
-  "conditions": 4224,
-  "untranslatedUnique": 493,
-  "untranslatedTotal": 632,
-  "partialUnique": 1131,
+  "conditions": 4230,
+  "untranslatedUnique": 494,
+  "untranslatedTotal": 634,
+  "partialUnique": 1134,
   "translatedShare": 85
  },
  "untranslated": [
@@ -236,6 +236,7 @@
   "await manualRobotCallLimitReached(req.agent!.id)",
   "await prepareOwnerReportDelivery(optIn.propertyId, now)",
   "await prisma.narrationMusicTrack.count() >= NARRATION_MUSIC_LIMITS.maxTracks",
+  "await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
   "await raise(directorIds, \"incoming-calls-dead\", dead, now)",
   "await raise(directorIds, \"incoming-calls-silence\", silence, now)",
   "await refreshMetaAdsTokenIfDue()",
@@ -67021,6 +67022,95 @@
       },
       {
        "t": "если отправленных больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "channel-volume-watch",
+   "when": "40 * * * *",
+   "label": "channel-volume-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это не канал watch hour или это не канал watch день",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: alert или разосланных тревог today содержит есть ключ",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "await prisma.pendingDirectorAlert.findFirst({ where: { tag }, select: { id: true } })",
+           "more": true
+          },
+          {
+           "t": "если есть queued",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог количество больше 0",
        "k": "if",
        "a": [],
        "c": []
