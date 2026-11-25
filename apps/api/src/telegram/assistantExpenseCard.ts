@@ -15,6 +15,7 @@ import {
   ADD_EXPENSES_TOOL, batchCurrency, parseBatchArgs, resolveRows, type BatchArgs, type BatchRow, type ResolvedRow,
 } from "../ai/assistant/tools/expenseBatchTool.js";
 import { answerCallbackQuery, editHtmlMessage, sendHtmlMessage, type TelegramCallbackQuery, type TelegramInlineButton } from "./api.js";
+import { stepUpExemptRole } from "../lib/stepUp.js";
 
 /**
  * КАРТОЧКА «ПРОВЕРЬТЕ РАСХОДЫ» В TELEGRAM (10.11.2026, вариант «А, по статьям» — выбор владельца).
@@ -440,7 +441,8 @@ export async function reofferExpenseBatch(bundleId: string, agentId: string, cha
 async function freshActor(agentId: string): Promise<AssistantActionActor | null> {
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive) return null;
-  return { agentId, channel: "telegram", telegramPrivate: true, can: (p) => access.permissions.has(p) };
+  return { agentId, channel: "telegram", telegramPrivate: true,
+    ...(stepUpExemptRole(access.role) ? { stepUpExempt: true } : {}), can: (p) => access.permissions.has(p) };
 }
 
 /** Старое действие гасится, новое (с изменёнными строками) получает свою карточку. */
