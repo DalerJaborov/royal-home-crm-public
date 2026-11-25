@@ -14,6 +14,7 @@ import {
   type ConversationMessage,
   type ClientKind,
   type ClientSource,
+  uploadErrorBody,
 } from "@royal-home/shared";
 import { loadClientDisplayLabels, type ClientLabel } from "../lib/clientDisplayLabel.js";
 import { prisma } from "../db.js";
@@ -29,7 +30,7 @@ import { contactProfileView } from "../lib/contactProfileView.js";
 import { withHiddenConversationOrigin } from "../lib/clientOrigin.js";
 import { listAccounts } from "../messengers/accounts.js";
 import { voiceMessageUpload, mediaMessageUpload } from "../upload.js";
-import { assembleChunkedUpload, ChunkedUploadError, chunkedUploadErrorBody } from "../lib/chunkedUploadSessions.js";
+import { assembleChunkedUpload, assertOwnChunkedUpload, chunkedUploadOwner } from "../lib/chunkedUploadSessions.js";
 import {
   cancelOutgoingMediaJob,
   enqueueOutgoingMedia,
@@ -39,6 +40,8 @@ import {
   outgoingMediaSpoolDir,
   retryOutgoingMediaJob,
 } from "../lib/outgoingMediaJobs.js";
+import { sendUploadError } from "../lib/uploadHttp.js";
+import { runUploadCompletion } from "../lib/uploadCompletion.js";
 import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
@@ -1711,30 +1714,56 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  // Сжатие включено — файл склеивается сразу в спул очереди отправки (общий том api и worker).
-  const queued = await outgoingMediaCompressOn();
-  let assembled: { tmpPath: string; sizeBytes: number; originalName: string; contentType: string | null };
+  const sessionId = parsed.data.sessionId;
+  const agentId = req.agent!.id;
   try {
-    assembled = await assembleChunkedUpload({
-      kind: "conversation-media",
-      sessionId: parsed.data.sessionId,
-      agentId: req.agent!.id,
-      ...(queued ? { destDir: outgoingMediaSpoolDir() } : {}),
+    await assertOwnChunkedUpload({ kind: "conversation-media", sessionId, agentId });
+    // Сборка — lib/uploadCompletion.ts: части убираются только после доставки, повтор отдаёт
+    // тот же итог (клиенту не уйдёт дубль), `X-Upload-Async: 1` — ответ 202 сразу.
+    await runUploadCompletion({
+      req,
+      res,
+      sessionId,
+      owner: chunkedUploadOwner(agentId),
+      what: "файл в переписку",
+      work: async (setPhase, ctx) => {
+        // Прошлую попытку оборвал перезапуск посреди отправки — файл мог уже уйти клиенту.
+        // Второй раз не шлём (дубль клиенту хуже, чем просьба проверить переписку).
+        if (ctx.interruptedInProcessing) {
+          return {
+            status: 409,
+            body: uploadErrorBody("ALREADY_ASSEMBLED", {
+              message: "Отправка прервалась при перезапуске сервера — проверьте переписку: если файла там нет, отправьте его заново",
+            }),
+            finalize: true,
+          };
+        }
+        // Сжатие включено — файл склеивается сразу в спул очереди отправки (общий том api и worker).
+        const queued = await outgoingMediaCompressOn();
+        const assembled = await assembleChunkedUpload({
+          kind: "conversation-media",
+          sessionId,
+          agentId,
+          ...(queued ? { destDir: outgoingMediaSpoolDir() } : {}),
+        });
+        setPhase("processing");
+        const file = {
+          path: assembled.tmpPath,
+          size: assembled.sizeBytes,
+          mimetype: normalizeOutgoingMime(assembled.contentType, assembled.originalName),
+          originalname: assembled.originalName,
+        };
+        // Очередь забирает файл себе и убирает его сама; deliverReplyMedia убирает временный файл в любом исходе.
+        const outcome = queued
+          ? await enqueueOutgoingMedia({ agentId, conversationId: req.params.id, file, caption: parsed.data.caption })
+          : await deliverReplyMedia(agentId, req.params.id, file, parsed.data.caption);
+        return { ...outcome, finalize: outcome.status < 500 };
+      },
     });
   } catch (err) {
-    if (err instanceof ChunkedUploadError) return res.status(err.status).json(chunkedUploadErrorBody(err));
+    if (sendUploadError(res, err, "файл в переписку")) return;
     throw err;
   }
-  const file = {
-    path: assembled.tmpPath,
-    size: assembled.sizeBytes,
-    mimetype: normalizeOutgoingMime(assembled.contentType, assembled.originalName),
-    originalname: assembled.originalName,
-  };
-  const outcome = queued
-    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption })
-    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
-  res.status(outcome.status).json(outcome.body);
 });
 
 /**

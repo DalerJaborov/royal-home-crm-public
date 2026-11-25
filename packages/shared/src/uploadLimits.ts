@@ -76,8 +76,51 @@ export function partitionVideosByLimit<T extends { size: number }>(
  */
 export const PROXY_SINGLE_REQUEST_MAX_BYTES = 90 * MB;
 
-/** Размер одной части при загрузке частями: 8 МБ — компромисс между числом запросов и ценой повтора. */
-export const UPLOAD_PART_BYTES = 8 * MB;
+/**
+ * Размер одной части при загрузке частями — ОДНО число на все три вида загрузки частями
+ * (общие сессии, видео объекта, ролик черновика мастера; раньше было три копии «8 МБ»).
+ *
+ * 4 МБ, а не 8 (25.11.2026): на канале 300 Кбит/с часть 8 МБ идёт 224 с — впритык к пределам
+ * прокси и Node, и каждый обрыв стоил повтора восьми мегабайт. Все клиенты берут размер части
+ * из ПЛАНА, который сервер присылает на старте (web: uploadQueue.ts, chunkedUpload.ts,
+ * draftUploads.ts; бот: assistantPropertyDraft.ts), поэтому смена числа касается только новых
+ * сессий — открытые доезжают со своим размером из плана.
+ */
+export const UPLOAD_PART_BYTES = 4 * MB;
+/** Наименьшая часть, которую клиент может попросить на старте (`partSize`). */
+export const UPLOAD_PART_MIN_BYTES = 1 * MB;
+/**
+ * Наибольшая часть: и потолок `partSize` на старте, и предел тела запроса части на сервере.
+ * 8 МБ — прежний размер части: сессии, открытые до 25.11.2026, досылают части по 8 МБ.
+ */
+export const UPLOAD_PART_MAX_BYTES = 8 * MB;
+/** Потолок числа частей одной сессии (тот же, что был у R2 multipart). */
+export const UPLOAD_MAX_PARTS = 10_000;
+
+/**
+ * План частей — одна функция на все виды загрузки. `requestedPartSize` (необязательно) —
+ * размер, который попросил клиент; вне [MIN, MAX] — null (отказ PART_SIZE_INVALID).
+ * Если при таком размере частей больше UPLOAD_MAX_PARTS, часть увеличивается (до файлов
+ * в десятки гигабайт дело не доходит: предел видео 2 ГБ).
+ */
+export function computeUploadPartPlan(
+  sizeBytes: number,
+  requestedPartSize?: number | null
+): { partSize: number; totalParts: number } | null {
+  let partSize = requestedPartSize ?? UPLOAD_PART_BYTES;
+  if (!Number.isSafeInteger(partSize) || partSize < UPLOAD_PART_MIN_BYTES || partSize > UPLOAD_PART_MAX_BYTES) return null;
+  let totalParts = Math.max(1, Math.ceil(sizeBytes / partSize));
+  if (totalParts > UPLOAD_MAX_PARTS) {
+    partSize = Math.ceil(sizeBytes / UPLOAD_MAX_PARTS);
+    totalParts = Math.ceil(sizeBytes / partSize);
+  }
+  return { partSize, totalParts };
+}
+
+/** Ожидаемый размер части `partNumber` по плану (последняя — хвост файла). */
+export function expectedUploadPartBytes(plan: { partSize: number; totalParts: number; sizeBytes: number }, partNumber: number): number {
+  return partNumber === plan.totalParts ? plan.sizeBytes - plan.partSize * (plan.totalParts - 1) : plan.partSize;
+}
 
 /** Машинный код отказа «запрос тяжелее потолка одного запроса» в теле ответа 413. */
 export const REQUEST_TOO_LARGE_CODE = "REQUEST_TOO_LARGE";

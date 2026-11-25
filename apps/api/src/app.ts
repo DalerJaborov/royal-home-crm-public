@@ -1,4 +1,6 @@
 import express from "express";
+import { uploadErrorBody } from "@royal-home/shared";
+import { isUploadPartRequest } from "./lib/uploadHttp.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -620,6 +622,54 @@ const apiRateLimit =
 // вкладки плюс опрос идущего звонка честно набирали 600 без всякого шторма.
 // 1500 (5 в секунду непрерывно) по-прежнему ловит скрипт в цикле.
 
+/**
+ * ЧАСТИ ЗАГРУЗКИ — СВОЙ ПОТОЛОК, НЕ ОБЩИЙ (25.11.2026). Ролик 2 ГБ — это 512 частей по 4 МБ;
+ * два-три ролика на быстром канале за пять минут выбирали весь общий потолок, и сотрудник
+ * получал 429 на всём приложении, а не только на загрузке. Части проверяют сессию, размер и
+ * место на диске сами; здесь — только защита от цикла: 4800 частей за пять минут на сотрудника
+ * (600 на файл при восьми одновременных загрузках — потолок MAX_SESSIONS_PER_AGENT ядра).
+ */
+const uploadPartRateLimit =
+  process.env.NODE_ENV !== "production" && Number(process.env.UPLOAD_PART_RATE_LIMIT) > 0
+    ? Number(process.env.UPLOAD_PART_RATE_LIMIT)
+    : 4800;
+
+/** Часть загрузки с ДЕЙСТВУЮЩИМ токеном: только она идёт под свой потолок. Без токена (или с
+ *  истёкшим) запрос считает общий потолок по адресу — иначе адрес частей был бы лазейкой мимо него. */
+function isAuthedUploadPart(req: express.Request): boolean {
+  if (!isUploadPartRequest(req)) return false;
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return false;
+  try {
+    verifyAccessToken(header.slice("Bearer ".length));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function rateLimitKey(req: express.Request): string {
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) {
+    try {
+      return `agent:${verifyAccessToken(header.slice("Bearer ".length)).sub}`;
+    } catch {
+      // Просроченный или поддельный токен — считаем по адресу, как аноним.
+    }
+  }
+  return `ip:${ipKeyGenerator(req.ip ?? "unknown")}`;
+}
+
+const uploadPartLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: uploadPartRateLimit,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: rateLimitKey,
+  skip: (req) => !isAuthedUploadPart(req),
+  message: uploadErrorBody("RATE_LIMITED"),
+});
+
 const apiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: apiRateLimit,
@@ -643,6 +693,8 @@ const apiLimiter = rateLimit({
     if (API_LIMIT_EXEMPT_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) {
       return true;
     }
+    // Части загрузки с действующим токеном считает свой потолок (uploadPartLimiter выше).
+    if (isAuthedUploadPart(req)) return true;
     // GET активного звонка опрашивается с фронта каждые несколько секунд из
     // памяти процесса (не БД) — исключаем только чтение, POST-действия
     // (cancel и т.п.) под общим лимитом остаются.
@@ -653,6 +705,7 @@ const apiLimiter = rateLimit({
   },
   message: { error: "Слишком много запросов, подождите немного" },
 });
+app.use("/api/v1", uploadPartLimiter);
 app.use("/api/v1", apiLimiter);
 // Повтор записи с тем же Idempotency-Key отдаёт ответ первого запроса, а не
 // создаёт второй объект/клиента/сделку — см. шапку lib/idempotency.ts.
@@ -1005,8 +1058,8 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   // Error с этим текстом. Ловился общим «[unhandled]» и будил директора пушем
   // «новая проблема». Это эксплуатационный шум (человек закрыл вкладку или
   // пропала связь), поэтому та же ветка и без пуша (`silent`). Обрыв ЧАСТИ при
-  // загрузке частями сюда не попадает: там express.raw, его `request.aborted`
-  // отвечает 400 выше без записи.
+  // загрузке частями сюда не попадает: тело части пишется потоком (lib/uploadHttp.ts), обрыв
+  // отвечает PART_INCOMPLETE и пишется строкой журнала частей (logUploadPart).
   if (err instanceof Error && /unexpected end of form|^request aborted$/i.test(err.message)) {
     const propertyId = typeof _req.params?.id === "string" ? _req.params.id : null;
     void logSystemError(
