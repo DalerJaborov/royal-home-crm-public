@@ -222,7 +222,9 @@ describe("1.3 — настройки помощника: одно чтение �
     try {
       const reply = await runAssistant([{ role: "user", content: "Есть разрешение у Дурахшон?" }], actor);
       expect(reply).toBe("По реестру проверила.");
-      expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
+      // Ключи и модели здесь подменены, поэтому одно чтение (в проде — два, как в тесте выше). Инструмент реестра
+      // сам Settings не читает: рубильник — из кэша помощника. Лишнее чтение сделало бы здесь два.
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(1);
     } finally {
       spy.mockRestore();
     }

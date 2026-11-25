@@ -32,6 +32,7 @@ const ALLOWED = new Set([
   "apps/api/src/lib/constructionRegistry/sync.ts",
   "apps/api/src/lib/constructionRegistry/link.ts",
   "apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts",
+  "apps/api/src/lib/constructionRegistry/access.ts", // одно правило прав на связь с реестром (ревью PR #441)
   "apps/api/src/lib/constructionRegistry/search.ts", // поиск по реестру и предпросмотр для поля выбора (25.11.2026)
   "apps/api/src/routes/constructionRegistry.ts",
   "apps/api/src/app.ts", // подключение маршрута сотрудников
