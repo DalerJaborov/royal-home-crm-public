@@ -5,6 +5,7 @@
  */
 import {
   decisionYearFromQaror,
+  isInsideDushanbe,
   rateDeveloper,
   scoreRegistryMatch,
   type RegistryDeveloperDto,
@@ -12,9 +13,11 @@ import {
   type RegistryPropertyResponse,
   type RegistrySuggestionDto,
   type RegistryColor,
+  type RegistryBrief,
 } from "@royal-home/shared";
 import type { ConstructionProject, Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
+import { loadRegistrySettings } from "./settings.js";
 
 const COLOR_OUT: Record<"GREEN" | "YELLOW" | "RED", RegistryColor> = { GREEN: "green", YELLOW: "yellow", RED: "red" };
 export const COLOR_DB: Record<RegistryColor, "GREEN" | "YELLOW" | "RED"> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
@@ -129,7 +132,54 @@ export async function rankCandidates(property: PropertyForMatch, projects?: Cons
     if (m.level === "none") continue;
     out.push({ project, level: m.level, confidence: m.confidence, distanceM: m.distanceM, reasons: m.reasons });
   }
-  return out.sort((a, b) => b.confidence - a.confidence || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9));
+  // «Само» раньше «предложить»: у соседнего дома на той же улице уверенность по расстоянию бывает выше, чем у проекта
+  // с совпавшим номером дома чуть дальше (25.11.2026), а связывать надо второй.
+  const rank = { auto: 0, suggest: 1 } as const;
+  return out.sort((a, b) => rank[a.level] - rank[b.level] || b.confidence - a.confidence || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9));
+}
+
+/**
+ * КОРОТКИЙ СТАТУС ДЛЯ СПИСКОВ (25.11.2026): список объектов CRM и ответы Шабнам про объекты. Только сотрудникам.
+ * Пакетом, без N+1: связи — одним запросом, рейтинги — одним (loadDeveloperDtos). Рубильник выключен или реестр ещё не
+ * загружался — пустая карта (значок не рисуется, Шабнам молчит). Новостройка Душанбе без связи — status "none" («проверьте
+ * вручную»); у вторички и у объектов вне Душанбе без связи записи нет: их отсутствие в реестре ничего не значит.
+ */
+export async function loadRegistryBriefs(
+  properties: readonly { id: string; condition: string }[],
+): Promise<{ briefs: Map<string, RegistryBrief>; updatedAt: Date | null }> {
+  const briefs = new Map<string, RegistryBrief>();
+  if (properties.length === 0) return { briefs, updatedAt: null };
+  const [settings, updatedAt] = await Promise.all([loadRegistrySettings(), lastRegistryUpdate()]);
+  if (!settings.enabled || !updatedAt) return { briefs, updatedAt };
+  const ids = [...new Set(properties.map((p) => p.id))];
+  const links = await prisma.constructionPropertyLink.findMany({
+    where: { propertyId: { in: ids }, state: "LINKED", project: { removedAt: null } },
+    select: { propertyId: true, project: { select: { colorStatus: true, developerId: true } } },
+    take: ids.length * 2,
+  });
+  const devs = await loadDeveloperDtos(links.map((l) => l.project.developerId));
+  for (const l of links) {
+    briefs.set(l.propertyId, { status: COLOR_OUT[l.project.colorStatus], letter: devs.get(l.project.developerId)?.rating.letter ?? null });
+  }
+  // «Проверьте вручную» только у новостроек Душанбе: реестр душанбинский, у объекта в Вахдате его отсутствие ничего не значит.
+  const unlinkedNew = properties.filter((p) => !briefs.has(p.id) && p.condition === "NEW_BUILDING").map((p) => p.id);
+  if (unlinkedNew.length > 0) {
+    const places = await prisma.property.findMany({
+      where: { id: { in: unlinkedNew } },
+      select: { id: true, lat: true, lng: true, district: { select: { city: true } } },
+      take: unlinkedNew.length,
+    });
+    for (const p of places) {
+      const lat = p.lat === null ? null : Number(p.lat);
+      const lng = p.lng === null ? null : Number(p.lng);
+      const inDushanbe =
+        lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)
+          ? isInsideDushanbe(lat, lng)
+          : /душанбе/i.test(p.district?.city ?? "");
+      if (inDushanbe) briefs.set(p.id, { status: "none", letter: null });
+    }
+  }
+  return { briefs, updatedAt };
 }
 
 /** Готовый ответ для карточки объекта. Ничего не пишет в базу. */

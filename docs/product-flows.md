@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **777**. Развилок в самих путях: **2487**; вместе с задачами по расписанию и фоновыми заданиями — **4196**. Модулей: **86**.
+Путей: **777**. Развилок в самих путях: **2487**; вместе с задачами по расписанию и фоновыми заданиями — **4197**. Модулей: **86**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5483,7 +5483,7 @@
     - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
     - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
@@ -5549,7 +5549,6 @@
       · меняет в базе: property
       · меняет в базе: client
       · считает в базе: deal
-      · создаёт или меняет в базе: settings
       · читает в базе: deal
       · меняет в базе: deal
       - если isCompleting
@@ -5603,8 +5602,6 @@
         - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
           · зовёт scaleClosedCommissionShares()
       - иначе если isCompleting || isRepricingClosed
-        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-          · создаёт или меняет в базе: settings
         - если baseCents > 0 && totalP > 0
           - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
             · зовёт splitCents()
@@ -5784,7 +5781,7 @@
     - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
       · дословно из кода
   - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…
       · дословно из кода
   - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
@@ -5813,14 +5810,10 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
-      · читает в базе: settings
-      · создаёт или меняет в базе: settings
-    - если settings
-      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
-        · дословно из кода
-      - commissionAmount = commissionOf(property.price, commissionPercent);
-        · дословно из кода
+    - commissionPercent = COMMISSION_TOTAL_PERCENT;
+      · дословно из кода
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -6400,10 +6393,9 @@
 
 - const from = dushanbeMonthStart(monthsBack - 1);
   · зовёт dushanbeMonthStart()
-- const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
+- const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLETED", clos…
   · читает в базе: deal
   · читает в базе: expense
-  · создаёт или меняет в базе: settings
 - если truncated
   - void logSystemError( "api", `Выгрузка бухгалтерии за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE…
     · запись в журнал ошибок
@@ -11369,8 +11361,11 @@
       - если guessedAddress
         - data.canonicalAddress = normalizePropertyAddress(guessedAddress);
           · зовёт normalizePropertyAddress()
-    - await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …
+    - const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…
       · меняет в базе: property
+    - если written.count > 0
+      - void autoLinkPropertyById(property.id, req.agent?.id ?? null);
+        · зовёт autoLinkPropertyById()
   - если сорвалось
     - void logSystemError("api", `Точка объекта ${property.id} по фото не выставлена: ${err instanceof Error ? err.…
       · запись в журнал ошибок
@@ -12878,6 +12873,8 @@
     · зовёт geocodeInBackground()
 - await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
+- void autoLinkPropertyById(updated.id, req.agent!.id);
+  · зовёт autoLinkPropertyById()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
     · зовёт publishAfterEditingComplete()
@@ -12890,8 +12887,6 @@
       · ответ 207
   - return res.json(presentProperty(published, req));
     · ответ 200
-- void autoLinkPropertyById(updated.id);
-  · зовёт autoLinkPropertyById()
 - publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, act…
   · зовёт publishPropertyUpdated()
 - res.json(presentProperty(updated, req));
@@ -14011,9 +14006,11 @@
     - [items, total] = await Promise.all([ prisma.property.findMany({ where: fuzzyWhere, orderBy: [{ createdAt: "de…
       · читает в базе: property
       · считает в базе: property
-- const result = await presentPropertyListItems(items, req);
-  · зовёт presentPropertyListItems()
-- res.json({ items: result, total, page: pageNum, pageSize });
+- const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…
+  · запись в журнал ошибок
+  - void logSystemError("api", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…
+    · запись в журнал ошибок
+- res.json({ items: result.map((p)
   · ответ 200
 
 ### POST /api/v1/properties
@@ -19166,6 +19163,8 @@
     · меняет в базе: property
     - const p = await tx.property.update({ where: { id: raced.id }, data: updateData });
       · меняет в базе: property
+- void autoLinkPropertyById(property.id);
+  · зовёт autoLinkPropertyById()
 - res.status(created ? 201 : 200).json({ ok: true, propertyId: property.id, created });
   · ответ (код зависит от условия)
 
@@ -27290,6 +27289,9 @@
       - смотря что в: pre.kind
         - вариант case "PRICE_CHANGE"
         - вариант case "CARD_DATA"
+          - если claim.write && !claim.write.priceChanged
+            - void autoLinkPropertyById(property.id, actorId);
+              · зовёт autoLinkPropertyById()
           - break;
             · прекращает перебор
         - вариант case "REMAKE_VIDEO"
@@ -29068,6 +29070,17 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await autoLinkPropertyById(payload.propertyId);
+    · зовёт autoLinkPropertyById()
+    - пробует
+      - если !(await loadRegistrySettings()).enabled
+        - return null;
+          · дословно из кода
+      - return await autoLinkProperty(propertyId, { actorId, notify: true });
+        · зовёт autoLinkProperty()
+    - если сорвалось
+      - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+        · запись в журнал ошибок
   - return;
     · дальше не идёт, ничего не меняя
 - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, deletedAt: null, address:…
@@ -29080,16 +29093,20 @@
       · ошибка Error — «Адрес объекта ${payload.propertyId} сменился во время геокодирования —»
   - return;
     · дальше не идёт, ничего не меняя
+- await autoLinkPropertyById(payload.propertyId);
+  · зовёт autoLinkPropertyById()
+  - пробует
+    - если !(await loadRegistrySettings()).enabled
+      - return null;
+        · дословно из кода
+    - return await autoLinkProperty(propertyId, { actorId, notify: true });
+      · зовёт autoLinkProperty()
+  - если сорвалось
+    - void logSystemError("api", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…
+      · запись в журнал ошибок
 - если !property.districtId
   - const district = await districtByPoint(result.lat, result.lng);
     · зовёт districtByPoint()
-    - для каждого: const d of districts
-      - если !d.boundary
-        - continue;
-          · переходит к следующему
-      - если ring && isPointInPolygon(lng, lat, ring)
-        - return { id: d.id, name: d.name, source: "point" };
-          · дословно из кода
   - если district
     - const written = await prisma.property.updateMany({ where: { id: payload.propertyId, districtId: null, address…
       · меняет в базе: property

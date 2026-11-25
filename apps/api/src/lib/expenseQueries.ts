@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { expenseListQuerySchema, type ClientSource, type ExpensePivot } from "@royal-home/shared";
+import {
+  COMMISSION_COMPANY_PERCENT,
+  COMMISSION_REALTOR_PERCENT,
+  expenseListQuerySchema,
+  type ClientSource,
+  type ExpensePivot,
+} from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isDealSalaryExpense } from "./companyProfit.js";
 import { getDealPayouts } from "./dealDocumentsDb.js";
@@ -169,7 +175,7 @@ export async function buildExpenseSummary(query: { months?: unknown; through?: u
   const from = through.data?new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-monthsBack+1,1)-DUSHANBE_OFFSET_MS):dushanbeMonthStart(monthsBack - 1);
   const until=through.data?new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()+1,1)-DUSHANBE_OFFSET_MS):undefined;
 
-  const [expenses, completedDeals, clients, settings, money] = await Promise.all([
+  const [expenses, completedDeals, clients, money] = await Promise.all([
     prisma.expense.findMany({ where: { month: { gte: from,...(until?{lt:until}:{}) }, deletedAt: null,status:"PAID" }, take: FINANCE_ROW_LIMIT }),
     prisma.deal.findMany({
       where: { stage: "COMPLETED", closedAt: { gte: from,...(until?{lt:until}:{}) } },
@@ -199,9 +205,6 @@ export async function buildExpenseSummary(query: { months?: unknown; through?: u
       take: FINANCE_ROW_LIMIT,
       select: { createdAt: true, source: true },
     }),
-    // Чтение ничего не пишет (10.11.2026): сводку зовёт и помощница, а её инструменты чтения
-    // не создают строк. Нет строки Настроек — доли по умолчанию схемы (0,5 / 1 / 0,5 %).
-    prisma.settings.findUnique({ where: { id: "singleton" }, select: { commissionRealtorPercent: true, commissionCompanyPercent: true, commissionIntakePercent: true } }),
     loadMoneyContext(),
   ]);
   // Потолок задет — сводка за старые месяцы окна неполна. Не молчим: пишем в
@@ -222,12 +225,10 @@ export async function buildExpenseSummary(query: { months?: unknown; through?: u
 
   // Для старых сделок без снапшота долей — восстановление по текущим настройкам
   // (той же пропорцией, что и при закрытии): полная картина без дыр в истории.
-  // 0,5% «за приём объекта» отменены 11.09.2026: в отчётах эта доля больше не
-  // выделяется отдельной строкой ни у новых, ни у старых сделок — она всегда
-  // складывается с долей компании (Settings.commissionIntakePercent остаётся в
-  // схеме БД как история, но в отчётах не участвует отдельно).
-  const pRealtor = Number(settings?.commissionRealtorPercent ?? 0.5);
-  const pCompany = Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
+  // Доли — 1% агенту и 1% компании (shared/commissionShares.ts, владелец 25.11.2026);
+  // приёма 0,5% нет, у сделок со снапшотом историческая доля интейка идёт в доход компании.
+  const pRealtor = COMMISSION_REALTOR_PERCENT;
+  const pCompany = COMMISSION_COMPANY_PERCENT;
   // Все доли возвращаются УЖЕ в сомони: сделка по объекту в долларах хранит комиссию
   // в долларах, и без конвертации она складывалась с сомони один к одному.
 

@@ -752,6 +752,10 @@ async function createPropertyImpl(req: PropertyCreateInput) {
     intakeAgentId: property.intakeAgentId,
   });
 
+  // Реестр строек — СРАЗУ после создания, до любых веток ответа (25.11.2026): раньше вызов стоял в самом конце, после
+  // раннего выхода «объект в конвейере», и новый объект почти никогда не сверялся с реестром при создании.
+  void autoLinkPropertyById(property.id, req.agent.id);
+
   /**
    * ФАЙЛЫ ЧЕРНОВИКА ПЕРЕЕЗЖАЮТ В КАРТОЧКУ (11.09.2026). Снимки и ролики агент
    * отдал ещё на первом шаге мастера, пока заполнял остальные, — они уже лежат на
@@ -900,7 +904,6 @@ async function createPropertyImpl(req: PropertyCreateInput) {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
-  void autoLinkPropertyById(property.id);
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
   return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}), ...narrationNote });
 }
@@ -1485,6 +1488,9 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     actorId: req.agent!.id,
   });
 
+  // Реестр строек: пересчёт связи до ветки автопубликации (25.11.2026), иначе правка «Готово» уходила мимо сверки.
+  void autoLinkPropertyById(updated.id, req.agent!.id);
+
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и
   // ручная кнопка «Готово»: сырое видео из R2, аудит, синхронизация с сайтом.
   if (willAutoPublish) {
@@ -1502,7 +1508,6 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.json(presentProperty(published, req));
   }
 
-  void autoLinkPropertyById(updated.id);
   publishPropertyUpdated({ propertyId: updated.id, agentId: updated.assignedAgentId, stage: updated.status, actorId: req.agent!.id });
   res.json(presentProperty(updated, req));
 });

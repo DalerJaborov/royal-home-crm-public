@@ -16,10 +16,10 @@
   "paths": 777,
   "cron": 142,
   "jobs": 34,
-  "conditions": 4157,
-  "untranslatedUnique": 479,
-  "untranslatedTotal": 614,
-  "partialUnique": 1114,
+  "conditions": 4158,
+  "untranslatedUnique": 480,
+  "untranslatedTotal": 616,
+  "partialUnique": 1112,
   "translatedShare": 85
  },
  "untranslated": [
@@ -33,6 +33,7 @@
   "!(await exemptCustomerSpam(id.data))",
   "!(await filterInvestigationRecipients([agentId], payload)).length",
   "!(await loadBotCapabilities()).comments",
+  "!(await loadRegistrySettings()).enabled",
   "!(await mayUseVideoSession(req, property, session.purpose))",
   "!(await metaCatalogKeyOk(req))",
   "!(await securityAutomationOn())",
@@ -24161,7 +24162,6 @@
           "все изменения разом: либо всё, либо ничего",
           "меняет: объект",
           "меняет: клиент",
-          "заводит или обновляет: настройки",
           "меняет: сделка"
          ],
          "c": [
@@ -24645,20 +24645,7 @@
        "t": "если комиссия percent не задан и комиссия сумма не задан",
        "k": "if",
        "a": [],
-       "c": [
-        {
-         "t": "заводит или обновляет: настройки",
-         "k": "do",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если есть настройки",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ]
+       "c": []
       },
       {
        "t": "иначе если комиссия сумма не задан и комиссия percent задан",
@@ -26372,12 +26359,6 @@
     "/finance"
    ],
    "tree": [
-    {
-     "t": "заводит или обновляет: настройки",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
     {
      "t": "если есть truncated",
      "k": "if",
@@ -41484,6 +41465,12 @@
          "k": "do",
          "a": [],
          "c": []
+        },
+        {
+         "t": "если количество больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
         }
        ]
       },
@@ -49307,6 +49294,19 @@
       {
        "t": "если fuzzy количество больше 0",
        "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "запись в журнал ошибок",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
        "a": [],
        "c": []
       }
@@ -83349,6 +83349,41 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(await loadRegistrySettings()).enabled",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(await loadRegistrySettings()).enabled",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },
@@ -83380,38 +83415,44 @@
      ]
     },
     {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await loadRegistrySettings()).enabled",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await loadRegistrySettings()).enabled"
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "t": "если нет: район (объект)",
      "k": "if",
      "a": [],
      "c": [
-      {
-       "t": "внутри этого шага",
-       "k": "do",
-       "a": [],
-       "c": [
-        {
-         "t": "и так по каждому",
-         "k": "loop",
-         "a": [],
-         "c": [
-          {
-           "t": "если нет: boundary",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть ring и это point in polygon",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
       {
        "t": "если есть район",
        "k": "if",

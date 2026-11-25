@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 777,
-  "forks": 4196,
+  "forks": 4197,
   "mounts": 86,
   "cron": 142,
   "jobs": 34,
@@ -24169,7 +24169,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -24476,7 +24476,6 @@
           "меняет в базе: property",
           "меняет в базе: client",
           "считает в базе: deal",
-          "создаёт или меняет в базе: settings",
           "читает в базе: deal",
           "меняет в базе: deal"
          ],
@@ -24727,14 +24726,6 @@
            "t": "isCompleting || isRepricingClosed",
            "a": [],
            "c": [
-            {
-             "k": "do",
-             "t": "const settings = await tx.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"singleton\"…",
-             "a": [
-              "создаёт или меняет в базе: settings"
-             ],
-             "c": []
-            },
             {
              "k": "if",
              "t": "baseCents > 0 && totalP > 0",
@@ -25576,7 +25567,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам\" });",
+         "t": "return fail(403, { error: \"Сумму комиссии задаёт руководитель — по умолчанию считается автоматически (2% от ц…",
          "a": [
           "дословно из кода"
          ],
@@ -25713,35 +25704,19 @@
        "c": [
         {
          "k": "do",
-         "t": "const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: \"singleton\" } }) : await prism…",
+         "t": "commissionPercent = COMMISSION_TOTAL_PERCENT;",
          "a": [
-          "читает в базе: settings",
-          "создаёт или меняет в базе: settings"
+          "дословно из кода"
          ],
          "c": []
         },
         {
-         "k": "if",
-         "t": "settings",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
+         "k": "do",
+         "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
         }
        ]
       },
@@ -28414,11 +28389,10 @@
     },
     {
      "k": "do",
-     "t": "const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLE…",
+     "t": "const [deals, expenses, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLETED\", clos…",
      "a": [
       "читает в базе: deal",
-      "читает в базе: expense",
-      "создаёт или меняет в базе: settings"
+      "читает в базе: expense"
      ],
      "c": []
     },
@@ -50861,11 +50835,26 @@
         },
         {
          "k": "do",
-         "t": "await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt: { not: null } …",
+         "t": "const written = await prisma.property.updateMany({ where: { id: property.id, OR: [{ lat: null }, { geocodedAt…",
          "a": [
           "меняет в базе: property"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "written.count > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void autoLinkPropertyById(property.id, req.agent?.id ?? null);",
+           "a": [
+            "зовёт autoLinkPropertyById()"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -57632,6 +57621,14 @@
      "c": []
     },
     {
+     "k": "do",
+     "t": "void autoLinkPropertyById(updated.id, req.agent!.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "willAutoPublish",
      "a": [],
@@ -57684,14 +57681,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "void autoLinkPropertyById(updated.id);",
-     "a": [
-      "зовёт autoLinkPropertyById()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -62699,15 +62688,24 @@
     },
     {
      "k": "do",
-     "t": "const result = await presentPropertyListItems(items, req);",
+     "t": "const [result, registry] = await Promise.all([ presentPropertyListItems(items, req), loadRegistryBriefs(items…",
      "a": [
-      "зовёт presentPropertyListItems()"
+      "запись в журнал ошибок"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError(\"api\", `Реестр строек: значки списка объектов не собраны: ${err instanceof Error ? err.me…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
-     "t": "res.json({ items: result, total, page: pageNum, pageSize });",
+     "t": "res.json({ items: result.map((p)",
      "a": [
       "ответ 200"
      ],
@@ -85581,6 +85579,14 @@
        ]
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "void autoLinkPropertyById(property.id);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -123607,6 +123613,21 @@
              "a": [],
              "c": [
               {
+               "k": "if",
+               "t": "claim.write && !claim.write.priceChanged",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "void autoLinkPropertyById(property.id, actorId);",
+                 "a": [
+                  "зовёт autoLinkPropertyById()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
                "k": "do",
                "t": "break;",
                "a": [
@@ -131881,6 +131902,61 @@
       },
       {
        "k": "do",
+       "t": "await autoLinkPropertyById(payload.propertyId);",
+       "a": [
+        "зовёт autoLinkPropertyById()"
+       ],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!(await loadRegistrySettings()).enabled",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return null;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+           "a": [
+            "зовёт autoLinkProperty()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+      },
+      {
+       "k": "do",
        "t": "return;",
        "a": [
         "дальше не идёт, ничего не меняя"
@@ -131936,6 +132012,61 @@
      ]
     },
     {
+     "k": "do",
+     "t": "await autoLinkPropertyById(payload.propertyId);",
+     "a": [
+      "зовёт autoLinkPropertyById()"
+     ],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!(await loadRegistrySettings()).enabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return await autoLinkProperty(propertyId, { actorId, notify: true });",
+         "a": [
+          "зовёт autoLinkProperty()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"api\", `Реестр строек: автосвязь объекта ${propertyId} не удалась: ${err instanceof Error…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "autoLinkPropertyById() — apps/api/src/lib/constructionRegistry/autoLinkOnSave.ts"
+    },
+    {
      "k": "if",
      "t": "!property.districtId",
      "a": [],
@@ -131946,46 +132077,7 @@
        "a": [
         "зовёт districtByPoint()"
        ],
-       "c": [
-        {
-         "k": "loop",
-         "t": "для каждого: const d of districts",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!d.boundary",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "ring && isPointInPolygon(lng, lat, ring)",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return { id: d.id, name: d.name, source: \"point\" };",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        }
-       ],
-       "from": "districtByPoint() — apps/api/src/lib/propertyDistrict.ts"
+       "c": []
       },
       {
        "k": "if",
