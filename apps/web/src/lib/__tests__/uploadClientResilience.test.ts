@@ -357,7 +357,7 @@ describe("находка 6: загрузка частями переживает
 });
 
 describe("находка 7: окончательный отказ пишется всегда", () => {
-  it("после 20 промежуточных записей «сдалась» всё равно уходит в журнал", async () => {
+  it("после 25 промежуточных записей «сдалась» всё равно уходит в журнал", async () => {
     vi.stubGlobal("navigator", { onLine: true, userAgent: "Android Chrome" });
     vi.stubGlobal("location", { pathname: "/properties/1" });
     const { useAuthStore } = await import("../../store/auth");
@@ -367,7 +367,8 @@ describe("находка 7: окончательный отказ пишется
     for (let i = 0; i < 25; i++) reportUploadIssue({ ...base, name: `v${i}.mp4`, attempts: i });
     reportUploadIssue({ ...base, name: "last.mp4", attempts: 10, final: true, cause: "тишина в канале", partNumber: 3, partSentBytes: 0 });
     const bodies = mocks.api.mock.calls.map((c) => (c[1] as { body: { message: string } }).body.message);
-    expect(bodies.length).toBe(21);
+    // Промежуточные отчёты загрузки — отдельный предел в 10 (ревью 26.11.2026), «сдалась» — всегда.
+    expect(bodies.length).toBe(11);
     const final = bodies[bodies.length - 1];
     expect(final).toMatch(/last\.mp4/);
     expect(final).toMatch(/сдалась/);

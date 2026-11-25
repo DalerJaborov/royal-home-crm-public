@@ -13,6 +13,7 @@ import {
 import type { Property } from "../types";
 import { api } from "../lib/api";
 import { httpStatusMessage } from "../lib/httpStatusMessage";
+import { registerWork } from "../lib/workGuard";
 import { uploadVideoChunked, uploadVideoNow, MAX_RETRY_ATTEMPTS, CANCELLED_STATUS } from "../lib/uploadQueue";
 import { planServerRetry } from "../lib/uploadRetry";
 import { reportUploadIssue } from "../lib/errorReporter";
@@ -774,6 +775,9 @@ export function PropertyVideoFixCard({
   const [sourceProgress, setSourceProgress] = useState<number | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const sourceInput = useRef<HTMLInputElement>(null);
+  /** Сборка исходника на сервере уже идёт — «Отменить» её не остановит (ревью 26.11.2026). */
+  const sourceCompleting = useRef(false);
+  const [sourceNote, setSourceNote] = useState<string | null>(null);
   /**
    * Номер загрузочной сессии исходника (24.09.2026, гонка «закрыли окно, пока
    * грузится исходник»). `uploadVideoNow` не умеет отмену (нет AbortSignal —
@@ -1051,6 +1055,9 @@ export function PropertyVideoFixCard({
     setHandoffLive({ phase: "uploading", loaded: 0, total: file.size });
     const abort = new AbortController();
     handoffAbort.current = abort;
+    // Вкладку нельзя тихо закрыть на всё время загрузки, включая паузы между повторами
+    // (ревью 26.11.2026): раньше запись жила внутри одной попытки и в паузе пропадала.
+    const unregisterWork = registerWork({ id: `video-upload:${uploadKey}`, label: "Загрузка готового ролика", blocksUnload: true });
     try {
       // Снять старый ролик ДО загрузки (25.09.2026, Б4): иначе замена встанет
       // рядом с ним, а не вместо. Отказ снятия (идёт публикация — 409) — стоп:
@@ -1079,8 +1086,6 @@ export function PropertyVideoFixCard({
             filename: file.name,
             purpose: "handoff",
             signal: abort.signal,
-            // Ролик живёт только во вкладке — закрытие обязано переспросить (находка 9).
-            unloadLabel: "Загрузка готового ролика",
           },
           (loaded, total) => {
             setUploadPercent(total > 0 ? Math.round((loaded / total) * 100) : 0);
@@ -1196,6 +1201,7 @@ export function PropertyVideoFixCard({
       if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Не получилось, попробуйте ещё раз");
       else setHandoffLive(null);
     } finally {
+      unregisterWork();
       if (handoffAbort.current === abort) handoffAbort.current = null;
       setBusy(null);
       setUploadPercent(null);
@@ -1221,6 +1227,8 @@ export function PropertyVideoFixCard({
     setNewSource({ name: file.name, size: file.size });
     setNewSourceVideoId(null);
     setSourceProgress(0);
+    setSourceNote(null);
+    sourceCompleting.current = false;
     setSourceLive({ phase: "uploading", loaded: 0, total: file.size });
     const seq = ++uploadSeqRef.current;
     const abort = new AbortController();
@@ -1241,10 +1249,15 @@ export function PropertyVideoFixCard({
             ? { phase: wait.nextAttemptAt ? "waiting-retry" : "waiting-online", loaded: prev?.loaded ?? 0, total: file.size, error: wait.error, nextAttemptAt: wait.nextAttemptAt }
             : { phase: "uploading", loaded: prev?.loaded ?? 0, total: file.size }
         );
+      },
+      () => {
+        sourceCompleting.current = true;
       }
     );
+    sourceCompleting.current = false;
     if (sourceAbort.current === abort) sourceAbort.current = null;
     setSourceLive(null);
+    setSourceNote(null);
     if (uploadSeqRef.current !== seq) {
       // Загрузку отменили, пока она шла (закрыли окно/выбрали другой файл),
       // но сервер всё же успел собрать файл — не оставляем сироту.
@@ -1265,6 +1278,12 @@ export function PropertyVideoFixCard({
    *  ошибка, а осознанный отказ: тихо возвращаем форму в состояние «файл не
    *  выбран», сирота (если успеет создаться) подчистится сама в pickNewSource. */
   function cancelSourceUpload() {
+    // Сборка на сервере уже идёт: оборвать её нельзя, а «отменено» при созданном ролике —
+    // неправда. Ждём настоящий ответ; если ролик собрался, он уберётся сам (pickNewSource).
+    if (sourceCompleting.current) {
+      setSourceNote("Сборка файла уже идёт — дождитесь окончания, тогда его можно будет убрать.");
+      return;
+    }
     // Настоящая отмена (находка 10): раньше полоса пряталась, а байты продолжали уходить.
     sourceAbort.current?.abort();
     sourceAbort.current = null;
@@ -2355,6 +2374,7 @@ export function PropertyVideoFixCard({
               </div>
             )}
             {sourceMode === "new" && sourceLive && <UploadProgressLine live={sourceLive} keepAwakeHint style={{ marginTop: 8 }} />}
+            {sourceMode === "new" && sourceNote && sourceUploading && <p className="note" role="status">{sourceNote}</p>}
             {sourceMode === "new" && sourceError && (
               <p className="state err">
                 <span className="dot crit" />

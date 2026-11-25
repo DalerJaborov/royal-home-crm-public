@@ -76,8 +76,34 @@ function openDb(): Promise<IDBDatabase> {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: "uploadKey" });
         if (!req.result.objectStoreNames.contains(BLOBS)) req.result.createObjectStore(BLOBS);
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("IndexedDB недоступна"));
+      // Старая вкладка со схемой v1 держит базу открытой и блокирует обновление до v2:
+      // без этого обещание висело бы вечно, а очередь молча стояла (ревью 26.11.2026).
+      // Отказываем понятно и забываем попытку (см. ниже) — следующий вызов попробует заново;
+      // запрос открытия остаётся в браузере и сам закроет своё соединение, если успеет позже.
+      let settled = false;
+      req.onblocked = () => {
+        settled = true;
+        reject(new Error("Хранилище черновика занято другой вкладкой приложения — закройте её и повторите"));
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        // Другая вкладка просит обновить схему — отпускаем базу и забываем соединение,
+        // иначе уже НАША вкладка заблокирует её (то же самое, только с другой стороны).
+        db.onversionchange = () => {
+          db.close();
+          if (dbPromise === attempt) dbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        settled = true;
+        reject(req.error ?? new Error("IndexedDB недоступна"));
+      };
     });
     // Неудачную попытку не запоминаем: приватный режим или запрет хранилища —
     // состояние временное (тот же приём, что и в lib/uploadQueue.ts).

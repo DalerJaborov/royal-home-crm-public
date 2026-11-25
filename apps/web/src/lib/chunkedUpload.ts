@@ -284,6 +284,12 @@ interface RetryContext {
   signal?: AbortSignal;
   /** Что показать во время паузы. */
   onWait: (live: { phase: "waiting-online" | "waiting-retry"; error: string; nextAttemptAt: number | null }) => void;
+  /**
+   * Экран держим, только пока идёт отправка (ревью 26.11.2026): ожидание сети и паузы повтора
+   * (5 с … 5 мин) тянутся долго, и держать на них экран включённым — значит сажать батарею
+   * на простое. `off` снимает блокировку на паузе, `on` берёт заново перед следующей попыткой.
+   */
+  awake?: { off(): void; on(): void };
 }
 
 /**
@@ -293,7 +299,12 @@ interface RetryContext {
 async function pauseBeforeRetry(err: unknown, fails: number, ctx: RetryContext): Promise<number | null> {
   if (isOffline() || zeroCauseOf(err) === "offline") {
     ctx.onWait({ phase: "waiting-online", error: OFFLINE_TEXT, nextAttemptAt: null });
-    await waitForOnline(ctx.signal);
+    ctx.awake?.off();
+    try {
+      await waitForOnline(ctx.signal);
+    } finally {
+      ctx.awake?.on();
+    }
     return fails; // обрыв без сети попытку не тратит
   }
   const plan = planServerRetry(fails, false);
@@ -302,7 +313,12 @@ async function pauseBeforeRetry(err: unknown, fails: number, ctx: RetryContext):
   const delay = Math.max(plan.delayMs, retryAfter);
   const reason = err instanceof ApiError && err.status === 0 ? zeroCauseMessage(zeroCauseOf(err)) : err instanceof ApiError ? err.message : "Связь прервалась";
   ctx.onWait({ phase: "waiting-retry", error: reason, nextAttemptAt: Date.now() + delay });
-  await sleepAbortable(delay, ctx.signal);
+  ctx.awake?.off();
+  try {
+    await sleepAbortable(delay, ctx.signal);
+  } finally {
+    ctx.awake?.on();
+  }
   return plan.attempts;
 }
 
@@ -329,7 +345,16 @@ export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
   let sentTotal = 0;
 
   // Экран не гаснет, вкладку тихо не закрыть, автообновление ждёт (находки 8 и 9).
-  const releaseAwake = holdScreenAwake();
+  let releaseAwake: (() => void) | null = holdScreenAwake();
+  const awake = {
+    off: () => {
+      releaseAwake?.();
+      releaseAwake = null;
+    },
+    on: () => {
+      releaseAwake ??= holdScreenAwake();
+    },
+  };
   const unregister = registerWork({
     id: `chunked:${o.startUrl}:${fp ?? Math.random().toString(36).slice(2)}`,
     label: o.report?.label ?? "Загрузка файла",
@@ -402,6 +427,7 @@ export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
   };
   const ctx: RetryContext = {
     signal: o.signal,
+    awake,
     onWait: (w) => live({ phase: w.phase, loaded: sentTotal, total: o.file.size, error: w.error, nextAttemptAt: w.nextAttemptAt }),
   };
 
@@ -520,7 +546,7 @@ export async function uploadInParts<T>(o: UploadInPartsOptions): Promise<T> {
     else report(err, { attempts: 1 });
     throw err;
   } finally {
-    releaseAwake();
+    awake.off();
     unregister();
   }
 }

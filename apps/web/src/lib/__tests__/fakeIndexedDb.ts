@@ -35,6 +35,18 @@ export interface FakeIdb {
   failPut: ((store: string, value: unknown) => boolean) | null;
   /** Сколько раз писали в хранилище (для проверки «файл кладётся один раз»). */
   putCount: Map<string, number>;
+  /**
+   * Открыть базу «из другой вкладки» старой версии и НЕ закрывать её по `versionchange`:
+   * следующее открытие с большей версией получит `onblocked`, как в настоящих браузерах.
+   * Возвращает функцию «закрыть вкладку» — после неё отложенное открытие дойдёт до конца.
+   */
+  holdOpen(name: string, onversionchange?: () => void): () => void;
+  /** Вызывается при создании КАЖДОЙ транзакции — до того, как она увидит данные: чужая правка «между». */
+  onTx: ((mode: string, stores: string[]) => void) | null;
+  /** Поменять данные хранилища напрямую (как будто это сделала другая транзакция). */
+  mutate(db: string, store: string, fn: (rows: Map<Key, unknown>) => void): void;
+  /** Сколько соединений с базой открыто сейчас. */
+  openConnections(name: string): number;
 }
 
 const sortKeys = (keys: Key[]) => [...keys].sort((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0));
@@ -51,24 +63,62 @@ export function createFakeIndexedDb(): FakeIdb {
     },
     failPut: null,
     putCount: new Map(),
+    holdOpen(name, onversionchange) {
+      const db = dbs.get(name) ?? { version: 1, stores: new Map() };
+      dbs.set(name, db);
+      const conn = { onversionchange: (onversionchange ? () => onversionchange() : null) as (() => void) | null, closed: false, close() {} };
+      conns.get(db)?.add(conn) ?? conns.set(db, new Set([conn]));
+      return () => closeConn(db, conn);
+    },
+    onTx: null,
+    mutate(db, store, fn) {
+      fn(dbs.get(db)!.stores.get(store)!.data);
+    },
+    openConnections: (name) => (dbs.get(name) ? [...(conns.get(dbs.get(name)!) ?? [])].filter((c) => !c.closed).length : 0),
   };
+
+  interface Conn {
+    onversionchange: (() => void) | null;
+    closed: boolean;
+    close(): void;
+  }
+  const conns = new Map<DbData, Set<Conn>>();
+  const waiting = new Map<DbData, Array<() => void>>();
+  function closeConn(db: DbData, c: Conn) {
+    c.closed = true;
+    if ([...(conns.get(db) ?? [])].every((x) => x.closed)) {
+      const w = waiting.get(db) ?? [];
+      waiting.set(db, []);
+      w.forEach((fn) => fn());
+    }
+  }
 
   function request<T>(): Req<T> {
     return { result: undefined, error: null, onsuccess: null, onerror: null };
   }
 
   function makeDb(db: DbData) {
-    return {
+    const conn: Conn = { onversionchange: null, closed: false, close: () => closeConn(db, conn) };
+    (conns.get(db) ?? conns.set(db, new Set()).get(db)!).add(conn);
+    const api = {
+      get onversionchange() {
+        return conn.onversionchange;
+      },
+      set onversionchange(fn: (() => void) | null) {
+        conn.onversionchange = fn;
+      },
       objectStoreNames: { contains: (n: string) => db.stores.has(n) },
       createObjectStore(n: string, opts?: { keyPath?: string }) {
         db.stores.set(n, { keyPath: opts?.keyPath, data: new Map() });
         return {};
       },
-      transaction(names: string | string[], _mode?: string) {
+      transaction(names: string | string[], mode?: string) {
+        fake.onTx?.(mode ?? "readonly", Array.isArray(names) ? names : [names]);
         return makeTx(db, Array.isArray(names) ? names : [names]);
       },
-      close() {},
+      close: () => conn.close(),
     };
+    return api;
   }
 
   function makeTx(db: DbData, names: string[]) {
@@ -166,8 +216,12 @@ export function createFakeIndexedDb(): FakeIdb {
   }
 
   function open(name: string, version = 1) {
-    const req = request<unknown>() as Req<unknown> & { onupgradeneeded: ((e: { oldVersion: number }) => void) | null };
+    const req = request<unknown>() as Req<unknown> & {
+      onupgradeneeded: ((e: { oldVersion: number }) => void) | null;
+      onblocked: (() => void) | null;
+    };
     req.onupgradeneeded = null;
+    req.onblocked = null;
     queueMicrotask(() => {
       let db = dbs.get(name);
       const old = db?.version ?? 0;
@@ -175,12 +229,26 @@ export function createFakeIndexedDb(): FakeIdb {
         db = { version: 0, stores: new Map() };
         dbs.set(name, db);
       }
-      req.result = makeDb(db);
+      const target = db;
+      const proceed = () => {
+        req.result = makeDb(target);
+        if (version > old) {
+          target.version = version;
+          req.onupgradeneeded?.({ oldVersion: old });
+        }
+        req.onsuccess?.();
+      };
       if (version > old) {
-        db.version = version;
-        req.onupgradeneeded?.({ oldVersion: old });
+        // Повышение версии: открытые соединения получают `versionchange`; кто не закрылся — блокирует.
+        const open = [...(conns.get(target) ?? [])].filter((c) => !c.closed);
+        for (const c of open) c.onversionchange?.();
+        if ([...(conns.get(target) ?? [])].some((c) => !c.closed)) {
+          req.onblocked?.();
+          waiting.set(target, [...(waiting.get(target) ?? []), proceed]);
+          return;
+        }
       }
-      req.onsuccess?.();
+      proceed();
     });
     return req;
   }

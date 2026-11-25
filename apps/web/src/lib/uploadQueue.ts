@@ -231,8 +231,34 @@ function openDb(): Promise<IDBDatabase> {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: "id" });
         if (!req.result.objectStoreNames.contains(BLOBS)) req.result.createObjectStore(BLOBS);
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("IndexedDB недоступна"));
+      // Старая вкладка со схемой v1 держит базу открытой и блокирует обновление до v2:
+      // без этого обещание висело бы вечно, а очередь молча стояла (ревью 26.11.2026).
+      // Отказываем понятно и забываем попытку (см. ниже) — следующий вызов попробует заново;
+      // запрос открытия остаётся в браузере и сам закроет своё соединение, если успеет позже.
+      let settled = false;
+      req.onblocked = () => {
+        settled = true;
+        reject(new Error("Хранилище загрузок занято другой вкладкой приложения — закройте её и повторите"));
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        if (settled) {
+          db.close();
+          return;
+        }
+        settled = true;
+        // Другая вкладка просит обновить схему — отпускаем базу и забываем соединение,
+        // иначе уже НАША вкладка заблокирует её (то же самое, только с другой стороны).
+        db.onversionchange = () => {
+          db.close();
+          if (dbPromise === attempt) dbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        settled = true;
+        reject(req.error ?? new Error("IndexedDB недоступна"));
+      };
     });
     // Неудачную попытку не запоминаем: приватный режим или запрет хранилища —
     // состояние временное, и следующий вызов обязан попробовать заново, а не
@@ -436,13 +462,24 @@ export async function migrateLegacyUploadTasks(): Promise<number> {
   let moved = 0;
   for (const row of legacy) {
     try {
-      await txRun([STORE, BLOBS], "readwrite", (t) => {
-        row.files!.forEach((file, i) => t.objectStore(BLOBS).put(file, blobKey(row.id, i)));
-        const { files, ...meta } = row;
-        t.objectStore(STORE).put({ ...meta, fileCount: files!.length });
-        return () => undefined;
+      // Строку читаем ЗАНОВО внутри этой же транзакции (ревью 26.11.2026): список выше собран
+      // отдельной транзакцией, и пока шёл перенос соседних заданий, run() мог сменить этому
+      // статус или убрать его вовсе — запись по устаревшей строке воскресила бы убранное задание
+      // и затёрла бы свежий статус.
+      const did = await txRun([STORE, BLOBS], "readwrite", (t) => {
+        let written = false;
+        const get = t.objectStore(STORE).get(row.id);
+        get.onsuccess = () => {
+          const fresh = get.result as StoredTaskMeta | undefined;
+          if (!fresh || !Array.isArray(fresh.files)) return; // убрано или уже переехало
+          fresh.files.forEach((file, i) => t.objectStore(BLOBS).put(file, blobKey(row.id, i)));
+          const { files, ...meta } = fresh;
+          t.objectStore(STORE).put({ ...meta, fileCount: files!.length });
+          written = true;
+        };
+        return () => written;
       });
-      moved++;
+      if (did) moved++;
     } catch {
       /* квота — задание остаётся в версии 1, очередь его читает и так */
     }
@@ -1001,6 +1038,12 @@ export interface ChunkedVideoUploadInput {
    */
   signal?: AbortSignal;
   /**
+   * Сборка файла на сервере началась (ревью 26.11.2026): с этого момента «Отмена» её не
+   * остановит — запрос мог быть уже выполнен, оборвать его на нашей стороне значит остаться
+   * в неведении, создан ролик или нет. Экран говорит человеку честно: «Сборка уже идёт».
+   */
+  onCompleting?: () => void;
+  /**
    * Загрузка живёт только во вкладке (не в IndexedDB) — закрытие вкладки обязано
    * переспросить (находка 9). Очередь передаёт его для заданий, не влезших в хранилище.
    */
@@ -1064,10 +1107,13 @@ async function uploadVideoChunkedInner(
           method: "POST",
           body: { uploadKey, filename, sizeBytes: file.size, contentType: file.type || "video/mp4", purpose },
           expectAgentId,
+          // Старт идемпотентен (тот же uploadKey): оборвать его по «Отмене» безопасно.
+          signal,
         }),
         SESSION_DEADLINE_MS
       );
     } catch (err) {
+      if (signal?.aborted) return cancelled();
       return apiErrorToResult(err);
     }
 
@@ -1139,6 +1185,10 @@ async function uploadVideoChunkedInner(
     if (signal?.aborted) return cancelled();
 
     try {
+      // Сборку по «Отмене» НЕ рвём (ревью 26.11.2026): сервер мог её уже выполнить, и
+      // оборванный запрос оставил бы нас в неведении — «отменено», а ролик создан. Ждём
+      // настоящий ответ; вызывающий сам решает, что делать с собранным (убрать сироту).
+      input.onCompleting?.();
       const data = await withDeadline(
         api<{ id?: string }>(`/properties/${propertyId}/videos/upload-sessions/${sessionId}/complete`, {
           method: "POST",
@@ -1244,7 +1294,9 @@ export async function uploadVideoNow(
   /** «Отмена» рвёт отправку по-настоящему (находка 10), а не только прячет полосу. */
   signal?: AbortSignal,
   /** «ждём связь», «повтор через N с» — для строки прогресса. */
-  onWait?: (wait: { error: string; nextAttemptAt: number | null } | null) => void
+  onWait?: (wait: { error: string; nextAttemptAt: number | null } | null) => void,
+  /** Сборка на сервере пошла — отменить её уже нельзя (см. ChunkedVideoUploadInput.onCompleting). */
+  onCompleting?: () => void
 ): Promise<{ ok: true; videoId: string } | { ok: false; error: string; cancelled?: boolean }> {
   // purpose="raw": это сырой исходник объекта (PropertyVideo), как обычная
   // загрузка очереди — completePurpose="MONTAJER_SOURCE" лишь отменяет
@@ -1255,51 +1307,60 @@ export async function uploadVideoNow(
   // (lib/uploadRetry.ts), с тем же ключом: сервер дольёт только недостающие части.
   const uploadKey = newKey();
   let attempts = 0;
-  for (;;) {
-    const result = await uploadVideoChunked(
-      { propertyId, file, uploadKey, filename: file.name, purpose: "raw", completePurpose: "MONTAJER_SOURCE", signal, unloadLabel: "Загрузка исходника ролика" },
-      onProgress
-    );
-    if (result.status === CANCELLED_STATUS || signal?.aborted) return { ok: false, error: "Загрузка отменена", cancelled: true };
-    if (result.status >= 200 && result.status < 300 && result.videoId) return { ok: true, videoId: result.videoId };
-    const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
-    const plan = planServerRetry(attempts, result.progressed === true);
-    attempts = plan.attempts;
-    if (!retryable || plan.delayMs === null) {
-      const error = retryable ? giveUpMessage(result.status, attempts, result.cause) : result.error ?? "Загрузка не завершилась — попробуйте ещё раз";
-      reportUploadIssue({
-        kind: "source",
-        name: file.name,
-        sizeBytes: file.size,
-        propertyLabel: "исходник для перемонтажа",
-        attempts,
-        maxAttempts: MAX_RETRY_ATTEMPTS,
-        status: result.status,
-        error,
-        online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
-        fileType: file.type,
-        ...(result.cause ? { cause: zeroCauseLabel(result.cause) } : {}),
-        ...(result.failedPartNumber != null ? { partNumber: result.failedPartNumber, partSentBytes: result.failedPartSent ?? 0 } : {}),
-        partsDone: result.partsDone,
-        partsTotal: result.partsTotal,
-        final: true,
-      });
-      return { ok: false, error };
-    }
-    try {
-      if (isOffline()) {
-        onWait?.({ error: zeroCauseMessage("offline"), nextAttemptAt: null });
-        await waitForOnline(signal);
-      } else {
-        const delay = Math.max(plan.delayMs, result.retryAfterMs ?? 0);
-        onWait?.({ error: result.status === 0 ? zeroCauseMessage(result.cause) : result.error ?? httpStatusMessage(result.status), nextAttemptAt: Date.now() + delay });
-        await sleepAbortable(delay, signal);
+  // Вкладку нельзя тихо закрыть на ВСЁ время загрузки, включая паузы 5 с … 5 мин между
+  // повторами (ревью 26.11.2026): раньше запись жила внутри одной попытки и в паузе пропадала.
+  const unregister = registerWork({ id: `video-upload:${uploadKey}`, label: "Загрузка исходника ролика", blocksUnload: true });
+  try {
+    for (;;) {
+      const result = await uploadVideoChunked(
+        { propertyId, file, uploadKey, filename: file.name, purpose: "raw", completePurpose: "MONTAJER_SOURCE", signal, onCompleting },
+        onProgress
+      );
+      // Сборка, которую «Отмена» не остановила, могла создать ролик: говорим как есть, а
+      // сироту убирает вызывающий (он знает, что человек отказался).
+      if (result.status >= 200 && result.status < 300 && result.videoId) return { ok: true, videoId: result.videoId };
+      if (result.status === CANCELLED_STATUS || signal?.aborted) return { ok: false, error: "Загрузка отменена", cancelled: true };
+      const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
+      const plan = planServerRetry(attempts, result.progressed === true);
+      attempts = plan.attempts;
+      if (!retryable || plan.delayMs === null) {
+        const error = retryable ? giveUpMessage(result.status, attempts, result.cause) : result.error ?? "Загрузка не завершилась — попробуйте ещё раз";
+        reportUploadIssue({
+          kind: "source",
+          name: file.name,
+          sizeBytes: file.size,
+          propertyLabel: "исходник для перемонтажа",
+          attempts,
+          maxAttempts: MAX_RETRY_ATTEMPTS,
+          status: result.status,
+          error,
+          online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+          fileType: file.type,
+          ...(result.cause ? { cause: zeroCauseLabel(result.cause) } : {}),
+          ...(result.failedPartNumber != null ? { partNumber: result.failedPartNumber, partSentBytes: result.failedPartSent ?? 0 } : {}),
+          partsDone: result.partsDone,
+          partsTotal: result.partsTotal,
+          final: true,
+        });
+        return { ok: false, error };
       }
-    } catch {
-      return { ok: false, error: "Загрузка отменена", cancelled: true };
+      try {
+        if (isOffline()) {
+          onWait?.({ error: zeroCauseMessage("offline"), nextAttemptAt: null });
+          await waitForOnline(signal);
+        } else {
+          const delay = Math.max(plan.delayMs, result.retryAfterMs ?? 0);
+          onWait?.({ error: result.status === 0 ? zeroCauseMessage(result.cause) : result.error ?? httpStatusMessage(result.status), nextAttemptAt: Date.now() + delay });
+          await sleepAbortable(delay, signal);
+        }
+      } catch {
+        return { ok: false, error: "Загрузка отменена", cancelled: true };
+      }
+      onWait?.(null);
     }
-    onWait?.(null);
+  } finally {
+    unregister();
   }
 }
 
