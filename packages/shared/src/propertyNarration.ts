@@ -880,6 +880,8 @@ export type PropertyNarrationView = {
   facts?: NarrationFacts;
   /** У объекта выбрано «Без озвучки» (12.11.2026). */
   off?: boolean;
+  /** Номер объекта (ОБ-№) — для имени скачанного файла озвучки (25.11.2026). */
+  propertyCode?: number;
   lastChoice?: { voiceId?: string; templateId?: string; endingId?: string; usedTemplateId?: string; usedEndingId?: string };
   configured: boolean; canApprove: boolean; canConfigure?: boolean; canDraft?: boolean; sendsEnabled: boolean;
   /** Агент объекта одобряет готовое аудио (автоозвучка), маркетинг — по-прежнему черновой текст. */
