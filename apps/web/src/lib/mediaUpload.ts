@@ -1,5 +1,6 @@
 import { CONVERSATION_MEDIA_MAX_BYTES } from "@royal-home/shared";
 import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
+import type { UploadLive } from "./upload/progressText";
 
 /**
  * Пределы ИСХОДЯЩЕГО ФОТО по каналу (18.08.2026) — зеркало OUTGOING_MEDIA_LIMITS
@@ -110,7 +111,9 @@ export function uploadConversationMedia(
   /** Ключ повтора (17.11.2026, аудит F2-4): «Повторить» после обрыва не шлёт клиенту файл второй раз. */
   idempotencyKey?: string,
   /** id пузыря: по нему повтор находит прошлую сессию, а «Отменить» — эту отправку. */
-  localId?: string
+  localId?: string,
+  /** МБ из МБ, «ждём связь», «повтор через N с» — для строки под пузырём (25.11.2026). */
+  onLive?: (live: UploadLive) => void
 ): Promise<{ ok: boolean; pausedUntil: string }> {
   const previous = localId ? inFlight.get(localId) : undefined;
   const entry = { session: previous?.session ?? {}, controller: new AbortController() };
@@ -123,8 +126,10 @@ export function uploadConversationMedia(
     completeWaitMs: MEDIA_DELIVERY_WAIT_MS,
     completeWaitMessage: "Сервер долго отправляет файл. Проверьте переписку: файл мог уйти — тогда повторять не нужно.",
     onProgress,
+    onLive,
     signal: entry.controller.signal,
     session: entry.session,
+    report: { kind: "chat", label: "переписка" },
   }).then((result) => {
     if (localId) forget(localId);
     return result;

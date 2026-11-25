@@ -361,6 +361,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   const queryClient = useQueryClient();
   const add = useMediaUploadsStore((s) => s.add);
   const setProgress = useMediaUploadsStore((s) => s.setProgress);
+  const setLive = useMediaUploadsStore((s) => s.setLive);
   const setError = useMediaUploadsStore((s) => s.setError);
   const setUploading = useMediaUploadsStore((s) => s.setUploading);
   const remove = useMediaUploadsStore((s) => s.remove);
@@ -375,7 +376,8 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           upload.caption,
           (percent) => setProgress(conversationId, upload.localId, percent),
           `media:${upload.localId}`,
-          upload.localId
+          upload.localId,
+          (live) => setLive(conversationId, upload.localId, live)
         );
         // Успех — сама реплика придёт с сервера через инвалидацию, локальный
         // пузырь-заглушку убираем, чтобы не показать её дважды.
@@ -387,7 +389,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         setError(conversationId, upload.localId, err instanceof Error && err.message ? err.message : "Не удалось отправить");
       }
     },
-    [queryClient, setProgress, setError, remove]
+    [queryClient, setProgress, setLive, setError, remove]
   );
 
   const start = useCallback(

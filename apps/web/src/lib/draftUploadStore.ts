@@ -13,6 +13,17 @@
  * `apps/api/src/routes/properties/drafts.ts`). Пытаться натянуть чужую
  * форму данных на другую сущность стоило бы условных веток в горячем модуле
  * ради экономии одного `indexedDB.open()`.
+ *
+ * ФАЙЛ КЛАДЁТСЯ ОДИН РАЗ, ОТМЕТКИ — ОТДЕЛЬНО (версия 2, 25.11.2026, находка 2).
+ * Раньше запись была одна — метаданные вместе с блобом, и каждое продление срока
+ * (`touchDraftFiles`), отметка старой записи и привязка к черновику перекладывали
+ * её целиком. В Chromium каждая такая запись копирует блоб заново: ролик 271 МБ
+ * на каждое движение отметки — квота кончалась, и браузер отказывал записи
+ * («Error preparing Blob/File data…»), а затем и чтению. Теперь:
+ *  - `files` — только метаданные (ключ uploadKey);
+ *  - `blobs` — сам файл по тому же ключу, пишется один раз.
+ * Записи прежней версии (блоб внутри `files`) читаются как есть, а при первой же
+ * правке отметки файл переезжает в `blobs` — один раз, без потери незавершённых.
  */
 
 import { PROPERTY_DRAFT_TTL_MS } from "@royal-home/shared";
@@ -32,9 +43,13 @@ export interface StoredDraftFile {
   savedAt?: number;
 }
 
+/** Метаданные без файла (версия 2). У записей версии 1 `blob` ещё лежит внутри. */
+type DraftFileMeta = Omit<StoredDraftFile, "blob"> & { blob?: Blob };
+
 const DB_NAME = "royal-home-draft-media";
 const STORE = "files";
-const DB_VERSION = 1;
+const BLOBS = "blobs";
+const DB_VERSION = 2;
 
 /**
  * Ролик тяжелее — не храним вовсе (задание, пункт 3). IndexedDB на слабом
@@ -55,8 +70,11 @@ function openDb(): Promise<IDBDatabase> {
         return;
       }
       const req = indexedDB.open(DB_NAME, DB_VERSION);
+      // Обновление 1 → 2 только заводит хранилище файлов: данные не переносим здесь,
+      // чтобы отказ квоты посреди переноса не оборвал обновление базы целиком.
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: "uploadKey" });
+        if (!req.result.objectStoreNames.contains(BLOBS)) req.result.createObjectStore(BLOBS);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error ?? new Error("IndexedDB недоступна"));
@@ -71,29 +89,86 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+/** Транзакция по нескольким хранилищам; обещание — по её завершению (или отказу целиком). */
+function txRun<T>(stores: string[], mode: IDBTransactionMode, body: (t: IDBTransaction) => () => T): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const request = run(db.transaction(STORE, mode).objectStore(STORE));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error("Ошибка хранилища черновика"));
+        const transaction = db.transaction(stores, mode);
+        let result: () => T = () => undefined as T;
+        transaction.oncomplete = () => resolve(result());
+        transaction.onerror = () => reject(transaction.error ?? new Error("Ошибка хранилища черновика"));
+        // Chromium отказывает записи блоба обрывом транзакции, а не ошибкой запроса.
+        transaction.onabort = () => reject(transaction.error ?? new Error("Ошибка хранилища черновика"));
+        result = body(transaction);
       })
   );
+}
+
+function metaOf(rec: StoredDraftFile | DraftFileMeta): DraftFileMeta {
+  const { blob: _blob, ...meta } = rec as StoredDraftFile;
+  return meta;
 }
 
 /**
  * Положить файл. Вызывающая сторона решает, класть ли (видео тяжелее
  * MAX_STORED_VIDEO_BYTES сюда не отдаёт вовсе) — здесь только защита от
- * невнимательного вызова.
+ * невнимательного вызова. Файл и метаданные — одной транзакцией.
  */
 export async function putDraftFile(rec: StoredDraftFile): Promise<void> {
   if (rec.kind === "video" && rec.size > MAX_STORED_VIDEO_BYTES) return;
-  await tx("readwrite", (s) => s.put({ ...rec, savedAt: rec.savedAt ?? Date.now() }) as IDBRequest<IDBValidKey>);
+  await txRun([STORE, BLOBS], "readwrite", (t) => {
+    t.objectStore(BLOBS).put(rec.blob, rec.uploadKey);
+    t.objectStore(STORE).put({ ...metaOf(rec), savedAt: rec.savedAt ?? Date.now() });
+    return () => undefined;
+  });
+}
+
+/**
+ * Поправить метаданные (срок, черновик), НЕ перекладывая файл. Запись прежней версии
+ * (файл внутри) при этом один раз переезжает: файл — в `blobs`, метаданные — без него.
+ * Записи нет — ничего не делаем.
+ */
+export async function updateDraftFileMeta(uploadKey: string, patch: Partial<Pick<StoredDraftFile, "savedAt" | "draftId">>): Promise<void> {
+  await txRun([STORE, BLOBS], "readwrite", (t) => {
+    const files = t.objectStore(STORE);
+    const req = files.get(uploadKey);
+    req.onsuccess = () => {
+      const rec = req.result as DraftFileMeta | undefined;
+      if (!rec) return;
+      if (rec.blob) t.objectStore(BLOBS).put(rec.blob, uploadKey);
+      files.put({ ...metaOf(rec), ...patch });
+    };
+    return () => undefined;
+  });
 }
 
 export async function deleteDraftFile(uploadKey: string): Promise<void> {
-  await tx("readwrite", (s) => s.delete(uploadKey) as unknown as IDBRequest<undefined>);
+  await txRun([STORE, BLOBS], "readwrite", (t) => {
+    t.objectStore(STORE).delete(uploadKey);
+    t.objectStore(BLOBS).delete(uploadKey);
+    return () => undefined;
+  });
+}
+
+/** Все метаданные и файлы: метаданные целиком, файлы — по ключу (блоб из базы — ссылка, не копия). */
+async function readEverything(): Promise<{ metas: DraftFileMeta[]; blobs: Map<string, Blob> }> {
+  return txRun([STORE, BLOBS], "readonly", (t) => {
+    let metas: DraftFileMeta[] = [];
+    const blobs = new Map<string, Blob>();
+    const all = t.objectStore(STORE).getAll();
+    all.onsuccess = () => {
+      metas = (all.result as DraftFileMeta[]) ?? [];
+    };
+    const cursor = t.objectStore(BLOBS).openCursor();
+    cursor.onsuccess = () => {
+      const c = cursor.result;
+      if (!c) return;
+      blobs.set(String(c.key), c.value as Blob);
+      c.continue();
+    };
+    return () => ({ metas, blobs });
+  });
 }
 
 /**
@@ -101,22 +176,22 @@ export async function deleteDraftFile(uploadKey: string): Promise<void> {
  * и срок (4 ч) считается от ЭТОГО сохранения, а не от момента, когда файл положили.
  * Без этого при плохой связи на объекте неотправленные фото молча стирались бы через 4 ч
  * от добавления, хотя сам черновик жив. Трогаем файлы этого агента из этого черновика и
- * ещё не привязанные к черновику.
+ * ещё не привязанные к черновику. Только метаданные — файл не перекладывается.
  */
 export async function touchDraftFiles(agentId: string, draftId: string | null, now: number = Date.now()): Promise<void> {
-  const all = await tx<StoredDraftFile[]>("readonly", (s) => s.getAll() as IDBRequest<StoredDraftFile[]>);
-  for (const f of all) {
+  const { metas } = await readEverything();
+  for (const f of metas) {
     if (f.agentId !== agentId) continue;
     if (f.draftId != null && f.draftId !== draftId) continue;
-    await tx("readwrite", (s) => s.put({ ...f, savedAt: now }) as IDBRequest<IDBValidKey>).catch(() => undefined);
+    await updateDraftFileMeta(f.uploadKey, { savedAt: now }).catch(() => undefined);
   }
 }
 
 /** Всё, что лежит в хранилище для этого агента — остальное (чужой агент на
  *  том же устройстве) не возвращаем. */
 export async function readAllDraftFiles(agentId: string, now: number = Date.now()): Promise<StoredDraftFile[]> {
-  const all = await tx<StoredDraftFile[]>("readonly", (s) => s.getAll() as IDBRequest<StoredDraftFile[]>);
-  const own = all.filter((f) => f.agentId === agentId);
+  const { metas, blobs } = await readEverything();
+  const own = metas.filter((f) => f.agentId === agentId);
   // Срок жизни локальной копии — тот же, что у черновика на сервере
   // (PROPERTY_DRAFT_TTL_MS): сервер такой черновик уже стёр, и без этой
   // уборки файлы лежали бы в браузере вечно, а «Продолжить черновик» висел бы
@@ -124,14 +199,19 @@ export async function readAllDraftFiles(agentId: string, now: number = Date.now(
   const ttlMs = PROPERTY_DRAFT_TTL_MS;
   const live: StoredDraftFile[] = [];
   for (const f of own) {
+    const blob = f.blob ?? blobs.get(f.uploadKey);
+    if (!blob) {
+      // Метаданные без файла (запись файла не удалась) — докачивать нечем.
+      await deleteDraftFile(f.uploadKey).catch(() => undefined);
+      continue;
+    }
     if (typeof f.savedAt !== "number") {
-      const stamped = { ...f, savedAt: now };
-      await tx("readwrite", (s) => s.put(stamped) as IDBRequest<IDBValidKey>).catch(() => undefined);
-      live.push(stamped);
+      await updateDraftFileMeta(f.uploadKey, { savedAt: now }).catch(() => undefined);
+      live.push({ ...metaOf(f), blob, savedAt: now });
     } else if (now - f.savedAt > ttlMs) {
       await deleteDraftFile(f.uploadKey).catch(() => undefined);
     } else {
-      live.push(f);
+      live.push({ ...metaOf(f), blob });
     }
   }
   return live;
@@ -140,19 +220,19 @@ export async function readAllDraftFiles(agentId: string, now: number = Date.now(
 /** Clear one actor and one draft generation. A shared browser may still contain
  * another employee's offline files, or recoverable files from an older draft. */
 export async function clearAllDraftFiles(agentId: string, draftId: string | null): Promise<void> {
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE, "readwrite");
-    const cursorRequest = transaction.objectStore(STORE).openCursor();
+  await txRun([STORE, BLOBS], "readwrite", (t) => {
+    const blobs = t.objectStore(BLOBS);
+    const cursorRequest = t.objectStore(STORE).openCursor();
     cursorRequest.onsuccess = () => {
       const cursor = cursorRequest.result;
       if (!cursor) return;
-      const record = cursor.value as StoredDraftFile;
-      if (record.agentId === agentId && (record.draftId ?? null) === draftId) cursor.delete();
+      const record = cursor.value as DraftFileMeta;
+      if (record.agentId === agentId && (record.draftId ?? null) === draftId) {
+        cursor.delete();
+        blobs.delete(record.uploadKey);
+      }
       cursor.continue();
     };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error("Не удалось удалить локальные файлы черновика"));
-    transaction.onabort = () => reject(transaction.error ?? new Error("Удаление локальных файлов прервано"));
+    return () => undefined;
   });
 }

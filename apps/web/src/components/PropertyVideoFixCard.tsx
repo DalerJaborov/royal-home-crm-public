@@ -13,7 +13,12 @@ import {
 import type { Property } from "../types";
 import { api } from "../lib/api";
 import { httpStatusMessage } from "../lib/httpStatusMessage";
-import { uploadVideoChunked, uploadVideoNow, retryDelayMs, MAX_RETRY_ATTEMPTS } from "../lib/uploadQueue";
+import { uploadVideoChunked, uploadVideoNow, MAX_RETRY_ATTEMPTS, CANCELLED_STATUS } from "../lib/uploadQueue";
+import { planServerRetry } from "../lib/uploadRetry";
+import { reportUploadIssue } from "../lib/errorReporter";
+import { isOffline, sleepAbortable, waitForOnline } from "../lib/upload/network";
+import { giveUpMessage, zeroCauseMessage, type UploadLive } from "../lib/upload/progressText";
+import { UploadProgressLine } from "./UploadProgressLine";
 import { dushanbeDateTime, dushanbeTime } from "../lib/date";
 import { isPublishPlanned } from "../lib/publishPlanned";
 import { useCan } from "../lib/permissions";
@@ -733,6 +738,14 @@ export function PropertyVideoFixCard({
   /** Процент докачки готового ролика (23.09.2026) — null, пока не идёт ни одна
    *  часть (сессия только открывается) или загрузка не в процессе вовсе. */
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  /** Строка прогресса готового ролика (находка 12): МБ, скорость, осталось, причина, «Повторить». */
+  const [handoffLive, setHandoffLive] = useState<UploadLive | null>(null);
+  const handoffAbort = useRef<AbortController | null>(null);
+  /** Файл и ключ последней загрузки — «Повторить» докачивает в ту же сессию. */
+  const handoffRetry = useRef<{ file: File; uploadKey: string } | null>(null);
+  /** Строка прогресса нового исходника и рычаг настоящей отмены (находка 10). */
+  const [sourceLive, setSourceLive] = useState<UploadLive | null>(null);
+  const sourceAbort = useRef<AbortController | null>(null);
 
   // Диалог причины возврата монтажёру.
   const [askRedo, setAskRedo] = useState(false);
@@ -1023,13 +1036,21 @@ export function PropertyVideoFixCard({
   async function handleUpload(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
+    // Новый файл — новый ключ; «Повторить» того же файла докачивает в прежнюю сессию.
+    handoffRetry.current = { file, uploadKey: crypto.randomUUID() };
+    await uploadHandoff(file, handoffRetry.current.uploadKey);
+  }
+
+  async function uploadHandoff(file: File, uploadKey: string) {
     setError(null);
     setDone(null);
     setManual([]);
     setResultNearUpload(true);
     setBusy("upload");
     setUploadPercent(0);
-    const uploadKey = crypto.randomUUID();
+    setHandoffLive({ phase: "uploading", loaded: 0, total: file.size });
+    const abort = new AbortController();
+    handoffAbort.current = abort;
     try {
       // Снять старый ролик ДО загрузки (25.09.2026, Б4): иначе замена встанет
       // рядом с ним, а не вместо. Отказ снятия (идёт публикация — 409) — стоп:
@@ -1044,17 +1065,36 @@ export function PropertyVideoFixCard({
           if (parts.length > 0) removalNote = ` Старый ролик: ${parts.join(". ")}.`;
         } catch (err) {
           setError(`Старый ролик убрать не получилось (${err instanceof Error ? err.message : "ошибка"}) — новый не загружали.`);
+          setHandoffLive(null);
           return;
         }
       }
       let attempts = 0;
       for (;;) {
-        attempts++;
         const result = await uploadVideoChunked(
-          { propertyId: property.id, file, uploadKey, filename: file.name, purpose: "handoff" },
-          (loaded, total) => setUploadPercent(total > 0 ? Math.round((loaded / total) * 100) : 0)
+          {
+            propertyId: property.id,
+            file,
+            uploadKey,
+            filename: file.name,
+            purpose: "handoff",
+            signal: abort.signal,
+            // Ролик живёт только во вкладке — закрытие обязано переспросить (находка 9).
+            unloadLabel: "Загрузка готового ролика",
+          },
+          (loaded, total) => {
+            setUploadPercent(total > 0 ? Math.round((loaded / total) * 100) : 0);
+            setHandoffLive({ phase: loaded >= total && total > 0 ? "processing" : "uploading", loaded, total });
+          }
         );
+        if (result.status === CANCELLED_STATUS || abort.signal.aborted) {
+          setHandoffLive(null);
+          handoffRetry.current = null;
+          break;
+        }
         if (result.status >= 200 && result.status < 300) {
+          setHandoffLive(null);
+          handoffRetry.current = null;
           const body = result.data as
             | {
                 publishSummary: { succeededChannels?: string[] } | null;
@@ -1112,19 +1152,51 @@ export function PropertyVideoFixCard({
         // Прочее (403/409/400) — сторона файла/прав/состояния объекта, повтор
         // не изменит ничего.
         const retryable = result.status === 0 || result.status >= 500 || result.status === 429;
-        if (!retryable || attempts >= MAX_RETRY_ATTEMPTS) {
-          setError(
-            attempts >= MAX_RETRY_ATTEMPTS && retryable
-              ? `Не ушло за ${attempts} попыток — проверьте связь и повторите.`
-              : result.error ?? httpStatusMessage(result.status)
-          );
+        // Находка 10 (25.11.2026): счёт — отказы ПОДРЯД без продвижения, как у очередей
+        // (lib/uploadRetry.ts::planServerRetry). Раньше все попытки считались подряд, и
+        // ролик, у которого части уходили через раз, сдавался посреди живой загрузки.
+        const plan = planServerRetry(attempts, result.progressed === true);
+        attempts = plan.attempts;
+        if (!retryable || plan.delayMs === null) {
+          const message = retryable ? giveUpMessage(result.status, attempts, result.cause) : result.error ?? httpStatusMessage(result.status);
+          setError(message);
+          setHandoffLive((prev) => ({ phase: "failed", loaded: prev?.loaded ?? 0, total: file.size, error: message }));
+          reportUploadIssue({
+            kind: "handoff",
+            name: file.name,
+            sizeBytes: file.size,
+            propertyLabel: `объект ОБ-${String(property.shortId).padStart(6, "0")}`,
+            attempts,
+            maxAttempts: MAX_RETRY_ATTEMPTS,
+            status: result.status,
+            error: message,
+            online: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "",
+            fileType: file.type,
+            ...(result.failedPartNumber != null ? { partNumber: result.failedPartNumber, partSentBytes: result.failedPartSent ?? 0 } : {}),
+            partsDone: result.partsDone,
+            partsTotal: result.partsTotal,
+            final: true,
+          });
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempts)));
+        // Без сети — ждём связь, попытки не тратим; иначе пауза, не короче Retry-After.
+        if (isOffline()) {
+          setHandoffLive((prev) => ({ phase: "waiting-online", loaded: prev?.loaded ?? 0, total: file.size, error: zeroCauseMessage("offline") }));
+          await waitForOnline(abort.signal);
+        } else {
+          const delay = Math.max(plan.delayMs, result.retryAfterMs ?? 0);
+          const reason = result.status === 0 ? zeroCauseMessage(result.cause) : result.error ?? httpStatusMessage(result.status);
+          setHandoffLive((prev) => ({ phase: "waiting-retry", loaded: prev?.loaded ?? 0, total: file.size, error: reason, nextAttemptAt: Date.now() + delay }));
+          await sleepAbortable(delay, abort.signal);
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не получилось, попробуйте ещё раз");
+      // Отмена во время паузы — тихо, как и отмена посреди части.
+      if (!abort.signal.aborted) setError(err instanceof Error ? err.message : "Не получилось, попробуйте ещё раз");
+      else setHandoffLive(null);
     } finally {
+      if (handoffAbort.current === abort) handoffAbort.current = null;
       setBusy(null);
       setUploadPercent(null);
       if (fileInput.current) fileInput.current.value = "";
@@ -1149,11 +1221,30 @@ export function PropertyVideoFixCard({
     setNewSource({ name: file.name, size: file.size });
     setNewSourceVideoId(null);
     setSourceProgress(0);
+    setSourceLive({ phase: "uploading", loaded: 0, total: file.size });
     const seq = ++uploadSeqRef.current;
-    const result = await uploadVideoNow(property.id, file, (loaded, total) => {
-      if (uploadSeqRef.current !== seq) return; // отменено — прогресс уже никому не нужен
-      setSourceProgress(total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0);
-    });
+    const abort = new AbortController();
+    sourceAbort.current = abort;
+    const result = await uploadVideoNow(
+      property.id,
+      file,
+      (loaded, total) => {
+        if (uploadSeqRef.current !== seq) return; // отменено — прогресс уже никому не нужен
+        setSourceProgress(total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0);
+        setSourceLive({ phase: loaded >= total && total > 0 ? "processing" : "uploading", loaded, total });
+      },
+      abort.signal,
+      (wait) => {
+        if (uploadSeqRef.current !== seq) return;
+        setSourceLive((prev) =>
+          wait
+            ? { phase: wait.nextAttemptAt ? "waiting-retry" : "waiting-online", loaded: prev?.loaded ?? 0, total: file.size, error: wait.error, nextAttemptAt: wait.nextAttemptAt }
+            : { phase: "uploading", loaded: prev?.loaded ?? 0, total: file.size }
+        );
+      }
+    );
+    if (sourceAbort.current === abort) sourceAbort.current = null;
+    setSourceLive(null);
     if (uploadSeqRef.current !== seq) {
       // Загрузку отменили, пока она шла (закрыли окно/выбрали другой файл),
       // но сервер всё же успел собрать файл — не оставляем сироту.
@@ -1174,6 +1265,10 @@ export function PropertyVideoFixCard({
    *  ошибка, а осознанный отказ: тихо возвращаем форму в состояние «файл не
    *  выбран», сирота (если успеет создаться) подчистится сама в pickNewSource. */
   function cancelSourceUpload() {
+    // Настоящая отмена (находка 10): раньше полоса пряталась, а байты продолжали уходить.
+    sourceAbort.current?.abort();
+    sourceAbort.current = null;
+    setSourceLive(null);
     uploadSeqRef.current++;
     setSourceProgress(null);
     setNewSource(null);
@@ -1187,6 +1282,8 @@ export function PropertyVideoFixCard({
    *  обычной передаче. Лучшее усилие: права те же, что у DELETE видео.
    *  Заодно отменяет незавершённую загрузку (см. uploadSeqRef выше). */
   function discardUnsentSource() {
+    sourceAbort.current?.abort();
+    sourceAbort.current = null;
     uploadSeqRef.current++;
     if (newSourceVideoId) {
       void api(`/properties/${property.id}/videos/${newSourceVideoId}`, { method: "DELETE" }).catch(() => {});
@@ -1547,6 +1644,26 @@ export function PropertyVideoFixCard({
                   : "Выбрать файл"}
             </button>
           </div>
+          {handoffLive && (
+            <UploadProgressLine
+              live={handoffLive}
+              keepAwakeHint
+              style={{ marginTop: 8 }}
+              onCancel={
+                busy === "upload"
+                  ? () => handoffAbort.current?.abort()
+                  : () => {
+                      setHandoffLive(null);
+                      handoffRetry.current = null;
+                    }
+              }
+              onRetry={
+                busy === null && handoffLive.phase === "failed" && handoffRetry.current
+                  ? () => void uploadHandoff(handoffRetry.current!.file, handoffRetry.current!.uploadKey)
+                  : undefined
+              }
+            />
+          )}
           {/* СТАРЫЙ РОЛИК В ВЫШЕДШИХ СЕТЯХ (25.09.2026, Б4): замена туда не
               доходит (сервер пропускает вышедшие каналы) — говорим это до
               загрузки, а маркетингу даём снять старый тем же движением. */}
@@ -2237,6 +2354,7 @@ export function PropertyVideoFixCard({
                 )}
               </div>
             )}
+            {sourceMode === "new" && sourceLive && <UploadProgressLine live={sourceLive} keepAwakeHint style={{ marginTop: 8 }} />}
             {sourceMode === "new" && sourceError && (
               <p className="state err">
                 <span className="dot crit" />
