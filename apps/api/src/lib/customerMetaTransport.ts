@@ -50,8 +50,9 @@ export async function resolveLegacyMetaSendTransport(credentials: MetaCredential
     // Several WhatsApp numbers of ONE business account answer with ONE system-user token (Royal Home in Settings and
     // Arvan as a MessengerAccount row, 26.11.2026). The token alone cannot pick the number then: before this branch EVERY
     // legacy WhatsApp send without a captured transport failed `account_mismatch`, on the main number too. The peer's own
-    // stored conversation names its number (one row per channel+peer while the global unique key lives). No such row, or
-    // a row on a namespace the token does not serve: still refused, never a guessed default.
+    // stored conversation names its number. No such row, a row on a namespace the token does not serve, or chats with
+    // BOTH numbers (one chat per number since 26.11.2026): still refused, never a guessed default — such a sender must
+    // pass the conversation's captured transport (loadCustomerTransportForConversation).
     const chosen = channel === "WHATSAPP" ? await sharedTokenNamespaceOfPeer(db, peer, candidates) : null;
     if (!chosen) throw new CustomerScopeDenied("account_mismatch");
     return resolveCustomerEndpoint({ channel, subscriberId: peer, ...chosen }, db);
@@ -62,7 +63,8 @@ export async function resolveLegacyMetaSendTransport(credentials: MetaCredential
   throw new CustomerScopeDenied("account_unknown");
 }
 
-/** The single WhatsApp conversation of this peer selects one of the namespaces sharing a token (see above). */
+/** The peer's WhatsApp conversation selects one of the namespaces sharing a token (see above). Exactly one chat, on a
+ * namespace this token serves; two chats (one per our number) are ambiguous by construction and refused. */
 async function sharedTokenNamespaceOfPeer(db: Pick<TxClient, "$queryRaw">, peer: string,
   candidates: ReadonlyArray<{ accountId: string | null; accountExternalId: string }>): Promise<{ accountId?: string; accountExternalId: string } | null> {
   const rows = await db.$queryRaw<Array<{ accountId: string | null; transportKey: string | null }>>`

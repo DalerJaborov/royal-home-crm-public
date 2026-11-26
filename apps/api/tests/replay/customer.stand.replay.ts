@@ -34,7 +34,7 @@ it("current source P03 OFF/ON processors share synthetic facts and persist real 
     const result = await admitCustomerPropertyInput({ channel: "INSTAGRAM", peer, accountExternalId: tag, eventKind: "message", eventId: mid, evidence });
     if (result.status !== "admitted") throw new Error("Stand admission rejected"); return result;
   }
-  const row = (peer: string) => prisma.botConversation.findUniqueOrThrow({ where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: peer } } });
+  const row = (peer: string) => prisma.botConversation.findFirstOrThrow({ where: { channel: "INSTAGRAM", subscriberId: peer } });
   try {
     for (const currency of ["TJS", "USD"] as const) {
       const property = await prisma.property.create({ data: { title: "Synthetic card", type: "APARTMENT", areaSqm: 60, windowCount: 3, price: 100000000, currency, address: "PRIVATE-ADDRESS-SENTINEL", condition: "GOOD", status: "AVAILABLE", publishedOnSite: true } }); properties.push(property.id);

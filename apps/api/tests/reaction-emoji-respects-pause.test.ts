@@ -94,8 +94,8 @@ function igReactionBody(page: string, sender: string, mid: string) {
 }
 
 async function messagesOf(channel: string, subscriberId: string): Promise<Record<string, unknown>[]> {
-  const row = await prisma.botConversation.findUnique({
-    where: { channel_subscriberId: { channel, subscriberId } },
+  const row = await prisma.botConversation.findFirst({
+    where: { channel, subscriberId },
     select: { messages: true },
   });
   return (row?.messages as unknown as Record<string, unknown>[]) ?? [];

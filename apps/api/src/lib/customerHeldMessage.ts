@@ -60,7 +60,7 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
-/** customerAgentEnrollment.ts: a WhatsApp customer wrote to our other number while their chat lives on the first one. */
+/** customerAgentEnrollment.ts, kill switch off: a WhatsApp customer wrote to our other number while their one chat lives on the first one. */
 const WHATSAPP_OTHER_NUMBER = "whatsapp_peer_on_other_number";
 
 async function existingWhatsappChat(tx: Pick<import("../db.js").TxClient, "$queryRaw">, peer: string): Promise<{ id: string } | null> {
@@ -85,9 +85,10 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
   const raw = contentOf(input);
   try {
     const recorded = await prisma.$transaction(async tx => {
-      // The person already talks to us on our OTHER WhatsApp number (26.11.2026): their one CRM chat is that one. A chat
-      // in this number's scope cannot exist next to it (global unique channel+peer), so the text goes where staff already
-      // read this person. No chat at all (deleted meanwhile) falls through to the ordinary path below.
+      // Kill switch WHATSAPP_CHAT_PER_NUMBER=off only (customerConversationScope.ts; by default every number has its own
+      // chat and this reason never arises): the person already talks to us on our OTHER WhatsApp number and a second
+      // chat must not be created, so the text goes where staff already read this person. No chat at all (deleted
+      // meanwhile) falls through to the ordinary path below.
       const otherNumberChat = hold.reason === WHATSAPP_OTHER_NUMBER && input.channel === "WHATSAPP"
         ? await existingWhatsappChat(tx, input.peer) : null;
       // A chat staff deleted is not resurrected by a held message (13.11.2026):
