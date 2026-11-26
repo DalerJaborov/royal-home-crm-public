@@ -33,7 +33,7 @@ import {
   type RequiredScope,
   type TokenKind,
 } from "./tokenScopes.js";
-import { dushanbeDateTimeString } from "./dushanbeTime.js";
+import { dushanbeDateString, dushanbeDateTimeString } from "./dushanbeTime.js";
 import { checkTelephonyDailyHealth } from "./telephony/stationHealth.js";
 
 /**
@@ -467,7 +467,8 @@ export async function checkInstagramAccountsHealth(
         // дальше молчит, пока доступ не вернётся.
         const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
         if (!row.accessLostAt) await noteInstagramAccountLocked(row.id, detail);
-        const since = (row.accessLostAt ?? new Date()).toISOString().slice(0, 10);
+        // Дата по Душанбе (охота 26.11.2026): отметка ночью по местному времени — это ещё «вчера» по UTC.
+        const since = dushanbeDateString(row.accessLostAt ?? new Date());
         out.push({ name, ok: null, detail: isInstagramAccountLockedText(row.accessLostAt ? row.accessLostReason ?? raw : raw)
           ? `Meta закрыла доступ к аккаунту с ${since}`
           : `Meta не принимает ключ аккаунта с ${since} — нужен «Заменить маркер»` });

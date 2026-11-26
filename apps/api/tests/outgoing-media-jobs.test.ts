@@ -285,6 +285,39 @@ describe("надёжность", () => {
     expect(sendVideo).toHaveBeenCalledTimes(1);
   }, 120_000);
 
+  it("«Повторить», нажатое пока прошлое задание очереди ещё дописывает сбой (RUNNING), не теряется (охота 26.11)", async () => {
+    // FAILED появляется в базе посреди обработчика (failDefinitely), а задание очереди остаётся RUNNING,
+    // пока уходит пуш сотруднику. Экран уже показал «Повторить» — нажатие в эти секунды ставило задание
+    // с тем же ключом повтора: очередь молча считала его дублем, строка висела QUEUED навсегда.
+    const conv = await waConversation();
+    uploadOutgoingMedia.mockRejectedValueOnce(new Error("R2 down"));
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jobId = accepted.body.jobId as string;
+    await runQueuedJob(jobId);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("FAILED");
+    // Прошлое задание очереди «ещё не вернулось из обработчика».
+    const old = await prisma.backgroundJob.findFirstOrThrow({
+      where: { payload: { path: ["mediaJobId"], equals: jobId } },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.backgroundJob.update({
+      where: { id: old.id },
+      data: { status: "RUNNING", dedupeKey: `outgoing-media:${jobId}`, lockedAt: new Date(), lockedBy: "test-still-running" },
+    });
+    try {
+      expect((await jobs.retryOutgoingMediaJob(jobId, agentId)).status).toBe(202);
+      const pending = await prisma.backgroundJob.count({
+        where: { payload: { path: ["mediaJobId"], equals: jobId }, status: "PENDING" },
+      });
+      expect(pending).toBe(1);
+      await runQueuedJob(jobId);
+      expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("SENT");
+      expect(sendVideo).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.backgroundJob.update({ where: { id: old.id }, data: { status: "DONE", dedupeKey: null, lockedAt: null, lockedBy: null } });
+    }
+  }, 120_000);
+
   it("видео не помещается даже в нижнем качестве — честная ссылка и пометка сотруднику", async () => {
     const conv = await waConversation();
     const saved = { ...META_OUTGOING_MEDIA_LIMITS.WHATSAPP };
