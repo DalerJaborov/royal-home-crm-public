@@ -27,6 +27,11 @@ import { Prisma } from "../generated/prisma/client.js";
 export const CHAT_ARCHIVE_DAYS = 30;
 const CHAT_ARCHIVE_MS = CHAT_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
 
+/** Ручные отметки (27.11.2026): ARCHIVED — убрали в архив, RESTORED — вернули. Хранятся в archiveMark/archiveMarkAt. */
+export const CHAT_ARCHIVE_MARKED = "ARCHIVED";
+export const CHAT_ARCHIVE_RESTORED = "RESTORED";
+export type ChatArchiveMark = typeof CHAT_ARCHIVE_MARKED | typeof CHAT_ARCHIVE_RESTORED;
+
 /** Граница: всё, что тише этого момента (строго раньше), без карточки уходит в архив. */
 export function chatArchiveCutoff(now: Date = new Date()): Date {
   return new Date(now.getTime() - CHAT_ARCHIVE_MS);
@@ -48,9 +53,13 @@ export function chatIsWaiting(w: ChatArchiveWaiting = {}): boolean {
 
 /** То же правило над одной строкой: проверка согласованности с SQL и тесты границы. Ровно 30 суток: ещё не архив. */
 export function isChatArchived(
-  row: { clientId: string | null | undefined; lastActivityAt: Date } & ChatArchiveWaiting,
+  row: { clientId: string | null | undefined; lastActivityAt: Date; lastMessageAt?: Date | null; archiveMark?: string | null; archiveMarkAt?: Date | null } & ChatArchiveWaiting,
   now: Date = new Date()
 ): boolean {
+  // Ручная отметка главнее правила, но только пока нового входящего нет: новое сообщение само возвращает чат.
+  if (row.archiveMark && row.archiveMarkAt && row.archiveMarkAt.getTime() >= (row.lastMessageAt ?? row.lastActivityAt).getTime()) {
+    return row.archiveMark === CHAT_ARCHIVE_MARKED;
+  }
   return !row.clientId && !chatIsWaiting(row) && row.lastActivityAt.getTime() < chatArchiveCutoff(now).getTime();
 }
 
@@ -62,7 +71,9 @@ export function isChatArchived(
 export function chatArchivedSql(input: { cutoff: Date; now: Date }): Prisma.Sql {
   const { cutoff, now } = input;
   // Дешёвое условие впереди: дорогие (дата последней реплики, проверки ожидания) считаются только для давних чатов без карточки.
-  return Prisma.sql`(CASE WHEN s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${cutoff}
+  return Prisma.sql`(CASE
+    WHEN s."archiveMark" IS NOT NULL AND s."archiveMarkAt" >= COALESCE(s."lastMessageAt", s."createdAt") THEN s."archiveMark" = ${CHAT_ARCHIVE_MARKED}
+    ELSE CASE WHEN s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${cutoff}
       AND COALESCE(CASE WHEN pg_input_is_valid(s."lastMessage"->>'at', 'timestamptz')
           THEN ((s."lastMessage"->>'at')::timestamptz AT TIME ZONE 'UTC') END, '-infinity'::timestamp) < ${cutoff}
     THEN NOT (
@@ -76,5 +87,5 @@ export function chatArchivedSql(input: { cutoff: Date; now: Date }): Prisma.Sql 
         ELSE EXISTS (SELECT 1 FROM "BotConversation" b WHERE b.id = s."sourceId" AND b."leadDraft"->>'stage' IN ('awaiting_phone', 'accepting'))
           OR EXISTS (SELECT 1 FROM "CustomerInquiry" i WHERE i."conversationId" = s."sourceId" AND i."closedAt" IS NULL AND i."ownerMode" <> 'HOLD')
       END
-    ) ELSE FALSE END)`;
+    ) ELSE FALSE END END)`;
 }

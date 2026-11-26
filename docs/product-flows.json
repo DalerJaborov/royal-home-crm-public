@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 789,
-  "forks": 4370,
+  "endpoints": 790,
+  "forks": 4373,
   "mounts": 87,
   "cron": 147,
   "jobs": 37,
@@ -21974,6 +21974,105 @@
     {
      "k": "do",
      "t": "res.json({ id: conversation.id, channel: shown.channel, name: shown.name, profileName: canSeeOrigin && profil…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/archive-mark",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/archive-mark",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = archiveMarkSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой archiveMarkSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!can(req, \"messages.view\") && !can(req, \"messages.viewOwn\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа к чатам\" });",
+       "a": [
+        "ответ 403 — «Нет доступа к чатам»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const updated = await setChatArchiveMark({ id, mark: action === \"archive\" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIV…",
+     "a": [
+      "зовёт setChatArchiveMark()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "updated === 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, action === \"archive\" ? \"CHAT_ARCHIVED\" : \"CHAT_UNARCHIVED\", \"BotConversation\", id);",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, updated });",
      "a": [
       "ответ 200"
      ],

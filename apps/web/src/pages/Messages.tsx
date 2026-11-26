@@ -38,7 +38,8 @@ import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
 import { useLoadMoreSentinel } from "../hooks/useLoadMoreSentinel";
-import { ArchiveEntryRow, ArchiveHeaderRow, ChatSkeletonRows } from "../components/look/chats/ChatListExtras";
+import { ArchivableRow, ArchiveEntryRow, ArchiveHeaderRow, ArchiveMenuItem, ChatSkeletonRows, SlowLoadHint } from "../components/look/chats/ChatListExtras";
+import { useChatArchiveMark } from "../hooks/useChatArchiveMark";
 import { MessageAttachments } from "../components/MessageAttachments";
 import { PendingMediaBubble } from "../components/PendingMediaBubble";
 import { DeliveryTicks } from "../components/DeliveryTicks";
@@ -581,9 +582,16 @@ export function ConversationList({
 }) {
   const conversations = data?.items ?? [];
   const sentinelRef = useLoadMoreSentinel(onLoadMore, hasMore && !loadingMore && !error, conversations.length);
-  const archiveCount = data?.counts?.archived ?? 0;
+  // Число в архиве: пока открытый срез ещё грузится (data пуста), держим последнее известное, а не «0».
+  const archiveCountRef = useRef(0);
+  if (data?.counts?.archived != null) archiveCountRef.current = data.counts.archived;
+  const archiveCount = data?.counts?.archived ?? archiveCountRef.current;
   const inArchive = segment === "archive";
   const showArchiveEntry = !!data?.archiveEnabled && archiveCount > 0 && segment === "all" && !searchInput;
+  const archiveOn = !!data?.archiveEnabled;
+  const archiveMark = useChatArchiveMark();
+  const archiveMarkMutate = archiveMark.mutate;
+  const onArchiveAction = useCallback((id: string, action: "archive" | "restore") => archiveMarkMutate({ id, action }), [archiveMarkMutate]);
   const accounts = data?.accounts ?? [];
   const showAccounts = accounts.length > 1;
   const noFilter = !channel && !accountId;
@@ -633,7 +641,7 @@ export function ConversationList({
             segment={segment}
             counts={data.counts}
             onSegmentChange={onSegmentChange}
-            moreActive={segment === "paused" || !!channel || !!accountId}
+            moreActive={segment === "paused" || segment === "archive" || !!channel || !!accountId}
           >
             <button
               type="button"
@@ -643,6 +651,9 @@ export function ConversationList({
             >
               <Bot aria-hidden="true" />Бот на паузе<b className="ry-num">{data.counts?.paused ?? "—"}</b>
             </button>
+            {archiveOn && (archiveCount > 0 || inArchive) && (
+              <ArchiveMenuItem count={archiveCount} active={inArchive} onOpen={() => onSegmentChange(inArchive ? "all" : "archive")} />
+            )}
             <CleanInboxFilters open channels={channels} accounts={accounts} channel={channel} accountId={accountId} onChannelChange={onChannelChange} onAccountChange={onAccountChange} />
           </RoyalInboxFilters>
         )) : <>
@@ -765,9 +776,6 @@ export function ConversationList({
       )}
 
       <div className="pane-scroll">
-        {showArchiveEntry && (royal
-          ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
-          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
         {inArchive && (royal
           ? <ArchiveHeaderRow count={archiveCount} onBack={() => onSegmentChange("all")} />
           : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("all")}>Назад ко всем · в архиве {archiveCount}</button></div>)}
@@ -810,6 +818,7 @@ export function ConversationList({
               <span className="sk w22"></span>
               Загружаем диалоги
             </div>
+            <SlowLoadHint onRetry={() => onRetry?.()} />
           </div>
         ) : conversations.length === 0 ? (
           /**
@@ -834,7 +843,7 @@ export function ConversationList({
                           : segment === "mine"
                             ? "У вас пока нет диалогов."
                             : segment === "archive"
-                              ? "В архиве пусто."
+                              ? "Архив пуст."
                               : "Диалогов нет."}
               </p>
               {(accountId || channel || segment !== "all") && !searchInput && (
@@ -853,17 +862,22 @@ export function ConversationList({
             </div>
           </div>
         ) : royal ? (
-          conversations.map((c) => (
-            <RoyalDialogRow
-              key={c.id}
-              conversation={c}
-              selected={selectedId === c.id}
-              showAccount={showAccounts && noFilter}
-              onSelect={selectStable}
-              now={now}
-              showBotState={canSeeBotState}
-            />
-          ))
+          conversations.map((c) => {
+            const row = (
+              <RoyalDialogRow
+                key={c.id}
+                conversation={c}
+                selected={selectedId === c.id}
+                showAccount={showAccounts && noFilter}
+                onSelect={selectStable}
+                now={now}
+                showBotState={canSeeBotState}
+              />
+            );
+            return archiveOn
+              ? <ArchivableRow key={c.id} id={c.id} inArchive={inArchive} onAction={onArchiveAction}>{row}</ArchivableRow>
+              : row;
+          })
         ) : (
           conversations.map((c) => (
             <Rh2DialogRow
@@ -881,6 +895,10 @@ export function ConversationList({
             показываем серые строки. */}
         {hasMore && <div ref={sentinelRef} className="ry-chat-more-end" aria-hidden="true" data-testid="chat-load-more" />}
         {loadingMore && (royal ? <ChatSkeletonRows /> : <div className="pane-b"><div className="state" role="status">Подгружаем ещё</div></div>)}
+        {/* «Архив» — тихой строкой в самом конце списка (владелец 27.11.2026): нужен редко, наверху ему не место. */}
+        {showArchiveEntry && !loadingMore && (royal
+          ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
+          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
       </div>
     </section>
   );
@@ -1540,7 +1558,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             title="Сведения о контакте"
           >
             <span className="ry-chat-av">
-              <RhAvatar name={headerTitle.title} size={44} />
+              <RhAvatar name={headerTitle.title} src={conversation?.avatarUrl} seed={conversation?.avatarSeed ?? undefined} size={44} />
               <RoyalChannelBadge channel={isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "MULTI" : conversation?.channel} />
             </span>
             <span className="ry-chat-who-tx">

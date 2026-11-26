@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 73 |
 | Из них видно в меню | 32 |
 | Модулей сервера | 86 |
-| Адресов сервера всего | 783 |
+| Адресов сервера всего | 784 |
 | Задач по расписанию | 140 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -209,7 +209,7 @@
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
 | `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 19 | да (6 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 20 | да (7 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
 | `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |

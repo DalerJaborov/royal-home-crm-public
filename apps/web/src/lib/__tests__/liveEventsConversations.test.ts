@@ -75,6 +75,14 @@ describe("какой ключ — список, какой — открытый 
 });
 
 describe("волны «Чатов» при потоке сообщений", () => {
+  it("волна списков не обрывает запрос, который ещё идёт (cancelRefetch: false)", async () => {
+    last().emit("message.new", 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    const listCalls = invalidate.mock.calls.filter(([f]) => (f as Filters).predicate?.({ queryKey: LIST_KEY }));
+    expect(listCalls.length).toBeGreaterThan(0);
+    for (const call of listCalls) expect(call[1]).toEqual({ cancelRefetch: false });
+  });
+
   it("одно сообщение после затишья: и диалог, и список — через секунду, как раньше", async () => {
     last().emit("message.new", 1);
     await vi.advanceTimersByTimeAsync(999);

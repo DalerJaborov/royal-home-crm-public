@@ -249,7 +249,10 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
   const runConversationLists = () => {
     conversationListTimer = null;
     lastConversationListRunAt = Date.now();
-    void queryClient.invalidateQueries({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList });
+    // cancelRefetch: false — волна НЕ обрывает запрос, который уже идёт. По умолчанию запрос списка, ещё не вернувшийся
+    // (длинный «Архив» на живой базе), сбрасывался каждой волной раз в 5 секунд и начинался заново: при потоке
+    // входящих он не заканчивался никогда, и список вечно показывал «Загружаем диалоги» (владелец, 27.11.2026).
+    void queryClient.invalidateQueries({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList }, { cancelRefetch: false });
   };
   const scheduleConversationLists = () => {
     if (conversationListTimer) return;
