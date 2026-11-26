@@ -339,7 +339,9 @@ describe("natural group addressing and silence", () => {
     expect(await f.send("У меня квартира в коробке без отделки.")).toBe(false);
     expect(await f.send("Шабнам, что уже писали по ОБ-123?")).toBe(false);
     expect(await f.send("Шабнам, снизь цену ОБ-123 до 1 сомони")).toBe(true);
-    expect(f.plain.mock.calls[0]?.[1]).toContain("Привяжите аккаунт");
+    // 26.11.2026: вместо «Я вас не знаю…» перед всей группой — одна дверь короткой подсказки.
+    expect(f.offer).toHaveBeenLastCalledWith(expect.anything(), "addressed");
+    expect(f.plain).not.toHaveBeenCalled();
     expect(f.findProperty).not.toHaveBeenCalled();
     expect(f.context).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
@@ -1148,23 +1150,25 @@ describe("Telegram membership welcomes", () => {
     ]);
     for (const [, text] of f.plain.mock.calls) expect(String(text)).not.toMatch(/—/);
   });
-  it("greets newcomers once per burst, respects quiet mode and stops after bot removal", async () => {
+  // 26.11.2026: одно сообщение (не два голосовых), один раз на человека: повторно приглашённого не приветствуем.
+  it("greets each newcomer once with one message, respects quiet mode and stops after bot removal", async () => {
     const f = fixture();
     await Promise.all([f.send("", peers), f.send("", peers)]);
-    expect(f.voice).toHaveBeenCalledTimes(2);
-    expect(f.voice.mock.calls[0]?.[1]).toContain("Добро пожаловать");
-    expect(f.voice.mock.calls[1]?.[1]).toContain("Хуш омадед");
+    expect(f.welcome).toHaveBeenCalledTimes(1);
+    expect(f.voice).not.toHaveBeenCalled();
     f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
+    await f.send("", peers);
+    expect(f.welcome).toHaveBeenCalledTimes(1);
     await f.send("Шабнам, помолчи");
-    await f.send("", peers);
-    expect(f.voice).toHaveBeenCalledTimes(2);
+    await f.send("", { new_chat_members: [{ id: 335, is_bot: false }] });
+    expect(f.welcome).toHaveBeenCalledTimes(1);
     await f.send("/assistant_resume");
-    await f.send("", peers);
-    expect(f.voice).toHaveBeenCalledTimes(4);
+    await f.send("", { new_chat_members: [{ id: 335, is_bot: false }] });
+    expect(f.welcome).toHaveBeenCalledTimes(2);
     await f.send("", { left_chat_member: bot });
     f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
-    await f.send("", peers);
-    expect(f.voice).toHaveBeenCalledTimes(4);
+    await f.send("", { new_chat_members: [{ id: 336, is_bot: false }] });
+    expect(f.welcome).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1325,7 +1329,7 @@ describe("/start and «меню» in a group: a short hint instead of silence or
     await f.send("/start", person(32, "Второй"));
     f.advance(Math.max(TEN_MINUTES, participation.GROUP_WELCOME_INTERVAL_MS) + 1);
     await f.send("", { new_chat_members: [{ id: 33, is_bot: false }] });
-    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.welcome).toHaveBeenCalledTimes(1);
     expect(f.html).toHaveBeenCalledTimes(1);
     expect(String(f.html.mock.calls[0]?.[1])).toContain("tg://user?id=32");
   });
