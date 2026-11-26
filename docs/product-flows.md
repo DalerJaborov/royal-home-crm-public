@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4295**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4348**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -6267,6 +6267,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
+- parsed.data.message = redactSecretsInText(parsed.data.message);
+  · зовёт redactSecretsInText()
+- parsed.data.stack = redactSecretsInText(parsed.data.stack);
+  · зовёт redactSecretsInText()
+- parsed.data.url = redactSecretsInText(parsed.data.url);
+  · зовёт redactSecretsInText()
 - const recentSame = await prisma.errorLog.count({ where: { source: "web", message: parsed.data.message, create…
   · считает в базе: errorLog
 - если recentSame === 0
@@ -20032,6 +20038,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21455,6 +21466,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -21497,6 +21513,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21956,6 +21977,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -22088,6 +22114,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -22125,6 +22156,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -25075,6 +25111,11 @@
         · запись в журнал ошибок
         - message = maskPhoneNumbersInText(String(message));
           · зовёт maskPhoneNumbersInText()
+        - message = redactSecretsInText(message);
+          · зовёт redactSecretsInText()
+        - если context && (context.url || context.stack)
+          - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+            · зовёт redactSecretsInText()
         - если isPrivateOperation()
           - source = "investigation";
             · дословно из кода
@@ -25110,6 +25151,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -26661,6 +26707,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27093,6 +27144,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27178,6 +27234,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27400,6 +27461,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -27465,6 +27531,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27520,6 +27591,11 @@
   · запись в журнал ошибок
   - message = maskPhoneNumbersInText(String(message));
     · зовёт maskPhoneNumbersInText()
+  - message = redactSecretsInText(message);
+    · зовёт redactSecretsInText()
+  - если context && (context.url || context.stack)
+    - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+      · зовёт redactSecretsInText()
   - если isPrivateOperation()
     - source = "investigation";
       · дословно из кода
@@ -27749,6 +27825,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27853,6 +27934,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27908,6 +27994,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27974,6 +28065,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28055,6 +28151,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28180,6 +28281,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -28218,6 +28324,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28309,6 +28420,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28436,6 +28552,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28508,6 +28629,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28597,6 +28723,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28632,6 +28763,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28714,6 +28850,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28901,6 +29042,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -28999,6 +29145,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29129,6 +29280,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29180,6 +29336,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29229,6 +29390,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29351,6 +29517,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29433,6 +29604,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29513,6 +29689,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29764,6 +29945,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29856,6 +30042,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29919,6 +30110,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30074,6 +30270,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30152,6 +30353,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30211,6 +30417,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30274,6 +30485,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30313,6 +30529,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30398,6 +30619,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30519,6 +30745,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30697,6 +30928,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30816,6 +31052,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30860,6 +31101,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -30916,6 +31162,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31210,6 +31461,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31261,6 +31517,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31329,6 +31590,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31452,6 +31718,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
