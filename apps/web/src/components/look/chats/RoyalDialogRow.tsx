@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { MESSAGE_PHONE_MASK, describeServiceMarker } from "@royal-home/shared";
-import { Bot, Flame } from "lucide-react";
+import { Bot, Flame, Tag } from "lucide-react";
 import type { ConversationListItem } from "../../../hooks/useConversations";
 import { exactDateTime, listTime } from "../../../lib/format";
 import { RhAvatar } from "../ui";
@@ -98,7 +98,10 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
       onClick={() => onSelect(c.id)}
     >
       <span className="ry-chat-av">
-        <RhAvatar name={c.name ?? "?"} size={48} />
+        {/* Фото из профиля канала, иначе кружок с буквой; у безымянного: метка интереса («2к») вместо буквы.
+            Цвет закреплён за человеком (avatarSeed), а не за именем, которое может смениться. */}
+        <RhAvatar name={c.name ?? "?"} src={c.avatarUrl} seed={c.avatarSeed} label={c.unnamed ? c.interest?.badge ?? undefined : undefined} size={48} />
+        {c.unnamed && c.interest?.kind === "sell" && <span className="ry-chat-kind" role="img" aria-label="Продаёт"><Tag aria-hidden="true" /></span>}
         <RoyalChannelBadge channel={c.channel} />
       </span>
       <span className="ry-chat-tx">
@@ -106,6 +109,7 @@ export const RoyalDialogRow = memo(function RoyalDialogRow({ conversation: c, se
         <span className="ry-chat-last">
           {attention && <b className="ry-chat-flag"><Flame aria-hidden="true" />Просит агента · </b>}
           {accountLabel && <span className="ry-chat-acc">{accountLabel} · </span>}
+          {c.unnamed && c.interest?.budget && <span className="ry-chat-acc">{c.interest.budget}{last ? " · " : ""}</span>}
           {last}
         </span>
       </span>

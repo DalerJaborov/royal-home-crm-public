@@ -269,10 +269,18 @@ export function RhSwitch({ checked, onChange, label, disabled }: { checked: bool
 }
 
 /** Аватар: фото или инициалы на пастели, тон закреплён за именем. */
-export function RhAvatar({ name, src, size = 48 }: { name: string; src?: string | null; size?: 44 | 48 | 64 | 96 }) {
-  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+export function RhAvatar({ name, src, size = 48, seed, label }: {
+  name: string;
+  src?: string | null;
+  size?: 44 | 48 | 64 | 96;
+  /** Чем красить кружок вместо имени: цвет закреплён за человеком (id досье) и не меняется, когда имя поменялось. */
+  seed?: string;
+  /** Что написать в кружке вместо инициалов (у безымянных чатов: «2к»). */
+  label?: string;
+}) {
+  const initials = label ?? name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
   let hash = 0;
-  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  for (const char of seed ?? name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   const [broken, setBroken] = useState<string | null>(null);
   return (
     <span className="ry-avatar" data-tone={`a${hash % 6}`} data-size={size} aria-hidden="true">

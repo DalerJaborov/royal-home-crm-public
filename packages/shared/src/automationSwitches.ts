@@ -45,6 +45,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "chatArchiveEnabled",
   "callObjectToOwnerEnabled",
 ] as const;
 
@@ -214,6 +215,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Аккаунт Instagram, у которого проверка прошла (Страница Facebook с этим Instagram выдана ключу компании), отвечает через Страницу и публикует ролики, истории и фото постоянным ключом. Смена пароля Instagram бота и публикации не глушит. Если Meta откажет в ответе, он уйдёт личным ключом аккаунта.",
     off: "Все аккаунты Instagram отвечают и публикуют личными ключами, как раньше. После смены пароля Instagram аккаунт нужно подключить заново.",
   },
+  // Владелец 26.11.2026: «переписки без карточки клиента и без сообщений 30 дней уходят в Архив».
+  chatArchiveEnabled: {
+    title: "Старые переписки без карточки уходят в Архив",
+    on: "Переписки без карточки клиента, в которых 30 дней нет новых сообщений, не показываются в списке чатов, а лежат в «Архиве». Ничего не удаляется: поиск их находит, новое сообщение клиента возвращает чат в общий список. Чат с карточкой клиента в архив не уходит никогда.",
+    off: "Все переписки остаются в общем списке чатов, как раньше. Архив скрыт.",
+  },
   // Владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам… можно своими словами отвечать».
   showingAgreementAskEnabled: {
     title: "Шабнам переспрашивает о показе",
@@ -248,7 +255,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

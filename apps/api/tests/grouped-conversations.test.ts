@@ -210,11 +210,13 @@ describe("grouped conversation inbox", () => {
     expect(second.status).toBe(200);
     expect(first.body.total).toBe(expectedTotal());
     expect(second.body.total).toBe(expectedTotal());
-    expect(first.body.items).toHaveLength(20);
-    expect(second.body.items).toHaveLength(Math.min(20, expectedTotal() - 20));
+    // Порция берётся из ответа (с 26.11.2026 она 40: список подгружается при прокрутке сам).
+    const size = first.body.pageSize as number;
+    expect(first.body.items).toHaveLength(Math.min(size, expectedTotal()));
+    expect(second.body.items).toHaveLength(Math.max(0, Math.min(size, expectedTotal() - size)));
     const firstIds = first.body.items.map((item: { id: string }) => item.id);
     const secondIds = second.body.items.map((item: { id: string }) => item.id);
-    expect(new Set([...firstIds, ...secondIds]).size).toBe(Math.min(40, expectedTotal()));
+    expect(new Set([...firstIds, ...secondIds]).size).toBe(Math.min(size * 2, expectedTotal()));
     expect(first.body.items.find((item: { id: string }) => item.id === `client:${clientIds[0]}`).sourceConversationIds)
       .toEqual([botIds[0], `tg_${telegramIds[0]}`, `td_${directIds[0]}`]);
   });

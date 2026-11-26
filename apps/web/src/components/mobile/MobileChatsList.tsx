@@ -5,7 +5,7 @@ import type { ChatSegment, ConversationFilters, ConversationListItem, Conversati
 import { channelMeta } from "../../lib/channelMeta";
 import { avatarInitial, avatarToneClass } from "../../lib/avatarTone";
 import { ChannelIcon, hasChannelGlyph } from "../ChannelIcon";
-import { Pagination } from "../Pagination";
+import { useLoadMoreSentinel } from "../../hooks/useLoadMoreSentinel";
 import { senderPrefix } from "../MessageSenderBadge";
 import { useAuthStore } from "../../store/auth";
 import { MhLane, MhListScreen, sinceLabel, type MhLaneChip } from "./mh/MhList";
@@ -62,7 +62,9 @@ export function MobileChatsList({
   segment,
   onSegmentChange,
   onSelect,
-  onPageChange,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: {
   data: ConversationsPage | undefined;
   isLoading: boolean;
@@ -77,12 +79,16 @@ export function MobileChatsList({
   segment: ChatSegment;
   onSegmentChange: (segment: ChatSegment) => void;
   onSelect: (id: string) => void;
-  onPageChange: (page: number) => void;
+  /** Следующая порция: зовёт сам список, когда подошёл к концу (без кнопки). */
+  onLoadMore: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
 }) {
   const [searchOpen, setSearchOpen] = useState(!!searchInput);
   // Полоса «Обращения» — тот же набор, что на компьютере (pages/Messages.tsx) и
   // на остальных трёх экранах группы (docs/archive/menu-wave2-brief-15-09.md).
   const conversations = data?.items ?? [];
+  const sentinelRef = useLoadMoreSentinel(onLoadMore, hasMore && !loadingMore && !error, conversations.length);
   const accounts = data?.accounts ?? [];
   const showAccounts = accounts.length > 1;
   const noFilter = !channel && !accountId;
@@ -309,17 +315,10 @@ export function MobileChatsList({
         </div>
       </div>
 
-      {/* «Показать ещё» вместо страниц (решение владельца 15.09.2026): список
-          уже накоплен родителем (pages/Messages.tsx, useAccumulatedPages),
-          здесь только кнопка, дописывающая следующую страницу в хвост. */}
-      {/* Без обёртки «total > pageSize» (02.10.2026): Pagination сама прячется
-          на одной странице и сама возвращает страницу за краем выдачи; условие
-          ниже только не рисует пустой отступ, а со второй страницы держит её на месте. */}
-      {data?.total != null && (data.total > data.pageSize || data.page > 1) && (
-        <div className="sec">
-          <Pagination variant="loadMore" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={onPageChange} />
-        </div>
-      )}
+      {/* Подгрузка при прокрутке без кнопки (владелец 26.11.2026): список уже накоплен родителем
+          (pages/Messages.tsx, useAccumulatedPages), полоска ниже просит следующую порцию сама. */}
+      {hasMore && <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} data-testid="chat-load-more" />}
+      {loadingMore && <div className="sec"><div className="state" role="status">Подгружаем ещё</div></div>}
     </MhListScreen>
   );
 }
