@@ -310,6 +310,8 @@ describe("карточка подборки поверх ролика — без
     const p = await makeProperty();
     const summary = await stories.publishPropertyCardStory(p.id, { force: true, video: true });
     expect(summary).toMatchObject({ publishedParts: 1, video: true });
+    // Голос озвучки может назвать цену — подборка роликом идёт без звука.
+    expect(overlayCardOnVideo).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ mute: true }));
     expect(generateStoryCardOverlay).toHaveBeenCalledWith(p.id, expect.objectContaining({ hidePrice: true }), expect.anything());
     expect(publishInstagramStoryImage).not.toHaveBeenCalled();
   });
@@ -331,10 +333,11 @@ describe("карточка подборки поверх ролика — без
     expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
   });
 
-  it("«Продано» роликом без цены в кадре — карточка поверх с печатью и без цены", async () => {
+  it("«Продано» роликом без цены в кадре — карточка поверх с печатью и без цены, ролик без звука", async () => {
     const p = await makeProperty({ status: "SOLD" });
     await runJob(autoPayload(p.id));
     expect(publishInstagramStory).toHaveBeenCalledTimes(1);
+    expect(overlayCardOnVideo).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ mute: true }));
     expect(generateStoryCardOverlay).toHaveBeenCalledWith(p.id, expect.objectContaining({ soldStamp: true, hidePrice: true }), expect.anything());
   });
 

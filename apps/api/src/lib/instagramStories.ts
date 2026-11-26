@@ -695,7 +695,10 @@ async function publishCardVideoStory(p: {
   // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет. «Цена снижена» показала бы прежнюю
   // сумму, а в «продано» и подборке цены нет вовсе (решение владельца 25.11.2026) — любой вид берёт фото-карточку.
   if (clipHasPriceInFrame(property)) return null;
-  if (kind === PRICE_DROP_STORY_KIND || kind === CARD_STORY_KIND) {
+  // «Продано» и подборка выходят БЕЗ звука (голос озвучки называет цену, а цены там нет — решение 25.11.2026);
+  // «цена снижена» звук оставляет: там голос сверяется с текущей ценой ниже.
+  const mute = kind !== PRICE_DROP_STORY_KIND;
+  if (kind === PRICE_DROP_STORY_KIND) {
     // Голос в ролике должен называть ТЕКУЩУЮ цену (класс №214): иначе — фото-карточка.
     if ((await priceDropVoiceCheck(propertyId)) !== "OK") return null;
   }
@@ -718,7 +721,7 @@ async function publishCardVideoStory(p: {
   let keepFile = false;
   try {
     await fs.writeFile(pngPath, overlay.image);
-    const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC });
+    const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC, mute });
     if (!rendered.ok) {
       void logSystemError("meta", `История «${label}» (объект ${propertyId}): не удалось наложить карточку на ролик (${rendered.reason}) — выкладываем фото-карточкой`);
       return null;

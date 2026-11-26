@@ -164,6 +164,8 @@ describe("«цена снижена» роликом: голос в ролике
 
     expect(publishInstagramStory).toHaveBeenCalledTimes(1);
     expect(publishInstagramStoryImage).not.toHaveBeenCalled();
+    // Голос сверен с текущей ценой — «цена снижена» звук сохраняет (без звука — только «продано» и подборка).
+    expect(overlayCardOnVideo).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ mute: false }));
   });
 
   it("в ролике звучит озвучка со СТАРОЙ ценой (она же последняя одобренная) — фото-карточка, не ролик", async () => {

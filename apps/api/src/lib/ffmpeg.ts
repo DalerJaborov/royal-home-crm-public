@@ -396,7 +396,16 @@ export const STORY_OVERLAY_SEC = 5;
  * ролика сохраняется. Вынесено отдельно ради теста без ffmpeg. Карточка — PNG ровно по размеру кадра ролика,
  * её зацикливаем как неподвижный видеопоток на `showSec`; `eof_action=pass` — после этого идёт чистый ролик.
  */
-export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, outputPath: string, opts: { showSec?: number; maxDurationSec?: number } = {}): string[] {
+export interface OverlayCardOptions {
+  showSec?: number;
+  maxDurationSec?: number;
+  /** Без звука (26.11.2026): голос озвучки в готовом ролике может назвать цену, а в «Продано» и ежедневной подборке
+   *  цены нет (решение владельца 25.11). Музыка и голос в файле смешаны одной дорожкой — отделить нельзя, поэтому
+   *  звук снимается целиком (`-an`), ни одна дорожка ролика в историю не попадает. */
+  mute?: boolean;
+}
+
+export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, outputPath: string, opts: OverlayCardOptions = {}): string[] {
   const show = opts.showSec ?? STORY_OVERLAY_SEC;
   const maxDuration = opts.maxDurationSec ?? 60;
   const fade = 0.5;
@@ -411,13 +420,12 @@ export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, 
     "-i", overlayPngPath,
     "-filter_complex", filter,
     "-map", "[v]",
-    "-map", "0:a?",
+    ...(opts.mute ? [] : ["-map", "0:a?"]),
     "-c:v", "libx264",
     "-preset", "veryfast",
     "-crf", "21",
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac",
-    "-b:a", "128k",
+    ...(opts.mute ? ["-an"] : ["-c:a", "aac", "-b:a", "128k"]),
     "-movflags", "+faststart",
     outputPath,
   ];
@@ -449,7 +457,7 @@ export async function overlayCardOnVideo(
   inputPath: string,
   overlayPngPath: string,
   outputPath: string,
-  opts: { showSec?: number; maxDurationSec?: number } = {},
+  opts: OverlayCardOptions = {},
   timeoutMs = 240_000
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   return runInOverlaySlot(() => overlayCardOnVideoNow(inputPath, overlayPngPath, outputPath, opts, timeoutMs));
@@ -459,7 +467,7 @@ async function overlayCardOnVideoNow(
   inputPath: string,
   overlayPngPath: string,
   outputPath: string,
-  opts: { showSec?: number; maxDurationSec?: number },
+  opts: OverlayCardOptions,
   timeoutMs: number
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   try {
