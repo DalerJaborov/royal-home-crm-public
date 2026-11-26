@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   liveQuietHours, liveTopicBlocked, parseGroupModeWord, parseLiveDecision, resolveGroupMode, sanitizeLiveReply,
 } from "../src/telegram/assistantGroupLive.js";
+import { assistantStyle } from "../src/ai/assistant/personaStyle.js";
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
 
@@ -34,6 +35,12 @@ describe("рамки живой беседы", () => {
     expect(sanitizeLiveReply("Не шутите про штраф")).toBeNull();
   });
 
+  // Владелец 26.11.2026: Шабнам с коллегами на «вы» и «шумо». Промпт просит, а реплика на «ты» не уходит вовсе.
+  it.each(["Ты молодец!", "Спасибо тебе, Фарход", "Твой показ удался", "Ту офарин!", "Ба ту ташаккур"])(
+    "реплика на «ты» не уходит: %s", (text) => expect(sanitizeLiveReply(text)).toBeNull());
+  it.each(["Вы молодец!", "Шумо офарин!", "Тут всё хорошо, спасибо", "Хайрият, ташаккур ба шумо"])(
+    "реплика на «вы»/«шумо» проходит: %s", (text) => expect(sanitizeLiveReply(text)).toBe(text));
+
   it("решение модели: join только при чистой реплике", () => {
     expect(parseLiveDecision({ join: true, reply: "Доброе утро!" })).toEqual({ join: true, reply: "Доброе утро!" });
     expect(parseLiveDecision({ join: false, reply: "Доброе утро!" })).toEqual({ join: false, reply: "" });
@@ -51,5 +58,11 @@ describe("рамки живой беседы", () => {
     expect(parseGroupModeWord("зинда")).toBe("LIVE");
     expect(parseGroupModeWord("???")).toBeNull();
   });
-});
 
+  it("промпт Telegram: на «вы» и «шумо», «ты» не подхватывает (личка и группа)", () => {
+    for (const style of [assistantStyle("telegram"), assistantStyle("telegram", { group: true })]) {
+      expect(style).toContain("на «шумо»");
+      expect(style).not.toMatch(/Подхватывай «ты»/u);
+    }
+  });
+});

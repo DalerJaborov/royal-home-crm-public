@@ -78,6 +78,9 @@ export function liveTopicBlocked(text: string): boolean {
   return SENSITIVE.some((pattern) => pattern.test(text)) || /(?:^|\s)(?:об|ob)[-–\s]?\d{2,}/iu.test(text);
 }
 
+/** Обращение на «ты» (ru) и «ту» (tg) целым словом: «тут», «тысяча», «туда» сюда не попадают. */
+const INFORMAL_ADDRESS = new RegExp(`${BW}(?:ты|тебе|тебя|тобой|твой|твоя|твоё|твое|твои|твоего|твоей|твоих|ту|туро|тую)${EW}`, "iu");
+
 /** Реплика-кандидат подходит для публикации: коротко, без ссылок, цифр-номеров и «—». */
 export function sanitizeLiveReply(raw: string): string | null {
   let text = (raw ?? "").replace(/\s*[—–]\s*/gu, ", ").replace(/\s+/gu, " ").trim();
@@ -87,6 +90,8 @@ export function sanitizeLiveReply(raw: string): string | null {
   if (!text || text.length > LIVE_REPLY_MAX_CHARS || /\d/u.test(text)) return null;
   if (/https?:\/\/|www\.|t\.me|@\w|`|\[|\]/iu.test(text) || rx("лутфан").test(text)) return null;
   if (liveTopicBlocked(text)) return null;
+  // «вы»/«шумо» (владелец 26.11.2026): промпт просит, код держит. Реплика на «ты» не уходит, лучше промолчать.
+  if (INFORMAL_ADDRESS.test(text)) return null;
   return text;
 }
 
@@ -270,6 +275,6 @@ export async function runLiveChime(
     const group = await prisma.assistantTelegramGroup.findUnique({ where: { chatId: input.chatId }, select: { registeredByAgentId: true } });
     if (group) await logLiveOutcome(input.chatId, group.registeredByAgentId, outcome);
   } catch (err) {
-    await logSystemError("telegram", `Шабнам: живая беседа в группе: ${describeError(err)}`, { dedupKey: "assistant-group-live" });
+    await logSystemError("telegram", `Шабнам: живая беседа в группе: ${describeError(err)}`, { dedupKey: "assistant-group-live", silent: true });
   }
 }
