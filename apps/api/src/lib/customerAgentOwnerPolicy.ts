@@ -218,15 +218,9 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string|null,body:Pub
     const [incumbent]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE'
       AND NOT customer_agent_revision_reachable("candidateRevisionId","cohortId",${body.rollout.candidateRevisionId},${body.rollout.cohortId})) AS blocked`;
     if(incumbent?.blocked && !body.advanceIdleRevision) fail(409,"existing_core_requires_idle_promotion");
-    const [inflight]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT
-      EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "intakeAgentRevisionId" IS NOT NULL
-        AND "processingState" IN ('RECEIVED','CLAIMED')) OR
-      EXISTS(SELECT 1 FROM "InstagramComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-      EXISTS(SELECT 1 FROM "TelegramGroupComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-      customer_agent_delivery_requires_idle() OR
-      EXISTS(SELECT 1 FROM "CustomerPublicEffect" WHERE "status"='IN_FLIGHT' AND "createdAt">clock_timestamp()-interval '5 minutes') OR
-      EXISTS(SELECT 1 FROM "AiProviderOperation" WHERE "policyKey"='royal-customer-gemini' AND "reservedUsd">0
-        AND "status"='OPEN' AND "deadlineAt">clock_timestamp()) AS blocked`;
+    // ONE idle door, the same SQL function the advance trigger calls (migration
+    // 20261126190000): an orphaned CLAIMED ticket past lease+deadline is not in-flight.
+    const [inflight]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT customer_agent_core_requires_idle() AS blocked`;
     // Current policyRevision is also an execution/credential fence. Until the
     // separate enrollment-only CAS below is reviewed, never silently invalidate
     // READY/RAW turns merely to change a percentage. Kill remains unconditional.
