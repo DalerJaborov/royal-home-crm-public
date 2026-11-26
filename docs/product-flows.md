@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4363**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20019,8 +20019,10 @@
     · удаляет в базе: assistantTelegramContext
 - await cleanupTelegramLinkOffers();
   · зовёт cleanupTelegramLinkOffers()
-  - return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;
+  - const offers = await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } });
     · удаляет в базе: assistantTelegramLinkOffer
+  - const people = await prisma.assistantGroupPerson.deleteMany({ where: { AND: [ { OR: [{ linkHintAt: null }, { …
+    · удаляет в базе: assistantGroupPerson
 
 ### background-jobs — * * * * *
 
@@ -20319,7 +20321,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
+    - const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };
@@ -20503,6 +20505,50 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### channel-volume-watch — 40 * * * *
+
+- пробует
+  - const { alerted } = await runChannelVolumeWatchTick();
+    · зовёт runChannelVolumeWatchTick()
+    - если !isChannelWatchHour(at) || !isChannelWatchDay(at)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !isChannelWatchHour(previousAt) || !isChannelWatchDay(previousAt)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { alerted: [] };
+        · дословно из кода
+    - const rows = await prisma.$queryRaw<VolumeRow[]>` SELECT "channel"::text AS channel, COUNT(*) FILTER (WHERE e…
+      · обращается к базе своим SQL
+    - для каждого: const channel of WATCHED_CHANNELS
+      - const { alert, average } = channelVolumeVerdict(Number(row?.cur ?? 0), Number(row?.past ?? 0), Number(row?.pr…
+        · зовёт channelVolumeVerdict()
+      - если !alert
+        - continue;
+          · переходит к следующему
+      - если !(await isMetaChannelEnabled(channel))
+        - continue;
+          · переходит к следующему
+      - если channel === "INSTAGRAM" && (await instagramAllAccountsLost())
+        - continue;
+          · переходит к следующему
+      - const { alerted: queued } = await raiseCriticalAlarm({ tag: `channel-volume-${channel}`, title: `📉 ${channel…
+        · зовёт raiseCriticalAlarm()
+      - если queued
+        - alerted.push(channel);
+          · дословно из кода
+  - если alerted.length > 0
+    - console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «канал затих»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### chunked-uploads-cleanup — 17 * * * *
 
@@ -28434,6 +28480,9 @@
   - если selected && selected.payloadVersion !== 1
     - return { status: "held", reason: "historical_payload_unavailable" };
       · дословно из кода
+  - если selected?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? "")
+    - return { status: "held", reason: selected.errorCode! };
+      · дословно из кода
   - если selected?.intakeAgentRevisionId
     - если await isCustomerIngressTicketChannelOff(eventKey)
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${CU…
@@ -28443,8 +28492,14 @@
     - const result = await runCustomerDmAgentTurn(eventKey);
       · зовёт runCustomerDmAgentTurn()
     - если result.status === "held"
-      - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
+      - const changed = await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',…
         · обращается к базе своим SQL
+      - если changed === 0
+        - const now = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { processing…
+          · читает в базе: customerPropertyIngressTicket
+        - если now?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(now.errorCode ?? "")
+          - return { status: "held", reason: now.errorCode! };
+            · дословно из кода
       - если result.reason !== NEWER_INPUT_PENDING
         - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
@@ -28515,6 +28570,8 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"='con…
+    · обращается к базе своим SQL
   - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
     · зовёт reportUnansweredCustomerTurn()
     - если customerTurnSilenceIsIntended(reason)

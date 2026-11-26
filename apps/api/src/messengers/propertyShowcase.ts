@@ -204,8 +204,10 @@ async function wasShownRecently(channel: string, recipientId: string, shortId: n
     if (policy?.contractVersion === "scoped") return false;
     // Gate A still has the old global index. An unknown recent mark suppresses
     // a possible duplicate conservatively; it does not become customer memory.
-    const legacy = await prisma.shownProperty.findUnique({ where: { channel_recipientId_shortId: { channel, recipientId, shortId } },
-      select: { sentAt: true, endpointScopeId: true } });
+    // Unique per (channel, recipient, object) outside WhatsApp; a WhatsApp peer may hold one mark per our number.
+    const legacy = await prisma.shownProperty.findFirst({ where: { channel, recipientId, shortId,
+      ...(channel === "WHATSAPP" ? { OR: [{ endpointScopeId: null }, { endpointScopeId }] } : {}) },
+      select: { sentAt: true, endpointScopeId: true }, orderBy: { sentAt: "desc" } });
     return !!legacy && ((legacy.endpointScopeId !== null && legacy.endpointScopeId !== endpointScopeId) ||
       Date.now() - legacy.sentAt.getTime() < SHOW_AGAIN_AFTER_MS);
   } catch (err) {
@@ -234,8 +236,10 @@ async function markShown(channel: string, recipientId: string, shortId: number, 
           update: { sentAt: now }, create: { channel, recipientId, shortId, endpointScopeId, sentAt: now } });
         return;
       }
-      const legacy = await tx.shownProperty.findUnique({ where: { channel_recipientId_shortId: { channel, recipientId, shortId } },
-        select: { id: true, endpointScopeId: true } });
+      // WhatsApp: a mark of our OTHER number belongs to that number's chat (26.11.2026), not a collision here.
+      const legacy = await tx.shownProperty.findFirst({ where: { channel, recipientId, shortId,
+        ...(channel === "WHATSAPP" ? { OR: [{ endpointScopeId: null }, { endpointScopeId }] } : {}) },
+        select: { id: true, endpointScopeId: true }, orderBy: [{ endpointScopeId: { sort: "asc", nulls: "first" } }, { id: "asc" }] });
       if (legacy) {
         // This stamp represents a NEW observed send in the current scope. It
         // neither reclassifies the old history nor overwrites another account.

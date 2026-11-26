@@ -47,6 +47,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "clientRecordResultEnabled",
   "shabnamGroupLiveEnabled",
   "shabnamGroupLiveShadowEnabled",
+  "callObjectToOwnerEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -117,8 +118,8 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
   },
   notifyClientWaitingEnabled: {
     title: "Напоминание «клиент молчит 30 минут»",
-    on: "Если клиент написал, а ему никто не ответил 30 минут, ответственному (или руководству) приходит напоминание, и повтор, если переписку взял сотрудник и молчит.",
-    off: "Этих напоминаний нет. Сообщения «бот сломался» и «бот передал клиента сотруднику» приходят всегда.",
+    on: "Если клиент написал, а ему никто не ответил 30 минут, ответственному (или руководству) приходит напоминание, и повтор, если переписку взял сотрудник и молчит. Руководству приходит тревога, если в Instagram или Facebook в будни за 8 часов нет ни одного нового обращения, хотя обычно они есть (не чаще раза в сутки на канал).",
+    off: "Этих напоминаний и тревоги «канал затих» нет. Сообщения «бот сломался» и «бот передал клиента сотруднику» приходят всегда.",
   },
   notifyRobotTookCallEnabled: {
     title: "«Робот взял звонок, послушайте»",
@@ -211,6 +212,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
     off: "Копии не делаются: такой файл можно только скачать и открыть другим приложением.",
   },
+  // Владелец 26.11.2026 (звонок ПК-001086 по объекту №230 ушёл не хозяину): «каждый должен получить свои объекты».
+  callObjectToOwnerEnabled: {
+    title: "Звонок по объекту: узнавать объект по приметам и отдавать хозяину",
+    on: "После звонка в офис ИИ узнаёт объект по приметам с допуском на ошибки расшифровки: цена не вычёркивает объект (другая валюта, потерянные тысячи, не та первая цифра), ориентир с опечаткой, «масҷид» = «мечеть», номер словами. Названная фамилия с ошибкой сверяется с хозяином узнанного объекта, уволенные уступают действующему. Сильное совпадение по приметам объявления перебивает снявшего трубку агента. Похожих несколько — руководству подсказка в колокольчик. Расшифровка получает фамилии сотрудников и ориентиры.",
+    off: "Как до 26.11.2026: объект узнаётся по номеру, адресу, ссылке и по приметам без допуска на ошибки (цена дальше 20 % вычёркивает объект); похожие фамилии — «не угадываем»; снявшего трубку перебивает только прямое указание; подсказок руководству и расшифровке нет.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -248,7 +255,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {

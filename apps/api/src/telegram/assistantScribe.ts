@@ -5,6 +5,7 @@ import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { inspectAssistantMedia } from "../ai/assistant/mediaProbe.js";
 import { groupAcknowledgment } from "./assistantGroupParticipation.js";
 import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
+import { logSystemError } from "../lib/systemError.js";
 
 const SCRIBE_TIMEOUT_MS = 2_500;
 const SCRIBE_MAX_AUDIO_SECONDS = 15;
@@ -37,7 +38,12 @@ export async function recognizeShortAssistantVoice(buffer: Buffer): Promise<{
       method: "POST", headers: { "xi-api-key": key }, body, signal: AbortSignal.timeout(SCRIBE_TIMEOUT_MS),
     });
     if (!response.ok) {
-      await noteAssistantElevenLabsFailure(key, "recognition", response);
+      const code = await noteAssistantElevenLabsFailure(key, "recognition", response);
+      // Отказ ElevenLabs виден в журнале (код, без текста): иначе тихий откат прячет поломку неделями.
+      if (response.status !== 429) {
+        void logSystemError("telegram", `Распознавание голосового помощника: ElevenLabs HTTP ${response.status}${code ? ` ${code}` : ""}`,
+          { dedupKey: `assistant-scribe-${response.status}`, silent: true });
+      }
       return null;
     }
     const result = scribeResult.safeParse(await response.json());

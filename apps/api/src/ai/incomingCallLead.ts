@@ -13,6 +13,7 @@ import { detectOutOfScopeAsset } from "./assetScopeGuard.js";
 import { looksLikeRentBudget, looksLikeRentRequest } from "./rentGuard.js";
 import { detectIntentDirectionMismatch } from "./intentDirectionGuard.js";
 import { isJobSeekerCall } from "./jobSeekerCall.js";
+import { numberWordsToDigits } from "../lib/numberWords.js";
 
 /**
  * Кем оказался позвонивший в офис и чего он хочет — из расшифровки его разговора
@@ -263,7 +264,7 @@ function toolSchema(districtNames: string[]): Record<string, unknown> {
   };
 }
 
-function systemPrompt(districtNames: string[], usdToTjs: number): string {
+function systemPrompt(districtNames: string[], usdToTjs: number, objectHints: boolean): string {
   return (
     "Ты разбираешь запись телефонного разговора: человек сам позвонил в агентство недвижимости " +
     "Royal Home (Душанбе), трубку снял оператор. Твоя задача — понять, КТО звонил и ЧЕГО он хочет, " +
@@ -276,6 +277,17 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
     "НИЧЕГО НЕ ВЫДУМЫВАЙ. Не прозвучало — оставляй поле пустым: агент переспросит, " +
     "а придуманную цифру он примет за услышанную и будет по ней искать объекты. " +
     `Суммы приводи в сомони (1 доллар ≈ ${usdToTjs} сомони). ` +
+    // ПК-001086 (26.11.2026): клиент звонил по ролику про объект №230 — цена, ориентир и фамилия
+    // агента были в разговоре, а модель записала их только в пересказ. Поля объекта
+    // сопоставляет код с допуском на ошибки распознавания; пустые поля он сопоставить не может.
+    // Только при рубильнике callObjectToOwnerEnabled (ревью 26.11, В4): выключен — инструкция прежняя.
+    (objectHints
+      ? "Если человек звонит ПО ОБЪЯВЛЕНИЮ или РОЛИКУ (видел, «дидам», «эълон», Instagram, «ваша квартира», " +
+        "«хонаи мондагитон») — заполняй приметы объекта: propertyLandmark, propertyPrice и propertyPriceCurrency, " +
+        "propertyRooms, propertyFloor — даже если он заодно говорит о своих пожеланиях. Цену пиши КАК ПРОЗВУЧАЛА, " +
+        "не исправляй её, даже если она кажется странной: сверит код. Фамилию сотрудника, которую человек прочитал с " +
+        "объявления или просил позвать («ба … занг задем»), пиши в namedAgent как услышал. "
+      : "") +
     (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Других названий не пиши. ` : "") +
     "Ответ передавай через инструмент submit_reply."
   );
@@ -286,8 +298,23 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
  * работа после разговора, и падать из-за неё конвейер записи не должен. `null`
  * означает «разобрать не удалось»: звонок останется человеку (см. autoLeadFromCall).
  */
-export async function extractIncomingCallLead(transcript: string): Promise<IncomingCallLead | null> {
-  const text = transcript.trim();
+export interface ExtractIncomingCallLeadOptions {
+  /**
+   * Числа словами («нӯҳсаду шасту панҷ ҳазор», «двести тридцать») — цифрами до
+   * модели (lib/numberWords.ts, 26.11.2026): таджикские числительные она читает
+   * нетвёрдо, а код — одинаково. Только безопасное подмножество; мелкие числа («ду
+   * хона») остаются словами. Включает разбор звонка при рубильнике
+   * callObjectToOwnerEnabled; по умолчанию текст уходит модели как есть.
+   */
+  objectHints?: boolean;
+}
+
+export async function extractIncomingCallLead(
+  transcript: string,
+  options: ExtractIncomingCallLeadOptions = {}
+): Promise<IncomingCallLead | null> {
+  const objectHints = options.objectHints === true;
+  const text = objectHints ? numberWordsToDigits(transcript.trim()) : transcript.trim();
   if (text.length < MIN_TRANSCRIPT_CHARS) return null;
 
   try {
@@ -302,7 +329,7 @@ export async function extractIncomingCallLead(transcript: string): Promise<Incom
       // Извлечение полей из текста — простая задача: у Claude это Haiku, разница в
       // цене на порядок, а входящих в день десятки.
       simple: true,
-      system: systemPrompt(districtNames, money),
+      system: systemPrompt(districtNames, money, objectHints),
       user: `Расшифровка разговора:\n${text.slice(0, MAX_TRANSCRIPT_CHARS)}`,
       maxTokens: 600,
       schema: toolSchema(districtNames),

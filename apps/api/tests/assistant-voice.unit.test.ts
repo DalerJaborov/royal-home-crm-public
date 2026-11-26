@@ -13,8 +13,13 @@ vi.mock("../src/lib/audioTranscode.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/audioTranscode.js")>()),
   adjustTelegramVoiceTempo: async () => null,
 }));
+vi.mock("../src/ai/assistant/mediaProbe.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/assistant/mediaProbe.js")>()),
+  inspectAssistantMedia: async () => undefined,
+}));
 vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
+import { recognizeShortAssistantVoice } from "../src/telegram/assistantScribe.js";
 import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
@@ -442,4 +447,70 @@ it("голос не настроен — в журнал; исчерпанный
   vi.spyOn(console, "info").mockImplementation(() => {});
   expect(await sendAssistantVoiceReply("test", "Нашла.")).toBe(false);
   expect(logError).not.toHaveBeenCalled();
+});
+
+// 26.11.2026, владелец: «вообще ни одного голосового не было». С 14.11 ключ и голос Шабнам переехали на новый
+// аккаунт ElevenLabs, а словари произношения в окружении остались от старого: каждый синтез получал отказ,
+// журнал говорил только «этап synthesis». Отказ со словарём — повтор без словаря, словарь запоминается и в журнал.
+it("rejected pronunciation dictionary of another account: voice still goes out, dictionary skipped afterwards", async () => {
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-new-account");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "old-account-dict");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "old-version");
+  fetchMock.mockImplementation(async (_url: string, init: { body: string }) => JSON.parse(init.body).pronunciation_dictionary_locators
+    ? new Response(JSON.stringify({ detail: { status: "pronunciation_dictionary_not_found", message: "Dictionary old-account-dict not found" } }), { status: 404 })
+    : new Response(Uint8Array.from(audioFixture), { status: 200 }));
+  expect(await sendAssistantVoiceReply("test", "Хорошо, проверила, всё на месте.")).toBe(true);
+  expect(sendVoice).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(query).toHaveBeenCalledTimes(1); // повтор не списывает знаки второй раз
+  expect(logError).toHaveBeenCalledWith("telegram", expect.stringMatching(/словарь произношения \(ru, HTTP 404 pronunciation_dictionary_not_found\)/u),
+    expect.objectContaining({ dedupKey: "assistant-voice-dictionary-ru", silent: true }));
+  expect(JSON.stringify(logError.mock.calls)).not.toContain("Dictionary old-account-dict not found");
+  // Следующий ответ сразу идёт без отвергнутого словаря — без лишнего отказа.
+  expect(await sendAssistantVoiceReply("test", "Отлично, записала.")).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body)).not.toHaveProperty("pronunciation_dictionary_locators");
+});
+it("a failure that persists without the dictionary does not blame it; the journal names the HTTP status", async () => {
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-voice-missing");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "dict-ru");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-ru");
+  fetchMock.mockImplementation(async () => new Response(JSON.stringify({ detail: { status: "voice_not_found", message: "secret text" } }), { status: 404 }));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await sendAssistantVoiceReply("test", "Хорошо, проверила, всё на месте.")).toBe(false);
+  } finally { warn.mockRestore(); }
+  // Со словарём и без — оба отказа: словарь не виноват и не запоминается.
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(logError).toHaveBeenCalledWith("telegram", "Озвучка ответа помощника не вышла (этап synthesis, ElevenLabs HTTP 404 voice_not_found)",
+    expect.objectContaining({ dedupKey: "assistant-voice-synthesis-404" }));
+  expect(JSON.stringify(logError.mock.calls)).not.toContain("secret text");
+  fetchMock.mockReset().mockResolvedValue(new Response(Uint8Array.from(audioFixture), { status: 200 }));
+  expect(await sendAssistantVoiceReply("test", "Отлично, записала.")).toBe(true);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).pronunciation_dictionary_locators).toEqual([{ pronunciation_dictionary_id: "dict-ru", version_id: "version-ru" }]);
+});
+it("a rejected voice recognition is logged with its HTTP status, without the provider text", async () => {
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "ab".repeat(32));
+  savedVoice.mockResolvedValue({ voiceIdRu: "saved-ru", voiceIdTg: "saved-tg", encryptedKey: encryptSecret("test-scribe-rejected") });
+  fetchMock.mockResolvedValue(new Response(JSON.stringify({ detail: { status: "invalid_api_key", message: "secret text" } }), { status: 401 }));
+  expect(await recognizeShortAssistantVoice(audioFixture)).toBeNull();
+  expect(logError).toHaveBeenCalledWith("telegram", "Распознавание голосового помощника: ElevenLabs HTTP 401 invalid_api_key",
+    expect.objectContaining({ dedupKey: "assistant-scribe-401", silent: true }));
+  expect(JSON.stringify(logError.mock.calls)).not.toContain("secret text");
+});
+// Ревью 26.11.2026: квота, права и частота словарём не лечатся — повтора без словаря нет, лишний запрос не уходит.
+it.each([
+  [401, null], [402, null], [429, null], [400, "quota_exceeded"], [401, "quota_exceeded"],
+] as const)("HTTP %s (%s) with a dictionary is not retried without it", async (status, code) => {
+  vi.stubEnv("ELEVENLABS_API_KEY", `test-no-dictionary-retry-${status}-${code ?? "none"}`);
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "dict-ru");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-ru");
+  fetchMock.mockImplementation(async () => new Response(code ? JSON.stringify({ detail: { status: code } }) : null, { status }));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await sendAssistantVoiceReply("test", "Хорошо, проверила, всё на месте.")).toBe(false);
+  } finally { warn.mockRestore(); }
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).pronunciation_dictionary_locators).toHaveLength(1);
+  expect(sendVoice).not.toHaveBeenCalled();
 });

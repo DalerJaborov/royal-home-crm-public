@@ -38,7 +38,7 @@ function turn(subscriberId: string, mid: string, admission: CustomerPropertyAdmi
   return processMessengerTurn({ channel: "INSTAGRAM", subscriberId, accountExternalId: externalId, messageId: mid,
     customerPropertyEventKind: "message", customerPropertyAdmission: admission, customerPropertyBatch: batch, text });
 }
-const row = (subscriberId: string) => prisma.botConversation.findUniqueOrThrow({ where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } } });
+const row = (subscriberId: string) => prisma.botConversation.findFirstOrThrow({ where: { channel: "INSTAGRAM", subscriberId } });
 
 beforeAll(async () => {
   settingsBefore = await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: {}, select: settingsSelect });
