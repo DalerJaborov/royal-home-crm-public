@@ -20,6 +20,8 @@
  */
 import { prisma } from "../../db.js";
 import { enqueueDirectorAlert } from "../directorAlertQueue.js";
+import { noAnswerLeadershipAlertsEnabled } from "../noAnswerStreak.js";
+import { createNotifications } from "../notifications.js";
 import { logSystemError } from "../systemError.js";
 
 /** Повторный набор ТОЙ ЖЕ карточки ТЕМ ЖЕ агентом запрещён на этот срок после
@@ -104,6 +106,19 @@ async function notifyAgentNoPickupStreak(agentId: string, count: number): Promis
   // журнал ошибок — источник правды и дедуп, enqueueDirectorAlert — пуш
   // руководству через общую очередь алармов (не напрямую sendPushToAgents),
   // чтобы соблюдать часы алармов и не плодить второй путь доставки.
+  if (!noAnswerLeadershipAlertsEnabled()) {
+    // Рубильник «недозвон — руководству» выключен (lib/noAnswerStreak.ts, владелец
+    // 26.11.2026): чинить свой телефон может только сам сотрудник — ему и пишем.
+    // Журнал ошибок остаётся (для разбора), но без пуша директору о «новой проблеме».
+    void logSystemError("telephony", message, { dedupKey: `agent-no-pickup:${agentId}`, silent: true });
+    await createNotifications([agentId], {
+      kind: "agent_no_pickup",
+      title: "Ваш телефон не звонит при наборе из CRM",
+      body: `${count} набора подряд CRM не смогла дозвониться до вашего телефона. Проверьте, что приложение-телефон открыто и есть интернет, или звоните «через мобильный».`,
+      tag: `agent-no-pickup-${agentId}`,
+    });
+    return;
+  }
   void logSystemError("telephony", message, { dedupKey: `agent-no-pickup:${agentId}` });
   await enqueueDirectorAlert({
     title: "⚠️ Телефон агента не отвечает",

@@ -60,7 +60,7 @@ async function instagramTurn(text: string, decision: unknown, opts: { parentId?:
     replyDueAt: new Date(), ...(opts.createdAt ? { createdAt: opts.createdAt } : {}) } });
   return { id: row.id, peer, run: () => handleComment(row as QueuedComment) };
 }
-const conversationOf = (peer: string) => prisma.botConversation.findUnique({ where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: peer } } });
+const conversationOf = (peer: string) => prisma.botConversation.findFirst({ where: { channel: "INSTAGRAM", subscriberId: peer } });
 const userMessages = (messages: unknown): string[] =>
   (messages as Array<{ role: string; content: string }>).filter((m) => m.role === "user").map((m) => m.content);
 const graphBodies = () => mocks.graph.mock.calls.map((call) => call[2] as Record<string, unknown> | undefined);

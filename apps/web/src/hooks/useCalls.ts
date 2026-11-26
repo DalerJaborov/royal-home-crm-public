@@ -106,6 +106,8 @@ export interface IncomingCallRow {
   /** Откуда звонок: "phone" — линия, "whatsapp" — голосовой звонок WhatsApp
    *  (INCOMING_CALL_SOURCES в @royal-home/shared). Необязательно: старый ответ без поля — линия. */
   source?: string;
+  /** Звонили на НЕ основной номер WhatsApp — имя его страницы («Арван»). null/нет — основной. */
+  brand?: string | null;
   startedAt: string;
   endedAt: string | null;
   answered: boolean;
@@ -350,6 +352,8 @@ export interface CallFeedRow {
   staff?: { id: string; fullName: string } | null;
   /** Откуда звонок ("phone" | "whatsapp") — см. IncomingCallRow.source. */
   source?: string;
+  /** Не основной номер WhatsApp — см. IncomingCallRow.brand. */
+  brand?: string | null;
   durationSec: number | null;
   /** См. CallRow.callAttempt — только у исходящих (kind "OUT"), у входящих null. */
   callAttempt: string | null;

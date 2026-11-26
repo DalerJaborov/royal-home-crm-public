@@ -64,7 +64,10 @@ import { prepareCustomerApprovedFile, CUSTOMER_BUYER_GUIDE_CURRENT, customerAppr
 import { customerVoiceAssetsConfigured, issueCustomerApprovedFilePayload, prepareCustomerVoiceAsset } from "./customerDeliveryMedia.js";
 import { customerDeliveryMediaEndpointSchema } from "./customerDeliveryContracts.js";
 import { customerAgentMediaExecutionMode } from "./customerDeliveryMedia.js";
-import { fetchInstagramProfile, loadCredentials } from "../messengers/meta.js";
+import { fetchInstagramProfile, loadCredentials, sendCustomerReaction } from "../messengers/meta.js";
+import { isBotEnabledForChannel } from "../messengers/botChannels.js";
+import { ACK_REACTION_HELD, ackReactionCandidate, ackReactionTurn } from "../ai/ackTurnDoor.js";
+import { readLastBotLine } from "./customerLastBotLine.js";
 import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, planCustomerLeadOnlyTurn,
@@ -217,6 +220,29 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       void noteSpamFiltered().catch(error => console.error("[spam-filter] колокольчик", error instanceof Error ? error.message : error));
       await releaseHeldClaim(claim, SPAM_FILTERED_NO_REPLY);
       return { status: "held", reason: SPAM_FILTERED_NO_REPLY };
+    }
+    // «ОК / СПАСИБО / ПОКА» — РЕАКЦИЯ, А НЕ ТЕКСТ (владелец 26.11.2026, одна дверь ai/ackTurnDoor.ts). Код решает до
+    // разбора вложений, до оператора «только заявки» и до модели: живой случай — «Ок» после «номер получил» получил
+    // от оператора «Ваша заявка у агента, он с вами свяжется.». Реплика клиента уже записана (prepare…CoreContext),
+    // агент её видит. Реакция — жест без записи в очередь отправки; не поставилась — тишина, ход всё равно закрыт.
+    // Последняя реплика бота — из переписки и очереди отправки (lib/customerLastBotLine.ts), не из памяти модели: та не
+    // видит шаблонных фраз оператора. Читаем только когда слова клиента похожи на «ок», чтобы не платить чтением каждый ход.
+    const botLine = ackReactionCandidate(fullInput()) ? await readLastBotLine(lane.ticket.conversationId, claim.pin.receivedAt) : null;
+    if (ackReactionCandidate(fullInput()) && ackReactionTurn({ text: fullInput(),
+      lastBotText: botLine?.text ?? remembered.context.turns.filter(turn => turn.role === "assistant").at(-1)?.text,
+      lastBotAt: botLine?.at, now: claim.pin.receivedAt,
+      jobTopic: jobTopicTurn,
+      hasMedia: prepared.media.length > 0 || !!prepared.attachmentInput || burst.inputs.some(input => input.mediaCount > 0) })) {
+      const evidence = inspectAuthenticatedCustomerInput(lane.authenticatedInput);
+      const principal = await revalidateCustomerPrincipal(planningPrincipal);
+      await releaseHeldClaim(claim, ACK_REACTION_HELD);
+      const channel = planningPrincipal.scope.channel;
+      if (principal.status === "current" && principal.snapshot.transport && evidence?.eventKind === "message" &&
+          (channel === "INSTAGRAM" || channel === "FACEBOOK" || channel === "WHATSAPP") && await isBotEnabledForChannel(channel)) {
+        void sendCustomerReaction(channel, planningPrincipal.scope.peer, evidence.eventId, "❤️", undefined,
+          principal.snapshot.transport);
+      }
+      return { status: "held", reason: ACK_REACTION_HELD };
     }
     // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
     // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full

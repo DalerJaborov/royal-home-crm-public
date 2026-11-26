@@ -9917,14 +9917,6 @@
     },
     {
      "k": "do",
-     "t": "const safeItems = items.map((call)",
-     "a": [
-      "зовёт clientPhoneFor()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
      "t": "res.json({ items: safeItems, total, periodTotal, missed, unqualified, page, pageSize: PAGE_SIZE, days });",
      "a": [
       "ответ 200"
@@ -90985,7 +90977,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
+         "t": "const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)",
          "a": [
           "читает в базе: interaction"
          ],

@@ -84,8 +84,8 @@ describe("номер уже принят — бот не возвращаетс�
     expect(result.shouldReply).not.toBe(false);
     expect(qualify.mock.calls.some(([params]) => params.endpoint === "lead-qualify")).toBe(true);
 
-    const conv = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId: SUBSCRIBER } },
+    const conv = await prisma.botConversation.findFirst({
+      where: { channel: "WHATSAPP", subscriberId: SUBSCRIBER },
       select: { leadDraft: true },
     });
     expect((conv!.leadDraft as { stage?: string }).stage).toBe("done");

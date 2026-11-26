@@ -84,8 +84,8 @@ async function setTopicLock(enabled: boolean, driftTurns = 1): Promise<void> {
 }
 
 async function readConversation(subscriberId: string) {
-  const row = await prisma.botConversation.findUnique({
-    where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+  const row = await prisma.botConversation.findFirst({
+    where: { channel: "INSTAGRAM", subscriberId },
   });
   if (row && !conversationIds.includes(row.id)) conversationIds.push(row.id);
   return row;

@@ -99,6 +99,22 @@ describe("оператор приёма заявок, старый путь", ()
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
     expect(client.assignedAgentId).toBe(ownerId);
     expect(replyModelCalls()).toEqual([]);
+
+    // Живой случай 26.11.2026: «Ок» / «Спасибо, до свидания» после обещания звонка — реакция (reactOnly), ни текста, ни
+    // одного вызова модели (даже понимания оператора): решает дверь ai/ackTurnDoor.ts до режима «только заявки».
+    callAi.mockClear();
+    for (const text of ["Ок", "Спасибо, до свидания", "Рахмат 🙏"]) {
+      const ack = await turn(peer, text);
+      expect(ack, text).toMatchObject({ reply: "", shouldReply: false, reactOnly: true });
+    }
+    // Фоновое обогащение карточки после заявки (card-fill, оценка клиента) идёт своим ходом и в счёт не входит;
+    // модель ответа и понимание оператора — ни разу.
+    const background = ["card-fill", "score-client", "client-current-intents"];
+    expect(callAi.mock.calls.map((call) => String((call[0] as { endpoint?: string })?.endpoint ?? "?"))
+      .filter((e) => !background.includes(e))).toEqual([]);
+    // Реплика клиента сохранена в переписке — агент её видит.
+    const saved = await prisma.botConversation.findFirstOrThrow({ where: { subscriberId: peer }, select: { messages: true } });
+    expect((saved.messages as Array<{ role: string; content: string }>).some((m) => m.role === "user" && m.content === "Ок")).toBe(true);
   });
 });
 

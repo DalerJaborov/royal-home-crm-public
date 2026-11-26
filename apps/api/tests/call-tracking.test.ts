@@ -268,7 +268,7 @@ describe("Состояние звонка по событиям АТС", () => {
    * хотя на станции их десятки.
    */
   describe("два плеча звонка: ответ агента — ещё не разговор", () => {
-    it("агент снял, клиент занят (BUSY) — исход «Клиент не ответил», записи не ищем", async () => {
+    it("агент снял, клиент занят (BUSY) — исход «Занято», записи не ищем", async () => {
       const interaction = await startedInteraction();
       startCall("ch-30", interaction.id);
       const call = getCall("ch-30")!;
@@ -287,11 +287,11 @@ describe("Состояние звонка по событиям АТС", () => {
       stationVariables = { DIALSTATUS: "BUSY" };
       await handleAriEvent({ type: "ChannelDestroyed", channel: { id: "ch-30", name: "", state: "Down", caller: {} } });
 
-      expect(getCall("ch-30")?.outcome).toBe("Клиент не ответил");
+      expect(getCall("ch-30")?.outcome).toBe("Занято") // причина словами по DIALSTATUS (26.11.2026);
       // Записи у недозвона нет и быть не может — искать её на станции незачем.
       expect(ingestCalls.filter((c) => c.channelId === "ch-30")).toHaveLength(0);
       const saved = await prisma.interaction.findUnique({ where: { id: interaction.id } });
-      expect(saved?.notes).toMatch(/клиент не ответил/i);
+      expect(saved?.notes).toMatch(/занято/i);
       expect(saved?.outcome).toBe("NO_ANSWER");
     });
 
@@ -623,7 +623,7 @@ describe("Состояние звонка по событиям АТС", () => {
       stationVariables = { DIALSTATUS: "BUSY" };
       await handleAriEvent({ type: "ChannelDestroyed", channel: { id: "ch-36", name: "", state: "Down", caller: {} } });
 
-      expect(getCall("ch-36")?.outcome).toBe("Клиент не ответил");
+      expect(getCall("ch-36")?.outcome).toBe("Занято");
       expect(ingestCalls.filter((c) => c.channelId === "ch-36")).toHaveLength(0);
       const saved = await prisma.interaction.findUnique({ where: { id: interaction.id } });
       expect(saved?.outcome).toBe("NO_ANSWER");

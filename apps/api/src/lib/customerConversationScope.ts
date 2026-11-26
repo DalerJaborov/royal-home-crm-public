@@ -107,25 +107,94 @@ export async function loadCustomerTransportForConversation(conversationId: strin
   try { return await resolveCustomerEndpoint({ channel: row.channel, subscriberId: row.subscriberId, transport }, db); }
   catch (error) { if (error instanceof CustomerScopeDenied) return null; throw error; }
 }
-/** Gate A retains old indexes. A different account with the same raw peer is
- * explicitly held until the independently verified contract-cutover release. */
+/**
+ * ОДНА ПЕРЕПИСКА WHATSAPP НА КАЖДЫЙ НАШ НОМЕР (владелец 26.11.2026: «один бот, одно ядро
+ * отвечает всем везде»; второй номер — Arvan). В WhatsApp собеседник — это номер
+ * телефона, поэтому человек, уже писавший на Royal Home, пишет на Arvan тем же
+ * subscriberId. Переписка — пара (область нашего номера, номер собеседника): бот
+ * отвечает в каждой с её номера и от её бренда.
+ *
+ * Рубильник `WHATSAPP_CHAT_PER_NUMBER=off` возвращает прежнее (#475): одна переписка
+ * на человека, ход на другой номер удерживается для сотрудника и ложится в старую
+ * переписку. Уже раздельные переписки при этом продолжают жить: рубильник запрещает
+ * только заводить новую вторую.
+ */
+export function whatsappChatPerNumber(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WHATSAPP_CHAT_PER_NUMBER?.trim().toLowerCase() !== "off";
+}
+export type PeerChatRow = { endpointScopeId: string | null; scopeKind: string | null };
+/**
+ * Единственное правило «какие переписки этого собеседника мешают переписке в области
+ * `endpointScopeId`» — для решения ядра (customerAgentEnrollment), перевода на ядро
+ * (customerAgentLegacyCutover) и создания строки (ensureScopedBotConversation ниже).
+ * - own: переписка в этой же области (их не больше одной: уникальный ключ области).
+ * - blocking: чужие переписки, рядом с которыми новую заводить нельзя. В WhatsApp
+ *   переписка на ДРУГОМ нашем номере (область NORMAL) не мешает; старая переписка без
+ *   номера (LEGACY_UNKNOWN) мешает, как раньше: её нельзя раздвоить догадкой.
+ *   Instagram/Facebook — любая чужая мешает (у них идентификатор свой на аккаунт).
+ * - otherNumberHold: рубильник выключен, и человек пишет на второй номер, имея одну
+ *   переписку на первом, — поведение #475 (удержать для сотрудника).
+ */
+export function peerChatsForScope<T extends PeerChatRow>(channel: string, rows: readonly T[], endpointScopeId: string,
+  perNumber: boolean = whatsappChatPerNumber()): { own: T[]; blocking: T[]; otherNumberHold: boolean } {
+  const own = rows.filter(row => row.endpointScopeId === endpointScopeId);
+  const others = rows.filter(row => row.endpointScopeId !== endpointScopeId);
+  const otherNumbers = channel === "WHATSAPP" && others.length > 0 && others.every(row => !!row.endpointScopeId && row.scopeKind === "NORMAL");
+  if (otherNumbers && (perNumber || own.length > 0)) return { own, blocking: [], otherNumberHold: false };
+  return { own, blocking: others, otherNumberHold: otherNumbers && own.length === 0 && others.length === 1 };
+}
+/** Переписки этого собеседника в канале с видом области — вход для peerChatsForScope. */
+export async function readPeerChats(db: Pick<TxClient, "$queryRaw">, channel: string, peer: string):
+  Promise<Array<{ id: string; endpointScopeId: string | null; accountId: string | null; scopeKind: string | null; clientId: string | null }>> {
+  return db.$queryRaw`SELECT c."id", c."endpointScopeId", c."accountId", s."kind" AS "scopeKind", c."clientId"
+    FROM "BotConversation" c LEFT JOIN "CustomerEndpointScope" s ON s."id"=c."endpointScopeId"
+    WHERE c."channel"=${channel} AND c."subscriberId"=${peer} ORDER BY c."createdAt", c."id" LIMIT 20`;
+}
+/** Карточка клиента для НОВОЙ переписки WhatsApp: номер собеседника — подтверждённый
+ * транспортом признак человека, поэтому вторая переписка того же номера сразу
+ * привязана к той же карточке. Только если у всех его переписок ровно одна живая
+ * карточка; разные карточки — не выбираем (их разбирает человек). */
+async function siblingWhatsappClient(db: Pick<TxClient, "$queryRaw">, rows: ReadonlyArray<{ clientId: string | null }>): Promise<string | null> {
+  const ids = [...new Set(rows.map(row => row.clientId).filter((id): id is string => !!id))];
+  if (ids.length !== 1) return null;
+  const [live] = await db.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Client" WHERE "id"=${ids[0]} AND "deletedAt" IS NULL`;
+  return live?.id ?? null;
+}
+
+/** Scoped native row. Instagram/Facebook/website keep the global (channel, peer)
+ * key (partial unique index), so a different account with the same raw peer is
+ * held there. WhatsApp has one chat per our number (see whatsappChatPerNumber). */
 export async function ensureScopedBotConversation(db: ScopeDb, input: CustomerTransportEndpoint): Promise<{ id: string; accountId: string | null; transport: CustomerTransportReference }> {
   const endpoint = await ensureCustomerEndpoint(db, input);
-  const [policy] = await db.$queryRaw<{ contractVersion: string }[]>`
-    SELECT "contractVersion" FROM "CustomerRuntimePolicy" WHERE "id" = 'singleton'`;
-  if (!policy || policy.contractVersion !== "scoped") {
-    const collision = await db.$queryRaw<{ conflict: boolean }[]>`
-      SELECT EXISTS (SELECT 1 FROM "BotConversation" WHERE "channel" = ${endpoint.channel} AND "subscriberId" = ${endpoint.subscriberId}
-        AND ("endpointScopeId" IS DISTINCT FROM ${endpoint.endpointScopeId} OR "accountId" IS DISTINCT FROM ${endpoint.accountId})) AS "conflict"`;
-    if (collision[0]?.conflict) throw new CustomerScopeDenied("compat_collision");
+  let clientId: string | null = null;
+  if (endpoint.channel === "WHATSAPP" && !await findScopedBotConversation(input, db)) {
+    // No DB key spans our numbers any more: serialize CREATION per raw peer (an
+    // existing chat skips the lock), so the rule below and the kill switch cannot
+    // be raced by two first messages to two numbers.
+    await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-conversation-wa-peer:${endpoint.subscriberId}`}))`;
+    const rows = await readPeerChats(db, endpoint.channel, endpoint.subscriberId);
+    const { own, blocking } = peerChatsForScope(endpoint.channel, rows, endpoint.endpointScopeId);
+    if (!own.length) {
+      if (blocking.length) throw new CustomerScopeDenied("compat_collision");
+      clientId = await siblingWhatsappClient(db, rows);
+    }
+  } else if (endpoint.channel !== "WHATSAPP") {
+    const [policy] = await db.$queryRaw<{ contractVersion: string }[]>`
+      SELECT "contractVersion" FROM "CustomerRuntimePolicy" WHERE "id" = 'singleton'`;
+    if (!policy || policy.contractVersion !== "scoped") {
+      const collision = await db.$queryRaw<{ conflict: boolean }[]>`
+        SELECT EXISTS (SELECT 1 FROM "BotConversation" WHERE "channel" = ${endpoint.channel} AND "subscriberId" = ${endpoint.subscriberId}
+          AND ("endpointScopeId" IS DISTINCT FROM ${endpoint.endpointScopeId} OR "accountId" IS DISTINCT FROM ${endpoint.accountId})) AS "conflict"`;
+      if (collision[0]?.conflict) throw new CustomerScopeDenied("compat_collision");
+    }
   }
-  // Gate A retains both scoped and global unique indexes. Concurrent speculative
-  // inserts can collide with either; arbitrate both without aborting the caller's
+  // Concurrent speculative inserts can collide with the scoped key (and, outside
+  // WhatsApp, the global partial key); arbitrate without aborting the caller's
   // transaction. The exact scoped read below still rejects another installation:
-  // no global-row fallback, index removal or account overwrite is permitted.
+  // no global-row fallback or account overwrite is permitted.
   await db.$executeRaw(Prisma.sql`
-    INSERT INTO "BotConversation" ("id", "endpointScopeId", "channel", "subscriberId", "accountId", "messages", "leadDraft", "updatedAt")
-    VALUES (${randomUUID()}, ${endpoint.endpointScopeId}, ${endpoint.channel}, ${endpoint.subscriberId}, ${endpoint.accountId},
+    INSERT INTO "BotConversation" ("id", "endpointScopeId", "channel", "subscriberId", "accountId", "clientId", "messages", "leadDraft", "updatedAt")
+    VALUES (${randomUUID()}, ${endpoint.endpointScopeId}, ${endpoint.channel}, ${endpoint.subscriberId}, ${endpoint.accountId}, ${clientId},
       '[]'::jsonb, '{"stage":"chatting"}'::jsonb, now())
     ON CONFLICT DO NOTHING`);
   const row = await findScopedBotConversation(input, db);

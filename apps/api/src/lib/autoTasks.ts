@@ -76,6 +76,10 @@ export const AUTO_TASK_KINDS = [
   /** «Проверить контакт с клиентом…» — эскалация руководителю после исчерпанных
    *  попыток (lib/noAnswerStreak.ts::notifyNoAnswerEscalation). */
   "no_answer_supervisor_check",
+  /** «Клиент не взял трубку N раз — напишите в мессенджер…» — то же исчерпание
+   *  попыток, но агенту, а не руководству (рубильник NO_ANSWER_LEADERSHIP_ALERTS,
+   *  lib/noAnswerStreak.ts, 26.11.2026). */
+  "no_answer_agent_followup",
   /** «Ещё раз попробовать дозвониться…» — отложенный «хвост» после эскалации.
    *  Сам «хвост» удалён 16.11.2026; вид остаётся, чтобы уже открытые задачи
    *  закрывались контактом (CALLBACK_AUTO_TASK_KINDS ниже). */
@@ -243,5 +247,6 @@ export const CALLBACK_AUTO_TASK_KINDS = [
   "consultant_callback",
   "no_answer_retry",
   "no_answer_supervisor_check",
+  "no_answer_agent_followup",
   "no_answer_tail_retry",
 ] as const satisfies readonly AutoTaskKind[];

@@ -23,5 +23,12 @@
 | `bin/graph-call.mjs` | единственная дверь к Graph API (внутри контейнера CRM) |
 | `test/run-e2e.sh` | локальная проверка «Meta» → шлюз → «станция», только Docker |
 
+**Несколько номеров (26.11.2026).** Основной — `WA_BUSINESS_NUMBER`, дополнительные — `WA_EXTRA_NUMBERS`
+(`номер:phone_number_id[:метка]` через запятую). У каждого номера свой пароль Meta
+(`secrets/meta/meta_sip_password.<номер>`; у основного годится и прежний `meta_sip_password`).
+`wa-calling.sh`, `wa-sip-password.sh`, `wa-test-call-button.sh` работают с номером из `--number=<цифры>`,
+без него — с основным; `wa-health.sh` проверяет готовность у Meta каждого номера. Станция получает звонок
+на дополнительный номер его phone_number_id — по нему CRM узнаёт бренд.
+
 Каждый скрипт понимает `--dry-run`. Секреты (пароль Meta, ключ Cloudflare) — только в
 `/opt/royalhome-wa-gateway/secrets/` (700/600), в git их нет.

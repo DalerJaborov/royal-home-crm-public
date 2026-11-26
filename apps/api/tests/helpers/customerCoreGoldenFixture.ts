@@ -46,7 +46,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   let downgrade: { mockRestore(): void } | undefined;
   const accounts: string[] = [], events: string[] = [], partIds: string[] = [], properties: string[] = [], districts: string[] = [];
   const owners = new Map<string, { id: string; externalId: string; token: string; secret: string; peer: string }>();
-  const ioViolations: string[] = [], bodies: unknown[] = [], physical: string[] = [], mids: string[] = [];
+  const ioViolations: string[] = [], bodies: unknown[] = [], physical: string[] = [], mids: string[] = [], reactions: string[] = [];
   let scripts: ModelPart[][] = [], generated = 0, counted = 0;
   const mediaFixtures = new Map<string, { mimeType: string; body: Buffer }>();
   const publicationFixtures = new Map<string, Array<{ id: string; permalink: string; media_type: string; media_url?: string;
@@ -130,6 +130,13 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       if (init?.method === "POST" && url.pathname === "/v23.0/me/messages" &&
           [...url.searchParams.keys()].join(",") === "access_token") {
         const body = JSON.parse(String(init.body));
+        // Реакция на сообщение клиента (26.11.2026, ai/ackTurnDoor.ts): жест, не сообщение — в physical не попадает.
+        if (body.sender_action === "react") {
+          expect(Object.keys(body).sort()).toEqual(["payload", "recipient", "sender_action"]);
+          expect(body.recipient).toEqual({ id: owner.peer }); expect(body.payload.reaction).toBe("love");
+          expect(typeof body.payload.message_id).toBe("string"); reactions.push(body.payload.message_id);
+          return new Response(JSON.stringify({ recipient_id: owner.peer }));
+        }
         expect(Object.keys(body).sort()).toEqual(["message", "recipient"]);
         expect(body.recipient).toEqual({ id: owner.peer }); expect(Object.keys(body.message)).toEqual(["text"]);
         expect(typeof body.message.text).toBe("string"); expect(body.message.text.trim()).not.toBe("");
@@ -169,7 +176,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   });
   vi.stubGlobal("fetch", fetch);
   return {
-    revision, bodies, physical, ioViolations, counts: () => ({ generated, counted }),
+    revision, bodies, physical, reactions, ioViolations, counts: () => ({ generated, counted }),
     publicationFixture(owner: { id: string }, items: NonNullable<ReturnType<typeof publicationFixtures.get>>) {
       if (!options.media || !owners.has(owner.id)) throw Error("Owned media fixture required");
       publicationFixtures.set(owner.id, items);

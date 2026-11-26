@@ -314,8 +314,8 @@ describe("кнопка «Написать в WhatsApp»", () => {
     expect(res.body.state).toBe("recently_sent");
     expect(sent.at(-1)).toEqual({ to: recipient, name: "royalhome_first_contact_object", params: ["Сурайё", String(propertyShortId)] });
 
-    const conversation = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId: recipient } },
+    const conversation = await prisma.botConversation.findFirst({
+      where: { channel: "WHATSAPP", subscriberId: recipient },
     });
     expect(conversation?.clientId).toBe(clientId);
     expect(conversation?.pausedUntil?.getTime()).toBeGreaterThan(Date.now());
@@ -361,8 +361,8 @@ describe("кнопка «Написать в WhatsApp»", () => {
   });
 
   it("клиент писал меньше суток назад — одобренный текст не нужен, пишите в переписке", async () => {
-    await prisma.botConversation.update({
-      where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId: recipient } },
+    await prisma.botConversation.updateMany({
+      where: { channel: "WHATSAPP", subscriberId: recipient },
       data: { messages: [{ role: "user", content: "Да, присылайте", at: new Date().toISOString() }] },
     });
     const res = await status(ownToken, clientId);

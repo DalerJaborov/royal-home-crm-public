@@ -290,13 +290,17 @@ export async function ensureConversationId(
 }
 
 export async function upsertYouTubeCommentArchive(subscriberId: string, name?: string) {
-  const where = { channel_subscriberId: { channel: "YOUTUBE", subscriberId } };
+  // (channel, subscriberId) stays unique outside WhatsApp (partial unique index,
+  // migration 20261126190000): a racing second create fails P2002 and retries below.
+  const where = { channel: "YOUTUBE", subscriberId };
   const readArchive = async (create: boolean) => prisma.$transaction(async tx => {
     const include = { endpointScope: { select: { kind: true } } } as const;
-    const row = create ? await tx.botConversation.upsert({ where, include,
-      create: { channel: "YOUTUBE", subscriberId, name, messages: [], leadDraft: { stage: "chatting" } },
-      update: name ? { name } : {},
-    }) : await tx.botConversation.findUniqueOrThrow({ where, include });
+    const found = await tx.botConversation.findFirst({ where, include });
+    const row = found
+      ? (create && name ? await tx.botConversation.update({ where: { id: found.id }, data: { name }, include }) : found)
+      : create ? await tx.botConversation.create({ include,
+        data: { channel: "YOUTUBE", subscriberId, name, messages: [], leadDraft: { stage: "chatting" } } })
+      : await tx.botConversation.findFirstOrThrow({ where, include });
     // The expansion migration attaches only a LEGACY_UNKNOWN scope/HOLD state
     // to archival rows. Never adopt a configured Meta binding as an archive.
     if (row.accountId !== null || row.endpointScope?.kind !== "LEGACY_UNKNOWN") throw new CustomerScopeDenied("scope_unknown");

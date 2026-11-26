@@ -2244,8 +2244,6 @@
   - если !calledBackIds.has(call.id)
     - missingCallbackById.set(call.id, true);
       · дословно из кода
-- const safeItems = items.map((call)
-  · зовёт clientPhoneFor()
 - res.json({ items: safeItems, total, periodTotal, missed, unqualified, page, pageSize: PAGE_SIZE, days });
   · ответ 200
 
@@ -20346,7 +20344,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
+    - const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };

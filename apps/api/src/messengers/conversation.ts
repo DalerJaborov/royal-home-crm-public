@@ -136,7 +136,7 @@ import {
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { clientMeansHousingDeal } from "../ai/housingIntent.js";
-import { botAskedQuestion, isAckOnlyMessage, isThanksOnlyMessage } from "../ai/ackOnly.js";
+import { ackReactionTurn, lastBotSpeech } from "../ai/ackTurnDoor.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
@@ -2688,8 +2688,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * и теперь он благодарит СНОВА. Первое «спасибо» в разговоре под условие не
    * подпадает и получает обычный ответ модели, как раньше. Реакция вместо
    * текста — тот же приём, что и на голую «🔥» (reactionOnly в webhooks.ts):
-   * WhatsApp получает настоящую реакцию, Instagram/Messenger — короткий
-   * смайлик отдельным сообщением.
+   * настоящая реакция на сообщение клиента во всех каналах Meta (26.11.2026);
+   * не поставилась — тишина, отдельного сообщения-смайлика больше нет.
    */
   const lastUserEntry = [...history].reverse().find((m) => m.role === "user");
   const alreadyThanked = !!lastUserEntry && isClosingMessage(lastUserEntry.content);
@@ -2714,14 +2714,11 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * весь блок вакансии заново). Только благодарность, без «да»/«ок»: «ок» на вопрос
    * остаётся ответом и идёт обычным ходом.
    */
-  const jobThanks = (conversation.adTopic === "job" || draft.intent === "job") && isThanksOnlyMessage(text);
-  const ackOnly =
-    botSpeaks &&
-    !!lastBotEntry &&
-    images.length === 0 &&
-    saved.length === 0 &&
-    isAckOnlyMessage(text) &&
-    (!botAskedQuestion(lastBotEntry.content) || jobThanks);
+  // Одна дверь (ai/ackTurnDoor.ts, 26.11.2026): прощание — реакция и после вопроса бота, «спасибо» после вопроса — только в
+  // разговоре о вакансии; «ок / спасибо» на вопрос или предложение бота — ответ, обычный ход. Ядро и Telegram — тем же кодом.
+  const botLine = lastBotSpeech(history);
+  const ackOnly = botSpeaks && ackReactionTurn({ text, hasMedia: images.length > 0 || saved.length > 0, lastBotText: botLine?.text,
+    lastBotAt: botLine?.at, jobTopic: conversation.adTopic === "job" || draft.intent === "job" });
   if (ackOnly) {
     guardFired("ack_only");
     await saveIncoming(historyText);

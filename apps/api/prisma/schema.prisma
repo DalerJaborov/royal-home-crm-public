@@ -4627,7 +4627,9 @@ model MessengerAccount {
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())
-  /// Gate A keeps the legacy global unique; scoped cutover is a later release.
+  /// Область нашего номера/аккаунта. В WhatsApp — ключ переписки вместе с subscriberId
+  /// (своя переписка на каждый наш номер, 26.11.2026); в остальных каналах
+  /// (channel, subscriberId) по-прежнему уникален (частичный индекс).
   endpointScopeId String?
   endpointScope CustomerEndpointScope? @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict)
   customerInquiry CustomerInquiry?
@@ -4887,7 +4889,14 @@ model BotConversation {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
-  @@unique([channel, subscriberId])
+  /// Уникальность (channel, subscriberId) живёт частичным индексом
+  /// "BotConversation_channel_subscriberId_non_whatsapp_key" (миграция
+  /// 20261126190000_whatsapp_chat_per_number): Instagram, Facebook, сайт, YouTube —
+  /// одна переписка на собеседника, как раньше. В WhatsApp собеседник — номер
+  /// телефона, и у КАЖДОГО нашего номера с ним своя переписка (владелец 26.11.2026):
+  /// там ключ — (endpointScopeId, subscriberId). Prisma частичных индексов не
+  /// описывает, поэтому здесь только обычный индекс для поиска.
+  @@index([channel, subscriberId])
   @@unique([endpointScopeId, subscriberId])
   /// Список отмеченных спамеров (для ручной блокировки сотрудником) — без индекса
   /// это полный проход по всем диалогам ради единиц отмеченных.
@@ -8807,7 +8816,10 @@ model ShownProperty {
   shortId     Int
   sentAt      DateTime @default(now())
 
-  @@unique([channel, recipientId, shortId])
+  /// (channel, recipientId, shortId) уникален частичным индексом вне WhatsApp
+  /// (миграция 20261126190000_whatsapp_chat_per_number): у WhatsApp своя переписка —
+  /// и свои отметки показов — на каждый наш номер, ключ там по области.
+  @@index([channel, recipientId, shortId])
   @@unique([endpointScopeId, recipientId, shortId])
   @@index([sentAt])
 }
@@ -9489,6 +9501,11 @@ model IncomingCall {
   /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
   /// решает lib/telephony/callSource.ts.
   source            String    @default("phone")
+  /// Наш номер WhatsApp (phone_number_id у Meta), на который звонили, — если это НЕ
+  /// основной номер (26.11.2026, второй — «Арван»). Шлюз набирает станцию этим id
+  /// вместо городского номера; бренд — из строки канала с тем же externalId
+  /// (messengers/accounts.ts::whatsappLineBrand). null — основной номер или линия.
+  waPhoneNumberId   String?
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди
@@ -10425,7 +10442,11 @@ model OutboundShieldState {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([channel, subscriberId])
+  /// (channel, subscriberId) уникален частичными индексами (миграция
+  /// 20261126190000_whatsapp_chat_per_number): вне WhatsApp — как раньше; строки без
+  /// области — для ON CONFLICT старого пути. WhatsApp с областью — по
+  /// (endpointScopeId, subscriberId): у каждого нашего номера свой счётчик щита.
+  @@index([channel, subscriberId])
   @@unique([endpointScopeId, subscriberId])
   @@index([pausedUntil])
 }
