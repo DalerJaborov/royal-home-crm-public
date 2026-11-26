@@ -136,6 +136,9 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     // Ролик от сотрудника (12.11.2026): ожидания «к какому объекту» нет, видео нет.
     "./staffClip.js": { handleStaffClipText: async () => false, handleStaffClipMessage: async () => false },
     "./staffSocialPost.js": { handleStaffSocialText: async () => false, handleStaffSocialPhoto: async () => false },
+    // Видео без дела (26.11.2026): здесь видео нет — ответ не нужен.
+    "./bareVideoReply.js": { bareVideoReason: () => null, bareVideoReplyText: () => "" },
+    "../lib/videoFileExtension.js": { isVideoDocument: () => false },
     // «Не присылай мне такое» (11.11.2026): фраза не про это — сообщение идёт дальше.
     "./staffNotice.js": { handleNoticePreferenceText: async () => false },
     "../lib/describeError.js": { describeError: (error: unknown) => String(error) },

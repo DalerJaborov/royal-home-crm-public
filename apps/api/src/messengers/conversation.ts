@@ -34,7 +34,7 @@ export { ensureConversationId, markLastReplyUndelivered, markMessageDeliveryStat
 import { appendConversationMessages } from "./appendMessages.js";
 import { batchWindowFor, debounceAndMerge as debounceBufferAndMerge, quickRepeatMergeEnabled, takeStuckBuffers } from "./debounceBuffer.js";
 import { claimUnreadablePhoneAsk } from "./phoneRetryClaim.js";
-import { CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
+import { BARE_ATTACHMENT_MARKER, CLIENT_KIND_LABELS, CLIENT_SOURCES, formatClientCode, type ClientSource } from "@royal-home/shared";
 import { clientSelfStatedName, normalizeClientName } from "../ai/replyGuards.js";
 import { FALLBACK_VOICE, finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreReply, lastClientWords, phoneSaidInDialog, recentBotText } from "./replyChain.js";
 import { repeatBlockedTexts } from "../lib/outboundShield.js";
@@ -110,7 +110,7 @@ import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
 import { rememberConversationShowingRequest } from "../lib/buyerShowingCandidates.js";
 import { recordConversationNamedRequest } from "../lib/clientWorkflowObservations.js";
-import { fetchAttachments, storeFetchedAttachments, type AttachmentSource, type FetchedImage } from "./attachments.js";
+import { fetchAttachments, lostAfterStore, storeFetchedAttachments, type AttachmentSource, type FetchedImage } from "./attachments.js";
 import { resolveIncomingAccount } from "./accounts.js";
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { synthesizeChatVoiceReply, pcmToWavBuffer } from "../ai/tts.js";
@@ -2295,6 +2295,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // Сохранённые у нас файлы — чтобы фото и голосовые были видны в переписке CRM,
   // а не одной пометкой «[вложение: image]».
   const saved: StoredAttachment[] = [];
+  // Что клиент прислал, а сохранить не вышло, — с причиной (26.11.2026): раньше в переписке оставалось
+  // «[📎 файл не открылся]» или голое «[вложение: image]», и сотрудник не знал, ни почему, ни что это было.
+  const lostNotes: Array<{ kind: "image" | "audio" | "video" | "file"; reason: string }> = [...(input.attachmentsLostBefore ?? [])];
   if (input.attachments && input.attachments.length > 0) {
     // Качаем ДАЖЕ когда бот молчит (пауза или выключен рубильник): именно тогда диалог
     // ведёт живой сотрудник, и фото клиента нужны ему больше всего. Дорогая часть
@@ -2310,6 +2313,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // того, работает ли бот. Функция общая с Telegram (messengers/attachments.ts) —
     // здесь лежала её точная копия, и разойтись эти два места обязаны были.
     saved.push(...(await storeFetchedAttachments(fetched)));
+    // Пометки — только когда все вложения хода от самого клиента: по отказу нельзя отличить его файл от кадра истории.
+    if (input.clientAttachmentCount === undefined || input.attachments.length === input.clientAttachmentCount) {
+      lostNotes.push(...lostAfterStore(fetched, saved.length));
+    }
     const transcriptionOn = botSpeaks && (await isTranscriptionEnabled());
     const transcripts = await Promise.all(
       fetched.audios.map((audio) =>
@@ -2404,6 +2411,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     at: contactReceivedAt.toISOString(),
     ...(input.fromStaff ? { by: { kind: "manual" as const } } : {}),
     ...(saved.length > 0 ? { attachments: saved } : {}),
+    ...(lostNotes.length > 0 && !input.fromStaff ? { attachmentsLost: lostNotes } : {}),
     ...(turnMid ? { mid: turnMid } : {}),
     ...(turnReplyToMid ? { replyToMid: turnReplyToMid } : {}),
   });
@@ -2415,7 +2423,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * запись нельзя: без реплики-носителя вложение не к чему привязать, и голосовое
    * просто не появилось бы в переписке.
    */
-  const historyText = text || (saved.length > 0 ? (saved.some((a) => a.kind === "audio") ? "[🎤]" : "[📎]") : "");
+  const historyText = text || (saved.length > 0 ? (saved.some((a) => a.kind === "audio") ? "[🎤]" : "[📎]") : lostNotes.length > 0 ? BARE_ATTACHMENT_MARKER : "");
 
 
   /** Что saveIncoming записал последним — по нему ниже узнаём свою реплику в

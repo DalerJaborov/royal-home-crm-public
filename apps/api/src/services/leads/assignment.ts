@@ -284,6 +284,10 @@ async function pickByShownProperty(
   const exposures = await prisma.propertyExposure.findMany({
     where: {
       sentAt: { gte: since },
+      // Ручной показ без карточки (агент отправил объект собеседнику сам) хозяину заявку не приносит,
+      // пока показ не привязан к карточке (linkExposuresToClient).
+      // (source = NULL надо назвать явно: SQL «NULL <> x» не истина, и показы бота выпали бы вместе с ручными.)
+      AND: [{ OR: [{ source: null }, { source: { not: "MANUAL_NO_CARD" } }, { clientId: { not: null } }] }],
       ...(ctx.endpointScopeId ? { endpointScopeId: ctx.endpointScopeId } : {}),
       // Клиент И переписка: показы этой переписки могли остаться непривязанными
       // (карточка появилась позже), а к карточке могли прийти показы из другого

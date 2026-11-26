@@ -23,6 +23,7 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { scrubMentionedClientPhonesInText } from "./clientPhoneMasking.js";
 import { publishMessageNew } from "./livePublish.js";
+import { insertSettlementPlaceholder, keepIngressMediaInBackground } from "./customerInputMedia.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
@@ -40,6 +41,7 @@ const CHANNEL_NAME: Record<string, string> = { INSTAGRAM: "Instagram", FACEBOOK:
 const REASON_TEXT: Record<string, string> = {
   owned_subject_stopped: "новый бот выключен, а переписка закреплена за ним",
   historical_subject_owned_or_closed: "переписка по старой записи закреплена за новым ботом",
+  whatsapp_peer_on_other_number: "клиент написал на второй номер WhatsApp, а его переписка уже идёт с другого нашего номера",
 };
 /** A turn that has a text but no answer: the same words for the staff push. */
 const UNANSWERED_REASON_TEXT: Record<string, string> = {
@@ -55,6 +57,14 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
+/** customerAgentEnrollment.ts: a WhatsApp customer wrote to our other number while their chat lives on the first one. */
+const WHATSAPP_OTHER_NUMBER = "whatsapp_peer_on_other_number";
+
+async function existingWhatsappChat(tx: Pick<import("../db.js").TxClient, "$queryRaw">, peer: string): Promise<{ id: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "BotConversation"
+    WHERE "channel"='WHATSAPP' AND "subscriberId"=${peer} LIMIT 2`;
+  return rows.length === 1 ? rows[0] : null;
+}
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
 
 function contentOf(input: CustomerNormalizedIngressInput): string {
@@ -72,9 +82,14 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
   const raw = contentOf(input);
   try {
     const recorded = await prisma.$transaction(async tx => {
+      // The person already talks to us on our OTHER WhatsApp number (26.11.2026): their one CRM chat is that one. A chat
+      // in this number's scope cannot exist next to it (global unique channel+peer), so the text goes where staff already
+      // read this person. No chat at all (deleted meanwhile) falls through to the ordinary path below.
+      const otherNumberChat = hold.reason === WHATSAPP_OTHER_NUMBER && input.channel === "WHATSAPP"
+        ? await existingWhatsappChat(tx, input.peer) : null;
       // A chat staff deleted is not resurrected by a held message (13.11.2026):
       // its inquiry/ticket keep the tombstone (conversationId set to NULL).
-      if (!await findScopedBotConversation({ channel: input.channel, subscriberId: input.peer, transport }, tx)) {
+      if (!otherNumberChat && !await findScopedBotConversation({ channel: input.channel, subscriberId: input.peer, transport }, tx)) {
         const scopeKey = customerPropertyScopeKey(input.channel, input.peer, transport.accountId, transport.endpointScopeId);
         const [gone] = await tx.$queryRaw<Array<{ deleted: boolean }>>`SELECT
           EXISTS(SELECT 1 FROM "CustomerInquiry" WHERE "endpointScopeId"=${transport.endpointScopeId} AND "peerId"=${input.peer}
@@ -83,7 +98,7 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
             AND "originalConversationId" IS NOT NULL AND "conversationId" IS NULL) AS "deleted"`;
         if (gone?.deleted) return null;
       }
-      const native = await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport });
+      const native = otherNumberChat ?? await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport });
       // Row lock: two deliveries of the same MID must not both append.
       const [row] = await tx.$queryRaw<Array<{ clientId: string | null; present: boolean }>>`SELECT "clientId",
         "messages" @> ${JSON.stringify([{ mid: input.eventId }])}::jsonb AS "present"
@@ -94,6 +109,9 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
         const message: ChatMessage = { role: "user", content, mid: input.eventId, heldRouting: true,
           ...(input.providerOccurredAt ? { at: new Date(input.providerOccurredAt).toISOString() } : {}) };
         await appendConversationMessagesInTransaction(tx, native.id, [message]);
+        // Файл скачивается после коммита: заявка в этой же транзакции (обрыв даст пометку, а не пустоту).
+        if (input.media.length) await insertSettlementPlaceholder(tx, { channel: input.channel, peer: input.peer, mid: input.eventId,
+          media: input.media, kinds: input.observations.classifier?.mediaKinds });
         // Unread for staff, same guard as the legacy controller: never wake a
         // sleeping debounce winner of the old bot.
         await tx.$executeRaw`UPDATE "BotConversation" SET "lastMessageAt"=now() WHERE "id"=${native.id}
@@ -102,7 +120,13 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
       return { conversationId: native.id, fresh: !row.present, content };
     }, { maxWait: 5000, timeout: 10000 });
     if (!recorded) return { ...base, conversationId: null, excerpt: "", unrecorded: "chat_deleted" };
-    if (recorded.fresh) void publishMessageNew("bot", recorded.conversationId, "IN");
+    if (recorded.fresh) {
+      void publishMessageNew("bot", recorded.conversationId, "IN");
+      // Бот не отвечает, а файл клиента сотруднику нужен больше всего: сохраняем сразу, пока ссылка Meta жива (26.11.2026).
+      if (input.media.length) keepIngressMediaInBackground({ channel: input.channel, peer: input.peer, mid: input.eventId,
+        ...(input.accountExternalId ? { accountExternalId: input.accountExternalId } : {}),
+        media: input.media, kinds: input.observations.classifier?.mediaKinds });
+    }
     return { ...base, conversationId: recorded.conversationId, excerpt: recorded.content.slice(0, 160) };
   } catch (error) {
     if (error instanceof CustomerScopeDenied) {

@@ -151,7 +151,10 @@ function makeField(kind: RuFieldKind) {
             maxWidth: "100%", display: "flex", alignItems: "center",
             justifyContent: centered ? "center" : "flex-start", boxSizing: "border-box",
             visibility: revealed ? "hidden" : "visible", opacity: rest.disabled ? 0.55 : undefined,
-            paddingLeft: look?.paddingLeft, paddingRight: look?.paddingRight, font: look?.font,
+            paddingLeft: look?.paddingLeft,
+            // Родной значок календаря/часов рисует сам input в своём правом отступе; подпись лежит поверх него
+            // и без запаса на значок наезжала на него в узких полях (деньги на 320: «Ноябрь 2026» + значок).
+            paddingRight: look ? `calc(${look.paddingRight} + ${PICKER_ICON_RESERVE}px)` : undefined, font: look?.font,
             pointerEvents: "none", zIndex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", minWidth: 0,
             color: empty ? "var(--rh-ui-hint, var(--muted))" : "var(--rh-ui-text, var(--ink, currentColor))",
           }}
@@ -164,6 +167,9 @@ function makeField(kind: RuFieldKind) {
   Field.displayName = `Ru${kind === "datetime-local" ? "DateTime" : kind[0]!.toUpperCase() + kind.slice(1)}Field`;
   return Field;
 }
+
+/** Ширина родного значка выбора даты/времени, которую подпись-наложение обязана оставить свободной. */
+export const PICKER_ICON_RESERVE = 24;
 
 export const RuDateField = makeField("date");
 export const RuMonthField = makeField("month");

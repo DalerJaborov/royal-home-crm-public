@@ -519,6 +519,18 @@ export async function accountTokenById(accountId: string | null | undefined, cha
   return { id: row.id, title: row.title, token: decryptSecretSafe(row.token) || undefined, disabled: !row.enabled };
 }
 
+/** Pure rule of saveAccount: an explicit choice wins; otherwise only the channel's sole row, and never next to Settings. */
+export function accountBecomesDefault(input: { explicit: boolean | undefined; rowsInChannel: number; installedInSettings: boolean }): boolean {
+  return input.explicit ?? (input.rowsInChannel === 1 && !input.installedInSettings);
+}
+
+/** WhatsApp number / Facebook Page that answers through Settings (resource + token), not through a row. */
+async function channelInstalledInSettings(channel: string): Promise<boolean> {
+  if (channel !== "WHATSAPP" && channel !== "FACEBOOK") return false;
+  const c = await loadCredentials();
+  return channel === "WHATSAPP" ? !!(c.waPhoneId && c.waToken) : !!(c.pageId && c.pageToken);
+}
+
 /** Маркер из старых одиночных полей Settings — путь совместимости. */
 async function legacyToken(channel: string): Promise<string | undefined> {
   const config = await loadCredentials();
@@ -618,6 +630,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
       ? undefined
       : Array.from(new Set(input.extraExternalIds.map((v) => v.trim()).filter(Boolean)));
 
+  const installedInSettings = input.isDefault === undefined && await channelInstalledInSettings(input.channel);
   const id = await prisma.$transaction(async (tx) => {
     const saved = input.id
       ? await tx.messengerAccount.update({
@@ -658,7 +671,12 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
           },
         });
 
-    const shouldBeDefault = input.isDefault ?? (await tx.messengerAccount.count({ where: { channel: input.channel } })) === 1;
+    // The first row of a channel becomes «по умолчанию» by itself — EXCEPT WhatsApp/Facebook whose main number/Page still
+    // answers through Settings (26.11.2026): a default row takes over every reply without a recipient (old chats with
+    // accountId = null, resolveIncomingAccount), so Royal Home customers would be answered from Arvan's number. The
+    // Facebook-login doors already pass `false` (metaWhatsappConnect.ts, metaPageConnect.ts); Settings → Channels did not.
+    const shouldBeDefault = accountBecomesDefault({ explicit: input.isDefault, installedInSettings,
+      rowsInChannel: input.isDefault === undefined ? await tx.messengerAccount.count({ where: { channel: input.channel } }) : 0 });
     if (shouldBeDefault) {
       await tx.messengerAccount.updateMany({
         where: { channel: input.channel, id: { not: saved.id } },

@@ -25,6 +25,7 @@ import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoff
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
+import { runChannelVolumeWatchTick } from "./lib/channelVolumeWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
@@ -109,7 +110,7 @@ import { pruneWhisperClips } from "./lib/telephony/whisperClips.js";
 import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js";
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
 import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
-import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
+import { cleanupStalePendingCustomerMedia, settleStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupOrphanUploadDirs, cleanupStaleVideoUploadSessions, notifyAbandonedChunkedUpload } from "./lib/videoUploadCleanup.js";
@@ -694,6 +695,21 @@ export function startCronJobs() {
    *  найдено 19.08.2026 — владелец пожаловался на пустую переписку у диалога,
    *  который в списке выглядел живым). Каждые 5 минут, тик дешёвый (пустая
    *  выборка почти всегда). */
+  /** Файлы клиентов, которые так и не докачались после записи реплики (обрыв, рестарт, долгая очередь):
+   *  пометка «не скачалось» на реплике вместо пустоты (lib/customerInputMedia.ts, ревью #465). */
+  let isMediaSettleRunning = false;
+  scheduleTracked("customer-media-settle", "*/5 * * * *", async () => {
+    if (isMediaSettleRunning) return;
+    isMediaSettleRunning = true;
+    try {
+      await settleStalePendingCustomerMedia();
+    } catch (err) {
+      reportCronTickError("Ошибка сверки файлов клиентов", err);
+    } finally {
+      isMediaSettleRunning = false;
+    }
+  });
+
   scheduleTracked("stuck-pending-messages", "*/5 * * * *", async () => {
     try {
       const recovered = await recoverStuckPendingMessages();
@@ -2684,6 +2700,16 @@ export function startCronJobs() {
       }
     } catch (err) {
       reportCronTickError("Ошибка «бот на паузе и забыли»", err);
+    }
+  });
+
+  /** Канал затих: новых диалогов в Instagram/Facebook/WhatsApp намного меньше обычного (24.11.2026, lib/channelVolumeWatch.ts). */
+  scheduleTracked("channel-volume-watch", "40 * * * *", async () => {
+    try {
+      const { alerted } = await runChannelVolumeWatchTick();
+      if (alerted.length > 0) console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «канал затих»", err);
     }
   });
 

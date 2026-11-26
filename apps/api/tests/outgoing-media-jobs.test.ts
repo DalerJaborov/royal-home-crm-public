@@ -285,6 +285,39 @@ describe("надёжность", () => {
     expect(sendVideo).toHaveBeenCalledTimes(1);
   }, 120_000);
 
+  it("«Повторить», нажатое пока прошлое задание очереди ещё дописывает сбой (RUNNING), не теряется (охота 26.11)", async () => {
+    // FAILED появляется в базе посреди обработчика (failDefinitely), а задание очереди остаётся RUNNING,
+    // пока уходит пуш сотруднику. Экран уже показал «Повторить» — нажатие в эти секунды ставило задание
+    // с тем же ключом повтора: очередь молча считала его дублем, строка висела QUEUED навсегда.
+    const conv = await waConversation();
+    uploadOutgoingMedia.mockRejectedValueOnce(new Error("R2 down"));
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const jobId = accepted.body.jobId as string;
+    await runQueuedJob(jobId);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("FAILED");
+    // Прошлое задание очереди «ещё не вернулось из обработчика».
+    const old = await prisma.backgroundJob.findFirstOrThrow({
+      where: { payload: { path: ["mediaJobId"], equals: jobId } },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.backgroundJob.update({
+      where: { id: old.id },
+      data: { status: "RUNNING", dedupeKey: `outgoing-media:${jobId}`, lockedAt: new Date(), lockedBy: "test-still-running" },
+    });
+    try {
+      expect((await jobs.retryOutgoingMediaJob(jobId, agentId)).status).toBe(202);
+      const pending = await prisma.backgroundJob.count({
+        where: { payload: { path: ["mediaJobId"], equals: jobId }, status: "PENDING" },
+      });
+      expect(pending).toBe(1);
+      await runQueuedJob(jobId);
+      expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("SENT");
+      expect(sendVideo).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.backgroundJob.update({ where: { id: old.id }, data: { status: "DONE", dedupeKey: null, lockedAt: null, lockedBy: null } });
+    }
+  }, 120_000);
+
   it("видео не помещается даже в нижнем качестве — честная ссылка и пометка сотруднику", async () => {
     const conv = await waConversation();
     const saved = { ...META_OUTGOING_MEDIA_LIMITS.WHATSAPP };
@@ -475,6 +508,74 @@ describe("уборка спула", () => {
     expect((await jobs.sweepOutgoingMediaSpool()).stuck).toBe(0);
     await prisma.outgoingMediaJob.update({ where: { id: accepted.body.jobId as string }, data: { status: "CANCELLED" } });
   });
+});
+
+describe("срок паузы бота, который сотрудник выбрал при отправке (владелец 26.11.2026)", () => {
+  const pauseRow = async (conv: string) =>
+    prisma.botConversation.findUniqueOrThrow({ where: { id: conv }, select: { pausedUntil: true, botPausedAt: true } });
+  const minutesAhead = (d: Date | null) => Math.round(((d?.getTime() ?? 0) - Date.now()) / 60_000);
+  const graphError = (status: number) =>
+    new MetaGraphCallError(`Graph API HTTP ${status}: {"error":{"message":"x"}}`, {
+      status, code: null, subcode: null, type: null, fbtraceId: null, message: "x",
+    });
+
+  it("при приёме встаёт выбранный срок (час), а не умолчание сервера (10 минут), и он записан в задание", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4"), pauseMinutes: 60 });
+    expect(accepted.status).toBe(202);
+    const row = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: accepted.body.jobId as string } });
+    expect(row.pauseMinutes).toBe(60);
+    const ahead = minutesAhead((await pauseRow(conv)).pausedUntil);
+    expect(ahead).toBeGreaterThanOrEqual(59);
+    expect(ahead).toBeLessThanOrEqual(61);
+    await prisma.outgoingMediaJob.update({ where: { id: row.id }, data: { status: "CANCELLED" } });
+  });
+
+  it("без выбранного срока поле пустое, пауза — умолчание сервера (как было)", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4") });
+    const row = await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: accepted.body.jobId as string } });
+    expect(row.pauseMinutes).toBeNull();
+    await prisma.outgoingMediaJob.update({ where: { id: row.id }, data: { status: "CANCELLED" } });
+  });
+
+  it("продление перед отправкой держит выбранный час и не раздувает его до умолчания сервера", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4"), pauseMinutes: 60 });
+    // Пока файл сжимался, пауза приёма истекла — продление обязано дать час, а не 10 лет и не 10 минут.
+    await prisma.botConversation.update({ where: { id: conv }, data: { pausedUntil: new Date(Date.now() - 60_000) } });
+    await runQueuedJob(accepted.body.jobId as string);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: accepted.body.jobId as string } })).status).toBe("SENT");
+    const ahead = minutesAhead((await pauseRow(conv)).pausedUntil);
+    expect(ahead).toBeGreaterThanOrEqual(59);
+    expect(ahead).toBeLessThanOrEqual(61);
+  }, 60_000);
+
+  it("выбранный срок не затирает более длинную паузу человека, поставленную после приёма", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4"), pauseMinutes: 60 });
+    const human = new Date(Date.now() + 3 * 3600_000);
+    await prisma.botConversation.update({ where: { id: conv }, data: { pausedUntil: human, botPausedAt: new Date() } });
+    await runQueuedJob(accepted.body.jobId as string);
+    expect((await pauseRow(conv)).pausedUntil?.getTime()).toBe(human.getTime());
+  }, 60_000);
+
+  it("заведомый отказ канала откатывает выбранную паузу, «Повторить» ставит тот же срок заново", async () => {
+    const conv = await waConversation();
+    const accepted = await jobs.enqueueOutgoingMedia({ agentId, conversationId: conv, file: upload("long.mp4"), pauseMinutes: 60 });
+    const jobId = accepted.body.jobId as string;
+    sendVideo.mockRejectedValueOnce(graphError(400));
+    await runQueuedJob(jobId);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("FAILED");
+    expect((await pauseRow(conv)).pausedUntil).toBeNull();
+    const retry = await jobs.retryOutgoingMediaJob(jobId, agentId);
+    expect(retry.status).toBe(202);
+    const ahead = minutesAhead((await pauseRow(conv)).pausedUntil);
+    expect(ahead).toBeGreaterThanOrEqual(59);
+    expect(ahead).toBeLessThanOrEqual(61);
+    await runQueuedJob(jobId);
+    expect((await prisma.outgoingMediaJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe("SENT");
+  }, 90_000);
 });
 
 describe("правки ревью 26.11: пауза, дубль исполнителя, заведомый отказ", () => {

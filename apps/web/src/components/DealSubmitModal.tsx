@@ -113,6 +113,12 @@ export function DealSubmitModal({
       closeOnBackdrop={false}
       onSubmit={async () => {
         if (!valid || busy) return;
+        // Без сети запрос не уйдёт, а кнопка зависла бы на «Сохраняю…» до возвращения связи:
+        // говорим причину сразу, суммы остаются в полях.
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          setError("Нет связи с интернетом. Суммы не отправлены, проверьте сеть и нажмите ещё раз.");
+          return;
+        }
         setBusy(true);
         setError(null);
         try {
@@ -200,6 +206,15 @@ export function DealSubmitModal({
       {total > 0 && (
         <p className="state">
           Итого комиссии: <span className="money">{total.toLocaleString("ru-RU")}<span className="cur">{currency}</span></span>
+        </p>
+      )}
+      {/* Серая кнопка без объяснения была ловушкой: в полях стоит бледный «0», и кажется, что
+          пустое поле — это ноль. Пустая комиссия не принимается (суммы вписываются руками),
+          поэтому прямо говорим, что делать. */}
+      {!commissionExceedsPrice && nums.soldPrice > 0 && (realtor.trim() === "" || company.trim() === "") && (
+        <p className="quiet" data-testid="deal-commission-hint">
+          <span className="dot" />
+          <span className="txt">Впишите обе суммы комиссии: если доли нет, поставьте 0.</span>
         </p>
       )}
       {commissionExceedsPrice && (

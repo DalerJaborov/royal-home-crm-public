@@ -145,20 +145,24 @@ describe("Действующая пауза бота не укорачивает
     expect(saved!.pausedUntil!.getTime()).toBe(expired.getTime());
   });
 
-  it("явный срок, выбранный человеком, по-прежнему укорачивает паузу", async () => {
-    const { c } = await makePausedConversation();
+  it("явный срок, выбранный человеком, укорачивает ЕГО ЖЕ паузу; чужую более длинную — нет (ревью PR #463, 26.11.2026)", async () => {
+    const { c, long } = await makePausedConversation();
     const hour = new Date(Date.now() + 60 * 60 * 1000);
+    const target = { kind: "bot" as const, id: c.id, channel: c.channel, subscriberId: c.subscriberId, accountId: fixture.id, transport: fixture.transport };
 
-    const result = await deliverToConversation(
-      { kind: "bot", id: c.id, channel: c.channel, subscriberId: c.subscriberId, accountId: fixture.id, transport: fixture.transport },
-      "Верну бота через час",
-      hour,
-      { sender: { kind: "agent", agentId: "agent-x", agentName: "Агент" } }
-    );
+    // Пауза поставлена не агентом-x (директор, бот, кнопка «Пауза») — час её не укорачивает.
+    const foreign = await deliverToConversation(target, "Верну бота через час", hour,
+      { sender: { kind: "agent", agentId: "agent-x", agentName: "Агент" } });
+    expect(foreign.ok).toBe(true);
+    expect((await savedPause(c.id))!.pausedUntil!.getTime()).toBe(long.getTime());
 
-    expect(result.ok).toBe(true);
-    const saved = await savedPause(c.id);
-    expect(saved!.pausedUntil!.getTime()).toBe(hour.getTime());
+    // Агент-x сам поставил паузу «бессрочно» — свою он меняет как выбрал.
+    await prisma.botConversation.update({ where: { id: c.id }, data: { pausedUntil: null, botPausedAt: null } });
+    await deliverToConversation(target, "Беру диалог", long, { sender: { kind: "agent", agentId: "agent-x", agentName: "Агент" } });
+    const own = await deliverToConversation(target, "Верну бота через час", hour,
+      { sender: { kind: "agent", agentId: "agent-x", agentName: "Агент" } });
+    expect(own.ok).toBe(true);
+    expect((await savedPause(c.id))!.pausedUntil!.getTime()).toBe(hour.getTime());
   });
 
   it("Telegram: срок по умолчанию не укорачивает действующую паузу", async () => {

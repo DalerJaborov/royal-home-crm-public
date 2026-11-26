@@ -38,6 +38,8 @@ import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import { videoHandoffDir } from "../upload.js";
+import { isVideoDocument } from "../lib/videoFileExtension.js";
+import { albumCaption } from "./videoBatch.js";
 import { fileObjectNumber, textObjectNumbers, recognizeClipProperty, describeCandidate, type ClipRecognition } from "../lib/clipPropertyRecognition.js";
 import { transcribeClipSpeech } from "./staffClipSpeech.js";
 import { runInline, socialPublishGate, startVideoPostFromClip, wantsNoProperty, type DeferWork } from "./staffSocialPost.js";
@@ -71,7 +73,7 @@ async function actorFor(agentId: string, fullName: string): Promise<Actor | null
 const canManage = (actor: Actor, p: PropertyRef) => !p.deletedAt && canManagePropertyAs({ agentId: actor.id, can: actor.can }, p);
 
 function incomingClip(msg: TelegramIncomingMessage): { fileId: string; fileUniqueId: string | null; filename: string; size: number | null } | null {
-  const doc = msg.document && (msg.document.mime_type?.startsWith("video/") || /\.(?:mov|mp4|m4v|mkv|webm)$/iu.test(msg.document.file_name ?? "")) ? msg.document : undefined;
+  const doc = isVideoDocument(msg.document) ? msg.document : undefined;
   if (doc) return { fileId: doc.file_id, fileUniqueId: doc.file_unique_id ?? null, filename: doc.file_name ?? "video.mp4", size: doc.file_size ?? null };
   const video = msg.video as (typeof msg.video & { file_unique_id?: string; file_name?: string }) | undefined;
   if (video) return { fileId: video.file_id, fileUniqueId: video.file_unique_id ?? null, filename: video.file_name ?? `video-${msg.message_id}.mp4`, size: video.file_size ?? null };
@@ -205,7 +207,7 @@ export async function handleStaffClipMessage(msg: TelegramIncomingMessage, agent
       return true;
     }
   }
-  const caption = msg.caption ?? null;
+  const caption = albumCaption(chatId, msg.media_group_id, msg.caption);
   const intake = await prisma.staffClipIntake.create({ data: {
     chatId, agentId: agent.id, fileId: clip.fileId, fileUniqueId: clip.fileUniqueId, filename: clip.filename, caption, sizeBytes: clip.size,
     expiresAt: new Date(Date.now() + STAFF_CLIP_DECISION_TTL_MS),

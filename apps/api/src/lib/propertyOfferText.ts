@@ -55,3 +55,38 @@ export function buildPropertyOfferText(properties: OfferableProperty[], language
   );
   return `${many ? heading.many : heading.one}\n\n${lines.join("\n\n")}`;
 }
+
+export interface PropertyCardItem {
+  shortId: number;
+  /** «2-комн» / «Дом» — собирает вызывающий из полей объекта, а не из названия: в названии бывает адрес и телефон. */
+  kind: string;
+  district?: string | null;
+  areaSqm?: number | null;
+  floor?: number | null;
+  totalFloors?: number | null;
+  price: string;
+  url: string;
+}
+
+const NL = String.fromCharCode(10);
+
+/**
+ * Короткая карточка объекта для сообщения клиенту (26.11.2026): тип, район, площадь,
+ * этаж, цена и личная ссылка. Названия и адреса здесь НЕТ нарочно: в названии бывает
+ * улица или телефон собственника, а клиенту до разговора нужен только общий вид объекта.
+ */
+export function buildPropertyCardsText(items: PropertyCardItem[], language: ClientLanguage, caption?: string): string {
+  const heading = HEADINGS[language === "tg" ? "tg" : "ru"];
+  const many = items.length > 1;
+  const lines = items.map((p, i) => {
+    const facts = [
+      p.kind,
+      p.district || null,
+      p.areaSqm ? `${Math.round(p.areaSqm)} м²` : null,
+      p.floor ? (p.totalFloors ? `${p.floor}/${p.totalFloors} этаж` : `${p.floor} этаж`) : null,
+    ].filter(Boolean).join(", ");
+    return [`${many ? `${i + 1}) ` : ""}№${p.shortId} — ${facts}`, p.price, p.url].join(NL);
+  });
+  const lead = caption?.trim() ? `${caption.trim()}${NL}${NL}` : "";
+  return `${lead}${many ? heading.many : heading.one}${NL}${NL}${lines.join(NL + NL)}`;
+}

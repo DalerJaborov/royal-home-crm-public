@@ -366,7 +366,9 @@ async function decide(call: {
   }
 
   const transcript = call.interactionId ? await loadTranscript(call.interactionId) : null;
-  const extract = transcript ? await extractIncomingCallLead(transcript) : null;
+  // Числа словами — цифрами до модели только при рубильнике «Звонок по объекту — хозяину»
+  // (26.11.2026): выключен — текст уходит модели как до правки.
+  const extract = transcript ? await extractIncomingCallLead(transcript, await callLeadExtractOptions()) : null;
 
   /**
    * ЗВОНИЛ СОИСКАТЕЛЬ (Dan 02.10.2026) — анкета в «Вакансии», лида нет. Признак
@@ -563,7 +565,7 @@ async function candidateFromAssignedClientCall(call: {
   if (!(await automationSwitchOn("aiJobSeekerAutoDetachEnabled"))) return takeCandidate(call, null, transcript);
   // Здесь одних слов мало: снимать с агента живого клиента без подтверждения
   // модели нельзя. Модель не ответила — оставляем как было.
-  const extract = await extractIncomingCallLead(transcript!);
+  const extract = await extractIncomingCallLead(transcript!, await callLeadExtractOptions());
   if (!extract?.jobSeeker) return null;
   return takeCandidate(call, extract, transcript);
 }
@@ -669,4 +671,9 @@ async function listingPriceInTjs(price: number | null, currency: "TJS" | "USD" |
     void logSystemError("telephony", `Курс доллара не загрузился, цена объявления из звонка не сверяется: ${describeError(err)}`);
     return null;
   }
+}
+
+/** Настройки разбора расшифровки: перевод чисел словами — часть механизма callObjectToOwnerEnabled. */
+async function callLeadExtractOptions(): Promise<{ objectHints: boolean }> {
+  return { objectHints: await automationSwitchOn("callObjectToOwnerEnabled").catch(() => false) };
 }
