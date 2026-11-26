@@ -24,7 +24,9 @@ export type ServiceMarkerKind = "attachment" | "message";
 /** Это целиком служебная пометка бота? Фраза внутри живого текста клиента — нет. */
 export function serviceMarkerKind(text: string | null | undefined): ServiceMarkerKind | null {
   const bare = (text ?? "").trim();
-  if (bare === BARE_ATTACHMENT_MARKER) return "attachment";
+  // Старые пометки бота, которыми реплика-носитель файла писалась до 26.11.2026 («[📎 файл не открылся]» — бот не смог
+  // разобрать файл; «[📎]» — файл без подписи): в списке чатов они показывались как есть, скобками.
+  if (bare === BARE_ATTACHMENT_MARKER || bare === "[📎 файл не открылся]" || bare === "[📎]") return "attachment";
   if (bare === BARE_MESSAGE_MARKER) return "message";
   return null;
 }
@@ -70,7 +72,7 @@ export function describeForStaff(excerpt: string | null | undefined): string {
   const text = (excerpt ?? "").trim();
   if (!text) return NO_TEXT_NOTE;
   if (text === BARE_MESSAGE_MARKER) return "Сообщение без текста (реакция или место) — откройте чат";
-  if (text === BARE_ATTACHMENT_MARKER) return NO_TEXT_NOTE;
+  if (serviceMarkerKind(text) === "attachment") return NO_TEXT_NOTE;
   const kinds = /^\[вложение:\s*([^\]]+)\]$/u.exec(text);
   if (kinds) {
     const words = [...new Set(kinds[1].split(",").map((k) => KIND_WORD[k.trim().toLowerCase()] ?? "файл"))];

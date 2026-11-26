@@ -4414,6 +4414,9 @@ model TelegramConversation {
   /// (шаг 5 переноса, 10.09.2026): та же логика записи и то же назначение (список
   /// «бот на паузе больше суток» в инбоксе «Чаты»).
   botPausedAt   DateTime?
+  /// Кто поставил текущую паузу ответом из CRM: "<agentId>|<botPausedAt ISO>" (26.11.2026). Привязка к botPausedAt гасит запись сама,
+  /// когда паузу переписал кто-то другой (бот, щит, ручная «Пауза»): чужая пауза выбранным при ответе сроком не укорачивается.
+  botPausedBy   String?
   /// См. одноимённое поле BotConversation — Пачка 17, 12.09.2026, lib/botPauseWatch.ts.
   pauseAlertSentAt DateTime?
   /// Склейка быстрых сообщений (01.10.2026, находка №132) — тот же буфер окна
@@ -4746,6 +4749,8 @@ model BotConversation {
   /// (например, каждый новый ручной ответ) двигает «начало» вперёд — трактуется как
   /// «текущий», не «самый первый», эпизод паузы.
   botPausedAt        DateTime?
+  /// См. одноимённое поле TelegramConversation: "<agentId>|<botPausedAt ISO>" — кто поставил паузу ответом из CRM.
+  botPausedBy        String?
   /// Когда последний раз бот сам напомнил клиенту, что тот не ответил после
   /// ссылок на объекты (cron, см. cron.ts) — не даёт слать напоминание повторно
   /// на одно и то же молчание.
@@ -7470,6 +7475,9 @@ model Settings {
   /// Сервер сжимает фото и видео сотрудника под предел канала клиента и шлёт их в фоне (25.11.2026,
   /// lib/outgoingMediaJobs.ts). ВКЛ. Выключено — прежняя отправка как есть: видео больше предела уходит ссылкой.
   outgoingMediaCompressEnabled          Boolean @default(true)
+  /// Объект из чата уходит в ЛЮБУЮ переписку, в том числе без карточки клиента (26.11.2026, lib/conversationPropertySend.ts).
+  /// ВКЛ. Выключено — прежний отказ «сначала примите заявку»: отправка только клиенту с принятой карточкой.
+  sendPropertiesWithoutCardEnabled      Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -8834,6 +8842,8 @@ model PropertyExposure {
   /// PHOTO | LINK — отправили снимки или адрес карточки.
   kind        String
   sentAt      DateTime  @default(now())
+  /// Откуда показ: MANUAL_NO_CARD — агент отправил объект из чата собеседнику без карточки (26.11.2026). Пусто — показ бота или отправка клиенту с карточкой.
+  source      String?
 
   @@index([clientId, propertyId])
   @@index([channel, recipientId, sentAt])
@@ -12188,6 +12198,9 @@ model OutgoingMediaJob {
   retryable      Boolean   @default(true)
   /// Снимок паузы бота, поставленной при приёме (conversationDelivery.ts::placeQueuedMediaPause) — для отката.
   pauseUndo      Json?
+  /// Срок паузы бота в минутах, который сотрудник выбрал при отправке (26.11.2026); null — умолчание сервера.
+  /// Хранится длительность, а не дата: приём, продление перед отправкой и «Повторить» считают её от своего момента.
+  pauseMinutes   Int?
   outBytes       Int?
   outMime        String?
   prepareMs      Int?

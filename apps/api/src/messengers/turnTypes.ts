@@ -35,6 +35,10 @@ export interface MessengerTurnInput {
   /** Вложения из вебхука (фото/голосовые). У Instagram и Messenger это прямой адрес
    *  на CDN, у WhatsApp — адрес с маркером в заголовке (см. whatsAppMediaSource). */
   attachments?: AttachmentSource[];
+  /** Сколько из `attachments` прислал САМ клиент (остальное добавили мы: кадр истории, файл нашей публикации). */
+  clientAttachmentCount?: number;
+  /** Файл клиента, который не удалось даже начать скачивать (WhatsApp не отдал адрес): пометка с причиной. */
+  attachmentsLostBefore?: Array<{ kind: "image" | "audio" | "video" | "file"; reason: string }>;
   /**
    * Служебная подсказка модели про ЭТОТ ход: «клиент ответил на нашу историю»,
    * «прислал видео, объект такой-то», «в сообщении чужая ссылка» (messengers/sharedMedia.ts).

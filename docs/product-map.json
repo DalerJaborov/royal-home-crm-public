@@ -1395,9 +1395,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 17,
+      "endpoints": 19,
       "label": "Переписка по всем каналам",
-      "usedBy": 5
+      "usedBy": 6
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1732,6 +1732,11 @@
     {
       "id": "customer-intake-jobs",
       "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-media-settle",
+      "expr": "*/5 * * * *",
       "label": null
     },
     {

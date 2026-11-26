@@ -21,17 +21,14 @@ import {
   resolveSendTarget,
   type DeliveryTarget,
 } from "../../lib/conversationDelivery.js";
-import { asMetaChannel, isMetaChannelEnabled } from "../../messengers/meta.js";
-import { isTelegramEnabled } from "../../telegram/api.js";
+import { CHANNEL_WORD, NOT_OFFERABLE_STATUSES, SENDABLE_CHANNELS, channelEnabled, exposureChannel, notifyPropertyOwners, targetChannel } from "../../lib/propertySendCommon.js";
 import { smsConfigured, toSmsPhone } from "../../lib/sms/index.js";
 import { siteListingUrl } from "../../lib/siteListingUrl.js";
 import { getOrCreatePropertyShareLinks } from "../../lib/propertyShareLink.js";
 import { buildPropertyOfferText, formatPriceForClient } from "../../lib/propertyOfferText.js";
 import { detectClientLanguage } from "../../ai/clientLanguage.js";
 import { recordExposures } from "../../lib/propertyExposures.js";
-import { clientDoneBuying, loadMatchPolicy } from "../../lib/matchPolicy.js";
-import { propertyOwnerAgentId } from "../../lib/propertyOwner.js";
-import { sendPushToAgent } from "../../push.js";
+import { clientDoneBuying } from "../../lib/matchPolicy.js";
 import { clientPropertyMatchingCatalog } from "../../lib/clientPropertyMatchingCatalog.js";
 import { currentBuyerMatchingCriteria } from "../../lib/clientPropertyMatching.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
@@ -41,16 +38,6 @@ import { loadOwnersFilter } from "../../lib/market/ownerFilter.js";
 import { loadListingContacts } from "../../lib/market/listingContacts.js";
 
 export const matchingRouter = Router();
-
-/** channel+recipientId для PropertyExposure из адресата доставки — тот же мост
- *  (канал, собеседник), что использует бот в messengers/propertyShowcase.ts.
- *  Telegram — отдельная ветка DeliveryTarget без поля channel (это не meta-канал,
- *  как INSTAGRAM/FACEBOOK/WHATSAPP), поэтому канал здесь фиксирован строкой. */
-function exposureChannel(target: DeliveryTarget): { channel: string; recipientId: string } {
-  return target.kind === "telegram"
-    ? { channel: "TELEGRAM", recipientId: target.subscriberId }
-    : { channel: target.channel, recipientId: target.subscriberId };
-}
 
 type SendableClient = NonNullable<Awaited<ReturnType<typeof prisma.client.findUnique>>>;
 
@@ -90,28 +77,6 @@ async function loadSendableClient(req: Request, res: Response): Promise<Sendable
     return null;
   }
   return client;
-}
-
-const CHANNEL_WORD: Record<string, string> = {
-  WHATSAPP: "WhatsApp",
-  INSTAGRAM: "Instagram",
-  FACEBOOK: "Messenger",
-  TELEGRAM: "Telegram",
-  WEBSITE: "чат на сайте",
-};
-
-function targetChannel(target: DeliveryTarget): string {
-  return target.kind === "telegram" ? "TELEGRAM" : target.channel;
-}
-
-/** Каналы, в которые CRM умеет писать; прочее (старые платформы) — «не поддерживается». */
-const SENDABLE_CHANNELS = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "TELEGRAM", "WEBSITE"]);
-
-async function channelEnabled(target: DeliveryTarget): Promise<boolean> {
-  if (target.kind === "telegram") return isTelegramEnabled();
-  if (target.channel === "WEBSITE") return true;
-  const meta = asMetaChannel(target.channel);
-  return meta !== null && (await isMetaChannelEnabled(meta));
 }
 
 /** Можно ли уйти по СМС: подключены и номер клиента годится для таджикского шлюза. */
@@ -168,9 +133,6 @@ matchingRouter.get("/:id/send-target", requireAuth, async (req, res) => {
   };
   res.json(info);
 });
-
-/** Проданный или снятый с продажи объект клиенту не шлём: ссылка обещала бы то, чего нет. */
-const NOT_OFFERABLE_STATUSES = new Set(["SOLD", "WITHDRAWN"]);
 
 /**
  * Отправка подобранных объектов клиенту в тот канал, откуда он писал.
@@ -328,27 +290,12 @@ matchingRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
       .catch((err) => console.error("[clients] запись отправки объектов:", err instanceof Error ? err.message : err));
   }
 
-  /**
-   * ПУШ ХОЗЯИНУ ОБЪЕКТА (17.09.2026, открытый вопрос №8 плана) — «агент Б не узнаёт,
-   * что его объект предложили клиенту агента А»: журнал показов писался (recordExposure
-   * выше), а пуш не уходил вовсе. Тот же канал доставки, что у автоподбора
-   * (lib/propertyMatchFilter.ts::sendPushToAgent) — не вторая реализация. Отключаемо
-   * через Настройки (matchNotifyPropertyOwner); ошибка пуша не валит уже успешную
-   * отправку клиенту.
-   */
-  const policy = await loadMatchPolicy();
-  if (policy.notifyPropertyOwner) {
-    for (const p of properties) {
-      const ownerId = propertyOwnerAgentId(p);
-      if (!ownerId || ownerId === req.agent!.id) continue;
-      void sendPushToAgent(ownerId, {
-        title: "🏠 Ваш объект предложен клиенту",
-        body: `Объект №${p.shortId} — ${p.title}: агент ${sender.kind === "agent" ? sender.agentName : "Сотрудник"} предложил его своему клиенту №${client.shortId}`,
-        url: `/properties/${p.shortId}`,
-        kind: "look",
-      }).catch((err) => console.error("[push] объект предложен чужим агентом:", err));
-    }
-  }
+  // Пуш хозяину чужого объекта (17.09.2026) — общая часть с отправкой из переписки.
+  await notifyPropertyOwners(
+    properties,
+    req.agent!.id,
+    `агент ${sender.kind === "agent" ? sender.agentName : "Сотрудник"} предложил его своему клиенту №${client.shortId}`
+  );
 
   res.json({
     ok: true,

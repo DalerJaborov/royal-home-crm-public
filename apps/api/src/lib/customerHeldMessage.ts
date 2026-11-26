@@ -23,6 +23,7 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { scrubMentionedClientPhonesInText } from "./clientPhoneMasking.js";
 import { publishMessageNew } from "./livePublish.js";
+import { insertSettlementPlaceholder, keepIngressMediaInBackground } from "./customerInputMedia.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
@@ -94,6 +95,9 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
         const message: ChatMessage = { role: "user", content, mid: input.eventId, heldRouting: true,
           ...(input.providerOccurredAt ? { at: new Date(input.providerOccurredAt).toISOString() } : {}) };
         await appendConversationMessagesInTransaction(tx, native.id, [message]);
+        // Файл скачивается после коммита: заявка в этой же транзакции (обрыв даст пометку, а не пустоту).
+        if (input.media.length) await insertSettlementPlaceholder(tx, { channel: input.channel, peer: input.peer, mid: input.eventId,
+          media: input.media, kinds: input.observations.classifier?.mediaKinds });
         // Unread for staff, same guard as the legacy controller: never wake a
         // sleeping debounce winner of the old bot.
         await tx.$executeRaw`UPDATE "BotConversation" SET "lastMessageAt"=now() WHERE "id"=${native.id}
@@ -102,7 +106,13 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
       return { conversationId: native.id, fresh: !row.present, content };
     }, { maxWait: 5000, timeout: 10000 });
     if (!recorded) return { ...base, conversationId: null, excerpt: "", unrecorded: "chat_deleted" };
-    if (recorded.fresh) void publishMessageNew("bot", recorded.conversationId, "IN");
+    if (recorded.fresh) {
+      void publishMessageNew("bot", recorded.conversationId, "IN");
+      // Бот не отвечает, а файл клиента сотруднику нужен больше всего: сохраняем сразу, пока ссылка Meta жива (26.11.2026).
+      if (input.media.length) keepIngressMediaInBackground({ channel: input.channel, peer: input.peer, mid: input.eventId,
+        ...(input.accountExternalId ? { accountExternalId: input.accountExternalId } : {}),
+        media: input.media, kinds: input.observations.classifier?.mediaKinds });
+    }
     return { ...base, conversationId: recorded.conversationId, excerpt: recorded.content.slice(0, 160) };
   } catch (error) {
     if (error instanceof CustomerScopeDenied) {

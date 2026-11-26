@@ -38,6 +38,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "shabnamGroupAutoMemoryEnabled",
   "chatMediaTranscodeEnabled",
   "outgoingMediaCompressEnabled",
+  "sendPropertiesWithoutCardEnabled",
   "shabnamGroupUnaddressedEnabled",
   "telegramPhoneLinkEnabled",
   "instagramCompanyKeyEnabled",
@@ -183,6 +184,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "CRM сама сжимает фото и видео под предел канала (WhatsApp 16 МБ, Instagram 25 МБ) и отправляет в фоне: клиент получает настоящее видео, а не ссылку. Очень длинное видео уходит ссылкой на просмотр. Геометка с фото удаляется.",
     off: "Файл уходит как есть: видео больше предела канала — ссылкой, тяжёлое фото — отказом.",
   },
+  // Владелец 26.11.2026: «клиент должен сначала посмотреть объекты, а потом дать номер».
+  sendPropertiesWithoutCardEnabled: {
+    title: "Объекты в любую переписку, даже без карточки клиента",
+    on: "Из чата можно отправить объект любому собеседнику: и когда заявка ещё не принята, и когда карточки клиента нет. Контакты собственника клиенту не уходят.",
+    off: "Объект из чата уходит только клиенту с принятой карточкой, как раньше.",
+  },
   chatMediaTranscodeEnabled: {
     title: "Голосовые и видео клиентов открываются на любом телефоне",
     on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
@@ -234,7 +241,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

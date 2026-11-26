@@ -113,6 +113,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 
   // Объекты.
   PROPERTY_CREATED: "Создание",
+  PROPERTIES_SENT_FROM_CONVERSATION: "Объекты отправлены клиенту из переписки",
   PROPERTY_HANDOVER: "Передача объекта другому агенту",
   PROPERTY_TRANSFER: "Ручная передача объекта",
   PROPERTY_HANDOVER_ACCEPT: "Объект принят новым агентом",
