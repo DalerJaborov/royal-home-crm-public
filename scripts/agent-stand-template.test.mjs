@@ -7,8 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
-import { ensureTemplate, READY_MARK, standEnv, e2eHint, pidBelongsToStand } from "./agent-stand.mjs";
+import { ensureTemplate, READY_MARK, standEnv, e2eHint, pidBelongsToStand, choosePgMode, externalConfig } from "./agent-stand.mjs";
 
 /** Реестр баз: имя → { mark }. Ошибки миграции/сида включаются флагами. */
 function fakeIo({ failMigrate = false, failSeed = false, legacy = null, onBuild = () => {} } = {}) {
@@ -144,4 +145,52 @@ test("pidBelongsToStand: свой процесс узнаётся по логу 
   assert.equal(pidBelongsToStand(own.replace("4799", "4796"), "api-4799.log"), false, "соседний стенд");
   assert.equal(pidBelongsToStand(String.raw`"node" D:\CRM-wt\x\tsx\dist\cli.mjs src/index.ts`, "api-4799.log"), false, "чужой API без нашего лога");
   assert.equal(pidBelongsToStand("", "api-4799.log"), false, "процесса нет");
+});
+
+// РЕЖИМ БЕЗ DOCKER (26.11.2026). Docker Desktop на ПК владельца иногда мёртв —
+// тогда стенд обязан сам перейти на внешний Postgres, а при живом Docker
+// поведение прежнее (регрессий нет).
+test("choosePgMode: Docker жив — Docker, даже если внешний Postgres тоже доступен", () => {
+  assert.equal(choosePgMode({ env: {}, dockerOk: true, externalUp: true }).mode, "docker");
+});
+
+test("choosePgMode: Docker мёртв и внешний Postgres доступен — внешний", () => {
+  assert.equal(choosePgMode({ env: {}, dockerOk: false, externalUp: true }).mode, "external");
+});
+
+test("choosePgMode: Docker мёртв и внешнего нет — остаёмся на Docker (упадёт его честная ошибка, а не молчание)", () => {
+  assert.equal(choosePgMode({ env: {}, dockerOk: false, externalUp: false }).mode, "docker");
+});
+
+test("choosePgMode: STAND_PG принудительно решает независимо от проб", () => {
+  assert.equal(choosePgMode({ env: { STAND_PG: "external" }, dockerOk: true, externalUp: false }).mode, "external");
+  assert.equal(choosePgMode({ env: { STAND_PG: "docker" }, dockerOk: false, externalUp: true }).mode, "docker");
+  assert.equal(choosePgMode({ env: { STAND_PG: "EXTERNAL " }, dockerOk: true, externalUp: false }).mode, "external", "регистр и пробелы не важны");
+  assert.equal(choosePgMode({ env: { STAND_PG: "мусор" }, dockerOk: false, externalUp: true }).mode, "docker", "непонятное значение не включает внешний молча");
+});
+
+test("externalConfig: умолчания — portable Postgres 127.0.0.1:15502, переменные STAND_PG_* переопределяют", () => {
+  const d = externalConfig({});
+  assert.deepEqual([d.host, d.port, d.user, d.password], ["127.0.0.1", "15502", "postgres", "postgres"]);
+  assert.equal(path.win32.normalize(d.bin), path.win32.normalize("D:/PgPortable/pgsql/bin"));
+  const bin = "C:/pg/bin";
+  const o = externalConfig({ STAND_PG_HOST: "10.0.0.5", STAND_PG_PORT: "16000", STAND_PG_BIN: bin });
+  assert.deepEqual([o.host, o.port, o.bin], ["10.0.0.5", "16000", bin]);
+});
+
+// Все обращения к базе идут через общие помощники: ни одного голого
+// `docker exec` вне веток режима Docker, ни прежнего `psql(` с командной строкой.
+test("agent-stand: к базе обращаются только через pgRun/psqlOut/dbExists, голых docker exec вне Docker-веток нет", () => {
+  const src = readFileSync(new URL("./agent-stand.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /shLoud\(psql\(/, "прежний помощник psql() убран");
+  const dockerExecs = src.split("\n").filter((l) => /docker exec/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l));
+  assert.equal(dockerExecs.length, 4, "docker exec остался ровно в pgRun, ensureServer, psqlOut и dbExists (каждый в ветке режима Docker)");
+});
+
+// down сносит базу только по записи СВОЕГО up (чужой порт — чужая база).
+test("agent-stand: down проверяет запись стенда и дерево-владельца", () => {
+  const src = readFileSync(new URL("./agent-stand.mjs", import.meta.url), "utf8");
+  assert.match(src, /readStandState\(\)/);
+  assert.match(src, /sameTree\(st\.root, ROOT\)/);
+  assert.match(src, /writeStandState\(\)/);
 });

@@ -5343,10 +5343,10 @@
   · читает в базе: deal
   · читает в базе: settings
   · читает в базе: property
-- если ownAgentId
+- если callOwnerId
   - const { from: firstCallFrom } = firstCallCandidateWindow(settings, new Date());
     · зовёт firstCallCandidateWindow()
-  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, acceptedAt: { not:…
+  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, acceptedAt: { not…
     · читает в базе: client
   - если dueCandidates.length > 0
     - const status = await firstCallStatus(dueCandidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, lea…
@@ -5357,8 +5357,8 @@
           · дословно из кода
       - return { id: c.id, shortId: c.shortId, fullName: clientNamePhoneSafe(c.fullName, canSeePhone), phone: clientP…
         · зовёт clientNamePhoneSafe()
-- если ownAgentId
-  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, assignReason: SUPERVISO…
+- если callOwnerId
+  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, assignReason: SUPERVIS…
     · читает в базе: client
   - если waiting.length > 0
     - const notes = await prisma.interaction.findMany({ where: { clientId: { in: waiting.map((c)
