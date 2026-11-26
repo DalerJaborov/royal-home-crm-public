@@ -43,8 +43,8 @@ export function AutomationSwitchesSection() {
                 hint={on ? label.on : label.off}
               />
             );
-            // Сумма потолка трат бота — сразу под его рубильником и только пока он включён (CRM-47).
-            return key === "botDailySpendCapEnabled" && on ? <div key={key}>{row}<BotSpendCapAmount stored={settings.botDailySpendCapUsd} /></div> : row;
+            // Сумма потолка трат бота — сразу под его рубильником, и при выключенном тоже: сумму выбирают до включения (CRM-47).
+            return key === "botDailySpendCapEnabled" ? <div key={key}>{row}<BotSpendCapAmount stored={settings.botDailySpendCapUsd} enabled={on} /></div> : row;
           })}
         </div>
       ))}

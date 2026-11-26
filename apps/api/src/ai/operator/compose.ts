@@ -18,7 +18,8 @@ import { clientOwnWords } from "../untrustedContent.js";
 import { BW, EW, TAIL } from "../wordBoundary.js";
 import type { OperatorLanguage, OperatorStepOut } from "./types.js";
 
-export const OPERATOR_COMPOSE_ENDPOINT = "lead-only-operator-compose";
+import { OPERATOR_COMPOSE_ENDPOINT } from "./endpoints.js";
+export { OPERATOR_COMPOSE_ENDPOINT };
 export const OPERATOR_COMPOSE_TIMEOUT_MS = 5_000;
 const MAX_LENGTH = 320;
 

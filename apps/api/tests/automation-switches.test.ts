@@ -86,8 +86,9 @@ describe("умолчание и подписи (packages/shared)", () => {
       expect(isAutomationSwitchOn({ [key]: false }, key)).toBe(false);
       expect(isAutomationSwitchOn({ [key]: true }, key)).toBe(true);
     }
-    // Выключенные по умолчанию — осознанный список: «Записать результат» и привязка Telegram по номеру (ревью 25.11.2026).
-    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["clientRecordResultEnabled", "telegramPhoneLinkEnabled"]);
+    // Выключенные по умолчанию — осознанный список: «Записать результат», привязка Telegram по номеру (ревью 25.11.2026),
+    // денежный потолок бота: сумму выбирает владелец (ревью #450, 26.11.2026).
+    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["botDailySpendCapEnabled", "clientRecordResultEnabled", "telegramPhoneLinkEnabled"]);
     const [first, second] = AUTOMATION_SWITCH_KEYS;
     expect(isAutomationSwitchOn({ [first]: false }, second)).toBe(true);
   });

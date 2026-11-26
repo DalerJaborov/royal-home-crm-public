@@ -8,7 +8,7 @@ import { useUpdateSettings } from "../../hooks/useSettings";
  * Разметка — та же, что у «Потолка минут робота» (BotTab.tsx::LiveVoiceSpendCapFields): один экран на ПК и телефон.
  */
 /** `stored` — значение из уже загруженных настроек родителя (AutomationSwitchesSection): свой запрос здесь не нужен. */
-export function BotSpendCapAmount({ stored }: { stored: number | undefined }) {
+export function BotSpendCapAmount({ stored, enabled }: { stored: number | undefined; enabled: boolean }) {
   const updateSettings = useUpdateSettings();
   const [value, setValue] = useState(String(BOT_DAILY_SPEND_CAP_DEFAULT_USD));
   const [saved, setSaved] = useState(false);
@@ -38,7 +38,10 @@ export function BotSpendCapAmount({ stored }: { stored: number | undefined }) {
       <div className="mod">
         <div className="t">
           <b>Потолок трат бота</b>
-          <span style={{ whiteSpace: "normal" }}>Сколько долларов бот клиентов может потратить на ИИ за сутки. 0 — без потолка.</span>
+          <span style={{ whiteSpace: "normal" }}>
+            Сколько долларов бот клиентов может потратить на ИИ за сутки. 0 — без потолка.
+            {!enabled && ` Потолок выключен, предложено ${BOT_DAILY_SPEND_CAP_DEFAULT_USD} $.`}
+          </span>
         </div>
         <div className="acts">
           <span className="nf">
@@ -46,7 +49,7 @@ export function BotSpendCapAmount({ stored }: { stored: number | undefined }) {
               type="number"
               min={0}
               max={BOT_DAILY_SPEND_CAP_MAX_USD}
-              step="0.5"
+              step="any"
               inputMode="decimal"
               value={value}
               onChange={(e) => setValue(e.target.value)}
