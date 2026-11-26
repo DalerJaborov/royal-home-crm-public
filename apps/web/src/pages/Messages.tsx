@@ -2199,20 +2199,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.target.value = "";
             }}
           />
-          {/* Объект — на виду, отдельной круглой кнопкой рядом со скрепкой. */}
-          <button
-            type="button"
-            className="ry-round ry-round-ghost"
-            data-testid="chat-send-property"
-            onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint((v) => !v))}
-            disabled={reply.isPending || !replyTargetId}
-            aria-disabled={!canSendProperty || undefined}
-            aria-label={canSendProperty ? "Отправить объект" : `Отправить объект: ${PROPERTY_SEND_NEEDS_CARD}`}
-            title={canSendProperty ? "Отправить объект" : PROPERTY_SEND_NEEDS_CARD}
-            style={canSendProperty ? undefined : { opacity: 0.55 }}
-          >
-            <Building2 aria-hidden="true" />
-          </button>
+          {/* Объект — только пунктом «Объект из базы» в меню скрепки (владелец 26.11.2026: отдельная кнопка-здание была дублем). */}
           {conversation?.clientId && conversation.clientShortId && (
             <ChatPropertySend
               clientId={conversation.clientId}

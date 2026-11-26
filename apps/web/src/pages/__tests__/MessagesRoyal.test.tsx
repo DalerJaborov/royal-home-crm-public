@@ -306,41 +306,31 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(menuText()).toContain("Быстрые ответы");
   });
 
-  // «Отправить объект» — на виду (владелец 25.11.2026: «в переписке была кнопка, сейчас её нет»).
-  // Проверяется ВИДИМЫЙ триггер в отрисованной строке ввода, а не импорт компонента.
-  it("«Отправить объект» is a visible round button beside the paperclip and opens the same picker as the menu item", () => {
+  // «Объект» — пункт меню скрепки (владелец 26.11.2026: отдельную кнопку-здание убрать, это дубль).
+  it("«Объект из базы» is a paperclip menu item (no separate building button) and opens the picker", () => {
     h.perms = AGENT;
     mount();
-    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
-    expect(button, "кнопка-здание в строке ввода").toBeTruthy();
-    expect(button!.getAttribute("aria-label")).toBe("Отправить объект");
-    expect(button!.getAttribute("aria-disabled")).toBeNull();
-    expect(button!.closest("form")?.className).toContain("ry-chat-compose");
+    expect(document.querySelector('[data-testid="chat-send-property"]'), "отдельной кнопки-здания нет").toBeNull();
     expect(document.body.textContent).not.toContain("Окно подбора");
-    click(button);
+    click(byLabel("Прикрепить"));
+    const entry = item("menuitem", "Объект из базы");
+    expect(entry, "пункт в скрепке").toBeTruthy();
+    expect(entry!.getAttribute("aria-disabled")).toBeNull();
+    click(entry);
     expect(document.body.textContent).toContain("Окно подбора");
   });
 
-  it("no client card: the button and the menu item stay visible but grey, and say why (never vanish silently)", () => {
+  it("no client card: the menu item stays visible but grey, and says why (never vanish silently)", () => {
     h.perms = AGENT; h.noCard = true;
     mount();
-    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
-    expect(button, "кнопка не пропала").toBeTruthy();
-    expect(button!.getAttribute("aria-disabled")).toBe("true");
-    expect(button!.getAttribute("aria-label")).toContain("Отправить объект");
-    expect(button!.getAttribute("aria-label")).toContain("Сначала примите заявку");
-    click(button);
-    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
-    expect(document.body.textContent).not.toContain("Окно подбора");
     click(byLabel("Прикрепить"));
     const entry = item("menuitem", "Объект из базы");
     expect(entry, "пункт в скрепке не пропал").toBeTruthy();
     expect(entry!.getAttribute("aria-disabled")).toBe("true");
     click(entry);
     expect(document.body.textContent).not.toContain("Окно подбора");
-    // Меню закрылось, причина осталась одной строкой над полем (не дублем в меню).
     expect(document.querySelector('[role="menu"][aria-label="Прикрепить"]')).toBeNull();
-    expect(document.querySelectorAll('[data-testid="chat-send-property-hint"]').length).toBe(1);
+    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
   });
   it("agent «⋯»: search, contact details, client card — and no bot control", () => {
     h.perms = AGENT;
