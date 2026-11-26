@@ -17,8 +17,9 @@ import { understandFallback, understandTurn, type OperatorTurnInput } from "./un
 import { REVIEWER_RESET } from "../../lib/botReviewers.js";
 import { composeOperatorReply } from "./compose.js";
 import { clientOwnWords } from "../untrustedContent.js";
+import { translateClientReply } from "../clientReplyLanguage.js";
 import type { LeadOnlyIntentModel } from "../leadOnlyIntent.js";
-import type { OperatorAction, OperatorContext, OperatorLanguage, OperatorState, OperatorStepOut, Understanding } from "./types.js";
+import type { ForeignLanguage, OperatorAction, OperatorContext, OperatorLanguage, OperatorState, OperatorStepOut, Understanding } from "./types.js";
 
 export * from "./types.js";
 export { decide, initialOperatorState, operatorLeadNote } from "./decide.js";
@@ -38,6 +39,8 @@ export interface OperatorTurnRequest {
   timeoutMs?: number;
   /** «Бот пишет своими словами» (Настройки, botOwnWords): модель пишет ответ под выбранный шаг (compose.ts). */
   ownWords?: { enabled: boolean; model?: LeadOnlyIntentModel };
+  /** Только для тестов: подмена модели перевода на другой язык клиента (ai/clientReplyLanguage.ts). */
+  translateModel?: LeadOnlyIntentModel;
 }
 
 export interface OperatorTurnResult {
@@ -61,6 +64,26 @@ export interface OperatorTurnResult {
   degraded?: true;
   /** Бот молчит, потому что переписку ведёт сотрудник (не намеренная тишина для сторожа молчания). */
   yielded?: true;
+  /**
+   * Клиент пишет на другом языке (английский, узбекский, любой): `text` — перевод русской фразы на его язык или, если перевод
+   * не удался, сама русская фраза (`translated: false`). null — ответ на русском или таджикском как обычно.
+   */
+  foreign?: ForeignLanguage | null;
+  translated?: boolean;
+}
+
+/**
+ * ДРУГОЙ ЯЗЫК КЛИЕНТА — ОДНА ДВЕРЬ (ai/clientReplyLanguage.ts, решение владельца 26.11.2026): русская фраза переводится на язык
+ * клиента; не удалось — уходит русская. Слой «своими словами» (compose) здесь не зовётся: он пишет только по-русски и по-таджикски.
+ */
+async function inClientLanguage(result: OperatorTurnResult, request: OperatorTurnRequest): Promise<OperatorTurnResult> {
+  const foreign = result.state.foreign ?? null;
+  if (!foreign || !result.text) return { ...result, foreign };
+  const translated = await translateClientReply({ template: result.text, language: foreign, clientText: request.input.current,
+    conversationId: request.input.conversationId ?? null, ...(request.translateModel ? { model: request.translateModel } : {}) });
+  return translated.source === "model"
+    ? { ...result, text: translated.text, parts: [translated.text], foreign, translated: true }
+    : { ...result, foreign, translated: false };
 }
 
 /**
@@ -69,11 +92,13 @@ export interface OperatorTurnResult {
  * есть, роль не ясна — вопрос о роли; заявка уже есть — тишина. Тексты — первые варианты фраз, без подстановки шаблона.
  */
 function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx: OperatorContext, now: Date): OperatorTurnResult {
-  const language: OperatorLanguage = previous.language ?? understanding.language ?? understanding.contextLanguage ?? understanding.languageHint ?? "ru";
+  // Другой язык клиента: запасная фраза — русская (перевод даёт inClientLanguage, если модель жива).
+  const language: OperatorLanguage = previous.foreign || understanding.foreignLanguage ? "ru"
+    : previous.language ?? understanding.language ?? understanding.contextLanguage ?? understanding.languageHint ?? "ru";
   const role = previous.role === "seller" || understanding.role === "seller" ? "seller"
     : previous.role === "buyer" || previous.role === "buyer_property" || understanding.role === "buyer" ? "buyer" : null;
   const phoneKnown = ctx.phoneKnown || !!understanding.phone;
-  const state: OperatorState = { ...previous };
+  const state: OperatorState = { ...previous, foreign: understanding.languagePreference ? null : understanding.foreignLanguage ?? previous.foreign ?? null };
   const actions: OperatorAction[] = [];
   let text: string | null = null;
   if (previous.leadAccepted || ctx.leadExists) text = null;
@@ -186,25 +211,28 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
   }
   reconcileAskedRole(previous, request.input.recent, request.input.sentBotTexts);
   const understanding = await understandTurn(request.input, previous, request.ctx, request.model, request.timeoutMs);
+  let result: OperatorTurnResult;
   try {
     const decision = decide(previous, understanding, request.ctx);
     withoutOwnRepeats(decision, request.input.recent, request.input.sentBotTexts, { priceAsked: understanding.priceAsked === true });
     let parts = decision.steps.map(step => renderOperatorStep(step, decision.language));
     let text = renderOperatorReply(decision.steps, decision.language) || null;
-    if (text && request.ownWords?.enabled) {
+    if (text && request.ownWords?.enabled && !decision.foreign) {
       const composed = await composeOperatorReply({ steps: decision.steps, template: text, language: decision.language, current: request.input.current,
         ...(request.input.recent ? { recent: request.input.recent } : {}), conversationId: request.input.conversationId ?? null,
         ...(request.ownWords.model ? { model: request.ownWords.model } : {}) });
       if (composed.source === "model") { text = composed.text; parts = [composed.text]; }
     }
     const facts = Object.assign({}, ...decision.steps.map(step => step.vars)) as OperatorTurnResult["facts"];
-    return { text, parts, language: decision.language, steps: decision.steps, facts, actions: decision.actions, state: decision.state,
+    result = { text, parts, language: decision.language, steps: decision.steps, facts, actions: decision.actions, state: decision.state,
       stored: serializeOperatorState(decision.state, now), understanding, ...(decision.handoff ? { handoff: decision.handoff } : {}),
       ...(decision.yielded ? { yielded: true as const } : {}) };
   } catch (error) {
     // Ход не собрался (фраза, память): не молчим — запасной шаг «контакт», ошибка в журнал.
     void logSystemError("ai", `[alarm] Оператор заявок: ход не собран (диалог ${request.input.conversationId ?? "?"}): ` +
       `${error instanceof Error ? error.message : String(error)}`.slice(0, 500), { dedupKey: `operator-turn-failed:${request.input.conversationId ?? "?"}` });
-    return fallbackTurn(previous, understanding, request.ctx, now);
+    result = fallbackTurn(previous, understanding, request.ctx, now);
   }
+  // Перевод — после решения и вне try: его сбой ход не роняет (дверь никогда не бросает, запасная фраза — русская).
+  return inClientLanguage(result, request);
 }

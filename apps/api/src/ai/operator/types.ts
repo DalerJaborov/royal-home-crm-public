@@ -11,8 +11,11 @@
  * а не карточка. Номер этого хода уходит в действие `accept_lead`, дальше его держит приём заявки.
  */
 import type { CustomerPropertyCharacteristics, RecruitmentPosition } from "@royal-home/shared";
+import type { ForeignLanguage } from "../clientReplyLanguage.js";
 
+/** Язык готовых фраз оператора. Любой другой язык клиента — `ForeignLanguage`: фраза по-русски и перевод (ai/clientReplyLanguage.ts). */
 export type OperatorLanguage = "ru" | "tg";
+export type { ForeignLanguage };
 export type OperatorChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "TELEGRAM";
 
 /** Кто клиент для оператора. `buyer_property` — покупатель конкретного объекта (реклама, пост, ссылка, «эта квартира»). */
@@ -83,6 +86,11 @@ export interface OperatorState {
   step: OperatorStep;
   /** Язык разговора (липкий): меняет его только осмысленный текст клиента. null — ещё не понятно. */
   language: OperatorLanguage | null;
+  /**
+   * Клиент пишет на другом языке (английский, узбекский, любой ещё): фразы — по-русски и переводом на его язык (26.11.2026).
+   * Липкий, как `language`: снимает его ясная русская или таджикская фраза клиента, «ok» и номер — нет. Нет поля — null.
+   */
+  foreign?: ForeignLanguage | null;
   /** Сколько раз спросили: роль (≤2), детали (≤1 на роль), номер (≤ maxPhoneAsks). */
   asked: { role: number; details: number; phone: number };
   /** Сколько раз прозвучала каждая фраза: «один раз» и выбор варианта (вариант = счётчик по кругу). */
@@ -270,6 +278,12 @@ export interface Understanding {
   languageSwitchOk?: boolean;
   /** Явная просьба о языке («пишите на русском», «не понимаю по-таджикски», «бо тоҷикӣ нависед») — меняет язык всегда (ревью #358). */
   languagePreference?: OperatorLanguage | null;
+  /** Другой язык ЭТОГО сообщения (код, ai/clientReplyLanguage.ts): английский, узбекский, любой ещё. null — его нет. */
+  foreignLanguage?: ForeignLanguage | null;
+  /** В этом сообщении ясный русский или таджикский (полная фраза): снимает другой язык разговора. */
+  ownLanguageDecisive?: boolean;
+  /** Другой язык разговора по недавним репликам клиента — когда в этом сообщении языка нет, а память его ещё не знает. */
+  contextForeign?: ForeignLanguage | null;
 }
 
 export interface OperatorPropertyFocus {
@@ -404,6 +418,8 @@ export interface OperatorDecision {
   state: OperatorState;
   /** Язык ответа этого хода (может быть таджикским для чужого поста при неизвестном языке). */
   language: OperatorLanguage;
+  /** Клиент пишет на другом языке: фраза `language` (тогда русская) уходит переводом (index.ts → ai/clientReplyLanguage.ts). */
+  foreign?: ForeignLanguage | null;
   /** Шаги ответа по порядку: не больше двух, в каждом одно предложение, вопрос — не больше одного. */
   steps: OperatorStepOut[];
   actions: OperatorAction[];

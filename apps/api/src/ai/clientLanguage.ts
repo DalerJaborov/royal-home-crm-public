@@ -92,6 +92,23 @@ export function isUnreadableLatin(text: string): boolean {
     count(TAJIK_GREETINGS, trimmed) === 0;
 }
 
+/**
+ * Узбекский латиницей и кириллицей (26.11.2026, решение владельца «отвечать на языке клиента, любом»). Один список на сервер:
+ * его берут ядро клиента (ai/customerDmLanguage.ts: узбекскую латиницу не принимать за таджикскую) и дверь языка ответа
+ * (ai/clientReplyLanguage.ts). Только слова, которых в таджикском нет: «rahmat», «salom», «narxi», «kvartira», «bormi» пишут и
+ * таджики — их здесь нет.
+ */
+export const UZBEK_LATIN_WORDS =
+  /(^|[^a-zʻʼ'‘])(bu|haqida|yana|olsam|bo[ʻʼ'‘]?ladimi|bo[ʻʼ'‘]?ladi|kerak|qancha|uy|uyni|uylar|uyingiz|sotaman|sotib|olaman|olmoqchiman|olmoqchimiz|ishlaysizmi|ish|batafsil|ko[ʻʼ'‘]?proq|turadi|necha|nechta|yaxshi|men|siz|sizda|sizlar|qayerda|qayer|narxini|qilib|emas|iltimos|ko[ʻʼ'‘]?rsam|ko[ʻʼ'‘]?rish|xonali|sotiladi|sotilyapti|sotuvda|kvartirani)([^a-zʻʼ'‘]|$)/gi;
+export const UZBEK_CYRILLIC_WORDS =
+  /(?<![а-яёҳҷӣӯқғў])(керак|қанча|канча|сотиб|оламан|олмоқчиман|олмокчиман|уйни|уйлар|йўқ|яхши|нечта|қаерда|каерда|сизда|бўладими|бўлади|кўпроқ|сотаман|сотилади|хонали|илтимос)(?![а-яёҳҷӣӯқғў])/giu;
+
+/** Слова-маркеры латиницы по языкам (таджикский, английский, узбекский) — для двери языка ответа. */
+export function latinLanguageCounts(text: string): { tajik: number; english: number; uzbek: number } {
+  return { tajik: count(TAJIK_LATIN_WORDS, text), english: count(ENGLISH_STRONG_WORDS, text), uzbek: count(UZBEK_LATIN_WORDS, text) };
+}
+export function uzbekCyrillicCount(text: string): number { return count(UZBEK_CYRILLIC_WORDS, text); }
+
 export type ClientLanguage = "ru" | "tg" | "mixed" | "unknown";
 
 /**
