@@ -1395,9 +1395,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 17,
+      "endpoints": 19,
       "label": "Переписка по всем каналам",
-      "usedBy": 5
+      "usedBy": 6
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1658,6 +1658,11 @@
       "id": "candidate-phone-ask",
       "expr": "*/15 * * * *",
       "label": "Просит у кандидатов на вакансию телефон, как откроется окно Meta"
+    },
+    {
+      "id": "channel-volume-watch",
+      "expr": "40 * * * *",
+      "label": null
     },
     {
       "id": "chunked-uploads-cleanup",

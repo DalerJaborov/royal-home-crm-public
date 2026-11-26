@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4353**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4360**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3534,22 +3534,15 @@
     · ответ (код зависит от условия)
 - await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.ag…
   · зовёт recordPropertyDispatchAccepted()
+- const { channel: exposureChannelName, recipientId: exposureRecipientId } = exposureChannel(target);
+  · зовёт exposureChannel()
 - await recordExposures( exposureChannelName, exposureRecipientId, properties.map((p)
   · зовёт recordExposures()
 - если client.assignedAgentId
   - await prisma.interaction .createMany({ data: properties.map((p)
     · создаёт в базе: interaction
-- const policy = await loadMatchPolicy();
-  · зовёт loadMatchPolicy()
-- если policy.notifyPropertyOwner
-  - для каждого: const p of properties
-    - const ownerId = propertyOwnerAgentId(p);
-      · зовёт propertyOwnerAgentId()
-    - если !ownerId || ownerId === req.agent!.id
-      - continue;
-        · переходит к следующему
-    - void sendPushToAgent(ownerId, { title: "🏠 Ваш объект предложен клиенту", body: `Объект №${p.shortId} — ${p.t…
-      · push-уведомление
+- await notifyPropertyOwners( properties, req.agent!.id, `агент ${sender.kind === "agent" ? sender.agentName : …
+  · зовёт notifyPropertyOwners()
 - res.json({ ok: true, sent: properties.length, propertyIds, masked: delivery.masked || titleMasked || messageM…
   · ответ 200
 
@@ -3571,6 +3564,10 @@
 - если !target
   - return res.json(info);
     · ответ 200
+- const channel = targetChannel(target);
+  · зовёт targetChannel()
+- const [enabled, lastAt, windowState] = await Promise.all([channelEnabled(target), lastClientMessageAt(target)…
+  · зовёт channelEnabled()
 - res.json(info);
   · ответ 200
 
@@ -4856,6 +4853,29 @@
   · зовёт logAudit()
 - res.json({ ok: true });
   · ответ 200
+
+### GET /api/v1/conversations/:id/send-context
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const outcome = await loadSendContext(req, req.params.id);
+  · зовёт loadSendContext()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### POST /api/v1/conversations/:id/send-properties
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const parsed = sendPropertiesBodySchema.safeParse(req.body);
+  · проверяет данные схемой sendPropertiesBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const outcome = await sendPropertiesFromConversation({ req, rawId: req.params.id, propertyIds: parsed.data.pr…
+  · зовёт sendPropertiesFromConversation()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/conversations/:id/spam-restore
 
@@ -7902,7 +7922,7 @@
 - если !property || property.deletedAt
   - return res.status(404).json({ error: "Ссылка не найдена" });
     · ответ 404 — «Ссылка не найдена»
-- res.json({ property: { title: property.title, type: property.type, rooms: property.rooms, areaSqm: property.a…
+- res.json({ property: { title: publicPropertyTitle(property), type: property.type, rooms: property.rooms, area…
   · ответ 200
 
 ## /api/v1/landmarks
@@ -20483,6 +20503,50 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### channel-volume-watch — 40 * * * *
+
+- пробует
+  - const { alerted } = await runChannelVolumeWatchTick();
+    · зовёт runChannelVolumeWatchTick()
+    - если !isChannelWatchHour(at) || !isChannelWatchDay(at)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !isChannelWatchHour(previousAt) || !isChannelWatchDay(previousAt)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { alerted: [] };
+        · дословно из кода
+    - const rows = await prisma.$queryRaw<VolumeRow[]>` SELECT "channel"::text AS channel, COUNT(*) FILTER (WHERE e…
+      · обращается к базе своим SQL
+    - для каждого: const channel of WATCHED_CHANNELS
+      - const { alert, average } = channelVolumeVerdict(Number(row?.cur ?? 0), Number(row?.past ?? 0), Number(row?.pr…
+        · зовёт channelVolumeVerdict()
+      - если !alert
+        - continue;
+          · переходит к следующему
+      - если !(await isMetaChannelEnabled(channel))
+        - continue;
+          · переходит к следующему
+      - если channel === "INSTAGRAM" && (await instagramAllAccountsLost())
+        - continue;
+          · переходит к следующему
+      - const { alerted: queued } = await raiseCriticalAlarm({ tag: `channel-volume-${channel}`, title: `📉 ${channel…
+        · зовёт raiseCriticalAlarm()
+      - если queued
+        - alerted.push(channel);
+          · дословно из кода
+  - если alerted.length > 0
+    - console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «канал затих»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### chunked-uploads-cleanup — 17 * * * *
 

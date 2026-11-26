@@ -2,7 +2,7 @@ import { meaningfulPropertyAddress } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { ShowcaseResult } from "../ai/showcaseResult.js";
 export type { ShowcaseResult };
-export { recordExposures } from "../lib/propertyExposures.js";
+export { recordExposures, linkExposuresToClient } from "../lib/propertyExposures.js";
 import { traceResolution } from "../lib/botTurnTrace.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
 import type { PropertyCard, StoredAttachment } from "../ai/shared.js";
@@ -302,34 +302,6 @@ export async function recordExposure(
   }
 }
 
-
-/**
- * Привязывает показы этой переписки к появившейся карточке клиента.
- *
- * Вызывается один раз — в момент, когда из разговора родился лид. До этого
- * записи журнала висят на паре (канал, собеседник): бот показывает объекты
- * раньше, чем узнаёт телефон, и именно те, ранние, показы и есть самые ценные —
- * клиент выбирал по ним.
- *
- * Отказ не роняет приём заявки: карточка клиента важнее журнала. Но записать
- * отказ обязательно — без привязки правило «свой объект» промахнётся молча.
- */
-export async function linkExposuresToClient(
-  channel: string,
-  recipientId: string,
-  clientId: string,
-  transport?: CustomerTransportHint
-): Promise<void> {
-  try {
-    const endpoint = await resolveCustomerEndpoint(customerTransportInput(channel, recipientId, transport));
-    await prisma.propertyExposure.updateMany({
-      where: { channel, recipientId, endpointScopeId: endpoint.endpointScopeId, clientId: null },
-      data: { clientId },
-    });
-  } catch (err) {
-    void logSystemError("meta", `Показы объектов не привязаны к клиенту: ${describeError(err)}`);
-  }
-}
 
 /**
  * То же самое свойство «объект существует, доступен, опубликован» (см.

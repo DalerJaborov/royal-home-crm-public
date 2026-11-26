@@ -7,6 +7,8 @@ import { logSystemError } from "./systemError.js";
 import { customerTransportInput, resolveCustomerEndpoint, type CustomerTransportHint } from "./customerConversationScope.js";
 import { linkConversationPropertiesByChannel } from "./propertyVoice/linkConversation.js";
 
+export type ExposureSource = "MANUAL_NO_CARD";
+
 /**
  * ТО ЖЕ САМОЕ, НО НА ПАЧКУ ОБЪЕКТОВ ОДНИМ ЗАПРОСОМ (22.09.2026, сведение N+1) —
  * `routes/clients/matching.ts::send-properties` зовёт recordExposure по разу
@@ -21,7 +23,9 @@ export async function recordExposures(
   recipientId: string,
   items: { propertyId: string; shortId: number; kind: "PHOTO" | "LINK" }[],
   clientId?: string,
-  transport?: CustomerTransportHint
+  transport?: CustomerTransportHint,
+  /** Откуда показ. MANUAL_NO_CARD — агент отправил объект вручную собеседнику без карточки: правило «свой объект показан» (services/leads/assignment.ts) его не учитывает, пока карточка не привязана. */
+  source?: ExposureSource
 ): Promise<void> {
   if (items.length === 0) return;
   try {
@@ -34,6 +38,7 @@ export async function recordExposures(
         shortId: it.shortId,
         kind: it.kind,
         clientId,
+        ...(source ? { source } : {}),
         endpointScopeId: endpoint.endpointScopeId,
       })),
     });
@@ -49,5 +54,33 @@ export async function recordExposures(
       "meta",
       `Показы объектов (${items.map((it) => it.shortId).join(", ")}) не записаны в журнал: ${describeError(err)}`
     );
+  }
+}
+
+/**
+ * Привязывает показы этой переписки к появившейся карточке клиента.
+ *
+ * Вызывается один раз — в момент, когда из разговора родился лид. До этого
+ * записи журнала висят на паре (канал, собеседник): бот показывает объекты
+ * раньше, чем узнаёт телефон, и именно те, ранние, показы и есть самые ценные —
+ * клиент выбирал по ним.
+ *
+ * Отказ не роняет приём заявки: карточка клиента важнее журнала. Но записать
+ * отказ обязательно — без привязки правило «свой объект» промахнётся молча.
+ */
+export async function linkExposuresToClient(
+  channel: string,
+  recipientId: string,
+  clientId: string,
+  transport?: CustomerTransportHint
+): Promise<void> {
+  try {
+    const endpoint = await resolveCustomerEndpoint(customerTransportInput(channel, recipientId, transport));
+    await prisma.propertyExposure.updateMany({
+      where: { channel, recipientId, endpointScopeId: endpoint.endpointScopeId, clientId: null },
+      data: { clientId },
+    });
+  } catch (err) {
+    void logSystemError("meta", `Показы объектов не привязаны к клиенту: ${describeError(err)}`);
   }
 }

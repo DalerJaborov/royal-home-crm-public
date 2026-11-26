@@ -18,12 +18,19 @@ export function shareLinkUrl(token: string): string {
  */
 export async function getOrCreatePropertyShareLinks(
   prisma: TxClient,
-  params: { propertyIds: string[]; clientId: string | null; createdByAgentId: string }
+  params: {
+    propertyIds: string[];
+    clientId: string | null;
+    createdByAgentId: string;
+    /** Без клиента ссылку не переиспользуем (26.11.2026): общая «безымянная» ссылка у двух
+     *  собеседников сделала бы «открыл» общим, а не чьим-то. Каждой отправке — своя. */
+    fresh?: boolean;
+  }
 ): Promise<Map<string, { id: string; token: string; url: string }>> {
   const result = new Map<string, { id: string; token: string; url: string }>();
   if (params.propertyIds.length === 0) return result;
 
-  const existing = await prisma.propertyShareLink.findMany({
+  const existing = params.fresh ? [] : await prisma.propertyShareLink.findMany({
     where: {
       propertyId: { in: params.propertyIds },
       clientId: params.clientId,

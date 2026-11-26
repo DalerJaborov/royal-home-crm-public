@@ -71,7 +71,7 @@ vi.mock("../../components/CallClientButton", () => ({ CallClientButton: () => cr
 vi.mock("../../components/VoiceRecordButton", () => ({ VoiceRecordButton: ({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) =>
   createElement("button", { title: "Записать голосовое", onClick: () => onBusyChange?.(true) }, "Голосовое") }));
 vi.mock("../../lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../lib/api")>()), api: h.api }));
-vi.mock("../../components/ChatPropertySend", () => ({ ChatPropertySend: ({ open }: { open?: boolean }) => (open ? createElement("div", null, "Окно подбора") : null) }));
+vi.mock("../../components/ChatObjectPicker", () => ({ ChatObjectPicker: ({ open }: { open?: boolean }) => (open ? createElement("div", null, "Окно подбора") : null) }));
 vi.mock("../../hooks/useContactProfile", () => ({ useSetContactCategory: () => ({ mutate: h.mutation, isPending: false, isError: false }) }));
 import { ConversationView } from "../Messages";
 
@@ -320,17 +320,19 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(document.body.textContent).toContain("Окно подбора");
   });
 
-  it("no client card: the menu item stays visible but grey, and says why (never vanish silently)", () => {
+  // Владелец 26.11.2026: «клиент должен СНАЧАЛА посмотреть объекты, а потом дать номер» — без карточки пункт активен.
+  it("no client card: «Объект из базы» is active and opens the picker (no grey «примите заявку» stub)", () => {
     h.perms = AGENT; h.noCard = true;
     mount();
     click(byLabel("Прикрепить"));
     const entry = item("menuitem", "Объект из базы");
     expect(entry, "пункт в скрепке не пропал").toBeTruthy();
-    expect(entry!.getAttribute("aria-disabled")).toBe("true");
+    expect(entry!.getAttribute("aria-disabled")).toBeNull();
+    expect((entry as HTMLButtonElement).disabled).toBe(false);
     click(entry);
-    expect(document.body.textContent).not.toContain("Окно подбора");
-    expect(document.querySelector('[role="menu"][aria-label="Прикрепить"]')).toBeNull();
-    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
+    expect(document.body.textContent).toContain("Окно подбора");
+    expect(document.body.textContent).not.toContain("Сначала примите заявку");
+    expect(document.querySelector('[data-testid="chat-send-property-hint"]')).toBeNull();
   });
   it("agent «⋯»: search, contact details, client card — and no bot control", () => {
     h.perms = AGENT;
