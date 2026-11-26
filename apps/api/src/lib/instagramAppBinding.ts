@@ -102,14 +102,8 @@ export async function bindInstagramAppForAccount(actorId: string, accountId: str
     if (configurationChanged) {
       // Match the established managed-publication drain checks. Never rotate a
       // namespace underneath admitted inbox work, a send or an open model call.
-      const [work] = await tx.$queryRaw<Array<{ busy: boolean }>>`SELECT
-        EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "intakeAgentRevisionId" IS NOT NULL AND "processingState" IN ('RECEIVED','CLAIMED')) OR
-        EXISTS(SELECT 1 FROM "InstagramComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-        EXISTS(SELECT 1 FROM "TelegramGroupComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-        customer_agent_delivery_requires_idle() OR
-        EXISTS(SELECT 1 FROM "CustomerPublicEffect" WHERE "status"='IN_FLIGHT' AND "createdAt">clock_timestamp()-interval '5 minutes') OR
-        EXISTS(SELECT 1 FROM "AiProviderOperation" WHERE "policyKey"='royal-customer-gemini' AND "reservedUsd">0
-          AND "status"='OPEN' AND "deadlineAt">clock_timestamp()) AS busy`;
+      // The one idle door (migration 20261126190000), shared with the revision advance.
+      const [work] = await tx.$queryRaw<Array<{ busy: boolean }>>`SELECT customer_agent_core_requires_idle() AS busy`;
       if (work?.busy) throw new InstagramAppBindingError("account_busy");
     }
     await tx.auditLog.create({ data: { action, entityType: "MessengerAccount", entityId: accountId,

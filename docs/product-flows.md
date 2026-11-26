@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4367**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4370**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -28527,6 +28527,9 @@
   - если selected && selected.payloadVersion !== 1
     - return { status: "held", reason: "historical_payload_unavailable" };
       · дословно из кода
+  - если selected?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? "")
+    - return { status: "held", reason: selected.errorCode! };
+      · дословно из кода
   - если selected?.intakeAgentRevisionId
     - если await isCustomerIngressTicketChannelOff(eventKey)
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${CU…
@@ -28536,8 +28539,14 @@
     - const result = await runCustomerDmAgentTurn(eventKey);
       · зовёт runCustomerDmAgentTurn()
     - если result.status === "held"
-      - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
+      - const changed = await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',…
         · обращается к базе своим SQL
+      - если changed === 0
+        - const now = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { processing…
+          · читает в базе: customerPropertyIngressTicket
+        - если now?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(now.errorCode ?? "")
+          - return { status: "held", reason: now.errorCode! };
+            · дословно из кода
       - если result.reason !== NEWER_INPUT_PENDING
         - rearmed = await resumeDeferredCustomerInbox(eventKey);
           · зовёт resumeDeferredCustomerInbox()
@@ -28608,6 +28617,8 @@
     - если сорвалось
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
+  - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"='con…
+    · обращается к базе своим SQL
   - void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });
     · зовёт reportUnansweredCustomerTurn()
     - если customerTurnSilenceIsIntended(reason)
