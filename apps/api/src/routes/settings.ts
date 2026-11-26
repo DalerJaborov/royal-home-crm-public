@@ -924,6 +924,8 @@ const settingsUpdateSchema = z.object({
   /** Истории Facebook (28.09.2026, Page Stories API) — своя площадка ПОВЕРХ
    *  Instagram, свой рубильник, всегда проверяемый (см. lib/instagramStories.ts). */
   facebookStoriesEnabled: z.boolean().optional(),
+  /** История «цена снижена»/«продано» готовым роликом с карточкой (26.11.2026); выключено — фото-карточка. */
+  instagramStoryVideoEnabled: z.boolean().optional(),
   /** Ежедневная подборка сторис (26.09.2026, решение владельца) —
    *  lib/dailyStories.ts::runDailyStoriesTick. */
   dailyStoriesEnabled: z.boolean().optional(),
