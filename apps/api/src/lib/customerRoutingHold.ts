@@ -42,6 +42,9 @@ export const CUSTOMER_ROUTING_HOLD_REPORT = [
   "pinned_campaign_unavailable", "cohort_candidate_changed", "registered_candidate_missing",
   "historical_subject_owned_or_closed", "historical_public_subject_owned_or_unbounded", "unkeyed_core_input_unsupported",
   "historical_brains_conflict",
+  // A WhatsApp customer who already has a chat on our other number (customerAgentEnrollment.ts, 26.11.2026): the text
+  // goes into that existing chat (customerHeldMessage.ts), never 503 — a 503 here would lose every such message.
+  "whatsapp_peer_on_other_number",
   // Public-comment ownership reads in the same module (not a DM witness today).
   "source_reference_invalid", "source_missing", "staff_public_source_owned", "legacy_source_managed_conflict", "core_public_origin_missing",
 ] as const;

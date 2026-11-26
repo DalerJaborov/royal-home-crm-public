@@ -25,6 +25,7 @@ import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoff
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
 import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
+import { runChannelVolumeWatchTick } from "./lib/channelVolumeWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
@@ -2703,6 +2704,16 @@ export function startCronJobs() {
       }
     } catch (err) {
       reportCronTickError("Ошибка «бот на паузе и забыли»", err);
+    }
+  });
+
+  /** Канал затих: новых диалогов в Instagram/Facebook/WhatsApp намного меньше обычного (24.11.2026, lib/channelVolumeWatch.ts). */
+  scheduleTracked("channel-volume-watch", "40 * * * *", async () => {
+    try {
+      const { alerted } = await runChannelVolumeWatchTick();
+      if (alerted.length > 0) console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «канал затих»", err);
     }
   });
 
