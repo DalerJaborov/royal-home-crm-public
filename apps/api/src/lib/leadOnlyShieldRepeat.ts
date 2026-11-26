@@ -13,10 +13,11 @@ import type { CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
  * памяти оператора ход считался отвеченным. Ядро свободной модели и страховочная дверь спрашивают щит заранее
  * (customerReplyRepeatBlocked, аудит молчания 16.11); путь оператора этого не делал.
  *
- * Правило теперь одно для всех путей ответа ядра: перед записью в очередь спросить щит. Вырежет — другая формулировка
- * тех же шагов (варианты фраз оператора, смысл не меняется). Все варианты уже звучали — тишина с сигналом человеку
- * («клиент повторяет, бот не может ответить другими словами»), как у собственного сторожа оператора, а не невидимый
- * отказ на транспорте. Заявка и пометка хода (intakes) не трогаются: они уходят в любом случае.
+ * Здесь закрыт путь оператора заявок: перед записью в очередь спросить щит. Вырежет — другая формулировка тех же шагов
+ * (варианты фраз оператора, смысл не меняется). Все варианты уже звучали — тишина с сигналом человеку `repeat_shield`,
+ * а не невидимый отказ на транспорте. Заявка и пометка хода (intakes) не трогаются: они уходят в любом случае.
+ * НЕ закрыты (ревью #448, следующая пачка «одна дверь»): ответ про видео (customerDmAgentTurn, ветка видео), ответы
+ * свободной модели с квитанциями и фактами, старый оператор в messengers/conversation.ts при выключенном ядре.
  */
 export async function leadOnlyPlanAvoidingShieldRepeat(plan: CustomerLeadOnlyTurnPlan,
   repeatBlocked: (texts: string[]) => Promise<Set<string>>): Promise<CustomerLeadOnlyTurnPlan> {
@@ -34,5 +35,7 @@ export async function leadOnlyPlanAvoidingShieldRepeat(plan: CustomerLeadOnlyTur
   if (!blocked.has(plan.text)) return plan;
   const other = [...candidates].find(text => !blocked.has(text));
   if (other) return { ...plan, text: other };
-  return { ...plan, text: null, signal: plan.signal ?? { kind: "follow_up", reason: "repeat_question" } };
+  // Сигнал без причины (follow_up оператора) читается сотрудником как «бот ответил, что уточнит агент» и глушится прошлым
+  // неотвеченным (ревью #448): бот здесь молчит, поэтому причина своя. Сигнал с причиной (жалоба, грубость) не трогаем.
+  return { ...plan, text: null, signal: plan.signal?.reason ? plan.signal : { kind: "follow_up", reason: "repeat_shield" } };
 }

@@ -51,8 +51,14 @@ describe("ответ оператора и щит повторов", () => {
     const p = plan([reminder], "ru", { intakes: [intake] });
     const out = await leadOnlyPlanAvoidingShieldRepeat(p, blockedSet("Ваша заявка у агента, он с вами свяжется.", "Заявка у агента, он свяжется с вами."));
     expect(out.text).toBeNull();
-    expect(out.signal).toEqual({ kind: "follow_up", reason: "repeat_question" });
+    expect(out.signal).toEqual({ kind: "follow_up", reason: "repeat_shield" });
     expect(out.intakes).toEqual([intake]);
+  });
+
+  it("сигнал оператора без причины заменяется на repeat_shield: бот молчит, «бот ответил, что уточнит агент» было бы неправдой", async () => {
+    const p = plan([reminder], "ru", { signal: { kind: "follow_up" } });
+    const out = await leadOnlyPlanAvoidingShieldRepeat(p, blockedSet("Ваша заявка у агента, он с вами свяжется.", "Заявка у агента, он свяжется с вами."));
+    expect(out.signal).toEqual({ kind: "follow_up", reason: "repeat_shield" });
   });
 
   it("уже назначенный сигнал (грубость, жалоба) не перетирается", async () => {
