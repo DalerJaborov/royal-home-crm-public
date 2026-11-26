@@ -179,6 +179,11 @@ services:
       # WhatsApp: own chat per our number (26.11.2026, lib/customerConversationScope.ts). Empty/on = each number
       # (Royal Home, Arvan) has its own chat with a person; off = the #475 fallback (one chat per person, held for staff).
       WHATSAPP_CHAT_PER_NUMBER: "${WHATSAPP_CHAT_PER_NUMBER:-}"
+      # WhatsApp welcome / callback request / slash commands (27.11.2026, messengers/whatsappCommands.ts and
+      # whatsappServiceEvents.ts). Empty/on = enabled on both numbers; off = that one feature is switched off.
+      WHATSAPP_WELCOME: "${WHATSAPP_WELCOME:-}"
+      WHATSAPP_CALLBACK_REQUESTS: "${WHATSAPP_CALLBACK_REQUESTS:-}"
+      WHATSAPP_COMMANDS: "${WHATSAPP_COMMANDS:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
