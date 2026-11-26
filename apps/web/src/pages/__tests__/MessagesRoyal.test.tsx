@@ -10,7 +10,7 @@ import { MESSAGE_PHONE_MASK } from "@royal-home/shared";
 /**
  * «Новый вид» раздела «Чаты» — окно переписки «как в WhatsApp» (владелец
  * 20.11.2026). Сторож двух вещей сразу:
- *  1) из окна ушло лишнее: состояние и пауза бота, срок паузы, «Верно/Неверно»
+ *  1) из окна ушло лишнее: состояние и пауза бота, «Верно/Неверно»
  *     под пузырями, метка «бот», выбор канала строкой, «Позвонить» без номера;
  *  2) ничего не потерялось: ответ, вложение, объект, голос, звонок, поиск,
  *     карточка, канал ответа, пауза бота и оценка ответов — у руководства в «⋯»
@@ -126,7 +126,7 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(head).not.toContain("ПР-000894");
     expect(head).not.toContain("<small");
     for (const gone of ["Бот на паузе", "Отвечает бот", "Ведёте вы", "Поставить на паузу", "Вернуть боту", "Ответ ставит бота на паузу",
-      "Бессрочно", "Верно", "Неверно", "Выберите канал", "Время сообщения неизвестно", "ry-chat-quick", "seller-object-strip"]) {
+      "Верно", "Неверно", "Выберите канал", "Время сообщения неизвестно", "ry-chat-quick", "seller-object-strip"]) {
       expect(html, gone).not.toContain(gone);
     }
     const thread = html.slice(html.indexOf('class="thread"'), html.indexOf("ry-chat-compose"));
@@ -149,7 +149,7 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(h.mutation).not.toHaveBeenCalled();
   });
 
-  it("one round button: microphone while empty, «send» once there is text — the reply still carries the open-ended pause", () => {
+  it("one round button: microphone while empty, «send» once there is text — the reply carries the pause, one hour by default", () => {
     h.perms = AGENT;
     mount();
     expect(byLabel("Отправить")).toBeNull();
@@ -158,11 +158,88 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(document.querySelector('[title="Записать голосовое"]')).toBeNull();
     h.mutation.mockResolvedValue({ ok: true });
     click(byLabel("Отправить"));
-    // Ревью #332: без срока сервер дал бы директору/чужому агенту 10 минут, и бот
-    // писал бы поверх человека. Срок уходит молча — «бессрочно», как и было.
+    // Ревью #332: без срока сервер дал бы директору/чужому агенту 10 минут, и бот писал бы поверх человека.
+    // Владелец 26.11.2026: по умолчанию ЧАС, а не «бессрочно».
     const body = h.mutation.mock.calls[0][0] as { text: string; pausedUntil?: string };
     expect(body.text).toBe("Здравствуйте");
-    expect(Date.parse(body.pausedUntil ?? "")).toBeGreaterThan(Date.now() + 5 * 365 * 24 * 3_600_000);
+    const minutes = (Date.parse(body.pausedUntil ?? "") - Date.now()) / 60_000;
+    expect(minutes).toBeGreaterThan(59);
+    expect(minutes).toBeLessThan(61);
+  });
+
+  describe("срок паузы бота при ответе (владелец 26.11.2026)", () => {
+    const pauseSelect = () => byLabel("На сколько бот замолкает после вашего ответа") as HTMLSelectElement | null;
+    function choose(select: HTMLSelectElement, label: string) {
+      const index = [...select.options].findIndex((o) => o.textContent === label);
+      expect(index, `вариант «${label}»`).toBeGreaterThanOrEqual(0);
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      act(() => { setter.call(select, String(index)); select.dispatchEvent(new Event("change", { bubbles: true })); });
+    }
+    const sendText = (value: string) => {
+      type(byLabel("Текст ответа") as HTMLTextAreaElement, value);
+      click(byLabel("Отправить"));
+      return h.mutation.mock.calls.at(-1)![0] as { pausedUntil?: string };
+    };
+    const minutesOf = (iso?: string) => Math.round((Date.parse(iso ?? "") - Date.now()) / 60_000);
+    afterEach(() => { try { window.localStorage.clear(); } catch { /* нет хранилища */ } });
+
+    it("виден в новом виде и на ПК, и на узком экране; час выбран, «Бессрочно» последним", () => {
+      h.perms = AGENT;
+      for (const narrow of [false, true]) {
+        h.narrow = narrow;
+        mount();
+        const select = pauseSelect();
+        expect(select, narrow ? "телефон" : "ПК").toBeTruthy();
+        expect(select!.options[select!.selectedIndex].textContent).toBe("1 час");
+        expect([...select!.options].at(-1)!.textContent).toBe("Бессрочно");
+        expect(document.querySelector('label[for="chat-reply-pause-select"]')?.textContent).toBe("Бот молчит:");
+        unmount();
+      }
+    });
+
+    it("выбранный срок уходит с текстом и помнится при следующем открытии", () => {
+      h.perms = AGENT;
+      mount();
+      h.mutation.mockResolvedValue({ ok: true });
+      choose(pauseSelect()!, "2 часа");
+      expect(minutesOf(sendText("Привет").pausedUntil)).toBe(120);
+      unmount();
+      mount();
+      expect(pauseSelect()!.options[pauseSelect()!.selectedIndex].textContent).toBe("2 часа");
+      choose(pauseSelect()!, "Бессрочно");
+      expect(minutesOf(sendText("Ещё").pausedUntil)).toBeGreaterThan(5 * 365 * 24 * 60);
+    });
+
+    it("хранилище закрыто — страница работает, час по умолчанию", () => {
+      h.perms = AGENT;
+      const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
+      const setSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
+      try {
+        mount();
+        expect(pauseSelect()!.options[pauseSelect()!.selectedIndex].textContent).toBe("1 час");
+        expect(() => choose(pauseSelect()!, "30 минут")).not.toThrow();
+      } finally { spy.mockRestore(); setSpy.mockRestore(); }
+    });
+
+    it("тот же срок получают фото/видео: третий аргумент старта загрузки", async () => {
+      h.perms = AGENT;
+      const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
+      mount();
+      choose(pauseSelect()!, "30 минут");
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      Object.defineProperty(input, "files", { value: [file], configurable: true });
+      act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+      click([...document.querySelectorAll("button")].find((b) => b.textContent === "Отправить"));
+      const call = h.mutation.mock.calls.at(-1)!;
+      expect(call[2]).toBe(30);
+    });
+
+    it("нет строки у переписки только для чтения (общий чат без каналов ответа)", () => {
+      h.perms = DIRECTOR;
+      h.grouped = { id: "client:client", sources: [{ id: "td_1", channel: "TELEGRAM_DIRECT", canReply: false, pausedUntil: null }], messages: [] };
+      const html = markup("client:client");
+      expect(html).not.toContain("chat-reply-pause");
+    });
   });
 
   it("typing during a voice recording keeps the recording: the button stays and the field is locked", () => {
@@ -229,41 +306,31 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(menuText()).toContain("Быстрые ответы");
   });
 
-  // «Отправить объект» — на виду (владелец 25.11.2026: «в переписке была кнопка, сейчас её нет»).
-  // Проверяется ВИДИМЫЙ триггер в отрисованной строке ввода, а не импорт компонента.
-  it("«Отправить объект» is a visible round button beside the paperclip and opens the same picker as the menu item", () => {
+  // «Объект» — пункт меню скрепки (владелец 26.11.2026: отдельную кнопку-здание убрать, это дубль).
+  it("«Объект из базы» is a paperclip menu item (no separate building button) and opens the picker", () => {
     h.perms = AGENT;
     mount();
-    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
-    expect(button, "кнопка-здание в строке ввода").toBeTruthy();
-    expect(button!.getAttribute("aria-label")).toBe("Отправить объект");
-    expect(button!.getAttribute("aria-disabled")).toBeNull();
-    expect(button!.closest("form")?.className).toContain("ry-chat-compose");
+    expect(document.querySelector('[data-testid="chat-send-property"]'), "отдельной кнопки-здания нет").toBeNull();
     expect(document.body.textContent).not.toContain("Окно подбора");
-    click(button);
+    click(byLabel("Прикрепить"));
+    const entry = item("menuitem", "Объект из базы");
+    expect(entry, "пункт в скрепке").toBeTruthy();
+    expect(entry!.getAttribute("aria-disabled")).toBeNull();
+    click(entry);
     expect(document.body.textContent).toContain("Окно подбора");
   });
 
-  it("no client card: the button and the menu item stay visible but grey, and say why (never vanish silently)", () => {
+  it("no client card: the menu item stays visible but grey, and says why (never vanish silently)", () => {
     h.perms = AGENT; h.noCard = true;
     mount();
-    const button = document.querySelector<HTMLButtonElement>('[data-testid="chat-send-property"]');
-    expect(button, "кнопка не пропала").toBeTruthy();
-    expect(button!.getAttribute("aria-disabled")).toBe("true");
-    expect(button!.getAttribute("aria-label")).toContain("Отправить объект");
-    expect(button!.getAttribute("aria-label")).toContain("Сначала примите заявку");
-    click(button);
-    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
-    expect(document.body.textContent).not.toContain("Окно подбора");
     click(byLabel("Прикрепить"));
     const entry = item("menuitem", "Объект из базы");
     expect(entry, "пункт в скрепке не пропал").toBeTruthy();
     expect(entry!.getAttribute("aria-disabled")).toBe("true");
     click(entry);
     expect(document.body.textContent).not.toContain("Окно подбора");
-    // Меню закрылось, причина осталась одной строкой над полем (не дублем в меню).
     expect(document.querySelector('[role="menu"][aria-label="Прикрепить"]')).toBeNull();
-    expect(document.querySelectorAll('[data-testid="chat-send-property-hint"]').length).toBe(1);
+    expect(document.querySelector('[data-testid="chat-send-property-hint"]')?.textContent).toContain("Сначала примите заявку");
   });
   it("agent «⋯»: search, contact details, client card — and no bot control", () => {
     h.perms = AGENT;
@@ -331,7 +398,9 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       messages: [msg("user", "Первое", conversationId, "WHATSAPP"), msg("user", "Второе", instagramSource, "INSTAGRAM"), msg("assistant", "Ответ", conversationId, "WHATSAPP")],
     };
     const html = markup("client:client");
-    expect(html).not.toContain("<select");
+    // Выбора канала строкой нет; единственный список в окне — срок паузы бота над полем ввода.
+    expect(html).not.toContain('aria-label="Куда ответить"');
+    expect(html.match(/<select/g)?.length).toBe(1);
     expect(html).not.toContain("Выберите канал");
     expect(html).toContain('placeholder="Сообщение в Instagram"');
     expect(h.replyTarget).toBe(instagramSource);

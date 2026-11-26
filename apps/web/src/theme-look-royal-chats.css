@@ -560,6 +560,8 @@
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .two > section.clean-conversation:not(.clean-conversation-placeholder) {
     position: fixed; z-index: 45; top: var(--clean-viewport-top, 0px); left: 0; right: 0; bottom: auto;
     height: var(--clean-viewport-height, 100dvh); border-radius: 0; box-shadow: none;
+    /* Нижняя безопасная зона iPhone — того же цвета, что строка ввода и строка срока паузы: без серой полосы (26.11.2026). */
+    background: var(--rh-ui-card);
   }
   /* Клавиатура открыта: полоски жеста «домой» нет — запас под неё не нужен, поле стоит вплотную к клавиатуре. */
   :root[data-ui-look="royal"][data-clean-keyboard] .ry-chats[data-ry-section="chats"] .ry-chat-compose { padding-bottom: 8px !important; }

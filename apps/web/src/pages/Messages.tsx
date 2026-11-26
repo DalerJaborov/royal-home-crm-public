@@ -52,7 +52,7 @@ import { relativeTime } from "../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../lib/botMessages";
 import { TranslatableMessageText } from "../components/MessageTranslateToggle";
-import { PAUSE_OPTIONS, pausedUntilIso } from "../lib/botPauseOptions";
+import { PAUSE_OPTIONS, initialReplyPauseIndex, pausedUntilIso, rememberReplyPauseIndex } from "../lib/botPauseOptions";
 import { conversationBotState } from "../lib/conversationBotState";
 import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
@@ -1222,7 +1222,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     [allMessages]
   );
   const reply = useReplyToConversation(replyTargetId);
-  const voiceMessage = useSendVoiceMessage(replyTargetId);
+  const voiceMessage = useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
   const pendingUploads = usePendingMediaUploads(replyTargetId);
@@ -1308,7 +1308,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   // Последний пресет ("Бессрочно") — длительность паузы по умолчанию после ручного
   // ответа (решение владельца 18.08.2026); то же значение зашито на сервере в
   // OPERATOR_REPLY_PAUSE_MS. Агент по-прежнему может выбрать более короткую паузу.
-  const [pauseOptionIndex, setPauseOptionIndex] = useState(PAUSE_OPTIONS.length - 1);
+  // Новый вид (royal, владелец 26.11.2026): по умолчанию ЧАС, дальше — последний выбор сотрудника (браузер помнит).
+  // Прежний вид остаётся как был — «Бессрочно».
+  const [pauseOptionIndex, setPauseOptionIndex] = useState(() => (royal ? initialReplyPauseIndex() : PAUSE_OPTIONS.length - 1));
   // Выбранное через «Произвольно…» число минут для паузы при отправке ответа.
   const [customPauseMinutes, setCustomPauseMinutes] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -1390,17 +1392,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [search.activeAbsoluteIndex, search.matches.length, visibleCount]);
 
+  /** Срок паузы бота (минуты) для ЛЮБОЙ отправки из этого окна: текст, голосовое, фото/видео — одно число на всех. */
+  function replyPauseMinutes(): number {
+    return customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
+  }
+
+  /** Голос и фото/видео шлют выбранный срок только в новом виде: в прежнем виде они уходили без срока (умолчание
+   *  сервера для отправителя), и «Бессрочно» тихо раздать им нельзя (ревью PR #463). */
+  function mediaPauseMinutes(): number | undefined {
+    return royal ? replyPauseMinutes() : undefined;
+  }
+
   async function handleSend() {
     const value = text.trim();
     if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
     try {
-      // Срок паузы уходит ВСЕГДА (ревью #332). В новом виде выбора в окне нет, и
-      // pauseOptionIndex остаётся «Бессрочно» — как было по умолчанию. Без срока
-      // сервер (defaultPauseForSender, lib/conversationDelivery.ts) дал бы
-      // директору/незакреплённому агенту 10 минут, и бот писал бы поверх человека.
-      // «Эстафета» поменяет это одним местом — когда придёт.
-      const minutes = customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
-      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(minutes) });
+      // Срок паузы уходит ВСЕГДА (ревью #332): без срока сервер (defaultPauseForSender,
+      // lib/conversationDelivery.ts) дал бы директору/незакреплённому агенту 10 минут, и бот
+      // писал бы поверх человека. Срок выбирает сотрудник строкой «Бот молчит» над полем ввода
+      // (новый вид: по умолчанию час, 26.11.2026; прежний вид: селект ниже, по умолчанию «Бессрочно»).
+      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(replyPauseMinutes()) });
       // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
       setText((cur) => clearIfUnchanged(cur, value));
       if (clean) reading.jumpToLatest();
@@ -1431,7 +1442,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       return;
     }
     // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
-    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+    const pauseMinutes = mediaPauseMinutes();
+    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
     setText("");
   }
 
@@ -1443,7 +1455,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
    */
   function handleSendMedia() {
     if (!pendingMedia || readOnly || !replyTargetId) return;
-    mediaUpload.start(pendingMedia, text.trim() || undefined);
+    mediaUpload.start(pendingMedia, text.trim() || undefined, mediaPauseMinutes());
     setPendingMedia(null);
     setText("");
   }
@@ -2030,7 +2042,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             type="button"
             className="pill sm"
             onClick={() => {
-              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+              const pauseMinutes = mediaPauseMinutes();
+              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
               setPendingBatch(null);
               setText("");
             }}
@@ -2080,11 +2093,36 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </div>
       )}
       {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
+      {/* СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ (владелец 26.11.2026: «вернуть выбор срока, по умолчанию час»).
+          Одна тонкая строка над полем ввода, на ПК и телефоне одна и та же: подпись и выбор срока. Родной
+          список выбора — на телефоне открывается системным окном, цель касания 44 px (стили
+          .ry-chat-pausepick). Срок действует для текста, голосового и фото/видео; браузер помнит выбор.
+          Прежний вид — селект ниже, у него своя строка. */}
+      {royal && !(isGroupedEntry && !replyableSources.length) && (
+        <div className="suggest ry-chat-pausepick" data-testid="chat-reply-pause">
+          <label className="txt" htmlFor="chat-reply-pause-select">Бот молчит:</label>
+          <select
+            id="chat-reply-pause-select"
+            className="inp"
+            value={pauseOptionIndex}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setPauseOptionIndex(next);
+              rememberReplyPauseIndex(next);
+            }}
+            aria-label="На сколько бот замолкает после вашего ответа"
+          >
+            {PAUSE_OPTIONS.map((opt, idx) => (
+              <option key={opt.label} value={idx}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {royal ? (
         /* СТРОКА ВВОДА КАК В WHATSAPP (владелец 20.11.2026): скрепка, поле и одна
            круглая кнопка — пустое поле даёт микрофон, есть текст — «отправить».
            Канал выбран сам; фото, объект и быстрые ответы — под скрепкой (или «/»
-           первым символом). Срока паузы бота в окне нет. */
+           первым символом). Срок паузы бота — строкой выше. */
         <form className="compose ry-chat-compose" onSubmit={(e) => e.preventDefault()}>
           {isGroupedEntry && !replyableSources.length ? (
             <span className="meta" role="note">История доступна только для чтения: для этих каналов нет безопасной отправки из CRM.</span>
@@ -2167,20 +2205,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.target.value = "";
             }}
           />
-          {/* Объект — на виду, отдельной круглой кнопкой рядом со скрепкой. */}
-          <button
-            type="button"
-            className="ry-round ry-round-ghost"
-            data-testid="chat-send-property"
-            onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint((v) => !v))}
-            disabled={reply.isPending || !replyTargetId}
-            aria-disabled={!canSendProperty || undefined}
-            aria-label={canSendProperty ? "Отправить объект" : `Отправить объект: ${PROPERTY_SEND_NEEDS_CARD}`}
-            title={canSendProperty ? "Отправить объект" : PROPERTY_SEND_NEEDS_CARD}
-            style={canSendProperty ? undefined : { opacity: 0.55 }}
-          >
-            <Building2 aria-hidden="true" />
-          </button>
+          {/* Объект — только пунктом «Объект из базы» в меню скрепки (владелец 26.11.2026: отдельная кнопка-здание была дублем). */}
           {conversation?.clientId && conversation.clientShortId && (
             <ChatPropertySend
               clientId={conversation.clientId}

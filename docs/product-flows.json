@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 787,
-  "forks": 4352,
+  "forks": 4353,
   "mounts": 87,
   "cron": 146,
   "jobs": 37,
@@ -21204,6 +21204,29 @@
        "t": "return res.status(400).json({ error: \"Файл не передан\" });",
        "a": [
         "ответ 400 — «Файл не передан»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const pauseParsed = replyVoicePauseSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой replyVoicePauseSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!pauseParsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: pauseParsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
        ],
        "c": []
       }
@@ -57856,7 +57879,7 @@
     },
     {
      "k": "do",
-     "t": "const ownsIt = ownsProperty(req.agent!.id, property);",
+     "t": "const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === \"HEAD_OF_SALES\";",
      "a": [
       "зовёт ownsProperty()"
      ],

@@ -16,10 +16,10 @@
   "paths": 787,
   "cron": 146,
   "jobs": 37,
-  "conditions": 4313,
+  "conditions": 4314,
   "untranslatedUnique": 497,
   "untranslatedTotal": 638,
-  "partialUnique": 1139,
+  "partialUnique": 1140,
   "translatedShare": 85
  },
  "untranslated": [
@@ -22472,6 +22472,19 @@
      "c": [
       {
        "t": "отказ: данные неверные: «Файл не передан»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если нет: success",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Неверные данные»",
        "k": "do",
        "a": [],
        "c": []
