@@ -7464,13 +7464,13 @@ model Settings {
   telegramPhoneLinkEnabled              Boolean @default(false)
   /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
   botRetryCapEnabled                    Boolean @default(true)
-  /// Суточный денежный потолок бота клиентов (CRM-47, 26.11.2026, lib/customerBotSpendCap.ts). ВЫКЛ, пока владелец не
-  /// выбрал сумму. Достигнут — оператор заявок до полуночи по Душанбе отвечает правилами и готовыми фразами без ИИ,
+  /// Суточный денежный потолок бота клиентов (CRM-47, 26.11.2026, lib/customerBotSpendCap.ts). ВКЛ, 15 $ (решение
+  /// владельца 26.11). Достигнут — оператор заявок до полуночи по Душанбе отвечает правилами и готовыми фразами без ИИ,
   /// руководству одна тревога в сутки.
-  botDailySpendCapEnabled               Boolean @default(false)
+  botDailySpendCapEnabled               Boolean @default(true)
   /// Сумма потолка в USD за сутки по Душанбе: фактические траты оператора, старого бота и комментариев (без ядра).
-  /// 0 — без потолка. 5 $ — предложение, ждёт решения владельца.
-  botDailySpendCapUsd                   Float   @default(5)
+  /// 0 — без потолка. 15 $ — решение владельца 26.11.2026.
+  botDailySpendCapUsd                   Float   @default(15)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
   /// Копия голосового/видео клиента в формате, который играет любой браузер (25.11.2026, ВКЛ).
   chatMediaTranscodeEnabled             Boolean @default(true)

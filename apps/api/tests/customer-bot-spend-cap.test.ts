@@ -66,12 +66,12 @@ afterAll(async () => {
 });
 
 describe("суточный потолок трат бота клиентов", () => {
-  it("умолчание: потолок выключен, предложено 5 $", async () => {
+  it("умолчание (решение владельца 26.11): потолок включён, 15 $", async () => {
     const columns = await prisma.$queryRaw<Array<{ column_name: string; column_default: string | null }>>`SELECT column_name, column_default
       FROM information_schema.columns WHERE table_name='Settings' AND column_name IN ('botDailySpendCapEnabled','botDailySpendCapUsd')`;
     const byName = Object.fromEntries(columns.map(c => [c.column_name, c.column_default]));
-    expect(byName.botDailySpendCapEnabled).toBe("false");
-    expect(Number(byName.botDailySpendCapUsd)).toBe(5);
+    expect(byName.botDailySpendCapEnabled).toBe("true");
+    expect(Number(byName.botDailySpendCapUsd)).toBe(15);
   });
 
   it("понимание оператора (настоящая точка lead-only-operator): ниже потолка зовёт модель, выше — нет, ответ из правил; одна тревога", async () => {

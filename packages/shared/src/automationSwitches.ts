@@ -60,8 +60,6 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "clientRecordResultEnabled",
   // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
   "telegramPhoneLinkEnabled",
-  // Ревью #450 (26.11.2026): сумму денежного потолка бота выбирает владелец, до этого потолок выключен. Колонка `DEFAULT false`.
-  "botDailySpendCapEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -148,7 +146,7 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
   botDailySpendCapEnabled: {
     title: "Бот клиентов: суточный потолок трат на ИИ",
     on: "Бот потратил за сутки по Душанбе сумму из поля «Потолок трат бота»: до полуночи в WhatsApp, Instagram и Facebook он отвечает готовыми фразами без ИИ, заявки заводятся как обычно. Комментарии и чат сайта работают с ИИ. Руководству одна тревога в сутки.",
-    off: "Потолка нет: бот тратит на ИИ сколько нужно, остановит только лимит проекта Google, а он останавливает всю CRM. Предложено 5 $ в сутки: впишите сумму и включите.",
+    off: "Потолка нет: бот тратит на ИИ сколько нужно, остановит только лимит проекта Google, а он останавливает всю CRM.",
   },
   // Владелец 20.11.2026: «таким спамерам как то не отвечать или как то сэкономить токены».
   botSpamFilterEnabled: {
@@ -254,7 +252,7 @@ export function automationSwitchLabel(key: AutomationSwitchKey | "dealStaleSelle
 /**
  * Суточный денежный потолок бота клиентов (CRM-47, 26.11.2026): умолчание и верх поля «Потолок трат бота» — одно место
  * для сервера (apps/api/src/lib/customerBotSpendCap.ts, PATCH /settings) и экрана. 0 — без потолка. Верх — защита от
- * лишнего нуля. Умолчание безопасное (обычный день бота — меньше доллара), сумму решает владелец.
+ * лишнего нуля. 15 $ в сутки и включён — решение владельца 26.11.2026.
  */
-export const BOT_DAILY_SPEND_CAP_DEFAULT_USD = 5;
+export const BOT_DAILY_SPEND_CAP_DEFAULT_USD = 15;
 export const BOT_DAILY_SPEND_CAP_MAX_USD = 200;

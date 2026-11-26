@@ -25,7 +25,7 @@ import { sendPushToAgents } from "../push.js";
  *    же резерв неудачных попыток ядра не возвращается и считался бы «тратой».
  * Сумма — только фактическая стоимость (`AiLog.costUsd`, у вызовов callAiText резерва нет) за сутки по Душанбе.
  *
- * Рубильник `botDailySpendCapEnabled` по умолчанию ВЫКЛ: сумму (предложено 5 $) выбирает владелец и включает сам.
+ * Рубильник `botDailySpendCapEnabled` ВКЛ, сумма 15 $ в сутки (решение владельца 26.11.2026).
  * Сбой чтения — потолка нет: учёт не имеет права сделать бота немым. Руководству одна тревога в сутки.
  */
 export const CUSTOMER_BOT_GATED_ENDPOINTS: ReadonlySet<string> = new Set([OPERATOR_UNDERSTAND_ENDPOINT, OPERATOR_COMPOSE_ENDPOINT]);

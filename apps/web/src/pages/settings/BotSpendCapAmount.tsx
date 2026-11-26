@@ -40,7 +40,7 @@ export function BotSpendCapAmount({ stored, enabled }: { stored: number | undefi
           <b>Потолок трат бота</b>
           <span style={{ whiteSpace: "normal" }}>
             Сколько долларов бот клиентов может потратить на ИИ за сутки. 0 — без потолка.
-            {!enabled && ` Потолок выключен, предложено ${BOT_DAILY_SPEND_CAP_DEFAULT_USD} $.`}
+            {!enabled && " Потолок выключен."}
           </span>
         </div>
         <div className="acts">
