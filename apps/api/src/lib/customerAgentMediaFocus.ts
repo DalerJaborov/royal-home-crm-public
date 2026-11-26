@@ -71,7 +71,7 @@ async function customerPerceivedCaptionSelectors(media: Pick<CustomerAgentMediaP
  * площадь ±1 %, и только если подходит РОВНО ОДИН объект в продаже. Только карточка объявления (не фото
  * квартиры, не документ) и только при рубильнике chatObjectToOwnerEnabled; ВЫКЛ — как до 27.11.
  */
-async function customerListingCardFactsSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">): Promise<number[]> {
+export async function customerListingCardFactsSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">): Promise<number[]> {
   if (media.subject !== "listing_card" || !media.readableText?.trim()) return [];
   if (!await automationSwitchOn("chatObjectToOwnerEnabled")) return [];
   const found = await matchPropertyByFacts(parsePropertyFacts(media.readableText));

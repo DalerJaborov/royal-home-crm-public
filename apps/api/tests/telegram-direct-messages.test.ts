@@ -186,4 +186,39 @@ describe("Direct Messages канала: ссылка на объект ведё�
       await prisma.settings.update({ where: { id: "singleton" }, data: saved! });
     }
   });
+
+  it("клиент назвал номер объекта словами — заявка хозяину объекта как «назван явно» (27.11.2026, chatObjectToOwnerEnabled)", async () => {
+    const topic = 930000000 + (runId % 1000);
+    const tail = String(runId).slice(-7);
+    const saved = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { workHoursStart: true, workHoursEnd: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { workHoursStart: "00:00", workHoursEnd: "24:00" } });
+    const district = await prisma.district.create({ data: { name: `Тест-район-tgdm-num-${runId}` } });
+    const agent = await prisma.agent.create({
+      data: { fullName: `Агент объекта по номеру ${runId}`, phone: `+99294${tail}`, role: "AGENT", passwordHash: "x" },
+    });
+    const property = await prisma.property.create({
+      data: {
+        title: `Тест-объект-tgdm-num-${runId}`, type: "APARTMENT", rooms: 2, areaSqm: 57, price: 46000, currency: "USD",
+        districtId: district.id, address: "Тестовая, 2", condition: "GOOD", status: "AVAILABLE", intakeAgentId: agent.id,
+      },
+    });
+    let clientId: string | null = null;
+    try {
+      await handleTelegramUpdate(dmUpdate(topic, "buyer_num", `Здравствуйте, объект №${property.shortId} ещё продаётся?`));
+      await handleTelegramUpdate(dmUpdate(topic, "buyer_num", `+99291${tail}`));
+      const row = await prisma.telegramDirectConversation.findUnique({
+        where: { chatId_topicId: { chatId: String(DM_CHAT_ID), topicId: String(topic) } },
+      });
+      clientId = row?.clientId ?? null;
+      expect(clientId).toBeTruthy();
+      const client = await prisma.client.findUnique({ where: { id: clientId! }, select: { assignedAgentId: true, assignReason: true, matchedPropertyId: true } });
+      expect(client).toMatchObject({ assignedAgentId: agent.id, assignReason: "own_property_explicit", matchedPropertyId: property.id });
+    } finally {
+      if (clientId) await prisma.client.delete({ where: { id: clientId } }).catch(() => {});
+      await prisma.property.delete({ where: { id: property.id } });
+      await prisma.agent.delete({ where: { id: agent.id } }).catch(() => {});
+      await prisma.district.delete({ where: { id: district.id } });
+      await prisma.settings.update({ where: { id: "singleton" }, data: saved! });
+    }
+  });
 });

@@ -154,8 +154,9 @@ describe("P0-3: хозяин узнаёт о переписке по своем�
   });
 });
 
-describe("P0-7: флаг варианта (а) — по умолчанию лид другого агента не переезжает", () => {
-  it("флаг выключен: непринятый лид из очереди остаётся у агента Б", async () => {
+describe("P0-7: вариант (а) — рубильник objectInterestPullsQueueLeadEnabled (с 27.11 в Настройках, ВЫКЛ по умолчанию), env поверх", () => {
+  it("env OBJECT_INTEREST_PULLS_QUEUE_LEAD=0 (аварийная ручка): непринятый лид из очереди остаётся у агента Б", async () => {
+    process.env.OBJECT_INTEREST_PULLS_QUEUE_LEAD = "0";
     const client = await makeClient("очередь, флаг выкл", { assignedAgentId: otherId, assignedAt: new Date(), assignReason: "queue" });
     const conv = await makeConversation("queue-off", client.id);
     await noticeOwnerOfConversationInterest({ conversationId: conv.id, propertyId });
@@ -187,5 +188,21 @@ describe("P0-7: флаг варианта (а) — по умолчанию ли�
     await noticeOwnerOfConversationInterest({ conversationId: conv.id, propertyId });
     const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(after.assignedAgentId).toBe(otherId);
+  });
+
+  it("без переменной окружения действует рубильник в Настройках: ВКЛ — переезжает, ВЫКЛ — остаётся", async () => {
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", objectInterestPullsQueueLeadEnabled: true },
+      update: { objectInterestPullsQueueLeadEnabled: true } });
+    const onClient = await makeClient("очередь, рубильник вкл", { assignedAgentId: otherId, assignedAt: new Date(), assignReason: "queue" });
+    await noticeOwnerOfConversationInterest({ conversationId: (await makeConversation("switch-on", onClient.id)).id, propertyId });
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: onClient.id } })).assignedAgentId).toBe(ownerId);
+    await prisma.settings.update({ where: { id: "singleton" }, data: { objectInterestPullsQueueLeadEnabled: false } });
+    try {
+      const offClient = await makeClient("очередь, рубильник выкл", { assignedAgentId: otherId, assignedAt: new Date(), assignReason: "queue" });
+      await noticeOwnerOfConversationInterest({ conversationId: (await makeConversation("switch-off", offClient.id)).id, propertyId });
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: offClient.id } })).assignedAgentId).toBe(otherId);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { objectInterestPullsQueueLeadEnabled: false } });
+    }
   });
 });
