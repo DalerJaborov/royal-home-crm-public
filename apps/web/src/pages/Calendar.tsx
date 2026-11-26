@@ -744,7 +744,7 @@ export function Calendar() {
               <svg className="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              Назначить показ
+              Назначить показ — выбрать клиента
             </button>}
           </div>
         </div>
@@ -919,7 +919,7 @@ export function Calendar() {
                 </span>
                 <p>На этот день ничего не назначено. Показ назначается из карточки клиента.</p>
                 {canChange && <button className="pill ghost" type="button" onClick={() => navigate("/clients")}>
-                  Назначить показ
+                  Назначить показ — выбрать клиента
                 </button>}
               </div>
             )}
