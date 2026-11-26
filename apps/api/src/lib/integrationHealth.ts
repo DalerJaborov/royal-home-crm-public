@@ -10,7 +10,7 @@ import { migrateSettingsTelegramChat } from "./settingsTelegramChatMigration.js"
 import { loadCredentials, GRAPH_VERSION, instagramApiUrl, instagramRequest, fetchWithRetry, isFacebookLoginToken } from "../messengers/meta.js";
 import { facebookPageTokenFor, instagramRouteForToken } from "./metaEternalTokens.js";
 import { isMetaAuthFailure, isMetaAuthFailureText, raiseChannelKeyAlarm, raiseCriticalAlarm } from "./channelKeyAlarm.js";
-import { clearInstagramAccountLocked, isInstagramAccountLockedText, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "./instagramAccountAccess.js";
+import { clearInstagramAccountLocked, isInstagramAccountLockedText, isInstagramKeyRefusal, noteInstagramAccountLocked, noteInstagramBackupKeyDead } from "./instagramAccountAccess.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { listAccounts, accountTokenById } from "../messengers/accounts.js";
 import { r2HealthCheck } from "./r2Client.js";
@@ -33,7 +33,7 @@ import {
   type RequiredScope,
   type TokenKind,
 } from "./tokenScopes.js";
-import { dushanbeDateTimeString } from "./dushanbeTime.js";
+import { dushanbeDateString, dushanbeDateTimeString } from "./dushanbeTime.js";
 import { checkTelephonyDailyHealth } from "./telephony/stationHealth.js";
 
 /**
@@ -388,7 +388,7 @@ export async function checkInstagramAccountsHealth(
 ): Promise<IntegrationCheck[]> {
   const rows = await prisma.messengerAccount.findMany({
     where: { channel: "INSTAGRAM", ...(onlyIds ? { id: { in: onlyIds } } : {}) },
-    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true, accessLostAt: true },
+    select: { id: true, title: true, token: true, tokenRefreshedAt: true, updatedAt: true, accessLostAt: true, accessLostReason: true },
   });
   if (rows.length === 0) return [{ name: "Instagram", ok: null, detail: "не настроен" }];
 
@@ -412,6 +412,9 @@ export async function checkInstagramAccountsHealth(
       try {
         const r = await graphIdReadable(route.pageId, token);
         if (r.ok) {
+          // Страница этим ключом отвечает — отметка «доступ потерян» неправда (ревью #432): у аккаунта «Войти через
+          // Facebook» другой пробы нет, без этого ложная отметка жила бы вечно.
+          if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "page_route_ok");
           out.push({ name, ok: true, detail: `через Страницу ${route.pageId}` });
         } else {
           await report("meta", `Ключ Страницы у Instagram «${row.title}» не работает — аккаунт не сможет отвечать клиентам: ${r.detail}. Войдите через Facebook заново в Настройках → Каналы.`);
@@ -458,12 +461,17 @@ export async function checkInstagramAccountsHealth(
       if (res.ok) {
         if (row.accessLostAt) await clearInstagramAccountLocked(row.id, "probe_ok");
         out.push({ name, ok: true, detail: body.username ? `@${body.username}` : `HTTP ${res.status}` });
-      } else if (row.accessLostAt || isInstagramAccountLockedText(raw)) {
-        // Meta закрыла сам аккаунт (21.11.2026, lib/instagramAccountAccess.ts): одна отметка
-        // и одна тревога на случай; ежедневная проверка дальше молчит, пока доступ не вернётся.
+      } else if (row.accessLostAt || isInstagramKeyRefusal(res.status, raw)) {
+        // Meta закрыла сам аккаунт (21.11.2026) или не принимает его ключ — смена пароля (25.11.2026,
+        // lib/instagramAccountAccess.ts): одна отметка и одна тревога на эпизод; ежедневная проверка
+        // дальше молчит, пока доступ не вернётся.
         const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;
         if (!row.accessLostAt) await noteInstagramAccountLocked(row.id, detail);
-        out.push({ name, ok: null, detail: `Meta закрыла доступ к аккаунту с ${(row.accessLostAt ?? new Date()).toISOString().slice(0, 10)}` });
+        // Дата по Душанбе (охота 26.11.2026): отметка ночью по местному времени — это ещё «вчера» по UTC.
+        const since = dushanbeDateString(row.accessLostAt ?? new Date());
+        out.push({ name, ok: null, detail: isInstagramAccountLockedText(row.accessLostAt ? row.accessLostReason ?? raw : raw)
+          ? `Meta закрыла доступ к аккаунту с ${since}`
+          : `Meta не принимает ключ аккаунта с ${since} — нужен «Заменить маркер»` });
         continue;
       } else {
         const detail = `HTTP ${res.status}: ${body.error?.message ?? "без пояснения"}`;

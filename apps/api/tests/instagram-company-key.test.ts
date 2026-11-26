@@ -216,16 +216,40 @@ describe("Meta закрыла доступ к аккаунту — одна от
     expect((await prisma.messengerAccount.findUnique({ where: { id: lockedId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
   });
 
-  it("обычный 401 (смена пароля) — не «закрыт», а тревога руководству раз в сутки", async () => {
-    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
-    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+  // 25.11.2026 (прод 24.11, Arvan): мёртвый после смены пароля ключ метится той же дверью, что «закрыт», своим текстом
+  // («Заменить маркер»), одна тревога руководству на эпизод; второй тревоги «Ключ не работает» нет. До этого здесь было
+  // «не «закрыт», тревога раз в сутки» — и остальные пути (отправка, повтор, профиль) били в мёртвый ключ сотнями строк.
+  it("обычный 401 (смена пароля) — та же отметка своим текстом, одна тревога руководству, без «Ключ не работает»", async () => {
+    const keyTag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
+    const lockTag = { tag: { startsWith: `ig-account-locked:${accountId}` } };
+    await prisma.pendingDirectorAlert.deleteMany({ where: { OR: [{ tag: keyTag }, lockTag] } });
     await settings({ instagramCompanyKeyEnabled: false });
     const [row] = await checkInstagramAccountsHealth([accountId]);
-    expect(row.ok).toBe(false);
-    expect((await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
-    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
+    expect(row.ok).toBeNull();
+    expect(row.detail).toMatch(/не принимает ключ/);
+    expect((await prisma.messengerAccount.findUnique({ where: { id: accountId }, select: { accessLostAt: true } }))?.accessLostAt).not.toBeNull();
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: lockTag }));
     expect(alert?.recipientRoles).toContain("HEAD_OF_SALES");
-    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    expect(alert?.title).toMatch(/ключ аккаунта больше не принимается/);
+    expect(await prisma.pendingDirectorAlert.count({ where: { tag: keyTag } })).toBe(0);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { OR: [{ tag: keyTag }, lockTag] } });
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: null, accessLostReason: null } });
+  });
+
+  it("дата «закрыт с …» в проверке — по Душанбе, а не по UTC (охота 26.11)", async () => {
+    // 25.11 20:30 UTC = 26.11 01:30 в Душанбе: руководству писали «с 2026-11-25» — на день раньше.
+    await prisma.messengerAccount.update({
+      where: { id: lockedId },
+      data: { accessLostAt: new Date("2026-11-25T20:30:00Z"), accessLostReason: LOCKED_TEXT },
+    });
+    meta.lockedMeOk = false;
+    try {
+      const [row] = await checkInstagramAccountsHealth([lockedId]);
+      expect(row.ok).toBeNull();
+      expect(row.detail).toContain("с 2026-11-26");
+    } finally {
+      await prisma.messengerAccount.update({ where: { id: lockedId }, data: { accessLostAt: null, accessLostReason: null } });
+    }
   });
 
   it("новый маркер («Заменить маркер») снимает отметку сразу", async () => {

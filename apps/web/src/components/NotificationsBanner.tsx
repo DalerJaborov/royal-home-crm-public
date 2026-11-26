@@ -128,7 +128,7 @@ export function NotificationsBanner() {
   return (
     <Rh2Inline>
       <div className="card tight" style={{ marginBottom: 16 }}>
-        <div className="quiet">
+        <div className="quiet notif-banner">
           <Bell className="i" />
           <span className="txt">
             <b>{title}</b> {description}

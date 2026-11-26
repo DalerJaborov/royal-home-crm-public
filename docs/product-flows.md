@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2508**; вместе с задачами по расписанию и фоновыми заданиями — **4263**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -974,6 +974,45 @@
 - res.json({ total: totals.get(req.params.id) ?? 0, entries });
   · ответ 200
 
+### POST /api/v1/agents/:id/telegram-link
+
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+- const outcome = await issueStaffTelegramLink(req.agent!, id.data);
+  · зовёт issueStaffTelegramLink()
+  - если !canManageStaffTelegram(actor.role)
+    - return fail(403, "Подключать сотрудников к Шабнам может директор или администратор");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, targetId)
+    - return fail(403, "Управлять учёткой директора может только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, targetId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, i…
+    · читает в базе: agent
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если !target.isActive
+    - return fail(409, "Сотрудник отключён. Сначала включите учётку");
+      · дословно из кода
+  - const { code, deepLink } = await createTelegramLinkCode(target.id, ADMIN_LINK_CODE_TTL_MS);
+    · зовёт createTelegramLinkCode()
+- res.setHeader("Cache-Control", "no-store");
+  · ставит заголовок ответа
+
+### POST /api/v1/agents/:id/telegram-unlink
+
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+
 ### POST /api/v1/agents/:id/unfreeze
 
 `apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
@@ -1083,6 +1122,15 @@
     - если holder
       - return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);
         · дословно из кода
+  - если typeof rest.samePersonAgentId === "string"
+    - если rest.samePersonAgentId === targetId
+      - return fail(400, "Учётка не может быть «тем же человеком» сама себе");
+        · дословно из кода
+    - const other = await prisma.agent.findUnique({ where: { id: rest.samePersonAgentId }, select: { id: true } });
+      · читает в базе: agent
+    - если !other
+      - return fail(404, "Вторая учётка не найдена");
+        · дословно из кода
   - const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: targetId }, select:…
     · читает в базе: agent
   - const wasInactive = rest.isActive === true ? (await prisma.agent.findUnique({ where: { id: targetId }, select…
@@ -1185,8 +1233,12 @@
 
 - res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…
   · ответ 200
-  - const agents = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select:…
+  - const rows = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select: i…
     · читает в базе: agent
+  - const agents = rows.map((row)
+    - если !("telegramChatId" in row)
+      - return row;
+        · дословно из кода
   - если !isAdmin || opts.telephony === false
     - return agents;
       · дословно из кода
@@ -3482,22 +3534,15 @@
     · ответ (код зависит от условия)
 - await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.ag…
   · зовёт recordPropertyDispatchAccepted()
+- const { channel: exposureChannelName, recipientId: exposureRecipientId } = exposureChannel(target);
+  · зовёт exposureChannel()
 - await recordExposures( exposureChannelName, exposureRecipientId, properties.map((p)
   · зовёт recordExposures()
 - если client.assignedAgentId
   - await prisma.interaction .createMany({ data: properties.map((p)
     · создаёт в базе: interaction
-- const policy = await loadMatchPolicy();
-  · зовёт loadMatchPolicy()
-- если policy.notifyPropertyOwner
-  - для каждого: const p of properties
-    - const ownerId = propertyOwnerAgentId(p);
-      · зовёт propertyOwnerAgentId()
-    - если !ownerId || ownerId === req.agent!.id
-      - continue;
-        · переходит к следующему
-    - void sendPushToAgent(ownerId, { title: "🏠 Ваш объект предложен клиенту", body: `Объект №${p.shortId} — ${p.t…
-      · push-уведомление
+- await notifyPropertyOwners( properties, req.agent!.id, `агент ${sender.kind === "agent" ? sender.agentName : …
+  · зовёт notifyPropertyOwners()
 - res.json({ ok: true, sent: properties.length, propertyIds, masked: delivery.masked || titleMasked || messageM…
   · ответ 200
 
@@ -3519,6 +3564,10 @@
 - если !target
   - return res.json(info);
     · ответ 200
+- const channel = targetChannel(target);
+  · зовёт targetChannel()
+- const [enabled, lastAt, windowState] = await Promise.all([channelEnabled(target), lastClientMessageAt(target)…
+  · зовёт channelEnabled()
 - res.json(info);
   · ответ 200
 
@@ -4751,6 +4800,11 @@
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
     · ответ 400 — «Файл не передан»
+- const pauseParsed = replyVoicePauseSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой replyVoicePauseSchema
+- если !pauseParsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: pauseParsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
 - const conversation = isTelegram ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_…
   · читает в базе: telegramConversation
   · читает в базе: botConversation
@@ -4799,6 +4853,29 @@
   · зовёт logAudit()
 - res.json({ ok: true });
   · ответ 200
+
+### GET /api/v1/conversations/:id/send-context
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const outcome = await loadSendContext(req, req.params.id);
+  · зовёт loadSendContext()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
+
+### POST /api/v1/conversations/:id/send-properties
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const parsed = sendPropertiesBodySchema.safeParse(req.body);
+  · проверяет данные схемой sendPropertiesBodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const outcome = await sendPropertiesFromConversation({ req, rawId: req.params.id, propertyIds: parsed.data.pr…
+  · зовёт sendPropertiesFromConversation()
+- res.status(outcome.status).json(outcome.body);
+  · ответ (код зависит от условия)
 
 ### POST /api/v1/conversations/:id/spam-restore
 
@@ -5291,10 +5368,10 @@
   · читает в базе: deal
   · читает в базе: settings
   · читает в базе: property
-- если ownAgentId
+- если callOwnerId
   - const { from: firstCallFrom } = firstCallCandidateWindow(settings, new Date());
     · зовёт firstCallCandidateWindow()
-  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, acceptedAt: { not:…
+  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, acceptedAt: { not…
     · читает в базе: client
   - если dueCandidates.length > 0
     - const status = await firstCallStatus(dueCandidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, lea…
@@ -5305,8 +5382,8 @@
           · дословно из кода
       - return { id: c.id, shortId: c.shortId, fullName: clientNamePhoneSafe(c.fullName, canSeePhone), phone: clientP…
         · зовёт clientNamePhoneSafe()
-- если ownAgentId
-  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, assignReason: SUPERVISO…
+- если callOwnerId
+  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, assignReason: SUPERVIS…
     · читает в базе: client
   - если waiting.length > 0
     - const notes = await prisma.interaction.findMany({ where: { clientId: { in: waiting.map((c)
@@ -6215,6 +6292,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
+- parsed.data.message = redactSecretsInText(parsed.data.message);
+  · зовёт redactSecretsInText()
+- parsed.data.stack = redactSecretsInText(parsed.data.stack);
+  · зовёт redactSecretsInText()
+- parsed.data.url = redactSecretsInText(parsed.data.url);
+  · зовёт redactSecretsInText()
 - const recentSame = await prisma.errorLog.count({ where: { source: "web", message: parsed.data.message, create…
   · считает в базе: errorLog
 - если recentSame === 0
@@ -7839,7 +7922,7 @@
 - если !property || property.deletedAt
   - return res.status(404).json({ error: "Ссылка не найдена" });
     · ответ 404 — «Ссылка не найдена»
-- res.json({ property: { title: property.title, type: property.type, rooms: property.rooms, areaSqm: property.a…
+- res.json({ property: { title: publicPropertyTitle(property), type: property.type, rooms: property.rooms, area…
   · ответ 200
 
 ## /api/v1/landmarks
@@ -10549,11 +10632,12 @@
 - если property.status !== "SOLD"
   - return res.status(409).json({ error: "Объект не в статусе «продан» — печать ставить рано" });
     · ответ 409 — «Объект не в статусе «продан» — печать ставить рано»
-- const summary = await publishPropertySoldStory(property.id, { force: true });
-  · зовёт publishPropertySoldStory()
-- logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, { published: summary.publis…
+- если !(await queuePropertySoldStory(property.id))
+  - return res.status(502).json({ error: "Не удалось поставить историю в очередь — попробуйте ещё раз через минут…
+    · ответ 502 — «Не удалось поставить историю в очередь — попробуйте ещё раз через…»
+- logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, { queued: true });
   · зовёт logAudit()
-- res.status(200).json({ ok: summary.publishedParts === 1, error: summary.error ?? null });
+- res.status(200).json({ ok: true, queued: true, error: null });
   · ответ 200
 
 ### GET /api/v1/properties/:id/matching-clients
@@ -12876,7 +12960,7 @@
     · ответ 404 — «Объект не найден»
 - const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   · зовёт stripEmbedding()
-- const ownsIt = ownsProperty(req.agent!.id, property);
+- const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === "HEAD_OF_SALES";
   · зовёт ownsProperty()
 - res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…
   · ответ 200
@@ -15865,8 +15949,10 @@
 `apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteAdmin.reset, requireElevation
 
 - если !url || !apiKey
-  - return res.status(503).json({ error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)" …
-    · ответ 503 — «Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)»
+  - console.warn("[site-reset] не заданы SITE_SYNC_URL / SITE_SYNC_ADMIN_RESET_KEY");
+    · пишет строку в журнал сервера
+  - return res.status(503).json({ error: "Связь с сайтом не настроена. Обратитесь к администратору." });
+    · ответ 503 — «Связь с сайтом не настроена. Обратитесь к администратору.»
 - const parsed = siteAdminResetSchema.safeParse(req.body ?? {});
   · проверяет данные схемой siteAdminResetSchema
 - если !parsed.success
@@ -18915,7 +19001,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
+              - traceOutcome("blocked", "dm_lane_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -19093,8 +19179,9 @@
             - если providerAcceptedReply
               - replySent = true;
                 · дословно из кода
-            - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
-              · запись в журнал ошибок
+            - если !isInstagramAccessLostError(err)
+              - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
+                · запись в журнал ошибок
             - если !providerAcceptedReply
               - void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryA…
                 · зовёт trackBackgroundTask()
@@ -19978,6 +20065,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -20970,6 +21062,39 @@
     - customerBusy[lane] = false;
       · дословно из кода
 
+### customer-media-settle — */5 * * * *
+
+- если isMediaSettleRunning
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await settleStalePendingCustomerMedia();
+    · зовёт settleStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ channel: string; subscriberId: string; mid: string; lost: unknown }[]>`…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - const out = await attachOrPark({ channel: row.channel, subscriberId: row.subscriberId, mid: row.mid }, [], lo…
+        · зовёт attachOrPark()
+      - если out.result === "attached" || out.result === "already"
+        - settled++;
+          · дословно из кода
+      - если out.conversationId
+        - void publishConversationUpdated("bot", out.conversationId);
+          · зовёт publishConversationUpdated()
+    - если settled
+      - void logSystemError("meta", `Файлы клиентов не докачались (обрыв или очередь): пометка «не скачалось» поставл…
+        · запись в журнал ошибок
+- если сорвалось
+  - reportCronTickError("Ошибка сверки файлов клиентов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- в любом случае
+  - isMediaSettleRunning = false;
+    · дословно из кода
+
 ### customer-outbox-jobs — */5 * * * * *
 
 - await runCustomerJobsTick("outbox");
@@ -21401,6 +21526,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -21443,6 +21573,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21902,6 +22037,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -21946,8 +22086,8 @@
     - если !(await loadBotCapabilities()).comments
       - return stats;
         · дословно из кода
-    - const due = (await prisma.instagramComment.findMany({ where: { OR: [ { status: "PENDING", replyDueAt: { lte: …
-      · читает в базе: instagramComment
+    - const due = await selectDueComments(now);
+      · зовёт selectDueComments()
     - для каждого: const row of due
       - если group
         - group.push(row);
@@ -22034,6 +22174,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -22071,6 +22216,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -24961,7 +25111,7 @@
   - const result = await collectSiteStats();
     · зовёт collectSiteStats()
     - если !siteStatsConfigured()
-      - return { ok: false, error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", notConfigured: tr…
+      - return { ok: false, error: "Связь с сайтом не настроена. Обратитесь к администратору.", notConfigured: true };
         · дословно из кода
     - пробует
       - const { since, until } = await siteStatsWindow(now);
@@ -25021,6 +25171,11 @@
         · запись в журнал ошибок
         - message = maskPhoneNumbersInText(String(message));
           · зовёт maskPhoneNumbersInText()
+        - message = redactSecretsInText(message);
+          · зовёт redactSecretsInText()
+        - если context && (context.url || context.stack)
+          - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+            · зовёт redactSecretsInText()
         - если isPrivateOperation()
           - source = "investigation";
             · дословно из кода
@@ -25056,6 +25211,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -26607,6 +26767,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27039,6 +27204,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27124,6 +27294,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27301,7 +27476,7 @@
     - если result === "failed" || result === "ai-down"
       - traceOutcome("failed");
         · зовёт traceOutcome()
-    - иначе если result === "channel-dead"
+    - иначе если result === "channel-dead" || result === "channel-paused"
       - traceOutcome("blocked", "channel_key_dead");
         · зовёт traceOutcome()
     - иначе если result === "no-reply"
@@ -27310,6 +27485,9 @@
 - если outcome === "ai-down"
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
+- если outcome === "channel-paused"
+  - return;
+    · дальше не идёт, ничего не меняя
 - если outcome === "channel-dead"
   - если !capBase
     - throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");
@@ -27343,6 +27521,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -27408,6 +27591,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27463,6 +27651,11 @@
   · запись в журнал ошибок
   - message = maskPhoneNumbersInText(String(message));
     · зовёт maskPhoneNumbersInText()
+  - message = redactSecretsInText(message);
+    · зовёт redactSecretsInText()
+  - если context && (context.url || context.stack)
+    - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+      · зовёт redactSecretsInText()
   - если isPrivateOperation()
     - source = "investigation";
       · дословно из кода
@@ -27692,6 +27885,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27796,6 +27994,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27851,6 +28054,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27917,6 +28125,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -27998,6 +28211,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28123,6 +28341,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -28161,6 +28384,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28252,6 +28480,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28379,6 +28612,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28451,6 +28689,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28540,6 +28783,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28575,6 +28823,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28657,6 +28910,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -28844,6 +29102,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -28942,6 +29205,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29012,8 +29280,8 @@
 - const result = await syncPropertiesToSite([property], "sold");
   · зовёт syncPropertiesToSite()
   - если !SITE_SYNC_URL || !SITE_SYNC_API_KEY
-    - return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", retryable…
-      · дословно из кода
+    - console.warn("[site-sync] не заданы SITE_SYNC_URL / SITE_SYNC_API_KEY");
+      · пишет строку в журнал сервера
   - если action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…
     - return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов', retryabl…
       · дословно из кода
@@ -29072,6 +29340,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29123,6 +29396,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29172,6 +29450,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29294,6 +29577,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29376,6 +29664,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29456,6 +29749,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29707,6 +30005,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29748,6 +30051,93 @@
     - const res = await prisma.propertyPhotoPost.updateMany({ where: { propertyId, status: "SCHEDULED" }, data: { s…
       · меняет в базе: propertyPhotoPost
 
+### propertyStatusStoryJob
+
+`apps/api/src/jobs/propertyStatusStory.ts`
+
+- const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true…
+  · читает в базе: property
+- если !property || property.deletedAt
+  - return;
+    · дальше не идёт, ничего не меняя
+- если payload.kind === "PRICE_DROP" && property.status !== "AVAILABLE"
+  - return;
+    · дальше не идёт, ничего не меняя
+- если payload.kind === "PRICE_DROP" && payload.priceWasTjs
+  - const rate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+    · зовёт loadUsdRateInfo()
+  - если nowTjs !== null && nowTjs >= payload.priceWasTjs
+    - return;
+      · дальше не идёт, ничего не меняя
+- если payload.kind === "SOLD"
+  - const done = await prisma.propertyStoryPost.findFirst({ where: { propertyId: payload.propertyId, kind: "SOLD"…
+    · читает в базе: propertyStoryPost
+  - если done
+    - return;
+      · дальше не идёт, ничего не меняя
+- const decision = storyJobDecision({ kind: payload.kind, remixPending: priceDrop ? await narrationRemixPending…
+  · зовёт storyJobDecision()
+  - если input.kind !== "PRICE_DROP"
+    - return "PUBLISH";
+      · дословно из кода
+- если decision === "WAIT"
+  - throw new Error("озвучка с новой ценой ещё не легла в ролик — историю выложим следом");
+    · ошибка Error — «озвучка с новой ценой ещё не легла в ролик — историю выложим следом»
+- если payload.kind === "SOLD"
+  - const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, d…
+    · читает в базе: property
+  - если !fresh || fresh.deletedAt || fresh.status !== "SOLD"
+    - return;
+      · дальше не идёт, ничего не меняя
+- const summary = payload.kind === "PRICE_DROP" ? await publishPropertyPriceDropStory(payload.propertyId, paylo…
+  · зовёт publishPropertyPriceDropStory()
+- если summary.pending
+  - return;
+    · дальше не идёт, ничего не меняя
+- если summary.attempted && summary.publishedParts === 0 && summary.error
+  - throw new Error(summary.error);
+    · ошибка Error — «summary.error»
+- когда попытки кончились
+  - await logSystemError( "meta", `История «${payload.kind === "SOLD" ? "продано" : "цена снижена"}» (объект ${pa…
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+
 ### recording-search-retry
 
 `apps/api/src/jobs/recordingSearchRetry.ts`
@@ -29780,6 +30170,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -29935,6 +30330,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30013,6 +30413,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30072,6 +30477,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30135,6 +30545,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30174,6 +30589,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30259,6 +30679,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30380,6 +30805,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30558,6 +30988,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30677,6 +31112,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -30721,6 +31161,11 @@
       · запись в журнал ошибок
       - message = maskPhoneNumbersInText(String(message));
         · зовёт maskPhoneNumbersInText()
+      - message = redactSecretsInText(message);
+        · зовёт redactSecretsInText()
+      - если context && (context.url || context.stack)
+        - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+          · зовёт redactSecretsInText()
       - если isPrivateOperation()
         - source = "investigation";
           · дословно из кода
@@ -30777,6 +31222,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31071,6 +31521,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31122,6 +31577,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31190,6 +31650,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода
@@ -31313,6 +31778,11 @@
     · запись в журнал ошибок
     - message = maskPhoneNumbersInText(String(message));
       · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
     - если isPrivateOperation()
       - source = "investigation";
         · дословно из кода

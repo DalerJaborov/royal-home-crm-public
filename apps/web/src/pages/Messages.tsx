@@ -45,14 +45,14 @@ import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "../components/MessageQuote";
 import { VoiceRecordButton } from "../components/VoiceRecordButton";
-import { ChatPropertySend } from "../components/ChatPropertySend";
+import { ChatObjectPicker } from "../components/ChatObjectPicker";
 import { ContactProfilePanel } from "../components/ContactProfilePanel";
 import { ConversationClientLink } from "../components/ConversationClientLink";
 import { relativeTime } from "../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../lib/botMessages";
 import { TranslatableMessageText } from "../components/MessageTranslateToggle";
-import { PAUSE_OPTIONS, pausedUntilIso } from "../lib/botPauseOptions";
+import { PAUSE_OPTIONS, initialReplyPauseIndex, pausedUntilIso, rememberReplyPauseIndex } from "../lib/botPauseOptions";
 import { conversationBotState } from "../lib/conversationBotState";
 import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
@@ -95,7 +95,6 @@ import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../componen
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
 /** Почему «Отправить объект» серый: отправка пишет показ объекта в карточку клиента. */
-const PROPERTY_SEND_NEEDS_CARD = "Сначала примите заявку: у этого диалога ещё нет карточки клиента";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -1222,7 +1221,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     [allMessages]
   );
   const reply = useReplyToConversation(replyTargetId);
-  const voiceMessage = useSendVoiceMessage(replyTargetId);
+  const voiceMessage = useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
   const pendingUploads = usePendingMediaUploads(replyTargetId);
@@ -1265,10 +1264,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const [moreView, setMoreView] = useState<"main" | "pause">("main");
   const attachMenu = useDismissableMenu<HTMLButtonElement>();
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
-  /** Пояснение у серой кнопки «Объект», когда у диалога нет карточки клиента. */
-  const [propertyHint, setPropertyHint] = useState(false);
-  const canSendProperty = !!(conversation?.clientId && conversation.clientShortId);
-  useEffect(() => { setPropertyHint(false); }, [id]);
   // «Сведения о сообщении» — абсолютный индекс в allMessages; setState стабилен,
   // поэтому memo-ленте передаётся как есть и не перерисовывает её при печати.
   const [infoIndex, setInfoIndex] = useState<number | null>(null);
@@ -1308,7 +1303,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   // Последний пресет ("Бессрочно") — длительность паузы по умолчанию после ручного
   // ответа (решение владельца 18.08.2026); то же значение зашито на сервере в
   // OPERATOR_REPLY_PAUSE_MS. Агент по-прежнему может выбрать более короткую паузу.
-  const [pauseOptionIndex, setPauseOptionIndex] = useState(PAUSE_OPTIONS.length - 1);
+  // Новый вид (royal, владелец 26.11.2026): по умолчанию ЧАС, дальше — последний выбор сотрудника (браузер помнит).
+  // Прежний вид остаётся как был — «Бессрочно».
+  const [pauseOptionIndex, setPauseOptionIndex] = useState(() => (royal ? initialReplyPauseIndex() : PAUSE_OPTIONS.length - 1));
   // Выбранное через «Произвольно…» число минут для паузы при отправке ответа.
   const [customPauseMinutes, setCustomPauseMinutes] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -1390,17 +1387,26 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [search.activeAbsoluteIndex, search.matches.length, visibleCount]);
 
+  /** Срок паузы бота (минуты) для ЛЮБОЙ отправки из этого окна: текст, голосовое, фото/видео — одно число на всех. */
+  function replyPauseMinutes(): number {
+    return customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
+  }
+
+  /** Голос и фото/видео шлют выбранный срок только в новом виде: в прежнем виде они уходили без срока (умолчание
+   *  сервера для отправителя), и «Бессрочно» тихо раздать им нельзя (ревью PR #463). */
+  function mediaPauseMinutes(): number | undefined {
+    return royal ? replyPauseMinutes() : undefined;
+  }
+
   async function handleSend() {
     const value = text.trim();
     if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
     try {
-      // Срок паузы уходит ВСЕГДА (ревью #332). В новом виде выбора в окне нет, и
-      // pauseOptionIndex остаётся «Бессрочно» — как было по умолчанию. Без срока
-      // сервер (defaultPauseForSender, lib/conversationDelivery.ts) дал бы
-      // директору/незакреплённому агенту 10 минут, и бот писал бы поверх человека.
-      // «Эстафета» поменяет это одним местом — когда придёт.
-      const minutes = customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
-      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(minutes) });
+      // Срок паузы уходит ВСЕГДА (ревью #332): без срока сервер (defaultPauseForSender,
+      // lib/conversationDelivery.ts) дал бы директору/незакреплённому агенту 10 минут, и бот
+      // писал бы поверх человека. Срок выбирает сотрудник строкой «Бот молчит» над полем ввода
+      // (новый вид: по умолчанию час, 26.11.2026; прежний вид: селект ниже, по умолчанию «Бессрочно»).
+      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(replyPauseMinutes()) });
       // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
       setText((cur) => clearIfUnchanged(cur, value));
       if (clean) reading.jumpToLatest();
@@ -1431,7 +1437,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       return;
     }
     // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
-    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+    const pauseMinutes = mediaPauseMinutes();
+    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
     setText("");
   }
 
@@ -1443,7 +1450,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
    */
   function handleSendMedia() {
     if (!pendingMedia || readOnly || !replyTargetId) return;
-    mediaUpload.start(pendingMedia, text.trim() || undefined);
+    mediaUpload.start(pendingMedia, text.trim() || undefined, mediaPauseMinutes());
     setPendingMedia(null);
     setText("");
   }
@@ -2030,7 +2037,8 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             type="button"
             className="pill sm"
             onClick={() => {
-              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
+              const pauseMinutes = mediaPauseMinutes();
+              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
               setPendingBatch(null);
               setText("");
             }}
@@ -2071,20 +2079,37 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </div>
       )}
 
-      {/* Серая кнопка «Отправить объект» (нет карточки клиента): на телефоне подсказки
-          по наведению нет, поэтому причина по нажатию показывается строкой над полем. */}
-      {propertyHint && !canSendProperty && (
-        <div className="suggest" role="status" data-testid="chat-send-property-hint">
-          <span className="dot warn"></span>
-          <span className="txt">{PROPERTY_SEND_NEEDS_CARD}</span>
+      {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
+      {/* СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ (владелец 26.11.2026: «вернуть выбор срока, по умолчанию час»).
+          Одна тонкая строка над полем ввода, на ПК и телефоне одна и та же: подпись и выбор срока. Родной
+          список выбора — на телефоне открывается системным окном, цель касания 44 px (стили
+          .ry-chat-pausepick). Срок действует для текста, голосового и фото/видео; браузер помнит выбор.
+          Прежний вид — селект ниже, у него своя строка. */}
+      {royal && !(isGroupedEntry && !replyableSources.length) && (
+        <div className="suggest ry-chat-pausepick" data-testid="chat-reply-pause">
+          <label className="txt" htmlFor="chat-reply-pause-select">Бот молчит:</label>
+          <select
+            id="chat-reply-pause-select"
+            className="inp"
+            value={pauseOptionIndex}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setPauseOptionIndex(next);
+              rememberReplyPauseIndex(next);
+            }}
+            aria-label="На сколько бот замолкает после вашего ответа"
+          >
+            {PAUSE_OPTIONS.map((opt, idx) => (
+              <option key={opt.label} value={idx}>{opt.label}</option>
+            ))}
+          </select>
         </div>
       )}
-      {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
       {royal ? (
         /* СТРОКА ВВОДА КАК В WHATSAPP (владелец 20.11.2026): скрепка, поле и одна
            круглая кнопка — пустое поле даёт микрофон, есть текст — «отправить».
            Канал выбран сам; фото, объект и быстрые ответы — под скрепкой (или «/»
-           первым символом). Срока паузы бота в окне нет. */
+           первым символом). Срок паузы бота — строкой выше. */
         <form className="compose ry-chat-compose" onSubmit={(e) => e.preventDefault()}>
           {isGroupedEntry && !replyableSources.length ? (
             <span className="meta" role="note">История доступна только для чтения: для этих каналов нет безопасной отправки из CRM.</span>
@@ -2108,17 +2133,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                 <button type="button" role="menuitem" onClick={() => mediaInputRef.current?.click()}>
                   <Video aria-hidden="true" />Фото или видео
                 </button>
-                {/* «Объект» виден ВСЕГДА (владелец 25.11.2026: «кнопки нет»): у диалога без
-                    карточки клиента пункт серый и говорит, почему, а не пропадает молча —
-                    отправка объекта пишет показ в карточку клиента, без неё некуда. */}
-                <button
-                  type="button"
-                  role="menuitem"
-                  aria-disabled={!canSendProperty || undefined}
-                  title={canSendProperty ? undefined : PROPERTY_SEND_NEEDS_CARD}
-                  onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint(true))}
-                  style={canSendProperty ? undefined : { opacity: 0.55 }}
-                >
+                {/* «Объект» активен ВСЕГДА (владелец 26.11.2026: «клиент должен сначала посмотреть объекты, а потом дать
+                    номер»): карточка клиента и принятая заявка не нужны, объект уходит в любую переписку. */}
+                <button type="button" role="menuitem" onClick={() => setPropertyPickerOpen(true)}>
                   <Building2 aria-hidden="true" />Объект из базы
                 </button>
                 {quickReplies.length > 0 && (
@@ -2167,31 +2184,16 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               e.target.value = "";
             }}
           />
-          {/* Объект — на виду, отдельной круглой кнопкой рядом со скрепкой. */}
-          <button
-            type="button"
-            className="ry-round ry-round-ghost"
-            data-testid="chat-send-property"
-            onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint((v) => !v))}
-            disabled={reply.isPending || !replyTargetId}
-            aria-disabled={!canSendProperty || undefined}
-            aria-label={canSendProperty ? "Отправить объект" : `Отправить объект: ${PROPERTY_SEND_NEEDS_CARD}`}
-            title={canSendProperty ? "Отправить объект" : PROPERTY_SEND_NEEDS_CARD}
-            style={canSendProperty ? undefined : { opacity: 0.55 }}
-          >
-            <Building2 aria-hidden="true" />
-          </button>
-          {conversation?.clientId && conversation.clientShortId && (
-            <ChatPropertySend
-              clientId={conversation.clientId}
-              clientShortId={conversation.clientShortId}
-              conversationId={replyTargetId ?? undefined}
-              disabled={reply.isPending || conversationLoading || !replyTargetId}
-              hideTrigger
-              open={propertyPickerOpen}
-              onOpenChange={setPropertyPickerOpen}
-            />
-          )}
+          {/* Объект — только пунктом «Объект из базы» в меню скрепки (владелец 26.11.2026: отдельная кнопка-здание была дублем). */}
+          <ChatObjectPicker
+            conversationId={replyTargetId ?? undefined}
+            disabled={reply.isPending || conversationLoading || !replyTargetId}
+            hideTrigger
+            open={propertyPickerOpen}
+            onOpenChange={setPropertyPickerOpen}
+            pauseMinutes={mediaPauseMinutes()}
+            onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
+          />
           {/* Одна круглая кнопка; на ней — значок канала, куда уйдёт ответ, если
               каналов несколько: виден и во время набора, когда подсказки уже нет. */}
           <span className="ry-send-wrap">
@@ -2312,12 +2314,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </button>
         {/* Быстрая отправка объекта из чата (владелец 21.08.2026) — вся логика в
             компоненте, здесь только кнопка. */}
-        {conversation?.clientId && conversation.clientShortId && <ChatPropertySend
-          clientId={conversation?.clientId ?? null}
-          clientShortId={conversation?.clientShortId ?? null}
+        <ChatObjectPicker
           conversationId={replyTargetId ?? undefined}
           disabled={reply.isPending || conversationLoading || !replyTargetId}
-        />}
+          pauseMinutes={mediaPauseMinutes()}
+          onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
+        />
         {/* «Предложить ответ» (черновик от ИИ рядом с микрофоном) убрана
             целиком (владелец 06.09.2026: «зачем она?») — не отвечала на
             явную потребность и добавляла кнопку туда, где должно быть

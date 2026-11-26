@@ -86,6 +86,32 @@ export async function resetAiRetryCap(conversationIds: readonly string[], now: D
   return removed;
 }
 
+/**
+ * НОВЫЙ КЛЮЧ АККАУНТА — ОСТАНОВКИ «КЛЮЧ МЁРТВ» СНИМАЮТСЯ (25.11.2026). Остановка по мёртвому ключу держится KEY_STOP_MS
+ * (2 часа); человек, нажавший «Заменить маркер», ждал бы ответа клиентам до двух часов. Снимаем только остановки по
+ * ключу (счёт пустых повторов и остановки потолком не трогаем) у переписок этого аккаунта за последние 3 суток (столько
+ * живут строки счёта, webhookDedupe.ts). Повтор поставит крон health-automation в ближайшие 30 минут. Не бросает.
+ */
+export async function releaseAiRetryKeyStops(accountId: string, now: Date = new Date()): Promise<number> {
+  try {
+    const conversations = await prisma.botConversation.findMany({
+      where: { accountId, lastMessageAt: { gte: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000) } },
+      select: { id: true }, take: 2000,
+    });
+    let removed = 0;
+    for (let i = 0; i < conversations.length; i += 100) {
+      const chunk = conversations.slice(i, i + 100);
+      const { count } = await prisma.processedMessage.deleteMany({
+        where: { channel: LEDGER, messageId: { contains: ":stop-key:" }, OR: chunk.map((c) => ({ messageId: { startsWith: `${c.id}:` } })) } });
+      removed += count;
+    }
+    return removed;
+  } catch (error) {
+    console.error("[ai-retry-cap] снятие остановок по ключу:", error instanceof Error ? error.message : "UnknownError");
+    return 0;
+  }
+}
+
 export type AiRetryStop =
   | { reason: "retry_cap" }
   | { reason: "channel_key_dead"; keyFingerprint: string };

@@ -534,9 +534,12 @@ describe("Instagram через Страницу", () => {
     const identity = await instagramTokenIdentity(PT_A);
     expect(identity).toMatchObject({ ok: true, id: IG_A, username: `arvan_${run}`, pageId: PAGE_A });
 
-    // Суточная проверка ключей: жив по Странице, без «запасной личный не работает».
+    // Суточная проверка ключей: жив по Странице, без «запасной личный не работает». И снимает ложную отметку «доступ
+    // потерян» (ревью #432): у аккаунта «Войти через Facebook» другой пробы нет — без этого отметка жила бы вечно.
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: тест" } });
     const [check] = await checkInstagramAccountsHealth([accountId]);
     expect(check).toMatchObject({ ok: true, detail: expect.stringContaining(PAGE_A) });
+    expect((await prisma.messengerAccount.findUniqueOrThrow({ where: { id: accountId } })).accessLostAt).toBeNull();
 
     // Самопроверка «Вечные ключи» не пугает «нет ключа компании»: у аккаунта свой ключ Страницы.
     const status = await eternal.metaEternalStatus();
@@ -691,12 +694,27 @@ describe("WhatsApp Business (пачка 2)", () => {
       fetchMock.mock.calls.some(([u, i]) => String(u).includes("wa-media-1") && authOf(i as RequestInit) === `Bearer ${WA_SETTINGS_TOKEN}`)
     ).toBe(false);
 
-    // Вебхук передаёт ключ номера-получателя (а не молчит и не берёт Настройки):
-    // без второго аргумента файлы клиента подключённого номера снова не скачаются.
+    // Файлы клиента скачиваются ключом номера-получателя на ОБОИХ путях: в старом цикле вебхука и в единой двери
+    // сохранения (lib/customerInputMedia.ts, ядро и удержанные). Без второго аргумента файлы клиента подключённого
+    // номера снова не скачаются, а подстановка ключа Настроек — чужой файл не виден.
     const webhookSrc = readFileSync(fileURLToPath(new URL("../src/routes/webhooks.ts", import.meta.url)), "utf8");
-    const mediaCalls = webhookSrc.match(/whatsAppMediaSource\([^)]*\)/g) ?? [];
+    const mediaCalls = webhookSrc.match(/(?:lookupWhatsAppMedia|whatsAppMediaSource)\([^)]*\)/g) ?? [];
     expect(mediaCalls.length).toBeGreaterThan(0);
-    for (const call of mediaCalls) expect(call).toMatch(/whatsAppMediaSource\(msg\.mediaId, account\./);
+    for (const call of mediaCalls) expect(call).toMatch(/\(msg\.mediaId, account\./);
+    const doorSrc = readFileSync(fileURLToPath(new URL("../src/lib/customerInputMedia.ts", import.meta.url)), "utf8");
+    const doorCalls = doorSrc.match(/lookupWhatsAppMedia\([^\n]*/g) ?? [];
+    expect(doorCalls.length).toBeGreaterThan(0);
+    for (const call of doorCalls) expect(call).toMatch(/account\.id \? \(account\.token \?\? null\) : undefined/);
+
+    // Поведением: единая дверь берёт ключ номера-получателя, а при его отсутствии отдаёт причину, а не ключ Настроек.
+    const { sourcesFromIngressMedia } = await import("../src/lib/customerInputMedia.js");
+    const viaDoor = await sourcesFromIngressMedia({ channel: "WHATSAPP", accountExternalId: WA_1, media: [{ kind: "image", assetRef: "wa-media-1" }] });
+    expect(viaDoor.sources[0]).toMatchObject({ headers: { Authorization: `Bearer ${LONG}` } });
+    const { lookupWhatsAppMedia } = await import("../src/messengers/meta.js");
+    expect(await lookupWhatsAppMedia("wa-media-1", null)).toEqual({ source: null, reason: "no_key" });
+    expect(
+      fetchMock.mock.calls.some(([u, i]) => String(u).includes("wa-media-1") && authOf(i as RequestInit) === `Bearer ${WA_SETTINGS_TOKEN}`)
+    ).toBe(false);
 
     // Старый диалог основного номера (получатель не указан) по-прежнему отвечает ключом Настроек.
     expect((await resolveIncomingAccount("WHATSAPP", undefined)).token).toBe(WA_SETTINGS_TOKEN);

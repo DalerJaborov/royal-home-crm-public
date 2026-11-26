@@ -132,6 +132,9 @@ export const agentUpdateSchema = agentCreateSchema.partial().extend({
   /// Личные выходные (владелец 11.10.2026): дни недели по Душанбе, 0 — воскресенье.
   /// Пусто — работает каждый день. Правило — daysOff.ts.
   weeklyDaysOff: daysOffSchema.optional(),
+  /// «Это тот же человек» (25.11.2026): другая учётка того же сотрудника (агент и РОП).
+  /// Только подпись в карточке — права и данные не объединяются. null снимает связь.
+  samePersonAgentId: z.string().uuid().nullable().optional(),
 });
 
 /** Самообслуживание: сотрудник меняет свои данные. Отдельно от agentUpdateSchema —
@@ -1544,6 +1547,38 @@ export const sendPropertiesSchema = z.object({
   prepareOnly: z.boolean().optional(),
 });
 export type SendPropertiesInput = z.infer<typeof sendPropertiesSchema>;
+
+/** Ответ GET /conversations/:id/send-context — всё, что нужно шторке «Объект» (26.11.2026). */
+export interface ConversationSendContext {
+  hasCard: boolean;
+  clientId: string | null;
+  /** false — рубильник выключен и карточки нет: прежний отказ. */
+  allowed: boolean;
+  deniedReason: string | null;
+  channel: SendTargetInfo["channel"];
+  channelEnabled: boolean;
+  windowOpen: boolean;
+  lastClientMessageAt: string | null;
+  photosSupported: boolean;
+  hint: string;
+  /** Объекты, которые этому собеседнику уже отправляли за 30 дней. */
+  sentPropertyIds: string[];
+  /** Что бот собрал о запросе (комнаты/район/бюджет); null — ничего. */
+  draft: { rooms?: number; districtId?: string; districtName?: string; budgetMin?: number; budgetMax?: number; type?: string } | null;
+}
+
+/** Ответ POST /conversations/:id/send-properties. */
+export interface ConversationSendPropertiesResult {
+  ok: true;
+  sent: number;
+  propertyIds: string[];
+  masked: boolean;
+  pausedUntil: string | null;
+  channel: string;
+  hasCard: boolean;
+  /** jobIds — задания очереди фото: экран показывает по ним пузыри «В очереди / Отправляем». */
+  photos: { queued: number; jobIds: string[]; skipped: number; note: string | null };
+}
 
 /**
  * Куда уйдёт объект, отправленный из CRM (GET /clients/:id/send-target) —

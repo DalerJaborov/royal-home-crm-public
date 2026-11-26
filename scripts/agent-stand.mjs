@@ -25,6 +25,7 @@
  */
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,6 +51,57 @@ const MAIN_TREE = "D:\\CRM";
 const PG_NAME = "rh-stand-pg";
 const PG_PORT = "15500";
 const TEMPLATE_DB = "seeded";
+
+/**
+ * РЕЖИМ БЕЗ DOCKER (26.11.2026). На ПК владельца Docker Desktop иногда мёртв
+ * (зависшая виртуальная машина WSL, лечится только перезагрузкой), и тогда
+ * нельзя ни снять кадры экранов, ни проверить их в браузере. Тот же стенд
+ * умеет работать на ВНЕШНЕМ Postgres (portable-сборка, 127.0.0.1:15502):
+ * все обращения к базе идут через помощники `pgRun`/`pgOut`/`pgDbExists`, а
+ * какой из двух режимов включён, решает чистая `choosePgMode`.
+ *   STAND_PG=external|docker   принудительно; без него: Docker отвечает — Docker,
+ *                              не отвечает, а внешний Postgres доступен — внешний
+ *   STAND_PG_HOST (127.0.0.1)  STAND_PG_PORT (15502)  STAND_PG_USER/PASSWORD (postgres)
+ *   STAND_PG_BIN (D:\PgPortable\pgsql\bin)  STAND_PG_DATA (D:\PgPortable\data)
+ */
+const EXT_DEFAULTS = {
+  host: "127.0.0.1",
+  port: "15502",
+  user: "postgres",
+  password: "postgres",
+  bin: "D:\\PgPortable\\pgsql\\bin",
+  data: "D:\\PgPortable\\data",
+};
+
+/**
+ * ВЫБОР РЕЖИМА — чистая функция (проверяется тестом без Docker и без Postgres).
+ * `dockerOk` — ответил ли `docker version`; `externalUp` — доступен ли внешний
+ * Postgres (слушает порт или его можно поднять).
+ */
+function choosePgMode({ env = {}, dockerOk, externalUp }) {
+  const forced = String(env.STAND_PG ?? "").trim().toLowerCase();
+  if (forced === "external") return { mode: "external", reason: "STAND_PG=external" };
+  if (forced === "docker") return { mode: "docker", reason: "STAND_PG=docker" };
+  if (forced !== "") return { mode: "docker", reason: `STAND_PG=${forced} не понят, беру Docker` };
+  if (dockerOk) return { mode: "docker", reason: "Docker отвечает" };
+  if (externalUp) return { mode: "external", reason: "Docker недоступен, внешний Postgres доступен" };
+  return { mode: "docker", reason: "Docker недоступен и внешнего Postgres нет — дальше упадёт сам Docker" };
+}
+
+/** Параметры базы активного режима; `initPg()` заполняет их в начале команды. */
+let PG = { mode: "docker", host: "localhost", port: PG_PORT, user: "postgres", password: "postgres", bin: "", data: "" };
+
+function externalConfig(env = process.env) {
+  return {
+    mode: "external",
+    host: env.STAND_PG_HOST || EXT_DEFAULTS.host,
+    port: String(env.STAND_PG_PORT || EXT_DEFAULTS.port),
+    user: env.STAND_PG_USER || EXT_DEFAULTS.user,
+    password: env.STAND_PG_PASSWORD || EXT_DEFAULTS.password,
+    bin: env.STAND_PG_BIN || EXT_DEFAULTS.bin,
+    data: env.STAND_PG_DATA || EXT_DEFAULTS.data,
+  };
+}
 
 const args = process.argv.slice(2);
 const cmd = args[0] ?? "up";
@@ -294,7 +346,7 @@ const dbName = `agent_${apiPort}`;
  */
 function standEnv(api = apiPort, web = webPort) {
   return {
-    DATABASE_URL: `postgresql://postgres:postgres@localhost:${PG_PORT}/agent_${api}`,
+    DATABASE_URL: dbUrl(`agent_${api}`),
     JWT_ACCESS_SECRET: `stand-${api}-access-secret-0123456789`,
     JWT_REFRESH_SECRET: `stand-${api}-refresh-secret-0123456789`,
     SETTINGS_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // gitleaks:allow -- reviewed synthetic test value or non-secret identifier
@@ -314,11 +366,30 @@ function standEnv(api = apiPort, web = webPort) {
 function e2eHint(api = apiPort, web = webPort) {
   return `cd apps/web && E2E_BASE_URL=http://localhost:${web} E2E_API_URL=http://localhost:${api} npx playwright test --grep @smoke`;
 }
-const psql = (sql, db = "postgres") =>
-  `docker exec ${PG_NAME} psql -U postgres -d ${db} -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`;
+/** Адрес базы активного режима (в Docker-режиме — прежний `localhost:15500`). */
+function dbUrl(db) {
+  return `postgresql://${PG.user}:${PG.password}@${PG.host}:${PG.port}/${db}`;
+}
+
+/** psql.exe напрямую (внешний режим): пароль через PGPASSWORD, не через командную строку. */
+const extPsqlFile = () => path.join(PG.bin, "psql.exe");
+const extEnv = () => ({ ...process.env, PGPASSWORD: PG.password });
+const extArgs = (db, more) => ["-h", PG.host, "-p", PG.port, "-U", PG.user, "-d", db, "-v", "ON_ERROR_STOP=1", ...more];
+
+/** Выполнить SQL с выводом в консоль (CREATE/DROP/ALTER/COMMENT). */
+function pgRun(sql, db = "postgres") {
+  if (PG.mode === "docker") {
+    return shLoud(`docker exec ${PG_NAME} psql -U postgres -d ${db} -v ON_ERROR_STOP=1 -c ${JSON.stringify(sql)}`);
+  }
+  return execFileSync(extPsqlFile(), extArgs(db, ["-c", sql]), { stdio: "inherit", cwd: ROOT, env: extEnv() });
+}
+
+/** DROP DATABASE: во внешнем режиме с FORCE (Postgres 13+) — база может держать чужое соединение от умершего стенда. */
+const dropSql = (db, ifExists) => `DROP DATABASE ${ifExists ? "IF EXISTS " : ""}${db}${PG.mode === "external" ? " WITH (FORCE)" : ""}`;
 
 /** Общий контейнер поднимается один раз и живёт между агентами. */
 function ensureServer() {
+  if (PG.mode === "external") return ensureExternalServer();
   if (!has(`docker container inspect ${PG_NAME}`)) {
     shLoud(
       `docker run -d --name ${PG_NAME} -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p ${PG_PORT}:5432 postgres:16-alpine`
@@ -331,6 +402,65 @@ function ensureServer() {
     execSync('node -e "setTimeout(()=>{},1000)"');
   }
   throw new Error("Postgres не поднялся");
+}
+
+/** Внешний Postgres принимает соединения? (pg_isready.exe из его же bin; код 0 = да) */
+function externalReady(cfg = PG) {
+  try {
+    execFileSync(path.join(cfg.bin, "pg_isready.exe"), ["-h", cfg.host, "-p", cfg.port, "-U", cfg.user], { stdio: "ignore", timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Можно ли поднять внешний Postgres сами: есть pg_ctl.exe и каталог данных (и это локальный хост). */
+function externalStartable(cfg) {
+  return ["127.0.0.1", "localhost"].includes(cfg.host) && existsSync(path.join(cfg.bin, "pg_ctl.exe")) && existsSync(cfg.data);
+}
+
+/** Внешний Postgres: если не слушает — запускаем `pg_ctl start` (portable-сборка), ждём готовности. */
+function ensureExternalServer() {
+  if (externalReady()) return;
+  if (!externalStartable(PG)) {
+    throw new Error(`внешний Postgres ${PG.host}:${PG.port} не отвечает, а запустить его нечем (нужны ${path.join(PG.bin, "pg_ctl.exe")} и каталог данных ${PG.data})`);
+  }
+  console.log(`  внешний Postgres ${PG.host}:${PG.port} не отвечает, запускаю pg_ctl start`);
+  const log = path.join(path.dirname(PG.data), "pg.log");
+  execFileSync(path.join(PG.bin, "pg_ctl.exe"), ["-D", PG.data, "-l", log, "-w", "-t", "60", "start"], { stdio: "inherit" });
+  for (let i = 0; i < 30; i++) {
+    if (externalReady()) return;
+    execSync('node -e "setTimeout(()=>{},1000)"');
+  }
+  throw new Error(`Postgres ${PG.host}:${PG.port} не поднялся после pg_ctl start`);
+}
+
+/**
+ * ВЫБОР И ВКЛЮЧЕНИЕ РЕЖИМА. Вызывается один раз в начале up/serve/refresh/down.
+ * Docker проверяем коротко (`docker version` с таймаутом ~5 с): живой Docker
+ * отвечает за доли секунды, а мёртвая виртуальная машина WSL молча виснет.
+ */
+function initPg() {
+  const ext = externalConfig();
+  const forced = String(process.env.STAND_PG ?? "").trim() !== "";
+  let dockerOk = true;
+  let externalUp = false;
+  if (!forced) {
+    try {
+      execFileSync("docker", ["version", "--format", "{{.Server.Version}}"], { stdio: "pipe", timeout: 5000, windowsHide: true });
+    } catch {
+      dockerOk = false;
+    }
+    if (!dockerOk) externalUp = externalReady(ext) || externalStartable(ext);
+  }
+  const choice = choosePgMode({ env: process.env, dockerOk, externalUp });
+  if (choice.mode === "external") {
+    PG = ext;
+    console.log(`${forced ? "Режим внешней базы" : "Docker недоступен"} — стенд на внешнем Postgres ${PG.host}:${PG.port}  (${choice.reason})`);
+  } else {
+    PG = { ...PG, mode: "docker" };
+  }
+  return choice;
 }
 
 /**
@@ -348,18 +478,20 @@ const READY_MARK = "rh-stand-ready";
 
 /** Один psql-запрос с ответом: SQL идёт через stdin, чтобы кавычки таблиц ("Agent") не ломались о оболочку. */
 const psqlOut = (sql, db = "postgres") =>
-  execSync(`docker exec -i ${PG_NAME} psql -U postgres -d ${db} -tA`, { input: sql, stdio: "pipe", encoding: "utf8", cwd: ROOT }).trim();
+  PG.mode === "docker"
+    ? execSync(`docker exec -i ${PG_NAME} psql -U postgres -d ${db} -tA`, { input: sql, stdio: "pipe", encoding: "utf8", cwd: ROOT }).trim()
+    : execFileSync(extPsqlFile(), extArgs(db, ["-tA"]), { input: sql, stdio: ["pipe", "pipe", "pipe"], encoding: "utf8", cwd: ROOT, env: extEnv() }).trim();
 
-const tplUrl = (db) => `postgresql://postgres:postgres@localhost:${PG_PORT}/${db}`;
+const tplUrl = (db) => dbUrl(db);
 const apiDir = () => path.join(ROOT, "apps", "api");
 
 /** Действия над общим контейнером; в тесте подменяются заглушкой. */
 const realTemplateIo = {
   dbExists: (db) => dbExists(db),
-  createDb: (db) => shLoud(psql(`CREATE DATABASE ${db}`)),
-  dropDb: (db) => shLoud(psql(`DROP DATABASE IF EXISTS ${db}`)),
-  renameDb: (from, to) => shLoud(psql(`ALTER DATABASE ${from} RENAME TO ${to}`)),
-  setMark: (db) => shLoud(psql(`COMMENT ON DATABASE ${db} IS '${READY_MARK}'`)),
+  createDb: (db) => pgRun(`CREATE DATABASE ${db}`),
+  dropDb: (db) => pgRun(dropSql(db, true)),
+  renameDb: (from, to) => pgRun(`ALTER DATABASE ${from} RENAME TO ${to}`),
+  setMark: (db) => pgRun(`COMMENT ON DATABASE ${db} IS '${READY_MARK}'`),
   hasMark: (db) => psqlOut(`SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname='${db}'`) === READY_MARK,
   // Эталон, собранный ДО появления метки: принимаем, только если миграции доехали
   // (нет незавершённых) и сид что-то записал (есть агенты).
@@ -421,7 +553,10 @@ function ensureTemplate(io = realTemplateIo, { force = false, building = `${TEMP
   return "собран";
 }
 
-function up() {
+async function up() {
+  initPg();
+  guardForeignStand();
+  await ensurePortsUsable();
   console.log("== дерево");
   try {
     for (const s of setupTree()) console.log("  " + s);
@@ -446,12 +581,13 @@ function up() {
   ensureTemplate(realTemplateIo, { log: (m) => console.log(m) });
   // Своя база агента копией эталона: копирование на уровне файлов, ~1 секунда.
   try {
-    shLoud(psql(`DROP DATABASE IF EXISTS ${dbName}`));
+    pgRun(dropSql(dbName, true));
   } catch {
     /* базы могло не быть */
   }
-  shLoud(psql(`CREATE DATABASE ${dbName} TEMPLATE ${TEMPLATE_DB}`));
-  console.log(`  своя база ${dbName} готова копией эталона`);
+  pgRun(`CREATE DATABASE ${dbName} TEMPLATE ${TEMPLATE_DB}`);
+  writeStandState();
+  console.log(`  своя база ${dbName} готова копией эталона (${PG.mode === "docker" ? "Docker " + PG_NAME : "внешний Postgres"} ${PG.host}:${PG.port})`);
   // ДОКАТИТЬ МИГРАЦИИ ПОВЕРХ ЭТАЛОНА (20.11.2026). Эталон пересобирается только
   // руками (`refresh`), и 18.11 он отстал от main на 28 миграций, к 20.11 — на 36:
   // стенд поднимался «зелёным», а API падал на первом же запросе к новой колонке,
@@ -483,6 +619,90 @@ function up() {
 
 
 /**
+ * ВЛАДЕЛЕЦ БАЗЫ СТЕНДА (26.11.2026). Память проекта: «другой чат взял тот же
+ * порт, его `down` удалил мою базу». Имя базы выводится из порта API, и два чата
+ * с одним `--api` делили одну `agent_<порт>`. Теперь `up` пишет запись
+ * `.rh-stand/state-<порт>.json` (какое дерево, какая база, какой режим), а
+ * `down` сносит базу только по записи СВОЕГО дерева; `up` не затирает чужую
+ * (оба отказа обходятся только явным `--force`).
+ */
+const stateFile = () => path.join(MAIN_TREE, ".rh-stand", `state-${apiPort}.json`);
+const sameTree = (a, b) => path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase();
+
+function readStandState() {
+  try {
+    return JSON.parse(readFileSync(stateFile(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeStandState() {
+  mkdirSync(path.dirname(stateFile()), { recursive: true });
+  writeFileSync(
+    stateFile(),
+    JSON.stringify({ dbName, apiPort, webPort, root: ROOT, mode: PG.mode, host: PG.host, pgPort: PG.port, createdAt: new Date().toISOString() }, null, 2)
+  );
+}
+
+/** serve и down работают с тем режимом базы, в котором стенд поднял `up` (запись состояния), если режим не задан явно. */
+function adoptStateMode() {
+  const st = readStandState();
+  if (!st || process.env.STAND_PG) return;
+  process.env.STAND_PG = st.mode;
+  if (st.mode === "external") {
+    if (st.host) process.env.STAND_PG_HOST ??= st.host;
+    if (st.pgPort) process.env.STAND_PG_PORT ??= String(st.pgPort);
+  }
+}
+
+/** `up` на порту, где уже стоит стенд ДРУГОГО дерева, отказывает. */
+function guardForeignStand() {
+  const st = readStandState();
+  if (st && st.root && !sameTree(st.root, ROOT) && !args.includes("--force")) {
+    console.error(
+      `порт API ${apiPort} уже занят стендом другого дерева (${st.root}, база ${st.dbName}). ` +
+        `Возьми другой --api (например ${Number(apiPort) + 10}) или, если тот стенд мёртв, повтори с --force`
+    );
+    process.exit(1);
+  }
+}
+
+/**
+ * ПОРТЫ API И VITE: свободны ли и можно ли их вообще занять. На Windows часть
+ * портов лежит в «исключённом диапазоне» (Hyper-V/WSL/Docker резервируют их, привязка
+ * даёт EACCES; память `royalhome-windows-excluded-ports-stand-24-09`) — сервер на
+ * таком порту умирает без внятной причины. Проверяем привязкой и предлагаем
+ * ближайшую пару свободных портов.
+ */
+function portProblem(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", (e) => resolve(e.code === "EACCES" ? "в исключённом диапазоне Windows" : e.code === "EADDRINUSE" ? "занят" : String(e.code)));
+    srv.listen(Number(port), "127.0.0.1", () => srv.close(() => resolve(null)));
+  });
+}
+
+async function ensurePortsUsable() {
+  if (existsSync(path.join(MAIN_TREE, ".rh-stand", `pids-${apiPort}.json`))) return; // свой стенд уже запущен — порты заняты им
+  const bad = [];
+  for (const [label, port] of [["API", apiPort], ["Vite", webPort]]) {
+    const why = await portProblem(port);
+    if (why) bad.push(`${label} ${port}: ${why}`);
+  }
+  if (!bad.length) return;
+  let a = Number(apiPort) + 10;
+  for (let i = 0; i < 50; i++, a += 10) {
+    if (!(await portProblem(a)) && !(await portProblem(a + 500))) {
+      console.error(`порты недоступны (${bad.join("; ")}). Предлагаю: --api ${a} --web ${a + 500}`);
+      process.exit(1);
+    }
+  }
+  console.error(`порты недоступны (${bad.join("; ")}), подходящей пары рядом не нашёл — укажи другие вручную`);
+  process.exit(1);
+}
+
+/**
  * ОТВЯЗАННЫЕ СЕРВЕРЫ (12.09.2026). Dev-серверы, запущенные фоновой командой
  * чата, умирают вместе с ней: за ночь Vite падал с кодом 127 трижды посреди
  * прогонов e2e, и каждый раз это 5-15 минут на разбор и перезапуск. Причина в
@@ -493,7 +713,10 @@ function up() {
  * свои, а не всё подряд по строке «tsx src/index.ts» — так одна сессия уже
  * уронила стенд соседней.
  */
-function serve() {
+async function serve() {
+  adoptStateMode();
+  initPg();
+  await ensurePortsUsable();
   const dir = path.join(MAIN_TREE, ".rh-stand");
   mkdirSync(dir, { recursive: true });
   const apiLog = path.join(dir, `api-${apiPort}.log`);
@@ -589,6 +812,7 @@ function killServers() {
 
 /** Пересобрать эталон после новых миграций: один раз на всех. */
 function refresh() {
+  initPg();
   ensureServer();
   ensureTemplate(realTemplateIo, { force: true, log: (m) => console.log(m) });
   console.log("эталон пересобран, следующие стенды получат свежую схему");
@@ -598,7 +822,8 @@ function refresh() {
  *  чтобы «удалена» в выводе значило именно удаление, а не пустой ход. */
 function dbExists(db) {
   try {
-    return sh(`docker exec ${PG_NAME} psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${db}'"`) === "1";
+    if (PG.mode === "docker") return sh(`docker exec ${PG_NAME} psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${db}'"`) === "1";
+    return psqlOut(`SELECT 1 FROM pg_database WHERE datname='${db}'`) === "1";
   } catch {
     return false;
   }
@@ -611,18 +836,36 @@ function down() {
     console.error("укажи --api <порт> — тот же, что был в up (например: down --api 4760). Без флага down ничего не трогает");
     process.exit(2);
   }
+  adoptStateMode();
+  initPg();
+  // ЧУЖОЙ СТЕНД НЕ ГАСИМ (26.11.2026): ни процессы, ни базу — только по записи
+  // `up` ЭТОГО же дерева.
+  const st = readStandState();
+  if (!args.includes("--force")) {
+    if (!st) {
+      console.error(`записи стенда для порта ${apiPort} нет: его поднимал не этот up (или другая версия скрипта). Ничего не трогаю; если уверен — повтори с --force`);
+      process.exit(1);
+    }
+    if (!sameTree(st.root, ROOT)) {
+      console.error(`стенд на порту ${apiPort} поднят из другого дерева (${st.root}) — не трогаю. Гасить его надо оттуда (или --force)`);
+      process.exit(1);
+    }
+  }
+  const dbToDrop = st?.dbName ?? dbName;
   console.log(killServers());
-  if (!has(`docker container inspect ${PG_NAME}`)) {
+  if (PG.mode === "docker" && !has(`docker container inspect ${PG_NAME}`)) {
     console.log(`контейнера ${PG_NAME} нет, базу удалять негде`);
     return;
   }
   ensureServer();
-  if (!dbExists(dbName)) {
-    console.error(`база ${dbName} не найдена: либо стенд поднимали с другим --api, либо он уже погашен`);
+  if (!dbExists(dbToDrop)) {
+    console.error(`база ${dbToDrop} не найдена: либо стенд поднимали с другим --api, либо он уже погашен`);
+    rmSync(stateFile(), { force: true });
     process.exit(1);
   }
-  shLoud(psql(`DROP DATABASE ${dbName}`));
-  console.log(`база ${dbName} удалена, общий контейнер ${PG_NAME} оставлен другим агентам`);
+  pgRun(dropSql(dbToDrop, false));
+  rmSync(stateFile(), { force: true });
+  console.log(PG.mode === "docker" ? `база ${dbToDrop} удалена, общий контейнер ${PG_NAME} оставлен другим агентам` : `база ${dbToDrop} удалена, внешний Postgres ${PG.host}:${PG.port} оставлен другим агентам`);
   console.log("порты API и Vite гаси по своим PID: netstat -ano | grep \":<порт> \" и taskkill //PID <pid> //F");
 }
 
@@ -632,15 +875,15 @@ function down() {
 // направления ссылок и не должен по пути поднимать базу или трогать диск.
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  if (cmd === "up") up();
-  else if (cmd === "serve") serve();
+  if (cmd === "up") await up();
+  else if (cmd === "serve") await serve();
   else if (cmd === "down") down();
   else if (cmd === "refresh") refresh();
   else if (cmd === "check") check();
   else {
-    console.log("команды: up | serve | refresh | down | check   (опции: --api --web)");
+    console.log("команды: up | serve | refresh | down | check   (опции: --api --web --force)");
     process.exit(1);
   }
 }
 
-export { linkTargetRealpath, expectedSharedTarget, checkLinkDirections, linkSharedOverride, ensureTemplate, templateIsReady, READY_MARK, standEnv, e2eHint, pidBelongsToStand };
+export { choosePgMode, externalConfig, linkTargetRealpath, expectedSharedTarget, checkLinkDirections, linkSharedOverride, ensureTemplate, templateIsReady, READY_MARK, standEnv, e2eHint, pidBelongsToStand };

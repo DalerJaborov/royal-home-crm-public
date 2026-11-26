@@ -55,6 +55,10 @@ export interface AgentListItem {
    *  заморозки «для разбирательства» — она виду не соответствует. */
   absenceKind?: AbsenceKind | null;
   absenceUntil?: string | null;
+  /** Telegram сотрудника привязан к боту — Шабнам его узнаёт (25.11.2026). Только agents.manage. */
+  telegramLinked?: boolean;
+  /** «Это тот же человек» — другая учётка того же сотрудника. Только подпись, права не трогает. */
+  samePersonAgentId?: string | null;
   /** Поля `webrtc` (браузерная трубка) здесь больше нет: софтфон удалён 18.08.2026
    *  вместе с рабочим местом оператора входящих. Сервер поле пока отдаёт — лишнее
    *  поле в ответе ничего не ломает, уберут вместе с серверной частью. */
@@ -148,6 +152,31 @@ export function useResetLoginCodeBlock() {
   return useMutation({
     mutationFn: (id: string) => api<{ removedCodes: number }>(`/agents/${id}/login-code/reset`, { method: "POST" }),
     meta: { successText: "Блок входа по коду снят" },
+  });
+}
+
+/** Одноразовая ссылка подключения к Шабнам, которую руководитель пересылает сотруднику (25.11.2026). */
+export interface StaffTelegramLink {
+  code: string;
+  deepLink: string | null;
+  expiresInHours: number;
+}
+
+/** «Подключить к Шабнам» — директор/админ получает ссылку для сотрудника. 428 → окно подтверждения само. */
+export function useIssueStaffTelegramLink() {
+  return useMutation({
+    mutationFn: (id: string) => api<StaffTelegramLink>(`/agents/${id}/telegram-link`, { method: "POST" }),
+    meta: { silent: true },
+  });
+}
+
+/** «Отключить Шабнам» — снять Telegram сотрудника. */
+export function useUnlinkStaffTelegram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api(`/agents/${id}/telegram-unlink`, { method: "POST" }),
+    meta: { successText: "Шабнам отключена" },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
   });
 }
 

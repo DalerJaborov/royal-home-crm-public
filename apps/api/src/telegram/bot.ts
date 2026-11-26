@@ -7,7 +7,7 @@ import { isOperatorPauseActive } from "../lib/conversationState.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
-import { tryLinkAgentByCode, findAgentByTelegramChatId, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
+import { tryLinkAgentByCode, isExpiredLinkCode, RELINK_TEXTS, findAgentByTelegramChatId, handleTelegramRelinkCallback, askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode, STAFF_LINK_START_PAYLOAD } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
@@ -26,7 +26,7 @@ import { acceptCallbackRequest } from "../ai/callbackRequest.js";
 import { recordJobApplication, captureCandidate, candidateStoryCollected } from "../lib/jobApplications.js";
 import { clientMeansHousingDeal } from "../ai/housingIntent.js";
 import { shouldRecordJobApplication } from "../ai/adTemplateOpener.js";
-import { storeFetchedAttachments } from "../messengers/attachments.js";
+import { lostAfterStore, storeFetchedAttachments } from "../messengers/attachments.js";
 import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "./attachments.js";
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
@@ -181,6 +181,9 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     await answerCallbackQuery(query.id);
     return;
   }
+  // «Перепривязать этот Telegram?» (lib/telegramAgentLink.ts, 25.11.2026) — tl:*. До помощницы:
+  // чат ещё может быть привязан к другой учётке, и её кнопки не должны перехватить ответ.
+  if (await handleTelegramRelinkCallback(query)) return;
   // Внутренний помощник (П5, telegram/assistantBot.ts) — as:ok|no:<связка>.
   if (await handleAssistantCallback(query)) return;
   // Модерация объектов (lib/telegramModeration, 22.09.2026) — свой диспетчер tm:*.
@@ -517,6 +520,11 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     // разберёт обычная клиентская логика ниже (return false).
     // `/start staff` — кнопка Шабнам новичку в рабочей группе (24.11.2026): привязка по номеру.
     if (startMatch[1] === STAFF_LINK_START_PAYLOAD && (await askStaffContactForLink(msg))) return true;
+    // Код есть, но устарел: это сотрудник с давней ссылкой, а не клиент (ревью 25.11) — скажем прямо.
+    if (startMatch[1] !== STAFF_LINK_START_PAYLOAD && (await isExpiredLinkCode(startMatch[1]))) {
+      await sendMessage(chatId, RELINK_TEXTS.expired).catch(() => {});
+      return true;
+    }
   }
 
   const agent = await findAgentByTelegramChatId(chatId);
@@ -1295,8 +1303,12 @@ async function handleClientMessages(msgs: TelegramIncomingMessage[]): Promise<Te
 
   /** Реплика клиента вместе с тем, что он к ней приложил. Пустое поле не пишем:
    *  в переписке и так до 40 реплик, лишний ключ у каждой — мусор в базе. */
-  const userMessage = (content: string): ChatMessage =>
-    saved.length > 0 ? { role: "user", content, attachments: saved } : { role: "user", content };
+  const lostNotes = lostAfterStore(fetched, saved.length);
+  const userMessage = (content: string): ChatMessage => ({
+    role: "user", content,
+    ...(saved.length > 0 ? { attachments: saved } : {}),
+    ...(lostNotes.length > 0 ? { attachmentsLost: lostNotes } : {}),
+  });
 
   /** Текст реплики для истории CRM. От text отличается одним случаем: клиент прислал
    *  только голосовое, а расшифровки нет. Пустую реплику писать нельзя — она ломает

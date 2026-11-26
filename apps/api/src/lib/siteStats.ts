@@ -187,7 +187,7 @@ export async function storeSiteStats(data: SiteStatsResponse): Promise<{ hours: 
 /** Сбор раз в час (крон `site-stats`). Не бросает — отказ возвращает текстом. */
 export async function collectSiteStats(now: Date = new Date()): Promise<SiteStatsResult> {
   if (!siteStatsConfigured()) {
-    return { ok: false, error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", notConfigured: true };
+    return { ok: false, error: "Связь с сайтом не настроена. Обратитесь к администратору.", notConfigured: true };
   }
   try {
     const { since, until } = await siteStatsWindow(now);

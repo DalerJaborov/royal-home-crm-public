@@ -32,6 +32,8 @@ import {
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
 import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, META_OUTGOING_MEDIA_LIMITS, formatChannelLimit, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText, MetaGraphCallError } from "./metaSendBlock.js";
+import { isInstagramAccessLostError } from "./instagramAccountAccess.js";
+import { isProviderDefinitiveRejection } from "./metaProviderRejection.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -217,7 +219,7 @@ async function applyDeliveryPauseUndoable(
         ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
         : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     if (!prev) throw new Error("Delivery lost its native conversation");
-    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx);
+    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx, sender?.kind === "agent" ? sender.agentId : null);
     const placedRow = target.kind === "telegram" ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
       : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     const ownershipFence = await lockDeliveryOwnershipFence(tx, target);
@@ -283,9 +285,15 @@ function revivePauseUndo(s: StoredPauseUndo): PauseUndo {
  */
 export async function placeQueuedMediaPause(
   target: DeliveryTarget,
-  sender: MessageSender
+  sender: MessageSender,
+  /** Срок, выбранный сотрудником при отправке (минуты от сейчас). Пусто — умолчание сервера для отправителя. */
+  pauseMinutes?: number | null,
+  /** «Повторить»: срок выбран давно, а за это время пауза могла стать чужой и длиннее — её не укорачиваем. */
+  neverShorten = false
 ): Promise<{ ok: true; undo: StoredPauseUndo | null } | { ok: false; status: number; error: string }> {
-  const pause = await deliveryPauseFor(target, undefined, sender, () => defaultPauseForSender(target, sender));
+  const override = pauseMinutes ? new Date(Date.now() + pauseMinutes * 60_000) : undefined;
+  const chosen = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  const pause = neverShorten ? { ...chosen, keepLonger: true } : chosen;
   const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, sender);
   if (!placed.ok) return placed;
   return { ok: true, undo: placed.undo ? storePauseUndo(placed.undo) : null };
@@ -303,7 +311,10 @@ async function extendQueuedMediaPause(
   override: Date | undefined,
   queued: StoredPauseUndo | null | undefined
 ): Promise<{ pausedUntil: Date; undo: PauseUndo | null }> {
-  const pause = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  const chosen = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  // Продление только ДОБАВЛЯЕТ: сотрудник выбрал срок при отправке и он уже стоит с приёма; за минуты сжатия
+  // пауза могла стать чужой и длиннее (человек нажал «Бессрочно») — выбранный срок её не затирает.
+  const pause = { ...chosen, keepLonger: true };
   const select = { pausedUntil: true, botPausedAt: true } as const;
   // Одной транзакцией: любое изменение паузы двигает ownership-эпоху, и откат допускается только при
   // совпадении «отпечатка» — поэтому новый отпечаток снимаем здесь же, сразу после записи.
@@ -314,7 +325,7 @@ async function extendQueuedMediaPause(
         : tx.botConversation.findUnique({ where: { id: target.id }, select });
     const fenceBefore = await lockDeliveryOwnershipFence(tx, target);
     const before = await read();
-    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx);
+    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx, sender.kind === "agent" ? sender.agentId : null);
     const after = await read();
     const fenceAfter = await lockDeliveryOwnershipFence(tx, target);
     const ours =
@@ -601,6 +612,12 @@ export async function deliverToConversation(
         code: "window_closed",
         error: windowClosedStaffText(target.channel),
       };
+    }
+    // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): сотрудник видит причину и что делать;
+    // журнал и руководство уже знают — одна запись и одна тревога на эпизод.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: "Сообщение не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы." };
     }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
     // собственника» без карточки под рукой): там нет запроса, ждущего 502, и без
@@ -1070,7 +1087,9 @@ function humanMb(bytes: number): string {
 export function isDefiniteSendRejection(err: unknown): boolean {
   if (err instanceof MetaGraphCallError) return err.graph.status >= 400 && err.graph.status < 500;
   if (err instanceof TelegramApiError) return typeof err.errorCode === "number" && err.errorCode >= 400 && err.errorCode < 500;
-  return err instanceof Error && /^Graph API HTTP 4\d\d:/.test(err.message);
+  // Остальное по Meta — одно правило с транспортом, ядром и трассой (lib/metaProviderRejection.ts): текст «Graph API
+  // HTTP 4xx» или «доступ к аккаунту Instagram потерян» — запроса в Meta не было, файл точно не ушёл.
+  return isProviderDefinitiveRejection(err);
 }
 
 export type MediaDeliveryResult =
@@ -1331,6 +1350,11 @@ export async function deliverMediaToConversation(
         code: "window_closed",
         error: windowClosedStaffText(target.channel),
       };
+    }
+    // Доступ к аккаунту Instagram потерян — как у текста выше: причина сотруднику, журнал и тревогу дала отметка.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: `${isImage ? "Фото" : "Видео"} не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы.` };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
     // Канал ответил 4xx — файл заведомо не принят: «Повторить» уместно, пауза возвращается. Таймаут,

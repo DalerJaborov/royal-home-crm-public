@@ -1,4 +1,5 @@
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
+import { canSeeTelegramLink } from "../lib/staffShabnam";
 import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useServerSyncedFields } from "../hooks/useServerSyncedForm";
 import { useNavigate } from "react-router-dom";
@@ -147,7 +148,7 @@ export function Profile() {
             <span className="note">Служебные, не каналы связи с клиентами</span>
           </div>
           {canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}
-          {(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) && <TelegramLinkSection />}
+          {canSeeTelegramLink(profile) && <TelegramLinkSection />}
           <InstallAppSection />
         </section>
 
@@ -225,7 +226,7 @@ function CleanProfile({ profile, royalScoreEnabled, canSettings, onLogout }: {
       {id === "notifications" && <><NotifyKindsSection /><PushNotificationsSection showUnavailable /></>}
       {id === "security" && <section className="card"><div className="sec-h stack"><h2>Вход и безопасность</h2><span className="note">Двухфакторная защита, вход по отпечатку, автовыход</span></div><TwoFactorSettings /><PasskeySettings /><AutoLogoutSection /></section>}
       {id === "sessions" && <><ActiveSessionsSection /><LoginHistorySection /></>}
-      {id === "connections" && <section className="card"><div className="sec-h stack"><h2>Служебные подключения</h2><span className="note">Личные привязки для работы, не клиентские каналы</span></div>{canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}{(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) ? <TelegramLinkSection /> : <p className="state">Для вашей роли нет дополнительных служебных подключений.</p>}</section>}
+      {id === "connections" && <section className="card"><div className="sec-h stack"><h2>Служебные подключения</h2><span className="note">Личные привязки для работы, не клиентские каналы</span></div>{canReceiveMontageCopies(profile?.role) && <MontageCopiesSection />}{canSeeTelegramLink(profile) && <TelegramLinkSection />}</section>}
       </>}
     </section>)}
   </AdminScreen>;
@@ -417,7 +418,7 @@ function ProfileMobile() {
                 <h2>Привязки</h2>
                 <span className="note">Служебные, не каналы связи с клиентами</span>
               </div>
-              {(profile?.role === "AGENT" || profile?.isVideoMontajer || profile?.telegramLinked || profile?.montageCopiesTelegram || profile?.permissions.includes("properties.moderate")) && <TelegramLinkSection />}
+              {canSeeTelegramLink(profile) && <TelegramLinkSection />}
               <InstallAppSection />
             </section>
 
@@ -1271,7 +1272,7 @@ function TelegramLinkSection() {
       <div className="t">
         <b>Личный чат с ботом CRM в Telegram</b>
         <span>
-          Для служебных уведомлений от CRM. Клиентам через эту привязку не пишут.
+          По этому чату Шабнам узнаёт вас в Telegram, сюда же приходят служебные уведомления CRM. Клиентам через эту привязку не пишут.
         </span>
         {link && !linked && (
           <span>

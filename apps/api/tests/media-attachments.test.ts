@@ -306,3 +306,45 @@ describe("Каждый переход проверяется заново", () =
     expect(fetchMock.mock.calls[1][1].headers).toEqual({});
   });
 });
+
+describe("Профиль «для сотрудника»: потолки платформы, а не разбора моделью (26.11.2026)", () => {
+  it("видео 40 МБ: модели не отдаём, а сотруднику сохраняем (WhatsApp принимает до 100 МБ)", async () => {
+    fetchMock.mockImplementation(async () => respond("video/mp4", 40 * 1024 * 1024));
+    const forModel = await fetchAttachments([{ url: "https://cdn.example/clip" }]);
+    expect(forModel.medias).toHaveLength(0);
+    expect(forModel.lost).toEqual([{ kind: "video", reason: "too_big" }]);
+    const forStaff = await fetchAttachments([{ url: "https://cdn.example/clip" }], undefined, 10, "staff");
+    expect(forStaff.medias).toHaveLength(1);
+    expect(forStaff.lost).toEqual([]);
+  });
+
+  it("фото 6 МБ и голосовое 5 МБ — сотруднику сохраняются", async () => {
+    fetchMock.mockImplementation(async () => respond("image/jpeg", 6 * 1024 * 1024));
+    expect((await fetchAttachments([{ url: "https://cdn.example/photo" }], undefined, 10, "staff")).images).toHaveLength(1);
+    fetchMock.mockImplementation(async () => respond("audio/ogg", 5 * 1024 * 1024));
+    expect((await fetchAttachments([{ url: "https://cdn.example/voice" }], undefined, 10, "staff")).audios).toHaveLength(1);
+  });
+
+  it("но и у платформы есть потолок: видео 120 МБ не качаем даже сотруднику, причина «слишком большой»", async () => {
+    fetchMock.mockImplementation(async () => respond("video/mp4", 120 * 1024 * 1024, 120 * 1024 * 1024));
+    const fetched = await fetchAttachments([{ url: "https://cdn.example/huge" }], undefined, 10, "staff");
+    expect(fetched.medias).toHaveLength(0);
+    expect(fetched.lost).toEqual([{ kind: "video", reason: "too_big" }]);
+  });
+
+  it("граница фото 25 МБ: ровно 25 берём, 26 — «слишком большой»", async () => {
+    fetchMock.mockImplementation(async () => respond("image/jpeg", 25 * 1024 * 1024));
+    expect((await fetchAttachments([{ url: "https://cdn.example/p25" }], undefined, 10, "staff")).images).toHaveLength(1);
+    fetchMock.mockImplementation(async () => respond("image/jpeg", 26 * 1024 * 1024));
+    const over = await fetchAttachments([{ url: "https://cdn.example/p26" }], undefined, 10, "staff");
+    expect(over.images).toHaveLength(0);
+    expect(over.lost).toEqual([{ kind: "image", reason: "too_big" }]);
+  });
+
+  it("видео без Content-Length, но тяжелее 100 МБ, обрывается на потолке (чтение кусками)", async () => {
+    fetchMock.mockImplementation(async () => respond("video/mp4", 101 * 1024 * 1024, null));
+    const fetched = await fetchAttachments([{ url: "https://cdn.example/stream" }], undefined, 10, "staff");
+    expect(fetched.medias).toHaveLength(0);
+    expect(fetched.lost).toEqual([{ kind: "video", reason: "too_big" }]);
+  });
+});
