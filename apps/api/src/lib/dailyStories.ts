@@ -181,6 +181,13 @@ export async function runDailyStoriesTick(
       });
       break;
     }
+    // Статус перечитываем перед каждым пунктом: подборка идёт минутами, объект могли продать, снять, удалить или
+    // сделать «только для своих» — выкладывать такой нельзя.
+    const fresh = await prisma.property.findUnique({ where: { id: chosen[i].id }, select: { status: true, deletedAt: true, offSite: true } });
+    if (!fresh || fresh.deletedAt || fresh.offSite || fresh.status !== "AVAILABLE") {
+      skipped++;
+      continue;
+    }
     const row = byId.get(chosen[i].id);
     const video = videoOn && videoTries < DAILY_VIDEO_MAX && elapsed < DAILY_VIDEO_START_BUDGET_MS && !!row && cardVideoClipUsable(row);
     if (video) videoTries++;

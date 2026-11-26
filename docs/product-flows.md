@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4368**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4369**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21236,6 +21236,11 @@
           · запись в журнал ошибок
         - break;
           · прекращает перебор
+      - const fresh = await prisma.property.findUnique({ where: { id: chosen[i].id }, select: { status: true, deleted…
+        · читает в базе: property
+      - если !fresh || fresh.deletedAt || fresh.offSite || fresh.status !== "AVAILABLE"
+        - continue;
+          · переходит к следующему
       - const video = videoOn && videoTries < DAILY_VIDEO_MAX && elapsed < DAILY_VIDEO_START_BUDGET_MS && !!row && ca…
         · зовёт cardVideoClipUsable()
       - если video

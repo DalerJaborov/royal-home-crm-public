@@ -480,7 +480,10 @@ export const SOLD_AUTO_STORY_DELAY_MS = 10 * 60_000;
 /** Статусы, из которых продажа — новость для подписчиков: объект был в продаже. Из «снят» и из конвейера — нет. */
 const SOLD_AUTO_STORY_FROM: ReadonlySet<string> = new Set(["AVAILABLE", "RESERVED"]);
 
-export type AutoSoldStoryOutcome = "queued" | "switch-off" | "stories-off" | "not-on-sale" | "private" | "already" | "error";
+/** Продажа старше этого — уже не новость: ночная сверка может закрыть объект по сделке недельной давности. */
+export const SOLD_AUTO_STORY_FRESH_MS = 48 * 60 * 60_000;
+
+export type AutoSoldStoryOutcome = "queued" | "switch-off" | "stories-off" | "not-on-sale" | "stale" | "private" | "already" | "error";
 
 /**
  * ИСТОРИЯ «ПРОДАНО» САМА ПРИ ПРОДАЖЕ (26.11.2026, владелец: «да» на автоисторию). Зовётся ТОЛЬКО из
@@ -492,9 +495,15 @@ export type AutoSoldStoryOutcome = "queued" | "switch-off" | "stories-off" | "no
  * публикацией ещё раз читает статус и выключатель. Один раз на объект: история «продано» уже выходила (любой
  * кнопкой) — не ставим, и задание проверяет это ещё раз. Пауза SOLD_AUTO_STORY_DELAY_MS.
  */
-export async function queueAutoPropertySoldStory(propertyId: string, from: string | null): Promise<AutoSoldStoryOutcome> {
+export async function queueAutoPropertySoldStory(
+  propertyId: string,
+  from: string | null,
+  /** Когда продали на деле (закрытие сделки); null — неизвестно, истории нет. По умолчанию — сейчас (продажа идёт сейчас). */
+  saleAt: Date | null = new Date()
+): Promise<AutoSoldStoryOutcome> {
   if (!(await automationSwitchOn("storySoldAutoEnabled"))) return "switch-off";
   if (!from || !SOLD_AUTO_STORY_FROM.has(from)) return "not-on-sale";
+  if (!saleAt || Date.now() - saleAt.getTime() > SOLD_AUTO_STORY_FRESH_MS) return "stale";
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { instagramStoriesEnabled: true } });
   if (!settings?.instagramStoriesEnabled) return "stories-off";
   if (await storyPublicationBlock(propertyId)) return "private";
@@ -554,7 +563,8 @@ export async function publishPropertySoldStory(
     kind: SOLD_STORY_KIND,
     label: "продано",
     cooldownMs: SOLD_COOLDOWN_MS,
-    cardOptions: { soldStamp: true },
+    // Без цены (решение владельца 25.11.2026: цены нет в будущих роликах и историях) — и на ролике, и на фото.
+    cardOptions: { soldStamp: true, hidePrice: true },
     force: options.force ?? false,
     video: options.video,
   });
@@ -577,7 +587,8 @@ export async function publishPropertyCardStory(
     kind: CARD_STORY_KIND,
     label: "карточка объекта",
     cooldownMs: CARD_COOLDOWN_MS,
-    cardOptions: {},
+    // Без цены и роликом, и запасной фото-карточкой (решение владельца 25.11.2026).
+    cardOptions: { hidePrice: true },
     force: options.force ?? false,
     video: options.video,
   });
@@ -681,10 +692,10 @@ async function publishCardVideoStory(p: {
   const clipPath = property?.videoHandoffFinalPath;
   if (!property || !clipPath || !clipPath.startsWith("/uploads/")) return null;
   if (property.videoHandoffStatus !== "RECEIVED" || property.clipReviewStatus === "PENDING") return null;
+  // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет. «Цена снижена» показала бы прежнюю
+  // сумму, а в «продано» и подборке цены нет вовсе (решение владельца 25.11.2026) — любой вид берёт фото-карточку.
+  if (clipHasPriceInFrame(property)) return null;
   if (kind === PRICE_DROP_STORY_KIND || kind === CARD_STORY_KIND) {
-    // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет — под «цена снижена» была бы
-    // видна прежняя сумма, а в подборке (CARD) цену в ролике не показываем вовсе (решение 25.11). «Продано» — можно.
-    if (clipHasPriceInFrame(property)) return null;
     // Голос в ролике должен называть ТЕКУЩУЮ цену (класс №214): иначе — фото-карточка.
     if ((await priceDropVoiceCheck(propertyId)) !== "OK") return null;
   }
@@ -695,9 +706,7 @@ async function publishCardVideoStory(p: {
   // Дольше минуты Instagram не берёт целиком, а резать ролик молча (потерять концовку с контактами) нельзя — фото-карточка.
   if (dims.durationSec > MAX_STORY_PART_SEC + 0.5) return null;
 
-  // Карточка подборки поверх ролика — без цены (решение владельца 25.11.2026: «ролики без цены»).
-  const overlayOptions: GenerateStoryCardOptions = kind === CARD_STORY_KIND ? { ...cardOptions, hidePrice: true } : cardOptions;
-  const overlay = await generateStoryCardOverlay(propertyId, overlayOptions, { width: dims.width, height: dims.height });
+  const overlay = await generateStoryCardOverlay(propertyId, cardOptions, { width: dims.width, height: dims.height });
   if (!overlay.ok || !overlay.image) return null;
 
   const stamp = Date.now();

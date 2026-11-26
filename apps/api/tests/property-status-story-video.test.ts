@@ -214,11 +214,20 @@ describe("«цена снижена» роликом: голос в ролике
 describe("«продано» роликом", () => {
   const soldPayload = () => ({ propertyId, kind: "SOLD", priceWasText: null, priceWasTjs: null, queuedAt: Date.now(), force: true });
 
-  it("цена в кадре «продано» не мешает — выходит ролик", async () => {
+  // Ревью #477 (решение владельца 25.11.2026: цены нет в будущих историях): ролик с ценой в кадре «продано» не берёт.
+  it("цена в кадре — «продано» выходит фото-карточкой без цены, ролик не берём", async () => {
     await resetProperty({ status: "SOLD", videoHandoffLastFactsText: "Объект №1\nЦена: 890 000 с." });
     await runJob(soldPayload());
+    expect(publishInstagramStory).not.toHaveBeenCalled();
+    expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
+    expect(generateStoryCard).toHaveBeenCalledWith(propertyId, expect.objectContaining({ soldStamp: true, hidePrice: true }));
+  });
+
+  it("ролик без цены в кадре — «продано» роликом, карточка поверх без цены", async () => {
+    await resetProperty({ status: "SOLD" });
+    await runJob(soldPayload());
     expect(publishInstagramStory).toHaveBeenCalledTimes(1);
-    expect(publishInstagramStoryImage).not.toHaveBeenCalled();
+    expect(generateStoryCardOverlay).toHaveBeenCalledWith(propertyId, expect.objectContaining({ soldStamp: true, hidePrice: true }), expect.anything());
   });
 
   it("продажу отменили, пока задание ждало (статус уже не SOLD) — ничего не публикуем", async () => {

@@ -175,6 +175,16 @@ describe("дверь продажи ставит автоисторию «Про
     expect((job.payload as Record<string, unknown>).auto).toBe(true);
   });
 
+  it("ночная сверка по сделке, закрытой давно (больше 48 часов), — истории нет", async () => {
+    const property = await makeProperty();
+    await prisma.deal.create({ data: { clientId, propertyId: property.id, agentId, stage: "COMPLETED", closedAt: new Date(Date.now() - 5 * 86_400_000) } });
+    expect(await refreshPropertyStatus(property.id)).toBe("SOLD");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await findJob(property.id)).toBeNull();
+    expect(await stories.queueAutoPropertySoldStory(property.id, "AVAILABLE", new Date(Date.now() - 49 * 3_600_000))).toBe("stale");
+    expect(await stories.queueAutoPropertySoldStory(property.id, "AVAILABLE", null)).toBe("stale");
+  });
+
   it("не ставит: выключатель, автоистории выключены, не был в продаже, частный, «продано» уже было", async () => {
     const p = await makeProperty({ status: "SOLD" });
 
@@ -304,12 +314,28 @@ describe("карточка подборки поверх ролика — без
     expect(publishInstagramStoryImage).not.toHaveBeenCalled();
   });
 
-  it("старый ролик с ценой в кадре — ролик не берём, выходит фото-карточка", async () => {
+  it("старый ролик с ценой в кадре — ролик не берём, выходит фото-карточка тоже без цены", async () => {
     const p = await makeProperty({ videoHandoffLastFactsText: "Объект №1\nЦена: 870 000 с." });
     const summary = await stories.publishPropertyCardStory(p.id, { force: true, video: true });
     expect(summary.video).toBeUndefined();
     expect(overlayCardOnVideo).not.toHaveBeenCalled();
     expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
+    expect(generateStoryCard).toHaveBeenCalledWith(p.id, expect.objectContaining({ hidePrice: true }));
+  });
+
+  it("«Продано» (автоистория): ролик с ценой в кадре не берём, фото-карточка с печатью и без цены", async () => {
+    const p = await makeProperty({ status: "SOLD", videoHandoffLastFactsText: "Объект №1\nЦена: 870 000 с." });
+    await runJob(autoPayload(p.id));
+    expect(publishInstagramStory).not.toHaveBeenCalled();
+    expect(generateStoryCard).toHaveBeenCalledWith(p.id, expect.objectContaining({ soldStamp: true, hidePrice: true }));
+    expect(publishInstagramStoryImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("«Продано» роликом без цены в кадре — карточка поверх с печатью и без цены", async () => {
+    const p = await makeProperty({ status: "SOLD" });
+    await runJob(autoPayload(p.id));
+    expect(publishInstagramStory).toHaveBeenCalledTimes(1);
+    expect(generateStoryCardOverlay).toHaveBeenCalledWith(p.id, expect.objectContaining({ soldStamp: true, hidePrice: true }), expect.anything());
   });
 
   it("ffmpeg отказал — причина в журнале и фото-карточка", async () => {

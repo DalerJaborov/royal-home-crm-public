@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4368,
+  "forks": 4369,
   "mounts": 87,
   "cron": 146,
   "jobs": 37,
@@ -95153,6 +95153,29 @@
              "t": "break;",
              "a": [
               "прекращает перебор"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const fresh = await prisma.property.findUnique({ where: { id: chosen[i].id }, select: { status: true, deleted…",
+           "a": [
+            "читает в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!fresh || fresh.deletedAt || fresh.offSite || fresh.status !== \"AVAILABLE\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
              ],
              "c": []
             }

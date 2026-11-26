@@ -291,6 +291,27 @@ describe("runDailyStoriesTick роликами", () => {
     expect(result.skipped).toBe(1);
   });
 
+  it("статус перечитывается перед каждым пунктом: проданный, частный или удалённый за время прогона — пропущен", async () => {
+    await onlyOurs();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesCount: 4 } });
+    const future = new Date(Date.now() + 86_400_000);
+    const first = await makeProperty({ postApprovedAt: new Date(future.getTime() + 4) });
+    const sold = await makeProperty({ postApprovedAt: new Date(future.getTime() + 3) });
+    const priv = await makeProperty({ postApprovedAt: new Date(future.getTime() + 2) });
+    const gone = await makeProperty({ postApprovedAt: new Date(future.getTime() + 1) });
+    // Пока выходит первый пункт, остальные меняются.
+    publishPropertyCardStory.mockImplementationOnce(async () => {
+      await prisma.property.update({ where: { id: sold.id }, data: { status: "SOLD" } });
+      await prisma.property.update({ where: { id: priv.id }, data: { offSite: true } });
+      await prisma.property.update({ where: { id: gone.id }, data: { deletedAt: new Date() } });
+      return { attempted: true, publishedParts: 1, totalParts: 1 };
+    });
+    const result = await runDailyStoriesTick(NOON_DUSHANBE);
+    const called = publishPropertyCardStory.mock.calls.map((c) => (c as unknown[])[0]);
+    expect(called).toEqual([first.id]);
+    expect(result.skipped).toBe(3);
+  });
+
   it("мёртвый ключ Instagram — остальные объекты тем же ключом не пробуем", async () => {
     await onlyOurs();
     await prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesCount: 3 } });

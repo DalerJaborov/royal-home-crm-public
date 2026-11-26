@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 146,
   "jobs": 37,
-  "conditions": 4329,
+  "conditions": 4330,
   "untranslatedUnique": 498,
   "untranslatedTotal": 639,
-  "partialUnique": 1143,
+  "partialUnique": 1144,
   "translatedShare": 85
  },
  "untranslated": [
@@ -69185,6 +69185,13 @@
           },
           {
            "t": "если elapsed не меньше daily запустить deadline ms",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: fresh или есть удалён at или есть off сайт или статус не «AVAILABLE»",
            "k": "if",
            "a": [],
            "c": [],

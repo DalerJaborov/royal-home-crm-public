@@ -37,10 +37,11 @@ const REASON: Record<LeftSaleKind, string> = {
  * который был в продаже (lib/instagramStories.ts::queueAutoPropertySoldStory). Новый путь продажи без `from` не
  * соберётся — и не выложит печать «Продано» на объект, которого подписчики не видели.
  */
-export function closeWorkAfterLeavingSale(propertyId: string, kind: "sold", from: string | null): void;
+export function closeWorkAfterLeavingSale(propertyId: string, kind: "sold", from: string | null, saleAt?: Date | null): void;
 export function closeWorkAfterLeavingSale(propertyId: string, kind: "withdrawn" | "reserved", from?: string | null): void;
 export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind, from: string | null): void;
-export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind, from: string | null = null): void {
+/** `saleAt` — когда продали на деле; ночная сверка передаёт дату сделки (старую продажу историей не выкладываем). */
+export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind, from: string | null = null, saleAt: Date | null = new Date()): void {
   const reason = REASON[kind];
   const fail = (what: string, source: "video-handoff" | "meta" | "api") => (err: unknown) =>
     void logSystemError(source, `Объект ${propertyId}: ${what} при смене статуса (${reason}) не удалось: ${describeError(err)}`);
@@ -61,5 +62,5 @@ export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind
   // возвращается, и его ролик должен дождаться этого на месте.
   if (kind === "sold") void retireSocialAfterSale(propertyId).catch(fail("снятие роликов из соцсетей", "meta"));
   // История «Продано» сама (26.11.2026, выключатель storySoldAutoEnabled): задание с паузой, оно перечитает статус.
-  if (kind === "sold") void queueAutoPropertySoldStory(propertyId, from).catch(fail("постановка истории «Продано»", "meta"));
+  if (kind === "sold") void queueAutoPropertySoldStory(propertyId, from, saleAt).catch(fail("постановка истории «Продано»", "meta"));
 }

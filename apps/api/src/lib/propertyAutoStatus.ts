@@ -312,7 +312,15 @@ export async function refreshPropertyStatus(
   }
 
   // Посты, повторы, место монтажёра и будущие показы — как при ручной смене статуса.
-  if (next === "SOLD") closeWorkAfterLeavingSale(property.id, "sold", from);
+  if (next === "SOLD") {
+    // Сверка закрывает объект задним числом (крон 04:50): история «Продано» — только если сделку закрыли недавно.
+    const lastDeal = await prisma.deal.findFirst({
+      where: { propertyId: property.id, stage: "COMPLETED" },
+      orderBy: { closedAt: { sort: "desc", nulls: "last" } },
+      select: { closedAt: true },
+    });
+    closeWorkAfterLeavingSale(property.id, "sold", from, lastDeal?.closedAt ?? null);
+  }
   else if (next === "WITHDRAWN") closeWorkAfterLeavingSale(property.id, "withdrawn");
   else if (next === "RESERVED") closeWorkAfterLeavingSale(property.id, "reserved");
 
