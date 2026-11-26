@@ -245,8 +245,8 @@ describe("вопрос собственнику знает объект", () => 
       ...whatsapp.turnInput(subscriberId),
       text: `Здравствуйте, объект №${propertyAShortId}, можно ли торговаться?`,
     });
-    const conv = await prisma.botConversation.findUniqueOrThrow({
-      where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId } },
+    const conv = await prisma.botConversation.findFirstOrThrow({
+      where: { channel: "WHATSAPP", subscriberId },
       select: { id: true },
     });
     conversationIds.push(conv.id);
@@ -267,8 +267,8 @@ describe("вопрос собственнику знает объект", () => 
       sharedPropertyId: propertyA,
       adPropertyId: propertyB,
     });
-    const conv = await prisma.botConversation.findUniqueOrThrow({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    const conv = await prisma.botConversation.findFirstOrThrow({
+      where: { channel: "INSTAGRAM", subscriberId },
       select: { id: true },
     });
     conversationIds.push(conv.id);

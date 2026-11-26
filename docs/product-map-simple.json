@@ -16,9 +16,9 @@
   "paths": 789,
   "cron": 147,
   "jobs": 37,
-  "conditions": 4321,
-  "untranslatedUnique": 496,
-  "untranslatedTotal": 638,
+  "conditions": 4324,
+  "untranslatedUnique": 497,
+  "untranslatedTotal": 639,
   "partialUnique": 1142,
   "translatedShare": 85
  },
@@ -472,6 +472,7 @@
   "scopeAgentId && !(await contactProfileBelongsTo(req.params.id, scopeAgentId))",
   "scopeToOwnAgent(req) && !client.acceptedAt",
   "seen !== suggestionFingerprint(suggestion)",
+  "selected?.processingState === \"HELD\" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? \"\")",
   "session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))",
   "session && session.propertyId !== property.id",
   "settings?.metaIgToken && Date.now() - last >= REFRESH_EVERY_MS",
@@ -66638,6 +66639,12 @@
        "k": "do",
        "a": [],
        "c": []
+      },
+      {
+       "t": "удаляет: помощник группа person",
+       "k": "do",
+       "a": [],
+       "c": []
       }
      ]
     }
@@ -82913,6 +82920,13 @@
        "c": []
       },
       {
+       "t": "если selected?.processingState === \"HELD\" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? \"\")",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "selected?.processingState === \"HELD\" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? \"\")"
+      },
+      {
        "t": "если есть intake сотрудник revision",
        "k": "if",
        "a": [],
@@ -82928,6 +82942,13 @@
          "k": "if",
          "a": [],
          "c": [
+          {
+           "t": "если изменённые — «0»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
           {
            "t": "если result.reason !== NEWER_INPUT_PENDING",
            "k": "if",

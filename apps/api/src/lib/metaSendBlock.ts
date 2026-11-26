@@ -653,13 +653,23 @@ export async function recordMetaSendWarning(input: {
 
 const WARNED_TURN_CLAIM_CHANNEL = "meta-send-warning-turn";
 
+/**
+ * Переписка получателя у ЭТОГО аккаунта. В Instagram/Facebook/сайте она одна на собеседника (частичный уникальный
+ * ключ); в WhatsApp у человека своя переписка с каждым нашим номером (26.11.2026) — тогда берём ту, что у
+ * аккаунта-отправителя, а не первую попавшуюся (иначе «клиент ждёт» ушёл бы про чужой номер).
+ */
+async function chatOfRecipient(account: Pick<MetaSendAccountRef, "channel" | "accountId">,
+  recipientId: string): Promise<{ id: string; messages: unknown } | null> {
+  const rows = await prisma.botConversation.findMany({ where: { channel: account.channel, subscriberId: recipientId },
+    select: { id: true, messages: true, accountId: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 5 });
+  if (rows.length <= 1) return rows[0] ?? null;
+  return rows.find(row => row.accountId === account.accountId) ?? null;
+}
+
 /** Ход, на который Meta предупредила: человеку «клиент ждёт», автоматика этот ход не повторяет. Никогда не бросает. */
-async function handOverWarnedChat(row: MetaSendBlock, account: Pick<MetaSendAccountRef, "channel">, recipientId: string): Promise<void> {
+async function handOverWarnedChat(row: MetaSendBlock, account: Pick<MetaSendAccountRef, "channel" | "accountId">, recipientId: string): Promise<void> {
   try {
-    const chat = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: account.channel, subscriberId: recipientId } },
-      select: { id: true, messages: true },
-    });
+    const chat = await chatOfRecipient(account, recipientId);
     const since = chat ? customerWaitingSince(chat.messages) : null;
     if (!chat || !since) return;
     const claimed = await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt")
@@ -720,12 +730,9 @@ export function customerWaitingSince(messages: unknown): Date | null {
 }
 
 /** Ждущая переписка → человеку, один сигнал на переписку за эпизод запрета. Никогда не бросает. */
-async function handOverWaitingChat(block: MetaSendBlock, account: Pick<MetaSendAccountRef, "channel">, recipientId: string): Promise<void> {
+async function handOverWaitingChat(block: MetaSendBlock, account: Pick<MetaSendAccountRef, "channel" | "accountId">, recipientId: string): Promise<void> {
   try {
-    const chat = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: account.channel, subscriberId: recipientId } },
-      select: { id: true },
-    });
+    const chat = await chatOfRecipient(account, recipientId);
     if (chat) await handOverBlockedConversation(chat.id, block);
   } catch (err) {
     void logSystemError("meta", `Переписку с ждущим клиентом не удалось передать человеку (Meta не пропускает ${block.label}): ${describeError(err)}`, {

@@ -25,8 +25,8 @@ async function seedWithReply(text: string): Promise<string> {
     data: { channel: "INSTAGRAM", accountId: fixture.id, endpointScopeId: fixture.transport.endpointScopeId, subscriberId, leadDraft: { stage: "chatting" } as never },
   });
   await appendConversationMessages(
-    (await prisma.botConversation.findUniqueOrThrow({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    (await prisma.botConversation.findFirstOrThrow({
+      where: { channel: "INSTAGRAM", subscriberId },
       select: { id: true },
     })).id,
     [{ role: "assistant", content: text, by: { kind: "bot" } }]
@@ -35,8 +35,8 @@ async function seedWithReply(text: string): Promise<string> {
 }
 
 async function lastMessage(subscriberId: string): Promise<Record<string, unknown>> {
-  const row = await prisma.botConversation.findUniqueOrThrow({
-    where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+  const row = await prisma.botConversation.findFirstOrThrow({
+    where: { channel: "INSTAGRAM", subscriberId },
     select: { messages: true },
   });
   const messages = (row.messages ?? []) as Record<string, unknown>[];

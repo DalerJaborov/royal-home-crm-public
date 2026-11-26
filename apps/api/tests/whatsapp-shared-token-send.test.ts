@@ -15,8 +15,9 @@ const MAIN_PHONE = "fixture-main-phone", ARVAN_PHONE = "fixture-arvan-phone";
 const scopeIds = new Map<string, string>();
 const scopeOf = (transportKey: string) => scopeIds.get(transportKey) ?? (scopeIds.set(transportKey, randomUUID()), scopeIds.get(transportKey)!);
 
-/** peer -> its one stored WhatsApp conversation (what the global unique key guarantees). */
-function fakeDb(input: { accountToken: string; settingsToken: string; conversations: Record<string, { accountId: string | null; transportKey: string }> }) {
+type StoredChat = { accountId: string | null; transportKey: string };
+/** peer -> its stored WhatsApp conversation(s): one per our number since 26.11.2026. */
+function fakeDb(input: { accountToken: string; settingsToken: string; conversations: Record<string, StoredChat | StoredChat[]> }) {
   const db = {
     messengerAccount: { findMany: vi.fn(async (args: { where: { enabled?: boolean; id?: string; OR?: Array<Record<string, unknown>> } }) => {
       const row = { id: ACCOUNT, token: `fixture:${input.accountToken}`, externalId: ARVAN_PHONE, messagingId: null, extraExternalIds: [] as string[] };
@@ -30,7 +31,7 @@ function fakeDb(input: { accountToken: string; settingsToken: string; conversati
         endpointScopeId: scopeOf(`settings:WHATSAPP:${MAIN_PHONE}`), scopeRevision: 1n, policyRevision: 1n }];
       if (text.includes('FROM "BotConversation" c')) {
         const peer = values.find(value => typeof value === "string" && value in input.conversations) as string | undefined;
-        return peer ? [input.conversations[peer]] : [];
+        return peer ? [input.conversations[peer]].flat() : [];
       }
       if (text.includes('FROM "CustomerEndpointScope"')) {
         const key = values.find(value => typeof value === "string" && /^(settings|messenger-account):/.test(value)) as string;
@@ -60,6 +61,13 @@ describe("legacy WhatsApp send with one token for two numbers", () => {
   it("a peer without a chat is refused, never sent from a guessed number", async () => {
     const db = fakeDb({ accountToken: "shared", settingsToken: "shared", conversations });
     await expect(resolveLegacyMetaSendTransport(credentials("shared"), "WHATSAPP", "992900000009", undefined, db))
+      .rejects.toMatchObject({ reason: "account_mismatch" });
+  });
+
+  it("a person with a chat on EACH number is refused without a captured transport — never a guessed number", async () => {
+    const db = fakeDb({ accountToken: "shared", settingsToken: "shared",
+      conversations: { "992900000005": [conversations["992900000001"], conversations["992900000002"]] } });
+    await expect(resolveLegacyMetaSendTransport(credentials("shared"), "WHATSAPP", "992900000005", undefined, db))
       .rejects.toMatchObject({ reason: "account_mismatch" });
   });
 

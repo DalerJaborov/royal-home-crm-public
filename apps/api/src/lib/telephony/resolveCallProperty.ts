@@ -1,5 +1,6 @@
 import { parseShortCode } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { numberWordsToDigits } from "../numberWords.js";
 import { mentionedCardNumber } from "../propertyMentionFromText.js";
 import { toSearchTokens, toTokenVariants } from "../searchTokens.js";
 
@@ -13,8 +14,22 @@ import { toSearchTokens, toTokenVariants } from "../searchTokens.js";
  * каталога объектов (routes/properties/list.ts, lib/searchTokens.ts): раскладка,
  * транслитерация и таджикские буквы уже решены там, копировать не нужно.
  */
-export async function resolveCallPropertyHint(hint: string | null | undefined): Promise<string | null> {
-  const text = hint?.trim();
+/** Число с единицей измерения после него — площадь, этаж, комнаты, деньги, а не номер карточки. */
+const MEASURE_AFTER_NUMBER =
+  /\d+\s*(?:квадрат|кв(?![\p{L}])|м²|м2|метр|этаж|ошён|ошен|хона|комнат|сот(?:к|ок|ки)|сомон|доллар|тыс|ҳазор|хазор|лет|год)/iu;
+
+export async function resolveCallPropertyHint(
+  hint: string | null | undefined,
+  options: { spelledNumbers?: boolean } = {}
+): Promise<string | null> {
+  // НОМЕР СЛОВАМИ НА ЛЮБОМ ЯЗЫКЕ (26.11.2026): «объект двести тридцать», «объекти
+  // дусаду сӣ» — расшифровка пишет числа и так, и цифрами. Слова-числа становятся
+  // цифрами до разбора (lib/numberWords.ts); остальной текст не меняется. Число с
+  // единицей измерения («сто двадцать квадратов», «панҷум ошёна») — не номер
+  // карточки: такую подсказку оставляем словами, чтобы «120» не стало объектом №120.
+  // Только разбор звонка при рубильнике callObjectToOwnerEnabled (spelledNumbers).
+  const spelled = hint && options.spelledNumbers ? numberWordsToDigits(hint, { minValue: 1 }).trim() : "";
+  const text = spelled && !MEASURE_AFTER_NUMBER.test(spelled) ? spelled : (hint?.trim() ?? "");
   if (!text) return null;
 
   // Голое число — это №объекта (shortId), тот же номер, что виден агенту в

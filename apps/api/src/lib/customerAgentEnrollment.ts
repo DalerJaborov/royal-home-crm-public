@@ -9,6 +9,7 @@ import type { TxClient } from "../db.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
+import { peerChatsForScope, readPeerChats } from "./customerConversationScope.js";
 import { customerTicketIsInputSql } from "./customerIngressNonInput.js";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
 import { CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, customerAgentLegacyCutoverEnabled, readCustomerLegacyCutoverReadiness,
@@ -189,16 +190,14 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
 
   let baseline = false;
   if (s.surface === "dm") {
-    const native = await tx.$queryRaw<Array<{ id: string; endpointScopeId: string | null }>>`SELECT "id","endpointScopeId"
-      FROM "BotConversation" WHERE "channel"=${e.channel} AND "subscriberId"=${s.peer}`;
-    // Two WhatsApp numbers (Royal Home + Arvan, 26.11.2026): a WhatsApp peer IS a phone number, so the same person who already
-    // has a chat on one number collides with that chat when writing to the other one (global unique channel+peer, Gate A).
-    // That is a normal customer, not a race: the text goes into the person's existing CRM chat and a person is told
-    // (customerHeldMessage.ts). Instagram/Facebook peers are per-account IDs, there it stays the 503 guard.
-    if (e.channel === "WHATSAPP" && native.length === 1 && native[0].endpointScopeId && native[0].endpointScopeId !== e.endpointScopeId) {
-      return held("whatsapp_peer_on_other_number");
-    }
-    if (native.length > 1 || native.some(row => row.endpointScopeId !== e.endpointScopeId)) return held("legacy_native_scope_collision");
+    // A WhatsApp peer IS a phone number: the same person may have a chat with each of our numbers (Royal Home + Arvan,
+    // 26.11.2026), and a chat on our OTHER number does not concern this one (peerChatsForScope, one rule for every reader).
+    // Instagram/Facebook peers are per-account IDs: any foreign row stays the 503 collision guard.
+    const native = await readPeerChats(tx, e.channel, s.peer);
+    const peerChats = peerChatsForScope(e.channel, native, e.endpointScopeId);
+    // Kill switch WHATSAPP_CHAT_PER_NUMBER=off only: the #475 behaviour (text into the person's one chat, a person answers).
+    if (peerChats.otherNumberHold) return held("whatsapp_peer_on_other_number");
+    if (peerChats.own.length > 1 || peerChats.blocking.length) return held("legacy_native_scope_collision");
     const originalScopeKey = customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId);
     // Only what the CUSTOMER sent counts as history. Our own outgoing echo
     // (bot reply to a comment, staff writing from the Instagram app), a bare
@@ -215,7 +214,7 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
     if (history?.closed || history?.core) return held("historical_subject_owned_or_closed");
     // An old RAW legacy source can precede native creation. It still prevents
     // fresh B from entering CORE while legacy A is suspended before that row.
-    baseline = native.length === 1 || history?.legacy === true;
+    baseline = peerChats.own.length === 1 || history?.legacy === true;
   } else {
     const rows = await tx.$queryRaw<Array<{ managed: boolean }>>`SELECT ("publicOriginCiphertext" IS NOT NULL OR EXISTS(
       SELECT 1 FROM "CustomerOutboxPart" p WHERE p."publicMetaCommentId"="InstagramComment"."id")) AS managed

@@ -1,8 +1,8 @@
-// Second WhatsApp number (Arvan, 26.11.2026). A WhatsApp peer IS a phone number: the same person writing to both of our
-// numbers meets their existing chat (global unique channel+peer). That used to be the 503 collision guard — Meta retries
-// and drops the message. Now it is held for a person, and the text lands in the person's ONE existing CRM chat.
+// Second WhatsApp number (Arvan, 26.11.2026). A WhatsApp peer IS a phone number. Since the per-number chat cutover each
+// number has its own chat; this file keeps the kill-switch fallback (#475): with WHATSAPP_CHAT_PER_NUMBER=off the turn on
+// the other number is held for a person (not the 503 guard that loses it) and lands in the person's ONE existing chat.
 import { createHash, randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
 import type { CustomerAgentEnrollmentSubject } from "@royal-home/shared";
@@ -52,7 +52,11 @@ afterAll(async () => {
   resetAccountsCache(); resetMetaAccountCredsCache();
 });
 
-describe("a WhatsApp customer on our other number", { timeout: 30_000 }, () => {
+describe("a WhatsApp customer on our other number, kill switch WHATSAPP_CHAT_PER_NUMBER=off", { timeout: 30_000 }, () => {
+  // By default each of our numbers has its own chat (tests/whatsapp-chat-per-number.test.ts). With the switch off the
+  // #475 behaviour is the fallback: one chat per person, the turn on the other number is held for a person.
+  beforeEach(() => { process.env.WHATSAPP_CHAT_PER_NUMBER = "off"; });
+  afterEach(() => { delete process.env.WHATSAPP_CHAT_PER_NUMBER; });
   it("is held for a person (ACK + report), not the 503 guard that loses the message", async () => {
     const royal = await account("WHATSAPP", "royal"), arvan = await account("WHATSAPP", "arvan");
     const peer = `99290${runId.replace(/\D/g, "").padEnd(7, "1").slice(0, 7)}`;

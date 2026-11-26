@@ -87,7 +87,7 @@ describe.each(channels)("actual %s CommentDecision consumer", (channel) => {
     const input = await turn(channel, result);
     await expect(input.run()).rejects.toThrow(/Модель не вернула решение/);
     expect(mocks.model).toHaveBeenCalledTimes(1); expect(externalEffects()).toBe(0); expect(mocks.buyers).not.toHaveBeenCalled();
-    expect(await prisma.botConversation.findUnique({ where: { channel_subscriberId: { channel, subscriberId: input.peer } } })).toBeNull();
+    expect(await prisma.botConversation.findFirst({ where: { channel, subscriberId: input.peer } })).toBeNull();
     expect(await prisma.propertyInterestEvent.count({ where: { propertyId, externalAuthorId: input.peer } })).toBe(0);
     expect(await prisma.propertyExposure.count({ where: { propertyId, recipientId: input.peer } })).toBe(0);
     expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("PRIVATE-");
