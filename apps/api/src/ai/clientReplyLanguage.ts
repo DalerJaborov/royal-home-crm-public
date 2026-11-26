@@ -15,12 +15,18 @@
  * До правки (ФАКТ, прогон 26.11.2026 на runOperatorTurn): «Hello, I want to buy an apartment…», «Assalomu alaykum, uy sotib
  * olmoqchiman…», испанский и арабский получали русскую фразу «Вы хотите купить или продать недвижимость?».
  *
- * Рубильник: BOT_FOREIGN_REPLY=off — перевод не зовётся, уходит русская фраза (как до правки).
+ * ПРИОРИТЕТ — ТАДЖИКСКИЙ И РУССКИЙ (ревью #479): при сомнении дверь отвечает null, и бот говорит на нашем языке, а не
+ * переводит. Таджикские буквы «ҷ ӣ ӯ», таджикские слова («нест», «чанд», «man», «shumo»), русские слова — другого языка нет.
+ * «ў», «һ», «ү» — подмены таджикских букв на чужой раскладке, а не признак узбекского или казахского.
+ *
+ * Рубильник: Настройки → «Автоматика» → «Бот отвечает на языке клиента» (`botForeignReplyEnabled`, ВКЛ). Выключен —
+ * оператор ведёт себя ровно как до правки (проверка в ai/operator/decide.ts).
  */
 import { askLeadOnlyModel, leadOnlyStructuredModel, type LeadOnlyIntentModel } from "./leadOnlyIntent.js";
-import { clientLanguageScores, detectClientLanguage, latinLanguageCounts, stripNonLanguage, uzbekCyrillicCount } from "./clientLanguage.js";
+import { clientLanguageScores, detectClientLanguage, latinLanguageCounts, stripNonLanguage, tajikWordCount, uzbekCyrillicCount } from "./clientLanguage.js";
+import { logSystemError } from "../lib/systemError.js";
 import { adTemplatePhraseCut, isAdTemplateOpener } from "./adTemplatePhrase.js";
-import { isNeutralShortReply } from "./customerDmLanguage.js";
+import { coreTajikWordCount, isNeutralShortReply } from "./customerDmLanguage.js";
 import { clientOwnWords } from "./untrustedContent.js";
 
 /** Язык клиента, на котором у бота нет готовых фраз. «other» — любой ещё: модель берёт его по словам клиента. */
@@ -29,11 +35,6 @@ export const FOREIGN_LANGUAGES: readonly ForeignLanguage[] = ["en", "uz", "other
 
 export const CLIENT_REPLY_TRANSLATE_ENDPOINT = "client-reply-translate";
 export const CLIENT_REPLY_TRANSLATE_TIMEOUT_MS = 5_000;
-
-/** Рубильник двери: выключено — уходит русская фраза. По умолчанию включено (решение владельца 26.11.2026). */
-export function foreignReplyEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-  return (env.BOT_FOREIGN_REPLY ?? "").trim().toLowerCase() !== "off";
-}
 
 /** Слова клиента для языка: без вложений и пометок кода, без готовой фразы рекламы, ссылок, ников и номеров. */
 function languageWords(text: string): string {
@@ -45,14 +46,20 @@ function languageWords(text: string): string {
 /** «ok», «thanks», «thank you», «hello», «yes»: вежливость без языка, разговор её не переключает. */
 const LATIN_NEUTRAL = new Set(["ok", "okay", "okey", "hi", "hello", "hey", "thanks", "thank", "you", "thx", "yes", "no", "please", "bye", "good",
   "morning", "evening", "sure", "great", "nice", "fine", "salom", "assalomu", "alaykum", "rahmat", "xop", "xo'p", "ha", "yo'q", "mersi"]);
+/** Приветствие и «спасибо» латиницей: их пишут на любом из наших языков, таджикским признаком не считаются. */
+const LATIN_GREETING = /(?<![a-z])(?:salom|assalomu|assalom|alaykum|alaikum|aleykum|alekum|rahmat|tashakkur)(?![a-z])/gi;
+/** Таджикские слова латиницей сверх общего списка (ai/clientLanguage.ts): «man uy kerak», «shumo», «hamin». */
+const TAJIK_LATIN_EXTRA = /(?<![a-z])(?:man|shumo|mo|hamin|xamin|khamin|mekunam|mekunem|mefurosham|mefurusham|mexaram|mekharam|dorad|nestam)(?![a-z])/gi;
 /** Таджикский и русский латиницей («salom chi khel», «skolko stoit kvartira»): это не другой язык. */
-const TRANSLIT_RUSSIAN = /(^|[^a-z])(skolko|stoit|stoyt|kvartiru|kvartiry|khochu|hochu|xochu|privet|zdravstvuyte|zdrastvuyte|kupit|prodat|mne|nuzhno|nujno|est|tsena|cena|gde|kak|pozvonite|nomer|spasibo|dobriy|dobryy|den|mozhno|mojno|ochen|seychas|interesuet)([^a-z]|$)/gi;
+const TRANSLIT_RUSSIAN = /(?<![a-z])(?:skolko|stoit|stoyt|kvartiru|kvartiry|khochu|hochu|xochu|privet|zdravstvuyte|zdrastvuyte|kupit|prodat|mne|nuzhno|nujno|est|tsena|cena|gde|kak|pozvonite|nomer|spasibo|dobriy|dobryy|den|mozhno|mojno|ochen|seychas|interesuet)(?![a-z])/gi;
 /** Частые слова других языков латиницей (испанский, турецкий, немецкий, французский) и буквы, которых нет в английском. */
-const OTHER_LATIN = /(^|[^\p{L}])(hola|quiero|comprar|cuanto|cuánto|precio|gracias|vender|casa|merhaba|fiyat|almak|istiyorum|satılık|kaç|ev|daire|hallo|ich|möchte|wohnung|kaufen|preis|bonjour|je|veux|acheter|appartement|prix|combien)(?=[^\p{L}]|$)/giu;
+const OTHER_LATIN = /(?<![\p{L}])(?:hola|quiero|comprar|cuanto|cuánto|precio|gracias|vender|casa|merhaba|fiyat|almak|istiyorum|satılık|kaç|ev|daire|hallo|ich|möchte|wohnung|kaufen|preis|bonjour|je|veux|acheter|appartement|prix|combien)(?![\p{L}])/giu;
 const NON_ENGLISH_LATIN_LETTER = /[ñ¿¡şğıäöüßéèêàâçãõ]/iu;
+/** Буквы, которых нет нигде, кроме таджикского: одна такая — таджикский, другого языка нет («ҳ», «қ», «ғ» есть и в узбекском). */
+const TAJIK_ONLY_LETTER = /[ҷӣӯ]/iu;
 /**
- * Кириллица не русская и не таджикская: казахская, украинская буквы. Узбекская «ў» — отдельно. «һ» и «ү» сюда НЕ входят:
- * ими на чужой раскладке подменяют таджикские «ҳ» и «ӯ», и таджикская фраза ушла бы в перевод.
+ * Кириллица не русская и не таджикская: казахская, украинская буквы. «һ», «ү», «ў» сюда НЕ входят: ими на чужой раскладке
+ * подменяют таджикские «ҳ» и «ӯ» («Дўкон бор?»), и таджикская фраза ушла бы в перевод (ревью #479).
  */
 const OTHER_CYRILLIC_LETTER = /[әөұңіїєґ]/iu;
 
@@ -69,9 +76,23 @@ function scriptCounts(text: string): { cyrillic: number; latin: number; other: n
   return { cyrillic, latin, other };
 }
 
+/** В кириллице есть признак таджикского или русского: таджикская буква, таджикское или русское слово. */
+function ourCyrillic(own: string, lower: string): boolean {
+  if (TAJIK_ONLY_LETTER.test(own)) return true;
+  const folded = lower.replace(/ў/gu, "ӯ").replace(/һ/gu, "ҳ").replace(/ү/gu, "ӯ");
+  return tajikWordCount(folded) > 0 || coreTajikWordCount(folded) > 0 || clientLanguageScores(folded).russian > 0;
+}
+
+/** В латинице есть признак таджикского или русского (приветствие и «рахмат» не в счёт: их пишут на любом языке). */
+function ourLatin(lower: string): boolean {
+  const withoutGreeting = lower.replace(LATIN_GREETING, " ");
+  return latinLanguageCounts(withoutGreeting).tajik > 0 || countOf(TAJIK_LATIN_EXTRA, withoutGreeting) > 0 || countOf(TRANSLIT_RUSSIAN, lower) > 0;
+}
+
 /**
  * Другой язык этого сообщения клиента (не русский и не таджикский) — или null: русский, таджикский, смесь, нейтральное
- * короткое («ok», «спасибо»), нечитаемое. null значит «другого языка нет» — решает прежний код русского и таджикского.
+ * или короткое («ok», «price?», «спасибо»), нечитаемое, сомнительное. null значит «другого языка нет» — решает прежний код
+ * русского и таджикского. Приоритет — наш язык: любой признак таджикского или русского побеждает (ревью #479).
  */
 export function foreignClientLanguage(text: string): ForeignLanguage | null {
   const own = languageWords(text);
@@ -81,49 +102,48 @@ export function foreignClientLanguage(text: string): ForeignLanguage | null {
   if (script.other >= 3 && script.other > script.cyrillic + script.latin) return "other";
   const lower = own.normalize("NFC").toLowerCase();
   if (script.cyrillic >= script.latin) {
-    if (/[ўЎ]/u.test(own)) return "uz";
+    if (ourCyrillic(own, lower)) return null;
     if (OTHER_CYRILLIC_LETTER.test(own)) return "other";
-    const uzbek = uzbekCyrillicCount(lower);
-    if (uzbek >= 2) {
-      const { tajik, russian } = clientLanguageScores(lower);
-      if (uzbek > russian && uzbek >= tajik) return "uz";
-    }
-    return null;
+    return uzbekCyrillicCount(lower) >= 2 ? "uz" : null;
   }
-  // Латиница: решают слова-маркеры. Только вежливые слова («thank you», «ok») — языка нет.
+  // Латиница: решают слова-маркеры. Одни вежливые слова («thank you», «ok»), одно-два слова («price?», «How much?») — языка нет.
   const words = lower.split(/[^\p{L}ʻʼ'‘]+/u).filter(Boolean);
-  if (words.every(word => LATIN_NEUTRAL.has(word))) return null;
-  const { tajik, english, uzbek } = latinLanguageCounts(lower);
-  const russian = countOf(TRANSLIT_RUSSIAN, lower);
-  const uzbekMarks = /[oOgG][ʻʼ'‘]/u.test(own) ? 1 : 0;
-  if (uzbek + uzbekMarks > tajik && uzbek + uzbekMarks >= english && uzbek + uzbekMarks >= 1 && russian <= uzbek) return "uz";
-  if (english > 0 && english > tajik && english > russian && english >= uzbek) return "en";
-  const otherLatin = countOf(OTHER_LATIN, lower) + (NON_ENGLISH_LATIN_LETTER.test(own) ? 1 : 0);
-  if (otherLatin > 0 && otherLatin > tajik + russian + english + uzbek) return "other";
+  if (words.length < 2 || words.every(word => LATIN_NEUTRAL.has(word)) || ourLatin(lower)) return null;
+  const { english, uzbek } = latinLanguageCounts(lower);
+  const uzbekScore = uzbek + (/[oOgG][ʻʼ'‘]/u.test(own) ? 1 : 0);
+  if (uzbekScore >= 2 && uzbekScore >= english) return "uz";
+  if (english >= 2 && words.length >= 3) return "en";
+  const otherLatin = countOf(OTHER_LATIN, lower);
+  if (otherLatin >= 2 || otherLatin >= 1 && NON_ENGLISH_LATIN_LETTER.test(own)) return "other";
   return null;
 }
 
 /**
- * Язык ответа на ход с учётом разговора: другой язык этого сообщения — он; ясный русский или таджикский — null (другой язык
- * снят: клиент перешёл на наш); нейтральное («ok», «спасибо», номер, ссылка) — язык последней ясной реплики клиента раньше.
+ * В сообщении ясный русский или таджикский (полная фраза, не «ок» и не приветствие). Его проверяют ПЕРВЫМ (ai/operator/decide.ts):
+ * ясная наша фраза снимает другой язык разговора, даже если в ней есть слово, похожее на чужое.
+ */
+export function decisiveOwnLanguage(text: string): boolean {
+  const own = languageWords(text);
+  if (!own || isAdTemplateOpener(own) || isNeutralShortReply(own)) return false;
+  const lower = own.normalize("NFC").toLowerCase();
+  if (!/[а-яёҳҷӣӯқғўһү]/iu.test(own)) return ourLatin(lower);
+  if (ourCyrillic(own, lower)) return true;
+  const detected = detectClientLanguage(own);
+  return foreignClientLanguage(text) === null && (detected === "ru" || detected === "tg" || detected === "mixed");
+}
+
+/**
+ * Язык ответа на ход с учётом разговора: ясный русский или таджикский — null (клиент на нашем языке); другой язык этого
+ * сообщения — он; нейтральное («ok», «спасибо», номер, ссылка) — язык последней ясной реплики клиента раньше.
  * `priorUserTexts` — прежние слова клиента, от старых к новым.
  */
 export function foreignReplyLanguage(current: string, priorUserTexts: readonly string[] = []): ForeignLanguage | null {
   for (const text of [current, ...[...priorUserTexts].reverse()]) {
+    if (decisiveOwnLanguage(text)) return null;
     const foreign = foreignClientLanguage(text);
     if (foreign) return foreign;
-    if (decisiveOwnLanguage(text)) return null;
   }
   return null;
-}
-
-/** В сообщении ясный русский или таджикский (полная фраза, не «ок» и не приветствие). */
-export function decisiveOwnLanguage(text: string): boolean {
-  const own = languageWords(text);
-  if (!own || isAdTemplateOpener(own) || isNeutralShortReply(own)) return false;
-  if (!/[а-яёҳҷӣӯқғ]/iu.test(own)) return latinLanguageCounts(own.toLowerCase()).tajik > 0 || countOf(TRANSLIT_RUSSIAN, own.toLowerCase()) > 0;
-  const detected = detectClientLanguage(own);
-  return detected === "ru" || detected === "tg" || detected === "mixed";
 }
 
 // ── Перевод готовой фразы ────────────────────────────────────────────────────
@@ -147,7 +167,7 @@ export const CLIENT_REPLY_TRANSLATE_SYSTEM = [
 const SCHEMA = { type: "object", properties: { reply: { type: "string", description: "The translated reply" } }, required: ["reply"] } as const;
 export const clientReplyTranslateModel: LeadOnlyIntentModel = leadOnlyStructuredModel({ endpoint: CLIENT_REPLY_TRANSLATE_ENDPOINT, schema: SCHEMA, maxTokens: 400 });
 
-export type TranslateRejection = "off" | "no_answer" | "empty" | "too_long" | "banned" | "digits" | "question" | "question_dropped" |
+export type TranslateRejection = "no_answer" | "empty" | "too_long" | "banned" | "digits" | "question" | "question_dropped" |
   "script" | "language" | "time" | "promise" | "money" | "informal";
 
 /** Понятия, которые можно сказать, только если они есть в русской фразе (как у оператора: ai/operator/compose.ts). */
@@ -157,7 +177,9 @@ const RU_MONEY = /(?<![\p{L}])(?:бесплатн|комисс|цен|стоим
 const FOREIGN_TIME = /(?<![\p{L}])(?:today|tomorrow|tonight|morning|evening|hours?|minutes?|soon|asap|immediately|week|bugun|ertaga|ertalab|kechqurun|soat|daqiqa|tez(?:\s+orada)?|hafta|hoy|mañana|bugün|yarın|heute|morgen|aujourd'hui|demain)(?![\p{L}])/iu;
 const FOREIGN_CALL = /(?<![\p{L}])(?:call|calls|phone\s+you|contact\s+you|qo[ʻʼ'‘]?ng[ʻʼ'‘]?iroq|telefon\s+qil\p{L}*|llamar\p{L}*|arar\p{L}*|anruf\p{L}*|appel\p{L}*)(?![\p{L}])/iu;
 const FOREIGN_MONEY = /(?<![\p{L}])(?:free|commission|fee|price|cost|discount|dollars?|somoni|bepul|komissiya|narx\p{L}*|chegirma|gratis|precio|ücretsiz|fiyat|kostenlos|preis|gratuit|prix)(?![\p{L}])|%|\$/iu;
-const FOREIGN_INFORMAL = /(?<![\p{L}])(?:sen|senga|seni|sening|tú|tu|du|dich|dir|toi|te)(?![\p{L}])/iu;
+// «du»/«te» не берём (ревью #479): «du» — ещё и французский артикль («du prix»), «te» — частое служебное сочетание; ложный отказ
+// перевода здесь дороже пропуска.
+const FOREIGN_INFORMAL = /(?<![\p{L}])(?:sen|senga|seni|sening|tú|dich|dir|toi)(?![\p{L}])/iu;
 const ENGLISH_WORD = /(?<![\p{L}])(?:the|and|you|your|are|is|we|our|will|can|please|to|for|of|a|an|it|this|that|do|have|what|which|how|where|buy|sell|number|agent)(?![\p{L}])/iu;
 
 const digitsOf = (text: string): string[] => (text.match(/\d+/gu) ?? []).sort();
@@ -201,24 +223,33 @@ export interface TranslateRequest {
   conversationId?: string | null;
   model?: LeadOnlyIntentModel;
   timeoutMs?: number;
-  env?: Readonly<Record<string, string | undefined>>;
 }
 export interface TranslateResult { text: string; source: "model" | "template"; rejected?: TranslateRejection }
+
+/**
+ * Сбой перевода — в журнал ошибок (ревью #479): тихо (без пуша «Новая проблема» директорам) и с дедупом по причине и языку,
+ * чтобы долю отказов было видно, а не только в логе контейнера. Клиент при этом получил русскую фразу.
+ */
+function logTranslateFailure(reason: TranslateRejection, language: ForeignLanguage, conversationId: string | null | undefined): void {
+  void logSystemError("ai", `Перевод ответа клиенту на другой язык не удался (${reason}, ${language}), ушла русская фраза` +
+    (conversationId ? ` (диалог ${conversationId})` : ""), { dedupKey: `client-reply-translate:${reason}:${language}`, silent: true })
+    .catch(() => {});
+}
 
 /** Готовая фраза на языке клиента или она же по-русски. Никогда не бросает. */
 export async function translateClientReply(request: TranslateRequest): Promise<TranslateResult> {
   const template = request.template.trim();
   if (!template) return { text: request.template, source: "template", rejected: "empty" };
-  if (!foreignReplyEnabled(request.env)) return { text: request.template, source: "template", rejected: "off" };
   const raw = await askLeadOnlyModel(request.model ?? clientReplyTranslateModel, { system: CLIENT_REPLY_TRANSLATE_SYSTEM,
     conversationId: request.conversationId ?? null,
     user: JSON.stringify({ targetLanguage: LANGUAGE_NAME[request.language], sample: template,
       clientMessage: languageWords(request.clientText).slice(0, 600) }) }, request.timeoutMs ?? CLIENT_REPLY_TRANSLATE_TIMEOUT_MS);
   const reply = raw && typeof raw === "object" && typeof Reflect.get(raw, "reply") === "string" ? String(Reflect.get(raw, "reply")).trim() : "";
-  if (!reply) return { text: request.template, source: "template", rejected: "no_answer" };
-  const rejected = checkTranslatedReply(reply, template, request.language, request.clientText);
+  // Пусто — модель промолчала, упала или опоздала (askLeadOnlyModel не различает): одна причина «no_answer».
+  const rejected = reply ? checkTranslatedReply(reply, template, request.language, request.clientText) : "no_answer";
   if (rejected) {
     console.warn(`[client-reply-language] перевод отброшен (${rejected}, ${request.language}), ушла русская фраза`);
+    logTranslateFailure(rejected, request.language, request.conversationId);
     return { text: request.template, source: "template", rejected };
   }
   return { text: reply, source: "model" };

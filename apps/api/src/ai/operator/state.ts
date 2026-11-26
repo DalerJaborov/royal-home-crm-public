@@ -34,6 +34,8 @@ const storedSchema = z.object({
   language: z.enum(["ru", "tg"]).nullable(),
   // Другой язык клиента (26.11.2026). Память до правки поля не имеет — читается как «нет».
   foreign: z.enum(["en", "uz", "other"]).nullable().default(null),
+  // Русские исходники ответов, ушедших переводом (сторож повтора, ревью #479). Только фразы сервера, слов клиента здесь нет.
+  sentSources: z.array(z.string().max(600)).max(2).default([]),
   asked: z.object({ role: counter, details: counter, phone: counter }),
   // Ключи, убранные из фраз (OPERATOR_RETIRED_PHRASE_KEYS), и любые незнакомые молча отбрасываются: из-за одной старой
   // отметки память разговора (роль, язык, «заявка принята») не должна обнуляться (20.11.2026).

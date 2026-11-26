@@ -76,14 +76,21 @@ export interface OperatorTurnResult {
  * ДРУГОЙ ЯЗЫК КЛИЕНТА — ОДНА ДВЕРЬ (ai/clientReplyLanguage.ts, решение владельца 26.11.2026): русская фраза переводится на язык
  * клиента; не удалось — уходит русская. Слой «своими словами» (compose) здесь не зовётся: он пишет только по-русски и по-таджикски.
  */
-async function inClientLanguage(result: OperatorTurnResult, request: OperatorTurnRequest): Promise<OperatorTurnResult> {
+async function inClientLanguage(result: OperatorTurnResult, request: OperatorTurnRequest, now: Date): Promise<OperatorTurnResult> {
   const foreign = result.state.foreign ?? null;
-  if (!foreign || !result.text) return { ...result, foreign };
+  // Русский исходник переведённого ответа — в память: сторож повтора сравнивает по нему (клиент видел перевод, а не его).
+  // Ушёл ответ без перевода — исходники устарели (сторож и так видит отправленный текст): память их забывает.
+  const withSources = (sources: string[]): Pick<OperatorTurnResult, "state" | "stored"> => {
+    const state: OperatorState = { ...result.state, sentSources: sources.map(text => text.slice(0, 600)) };
+    try { return { state, stored: serializeOperatorState(state, now) }; } catch { return { state: result.state, stored: result.stored }; }
+  };
+  const forget = () => result.text && result.state.sentSources?.length ? withSources([]) : {};
+  if (!foreign || !result.text) return { ...result, ...forget(), foreign };
   const translated = await translateClientReply({ template: result.text, language: foreign, clientText: request.input.current,
     conversationId: request.input.conversationId ?? null, ...(request.translateModel ? { model: request.translateModel } : {}) });
-  return translated.source === "model"
-    ? { ...result, text: translated.text, parts: [translated.text], foreign, translated: true }
-    : { ...result, foreign, translated: false };
+  if (translated.source !== "model") return { ...result, ...forget(), foreign, translated: false };
+  return { ...result, ...withSources([...(result.state.sentSources ?? []), result.text].slice(-2)), text: translated.text, parts: [translated.text],
+    foreign, translated: true };
 }
 
 /**
@@ -93,12 +100,15 @@ async function inClientLanguage(result: OperatorTurnResult, request: OperatorTur
  */
 function fallbackTurn(previous: OperatorState, understanding: Understanding, ctx: OperatorContext, now: Date): OperatorTurnResult {
   // Другой язык клиента: запасная фраза — русская (перевод даёт inClientLanguage, если модель жива).
-  const language: OperatorLanguage = previous.foreign || understanding.foreignLanguage ? "ru"
+  // Рубильник выключен, просьба о языке или ясная наша фраза — другого языка нет (тот же порядок, что в decide.ts).
+  const foreign = ctx.foreignReply === false || understanding.languagePreference || understanding.ownLanguageDecisive ? null
+    : understanding.foreignLanguage ?? previous.foreign ?? null;
+  const language: OperatorLanguage = foreign ? "ru"
     : previous.language ?? understanding.language ?? understanding.contextLanguage ?? understanding.languageHint ?? "ru";
   const role = previous.role === "seller" || understanding.role === "seller" ? "seller"
     : previous.role === "buyer" || previous.role === "buyer_property" || understanding.role === "buyer" ? "buyer" : null;
   const phoneKnown = ctx.phoneKnown || !!understanding.phone;
-  const state: OperatorState = { ...previous, foreign: understanding.languagePreference ? null : understanding.foreignLanguage ?? previous.foreign ?? null };
+  const state: OperatorState = { ...previous, foreign };
   const actions: OperatorAction[] = [];
   let text: string | null = null;
   if (previous.leadAccepted || ctx.leadExists) text = null;
@@ -154,9 +164,11 @@ export const OPERATOR_FACT_KEYS: ReadonlySet<OperatorStepOut["key"]> = new Set([
 const PRICE_LINE_KEYS: ReadonlySet<OperatorStepOut["key"]> = new Set(["property_price", "property_place_price", "property_details_price"]);
 const sameLine = (text: string) => text.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
 export function withoutOwnRepeats(decision: { steps: OperatorStepOut[]; language: OperatorLanguage; actions: OperatorAction[]; silent: boolean },
-  recent: OperatorTurnRequest["input"]["recent"], sent: readonly string[] = [], opts: { priceAsked?: boolean } = {}): void {
+  recent: OperatorTurnRequest["input"]["recent"], sent: readonly string[] = [], opts: { priceAsked?: boolean; sources?: readonly string[] } = {}): void {
   // Два прошлых ответа, каждый — по целым предложениям (ревью #418: не подстрока, иначе «Понял.» совпало бы внутри длинного ответа).
-  const lastBot = [...(recent ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text), ...sent].slice(-REPEAT_WINDOW);
+  // Ответ, ушедший переводом, клиент видел на своём языке: сравнивается его русский исходник из памяти (`sources`, ревью #479).
+  const lastBot = [...(recent ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text), ...sent].slice(-REPEAT_WINDOW)
+    .concat((opts.sources ?? []).slice(-REPEAT_WINDOW));
   const sentences = new Set(lastBot.flatMap(text => [sameLine(text), ...text.split(/(?<=[.!?])\s+|\n+/u).map(sameLine)]).filter(Boolean));
   // Ход с заявкой не глушим: строка заявки звучит один раз, и клиент должен узнать, что заявка принята.
   if (!lastBot.length || !decision.steps.length || decision.actions.some(action => action.type === "accept_lead")) return;
@@ -214,7 +226,8 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
   let result: OperatorTurnResult;
   try {
     const decision = decide(previous, understanding, request.ctx);
-    withoutOwnRepeats(decision, request.input.recent, request.input.sentBotTexts, { priceAsked: understanding.priceAsked === true });
+    withoutOwnRepeats(decision, request.input.recent, request.input.sentBotTexts, { priceAsked: understanding.priceAsked === true,
+      sources: previous.sentSources ?? [] });
     let parts = decision.steps.map(step => renderOperatorStep(step, decision.language));
     let text = renderOperatorReply(decision.steps, decision.language) || null;
     if (text && request.ownWords?.enabled && !decision.foreign) {
@@ -234,5 +247,5 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
     result = fallbackTurn(previous, understanding, request.ctx, now);
   }
   // Перевод — после решения и вне try: его сбой ход не роняет (дверь никогда не бросает, запасная фраза — русская).
-  return inClientLanguage(result, request);
+  return inClientLanguage(result, request, now);
 }

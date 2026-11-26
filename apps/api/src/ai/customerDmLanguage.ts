@@ -27,6 +27,8 @@ const CORE_RUSSIAN = new RegExp(`(?<![${L}])(?:я|мы|вас|нас|вам|на
 /** Uzbek Latin («Bu haqida yana maʼlumot olsam boʻladimi?») is not Tajik: no language is forced (one list: ai/clientLanguage.ts). */
 const CORE_LANGUAGE: ClientLanguageExtension = { tajik: CORE_TAJIK, russian: CORE_RUSSIAN, uzbekLatin: UZBEK_LATIN_WORDS };
 const clientLanguageScores = (text: string) => baseClientLanguageScores(text, CORE_LANGUAGE);
+/** Разговорные таджикские слова ядра кириллицей («нархаш», «мефурӯшам», «нест»): признак таджикского для двери другого языка. */
+export function coreTajikWordCount(text: string): number { return (text.match(CORE_TAJIK) ?? []).length; }
 
 /** Customer-core view of the detector: Latin noise is no evidence of Tajik (the legacy detector guesses "tg"). */
 function detectClientLanguage(input: string): ClientLanguage {

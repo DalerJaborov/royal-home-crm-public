@@ -24,6 +24,7 @@ import { leadOnlyCardAgentActive } from "./leadOnlyHandover.js";
 import { contactWhenWithoutAgent } from "./handoffPromise.js";
 import { isReviewerConversation } from "./botReviewers.js";
 import { contactPromiseUnkept } from "./contactPromiseUnkept.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 
 const AD_TOPICS = new Set(["property", "seller", "job"]);
@@ -119,6 +120,8 @@ export async function loadOperatorTurnSetup(input: {
     contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
     staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now)]);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
+  // «Бот отвечает на языке клиента» (Настройки, 26.11.2026): сбой чтения — включено, как умолчание колонки.
+  const foreignReply = await automationSwitchOn("botForeignReplyEnabled").catch(() => true);
   const staffThread = await staffWroteEver(input.conversationId);
   const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
   const topic = row?.adTopic && AD_TOPICS.has(row.adTopic) ? row.adTopic as "property" | "seller" | "job" : null;
@@ -146,6 +149,7 @@ export async function loadOperatorTurnSetup(input: {
     workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
     reviewer,
     staffThread,
+    foreignReply,
     // Только у клиента с карточкой: обещание связаться уже звучало, звонка и ответа сотрудника после него не было.
     ...(clientId && contactPromiseUnkept(row?.messages, row?.client?.lastAgentAttemptAt ?? null, now,
       { start: input.config.workHoursStart, end: input.config.workHoursEnd }) ? { promiseUnkept: true } : {}),

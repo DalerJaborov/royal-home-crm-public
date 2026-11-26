@@ -91,6 +91,8 @@ export interface OperatorState {
    * Липкий, как `language`: снимает его ясная русская или таджикская фраза клиента, «ok» и номер — нет. Нет поля — null.
    */
   foreign?: ForeignLanguage | null;
+  /** Русские исходники последних (≤2) ответов, ушедших переводом: по ним сторож повтора (index.ts::withoutOwnRepeats). */
+  sentSources?: string[];
   /** Сколько раз спросили: роль (≤2), детали (≤1 на роль), номер (≤ maxPhoneAsks). */
   asked: { role: number; details: number; phone: number };
   /** Сколько раз прозвучала каждая фраза: «один раз» и выбор варианта (вариант = счётчик по кругу). */
@@ -319,6 +321,11 @@ export interface OperatorCallbackTime {
 
 export interface OperatorContext {
   channel: OperatorChannel;
+  /**
+   * «Бот отвечает на языке клиента» (Настройки, `botForeignReplyEnabled`, ВКЛ). false — другой язык не замечается вовсе, ход
+   * ровно как до 26.11.2026 (русская или таджикская фраза). Нет поля — включено.
+   */
+  foreignReply?: boolean;
   /** Номер для звонка известен по каналу (WhatsApp с рубильником «номер WhatsApp»). */
   phoneKnown: boolean;
   /** Карточка клиента уже есть (заявка принята раньше): вопросов нет. */

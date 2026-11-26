@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 // Живых вызовов модели нет: транспорт (callAiText) подменён и падает; перевод — подставной моделью в каждом тесте.
 const callAiText = vi.fn(async (): Promise<unknown> => { throw new Error("нет ключа на стенде"); });
 vi.mock("../src/ai/client.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/client.js")>()), callAiText }));
+// Журнал ошибок — без базы: видно, что и как записали.
+const logSystemError = vi.fn(async (..._args: unknown[]): Promise<void> => {});
+vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError }));
 
-const { runOperatorTurn } = await import("../src/ai/operator/index.js");
-const { checkTranslatedReply, foreignClientLanguage, foreignReplyLanguage, translateClientReply } = await import("../src/ai/clientReplyLanguage.js");
+const { runOperatorTurn, withoutOwnRepeats } = await import("../src/ai/operator/index.js");
+const { checkTranslatedReply, decisiveOwnLanguage, foreignClientLanguage, foreignReplyLanguage, translateClientReply } = await import("../src/ai/clientReplyLanguage.js");
+const { AUTOMATION_SWITCH_KEYS, AUTOMATION_SWITCH_LABELS, isAutomationSwitchOn } = await import("@royal-home/shared");
 type Ctx = import("../src/ai/operator/types.js").OperatorContext;
 type Model = import("../src/ai/leadOnlyIntent.js").LeadOnlyIntentModel;
 
@@ -37,8 +41,9 @@ function translator() {
   };
   return { model, asked };
 }
-const turn = (current: string, opts: { stored?: unknown; recent?: { role: "user" | "assistant"; text: string }[]; model?: Model } = {}) =>
-  runOperatorTurn({ storedState: opts.stored ?? null, input: { current, ...(opts.recent ? { recent: opts.recent } : {}) }, ctx, model: down,
+const turn = (current: string, opts: { stored?: unknown; recent?: { role: "user" | "assistant"; text: string }[]; model?: Model; foreignReply?: boolean } = {}) =>
+  runOperatorTurn({ storedState: opts.stored ?? null, input: { current, ...(opts.recent ? { recent: opts.recent } : {}) },
+    ctx: opts.foreignReply === undefined ? ctx : { ...ctx, foreignReply: opts.foreignReply }, model: down,
     ...(opts.model ? { translateModel: opts.model } : {}) });
 
 describe("определение другого языка (код, не модель)", () => {
@@ -61,8 +66,20 @@ describe("определение другого языка (код, не мод�
     "Bu haqida yana maʼlumot olsam boʻladimi?",
     // «һ» и «ү» вместо «ҳ» и «ӯ» на чужой раскладке — всё ещё таджикский.
     "Меһоҳам хона харам, нархаш чанд?", "Хонаро мефүрӯшам",
+    // Ревью #479: таджикский со словами, общими с узбекским, и «ў» вместо «ӯ» — не узбекский.
+    "Хонаи сеҳуҷрагӣ керак яхши", "Яхши, керак нест", "Нархаш чанд? Дўкон бор?", "Ha kerak", "kerak", "man uy kerak",
+    // Короткое или смешанное от русского клиента — язык не решает.
+    "price?", "ok thanks, call me", "How much?",
   ])("«%s» → не другой язык (решают прежние правила ru/tg)", text => {
     expect(foreignClientLanguage(text)).toBeNull();
+  });
+
+  it("ясная таджикская или русская фраза сильнее похожего чужого слова (проверка идёт первой)", () => {
+    for (const text of ["Яхши, керак нест", "Нархаш чанд? Дўкон бор?", "man uy kerak", "Хочу купить квартиру"]) {
+      expect(decisiveOwnLanguage(text), text).toBe(true);
+    }
+    expect(decisiveOwnLanguage("Assalomu alaykum, uy sotib olmoqchiman, qancha turadi?")).toBe(false);
+    expect(foreignReplyLanguage("Яхши, керак нест", ["Hello, do you have apartments in Sino?"])).toBeNull();
   });
 
   it("смена посреди разговора: короткое «ok» держит другой язык, ясная русская фраза его снимает", () => {
@@ -187,10 +204,71 @@ describe("проверка перевода кодом: ничего сверх 
     expect(checkTranslatedReply("Сиз уй сотиб олмоқчимисиз ёки сотмоқчимисиз?", ASK_ROLE_RU, "uz", uz)).toBe("script");
   });
 
-  it("рубильник BOT_FOREIGN_REPLY=off — модель не зовётся, уходит русская фраза", async () => {
-    const model = vi.fn(async () => ({ reply: "Would you like to buy or sell a property?" }));
-    const result = await translateClientReply({ template: ASK_ROLE_RU, language: "en", clientText: client, model, env: { BOT_FOREIGN_REPLY: "off" } });
-    expect(result).toEqual({ text: ASK_ROLE_RU, source: "template", rejected: "off" });
-    expect(model).not.toHaveBeenCalled();
+  it("сбой перевода (молчание, отказ проверки) — в журнал ошибок тихо и с ключом дедупа; клиенту русская фраза", async () => {
+    logSystemError.mockClear();
+    const silent = await translateClientReply({ template: ASK_ROLE_RU, language: "en", clientText: client, model: async () => null });
+    expect(silent).toEqual({ text: ASK_ROLE_RU, source: "template", rejected: "no_answer" });
+    const bad = await translateClientReply({ template: ASK_ROLE_RU, language: "en", clientText: client, conversationId: "c-1",
+      model: async () => ({ reply: "Would you like to buy or sell 2 properties?" }) });
+    expect(bad.rejected).toBe("digits");
+    expect(logSystemError).toHaveBeenCalledTimes(2);
+    for (const [source, , context] of logSystemError.mock.calls as unknown as [string, string, { dedupKey: string; silent: boolean }][]) {
+      expect(source).toBe("ai");
+      expect(context).toMatchObject({ silent: true });
+      expect(context.dedupKey).toMatch(/^client-reply-translate:/u);
+    }
+    const ok = await translateClientReply({ template: ASK_ROLE_RU, language: "en", clientText: client,
+      model: async () => ({ reply: "Would you like to buy or sell a property?" }) });
+    expect(ok.source).toBe("model");
+    expect(logSystemError).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("рубильник «Бот отвечает на языке клиента» (Настройки)", () => {
+  it("в реестре, с подписью на оба положения; по умолчанию включён", () => {
+    expect(AUTOMATION_SWITCH_KEYS).toContain("botForeignReplyEnabled");
+    expect(AUTOMATION_SWITCH_LABELS.botForeignReplyEnabled.title).toBeTruthy();
+    expect(AUTOMATION_SWITCH_LABELS.botForeignReplyEnabled.off).toBeTruthy();
+    expect(isAutomationSwitchOn(null, "botForeignReplyEnabled")).toBe(true);
+  });
+
+  it("выключен — ход ровно как до правки: другой язык не замечен, переводчик не зовётся, в памяти его нет", async () => {
+    const t = translator();
+    const off = await turn("Hello, I want to buy an apartment, how much is it?", { model: t.model, foreignReply: false });
+    expect(off).toMatchObject({ foreign: null, language: "ru", text: ASK_ROLE_RU });
+    expect(off.stored).toMatchObject({ foreign: null });
+    expect(t.asked).toEqual([]);
+    // Был английский разговор, рубильник выключили — следующий ход уже без перевода.
+    const on = await turn("Hello, I want to buy an apartment, how much is it?", { model: t.model });
+    const next = await turn("ok", { stored: JSON.parse(JSON.stringify(on.stored)), model: t.model, foreignReply: false });
+    expect(next.foreign).toBeNull();
+    expect(t.asked).toEqual(["English"]);
+  });
+});
+
+describe("сторож повтора для переведённых ответов (ревью #479)", () => {
+  it("переведённый ответ в памяти — русским исходником; тот же шаг следующим ходом узнаётся как повтор", async () => {
+    const t = translator();
+    const first = await turn("Hello, do you have apartments for sale in Sino?", { model: t.model });
+    expect(first.translated).toBe(true);
+    expect(first.stored).toMatchObject({ sentSources: [ASK_ROLE_RU] });
+    // Клиент видел перевод: по отправленному тексту повтор не узнать, по исходнику — узнаётся (берётся другой вариант фразы).
+    const { renderOperatorStep } = await import("../src/ai/operator/phrases.js");
+    const step = { key: "lead_known_phone" as const, vars: {}, variant: 0 };
+    const sent = [{ role: "assistant" as const, text: "Thanks, I am passing it to the agent, he will call you on this WhatsApp number." }];
+    const blind = { steps: [{ ...step }], language: "ru" as const, actions: [], silent: false };
+    withoutOwnRepeats(blind, sent, []);
+    expect(blind.steps[0]?.variant).toBe(0);
+    const seen = { steps: [{ ...step }], language: "ru" as const, actions: [], silent: false };
+    withoutOwnRepeats(seen, sent, [], { sources: [renderOperatorStep(step, "ru")] });
+    expect(seen.steps[0]?.variant).toBe(1);
+  });
+
+  it("ответ ушёл без перевода — устаревшие исходники забываются", async () => {
+    const t = translator();
+    const first = await turn("Hello, do you have apartments for sale in Sino?", { model: t.model });
+    const next = await turn("Хочу купить квартиру в Сино", { stored: JSON.parse(JSON.stringify(first.stored)), model: t.model });
+    expect(next.foreign).toBeNull();
+    expect(next.stored).toMatchObject({ sentSources: [] });
   });
 });

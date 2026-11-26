@@ -51,7 +51,7 @@ export function emptyOperatorDetails(): OperatorDetails {
 }
 
 export function initialOperatorState(): OperatorState {
-  return { version: 2, role: "unknown", step: "start", language: null, foreign: null, asked: { role: 0, details: 0, phone: 0 }, spoken: {},
+  return { version: 2, role: "unknown", step: "start", language: null, foreign: null, sentSources: [], asked: { role: 0, details: 0, phone: 0 }, spoken: {},
     propertyId: null, details: emptyOperatorDetails(), callback: { when: null, textOnly: false }, noCall: false,
     outOfArea: false, place: null, flags: { bargainAsked: false, adPriceAsked: false, propertyLineFor: null, lastAck: false, sellerByWords: false, bothRoles: false,
       roleChangedFrom: null, clientTurns: 0, phoneAskTurn: 0, agentTopicPending: false, signaled: [], closedBy: null }, leadAccepted: false,
@@ -135,13 +135,15 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   // Другой язык (английский, узбекский, любой — решение владельца 26.11.2026): фраза по-русски, перевод — index.ts. Его ставит
   // сообщение на этом языке, снимает ясная русская или таджикская фраза или просьба о языке; «ok», номер, ссылка — не трогают.
   // Сообщение на другом языке память русского и таджикского не меняет: вернётся клиент на наш язык — прежние правила.
-  if (u.languagePreference) s.foreign = null;
+  // Порядок (ревью #479): просьба о языке, потом ясная русская или таджикская фраза, и только потом другой язык — при сомнении
+  // побеждает наш язык. Рубильник выключен — другого языка нет вовсе, ход как до правки.
+  const foreignOn = ctx.foreignReply !== false;
+  if (!foreignOn || u.languagePreference || u.ownLanguageDecisive) s.foreign = null;
   else if (u.foreignLanguage) s.foreign = u.foreignLanguage;
-  else if (u.ownLanguageDecisive) s.foreign = null;
   else if (!s.foreign && !s.language && u.contextForeign) s.foreign = u.contextForeign;
-  const foreignTurn = !!u.foreignLanguage && !u.languagePreference;
-  if (foreignTurn) { /* язык разговора ru/tg этим сообщением не меняется */ }
-  else if (u.languagePreference) s.language = u.languagePreference;
+  const foreignTurn = foreignOn && !!u.foreignLanguage && !u.languagePreference && !u.ownLanguageDecisive;
+  if (!foreignTurn && u.languagePreference) s.language = u.languagePreference;
+  else if (foreignTurn) { /* язык разговора ru/tg сообщением на другом языке не меняется */ }
   else if (u.language && (!s.language || u.language === s.language || u.language !== "ru" || u.languageSwitchOk !== false)) s.language = u.language;
   // Язык клиента ещё не известен, а он поздоровался («Ассалому алайкум», «Салом», «Здравствуйте»): язык — по его приветствию, а
   // не по прошлому ответу бота (прод 23.11.2026: на «😍» бот ответил по-русски по умолчанию, и этот же русский ответ потом
