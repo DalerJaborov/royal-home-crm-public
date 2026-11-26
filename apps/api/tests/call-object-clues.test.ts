@@ -25,6 +25,8 @@ describe("цена без допуска — правило 24.09.2026 для в
     expect(comparePrice(165_000, 965_000, RATE).veto).toBe(true);
     expect(comparePrice(400_000, 300_000, RATE).veto).toBe(true);
     expect(comparePrice(104_000, 965_000, RATE).veto).toBe(true);
+    // Цены в карточке нет — прежнее правило вычёркивало, без допуска так же.
+    expect(comparePrice(300_000, 0, RATE).veto).toBe(true);
   });
 });
 
@@ -45,6 +47,9 @@ describe("цена с допуском на ошибку расшифровки 
       [1_200_000, 1_900_000],
       [799_000, 965_000],
       [165_000, 1_965_000],
+      [250_000, 350_000],
+      [450_000, 650_000],
+      [500_000, 1_500_000],
     ]) {
       expect(looksLikeLeadingDigitSlip(said, card), `${said} ↔ ${card}`).toBe(false);
       expect(comparePrice(said, card, RATE, ASR).kind, `${said} ↔ ${card}`).toBe("far");
@@ -110,6 +115,14 @@ describe("числа словами → цифры (ru + tg)", () => {
     expect(spokenNumberValue(["панҷсаду", "шашсад", "ҳазор"])).toBeNull();
     // Одинокое «сад» — это сад.
     expect(spokenNumberValue(["сад"])).toBeNull();
+  });
+  it("порядковые, цифры рядом и «сад» без союза — слова остаются (повторное ревью 26.11)", () => {
+    expect(numberWordsToDigits("на сто втором микрорайоне")).toBe("на сто втором микрорайоне");
+    expect(numberWordsToDigits("в две тысячи двадцать пятом году")).toBe("в две тысячи двадцать пятом году");
+    expect(numberWordsToDigits("детский сад два этажа")).toBe("детский сад два этажа");
+    expect(numberWordsToDigits("нӯҳсаду 65 ҳазор")).toBe("нӯҳсаду 65 ҳазор");
+    // А целое число по-прежнему переводится.
+    expect(numberWordsToDigits("саду ду ҳазор")).toBe("102000");
   });
   it("текст с неоднозначным числом остаётся словами", () => {
     expect(numberWordsToDigits("бюджет миллион двести")).toBe("бюджет миллион двести");

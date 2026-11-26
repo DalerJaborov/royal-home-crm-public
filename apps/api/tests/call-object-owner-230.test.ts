@@ -317,6 +317,35 @@ describe("ПК-001086 → объект №230 → Сайфуллоев Илҳо�
     expect([a.id, b.id]).toHaveLength(2);
   });
 
+  it("покупатель назвал только пожелания («ищу двушку в районе») — руководству подсказки нет, тёзок не разводим", async () => {
+    const namesakeId = await makeAgent(`Илҳом Тёзка ${runId}`);
+    try {
+      await makeProperty({});
+      resetKnownAgentsCache();
+      extractIncomingCallLead.mockResolvedValue(
+        extractAsOnProd({
+          namedAgent: "Илҳом",
+          propertyLandmark: null,
+          propertyRooms: null,
+          propertyPrice: null,
+          propertyPriceCurrency: null,
+          desiredRooms: 2,
+          budgetMax: 965_000,
+        })
+      );
+      const { callId, clientId } = await seedCall(nextPhone());
+      await autoLeadFromIncomingCall(callId);
+      const titles = notifyFeedOnly.mock.calls.map((c) => ((c as unknown[])[1] as { title: string }).title);
+      expect(titles.some((t) => t.includes("не узнан уверенно"))).toBe(false);
+      const notes = await timelineNotes(clientId);
+      expect(notes).not.toContain("агент похожего объекта");
+      expect(notes).not.toContain("агент объекта из разговора");
+    } finally {
+      await prisma.agent.delete({ where: { id: namesakeId } }).catch(() => {});
+      resetKnownAgentsCache();
+    }
+  });
+
   it("хозяин объекта уволен — заявка обычной раздачей, в хронологии сказано почему, подсказки руководству нет", async () => {
     await prisma.agent.update({ where: { id: ownerId }, data: { isActive: false } });
     try {

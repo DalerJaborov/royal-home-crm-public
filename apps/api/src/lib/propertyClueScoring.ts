@@ -82,11 +82,14 @@ export function looksLikeLeadingDigitSlip(said: number, card: number): boolean {
   if (said <= 0 || card <= 0) return false;
   const [a, b] = digitsOf(said, card);
   if (a === b) return false;
-  if (b.length > a.length && b.endsWith(a) && /[1-9]/.test(a)) return true;
+  // Старший разряд не прозвучал совсем: «65» ↔ «965» (хвост значащий, не «500» ↔ «1500»).
+  if (b.length > a.length && a.length >= 2 && b.endsWith(a) && /[1-9]/.test(a.slice(1))) return true;
   if (a.length !== b.length || a.length < 2) return false;
   const tailA = a.slice(1);
   const tailB = b.slice(1);
-  return a[0] !== b[0] && tailA === tailB && /[1-9]/.test(tailA);
+  // «нӯҳсаду» → «саду»: от сотен остаётся «сад» = 1. Поэтому названное начинается с 1, а
+  // 250 ↔ 350 или 450 ↔ 650 — другие цены (ревью 26.11).
+  return a[0] === "1" && b[0] !== "1" && tailA === tailB && /[1-9]/.test(tailA);
 }
 
 export interface PriceCompareOptions {
@@ -99,7 +102,9 @@ export interface PriceCompareOptions {
  * сомони. `usdToTjs` — для проверки «а если модель перепутала валюту» (только с флагом).
  */
 export function comparePrice(saidTjs: number, cardTjs: number, usdToTjs: number, options: PriceCompareOptions = {}): PriceVerdict {
-  if (saidTjs <= 0 || cardTjs <= 0) return { kind: "far", score: 0, signal: null, exact: false, veto: false };
+  if (saidTjs <= 0) return { kind: "far", score: 0, signal: null, exact: false, veto: false };
+  // Цены в карточке нет: прежнее правило вычёркивало (расхождение «100 %»), без допуска — так же.
+  if (cardTjs <= 0) return { kind: "far", score: 0, signal: null, exact: false, veto: !options.tolerateAsr };
   const diff = relDiff(saidTjs, cardTjs);
   if (diff <= PRICE_EXACT) return { kind: "exact", score: 4, signal: "цена", exact: true, veto: false };
   if (diff <= PRICE_CLOSE) return { kind: "close", score: 3, signal: "цена", exact: false, veto: false };
@@ -131,16 +136,21 @@ export function comparePrice(saidTjs: number, cardTjs: number, usdToTjs: number,
  *  - только с `loose` (разбор звонка с допуском на расшифровку): одна замена или
  *    перестановка буквы в слове от шести букв, две — от девяти.
  */
-export function fuzzyPlaceWord(a: string, b: string, options: { loose?: boolean } = {}): boolean {
+/** «о» = «а» (Сомонӣ/Самани): слово сворачивается один раз, а не на каждую пару слов. */
+export function foldOA(word: string): string {
+  return word.includes("о") ? word.replace(/о/g, "а") : word;
+}
+
+export function fuzzyPlaceWord(a: string, b: string, options: { loose?: boolean; fa?: string; fb?: string } = {}): boolean {
   if (a === b) return true;
   if (/\d/.test(a) || /\d/.test(b)) return false;
   if (prefixSame(a, b)) return true;
   // «о»=«а» — только у слов от шести букв: «сино» и «сина» — разные места.
   const short = Math.min(a.length, b.length);
   if (short < 6) return false;
-  const fa = a.replace(/о/g, "а");
-  const fb = b.replace(/о/g, "а");
-  if (prefixSame(fa, fb)) return true;
+  const fa = options.fa ?? foldOA(a);
+  const fb = options.fb ?? foldOA(b);
+  if (fa[0] === fb[0] && prefixSame(fa, fb)) return true;
   if (!options.loose) return false;
   const max = short >= 9 ? 2 : 1;
   return levenshteinDistance(fa, fb, max) <= max;

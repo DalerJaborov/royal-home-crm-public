@@ -48,6 +48,13 @@ const THOUSAND = new Set(["тысяча", "тысячи", "тысяч", "тыс"
 /** Слова, которые встречаются и как число, и как обычное слово: число — только в компании. */
 /** «Миллион» — слово-число, но не переводится: цепочка с ним целиком остаётся словами. */
 const MILLION = new Set(["миллион", "миллиона", "миллионов", "млн"]);
+const TAJIK_HUNDREDS = new Set(["сад", "яксад", "дусад", "сесад", "чорсад", "чахорсад", "панчсад", "шашсад", "хафтсад", "хаштсад", "нухсад"]);
+/**
+ * После числа идёт порядковое («сто втором», «двадцать пятом году», «панҷум») или
+ * цифры («нӯҳсаду 65 ҳазор») — число составное, наш разбор его не прочитает: слова остаются.
+ */
+const ORDINAL_OR_DIGITS =
+  /^(?:\d|(?:перв|втор|трет|четв[её]рт|пят|шест|седьм|восьм|девят|десят|\p{L}*надцат|двадцат|тридцат|сороков|\p{L}*десят|сот|тысячн|миллионн)\p{L}*(?:ый|ой|ий|ая|яя|ое|ее|ого|его|ому|ему|ом|ем|ую|юю|ых|их|ым|им|ыми|ими)(?![\p{L}])|\p{L}+(?:ум|юм|уми|юми)(?![\p{L}]))/iu;
 const NEEDS_COMPANY = new Set(["сад", "си", "се", "ду", "як"]);
 
 /** Таджикское «-у» (союз «и») приклеивается к числительному: «саду шасту панҷ». */
@@ -88,6 +95,12 @@ function parseGroup(words: string[]): number | null {
  */
 export function spokenNumberValue(raw: string[]): number | null {
   const words = raw.map(normalizeWord);
+  // Таджикские сотни внутри числа идут с союзом: «саду ду» (102). «сад ду» без «-у» —
+  // не число («детский сад два этажа»), а «нӯҳсаду 65» не наш случай вовсе.
+  for (let i = 0; i < raw.length - 1; i++) {
+    const folded = foldTajikLetters(raw[i].toLowerCase());
+    if (TAJIK_HUNDREDS.has(words[i]) && !folded.endsWith("у") && !THOUSAND.has(words[i + 1])) return null;
+  }
   if (words.length === 0 || !words.every(isNumberWord) || words.some((w) => MILLION.has(w))) return null;
   if (words.length === 1 && NEEDS_COMPANY.has(words[0])) return null;
   const thousandAt = words.findIndex((w) => THOUSAND.has(w));
@@ -151,7 +164,10 @@ export function numberWordsToDigits(text: string, options: NumberWordsOptions = 
       j++;
       if (trailing) break;
     }
-    const value = spokenNumberValue(run);
+    const after = tokens.slice(lastWord + 1).find((t) => !/^\s*$/.test(t)) ?? "";
+    const before = out.slice().reverse().find((t) => !/^\s*$/.test(t)) ?? "";
+    const glued = !trailing && (ORDINAL_OR_DIGITS.test(after) || /\d$/.test(before));
+    const value = glued ? null : spokenNumberValue(run);
     if (value === null || value < minValue) {
       // Не число (или мелкое) — слова остаются; идём дальше с последнего слова цепочки,
       // чтобы «миллион» и соседи не разбирались по кусочкам.

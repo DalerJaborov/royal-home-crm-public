@@ -264,7 +264,7 @@ function toolSchema(districtNames: string[]): Record<string, unknown> {
   };
 }
 
-function systemPrompt(districtNames: string[], usdToTjs: number): string {
+function systemPrompt(districtNames: string[], usdToTjs: number, objectHints: boolean): string {
   return (
     "Ты разбираешь запись телефонного разговора: человек сам позвонил в агентство недвижимости " +
     "Royal Home (Душанбе), трубку снял оператор. Твоя задача — понять, КТО звонил и ЧЕГО он хочет, " +
@@ -280,11 +280,14 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
     // ПК-001086 (26.11.2026): клиент звонил по ролику про объект №230 — цена, ориентир и фамилия
     // агента были в разговоре, а модель записала их только в пересказ. Поля объекта
     // сопоставляет код с допуском на ошибки распознавания; пустые поля он сопоставить не может.
-    "Если человек звонит ПО ОБЪЯВЛЕНИЮ или РОЛИКУ (видел, «дидам», «эълон», Instagram, «ваша квартира», " +
-    "«хонаи мондагитон») — заполняй приметы объекта: propertyLandmark, propertyPrice и propertyPriceCurrency, " +
-    "propertyRooms, propertyFloor — даже если он заодно говорит о своих пожеланиях. Цену пиши КАК ПРОЗВУЧАЛА, " +
-    "не исправляй её, даже если она кажется странной: сверит код. Фамилию сотрудника, которую человек прочитал с " +
-    "объявления или просил позвать («ба … занг задем»), пиши в namedAgent как услышал. " +
+    // Только при рубильнике callObjectToOwnerEnabled (ревью 26.11, В4): выключен — инструкция прежняя.
+    (objectHints
+      ? "Если человек звонит ПО ОБЪЯВЛЕНИЮ или РОЛИКУ (видел, «дидам», «эълон», Instagram, «ваша квартира», " +
+        "«хонаи мондагитон») — заполняй приметы объекта: propertyLandmark, propertyPrice и propertyPriceCurrency, " +
+        "propertyRooms, propertyFloor — даже если он заодно говорит о своих пожеланиях. Цену пиши КАК ПРОЗВУЧАЛА, " +
+        "не исправляй её, даже если она кажется странной: сверит код. Фамилию сотрудника, которую человек прочитал с " +
+        "объявления или просил позвать («ба … занг задем»), пиши в namedAgent как услышал. "
+      : "") +
     (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Других названий не пиши. ` : "") +
     "Ответ передавай через инструмент submit_reply."
   );
@@ -303,14 +306,15 @@ export interface ExtractIncomingCallLeadOptions {
    * хона») остаются словами. Включает разбор звонка при рубильнике
    * callObjectToOwnerEnabled; по умолчанию текст уходит модели как есть.
    */
-  normalizeNumbers?: boolean;
+  objectHints?: boolean;
 }
 
 export async function extractIncomingCallLead(
   transcript: string,
   options: ExtractIncomingCallLeadOptions = {}
 ): Promise<IncomingCallLead | null> {
-  const text = options.normalizeNumbers ? numberWordsToDigits(transcript.trim()) : transcript.trim();
+  const objectHints = options.objectHints === true;
+  const text = objectHints ? numberWordsToDigits(transcript.trim()) : transcript.trim();
   if (text.length < MIN_TRANSCRIPT_CHARS) return null;
 
   try {
@@ -325,7 +329,7 @@ export async function extractIncomingCallLead(
       // Извлечение полей из текста — простая задача: у Claude это Haiku, разница в
       // цене на порядок, а входящих в день десятки.
       simple: true,
-      system: systemPrompt(districtNames, money),
+      system: systemPrompt(districtNames, money, objectHints),
       user: `Расшифровка разговора:\n${text.slice(0, MAX_TRANSCRIPT_CHARS)}`,
       maxTokens: 600,
       schema: toolSchema(districtNames),

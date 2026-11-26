@@ -674,6 +674,6 @@ async function listingPriceInTjs(price: number | null, currency: "TJS" | "USD" |
 }
 
 /** Настройки разбора расшифровки: перевод чисел словами — часть механизма callObjectToOwnerEnabled. */
-async function callLeadExtractOptions(): Promise<{ normalizeNumbers: boolean }> {
-  return { normalizeNumbers: await automationSwitchOn("callObjectToOwnerEnabled").catch(() => false) };
+async function callLeadExtractOptions(): Promise<{ objectHints: boolean }> {
+  return { objectHints: await automationSwitchOn("callObjectToOwnerEnabled").catch(() => false) };
 }

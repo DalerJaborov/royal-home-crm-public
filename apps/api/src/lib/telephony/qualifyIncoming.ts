@@ -288,19 +288,29 @@ export async function qualifyIncomingCall(input: {
      * покупатель, который просто рассказал, что ищет, остаётся у агента, уже
      * говорившего с ним. Поэтому второй проход — без desired*, бюджета и района.
      */
-    let strongByListing = false;
-    if (objectToOwner && input.answeredByAgentId && identified.via === "description" && identified.propertyId) {
-      const listingOnly = await identifyProperty(
-        { text: input.data.propertyHint ?? null, ...listing, priceTjs: listing.priceTjs ?? null, rooms: listing.rooms ?? null },
-        { tolerateAsr: true }
-      );
-      strongByListing = listingOnly.strong && listingOnly.propertyId === identified.propertyId;
-    }
-    return { identified, byRobot: !!byRobot?.propertyId, strongByListing };
+    /**
+     * Тот же второй проход кормит подсказку руководству и сверку названной фамилии
+     * с хозяином (повторное ревью 26.11): «ищу двушку в Сино» — пожелание, а не
+     * объект, и колокольчик с «похожими» на каждый звонок покупателя был бы шумом.
+     * Примет объявления не прозвучало — второго прохода нет.
+     */
+    const listingSpoken =
+      !!input.data.propertyHint?.trim() ||
+      Object.values(listing).some((v) => v !== null && v !== undefined && v !== "");
+    const listingOnly =
+      objectToOwner && listingSpoken && kind !== "SELLER"
+        ? await identifyProperty(
+            { text: input.data.propertyHint ?? null, ...listing, priceTjs: listing.priceTjs ?? null, rooms: listing.rooms ?? null },
+            { tolerateAsr: true }
+          )
+        : null;
+    const strongByListing =
+      !!listingOnly && identified.via === "description" && !!identified.propertyId && listingOnly.strong && listingOnly.propertyId === identified.propertyId;
+    return { identified, byRobot: !!byRobot?.propertyId, strongByListing, listingOnly };
   };
   const object = needsAgent ? await identifyCallObject() : null;
   /** Хозяева объекта разговора (узнанного или похожих) — ими разводятся похожие фамилии. */
-  const objectOwnerIds = object && objectToOwner ? ownersForNameCheck(object.identified) : [];
+  const objectOwnerIds = object?.listingOnly ? ownersForNameCheck(object.listingOnly) : [];
 
   /**
    * Названный клиентом сотрудник — второй по силе после того, кто сам снял трубку:
@@ -312,7 +322,7 @@ export async function qualifyIncomingCall(input: {
     ? await detectRequestedAgent(input.requestedAgentText, {
         requireCue: false,
         preferAgentIds: objectOwnerIds,
-        preferIsSure: !!object?.identified.propertyId,
+        preferIsSure: !!object?.listingOnly?.propertyId,
         asrAware: objectToOwner,
       })
     : { status: "none" as const };
@@ -401,8 +411,8 @@ export async function qualifyIncomingCall(input: {
    * без звонка телефона — правило владельца 20.09.2026 про эскалации.
    */
   const unsureCandidates =
-    objectToOwner && object && !object.identified.propertyId && kind !== "SELLER"
-      ? object.identified.candidates.filter((c) => c.score >= UNSURE_HINT_MIN_SCORE)
+    object?.listingOnly && !object.identified.propertyId
+      ? object.listingOnly.candidates.filter((c) => c.score >= UNSURE_HINT_MIN_SCORE)
       : [];
   const acceptedByAnswerer = !!agentId && agentId === input.answeredByAgentId;
   /**

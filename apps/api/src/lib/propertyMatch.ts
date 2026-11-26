@@ -6,7 +6,7 @@ import { geoMatchKey } from "./geoNormalize.js";
 import { budgetWindowTjs, loadMatchPolicy } from "./matchPolicy.js";
 import { loadMoneyContext, priceCeilingFilter, toTjs } from "./money.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
-import { comparePrice, fuzzyPlaceWord, isFreshProperty, placeTypeHits, placeTypeWords } from "./propertyClueScoring.js";
+import { comparePrice, foldOA, fuzzyPlaceWord, isFreshProperty, placeTypeHits, placeTypeWords } from "./propertyClueScoring.js";
 import { isRudakiProperty, isSuburbanProperty, propertyOutsideServiceArea, queryOutsideServiceArea } from "./suburbanProperty.js";
 import { RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { siteListingUrl } from "./siteListingUrl.js";
@@ -564,10 +564,13 @@ function anySameWord(said: string[], card: string[]): number {
 function anyFuzzyWord(said: string[], card: string[], loose: boolean): number {
   // Дешёвое прежнее правило первым; «о/а» и замена буквы — только для слов от шести букв
   // (горячий путь: пул объектов × слова карточки, без лишних выделений строк).
-  const longCard = card.filter((c) => c.length >= 6);
-  return said.filter(
-    (w) => card.some((c) => sameWord(w, c)) || (w.length >= 6 && longCard.some((c) => fuzzyPlaceWord(w, c, { loose })))
-  ).length;
+  const longCard = card.filter((c) => c.length >= 6).map((c) => ({ c, fc: foldOA(c) }));
+  return said.filter((w) => {
+    if (card.some((c) => sameWord(w, c))) return true;
+    if (w.length < 6) return false;
+    const fw = foldOA(w);
+    return longCard.some(({ c, fc }) => fuzzyPlaceWord(w, c, { loose, fa: fw, fb: fc }));
+  }).length;
 }
 
 export interface IdentifyOptions {
