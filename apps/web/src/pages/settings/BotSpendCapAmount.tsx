@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { BOT_DAILY_SPEND_CAP_DEFAULT_USD, BOT_DAILY_SPEND_CAP_MAX_USD } from "@royal-home/shared";
-import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
+import { useUpdateSettings } from "../../hooks/useSettings";
 
 /**
  * СУММА СУТОЧНОГО ПОТОЛКА ТРАТ БОТА КЛИЕНТОВ (CRM-47, 26.11.2026) — строка под рубильником «Бот клиентов: суточный
  * потолок трат на ИИ» в «Автоматике ИИ». Пустое поле не сохраняется как 0: Number("") снял бы потолок молча.
  * Разметка — та же, что у «Потолка минут робота» (BotTab.tsx::LiveVoiceSpendCapFields): один экран на ПК и телефон.
  */
-export function BotSpendCapAmount() {
-  const { data: settings } = useSettings();
+/** `stored` — значение из уже загруженных настроек родителя (AutomationSwitchesSection): свой запрос здесь не нужен. */
+export function BotSpendCapAmount({ stored }: { stored: number | undefined }) {
   const updateSettings = useUpdateSettings();
-  const stored = settings?.botDailySpendCapUsd;
   const [value, setValue] = useState(String(BOT_DAILY_SPEND_CAP_DEFAULT_USD));
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);

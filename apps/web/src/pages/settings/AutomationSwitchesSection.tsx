@@ -44,7 +44,7 @@ export function AutomationSwitchesSection() {
               />
             );
             // Сумма потолка трат бота — сразу под его рубильником и только пока он включён (CRM-47).
-            return key === "botDailySpendCapEnabled" && on ? <div key={key}>{row}<BotSpendCapAmount /></div> : row;
+            return key === "botDailySpendCapEnabled" && on ? <div key={key}>{row}<BotSpendCapAmount stored={settings.botDailySpendCapUsd} /></div> : row;
           })}
         </div>
       ))}
