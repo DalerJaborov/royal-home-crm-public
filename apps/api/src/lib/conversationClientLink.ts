@@ -4,6 +4,8 @@ import { TG_PREFIX } from "./conversationId.js";
 import { mergeContactProfilesInTransaction } from "./contactProfiles.js";
 import { findPhoneOwners, phoneTail } from "./clientPhones.js";
 import { whatsAppPhoneFromSubscriberId } from "./whatsappPhone.js";
+import { linkExposuresToClient } from "./propertyExposures.js";
+import { loadCustomerTransportForConversation } from "./customerConversationScope.js";
 
 export class ConversationClientLinkError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -15,7 +17,7 @@ export async function linkConversationClient(rawId: string, input: ConversationC
   const id = telegram ? rawId.slice(TG_PREFIX.length) : rawId;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         const conversation = telegram
           ? await tx.telegramConversation.findUnique({ where: { id } })
           : await tx.botConversation.findUnique({ where: { id } });
@@ -85,9 +87,26 @@ export async function linkConversationClient(rawId: string, input: ConversationC
             source: byId ? "crm" : "owner-authorized-maintenance" } } });
         return { ok: true, clientId: client.id, clientShortId: String(client.shortId) };
       }, { isolationLevel: "Serializable", timeout: 20_000 });
+      // Показы объектов этой переписки, отправленные до появления карточки (клиент смотрел объекты, потом дал номер),
+      // переходят к клиенту: без этого они остаются невидимы в подборе, показах и активности объекта. Отказ не рвёт привязку.
+      await linkConversationExposures(rawId, result.clientId);
+      return result;
     } catch (err) {
       if (attempt < 2 && typeof err === "object" && err && "code" in err && err.code === "P2034") continue;
       throw err;
     }
   }
+}
+
+async function linkConversationExposures(rawId: string, clientId: string): Promise<void> {
+  const telegram = rawId.startsWith(TG_PREFIX);
+  if (telegram) {
+    const tg = await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_PREFIX.length) }, select: { chatId: true } });
+    if (tg) await linkExposuresToClient("TELEGRAM", tg.chatId, clientId);
+    return;
+  }
+  const conv = await prisma.botConversation.findUnique({ where: { id: rawId }, select: { channel: true, subscriberId: true } });
+  if (!conv) return;
+  const transport = await loadCustomerTransportForConversation(rawId);
+  await linkExposuresToClient(conv.channel, conv.subscriberId, clientId, transport ?? undefined);
 }
