@@ -336,11 +336,16 @@ export async function retryOutgoingMediaJob(jobId: string, agentId: string): Pro
     await rollbackQueuedMediaPause(pause.undo);
     return { status: 409, body: { error: "Повторять нечего" } };
   }
+  // СВОЙ КЛЮЧ НА КАЖДЫЙ ПОВТОР (охота 26.11.2026). FAILED пишется посреди обработчика (failDefinitely), а задание
+  // очереди остаётся RUNNING, пока уходит пуш сотруднику; ключ `outgoing-media:<id>` живёт до DONE (jobs/runner.ts).
+  // «Повторить», нажатое в эти секунды, очередь принимала за дубль (enqueued: true без строки) — и задание висело
+  // QUEUED навсегда. Дубль исполнения здесь не страшен: повтор уже защищён переходом FAILED → QUEUED выше, а
+  // захват QUEUED → PREPARING и «отправляется» в runOutgoingMediaJob пускают к клиенту ровно одного исполнителя.
   const queued = await enqueueBackgroundJob({
     type: jobTypeFor(job.mimeType),
     payload: { mediaJobId: jobId },
     maxAttempts: OUTGOING_MEDIA_MAX_ATTEMPTS,
-    dedupeKey: `outgoing-media:${jobId}`,
+    dedupeKey: `outgoing-media:${jobId}:retry:${randomUUID()}`,
   });
   if (!queued.enqueued) {
     await failDefinitely(jobId, "Очередь отправки недоступна — нажмите «Повторить» через минуту");
