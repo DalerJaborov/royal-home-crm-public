@@ -45,6 +45,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "storySoldAutoEnabled",
+  "dailyStoriesVideoEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -213,6 +215,18 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если ИИ услышал в звонке или прочитал в переписке о показе, но не понял время или объект, через минуту Шабнам спрашивает агента. Нет Telegram или нет ответа — тот же вопрос в CRM.",
     off: "Не переспрашивает, всё как раньше: показ по звонку ставится сам, только если в подборе ровно один подходящий объект.",
   },
+  // Владелец 26.11.2026 «да»: история «Продано» выходит сама, когда объект продан (lib/instagramStories.ts).
+  storySoldAutoEnabled: {
+    title: "История «Продано» сама, когда объект продан",
+    on: "Объект продан (карточкой, закрытием сделки или ночной сверкой): через 10 минут в историях выходит его ролик с печатью «Продано», нет ролика — фото-карточка. Один раз на объект, если истории включены в «Каналах».",
+    off: "Сама не выходит. Кнопка «Продано» в карточке объекта работает как раньше.",
+  },
+  // Владелец 26.11.2026 «да»: ежедневная подборка историй — роликами объектов (lib/dailyStories.ts).
+  dailyStoriesVideoEnabled: {
+    title: "Ежедневная подборка историй роликами",
+    on: "В ежедневной подборке объект выходит своим готовым роликом с карточкой без цены. Нет подходящего ролика — прежняя фото-карточка.",
+    off: "Подборка выходит только фото-карточками, как раньше.",
+  },
   showingOutcomeAskEnabled: {
     title: "«У вас был показ?» после показа",
     on: "Через час после показа Шабнам спрашивает агента: был показ или нет, и что дальше с клиентом. Нет Telegram или нет ответа — тот же вопрос в CRM.",
@@ -221,7 +235,7 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
 };
 
 export interface AutomationSwitchGroup {
-  id: "ai" | "tasks" | "notifications" | "bot";
+  id: "ai" | "tasks" | "notifications" | "bot" | "stories";
   title: string;
   /** Ключи группы: свои и уже существовавшие (`dealStaleSellersEnabled`). */
   keys: ReadonlyArray<AutomationSwitchKey | "dealStaleSellersEnabled">;
@@ -242,6 +256,8 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
   { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled"] },
+  // Истории Instagram и Facebook (26.11.2026, ревью #477): публикации — своя группа, не «Бот клиентов».
+  { id: "stories", title: "Истории в Instagram и Facebook", keys: ["storySoldAutoEnabled", "dailyStoriesVideoEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

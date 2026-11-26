@@ -7478,6 +7478,12 @@ model Settings {
   /// Объект из чата уходит в ЛЮБУЮ переписку, в том числе без карточки клиента (26.11.2026, lib/conversationPropertySend.ts).
   /// ВКЛ. Выключено — прежний отказ «сначала примите заявку»: отправка только клиенту с принятой карточкой.
   sendPropertiesWithoutCardEnabled      Boolean @default(true)
+  /// История «Продано» сама при продаже объекта (26.11.2026, lib/instagramStories.ts::queueAutoPropertySoldStory). ВКЛ.
+  /// Работает поверх instagramStoriesEnabled (автоистории): тот выключен — сама не выходит. Выключено — только кнопка.
+  storySoldAutoEnabled                  Boolean @default(true)
+  /// Ежедневная подборка историй готовыми роликами объектов (26.11.2026, lib/dailyStories.ts). ВКЛ. Работает только
+  /// при dailyStoriesEnabled. Выключено — подборка фото-карточками, как раньше.
+  dailyStoriesVideoEnabled              Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)

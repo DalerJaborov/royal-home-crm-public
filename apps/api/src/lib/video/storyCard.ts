@@ -288,6 +288,8 @@ interface StoryCardInput {
   lang?: StoryLanguage;
   /** Слой ПОВЕРХ ролика: без затемнений фото, остаются карточка, логотип и печать (прозрачный фон). */
   forVideo?: boolean;
+  /** Без цены (26.11.2026, решение владельца 25.11 «ролики без цены»): ряды цены и «была» не рисуются. */
+  hidePrice?: boolean;
 }
 
 /** Логотип-пилюля сверху слева: белая, золотая точка, «ROYAL HOME TJ». */
@@ -322,7 +324,8 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
   const innerW = CARD_W - CARD_PAD_X * 2;
   const x0 = CARD_X + CARD_PAD_X;
   const cap = STORY_CAP_HEIGHT;
-  const dropped = Boolean(price.was) && !soldStamp;
+  const hidePrice = input.hidePrice === true;
+  const dropped = Boolean(price.was) && !soldStamp && !hidePrice;
 
   // ---- Раскладка сверху вниз в локальных координатах (0 = верх карточки); потом сдвиг на CARD_BOTTOM_Y.
   const parts: string[] = [];
@@ -343,41 +346,43 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
   y += badgeH;
 
   // Ряд 2: крупная новая цена + «TJS» мельче; кегль сжимается, пока всё не влезет в карточку.
-  y += 30;
-  const curSizeRatio = 48 / 124;
-  let priceSize = 124;
-  const priceWidth = (size: number) =>
-    measureStoryText(price.now, size, "SemiBold", -size * 0.02) +
-    (price.currency ? 24 + measureStoryText(price.currency, size * curSizeRatio, "Medium") : 0);
-  while (priceSize > 56 && priceWidth(priceSize) > innerW) priceSize -= 2;
-  const priceBase = y + priceSize * cap;
-  parts.push(text(x0, priceBase, priceSize, 600, INK, price.now, `letter-spacing="${t(-priceSize * 0.02)}"`));
-  if (price.currency) {
-    const nowW = measureStoryText(price.now, priceSize, "SemiBold", -priceSize * 0.02);
-    parts.push(text(x0 + nowW + 24, priceBase, priceSize * curSizeRatio, 500, MUTED, price.currency));
-  }
-  y = priceBase;
-
-  // Ряд 3: старая цена зачёркнутой серой + зелёная плашка экономии.
-  if (price.was && !soldStamp) {
-    const oldSize = 38;
-    const oldCapTop = y + 28;
-    const oldBase = oldCapTop + oldSize * cap;
-    const wasFit = fitStoryText(price.was, oldSize, 26, "Medium", innerW);
-    const wasW = measureStoryText(wasFit.text, wasFit.size, "Medium");
-    parts.push(text(x0, oldBase, wasFit.size, 500, MUTED, wasFit.text));
-    parts.push(`<rect x="${x0 - 4}" y="${t(oldBase - (wasFit.size * cap) / 2 - 2)}" width="${t(wasW + 8)}" height="4" rx="2" fill="${MUTED}" />`);
-    let rowBottom = oldBase;
-    if (price.saved) {
-      const savedSize = 30;
-      const sw = measureStoryText(price.saved, savedSize, "SemiBold") + 40;
-      const mid = oldCapTop + (oldSize * cap) / 2;
-      const sy = mid - 23;
-      parts.push(`<rect x="${t(x0 + wasW + 20)}" y="${t(sy)}" width="${t(sw)}" height="46" rx="23" fill="${GREEN_BG}" />`);
-      parts.push(text(x0 + wasW + 20 + 20, mid + (savedSize * cap) / 2, savedSize, 600, GREEN, price.saved));
-      rowBottom = Math.max(oldBase, sy + 46);
+  if (!hidePrice) {
+    y += 30;
+    const curSizeRatio = 48 / 124;
+    let priceSize = 124;
+    const priceWidth = (size: number) =>
+      measureStoryText(price.now, size, "SemiBold", -size * 0.02) +
+      (price.currency ? 24 + measureStoryText(price.currency, size * curSizeRatio, "Medium") : 0);
+    while (priceSize > 56 && priceWidth(priceSize) > innerW) priceSize -= 2;
+    const priceBase = y + priceSize * cap;
+    parts.push(text(x0, priceBase, priceSize, 600, INK, price.now, `letter-spacing="${t(-priceSize * 0.02)}"`));
+    if (price.currency) {
+      const nowW = measureStoryText(price.now, priceSize, "SemiBold", -priceSize * 0.02);
+      parts.push(text(x0 + nowW + 24, priceBase, priceSize * curSizeRatio, 500, MUTED, price.currency));
     }
-    y = rowBottom;
+    y = priceBase;
+
+    // Ряд 3: старая цена зачёркнутой серой + зелёная плашка экономии.
+    if (price.was && !soldStamp) {
+      const oldSize = 38;
+      const oldCapTop = y + 28;
+      const oldBase = oldCapTop + oldSize * cap;
+      const wasFit = fitStoryText(price.was, oldSize, 26, "Medium", innerW);
+      const wasW = measureStoryText(wasFit.text, wasFit.size, "Medium");
+      parts.push(text(x0, oldBase, wasFit.size, 500, MUTED, wasFit.text));
+      parts.push(`<rect x="${x0 - 4}" y="${t(oldBase - (wasFit.size * cap) / 2 - 2)}" width="${t(wasW + 8)}" height="4" rx="2" fill="${MUTED}" />`);
+      let rowBottom = oldBase;
+      if (price.saved) {
+        const savedSize = 30;
+        const sw = measureStoryText(price.saved, savedSize, "SemiBold") + 40;
+        const mid = oldCapTop + (oldSize * cap) / 2;
+        const sy = mid - 23;
+        parts.push(`<rect x="${t(x0 + wasW + 20)}" y="${t(sy)}" width="${t(sw)}" height="46" rx="23" fill="${GREEN_BG}" />`);
+        parts.push(text(x0 + wasW + 20 + 20, mid + (savedSize * cap) / 2, savedSize, 600, GREEN, price.saved));
+        rowBottom = Math.max(oldBase, sy + 46);
+      }
+      y = rowBottom;
+    }
   }
 
   // Ряд 4: плитки комнаты / площадь / этаж.
@@ -448,7 +453,7 @@ function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCar
 export function buildStoryCardOverlaySvg(
   values: ReelsCaptionValues,
   number: string,
-  options?: { priceWasText?: string | null; soldStamp?: boolean; priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage; forVideo?: boolean }
+  options?: { priceWasText?: string | null; soldStamp?: boolean; priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage; forVideo?: boolean; hidePrice?: boolean }
 ): string {
   return buildSvgOverlay({ values, number, ...options, soldStamp: options?.soldStamp ?? false }).svg;
 }
@@ -483,6 +488,8 @@ export interface GenerateStoryCardOptions {
   priceWasTjs?: number | null;
   /** Язык надписей (25.11.2026: русский и таджикский по очереди); по умолчанию русский. */
   lang?: StoryLanguage;
+  /** Карточка без цены — ежедневная подборка роликом (решение владельца 25.11.2026: в ролике цену не показываем). */
+  hidePrice?: boolean;
 }
 
 type StoryCardData =
@@ -555,6 +562,7 @@ async function loadStoryCardData(propertyId: string, options: GenerateStoryCardO
       priceWasTjs: options?.priceWasTjs,
       soldStamp: shouldStampSold(property.status, options?.soldStamp),
       lang: options?.lang,
+      hidePrice: options?.hidePrice,
     },
   };
 }

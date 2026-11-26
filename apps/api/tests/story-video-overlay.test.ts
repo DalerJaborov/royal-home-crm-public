@@ -7,6 +7,16 @@ import { storyJobDecision } from "../src/jobs/propertyStatusStory.js";
  * История-ролик «цена снижена» / «продано» (25.11.2026): карточка поверх готового ролика первые секунды.
  * База и ffmpeg не нужны — проверяем аргументы ffmpeg, решение «подходит ли ролик» и решение задания «ждать озвучку».
  */
+describe("buildOverlayCardArgs — без звука для «Продано» и подборки (26.11.2026)", () => {
+  it("mute: ни одной аудиодорожки ролика (озвучка может назвать цену) — -an, без -map 0:a и без aac", () => {
+    const args = buildOverlayCardArgs("in.mp4", "card.png", "out.mp4", { mute: true });
+    expect(args).toContain("-an");
+    expect(args.join(" ")).not.toContain("0:a");
+    expect(args).not.toContain("-c:a");
+    expect(args.filter((a) => a === "-map")).toHaveLength(1);
+  });
+});
+
 describe("buildOverlayCardArgs — карточка поверх ролика", () => {
   const args = buildOverlayCardArgs("in.mp4", "card.png", "out.mp4");
   const joined = args.join(" ");

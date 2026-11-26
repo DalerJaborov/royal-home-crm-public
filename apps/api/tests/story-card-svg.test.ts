@@ -194,3 +194,21 @@ describe("язык надписей: русский и таджикский по
     expect(video).toContain("870 000");
   });
 });
+
+describe("карточка без цены (подборка роликом, 26.11.2026)", () => {
+  it("hidePrice: ни цены, ни «TJS», ни старой цены — плитки и район остаются", () => {
+    const svg = buildStoryCardOverlaySvg(values, "№214", { priceNowTjs: 870000, priceWasTjs: 890000, priceWasText: "890 000 с.", hidePrice: true, forVideo: true });
+    expect(svg).not.toContain("870");
+    expect(svg).not.toContain("890");
+    expect(svg).not.toContain("TJS");
+    expect(svg).not.toContain("Цена снижена");
+    expect(svg).toContain("Исмоили Сомони");
+    expect(svg).toContain("№214");
+  });
+
+  it("без hidePrice цена на месте (обычная карточка не изменилась)", () => {
+    const svg = buildStoryCardOverlaySvg(values, "№214", { priceNowTjs: 870000 });
+    expect(svg).toContain("870");
+    expect(svg).toContain("TJS");
+  });
+});

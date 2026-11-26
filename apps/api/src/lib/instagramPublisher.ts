@@ -2,7 +2,7 @@ import { instagramTokenIdentity } from "../messengers/meta.js";
 import { isFacebookLoginToken } from "../messengers/metaGraph.js";
 import { describeMetaToken, instagramCompanyPublishRoute, isPermissionCode, noteCompanyPublishRefused } from "./metaEternalTokens.js";
 import { isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
-import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
+import { lostInstagramAccount, noteInstagramKeyRefused } from "./instagramAccountAccess.js";
 import { describeError } from "./describeError.js";
 
 /**
@@ -57,7 +57,12 @@ export type InstagramPublisher =
       companyKeyId?: string;
       username?: string;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** Личный ключ помечен «доступ потерян» (дверь #432), пути через ключ компании нет: в Meta не ходили. */
+      accessLost?: true;
+    };
 
 export type InstagramPublisherOk = Extract<InstagramPublisher, { ok: true }>;
 
@@ -99,7 +104,12 @@ function shortReason(error: string): string {
 export async function resolveInstagramPublisher(
   personalToken: string | undefined,
   /** Свой срок ожидания для `instagramTokenIdentity` (экран свободных роликов ждёт меньше). */
-  opts: { timeoutMs?: number } = {}
+  opts: {
+    timeoutMs?: number;
+    /** Аккаунт с отметкой «доступ потерян» (instagramAccountAccess.ts) личным ключом не спрашивать вовсе — фоновые
+     *  публикации (истории, 26.11.2026), чтобы мёртвый ключ не встречали каждым прогоном. Ключ компании от отметки не зависит. */
+    respectAccessLost?: boolean;
+  } = {}
 ): Promise<InstagramPublisher> {
   if (!personalToken) return { ok: false, error: "Instagram не подключён" };
   const company = await instagramCompanyPublishRoute(personalToken);
@@ -114,6 +124,16 @@ export async function resolveInstagramPublisher(
       companyKeyId: company.companyKeyId,
       ...(company.username ? { username: company.username } : {}),
     };
+  }
+  if (opts.respectAccessLost) {
+    const lost = await lostInstagramAccount({ token: personalToken });
+    if (lost) {
+      return {
+        ok: false,
+        accessLost: true,
+        error: `доступ к Instagram потерян${lost.reason ? ` (${lost.reason})` : ""}: войдите в аккаунт заново и нажмите «Заменить маркер»`,
+      };
+    }
   }
   return personalPublisher(personalToken, opts.timeoutMs);
 }

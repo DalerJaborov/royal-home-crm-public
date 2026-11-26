@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4352,
+  "forks": 4369,
   "mounts": 87,
   "cron": 146,
   "jobs": 37,
@@ -26093,7 +26093,7 @@
            "k": "do",
            "t": "closeWorkAfterLeavingSale(existing.propertyId, \"reserved\");",
            "a": [
-            "зовёт closeWorkAfterLeavingSale()"
+            "дословно из кода"
            ],
            "c": []
           }
@@ -26287,14 +26287,6 @@
          "t": "isCompleting",
          "a": [],
          "c": [
-          {
-           "k": "do",
-           "t": "closeWorkAfterLeavingSale(existing.propertyId, \"sold\");",
-           "a": [
-            "зовёт closeWorkAfterLeavingSale()"
-           ],
-           "c": []
-          },
           {
            "k": "do",
            "t": "await enqueueBackgroundJob({ type: \"deal-close-followup\", payload: { dealId: existing.id, propertyId: existin…",
@@ -27125,14 +27117,6 @@
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "closeWorkAfterLeavingSale(data.propertyId, \"reserved\");",
-       "a": [
-        "зовёт closeWorkAfterLeavingSale()"
-       ],
-       "c": []
       },
       {
        "k": "do",
@@ -95124,6 +95108,14 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const videoOn = await automationSwitchOn(\"dailyStoriesVideoEnabled\");",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: let i = 0; i < chosen.length; i++",
          "a": [],
@@ -95144,13 +95136,82 @@
            ]
           },
           {
+           "k": "if",
+           "t": "elapsed >= DAILY_RUN_DEADLINE_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"meta\", `Ежедневная подборка сторис: не уложилась в ${Math.round(DAILY_RUN_DEADLINE_MS / …",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "break;",
+             "a": [
+              "прекращает перебор"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const fresh = await prisma.property.findUnique({ where: { id: chosen[i].id }, select: { status: true, deleted…",
+           "a": [
+            "читает в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!fresh || fresh.deletedAt || fresh.offSite || fresh.status !== \"AVAILABLE\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const video = videoOn && videoTries < DAILY_VIDEO_MAX && elapsed < DAILY_VIDEO_START_BUDGET_MS && !!row && ca…",
+           "a": [
+            "зовёт cardVideoClipUsable()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "video",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "videoTries++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "try",
            "t": "пробует",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "const summary = await publishPropertyCardStory(chosen[i].id, { force: true });",
+             "t": "const summary = await publishPropertyCardStory(chosen[i].id, { force: true, video });",
              "a": [
               "зовёт publishPropertyCardStory()"
              ],
@@ -95162,12 +95223,19 @@
              "a": [],
              "c": [
               {
-               "k": "do",
-               "t": "published++;",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
+               "k": "if",
+               "t": "summary.video",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "videos++;",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
               }
              ]
             },
@@ -95181,6 +95249,21 @@
                "t": "failed++;",
                "a": [
                 "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "summary.keyDead",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
                ],
                "c": []
               }
@@ -136488,6 +136571,43 @@
     },
     {
      "k": "if",
+     "t": "payload.kind === \"SOLD\" && payload.auto && !payload.force",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!(await automationSwitchOn(\"storySoldAutoEnabled\"))",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await soldStoryEverPublished(payload.propertyId)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "payload.kind === \"SOLD\"",
      "a": [],
      "c": [
@@ -136583,6 +136703,21 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "if",
+       "t": "fresh.offSite",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -136600,6 +136735,210 @@
      "t": "summary.pending",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "isStoryKeyDead(summary)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void logSystemError( \"meta\", `История «${payload.kind === \"SOLD\" ? \"продано\" : \"цена снижена\"}» (объект ${pay…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
       {
        "k": "do",
        "t": "return;",

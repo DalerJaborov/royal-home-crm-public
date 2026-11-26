@@ -886,10 +886,13 @@ export async function updateDealFor(
     // Возврат отменённой сделки снова зарезервировал объект — место монтажёра
     // освобождаем после коммита, как в POST.
     let revivedReservedProperty = false;
+    // Статус объекта ДО продажи сделкой — для истории «Продано» (lib/propertyLeftSale.ts, только из продажи).
+    let soldFromStatus: string | null = null;
     const updated = await prisma.$transaction(async (tx) => {
       if (isCompleting) {
         const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
         if (!property) throw new DealConflictError("Объект не найден");
+        soldFromStatus = property.status;
 
         const propertyUpdate = await tx.property.updateMany({
           where: { id: property.id, status: { in: ["AVAILABLE", "RESERVED"] } },
@@ -1467,7 +1470,7 @@ export async function updateDealFor(
       // Объект продан сделкой: посты и повторы в соцсетях, место монтажёра и будущие
       // показы гасятся тем же набором, что при ручной смене статуса (раньше —
       // только в PATCH /properties/:id, аудит 02.10.2026).
-      closeWorkAfterLeavingSale(existing.propertyId, "sold");
+      closeWorkAfterLeavingSale(existing.propertyId, "sold", soldFromStatus);
       // AWAIT, НЕ FIRE-AND-FORGET (найдено 11.09 в тестах): именно от «выстрелил и
       // забыл» здесь и уходили — see докстринг выше. `enqueueBackgroundJob` сама не
       // бросает наружу (ошибки проглочены внутри неё, best-effort по контракту),

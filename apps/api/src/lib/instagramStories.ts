@@ -56,6 +56,8 @@ import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { describeError } from "./describeError.js";
 import { clipHasPriceInFrame } from "./clipPriceInFrame.js";
 import { narrationFactsCurrent } from "./propertyNarration.js";
+import { automationSwitchOn } from "./automationSwitches.js";
+import { isMetaAuthFailureText } from "./channelKeyAlarm.js";
 
 /** Meta принимает в историю ролик не длиннее 60 секунд. */
 const MAX_STORY_PART_SEC = 60;
@@ -114,6 +116,16 @@ export interface StoriesPublishSummary {
   /** Часть не вышла, потому что Meta не смогла скачать наш файл (18.11.2026, объект №208):
    *  повтор пройдёт сам — его ставит lib/videoHandoff.ts (jobs/socialPublishRetry.ts). */
   retriable?: boolean;
+  /** Ключ Instagram мёртв (401/190) или аккаунт помечен «доступ потерян» (дверь #432): повторять нельзя — в Meta
+   *  этим ключом не ходим, пока человек не заменит маркер. Отметку и тревогу ставит дверь, не вызывающий. */
+  keyDead?: boolean;
+  /** История вышла (или ждёт у Meta) готовым роликом, а не фото-карточкой. */
+  video?: boolean;
+}
+
+/** Отказ из-за мёртвого ключа: по признаку двери или по тексту ответа Meta (401, 190/102 про маркер). */
+export function isStoryKeyDead(summary: Pick<StoriesPublishSummary, "keyDead" | "error">): boolean {
+  return summary.keyDead === true || (!!summary.error && isMetaAuthFailureText(summary.error));
 }
 
 /** force bypasses scheduling switches, never the property's privacy boundary. */
@@ -443,15 +455,76 @@ export async function queuePropertyPriceDropStory(propertyId: string, priceWasTe
   });
 }
 
+const soldStoryDedupeKey = (propertyId: string) => `${PROPERTY_STATUS_STORY_JOB_TYPE}:${SOLD_STORY_KIND}:${propertyId}`;
+
 /** Ручная печать «продано» историей-роликом: то же задание без паузы и без ожидания озвучки (`force` — кнопка человека). */
 export async function queuePropertySoldStory(propertyId: string): Promise<boolean> {
+  const payload = { propertyId, kind: SOLD_STORY_KIND, priceWasText: null, priceWasTjs: null, queuedAt: Date.now(), force: true };
+  // Автоистория по этому объекту ещё ждёт своей паузы (тот же ключ очереди): кнопка человека превращает её в ручную —
+  // сейчас и в обход рубильников. Иначе постановка ниже — no-op, и кнопка молча ждала бы автомат (до 10 минут).
+  await prisma.backgroundJob.updateMany({
+    where: { dedupeKey: soldStoryDedupeKey(propertyId), status: "PENDING" },
+    data: { payload, runAt: new Date() },
+  });
   const queued = await enqueueBackgroundJob({
     type: PROPERTY_STATUS_STORY_JOB_TYPE,
-    payload: { propertyId, kind: SOLD_STORY_KIND, priceWasText: null, priceWasTjs: null, queuedAt: Date.now(), force: true },
+    payload,
     maxAttempts: 3,
-    dedupeKey: `${PROPERTY_STATUS_STORY_JOB_TYPE}:${SOLD_STORY_KIND}:${propertyId}`,
+    dedupeKey: soldStoryDedupeKey(propertyId),
   });
   return queued.enqueued;
+}
+
+/** Пауза автоистории «продано»: ошибочную отметку «продан» успевают вернуть, и печать на живом объекте не выходит. */
+export const SOLD_AUTO_STORY_DELAY_MS = 10 * 60_000;
+/** Статусы, из которых продажа — новость для подписчиков: объект был в продаже. Из «снят» и из конвейера — нет. */
+const SOLD_AUTO_STORY_FROM: ReadonlySet<string> = new Set(["AVAILABLE", "RESERVED"]);
+
+/** Продажа старше этого — уже не новость: ночная сверка может закрыть объект по сделке недельной давности. */
+export const SOLD_AUTO_STORY_FRESH_MS = 48 * 60 * 60_000;
+
+export type AutoSoldStoryOutcome = "queued" | "switch-off" | "stories-off" | "not-on-sale" | "stale" | "private" | "already" | "error";
+
+/**
+ * ИСТОРИЯ «ПРОДАНО» САМА ПРИ ПРОДАЖЕ (26.11.2026, владелец: «да» на автоисторию). Зовётся ТОЛЬКО из
+ * lib/propertyLeftSale.ts::closeWorkAfterLeavingSale(…, "sold", from) — туда сходятся все пути продажи (карточка,
+ * помощник и заявки через changePropertyStatus, закрытие сделки, ночная сверка). `from` — статус ДО продажи.
+ *
+ * Ставит то же задание, что кнопка «Продано» (jobs/propertyStatusStory.ts), но не ручное: `force` нет — значит, его
+ * гейтят рубильник автоисторий Instagram (instagramStoriesEnabled) и суточный ограничитель, а задание перед
+ * публикацией ещё раз читает статус и выключатель. Один раз на объект: история «продано» уже выходила (любой
+ * кнопкой) — не ставим, и задание проверяет это ещё раз. Пауза SOLD_AUTO_STORY_DELAY_MS.
+ */
+export async function queueAutoPropertySoldStory(
+  propertyId: string,
+  from: string | null,
+  /** Когда продали на деле (закрытие сделки); null — неизвестно, истории нет. По умолчанию — сейчас (продажа идёт сейчас). */
+  saleAt: Date | null = new Date()
+): Promise<AutoSoldStoryOutcome> {
+  if (!(await automationSwitchOn("storySoldAutoEnabled"))) return "switch-off";
+  if (!from || !SOLD_AUTO_STORY_FROM.has(from)) return "not-on-sale";
+  if (!saleAt || Date.now() - saleAt.getTime() > SOLD_AUTO_STORY_FRESH_MS) return "stale";
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { instagramStoriesEnabled: true } });
+  if (!settings?.instagramStoriesEnabled) return "stories-off";
+  if (await storyPublicationBlock(propertyId)) return "private";
+  if (await soldStoryEverPublished(propertyId)) return "already";
+  const queued = await enqueueBackgroundJob({
+    type: PROPERTY_STATUS_STORY_JOB_TYPE,
+    payload: { propertyId, kind: SOLD_STORY_KIND, priceWasText: null, priceWasTjs: null, queuedAt: Date.now(), auto: true },
+    maxAttempts: 3,
+    dedupeKey: soldStoryDedupeKey(propertyId),
+    runAt: new Date(Date.now() + SOLD_AUTO_STORY_DELAY_MS),
+  });
+  return queued.enqueued ? "queued" : "error";
+}
+
+/** История «продано» по объекту уже выходила в Instagram (кнопкой или автоматом). */
+export async function soldStoryEverPublished(propertyId: string): Promise<boolean> {
+  const row = await prisma.propertyStoryPost.findFirst({
+    where: { propertyId, kind: SOLD_STORY_KIND, channel: "INSTAGRAM" },
+    select: { id: true },
+  });
+  return !!row;
 }
 
 /**
@@ -490,7 +563,8 @@ export async function publishPropertySoldStory(
     kind: SOLD_STORY_KIND,
     label: "продано",
     cooldownMs: SOLD_COOLDOWN_MS,
-    cardOptions: { soldStamp: true },
+    // Без цены (решение владельца 25.11.2026: цены нет в будущих роликах и историях) — и на ролике, и на фото.
+    cardOptions: { soldStamp: true, hidePrice: true },
     force: options.force ?? false,
     video: options.video,
   });
@@ -505,16 +579,36 @@ export async function publishPropertySoldStory(
  */
 export async function publishPropertyCardStory(
   propertyId: string,
-  options: { force?: boolean } = {}
+  /** `video` — готовым роликом с карточкой БЕЗ цены (ежедневная подборка, 26.11.2026); иначе фото-карточка. */
+  options: { force?: boolean; video?: boolean } = {}
 ): Promise<StoriesPublishSummary> {
   return publishCardStory({
     propertyId,
     kind: CARD_STORY_KIND,
     label: "карточка объекта",
     cooldownMs: CARD_COOLDOWN_MS,
-    cardOptions: {},
+    // Без цены и роликом, и запасной фото-карточкой (решение владельца 25.11.2026).
+    cardOptions: { hidePrice: true },
     force: options.force ?? false,
+    video: options.video,
   });
+}
+
+/**
+ * Годится ли готовый ролик объекта для истории-РОЛИКА карточки без цены — по полям, без ffmpeg и сети: ежедневная
+ * подборка (lib/dailyStories.ts) отбирает по нему, кому вообще пробовать ролик (предел роликов за прогон не тратится
+ * на объекты без ролика). Окончательно решает publishCardVideoStory (формат кадра, длина, голос).
+ */
+export function cardVideoClipUsable(p: {
+  videoHandoffFinalPath: string | null;
+  videoHandoffStatus: string;
+  clipReviewStatus: string;
+  videoHandoffLastFactsText: string | null;
+}): boolean {
+  if (!p.videoHandoffFinalPath || !p.videoHandoffFinalPath.startsWith("/uploads/")) return false;
+  if (p.videoHandoffStatus !== "RECEIVED" || p.clipReviewStatus === "PENDING") return false;
+  // Решение владельца 25.11.2026: в ролике цену не показываем — старый ролик с ценой в кадре в подборку не идёт.
+  return !clipHasPriceInFrame(p);
 }
 
 type StoryPublisher = Extract<Awaited<ReturnType<typeof resolveInstagramPublisher>>, { ok: true }>;
@@ -598,10 +692,13 @@ async function publishCardVideoStory(p: {
   const clipPath = property?.videoHandoffFinalPath;
   if (!property || !clipPath || !clipPath.startsWith("/uploads/")) return null;
   if (property.videoHandoffStatus !== "RECEIVED" || property.clipReviewStatus === "PENDING") return null;
+  // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет. «Цена снижена» показала бы прежнюю
+  // сумму, а в «продано» и подборке цены нет вовсе (решение владельца 25.11.2026) — любой вид берёт фото-карточку.
+  if (clipHasPriceInFrame(property)) return null;
+  // «Продано» и подборка выходят БЕЗ звука (голос озвучки называет цену, а цены там нет — решение 25.11.2026);
+  // «цена снижена» звук оставляет: там голос сверяется с текущей ценой ниже.
+  const mute = kind !== PRICE_DROP_STORY_KIND;
   if (kind === PRICE_DROP_STORY_KIND) {
-    // Старый ролик с ценой, набранной в кадр (до 25.11.2026): карточка её не прячет — под «цена снижена» была бы
-    // видна прежняя сумма. Для «продано» цена в кадре не мешает.
-    if (clipHasPriceInFrame(property)) return null;
     // Голос в ролике должен называть ТЕКУЩУЮ цену (класс №214): иначе — фото-карточка.
     if ((await priceDropVoiceCheck(propertyId)) !== "OK") return null;
   }
@@ -624,7 +721,7 @@ async function publishCardVideoStory(p: {
   let keepFile = false;
   try {
     await fs.writeFile(pngPath, overlay.image);
-    const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC });
+    const rendered = await overlayCardOnVideo(clipDisk, pngPath, outPath, { showSec: STORY_OVERLAY_SEC, maxDurationSec: MAX_STORY_PART_SEC, mute });
     if (!rendered.ok) {
       void logSystemError("meta", `История «${label}» (объект ${propertyId}): не удалось наложить карточку на ролик (${rendered.reason}) — выкладываем фото-карточкой`);
       return null;
@@ -640,7 +737,11 @@ async function publishCardVideoStory(p: {
       // тоже оставляет контейнер ждать (признака pending в ответе нет) — смотрим на сам контейнер.
       if (result.pending || (await hasPendingStoryContainer(propertyId, kind))) {
         keepFile = true;
-        return { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error };
+        return { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error, video: true };
+      }
+      // Мёртвый ключ (дверь #432 его уже отметила): фото-карточкой тем же ключом не пробуем — второй отказ, второй запрос.
+      if (result.error && isMetaAuthFailureText(result.error)) {
+        return { attempted: true, publishedParts: 0, totalParts: 1, error: result.error, keyDead: true };
       }
       void logSystemError("meta", `История-ролик «${label}» (объект ${propertyId}) не вышла: ${result.error ?? "Instagram отказал без объяснения"} — пробуем фото-карточкой`);
       return null;
@@ -665,12 +766,12 @@ async function publishCardVideoStory(p: {
         void logSystemError("meta", `Сторис Facebook «${label}» (объект ${propertyId}) не удалась: ${describeError(err)}`);
       }
     }
-    return { attempted: true, publishedParts: 1, totalParts: 1 };
+    return { attempted: true, publishedParts: 1, totalParts: 1, video: true };
   } catch (err) {
     const error = describeError(err);
     void logSystemError("meta", `История-ролик «${label}» (объект ${propertyId}): ${error}`);
     // Уже опубликовано в Instagram — фото вторым постом не добавляем.
-    return published ? { attempted: true, publishedParts: 1, totalParts: 1, error } : null;
+    return published ? { attempted: true, publishedParts: 1, totalParts: 1, error, video: true } : null;
   } finally {
     await fs.unlink(pngPath).catch(() => {});
     if (!keepFile) await fs.unlink(outPath).catch(() => {});
@@ -740,8 +841,16 @@ async function publishCardStory(params: {
   const creds = await loadCredentials();
   if (!creds.igToken) return fail(`Instagram не подключён — нечем публиковать историю «${label}»`);
 
-  const publisher = await resolveInstagramPublisher(creds.igToken);
-  if (!publisher.ok) return fail(`не удалось определить аккаунт — ${publisher.error}`);
+  // Аккаунт помечен «доступ потерян» (дверь #432) и пути через ключ компании нет — в Meta не идём вовсе (не бомбим).
+  const publisher = await resolveInstagramPublisher(creds.igToken, { respectAccessLost: true });
+  if (!publisher.ok) {
+    if (publisher.accessLost) {
+      void logSystemError("meta", `История «${label}» не опубликована: ${publisher.error}`, { dedupKey: "story-instagram-access-lost" });
+      return { attempted: true, publishedParts: 0, totalParts: 1, error: publisher.error, keyDead: true };
+    }
+    const failed = fail(`не удалось определить аккаунт — ${publisher.error}`);
+    return isMetaAuthFailureText(publisher.error) ? { ...failed, keyDead: true } : failed;
+  }
 
   // Facebook — своя готовность (тумблер + токены) и свой кулдаун, считанный
   // ДО того, как Instagram ниже создаст свою строку PropertyStoryPost: иначе
@@ -786,6 +895,7 @@ async function publishCardStory(params: {
       outcome = result.pending || (await hasPendingStoryContainer(propertyId, kind))
         ? { attempted: true, publishedParts: 0, totalParts: 1, pending: true, error: result.error }
         : fail(result.error ?? "Instagram отказал без объяснения");
+      if (!outcome.pending && result.error && isMetaAuthFailureText(result.error)) outcome = { ...outcome, keyDead: true };
     } else {
       await prisma.propertyStoryPost.create({
         data: { propertyId, channel: "INSTAGRAM", mediaId: result.postId ?? "", partIndex: 0, kind },
