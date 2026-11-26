@@ -342,7 +342,7 @@ html[data-shell="clean"][data-theme="royal-home-2026-night"] .rh2 .scr .card.rh-
 .shell-rollout legend { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
 .shell-rollout-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 4px 20px; }
 .shell-rollout-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; cursor: pointer; }
-.shell-rollout-choice input { width: 20px; height: 20px; accent-color: #255ef5; flex: none; }
+.shell-rollout-choice input { width: 20px; height: 20px; accent-color: #1d5fe0; flex: none; }
 .shell-rollout .acts { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* Critical events occupy their own space; never cover a report or composer. */
@@ -807,7 +807,7 @@ html[data-shell="clean"] .clean-messages .dlg-row .t>b {
 }
 
 /* Unlayered: the generated legacy reset is also unlayered. */
-html[data-shell="clean"] { --clean-primary-fill: #255ef5; --clean-primary-hover: #194dd9; }
+html[data-shell="clean"] { --clean-primary-fill: #1d5fe0; --clean-primary-hover: #154ab0; }
 html[data-shell="clean"][data-theme="royal-home-2026-night"] { --clean-primary-fill: #2457d6; --clean-primary-hover: #1e4cbd; }
   /* Explicit component variants survive the legacy scope's unlayered button reset. */
   html[data-shell="clean"] [data-clean-control] { box-shadow: none; font-weight: 600; }
