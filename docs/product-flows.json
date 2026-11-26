@@ -23534,7 +23534,7 @@
     },
     {
      "k": "if",
-     "t": "ownAgentId",
+     "t": "callOwnerId",
      "a": [],
      "c": [
       {
@@ -23547,7 +23547,7 @@
       },
       {
        "k": "do",
-       "t": "const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, acceptedAt: { not:…",
+       "t": "const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, acceptedAt: { not…",
        "a": [
         "читает в базе: client"
        ],
@@ -23602,12 +23602,12 @@
     },
     {
      "k": "if",
-     "t": "ownAgentId",
+     "t": "callOwnerId",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const assigned = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, assignReason: SUPERVISO…",
+       "t": "const assigned = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, assignReason: SUPERVIS…",
        "a": [
         "читает в базе: client"
        ],
