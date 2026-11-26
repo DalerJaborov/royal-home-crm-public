@@ -2,7 +2,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(cleanup);
 
 vi.mock("../../lib/api", () => ({ api: vi.fn() }));
 
@@ -10,7 +12,7 @@ import { api } from "../../lib/api";
 import { ApiError } from "../../lib/apiError";
 import { isMoneyDealWrite } from "../../lib/dealVersion";
 import { DealSubmitModal } from "../../components/DealSubmitModal";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useUpdateDeal } from "../useDeals";
 
 /**
@@ -112,5 +114,19 @@ describe("окно закрытия: двойной клик даёт один P
     fireEvent.click(btn);
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("без сети: понятная причина, запрос не ставится, суммы остаются", async () => {
+    const onSubmit = vi.fn();
+    const spy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    render(<DealSubmitModal listedPrice="900000" currency="TJS" mode="complete" onSubmit={onSubmit} onCancel={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/За сколько фактически продали/), { target: { value: "800000" } });
+    fireEvent.change(screen.getByLabelText(/Получает агент/), { target: { value: "8000" } });
+    fireEvent.change(screen.getByLabelText(/Получает компания/), { target: { value: "8000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть сделку" }));
+    expect(await screen.findByText(/Нет связи с интернетом/)).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect((screen.getByLabelText(/Получает агент/) as HTMLInputElement).value).toBe("8000");
+    spy.mockRestore();
   });
 });
