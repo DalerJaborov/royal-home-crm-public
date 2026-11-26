@@ -47,7 +47,7 @@ async function post(payload: unknown, valid = true, signingKey = secret) {
   return request(app).post("/api/v1/webhooks/meta").set("Content-Type", "application/json").set("x-hub-signature-256", `sha256=${signature}`).send(raw);
 }
 async function deliver(payload: unknown) { expect((await post(payload)).status).toBe(200); await drainBackgroundTasks(5000); }
-const conversation = (target: string) => prisma.botConversation.findUniqueOrThrow({ where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: target } } });
+const conversation = (target: string) => prisma.botConversation.findFirstOrThrow({ where: { channel: "INSTAGRAM", subscriberId: target } });
 function inputFor(id: string): MessengerTurnInput {
   const found = processTurn.mock.calls.map((call) => call[0] as MessengerTurnInput).find((input) => input.messageId === id);
   expect(found).toBeDefined(); return found!;

@@ -169,8 +169,8 @@ describe("манера закрепляется за диалогом и не м
     const subscriberId = `${runId}-live`;
 
     await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Салом, хона мекобам" });
-    const after1 = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    const after1 = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId },
       select: { id: true, salesScenario: true },
     });
     conversationIds.push(after1!.id);
@@ -179,8 +179,8 @@ describe("манера закрепляется за диалогом и не м
     // Сравнение выключили посреди разговора — диалог обязан доживать на своей манере.
     await setTest(false);
     await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Дар Сино" });
-    const after2 = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    const after2 = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId },
       select: { salesScenario: true },
     });
     expect(after2?.salesScenario).toBe(after1?.salesScenario);
@@ -191,8 +191,8 @@ describe("манера закрепляется за диалогом и не м
     const subscriberId = `${runId}-off`;
 
     await processMessengerTurn({ channel: "INSTAGRAM", subscriberId, text: "Салом" });
-    const conv = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    const conv = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId },
       select: { id: true, salesScenario: true },
     });
     conversationIds.push(conv!.id);

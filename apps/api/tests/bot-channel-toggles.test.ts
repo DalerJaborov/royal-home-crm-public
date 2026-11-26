@@ -66,8 +66,8 @@ async function setToggles(patch: Partial<SettingsSnapshot>): Promise<void> {
 
 /** Сообщения диалога так, как их увидит сотрудник в «Сообщениях». */
 async function historyOf(channel: string, subscriberId: string): Promise<{ role: string; content: string }[]> {
-  const conv = await prisma.botConversation.findUnique({
-    where: { channel_subscriberId: { channel, subscriberId } },
+  const conv = await prisma.botConversation.findFirst({
+    where: { channel, subscriberId },
     select: { messages: true },
   });
   return (Array.isArray(conv?.messages) ? conv.messages : []) as { role: string; content: string }[];
