@@ -1878,27 +1878,47 @@ export async function fetchMessengerProfilePic(psid: string, tokenOverride?: str
  * но ключа нет (выключен) — Настройки НЕ подставляем; undefined — основной номер
  * из Настроек, как раньше.
  */
-export async function whatsAppMediaSource(mediaId: string, accountToken?: string | null): Promise<AttachmentSource | null> {
+export type WhatsAppMediaLookup =
+  | { source: AttachmentSource }
+  /** no_key — ключа нет или Meta его не приняла; unavailable — файл не отдан (истёк, удалён, сбой сети). */
+  | { source: null; reason: "unavailable" | "no_key" };
+
+/** Та же дверь, но с причиной отказа: сохранение файла клиента для сотрудника (lib/customerInputMedia.ts)
+ *  пишет её в переписку, а не молчит. */
+export async function lookupWhatsAppMedia(mediaId: string, accountToken?: string | null): Promise<WhatsAppMediaLookup> {
   try {
     // Чтение ключей — тоже внутри `try` (правка 22.09.2026, тот же класс, что у
-    // showReadAndTyping ниже): функция обещает `null` на любом отказе, а отказ
-    // базы на Настройках улетал наружу и ронял разбор входящего целиком.
+    // showReadAndTyping ниже): функция обещает отказ без броска, а отказ базы на
+    // Настройках улетал наружу и ронял разбор входящего целиком.
     const token = accountToken === undefined ? (await loadCredentials()).waToken : accountToken;
-    if (!token) return null;
+    if (!token) return { source: null, reason: "no_key" };
     const res = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
+      const body = await res.text().catch(() => "");
       void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: Meta ответила ${res.status}`);
-      return null;
+      if (isMetaAuthFailure(res.status, body)) {
+        // Мёртвый ключ узнают по жалобе клиента, а не по журналу (channelKeyAlarm.ts): тревога руководству.
+        void raiseChannelKeyAlarm({
+          key: "wa-media-download", label: "WhatsApp (файлы клиентов)", detail: `Meta ответила ${res.status} на запрос файла клиента`,
+          source: "meta", audience: "management",
+        });
+        return { source: null, reason: "no_key" };
+      }
+      return { source: null, reason: "unavailable" };
     }
     const data = (await res.json()) as { url?: string };
-    if (!data.url) return null;
-    return { url: data.url, headers: { Authorization: `Bearer ${token}` } };
+    if (!data.url) return { source: null, reason: "unavailable" };
+    return { source: { url: data.url, headers: { Authorization: `Bearer ${token}` } } };
   } catch (err) {
     void logSystemError("meta", `Файл WhatsApp ${mediaId} не получен: ${describeError(err)}`);
-    return null;
+    return { source: null, reason: "unavailable" };
   }
+}
+
+export async function whatsAppMediaSource(mediaId: string, accountToken?: string | null): Promise<AttachmentSource | null> {
+  return (await lookupWhatsAppMedia(mediaId, accountToken)).source;
 }
 
 /**

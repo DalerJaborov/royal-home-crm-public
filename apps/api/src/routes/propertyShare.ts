@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { recordInterest } from "../lib/propertyInterest.js";
 import { siteHomeUrl, siteListingUrl } from "../lib/siteListingUrl.js";
 import { crmPublicBase } from "../lib/crmPublicUrl.js";
+import { publicPropertyDescription, publicPropertyTitle } from "../lib/publicPropertyText.js";
 
 /**
  * Публичная приватная ссылка на объект (docs/plan-18-08-private-listings-and-video.md
@@ -126,7 +127,8 @@ propertyShareRouter.get("/:token", async (req, res) => {
   // должны — spread унаследовал бы их молча при первом же новом поле Property.
   res.json({
     property: {
-      title: property.title,
+      // Собранное название и очищенное описание (lib/publicPropertyText.ts): страница открыта без входа.
+      title: publicPropertyTitle(property),
       type: property.type,
       rooms: property.rooms,
       areaSqm: property.areaSqm,
@@ -143,7 +145,7 @@ propertyShareRouter.get("/:token", async (req, res) => {
       city: property.district?.city ?? null,
       condition: property.condition,
       amenities: property.amenities,
-      description: property.description,
+      description: publicPropertyDescription(property.description, property),
       photos: property.photos,
       clipVideoUrl: property.clipVideoStatus === "READY" ? property.clipVideoUrl : null,
       // Разведка 07.09.2026 (класс «осиротевшие спутники»): ссылка на проданный

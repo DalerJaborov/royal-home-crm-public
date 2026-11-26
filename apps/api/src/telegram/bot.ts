@@ -26,7 +26,7 @@ import { acceptCallbackRequest } from "../ai/callbackRequest.js";
 import { recordJobApplication, captureCandidate, candidateStoryCollected } from "../lib/jobApplications.js";
 import { clientMeansHousingDeal } from "../ai/housingIntent.js";
 import { shouldRecordJobApplication } from "../ai/adTemplateOpener.js";
-import { storeFetchedAttachments } from "../messengers/attachments.js";
+import { lostAfterStore, storeFetchedAttachments } from "../messengers/attachments.js";
 import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "./attachments.js";
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
@@ -1306,8 +1306,12 @@ async function handleClientMessages(msgs: TelegramIncomingMessage[]): Promise<Te
 
   /** Реплика клиента вместе с тем, что он к ней приложил. Пустое поле не пишем:
    *  в переписке и так до 40 реплик, лишний ключ у каждой — мусор в базе. */
-  const userMessage = (content: string): ChatMessage =>
-    saved.length > 0 ? { role: "user", content, attachments: saved } : { role: "user", content };
+  const lostNotes = lostAfterStore(fetched, saved.length);
+  const userMessage = (content: string): ChatMessage => ({
+    role: "user", content,
+    ...(saved.length > 0 ? { attachments: saved } : {}),
+    ...(lostNotes.length > 0 ? { attachmentsLost: lostNotes } : {}),
+  });
 
   /** Текст реплики для истории CRM. От text отличается одним случаем: клиент прислал
    *  только голосовое, а расшифровки нет. Пустую реплику писать нельзя — она ломает

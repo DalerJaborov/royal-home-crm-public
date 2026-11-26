@@ -110,7 +110,7 @@ import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js"
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
 import { cleanupOrphanContactAvatars } from "./lib/contactAvatar.js";
 import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
-import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
+import { cleanupStalePendingCustomerMedia, settleStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
 import { cleanupStalePropertyVideos } from "./lib/propertyVideoCleanup.js";
 import { cleanupOrphanUploadDirs, cleanupStaleVideoUploadSessions, notifyAbandonedChunkedUpload } from "./lib/videoUploadCleanup.js";
@@ -695,6 +695,21 @@ export function startCronJobs() {
    *  найдено 19.08.2026 — владелец пожаловался на пустую переписку у диалога,
    *  который в списке выглядел живым). Каждые 5 минут, тик дешёвый (пустая
    *  выборка почти всегда). */
+  /** Файлы клиентов, которые так и не докачались после записи реплики (обрыв, рестарт, долгая очередь):
+   *  пометка «не скачалось» на реплике вместо пустоты (lib/customerInputMedia.ts, ревью #465). */
+  let isMediaSettleRunning = false;
+  scheduleTracked("customer-media-settle", "*/5 * * * *", async () => {
+    if (isMediaSettleRunning) return;
+    isMediaSettleRunning = true;
+    try {
+      await settleStalePendingCustomerMedia();
+    } catch (err) {
+      reportCronTickError("Ошибка сверки файлов клиентов", err);
+    } finally {
+      isMediaSettleRunning = false;
+    }
+  });
+
   scheduleTracked("stuck-pending-messages", "*/5 * * * *", async () => {
     try {
       const recovered = await recoverStuckPendingMessages();

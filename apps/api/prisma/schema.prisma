@@ -7479,6 +7479,9 @@ model Settings {
   /// «Все/Ждут/Мои», а лежат в «Архиве». Ничего не удаляется и не переносится: правило считает запрос списка
   /// (lib/chatArchive.ts). ВКЛ. Выключено — список как раньше.
   chatArchiveEnabled                    Boolean @default(true)
+  /// Объект из чата уходит в ЛЮБУЮ переписку, в том числе без карточки клиента (26.11.2026, lib/conversationPropertySend.ts).
+  /// ВКЛ. Выключено — прежний отказ «сначала примите заявку»: отправка только клиенту с принятой карточкой.
+  sendPropertiesWithoutCardEnabled      Boolean @default(true)
   /// «Шабнам публикует ролики и фото без объекта» (владелец 21.11.2026). ВКЛ по умолчанию: публикация
   /// всё равно идёт только по кнопке «Опубликовать» сотрудника с правом маркетинга. telegram/staffSocialPost.ts.
   shabnamSocialPublishEnabled           Boolean @default(true)
@@ -8843,6 +8846,8 @@ model PropertyExposure {
   /// PHOTO | LINK — отправили снимки или адрес карточки.
   kind        String
   sentAt      DateTime  @default(now())
+  /// Откуда показ: MANUAL_NO_CARD — агент отправил объект из чата собеседнику без карточки (26.11.2026). Пусто — показ бота или отправка клиенту с карточкой.
+  source      String?
 
   @@index([clientId, propertyId])
   @@index([channel, recipientId, sentAt])

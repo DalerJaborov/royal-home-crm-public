@@ -52,6 +52,7 @@ import { chatArchiveCutoff, chatArchivedSql } from "../lib/chatArchive.js";
 import { buildChatInterest, type ChatInterest } from "../lib/chatInterest.js";
 import { contactAvatarLink } from "../lib/contactAvatar.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { loadSendContext, sendPropertiesFromConversation } from "../lib/conversationPropertySend.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
 /**
@@ -1676,6 +1677,40 @@ conversationsRouter.post("/:id/reply", requireAuth, async (req, res) => {
   // masked отдаём наружу: интерфейс показывает агенту, что номер был скрыт, —
   // иначе он решит, что клиент номер получил, и будет ждать звонка впустую.
   res.json({ ok: true, pausedUntil: delivery.pausedUntil, masked: delivery.masked });
+});
+
+/**
+ * ОБЪЕКТЫ ИЗ ПЕРЕПИСКИ БЕЗ КАРТОЧКИ КЛИЕНТА (26.11.2026, lib/conversationPropertySend.ts).
+ * Право — тот же заслон `/:id`, что у ответа: кто может отвечать в переписке, тот и отправляет
+ * объекты. Повтор с тем же Idempotency-Key отдаёт ответ первого раза (идемпотентность — общий
+ * щиток /api/v1), клиенту не уйдёт дубль.
+ */
+const sendPropertiesBodySchema = z.object({
+  propertyIds: z.array(z.guid()).min(1).max(10),
+  caption: z.string().trim().max(500).optional(),
+  pausedUntil: replyPausedUntilField,
+  prepareOnly: z.boolean().optional(),
+});
+
+conversationsRouter.get("/:id/send-context", requireAuth, async (req, res) => {
+  const outcome = await loadSendContext(req, req.params.id);
+  res.status(outcome.status).json(outcome.body);
+});
+
+conversationsRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
+  const parsed = sendPropertiesBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  const outcome = await sendPropertiesFromConversation({
+    req,
+    rawId: req.params.id,
+    propertyIds: parsed.data.propertyIds,
+    caption: parsed.data.caption || undefined,
+    pausedUntil: parsed.data.pausedUntil ? new Date(parsed.data.pausedUntil) : undefined,
+    prepareOnly: parsed.data.prepareOnly,
+  });
+  res.status(outcome.status).json(outcome.body);
 });
 
 const translateMessageSchema = z.object({ at: z.string().min(1) });

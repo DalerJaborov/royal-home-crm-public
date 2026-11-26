@@ -131,7 +131,9 @@ describe("MessageAttachments: прямые ссылки", () => {
 
   it("несохранённый файл — причина простыми словами и где открыть", () => {
     render(<MessageAttachments channel="WHATSAPP" attachments={[{ kind: "video", mime: "", file: null, lost: "too_big" }]} />);
-    expect(screen.getByText("Клиент прислал видео — больше 16 МБ или длиннее 3 минут, в CRM не сохранилось. Откройте в WhatsApp")).toBeTruthy();
+    expect(screen.getByText("Клиент прислал видео — слишком большой файл, в CRM не сохранилось. Откройте в WhatsApp")).toBeTruthy();
+    expect(lostAttachmentText("image", "unavailable", "WHATSAPP")).toBe("Клиент прислал фото — канал не отдал файл, в CRM не сохранилось. Откройте в WhatsApp");
+    expect(lostAttachmentText("image", "no_key", "INSTAGRAM")).toContain("ключ канала не работает");
     expect(lostAttachmentText("image", "failed", "INSTAGRAM")).toBe("Клиент прислал фото — не скачалось, в CRM не сохранилось. Откройте в Instagram");
   });
 
