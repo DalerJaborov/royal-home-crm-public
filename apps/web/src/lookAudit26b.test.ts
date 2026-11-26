@@ -35,7 +35,7 @@ describe("аудит вида 26.11 — пачка 2", () => {
 
   it("календарь на узком экране: отступ 8 и зазор 2", () => {
     const css = read("./theme-look-royal-calendar.css");
-    expect(css).toMatch(/@media \(max-width: 360px\) \{[^}]*\.mh \.card:has\(> \.cal\) \{ padding-inline: 8px; \}/);
+    expect(css).toMatch(/@media \(max-width: 359\.98px\) \{[^}]*\.mh \.card:has\(> \.cal\) \{ padding-inline: 8px; \}/);
     expect(css).toMatch(/\.mh \.card > \.cal \{ gap: 2px; \}/);
   });
 });
