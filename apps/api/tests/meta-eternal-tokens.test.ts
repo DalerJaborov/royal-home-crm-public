@@ -432,14 +432,17 @@ describe("сторож мёртвых ключей", () => {
     expect(rows[0].level).toBe("CRITICAL");
   });
 
+  // 25.11.2026: аккаунт Instagram — тревога общей двери «доступ потерян» (lib/instagramAccountAccess.ts), одна на эпизод,
+  // вместо «Ключ канала перестал работать» раз в сутки; отметка снимается здесь же, чтобы соседние тесты слали как раньше.
   it("401 на отправке личным ключом — тревога с именем аккаунта, без маркера в тексте; работает и при выключенном рубильнике", async () => {
     await settings({ metaSystemTokenPreferred: false, metaAppReviewApproved: false, instagramCompanyKeyEnabled: false });
-    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
-    tagsToClean.push(tag);
-    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    const lockTag = { tag: { startsWith: `ig-account-locked:${accountId}` } };
+    await prisma.pendingDirectorAlert.deleteMany({ where: lockTag });
     meta.personalSend = () => json({ error: { code: 190, message: "The session has been invalidated because the user changed their password" } }, 401);
     await expect(callGraph(IG_MESSAGES(), IG_LOGIN, { recipient: { id: PEER }, sender_action: "typing_on" })).rejects.toThrow(/401/);
-    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
+    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: lockTag }));
+    await prisma.pendingDirectorAlert.deleteMany({ where: lockTag });
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: null, accessLostReason: null } });
     expect(alert?.body).toContain(`Вечный ${run}`);
     expect(alert?.body).not.toContain(IG_LOGIN);
     // 21.11.2026: Instagram — руководству (РОП тоже), «к сведению», не чаще раза в сутки.

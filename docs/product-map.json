@@ -931,7 +931,7 @@
       "mount": "/api/v1/agents",
       "router": "agentsRouter",
       "file": "apps/api/src/routes/agents.ts",
-      "endpoints": 20,
+      "endpoints": 22,
       "label": "Сотрудники: карточки, права, аватары",
       "usedBy": 9
     },

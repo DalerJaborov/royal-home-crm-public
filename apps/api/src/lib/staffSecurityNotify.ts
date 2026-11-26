@@ -29,7 +29,11 @@ export type StaffSecurityChange =
   | "reactivated"
   | "deleted"
   | "reset2fa"
-  | "lockout";
+  | "lockout"
+  // Шабнам (25.11.2026): привязанный Telegram получает код входа в CRM, поэтому выдача ссылки
+  // подключения руководителем и снятие привязки идут руководству, как смена телефона для входа.
+  | "telegramLink"
+  | "telegramUnlink";
 
 /** Откуда пришло: экран CRM, помощница в Telegram или помощница в панели CRM. */
 export type StaffChangeChannel = "rest" | "telegram" | "crm";
@@ -47,6 +51,8 @@ const TITLES: Record<StaffSecurityChange, string> = {
   deleted: "🗑 Сотрудник удалён",
   reset2fa: "🔐 Сброшен Google Authenticator",
   lockout: "⛔ Неверные коды Google Authenticator",
+  telegramLink: "🔗 Выдана ссылка подключения к Шабнам",
+  telegramUnlink: "🔗 Шабнам отключена у сотрудника",
 };
 
 const VIA: Record<StaffChangeChannel, string> = {

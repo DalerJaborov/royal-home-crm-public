@@ -33,9 +33,11 @@ import sharp from "sharp";
 import { prisma } from "../../db.js";
 import { uploadsDir } from "../../upload.js";
 import { logSystemError } from "../systemError.js";
-import { reelsCaptionValuesFromProperty, CONTACT_NUMBERS, type ReelsCaptionValues } from "../reelsCaptionTemplate.js";
-import { loadMoneyContext } from "../money.js";
-import { escapeXml, textWidth, wrapText, fitFontSize } from "./svgText.js";
+import { propertyPriceTjs } from "@royal-home/shared";
+import { reelsCaptionValuesFromProperty, type ReelsCaptionValues } from "../reelsCaptionTemplate.js";
+import { loadMoneyContext, loadUsdRateInfo } from "../money.js";
+import { escapeXml } from "./svgText.js";
+import { STORY_ADVANCE, STORY_CAP_HEIGHT, type StoryFontWeight } from "./storyMetrics.js";
 
 export const STORY_CARD_WIDTH = 1080;
 export const STORY_CARD_HEIGHT = 1920;
@@ -98,66 +100,160 @@ function propertyNumber(shortId: number): string {
   return `ОБ-${String(shortId).padStart(6, "0")}`;
 }
 
-/** Факты карточки — строки, которых нет для пустых полей просто не будет,
- *  тот же принцип, что и в шаблонах подписи Reels (fillReelsCaptionTemplate):
- *  дыры вида «Этаж: » на картинке быть не должно. */
-function buildFactLines(values: ReelsCaptionValues): string[] {
-  const lines: string[] = [];
-  if (values.district) lines.push(values.district);
-  const roomsArea = [
-    values.rooms ? `${values.rooms}-комн.` : null,
-    values.areaSqm ? `${values.areaSqm} м²` : null,
-  ].filter(Boolean);
-  if (roomsArea.length) lines.push(roomsArea.join(" · "));
-  if (values.floor && values.totalFloors) lines.push(`Этаж ${values.floor} из ${values.totalFloors}`);
-  return lines;
-}
+/* ==========================================================================
+ * ОБЛИК КАРТОЧКИ (25.11.2026, владелец: «история выходит очень некрасивая»).
+ *
+ * Прежняя карточка — голый белый текст на затемнённом фото шрифтом DejaVu Sans.
+ * Теперь — «Royal Clean», язык CRM и сайта: фото во весь экран, белая карточка
+ * с мягкой тенью, шрифт Onest (как в интерфейсе), один синий акцент `#1D5FE0`,
+ * золото — только в логотипе. Зелёно-золотой постер обложек владелец для историй
+ * отверг. Выбор среди макетов A–D — docs/journal/2026-11-25-istoriya-b-bez-ceny.md.
+ *
+ * ШРИФТ. Onest Medium/SemiBold — статические TTF из OFL-шрифта Google Fonts
+ * (assets/fonts/cover/, лицензия OFL-Onest.txt). Dockerfile кладёт ВСЕ `*.ttf`
+ * этой папки в системный fontconfig, `tests/coverFonts.ts` подключает её в тестах.
+ * Ширины строк считаются по таблице `storyMetrics.ts` (генератор рядом со шрифтами):
+ * librsvg размеры текста наружу не отдаёт.
+ * ========================================================================== */
+const FONT_FAMILY = "Onest";
+const BLUE = "#1D5FE0";
+const GOLD = "#C9A24B";
+const INK = "#0E1726";
+const MUTED = "#8A94A6";
+const TILE_BG = "#F3F5F8";
+const GREEN = "#14803C";
+const GREEN_BG = "#E6F6EC";
+
+const CARD_X = 48;
+const CARD_W = STORY_CARD_WIDTH - CARD_X * 2;
+const CARD_PAD_X = 48;
+const CARD_PAD_TOP = 44;
+const CARD_PAD_BOTTOM = 44;
+const CARD_RADIUS = 48;
+/** Нижний край карточки: над полем «Отправить сообщение» (SAFE_BOTTOM_PX) и ещё 20 px запаса. */
+const CARD_BOTTOM_Y = STORY_CARD_HEIGHT - SAFE_BOTTOM_PX - 20;
+const LOGO_TOP = SAFE_TOP_PX + 12;
 
 /**
- * `priceWasText` — старая цена (21.09.2026, история «цена снижена»,
- * lib/publishedListingSync.ts + lib/instagramStories.ts::publishPropertyPriceDropStory),
- * отформатированная ТЕМ ЖЕ способом, что и `values.price` (buildPriceDisplay —
- * см. вызывающий код, второй форматтер цены здесь заводить незачем). Когда
- * задана, над ценой рисуется плашка «Цена снижена» и сама старая цена —
- * приглушённым цветом и зачёркнутой (line-through не поддерживается pango в
- * этой сборке librsvg предсказуемо, поэтому черта — отдельная линия <line>,
- * а не text-decoration).
+ * ЯЗЫК НАДПИСЕЙ (25.11.2026, владелец: «можно чередовать — таджикские надписи и русские»).
+ * Слова — из разговорника проекта (`tajik-phrasebook`): «нарх» (цена), «ошёна» (этаж), «хонагӣ» (комнатная),
+ * «фурӯхта» (проданный, как в озвучке); «Нарх паст шуд» — по смыслу «цена упала», носителем не сверено —
+ * владелец (Таджикистан) увидит на первой же истории. Названия района и номер объекта не переводятся.
  */
-/** Координаты текстового блока для теста «не выходит за безопасные поля» —
- *  без него тест был бы вынужден парсить сгенерированный SVG. */
+export type StoryLanguage = "ru" | "tg";
+interface StoryStrings {
+  priceDropped: string;
+  rooms: string;
+  floor: string;
+  area: string;
+  sold: string;
+}
+const STORY_STRINGS: Record<StoryLanguage, StoryStrings> = {
+  ru: { priceDropped: "Цена снижена", rooms: "комн.", floor: "этаж", area: "м²", sold: "ПРОДАНО" },
+  tg: { priceDropped: "Нарх паст шуд", rooms: "хонагӣ", floor: "ошёна", area: "м²", sold: "ФУРӮХТА ШУД" },
+};
+/** Русский и таджикский идут по очереди: чётный порядковый номер истории — русский, нечётный — таджикский. */
+export function pickStoryLanguage(storiesPublishedSoFar: number): StoryLanguage {
+  return storiesPublishedSoFar % 2 === 0 ? "ru" : "tg";
+}
+
+/** Ширина строки в px по таблице глифов Onest; неизвестный символ — как «0» (с запасом). */
+export function measureStoryText(text: string, size: number, weight: StoryFontWeight = "SemiBold", letterSpacing = 0): number {
+  const table = STORY_ADVANCE[weight];
+  const chars = [...text];
+  let w = 0;
+  for (const ch of chars) w += table[ch] ?? table["0"] ?? 600;
+  return (w / 1000) * size + Math.max(0, chars.length - 1) * letterSpacing;
+}
+
+/** Строка в ширину `maxWidth`: сначала уменьшаем кегль до `minSize`, потом режем по слову с «…». */
+function fitStoryText(text: string, size: number, minSize: number, weight: StoryFontWeight, maxWidth: number): { text: string; size: number } {
+  let s = size;
+  while (s > minSize && measureStoryText(text, s, weight) > maxWidth) s -= 2;
+  if (measureStoryText(text, s, weight) <= maxWidth) return { text, size: s };
+  const words = text.split(/\s+/);
+  while (words.length > 1 && measureStoryText(`${words.join(" ")}…`, s, weight) > maxWidth) words.pop();
+  let cut = words.join(" ");
+  while (cut.length > 1 && measureStoryText(`${cut}…`, s, weight) > maxWidth) cut = cut.slice(0, -1);
+  return { text: `${cut.trimEnd()}…`, size: s };
+}
+
+/** Цена на карточке: что рисовать крупно, старая цена и «сколько сэкономили». */
+export interface StoryPriceLines {
+  /** Крупная строка: «870 000» (сомони числом) или готовый текст цены, если число получить нельзя. */
+  now: string;
+  /** «TJS» мельче справа от числа; null — валюта уже внутри `now`. */
+  currency: string | null;
+  /** Старая цена зачёркнутой серой строкой; null — строки нет. */
+  was: string | null;
+  /** «−20 000» зелёной плашкой рядом со старой ценой; только когда обе цены — числа. */
+  saved: string | null;
+}
+
+const groupDigits = (n: number): string => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+/**
+ * Цена карточки. Только сомони и только числом, как на обложках (владелец 21.11.2026: «цена в
+ * сомони по нашему курсу»); число — общее `propertyPriceTjs`, его получает вызывающий.
+ * Числа нет (доллары без курса в Настройках) — откат на готовый текст цены карточки, как раньше.
+ * Старая цена, не выше новой, не рисуется: «цена снижена» без снижения — враньё на картинке.
+ */
+export function storyPriceLines(input: {
+  priceText: string;
+  priceNowTjs?: number | null;
+  priceWasTjs?: number | null;
+  priceWasText?: string | null;
+}): StoryPriceLines {
+  const nowOk = typeof input.priceNowTjs === "number" && Number.isFinite(input.priceNowTjs) && input.priceNowTjs > 0;
+  const wasNum = typeof input.priceWasTjs === "number" && Number.isFinite(input.priceWasTjs) && input.priceWasTjs > 0 ? input.priceWasTjs : null;
+  if (nowOk) {
+    const now = input.priceNowTjs as number;
+    if (wasNum !== null) {
+      return wasNum > now
+        ? { now: groupDigits(now), currency: "TJS", was: `${groupDigits(wasNum)} TJS`, saved: `−${groupDigits(wasNum - now)}` }
+        : { now: groupDigits(now), currency: "TJS", was: null, saved: null };
+    }
+    return { now: groupDigits(now), currency: "TJS", was: input.priceWasText?.trim() || null, saved: null };
+  }
+  return { now: input.priceText, currency: null, was: input.priceWasText?.trim() || null, saved: null };
+}
+
+interface FactTile {
+  value: string;
+  label: string;
+}
+
+/** Плитки: комнаты, площадь, этаж. Нет поля — нет плитки (участок без этажа не печатает пустоту). */
+function buildFactTiles(values: ReelsCaptionValues, strings: StoryStrings): FactTile[] {
+  const tiles: FactTile[] = [];
+  if (values.rooms) tiles.push({ value: String(values.rooms), label: strings.rooms });
+  if (values.areaSqm) tiles.push({ value: String(values.areaSqm).replace(".", ","), label: strings.area });
+  if (values.floor) tiles.push({ value: values.totalFloors ? `${values.floor}/${values.totalFloors}` : String(values.floor), label: strings.floor });
+  return tiles;
+}
+
+/** Координаты текстового блока для теста «не выходит за безопасные поля» — без разбора SVG. */
 export interface StoryCardTextLayout {
-  /** Y самой верхней отрисованной строки (с учётом ascent) — должна быть
-   *  не выше SAFE_TOP_PX. */
+  /** Самая верхняя отрисованная надпись (логотип) — не выше SAFE_TOP_PX. */
   topY: number;
-  /** Y базовой линии самой нижней строки — должна быть не ниже
-   *  STORY_CARD_HEIGHT - SAFE_BOTTOM_PX. */
+  /** Нижний край карточки — не ниже STORY_CARD_HEIGHT - SAFE_BOTTOM_PX. */
   bottomY: number;
 }
 
 /**
- * ПЕЧАТЬ «ПРОДАНО» (21.09.2026, владелец: «типа печать поставить типа продано,
- * как в других компаниях делают»).
- *
- * Рисуется поверх фото и НЕЗАВИСИМО от текстового блока: у текста координаты
- * плавают (блок прижимается к нижней безопасной границе и растёт вверх от числа
- * строк), а печать всегда в одном месте — иначе на объекте с длинным названием
- * района она наезжала бы на цену. Центр выбран в верхней трети под верхней
- * безопасной зоной: ниже аватара и индикаторов Instagram, выше любой возможной
- * высоты текстового блока.
- *
- * Наклон и двойная рамка — чтобы читалось именно как оттиск, а не как элемент
- * интерфейса. Полупрозрачная тёмная подложка внутри рамки: без неё красный
- * контур терялся на кирпичных и закатных фото (та же беда, из-за которой под
- * текстом усилили градиент).
+ * ПЕЧАТЬ «ПРОДАНО» (21.09.2026, владелец: «типа печать поставить типа продано, как в других компаниях»).
+ * Рисуется поверх фото НЕЗАВИСИМО от карточки и всегда в одном месте (верхняя треть, ниже аватара
+ * и индикаторов Instagram, выше карточки). Наклон и двойная рамка — чтобы читалось как оттиск.
  */
+/** Русский текст печати; таджикский — STORY_STRINGS.tg.sold. */
 export const SOLD_STAMP_TEXT = "ПРОДАНО";
 const SOLD_STAMP_CENTER_Y = 700;
 const SOLD_STAMP_ANGLE_DEG = -11;
 
-function buildSoldStampSvg(): string {
+function buildSoldStampSvg(label: string): string {
   const fontSize = 96;
   const letterSpacing = 8;
-  const textW = textWidth(SOLD_STAMP_TEXT, fontSize, true) + letterSpacing * (SOLD_STAMP_TEXT.length - 1);
+  const textW = measureStoryText(label, fontSize, "SemiBold", letterSpacing);
   const padX = 52;
   const padY = 30;
   const boxW = Math.min(textW + padX * 2, STORY_CARD_WIDTH - SIDE_MARGIN_PX * 2);
@@ -169,153 +265,202 @@ function buildSoldStampSvg(): string {
     <rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="16" fill="#000000" fill-opacity="0.35" />
     <rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="16" fill="none" stroke="#ff3b30" stroke-width="9" />
     <rect x="${x + 14}" y="${y + 14}" width="${boxW - 28}" height="${boxH - 28}" rx="8" fill="none" stroke="#ff3b30" stroke-width="3" />
-    <text x="${STORY_CARD_WIDTH / 2}" y="${SOLD_STAMP_CENTER_Y + fontSize * 0.35}" text-anchor="middle"
-      font-family="DejaVu Sans, sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="${letterSpacing}"
-      fill="#ff3b30">${SOLD_STAMP_TEXT}</text>
+    <text x="${STORY_CARD_WIDTH / 2}" y="${SOLD_STAMP_CENTER_Y + (fontSize * STORY_CAP_HEIGHT) / 2}" text-anchor="middle"
+      font-family="${FONT_FAMILY}" font-size="${fontSize}" font-weight="600" letter-spacing="${letterSpacing}"
+      fill="#ff3b30">${escapeXml(label)}</text>
   </g>`;
 }
 
-function buildSvgOverlay(
-  values: ReelsCaptionValues,
-  number: string,
-  priceWasText?: string | null,
-  soldStamp = false
-): { svg: string; layout: StoryCardTextLayout } {
-  const maxWidth = STORY_CARD_WIDTH - SIDE_MARGIN_PX * 2;
+const t = (n: number): string => String(Math.round(n * 10) / 10);
 
-  // --- Факты (район / комнаты+площадь / этаж) — с переносом длинных строк.
-  const factFontSize = 42;
-  const factLineHeight = 56;
-  const rawFacts = buildFactLines(values);
-  const factLines = rawFacts.flatMap((line) => wrapText(line, factFontSize, true, maxWidth));
+function text(x: number, y: number, size: number, weight: 500 | 600, fill: string, content: string, extra = ""): string {
+  return `<text x="${t(x)}" y="${t(y)}" font-family="${FONT_FAMILY}" font-size="${t(size)}" font-weight="${weight}" fill="${fill}"${extra ? ` ${extra}` : ""}>${escapeXml(content)}</text>`;
+}
 
-  const factsSvg = factLines
-    .map(
-      (line, i) =>
-        `<text x="${SIDE_MARGIN_PX}" y="${i * factLineHeight}" font-family="DejaVu Sans, sans-serif" font-size="${factFontSize}" ` +
-        `font-weight="700" fill="#ffffff">${escapeXml(line)}</text>`
-    )
-    .join("\n");
+interface StoryCardInput {
+  values: ReelsCaptionValues;
+  number: string;
+  priceWasText?: string | null;
+  priceNowTjs?: number | null;
+  priceWasTjs?: number | null;
+  soldStamp: boolean;
+  /** Язык надписей; по умолчанию русский. */
+  lang?: StoryLanguage;
+  /** Слой ПОВЕРХ ролика: без затемнений фото, остаются карточка, логотип и печать (прозрачный фон). */
+  forVideo?: boolean;
+}
 
-  // cursor — локальная система координат (0 = базовая линия первой строки
-  // фактов); в канвасные координаты весь блок переводится один раз, сдвигом
-  // offset ниже, так чтобы последняя строка легла на безопасную границу.
-  let cursor = factLines.length * factLineHeight + 90;
+/** Логотип-пилюля сверху слева: белая, золотая точка, «ROYAL HOME TJ». */
+function buildLogoSvg(): string {
+  const size = 26;
+  const ls = size * 0.14;
+  const textW = measureStoryText("ROYAL HOME TJ", size, "SemiBold", ls);
+  const h = 64;
+  const w = 28 + 12 + 12 + textW + 28;
+  const x = SIDE_MARGIN_PX - 1;
+  return `
+  <rect x="${x}" y="${LOGO_TOP}" width="${t(w)}" height="${h}" rx="32" fill="#ffffff" fill-opacity="0.94" filter="url(#logoShadow)" />
+  <circle cx="${x + 28 + 6}" cy="${LOGO_TOP + h / 2}" r="6" fill="${GOLD}" />
+  ${text(x + 28 + 12 + 12, LOGO_TOP + h / 2 + (size * STORY_CAP_HEIGHT) / 2, size, 600, "#1b1b1b", "ROYAL HOME TJ", `letter-spacing="${t(ls)}"`)}`;
+}
 
-  let priceDropSvg = "";
-  if (priceWasText) {
-    const badgeFontSize = 30;
-    const wasFontSize = fitFontSize(priceWasText, 38, 24, false, maxWidth);
-    const badgeY = cursor - 46;
-    const wasY = cursor;
-    const wasWidth = textWidth(priceWasText, wasFontSize, false);
-    priceDropSvg = `
-  <text x="${SIDE_MARGIN_PX}" y="${badgeY}" font-family="DejaVu Sans, sans-serif" font-size="${badgeFontSize}" font-weight="700"
-    fill="#ff5a5f">ЦЕНА СНИЖЕНА</text>
-  <text x="${SIDE_MARGIN_PX}" y="${wasY}" font-family="DejaVu Sans, sans-serif" font-size="${wasFontSize}" font-weight="400"
-    fill="#b3b3b3">${escapeXml(priceWasText)}</text>
-  <line x1="${SIDE_MARGIN_PX - 4}" y1="${wasY - 13}" x2="${SIDE_MARGIN_PX + wasWidth}" y2="${wasY - 13}" stroke="#b3b3b3" stroke-width="3" />`;
-    cursor += 66;
+function buildPinSvg(x: number, cy: number, size: number): string {
+  const k = size / 24;
+  return `<g transform="translate(${t(x)} ${t(cy - size / 2)}) scale(${t(k)})" fill="none" stroke="${BLUE}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></g>`;
+}
+
+function buildSvgOverlay(input: StoryCardInput): { svg: string; layout: StoryCardTextLayout } {
+  const { values, number, soldStamp } = input;
+  const strings = STORY_STRINGS[input.lang ?? "ru"];
+  const price = storyPriceLines({
+    priceText: values.price,
+    priceNowTjs: input.priceNowTjs,
+    priceWasTjs: input.priceWasTjs,
+    priceWasText: input.priceWasText,
+  });
+  const tiles = buildFactTiles(values, strings);
+  const innerW = CARD_W - CARD_PAD_X * 2;
+  const x0 = CARD_X + CARD_PAD_X;
+  const cap = STORY_CAP_HEIGHT;
+  const dropped = Boolean(price.was) && !soldStamp;
+
+  // ---- Раскладка сверху вниз в локальных координатах (0 = верх карточки); потом сдвиг на CARD_BOTTOM_Y.
+  const parts: string[] = [];
+  let y = CARD_PAD_TOP;
+
+  // Ряд 1: синяя пилюля «Цена снижена» + номер объекта справа (без пилюли — номер слева).
+  const badgeH = 56;
+  if (dropped) {
+    const badgeSize = 30;
+    const bw = measureStoryText(strings.priceDropped, badgeSize, "SemiBold") + 52;
+    parts.push(`<rect x="${x0}" y="${y}" width="${t(bw)}" height="${badgeH}" rx="28" fill="${BLUE}" />`);
+    parts.push(text(x0 + 26, y + badgeH / 2 + (badgeSize * cap) / 2, badgeSize, 600, "#ffffff", strings.priceDropped));
+    const nw = measureStoryText(number, 28, "Medium");
+    parts.push(text(x0 + innerW - nw, y + badgeH / 2 + (28 * cap) / 2, 28, 500, MUTED, number));
+  } else {
+    parts.push(text(x0, y + badgeH / 2 + (28 * cap) / 2, 28, 500, MUTED, number));
+  }
+  y += badgeH;
+
+  // Ряд 2: крупная новая цена + «TJS» мельче; кегль сжимается, пока всё не влезет в карточку.
+  y += 30;
+  const curSizeRatio = 48 / 124;
+  let priceSize = 124;
+  const priceWidth = (size: number) =>
+    measureStoryText(price.now, size, "SemiBold", -size * 0.02) +
+    (price.currency ? 24 + measureStoryText(price.currency, size * curSizeRatio, "Medium") : 0);
+  while (priceSize > 56 && priceWidth(priceSize) > innerW) priceSize -= 2;
+  const priceBase = y + priceSize * cap;
+  parts.push(text(x0, priceBase, priceSize, 600, INK, price.now, `letter-spacing="${t(-priceSize * 0.02)}"`));
+  if (price.currency) {
+    const nowW = measureStoryText(price.now, priceSize, "SemiBold", -priceSize * 0.02);
+    parts.push(text(x0 + nowW + 24, priceBase, priceSize * curSizeRatio, 500, MUTED, price.currency));
+  }
+  y = priceBase;
+
+  // Ряд 3: старая цена зачёркнутой серой + зелёная плашка экономии.
+  if (price.was && !soldStamp) {
+    const oldSize = 38;
+    const oldCapTop = y + 28;
+    const oldBase = oldCapTop + oldSize * cap;
+    const wasFit = fitStoryText(price.was, oldSize, 26, "Medium", innerW);
+    const wasW = measureStoryText(wasFit.text, wasFit.size, "Medium");
+    parts.push(text(x0, oldBase, wasFit.size, 500, MUTED, wasFit.text));
+    parts.push(`<rect x="${x0 - 4}" y="${t(oldBase - (wasFit.size * cap) / 2 - 2)}" width="${t(wasW + 8)}" height="4" rx="2" fill="${MUTED}" />`);
+    let rowBottom = oldBase;
+    if (price.saved) {
+      const savedSize = 30;
+      const sw = measureStoryText(price.saved, savedSize, "SemiBold") + 40;
+      const mid = oldCapTop + (oldSize * cap) / 2;
+      const sy = mid - 23;
+      parts.push(`<rect x="${t(x0 + wasW + 20)}" y="${t(sy)}" width="${t(sw)}" height="46" rx="23" fill="${GREEN_BG}" />`);
+      parts.push(text(x0 + wasW + 20 + 20, mid + (savedSize * cap) / 2, savedSize, 600, GREEN, price.saved));
+      rowBottom = Math.max(oldBase, sy + 46);
+    }
+    y = rowBottom;
   }
 
-  // --- Цена: сначала уменьшением кегля (76 -> 46) пробуем влезть в одну
-  // строку, и только если совсем не влезает (обе валюты сразу) — переносим.
-  const priceMaxFont = 76;
-  const priceMinFont = 46;
-  const priceFontSize = fitFontSize(values.price, priceMaxFont, priceMinFont, true, maxWidth);
-  const priceLines =
-    textWidth(values.price, priceFontSize, true) > maxWidth
-      ? wrapText(values.price, priceFontSize, true, maxWidth)
-      : [values.price];
-  const priceLineHeight = Math.round(priceFontSize * 1.1);
+  // Ряд 4: плитки комнаты / площадь / этаж.
+  if (tiles.length > 0) {
+    y += 34;
+    const gap = 16;
+    const tw = (innerW - gap * (tiles.length - 1)) / tiles.length;
+    const th = 100;
+    tiles.forEach((tile, i) => {
+      const tx = x0 + i * (tw + gap);
+      const cx = tx + tw / 2;
+      const vs = fitStoryText(tile.value, 44, 28, "SemiBold", tw - 24);
+      parts.push(`<rect x="${t(tx)}" y="${t(y)}" width="${t(tw)}" height="${th}" rx="24" fill="${TILE_BG}" />`);
+      parts.push(text(cx, y + 18 + vs.size * cap, vs.size, 600, INK, vs.text, `text-anchor="middle"`));
+      parts.push(text(cx, y + 18 + 44 * cap + 12 + 26 * cap, 26, 500, MUTED, tile.label, `text-anchor="middle"`));
+    });
+    y += th;
+  }
 
-  const priceSvg = priceLines
-    .map((line, i) => {
-      const y = cursor + i * priceLineHeight;
-      return `<text x="${SIDE_MARGIN_PX}" y="${y}" font-family="DejaVu Sans, sans-serif" font-size="${priceFontSize}" font-weight="700"
-    fill="#ffffff">${escapeXml(line)}</text>`;
-    })
-    .join("\n");
-  const priceBottomY = cursor + (priceLines.length - 1) * priceLineHeight;
+  // Ряд 5: район с синим пином (длинное название сжимается, потом режется).
+  if (values.district) {
+    y += 28;
+    const dsize = 34;
+    const fit = fitStoryText(values.district, dsize, 26, "Medium", innerW - 30 - 12);
+    const base = y + fit.size * cap;
+    parts.push(buildPinSvg(x0, y + (fit.size * cap) / 2, 30));
+    parts.push(text(x0 + 30 + 12, base, fit.size, 500, INK, fit.text));
+    y = base;
+  }
 
-  // --- Номер объекта + телефон(ы) — тоже может не влезть в одну строку.
-  const numberText = `${number} · ${CONTACT_NUMBERS}`;
-  const numberMaxFont = 34;
-  const numberMinFont = 24;
-  const numberFontSize = fitFontSize(numberText, numberMaxFont, numberMinFont, false, maxWidth);
-  const numberLines =
-    textWidth(numberText, numberFontSize, false) > maxWidth
-      ? wrapText(numberText, numberFontSize, false, maxWidth)
-      : [numberText];
-  const numberLineHeight = Math.round(numberFontSize * 1.2);
-  const numberStartY = priceBottomY + 70;
-  const numberSvg = numberLines
-    .map((line, i) => {
-      const y = numberStartY + i * numberLineHeight;
-      return `<text x="${SIDE_MARGIN_PX}" y="${y}" font-family="DejaVu Sans, sans-serif" font-size="${numberFontSize}" font-weight="400"
-    fill="#e5e5e5">${escapeXml(line)}</text>`;
-    })
-    .join("\n");
-  const numberBottomY = numberStartY + (numberLines.length - 1) * numberLineHeight;
-
-  // --- Сдвигаем весь локальный блок так, чтобы последняя строка (номер
-  // объекта/телефон) легла ровно на нижнюю границу безопасной зоны.
-  // -18: y текста — это БАЗОВАЯ ЛИНИЯ, а не нижний край чернил; у некоторых
-  // глифов (скобки, засечки) чернила уходят на несколько px ниже неё. Без
-  // запаса самая нижняя строка формально проходила бы проверку безопасной
-  // зоны, но на глаз чуть задевала бы границу.
-  const safeBottomY = STORY_CARD_HEIGHT - SAFE_BOTTOM_PX - 18;
-  const offset = safeBottomY - numberBottomY;
-  const topY = offset - factFontSize; // запас на восходящую часть первой буквы (ascent)
-  const bottomY = numberBottomY + offset;
-
-  // Подложка под текстом — усиленный градиент (было 0→0.82 линейно от
-  // фиксированной высоты 640px; теперь темнее у самого низа и начинается от
-  // реальной высоты текстового блока, а не магического числа) — на светлых
-  // фото текст раньше терялся, решение владельца 21.09.2026.
-  const shadeTop = Math.max(SAFE_TOP_PX, topY - 120);
-  const shadeHeight = STORY_CARD_HEIGHT - shadeTop;
+  const cardH = y + CARD_PAD_BOTTOM;
+  const cardTop = CARD_BOTTOM_Y - cardH;
+  const bottomY = CARD_BOTTOM_Y;
+  const topY = LOGO_TOP;
 
   const svg = `<svg width="${STORY_CARD_WIDTH}" height="${STORY_CARD_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#000000" stop-opacity="0.1" />
-      <stop offset="35%" stop-color="#000000" stop-opacity="0.55" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.9" />
+    <linearGradient id="shadeTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
     </linearGradient>
+    <linearGradient id="shadeBottom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.45" />
+    </linearGradient>
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="24" stdDeviation="30" flood-color="#000000" flood-opacity="0.28" />
+    </filter>
+    <filter id="logoShadow" x="-20%" y="-30%" width="140%" height="190%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.18" />
+    </filter>
   </defs>
-  <rect x="0" y="${shadeTop}" width="${STORY_CARD_WIDTH}" height="${shadeHeight}" fill="url(#shade)" />
-  ${soldStamp ? buildSoldStampSvg() : ""}
-  <g transform="translate(0, ${offset})">
-    ${factsSvg}
-    ${priceDropSvg}
-    ${priceSvg}
-    ${numberSvg}
+  ${input.forVideo ? "" : `<rect x="0" y="0" width="${STORY_CARD_WIDTH}" height="${Math.round(STORY_CARD_HEIGHT * 0.22)}" fill="url(#shadeTop)" />
+  <rect x="0" y="${Math.round(STORY_CARD_HEIGHT * 0.48)}" width="${STORY_CARD_WIDTH}" height="${STORY_CARD_HEIGHT - Math.round(STORY_CARD_HEIGHT * 0.48)}" fill="url(#shadeBottom)" />`}
+  ${buildLogoSvg()}
+  ${soldStamp ? buildSoldStampSvg(strings.sold) : ""}
+  <rect x="${CARD_X}" y="${t(cardTop)}" width="${CARD_W}" height="${t(cardH)}" rx="${CARD_RADIUS}" fill="#ffffff" filter="url(#cardShadow)" />
+  <g transform="translate(0, ${t(cardTop)})">
+    ${parts.join("\n    ")}
   </g>
 </svg>`;
 
   return { svg, layout: { topY, bottomY } };
 }
 
-/** Обёртка для тестов: собранный SVG-слой без похода в БД и sharp — растровое
- *  сравнение картинок в проекте никто не гоняет, поэтому наличие печати
- *  проверяется по слою. */
+/** Обёртка для тестов: собранный SVG-слой без похода в БД и sharp — растровое сравнение в проекте
+ *  не гоняется, поэтому наличие печати, плашек и цены проверяется по слою. */
 export function buildStoryCardOverlaySvg(
   values: ReelsCaptionValues,
   number: string,
-  options?: { priceWasText?: string | null; soldStamp?: boolean }
+  options?: { priceWasText?: string | null; soldStamp?: boolean; priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage; forVideo?: boolean }
 ): string {
-  return buildSvgOverlay(values, number, options?.priceWasText, options?.soldStamp ?? false).svg;
+  return buildSvgOverlay({ values, number, ...options, soldStamp: options?.soldStamp ?? false }).svg;
 }
 
-/** Обёртка для тестов: считает координаты текстового блока (безопасные поля)
- *  без похода в БД/sharp — сам SVG для этой цели не нужен, только layout. */
+/** Обёртка для тестов: координаты блока (безопасные поля) без БД и sharp. */
 export function computeStoryCardTextLayout(
   values: ReelsCaptionValues,
   number: string,
-  priceWasText?: string | null
+  priceWasText?: string | null,
+  extra?: { priceNowTjs?: number | null; priceWasTjs?: number | null; lang?: StoryLanguage }
 ): StoryCardTextLayout {
-  return buildSvgOverlay(values, number, priceWasText).layout;
+  return buildSvgOverlay({ values, number, priceWasText, ...extra, soldStamp: false }).layout;
 }
 
 /** Ставить ли печать: явный флаг вызывающего кода сильнее статуса объекта.
@@ -334,33 +479,46 @@ export interface GenerateStoryCardOptions {
   /** Старая цена, отформатированная buildPriceDisplay — задать только когда
    *  карточка рисуется для истории «цена снижена» (см. buildSvgOverlay). */
   priceWasText?: string | null;
+  /** Старая цена в сомони числом (история «цена снижена»): тогда рисуются «−N» и зачёркнутая «N TJS». */
+  priceWasTjs?: number | null;
+  /** Язык надписей (25.11.2026: русский и таджикский по очереди); по умолчанию русский. */
+  lang?: StoryLanguage;
 }
 
-/** Рисует вертикальную карточку 1080x1920 по первому фото объекта. */
-export async function generateStoryCard(propertyId: string, options?: GenerateStoryCardOptions): Promise<StoryCardResult> {
+type StoryCardData =
+  | { ok: false; error: string }
+  | { ok: true; input: StoryCardInput; photoPath: string | null; propertyId: string };
+
+/**
+ * Данные карточки одним местом для фото-карточки и для слоя поверх ролика: объект, факты, цена числом.
+ * `needPhoto` — фото-карточке нужен файл главного фото (нет — честный отказ), слою поверх ролика фото не нужно.
+ */
+async function loadStoryCardData(propertyId: string, options: GenerateStoryCardOptions | undefined, needPhoto: boolean): Promise<StoryCardData> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     include: { district: true, photos: { orderBy: { order: "asc" }, take: 1 } },
   });
   if (!property || property.deletedAt) {
-    return { ok: false, image: null, error: "Объект не найден или удалён" };
+    return { ok: false, error: "Объект не найден или удалён" };
   }
-  const mainPhoto = property.photos[0];
-  if (!mainPhoto) {
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: нет ни одной фотографии`, {
-      dedupKey: `story-card-no-photo:${property.id}`,
-    });
-    return { ok: false, image: null, error: "У объекта нет ни одной фотографии — карточку рисовать не из чего" };
-  }
-
-  const photoPath = path.join(uploadsDir, path.basename(mainPhoto.url));
-  try {
-    await fs.access(photoPath);
-  } catch {
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: файл фото не найден на диске (${photoPath})`, {
-      dedupKey: `story-card-missing-file:${property.id}`,
-    });
-    return { ok: false, image: null, error: "Файл главной фотографии не найден на диске" };
+  let photoPath: string | null = null;
+  if (needPhoto) {
+    const mainPhoto = property.photos[0];
+    if (!mainPhoto) {
+      void logSystemError("storage", `Карточка-история объекта ${property.id}: нет ни одной фотографии`, {
+        dedupKey: `story-card-no-photo:${property.id}`,
+      });
+      return { ok: false, error: "У объекта нет ни одной фотографии — карточку рисовать не из чего" };
+    }
+    photoPath = path.join(uploadsDir, path.basename(mainPhoto.url));
+    try {
+      await fs.access(photoPath);
+    } catch {
+      void logSystemError("storage", `Карточка-история объекта ${property.id}: файл фото не найден на диске (${photoPath})`, {
+        dedupKey: `story-card-missing-file:${property.id}`,
+      });
+      return { ok: false, error: "Файл главной фотографии не найден на диске" };
+    }
   }
 
   const money = await loadMoneyContext();
@@ -383,12 +541,32 @@ export async function generateStoryCard(propertyId: string, options?: GenerateSt
     details: property.details,
     money,
   });
+  // Цена числом в сомони — курс только из Настроек, без запасного (как у обложек); нет курса — прежний текст цены.
+  const usdRate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+  return {
+    ok: true,
+    propertyId: property.id,
+    photoPath,
+    input: {
+      values,
+      number: propertyNumber(property.shortId),
+      priceWasText: options?.priceWasText,
+      priceNowTjs: propertyPriceTjs(property.price, property.currency, usdRate),
+      priceWasTjs: options?.priceWasTjs,
+      soldStamp: shouldStampSold(property.status, options?.soldStamp),
+      lang: options?.lang,
+    },
+  };
+}
 
-  const soldStamp = shouldStampSold(property.status, options?.soldStamp);
-  const overlay = buildSvgOverlay(values, propertyNumber(property.shortId), options?.priceWasText, soldStamp);
+/** Рисует вертикальную карточку 1080x1920 по первому фото объекта. */
+export async function generateStoryCard(propertyId: string, options?: GenerateStoryCardOptions): Promise<StoryCardResult> {
+  const data = await loadStoryCardData(propertyId, options, true);
+  if (!data.ok) return { ok: false, image: null, error: data.error };
+  const overlay = buildSvgOverlay(data.input);
 
   try {
-    const image = await sharp(photoPath)
+    const image = await sharp(data.photoPath as string)
       .resize({ width: STORY_CARD_WIDTH, height: STORY_CARD_HEIGHT, fit: "cover", position: "centre" })
       .composite([{ input: Buffer.from(overlay.svg), top: 0, left: 0 }])
       .jpeg({ quality: 88 })
@@ -396,9 +574,45 @@ export async function generateStoryCard(propertyId: string, options?: GenerateSt
     return { ok: true, image, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : "неизвестный сбой";
-    void logSystemError("storage", `Карточка-история объекта ${property.id}: отрисовка sharp упала — ${message}`, {
-      dedupKey: `story-card-render-fail:${property.id}`,
+    void logSystemError("storage", `Карточка-история объекта ${data.propertyId}: отрисовка sharp упала — ${message}`, {
+      dedupKey: `story-card-render-fail:${data.propertyId}`,
     });
     return { ok: false, image: null, error: "Не удалось отрисовать карточку" };
+  }
+}
+
+export interface StoryOverlayResult {
+  ok: boolean;
+  /** PNG с прозрачным фоном нужного размера; null при отказе. */
+  image: Buffer | null;
+  error: string | null;
+}
+
+/**
+ * СЛОЙ ПОВЕРХ РОЛИКА (25.11.2026, владелец: «на ролик наложить просто «цена снижена», «продано»»): та же
+ * карточка и печать, что на фото-истории, но на прозрачном фоне — ffmpeg кладёт её на первые секунды ролика
+ * (lib/ffmpeg.ts::overlayCardOnVideo). Размер — кадр ролика (`width`×`height`); карточка рисуется на 1080×1920
+ * и масштабируется, поэтому ролик обязан быть вертикальным 9:16 (иначе вызывающий берёт фото-карточку).
+ */
+export async function generateStoryCardOverlay(
+  propertyId: string,
+  options: GenerateStoryCardOptions | undefined,
+  size: { width: number; height: number } = { width: STORY_CARD_WIDTH, height: STORY_CARD_HEIGHT }
+): Promise<StoryOverlayResult> {
+  const data = await loadStoryCardData(propertyId, options, false);
+  if (!data.ok) return { ok: false, image: null, error: data.error };
+  const overlay = buildSvgOverlay({ ...data.input, forVideo: true });
+  try {
+    let pipeline = sharp(Buffer.from(overlay.svg));
+    if (size.width !== STORY_CARD_WIDTH || size.height !== STORY_CARD_HEIGHT) {
+      pipeline = pipeline.resize({ width: size.width, height: size.height, fit: "fill" });
+    }
+    return { ok: true, image: await pipeline.png().toBuffer(), error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "неизвестный сбой";
+    void logSystemError("storage", `Слой карточки поверх ролика объекта ${data.propertyId}: отрисовка sharp упала — ${message}`, {
+      dedupKey: `story-card-overlay-fail:${data.propertyId}`,
+    });
+    return { ok: false, image: null, error: "Не удалось отрисовать слой карточки" };
   }
 }

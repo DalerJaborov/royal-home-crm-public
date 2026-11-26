@@ -36,3 +36,14 @@ export function attachDealVersion(
   if (deal?.version === undefined) return body;
   return { ...body, version: deal.version };
 }
+
+/**
+ * Запись с деньгами сделки (цена продажи и доли комиссии) — отправка/закрытие/правка цифр.
+ * Такую запись НЕ двигаем в доске заранее (клик-аудит 26.11.2026): карточка при оптимистичном
+ * переносе исчезала из колонки вместе с открытым окном «Закрыть сделку», и при отказе сервера
+ * («нет показа») введённые суммы пропадали, а плашка с ошибкой оставалась вне экрана. Окно
+ * ждёт ответа и закрывается само только при успехе, поэтому карточка остаётся на месте до ответа.
+ */
+export function isMoneyDealWrite(body: Record<string, unknown>): boolean {
+  return "soldPrice" in body || "commissionRealtorAmount" in body || "commissionCompanyAmount" in body;
+}

@@ -134,4 +134,11 @@ describe("MessageAttachments: прямые ссылки", () => {
     expect(screen.getByText("Клиент прислал видео — больше 16 МБ или длиннее 3 минут, в CRM не сохранилось. Откройте в WhatsApp")).toBeTruthy();
     expect(lostAttachmentText("image", "failed", "INSTAGRAM")).toBe("Клиент прислал фото — не скачалось, в CRM не сохранилось. Откройте в Instagram");
   });
+
+  it("фото по ссылке не отдалось — вместо битой картинки спокойная плашка", () => {
+    const { container } = render(<MessageAttachments attachments={[{ kind: "image", mime: "image/jpeg", file: null, url: "/uploads/none.jpg" }]} />);
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("Фото не загрузилось")).toBeTruthy();
+  });
 });

@@ -88,4 +88,22 @@ describe("notifyBotReplyNotDelivered", () => {
     await expect(notifyBotReplyNotDelivered("INSTAGRAM", `push-fail-${runId}-boom`, instagram.id)).resolves.toBeUndefined();
     expect(logSystemError).toHaveBeenCalledTimes(1);
   });
+
+  // Ревью #432: пока у аккаунта Instagram стоит отметка «доступ потерян», в Meta не ходили и руководству уже ушла одна
+  // тревога — пуш всем читающим по каждому клиенту был бы потоком. Обычный отказ (5xx) — пуш как раньше.
+  it("доступ к аккаунту Instagram потерян — пуша нет; обычный отказ — пуш есть", async () => {
+    const { InstagramAccessLostError } = await import("../src/lib/metaProviderRejection.js");
+    await notifyBotReplyNotDelivered("INSTAGRAM", `push-fail-${runId}-lost`, instagram.id,
+      new InstagramAccessLostError(instagram.id, "HTTP 401: session invalidated"));
+    expect(sendPushToAgents).not.toHaveBeenCalled();
+
+    await notifyBotReplyNotDelivered("INSTAGRAM", `push-fail-${runId}-5xx`, instagram.id, new Error("Graph API HTTP 502: bad gateway"));
+    expect(sendPushToAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it("вебхук передаёт причину отказа в пуш (иначе проверка выше не срабатывает)", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(new URL("../src/routes/webhooks.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/notifyBotReplyNotDelivered\(msg\.channel, msg\.senderId, deliveryTransport \?\? deliveryAccountId, err\)/);
+  });
 });

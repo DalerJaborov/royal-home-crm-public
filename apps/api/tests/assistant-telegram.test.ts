@@ -91,7 +91,7 @@ const { TelegramApiError } = await import("../src/telegram/api.js");
 const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
 const { invalidateAgentAccess } = await import("../src/auth/middleware.js");
 const { createPendingAssistantAction } = await import("../src/lib/assistantActions.js");
-const { tryLinkAgentByCode, createTelegramLinkCode } = await import("../src/lib/telegramAgentLink.js");
+const { tryLinkAgentByCode, linkAgentByCode, createTelegramLinkCode } = await import("../src/lib/telegramAgentLink.js");
 const { renderAssistantForTelegram, addressedToBot, setGroupClockForTests, GROUP_DIALOG_WINDOW_MS, looksLikeBotRequest } = await import("../src/telegram/assistantBot.js");
 const { assistantToolAllowed } = await import("../src/ai/assistant/actor.js");
 const { runTool, runAuditedTool, pluginDeclarations } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
@@ -1135,10 +1135,13 @@ describe("привязка и рендер", () => {
     });
     agents.link = { id: target.id, userId: uid(8) };
     const { code } = await createTelegramLinkCode(target.id);
-    // Этот Telegram-аккаунт уже был привязан к другой учётке (stranger) — привязка переезжает.
+    // Этот Telegram-аккаунт уже привязан к другой ДЕЙСТВУЮЩЕЙ учётке (stranger): с 25.11.2026
+    // бот сначала спрашивает, код не съедается; после «Да» привязка переезжает.
     const stolen = agents.stranger.userId;
     await prisma.agent.update({ where: { id: agents.stranger.id }, data: { telegramChatId: null } });
-    expect(await tryLinkAgentByCode(stolen, code, stolen)).toBe(true);
+    expect(await linkAgentByCode(stolen, code, stolen)).toBe("asked");
+    expect((await prisma.agent.findUnique({ where: { id: agents.stranger.id }, select: { telegramUserId: true } }))?.telegramUserId).toBe(stolen);
+    expect(await tryLinkAgentByCode(stolen, code, stolen, { confirmRelink: true })).toBe(true);
     const after = await prisma.agent.findUnique({ where: { id: target.id }, select: { telegramUserId: true, telegramChatId: true } });
     expect(after).toEqual({ telegramUserId: stolen, telegramChatId: stolen });
     const prev = await prisma.agent.findUnique({ where: { id: agents.stranger.id }, select: { telegramUserId: true } });

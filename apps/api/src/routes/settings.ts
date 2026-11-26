@@ -924,6 +924,8 @@ const settingsUpdateSchema = z.object({
   /** Истории Facebook (28.09.2026, Page Stories API) — своя площадка ПОВЕРХ
    *  Instagram, свой рубильник, всегда проверяемый (см. lib/instagramStories.ts). */
   facebookStoriesEnabled: z.boolean().optional(),
+  /** История «цена снижена»/«продано» готовым роликом с карточкой (26.11.2026); выключено — фото-карточка. */
+  instagramStoryVideoEnabled: z.boolean().optional(),
   /** Ежедневная подборка сторис (26.09.2026, решение владельца) —
    *  lib/dailyStories.ts::runDailyStoriesTick. */
   dailyStoriesEnabled: z.boolean().optional(),
@@ -3018,7 +3020,8 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
   // целиком и может снять 2FA, утечка общего ключа не должна открывать и это.
   const apiKey = process.env.SITE_SYNC_ADMIN_RESET_KEY;
   if (!url || !apiKey) {
-    return res.status(503).json({ error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)" });
+    console.warn("[site-reset] не заданы SITE_SYNC_URL / SITE_SYNC_ADMIN_RESET_KEY");
+    return res.status(503).json({ error: "Связь с сайтом не настроена. Обратитесь к администратору." });
   }
   // Разбор схемой, а не `req.body?.x === true`: тело приходит с границы, и правило
   // проекта одно для всех входов. Пустое тело допустимо — сброс без TOTP.

@@ -30,16 +30,18 @@
   --rh-ui-press: rgba(90, 96, 112, .13);
   --rh-ui-hover: rgba(90, 96, 112, .06);
   --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
-  --rh-ui-primary: #2c66f2;
+  --rh-ui-primary: #1d5fe0;
   --rh-ui-primary-fg: #ffffff;
-  --rh-ui-primary-hover: #2459d6;
-  --rh-ui-primary-ink: #2459d6;
+  --rh-ui-primary-hover: #154ab0;
+  --rh-ui-primary-ink: #154ab0;
   --rh-ui-primary-soft: #e5ecfd;
   --rh-ui-primary-soft-fg: #1f4fc4;
   /* Подложка мини-карточек на синем: темнее плиты, белый текст держит 4,5:1+. */
   --rh-ui-hero-mini: #1d4fc9;
   --rh-ui-tile: #d7f25c;
   --rh-ui-tile-fg: #14180a;
+  /* Дорожка кольца удержания на лаймовой «+» (дуга — --rh-ui-tile-fg): белая на лайме не видна. */
+  --rh-ui-tile-track: rgba(20, 24, 10, .18);
   --rh-ui-ink-tile: #0e0f12;
   --rh-ui-ink-tile-fg: #ffffff;
   --rh-ui-ink-tile-num: #d7f25c;
@@ -80,6 +82,17 @@
   --rh-ui-cap-pill: #ffffff;
   --rh-ui-cap-pill-fg: #0e0f12;
   --rh-ui-cap-shadow: var(--rh-ui-shadow-lg);
+  /* Нижнее меню телефона — своё стекло, а не серая капсула переключателей (владелец 26.11:
+     «меню серое, некрасиво… как стекло»). Белое матовое стекло как у панели вкладок iPhone:
+     78% белого + размытие с насыщенностью, волосяная кромка, мягкая тень; выбранный раздел —
+     синей таблеткой («Королевский синий»), а не белой на сером. Токены --rh-ui-cap-* не
+     трогаем: на них стоят переключатели-сегменты (--rh-seg-on) по всему приложению. */
+  --rh-ui-nav-bg: rgba(255, 255, 255, .78);
+  --rh-ui-nav-solid: #ffffff;
+  --rh-ui-nav-ring: rgba(14, 15, 18, .10);
+  --rh-ui-nav-shadow: 0 8px 28px -10px rgba(10, 14, 30, .24);
+  --rh-ui-nav-on: var(--rh-ui-primary-soft);
+  --rh-ui-nav-on-fg: var(--rh-ui-primary-soft-fg);
   /* Прежние имена скруглений карточки и плитки — теперь одно --rh-r-lg (пачка C). */
   --rh-ui-r-card: var(--rh-r-lg);
   --rh-ui-r-tile: var(--rh-r-lg);
@@ -142,6 +155,11 @@
   --rh-ui-cap-ring: rgba(255, 255, 255, .10);
   --rh-ui-cap-pill-shadow: none;
   --rh-ui-cap-shadow: var(--rh-ui-shadow-lg);
+  /* Ночью — тёмное матовое стекло; выбранный раздел — те же синие токены ночной темы. */
+  --rh-ui-nav-bg: rgba(28, 32, 40, .78);
+  --rh-ui-nav-solid: #1b1f27;
+  --rh-ui-nav-ring: rgba(255, 255, 255, .10);
+  --rh-ui-nav-shadow: 0 10px 30px -10px rgba(0, 0, 0, .7);
   --rh-ui-shadow-sm: 0 2px 6px rgba(0, 0, 0, .35);
   --rh-ui-shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .8);
   --rh-ui-switch-off: #6b7385;
@@ -223,8 +241,8 @@
   --rh-ui-cat-ads: #c2571c;
   --rh-ui-cat-salary: #26836d;
   --rh-ui-cat-other: #7a68c9;
-  --rh-ui-solid: #2c66f2;
-  --rh-ui-solid-hover: #2459d6;
+  --rh-ui-solid: #1d5fe0;
+  --rh-ui-solid-hover: #154ab0;
   --rh-ui-money-amber: #e39a2d;
   /* Цвета долей кольца (аналитика): текст долей, подписанных в легенде. */
   --rh-ui-ink-aqua: #0d7f74;
@@ -421,14 +439,21 @@
 :root[data-ui-look="royal"][data-mobile-ux] .clean-shell,
 :root[data-ui-look="royal"][data-mobile-ux] .clean-frame,
 :root[data-ui-look="royal"][data-mobile-ux] .clean-header { background: var(--rh-ui-bg); }
-/* НИЖНЕЕ МЕНЮ: ОДНА ПЕРЕМЕННАЯ НА ВСЕ ЭКРАНЫ (аудит К06, 21.11.2026). Меню — капсула высотой 68 px (60 + 4 + 4)
-   на расстоянии 12 px от края экрана; на сенсорном планшете от неё остаётся круглая кнопка 56 px на 24 px от края.
-   И то и другое занимает снизу 80 px + safe-area — это `--rh-nav-h`: так высоко от края экрана верх меню.
+/* НИЖНЕЕ МЕНЮ: ОДНА ПЕРЕМЕННАЯ НА ВСЕ ЭКРАНЫ (аудит К06, 21.11.2026). Меню — капсула высотой 64 px (56 + 4 + 4),
+   низ капсулы — `--rh-nav-bottom` от края экрана; на сенсорном планшете от неё остаётся круглая кнопка 56 px на 24 px от края.
+   `--rh-nav-h` — так высоко от края экрана верх меню (64 px + `--rh-nav-bottom`).
    `--rh-nav-clear` — запас под содержимое страницы (меню + 22 px воздуха), чтобы конец страницы не уезжал под меню.
    Плавающие панели над меню (подбор «Отправить выбранные») встают на `calc(var(--rh-nav-h) + 10px)`.
-   Своих «104 px» и `--ry-nav-clear` на экранах быть не должно: сторож — lib/__tests__/navClearGuard.test.ts. */
+   Своих «104 px» и `--ry-nav-clear` на экранах быть не должно: сторож — lib/__tests__/navClearGuard.test.ts.
+
+   ПОЧЕМУ НЕ «12 px + safe-area» (26.11.2026, владелец: «либо буквы большие, либо оно больше»). На iPhone
+   с полоской «домой» safe-area = 34 px, и капсула 68 px висела на 46 px над краем: меню съедало 114 px
+   экрана и стояло заметно выше, чем панель вкладок в самих приложениях iPhone. Плавающая панель
+   iPhone заходит в safe-area и держит до края около 20 px; полоска «домой» занимает нижние ~13 px,
+   поэтому капсула встаёт на safe-area − 10 px (24 px), но не ниже 10 px там, где полоски нет (Android). */
 :root[data-ui-look="royal"][data-mobile-ux] {
-  --rh-nav-h: calc(80px + env(safe-area-inset-bottom, 0px));
+  --rh-nav-bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) - 10px));
+  --rh-nav-h: calc(64px + var(--rh-nav-bottom));
   --rh-nav-clear: calc(var(--rh-nav-h) + 22px);
 }
 :root[data-ui-look="royal"][data-mobile-ux] .clean-shell .app-main-col {
@@ -436,30 +461,37 @@
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  bottom: var(--rh-nav-bottom);
   max-width: 440px; margin: 0 auto; padding: 4px 6px; border: 0; border-radius: var(--rh-r-full);
-  background: var(--rh-ui-cap-solid); color: var(--rh-ui-cap-fg);
-  box-shadow: var(--rh-ui-shadow-lg), 0 0 0 1px var(--rh-ui-cap-ring);
+  background: var(--rh-ui-nav-solid); color: var(--rh-ui-cap-fg);
+  box-shadow: var(--rh-ui-nav-shadow), 0 0 0 .5px var(--rh-ui-nav-ring);
   /* Без анимации: нажал — сразу переключилось. */
   transition: none;
 }
-/* Лёгкое стекло только на самой капсуле, подложка не прозрачнее 90% и без
-   «насыщенности», чтобы цветные блоки под ней не превращались в кляксы. */
+/* Стекло — только на самой капсуле (одна стеклянная поверхность на телефоне). Прежняя
+   подложка — серая (#eef0f4) на 86% без насыщенности: на сером фоне страницы она читалась
+   мутным серым пятном, а не стеклом. Белая на 78% + размытие 24 px и насыщенность 150 %
+   дают тот же материал, что панель вкладок iPhone; насыщенность умеренная (не 180 %), чтобы
+   цветные круги под меню не становились кляксами. */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] {
-    background: var(--rh-ui-cap-bg);
-    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    background: var(--rh-ui-nav-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(150%); backdrop-filter: blur(24px) saturate(150%);
   }
 }
+/* Без прозрачности — сплошная капсула: системная настройка и тумблер «Эффект стекла»
+   (класс fx-no-glass, store/uiPrefs.ts). Тумблер раньше до капсулы не доставал: правило
+   theme-2026-mobile-shell.css слабее селектора «Нового вида». */
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { background: var(--rh-ui-cap-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { background: var(--rh-ui-nav-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
-:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { height: 60px; padding: 0; gap: 2px; }
+:root[data-ui-look="royal"][data-mobile-ux].fx-no-glass nav[data-bottomnav] { background: var(--rh-ui-nav-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { height: 56px; padding: 0; gap: 2px; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab {
-  min-height: 52px; gap: 3px; border-radius: var(--rh-r-full); color: var(--rh-ui-cap-fg); transition: none;
+  min-height: 48px; gap: 2px; border-radius: var(--rh-r-full); color: var(--rh-ui-cap-fg); transition: none;
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
-  background: var(--rh-ui-cap-pill); color: var(--rh-ui-cap-pill-fg); box-shadow: var(--rh-ui-cap-pill-shadow);
+  background: var(--rh-ui-nav-on); color: var(--rh-ui-nav-on-fg); box-shadow: none;
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
@@ -470,6 +502,10 @@
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
   width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
 }
+/* Кольцо удержания (450 мс → голос, theme-2026-mobile-shell.css блок 7.3) там белое — под графитовую
+   кнопку старой темы. На лаймовой кнопке белая дуга почти не видна (кадр 26.11): здесь она цвета значка. */
+:root[data-ui-look="royal"] nav[data-bottomnav] [data-fab] > [data-fab-ring] circle + circle { stroke: var(--rh-ui-tile-fg); }
+:root[data-ui-look="royal"] nav[data-bottomnav] [data-fab][data-holding="true"] > [data-fab-ring] circle:first-child { stroke: var(--rh-ui-tile-track); }
 
 /* ---- 768–1023: планшет — рейка слева с подписями (пачка B, 20.11.2026) ----
    Нижнее меню телефона встаёт вертикальной рейкой: те же разделы роли, та же «+»
@@ -872,12 +908,11 @@
 
 /* Нижнее меню на самых узких телефонах: подписи «Главная» и «Клиенты» стояли вплотную
    (зазор 4 px на 320, съёмка 20.11). Капсула ближе к краям, подписи чуть плотнее. */
-/* Подписи нижнего меню — как вторичный текст (15 на телефоне), а не 13: главная навигация
-   не должна быть мельче остального (аудит 20.11, К04.1). На 320–389 места на 15 не хватает (зазор между подписями 4 px при норме 6) — там 13. */
-@media (min-width: 390px) and (max-width: 767.98px) {
-  :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label],
-  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-tab-label] { font-size: var(--rh-fs-sm); }
-}
+/* Подписи нижнего меню — 13 px на ЛЮБОЙ ширине (26.11.2026, владелец: «буквы большие»).
+   Прежнее правило поднимало их до 15 px от 390 px (аудит 20.11, К04.1): «Главная» занимала
+   59 из 69 px ячейки и упиралась в края выбранной таблетки, а сама подпись выходила в полтора
+   раза крупнее, чем у панели вкладок iPhone (там 10 pt). 13 px — нижняя граница шкалы
+   проекта (gen:typeset), мельче нельзя; крупнее подписи навигации не нужны — это метки, а не текст. */
 @media (max-width: 359.98px) {
   :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] { left: max(6px, env(safe-area-inset-left, 0px)); right: max(6px, env(safe-area-inset-right, 0px)); padding-inline: 2px; }
   :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { gap: 0; }
@@ -905,6 +940,11 @@
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is(:disabled, [disabled], [aria-disabled="true"]),
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"], .on):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+/* Ряд «Всё · Клиенты · Объекты · Сделки · Разделы» в шторке поиска: сегмент сжимался до ширины экрана, кнопки
+   `flex: 1 1 auto` ужимались до текста, и подписи стояли вплотную. Ряд держит свою ширину и листается вбок. */
+:root[data-ui-look="royal"] .sheet-b > .hscroll { overflow-x: auto; scrollbar-width: none; }
+:root[data-ui-look="royal"] .sheet-b > .hscroll > .seg { flex-wrap: nowrap; width: max-content; max-width: none; }
+:root[data-ui-look="royal"] .sheet-b > .hscroll > .seg > button { flex: none; }
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) {
   display: flex; gap: 4px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none;
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
@@ -921,6 +961,12 @@
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]) {
   background: var(--rh-tab-on); color: var(--rh-tab-on-fg);
 }
+/* Счётчик в кнопке среза/вкладки («Активные · 0», «7 дней · 11»): наследует цвет кнопки и ложится на её
+   фон тонкой подложкой. Прежний белый на 70% из старой темы был рассчитан на чёрную выбранную кнопку и
+   на светло-синей выбранной вкладке «Нового вида» пропадал (замер 26.11.2026: контраст 1:1 на «Подборе
+   сотрудников» и «Активности команды»). Правило общее, а не по разделам: разделы дублировали его по одному. */
+:root[data-ui-look="royal"][data-ui-look] :is(.ry-seg, .ry-tabs, .seg) > :is(button, a, [role="tab"], [role="radio"]) .n { color: inherit; opacity: 1; }
+/* (атрибут повторён нарочно: старое правило темы `.rh2 .scr .seg button[aria-selected=true] .n` весит столько же) */
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is(:disabled, [disabled], [aria-disabled="true"]),
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
