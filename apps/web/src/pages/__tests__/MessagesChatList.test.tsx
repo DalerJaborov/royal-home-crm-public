@@ -208,3 +208,14 @@ describe("архив", () => {
     expect(el.textContent).toContain("В архиве пусто");
   });
 });
+
+describe("старый вид: кнопки архива", () => {
+  it("«Архив (N)» и «Назад ко всем» с целью касания не меньше 44px (класс min-h-11) и не требуют нового вида", () => {
+    const entry = mount({ royal: false, clean: false }).querySelector(".pane-b button.pill") as HTMLButtonElement;
+    expect(entry.textContent).toContain("Архив (7)");
+    expect(entry.className).toContain("min-h-11");
+    const back = mount({ royal: false, clean: false, segment: "archive" }).querySelector(".pane-b button.pill") as HTMLButtonElement;
+    expect(back.textContent).toContain("Назад ко всем");
+    expect(back.className).toContain("min-h-11");
+  });
+});

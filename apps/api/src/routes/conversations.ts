@@ -48,7 +48,7 @@ import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
-import { chatArchiveCutoff } from "../lib/chatArchive.js";
+import { chatArchiveCutoff, chatArchivedSql } from "../lib/chatArchive.js";
 import { buildChatInterest, type ChatInterest } from "../lib/chatInterest.js";
 import { contactAvatarLink } from "../lib/contactAvatar.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
@@ -1156,13 +1156,14 @@ async function loadGroupedInboxRows(input: {
   // Числа на вкладках всегда про основной список: открытый «Архив» их не раздувает (поиск архив не прячет, и числа тоже).
   const hideInCounts = archiveOn && !like;
   const archiveCutoff = chatArchiveCutoff(now);
+  const archivedSql = chatArchivedSql({ cutoff: archiveCutoff, now });
   const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint; countArchived: bigint }[]>(Prisma.sql`
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
         COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused",
-        (s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${archiveCutoff}) AS "isArchived"
+        ${archivedSql} AS "isArchived"
       FROM source_rows s
     ), grouped AS (
       SELECT "groupId", BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
@@ -1187,7 +1188,7 @@ async function loadGroupedInboxRows(input: {
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
         COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
         (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused",
-        (s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${archiveCutoff}) AS "isArchived"
+        ${archivedSql} AS "isArchived"
       FROM source_rows s
     ), grouped AS (
       SELECT "groupId", MAX("activityAt") AS "activityAt", BOOL_OR("agentAttentionRequestedAt" IS NOT NULL) AS attention,

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2525**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2525**; вместе с задачами по расписанию и фоновыми заданиями — **4356**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24360,6 +24360,28 @@
         · дословно из кода
   - если stale.deleted
     - console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
+      · пишет строку в журнал сервера
+  - const avatars = await cleanupOrphanContactAvatars();
+    · зовёт cleanupOrphanContactAvatars()
+    - для каждого: const name of await fs.promises.readdir(dir)
+      - если !AVATAR_NAME_RE.test(name)
+        - continue;
+          · переходит к следующему
+      - если stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS
+        - old.push(name);
+          · дословно из кода
+    - для каждого: let i = 0; i < old.length; i += 500
+      - const rows = await prisma.contactProfile.findMany({ where: { avatarKey: { in: old.slice(i, i + 500) } }, sele…
+        · читает в базе: contactProfile
+      - для каждого: const row of rows
+        - if (row.avatarKey) used.add(row.avatarKey);
+          · дословно из кода
+    - для каждого: const name of old
+      - если used.has(name)
+        - continue;
+          · переходит к следующему
+  - если avatars.deleted
+    - console.log(`[cron] Миниатюры без досье убраны: ${avatars.deleted}`);
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка уборки вложений", err);

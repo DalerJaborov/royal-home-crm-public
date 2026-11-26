@@ -16,10 +16,10 @@
   "paths": 787,
   "cron": 145,
   "jobs": 37,
-  "conditions": 4313,
-  "untranslatedUnique": 497,
-  "untranslatedTotal": 638,
-  "partialUnique": 1140,
+  "conditions": 4317,
+  "untranslatedUnique": 498,
+  "untranslatedTotal": 639,
+  "partialUnique": 1141,
   "translatedShare": 85
  },
  "untranslated": [
@@ -486,6 +486,7 @@
   "st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS",
   "staffOf(call.phone)",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
+  "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
   "stillTalking(c, shootingDate)",
@@ -74748,6 +74749,69 @@
       },
       {
        "t": "если есть удалён (залежался)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: имя подходит по формату",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если used содержит есть имя",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть удалён",
        "k": "if",
        "a": [],
        "c": []

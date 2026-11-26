@@ -768,10 +768,10 @@ export function ConversationList({
       <div className="pane-scroll">
         {showArchiveEntry && (royal
           ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
-          : <div className="pane-b"><button type="button" className="pill ghost sm" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
+          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
         {inArchive && (royal
           ? <ArchiveHeaderRow count={archiveCount} onBack={() => onSegmentChange("all")} />
-          : <div className="pane-b"><button type="button" className="pill ghost sm" onClick={() => onSegmentChange("all")}>Назад ко всем · в архиве {archiveCount}</button></div>)}
+          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("all")}>Назад ко всем · в архиве {archiveCount}</button></div>)}
         {error && conversations.length > 0 ? (
           <div className="pane-b">
             <div className="state err">

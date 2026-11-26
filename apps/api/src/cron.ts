@@ -108,6 +108,7 @@ import { syncPropertyWhispers } from "./lib/telephony/propertyWhisper.js";
 import { pruneWhisperClips } from "./lib/telephony/whisperClips.js";
 import { sweepIncomingCallsForLeads } from "./lib/telephony/autoLeadFromCall.js";
 import { adoptReferencedVoiceNotes, cleanupPrivateFiles } from "./lib/privateFiles.js";
+import { cleanupOrphanContactAvatars } from "./lib/contactAvatar.js";
 import { cleanupDerivedChatMedia } from "./lib/chatMediaDerived.js";
 import { cleanupStalePendingCustomerMedia } from "./lib/customerInputMedia.js";
 import { pruneSettingsSnapshots } from "./lib/settingsSnapshots.js";
@@ -1381,6 +1382,9 @@ export function startCronJobs() {
         // Файлы клиента, так и не дождавшиеся своей реплики (lib/customerInputMedia.ts).
         const stale = await cleanupStalePendingCustomerMedia();
         if (stale.deleted) console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);
+        // Миниатюры собеседников, чьё досье удалили или слили (персональные данные).
+        const avatars = await cleanupOrphanContactAvatars();
+        if (avatars.deleted) console.log(`[cron] Миниатюры без досье убраны: ${avatars.deleted}`);
       } catch (err) {
         reportCronTickError("Ошибка уборки вложений", err);
       }

@@ -7,7 +7,9 @@ import sharp from "sharp";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
-import { AVATAR_RETRY_AFTER_MS, contactAvatarPath, ensureContactAvatar } from "../src/lib/contactAvatar.js";
+import { AVATAR_REFRESH_AFTER_MS, AVATAR_RETRY_AFTER_MS, cleanupOrphanContactAvatars, contactAvatarPath, ensureContactAvatar } from "../src/lib/contactAvatar.js";
+import { ensureConversationContactProfile } from "../src/messengers/conversationStore.js";
+import { isInstagramKeyRefusal } from "../src/lib/instagramAccountAccess.js";
 import { chatArchiveCutoff, isChatArchived } from "../src/lib/chatArchive.js";
 
 /**
@@ -16,10 +18,22 @@ import { chatArchiveCutoff, isChatArchived } from "../src/lib/chatArchive.js";
  * базы в проверки не попадают.
  */
 const fetchInstagramProfileMock = vi.fn();
+const fetchMessengerPicMock = vi.fn();
+const accountTokenMock = vi.fn();
+const logErrorMock = vi.fn();
 const safeOpenMock = vi.fn();
 vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/messengers/meta.js")>()),
   fetchInstagramProfile: (...args: unknown[]) => fetchInstagramProfileMock(...args),
+  fetchMessengerProfilePic: (...args: unknown[]) => fetchMessengerPicMock(...args),
+}));
+vi.mock("../src/messengers/accounts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/messengers/accounts.js")>()),
+  accountTokenById: (...args: unknown[]) => accountTokenMock(...args),
+}));
+vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
+  logSystemError: (...args: unknown[]) => logErrorMock(...args),
 }));
 vi.mock("../src/lib/safeFetch.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/safeFetch.js")>()),
@@ -42,9 +56,17 @@ const profileIds: string[] = [];
 const get = (path: string) => request(app).get(`/api/v1${path}`).set("Authorization", `Bearer ${adminToken}`);
 
 async function listIds(extra = ""): Promise<{ ids: string[]; body: any }> {
-  const response = await get(`/conversations?grouped=1&channel=${CHANNEL}${extra}`);
-  expect(response.status).toBe(200);
-  return { ids: response.body.items.map((item: { id: string }) => item.id), body: response.body };
+  // Все страницы подряд: после теста порций в канале больше сорока строк.
+  const items: any[] = [];
+  let body: any = null;
+  for (let page = 1; page <= 10; page++) {
+    const response = await get(`/conversations?grouped=1&channel=${CHANNEL}${extra}&page=${page}`);
+    expect(response.status).toBe(200);
+    body = response.body;
+    items.push(...body.items);
+    if (items.length >= body.total || body.items.length === 0) break;
+  }
+  return { ids: items.map((item: { id: string }) => item.id), body: { ...body, items } };
 }
 
 async function setArchiveSwitch(value: boolean) {
@@ -56,7 +78,8 @@ async function makeConversation(key: string, data: Record<string, unknown>) {
     data: {
       channel: CHANNEL,
       subscriberId: `archt-${runId}-${key}`,
-      messages: [{ role: "user", content: `сообщение ${key}`, at: new Date().toISOString() }],
+      // Время реплики совпадает с последним входящим: архив смотрит и на него (последняя активность любой стороны).
+      messages: [{ role: "user", content: `сообщение ${key}`, at: ((data.lastMessageAt as Date | undefined) ?? new Date()).toISOString() }],
       ...data,
     } as never,
   });
@@ -83,9 +106,27 @@ beforeAll(async () => {
   await makeConversation("land", { lastMessageAt: ago(4 * 60_000), leadDraft: { stage: "chatting", intent: "buy", type: "участок", districtName: "Варзоб", budgetMax: 300000 } });
   await makeConversation("named", { name: "Фарида", lastMessageAt: ago(5 * 60_000), leadDraft: { stage: "chatting", intent: "buy", rooms: 1 } });
   await makeConversation("nothing", { lastMessageAt: ago(6 * 60_000) });
+  // Давняя тишина, но кто-то ждёт: такие чаты в архив не уходят.
+  const oldAt = ago(60 * DAY);
+  await makeConversation("w-paused", { lastMessageAt: oldAt, pausedUntil: new Date(Date.now() + DAY) });
+  await makeConversation("w-phone", { lastMessageAt: oldAt, leadDraft: { stage: "awaiting_phone" } });
+  await makeConversation("w-accepting", { lastMessageAt: oldAt, leadDraft: { stage: "accepting" } });
+  await makeConversation("w-inquiry", { lastMessageAt: oldAt });
+  await makeConversation("w-done", { lastMessageAt: oldAt, leadDraft: { stage: "chatting" } });
+  // Обращение у каждого диалога заводит триггер базы (по умолчанию HOLD, это ничего не значит); тут его ведёт бот нового агента.
+  await prisma.customerInquiry.update({ where: { conversationId: botIds["w-inquiry"] }, data: { ownerMode: "BOT" } });
+  // Входящее давно, но последней писала НАША сторона неделю назад: чат живой.
+  await makeConversation("w-agent", {
+    lastMessageAt: oldAt,
+    messages: [
+      { role: "user", content: "давно", at: oldAt.toISOString() },
+      { role: "assistant", content: "агент написал", at: ago(7 * DAY).toISOString(), by: { kind: "agent", agentId: "a", agentName: "A" } },
+    ],
+  });
 });
 
 afterAll(async () => {
+  await prisma.customerInquiry.deleteMany({ where: { endpointScope: { channel: CHANNEL } } }).catch(() => undefined);
   await prisma.botConversation.deleteMany({ where: { channel: CHANNEL } });
   await prisma.contactProfile.deleteMany({ where: { id: { in: profileIds } } });
   await prisma.client.deleteMany({ where: { id: clientId } });
@@ -110,13 +151,13 @@ describe("правило архива чатов", () => {
     expect(main.ids).not.toContain(botIds.old);
     expect(main.ids).not.toContain(botIds.returns);
     expect(main.body.archiveEnabled).toBe(true);
-    expect(main.body.counts.archived).toBe(2);
+    expect(main.body.counts.archived).toBe(3);
     expect(main.body.counts.all).toBe(main.ids.length);
     expect(main.body.total).toBe(main.ids.length);
 
     const archive = await listIds("&archived=1");
-    expect(archive.ids.sort()).toEqual([botIds.old, botIds.returns].sort());
-    expect(archive.body.total).toBe(2);
+    expect(archive.ids.sort()).toEqual([botIds.old, botIds.returns, botIds["w-done"]].sort());
+    expect(archive.body.total).toBe(3);
     // Вкладки считаются по основному списку и в архиве: архив их не раздувает.
     expect(archive.body.counts.all).toBe(main.body.counts.all);
   });
@@ -130,8 +171,8 @@ describe("правило архива чатов", () => {
     await prisma.botConversation.update({ where: { id: botIds.returns }, data: { lastMessageAt: new Date() } });
     const main = await listIds();
     expect(main.ids).toContain(botIds.returns);
-    expect((await listIds("&archived=1")).ids).toEqual([botIds.old]);
-    expect(main.body.counts.archived).toBe(1);
+    expect((await listIds("&archived=1")).ids.sort()).toEqual([botIds.old, botIds["w-done"]].sort());
+    expect(main.body.counts.archived).toBe(2);
   });
 
   it("выключенный рубильник возвращает прежний список: архива нет", async () => {
@@ -295,5 +336,147 @@ describe("миниатюра собеседника", () => {
     // Та же подпись без `v=a` не открывает миниатюру как вложение переписки.
     const asAttachment = await request(app).get(row.avatarUrl.replace("&v=a", ""));
     expect(asAttachment.status).not.toBe(200);
+  });
+});
+
+describe("что в архив не уходит: кто-то ждёт или писала наша сторона", () => {
+  const keep = ["w-paused", "w-phone", "w-accepting", "w-inquiry", "w-agent"];
+
+  it("пауза бота, заявка ждёт номер или принятия, обращение ведёт сотрудник, давний ответ агента: остаются в основном списке", async () => {
+    const main = await listIds();
+    for (const key of keep) expect(main.ids, key).toContain(botIds[key]);
+    // Контроль того же срока без признаков ожидания (у него тоже есть обращение в HOLD): уходит в архив.
+    expect(main.ids).not.toContain(botIds["w-done"]);
+    const archive = await listIds("&archived=1");
+    expect(archive.ids).toContain(botIds["w-done"]);
+    for (const key of keep) expect(archive.ids, key).not.toContain(botIds[key]);
+  });
+
+  it("чистая функция даёт тот же ответ, что запрос", () => {
+    const now = new Date("2026-11-26T10:00:00Z");
+    const old = new Date(now.getTime() - 60 * DAY);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old }, now)).toBe(true);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, botPaused: true }, now)).toBe(false);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, agentAttention: true }, now)).toBe(false);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, leadStage: "awaiting_phone" }, now)).toBe(false);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, leadStage: "accepting" }, now)).toBe(false);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, openInquiry: true }, now)).toBe(false);
+    expect(isChatArchived({ clientId: null, lastActivityAt: old, leadStage: "chatting" }, now)).toBe(true);
+  });
+});
+
+describe("миниатюра: ключ аккаунта-получателя, отказы, обновление, уборка", () => {
+  const ok = async () => ({
+    res: new Response(new Uint8Array(await sharp({ create: { width: 200, height: 200, channels: 3, background: "#aa3366" } }).png().toBuffer()), { status: 200 }),
+  });
+  const newProfile = async () => {
+    const p = await prisma.contactProfile.create({ data: {} });
+    profileIds.push(p.id);
+    return p;
+  };
+
+  it("Instagram второго аккаунта: профиль спрашивается ключом ЭТОГО аккаунта", async () => {
+    const profile = await newProfile();
+    accountTokenMock.mockReset().mockResolvedValue({ id: "acc2", token: "token-of-account-2", disabled: false });
+    fetchInstagramProfileMock.mockReset().mockResolvedValue({ profilePic: "https://cdn.example.invalid/p.jpg" });
+    safeOpenMock.mockReset().mockImplementation(ok);
+    expect(await ensureContactAvatar({ profileId: profile.id, channel: "INSTAGRAM", subscriberId: "ig-acc2", accountId: "acc2" })).toBe("stored");
+    expect(accountTokenMock).toHaveBeenCalledWith("acc2", "INSTAGRAM");
+    expect(fetchInstagramProfileMock).toHaveBeenCalledWith("ig-acc2", "token-of-account-2");
+  });
+
+  it("Messenger: ключ Страницы того же аккаунта", async () => {
+    const profile = await newProfile();
+    accountTokenMock.mockReset().mockResolvedValue({ id: "page1", token: "page-token", disabled: false });
+    fetchMessengerPicMock.mockReset().mockResolvedValue("https://cdn.example.invalid/m.jpg");
+    safeOpenMock.mockReset().mockImplementation(ok);
+    expect(await ensureContactAvatar({ profileId: profile.id, channel: "FACEBOOK", subscriberId: "psid-1", accountId: "page1" })).toBe("stored");
+    expect(fetchMessengerPicMock).toHaveBeenCalledWith("psid-1", "page-token");
+  });
+
+  it("аккаунт выключен или без ключа: не пробуем и попытку не занимаем (общий ключ не подставляем)", async () => {
+    const profile = await newProfile();
+    fetchInstagramProfileMock.mockReset();
+    for (const answer of [{ id: "a", token: "t", disabled: true }, { id: "a", token: undefined, disabled: false }]) {
+      accountTokenMock.mockReset().mockResolvedValue(answer);
+      expect(await ensureContactAvatar({ profileId: profile.id, channel: "INSTAGRAM", subscriberId: "ig-off", accountId: "a" })).toBe("skipped");
+    }
+    expect(fetchInstagramProfileMock).not.toHaveBeenCalled();
+    expect((await prisma.contactProfile.findUniqueOrThrow({ where: { id: profile.id } })).avatarFetchedAt).toBeNull();
+  });
+
+  it("общая дверь входящего передаёт accountId диалога", async () => {
+    const conversation = await prisma.botConversation.create({ data: { channel: "INSTAGRAM", subscriberId: `archt-${runId}-door`, messages: [] } });
+    accountTokenMock.mockReset().mockResolvedValue({ id: "acc-door", token: "token-door", disabled: false });
+    fetchInstagramProfileMock.mockReset().mockResolvedValue({});
+    safeOpenMock.mockReset();
+    const profileId = await ensureConversationContactProfile({
+      id: conversation.id, channel: "INSTAGRAM", subscriberId: conversation.subscriberId, name: null, contactProfileId: null, accountId: "acc-door",
+    });
+    if (profileId) profileIds.push(profileId);
+    await vi.waitFor(() => expect(fetchInstagramProfileMock).toHaveBeenCalledWith(conversation.subscriberId, "token-door"));
+    await prisma.botConversation.delete({ where: { id: conversation.id } });
+  });
+
+  it("«объект не существует» (400, subcode 33) не считается отказом ключа", () => {
+    const body = JSON.stringify({ error: { message: "Object with ID does not exist", type: "GraphMethodException", code: 100, error_subcode: 33 } });
+    expect(isInstagramKeyRefusal(400, body)).toBe(false);
+  });
+
+  it("таймаут и сетевой отказ не попадают в журнал ошибок, неожиданное попадает", async () => {
+    fetchInstagramProfileMock.mockReset().mockResolvedValue({ profilePic: "https://cdn.example.invalid/p.jpg" });
+    accountTokenMock.mockReset();
+    logErrorMock.mockReset();
+    for (const message of ["таймаут 6000 мс", "fetch failed", "The operation timed out"]) {
+      const p = await newProfile();
+      safeOpenMock.mockReset().mockRejectedValue(new Error(message));
+      expect(await ensureContactAvatar({ profileId: p.id, channel: "INSTAGRAM", subscriberId: "ig-t" })).toBe("failed");
+    }
+    expect(logErrorMock).not.toHaveBeenCalled();
+    const p = await newProfile();
+    safeOpenMock.mockReset().mockImplementation(async () => ({ res: new Response(new Uint8Array([1, 2, 3]), { status: 200 }) }));
+    expect(await ensureContactAvatar({ profileId: p.id, channel: "INSTAGRAM", subscriberId: "ig-bad" })).toBe("failed");
+    expect(logErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("смена фото в канале: обновление не раньше 90 дней, старый файл удаляется", async () => {
+    const profile = await newProfile();
+    fetchInstagramProfileMock.mockReset().mockResolvedValue({ profilePic: "https://cdn.example.invalid/p.jpg" });
+    accountTokenMock.mockReset();
+    safeOpenMock.mockReset().mockImplementation(ok);
+    await ensureContactAvatar({ profileId: profile.id, channel: "INSTAGRAM", subscriberId: "ig-r" });
+    const first = (await prisma.contactProfile.findUniqueOrThrow({ where: { id: profile.id } })).avatarKey!;
+    const soon = new Date(Date.now() + AVATAR_REFRESH_AFTER_MS - 60_000);
+    expect(await ensureContactAvatar({ profileId: profile.id, channel: "INSTAGRAM", subscriberId: "ig-r", now: soon })).toBe("skipped");
+    const later = new Date(Date.now() + AVATAR_REFRESH_AFTER_MS + 60_000);
+    expect(await ensureContactAvatar({ profileId: profile.id, channel: "INSTAGRAM", subscriberId: "ig-r", now: later })).toBe("stored");
+    const second = (await prisma.contactProfile.findUniqueOrThrow({ where: { id: profile.id } })).avatarKey!;
+    expect(second).not.toBe(first);
+    expect(contactAvatarPath(first)).toBeNull();
+    expect(contactAvatarPath(second)).not.toBeNull();
+  });
+
+  it("ночная уборка стирает миниатюры без досье и не трогает свежие, живые и чужие по формату", async () => {
+    const dir = path.join(privateDir, "avatars");
+    fs.mkdirSync(dir, { recursive: true });
+    const live = await newProfile();
+    fetchInstagramProfileMock.mockReset().mockResolvedValue({ profilePic: "https://cdn.example.invalid/p.jpg" });
+    safeOpenMock.mockReset().mockImplementation(ok);
+    accountTokenMock.mockReset();
+    await ensureContactAvatar({ profileId: live.id, channel: "INSTAGRAM", subscriberId: "ig-sweep" });
+    const liveKey = (await prisma.contactProfile.findUniqueOrThrow({ where: { id: live.id } })).avatarKey!;
+    const orphan = "11111111-1111-4111-8111-111111111111.webp";
+    const fresh = "22222222-2222-4222-8222-222222222222.webp";
+    for (const name of [orphan, fresh]) fs.writeFileSync(path.join(dir, name), "x");
+    fs.writeFileSync(path.join(dir, "notes.txt"), "не наш формат");
+    // «Свежий» файл: время файла впереди часов уборки, возраст суток не набран.
+    const future = new Date(Date.now() + 3 * DAY);
+    fs.utimesSync(path.join(dir, fresh), future, future);
+    const result = await cleanupOrphanContactAvatars(new Date(Date.now() + 2 * DAY));
+    expect(result.deleted).toBeGreaterThanOrEqual(1);
+    expect(fs.existsSync(path.join(dir, orphan))).toBe(false);
+    expect(fs.existsSync(path.join(dir, fresh))).toBe(true);
+    expect(fs.existsSync(path.join(dir, liveKey))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "notes.txt"))).toBe(true);
   });
 });

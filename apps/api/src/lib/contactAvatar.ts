@@ -9,6 +9,7 @@ import { privateDirRoot } from "./privateFiles.js";
 import { safeOpen } from "./safeFetch.js";
 import { chatAttachmentLinks } from "./chatAttachmentLinks.js";
 import { fetchInstagramProfile, fetchMessengerProfilePic } from "../messengers/meta.js";
+import { accountTokenById } from "../messengers/accounts.js";
 import { getUserProfilePhotoUrl } from "../telegram/api.js";
 
 /**
@@ -31,6 +32,10 @@ import { getUserProfilePhotoUrl } from "../telegram/api.js";
 export const AVATAR_PX = 96;
 /** Повтор после отказа канала не раньше, чтобы закрытый профиль не дёргали на каждое сообщение. */
 export const AVATAR_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+/** Человек сменил фото в канале: обновляем миниатюру не чаще раза в 90 дней и только когда он снова пишет. */
+export const AVATAR_REFRESH_AFTER_MS = 90 * 24 * 60 * 60 * 1000;
+/** Файл без записи в базе стирается ночной уборкой не раньше чем через сутки: он мог только что лечь, запись ещё едет. */
+const ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000;
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 24_000_000;
 const TIMEOUT_MS = 6_000;
@@ -94,39 +99,56 @@ export async function ensureContactAvatar(input: {
   profileId: string | null | undefined;
   channel: string;
   subscriberId: string | null | undefined;
-  /** Ключ именно того аккаунта, в который написали (несколько Instagram); нет: общий из Настроек. */
-  token?: string;
+  /**
+   * НАШ аккаунт, в который написали (несколько Instagram или Страниц). Фото спрашивается ключом ЭТОГО аккаунта:
+   * общим ключом из Настроек чужого человека не видно («объект не существует»), и отказ закрыл бы попытку на неделю
+   * (и на сутки спрятал бы профиль для разбора имени). Аккаунт выключен или ключа нет: не пробуем и попытку не занимаем.
+   */
+  accountId?: string | null;
   now?: Date;
 }): Promise<EnsureAvatarResult> {
   const { profileId, channel, subscriberId } = input;
   if (!profileId || !subscriberId || !channelHasAvatar(channel)) return "skipped";
   const now = input.now ?? new Date();
   try {
+    let token: string | undefined;
+    if (input.accountId && (channel === "INSTAGRAM" || channel === "FACEBOOK")) {
+      const account = await accountTokenById(input.accountId, channel);
+      if (account.disabled || !account.token) return "skipped";
+      token = account.token;
+    }
     // Занимаем попытку условно: выиграл один из одновременных входящих, остальные пропускают.
+    const previous = await prisma.contactProfile.findUnique({ where: { id: profileId }, select: { avatarKey: true } });
+    if (!previous) return "skipped";
     const claim = await prisma.contactProfile.updateMany({
       where: {
         id: profileId,
-        avatarKey: null,
-        OR: [{ avatarFetchedAt: null }, { avatarFetchedAt: { lt: new Date(now.getTime() - AVATAR_RETRY_AFTER_MS) } }],
+        avatarKey: previous.avatarKey,
+        // Нет фото: первая попытка или повтор после отказа через неделю; есть фото: обновление раз в 90 дней.
+        OR: previous.avatarKey
+          ? [{ avatarFetchedAt: { lt: new Date(now.getTime() - AVATAR_REFRESH_AFTER_MS) } }]
+          : [{ avatarFetchedAt: null }, { avatarFetchedAt: { lt: new Date(now.getTime() - AVATAR_RETRY_AFTER_MS) } }],
       },
       data: { avatarFetchedAt: now },
     });
     if (claim.count !== 1) return "skipped";
 
-    const remote = await remoteUrlFor(channel, subscriberId, input.token);
+    const remote = await remoteUrlFor(channel, subscriberId, token);
     if (!remote) return "none";
     const name = await downloadThumb(remote);
-    const saved = await prisma.contactProfile.updateMany({ where: { id: profileId, avatarKey: null }, data: { avatarKey: name } });
+    const saved = await prisma.contactProfile.updateMany({ where: { id: profileId, avatarKey: previous.avatarKey }, data: { avatarKey: name } });
     if (saved.count !== 1) {
       // Профиль успели слить или фото уже записали: лишний файл не оставляем.
       await fs.promises.rm(path.join(avatarsDir(), name), { force: true }).catch(() => undefined);
       return "skipped";
     }
+    // Обновление: прежнюю миниатюру этого человека не храним (персональные данные).
+    if (previous.avatarKey) await fs.promises.rm(path.join(avatarsDir(), previous.avatarKey), { force: true }).catch(() => undefined);
     return "stored";
   } catch (err) {
     const message = describeError(err);
     // Сеть и отказ канала шум (кружок с буквой остаётся); неожиданное (sharp, диск) идёт в журнал.
-    if (!/timeout|timed out|fetch failed|ECONNRESET|ENOTFOUND|ECONNREFUSED|UND_ERR|HTTP \d{3}/i.test(message)) {
+    if (!/timeout|timed out|таймаут|fetch failed|ECONNRESET|ENOTFOUND|ECONNREFUSED|UND_ERR|HTTP \d{3}/i.test(message)) {
       void logSystemError("api", `Фото собеседника ${profileId} (${channel}): ${message}`, {
         dedupKey: "contact-avatar",
         dedupWindowMs: 6 * 60 * 60_000,
@@ -136,4 +158,29 @@ export async function ensureContactAvatar(input: {
     }
     return "failed";
   }
+}
+
+/**
+ * НОЧНАЯ УБОРКА МИНИАТЮР БЕЗ ХОЗЯИНА (ПДн): досье удалили или слили, и файл остался. Стирает файлы папки `avatars`,
+ * на которые не ссылается ни одно досье и которым больше суток. Чужие имена (не наш формат) не трогает.
+ */
+export async function cleanupOrphanContactAvatars(now: Date = new Date()): Promise<{ deleted: number; kept: number }> {
+  const dir = avatarsDir();
+  const old: string[] = [];
+  for (const name of await fs.promises.readdir(dir)) {
+    if (!AVATAR_NAME_RE.test(name)) continue;
+    const stat = await fs.promises.stat(path.join(dir, name)).catch(() => null);
+    if (stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS) old.push(name);
+  }
+  const used = new Set<string>();
+  for (let i = 0; i < old.length; i += 500) {
+    const rows = await prisma.contactProfile.findMany({ where: { avatarKey: { in: old.slice(i, i + 500) } }, select: { avatarKey: true } });
+    for (const row of rows) if (row.avatarKey) used.add(row.avatarKey);
+  }
+  let deleted = 0;
+  for (const name of old) {
+    if (used.has(name)) continue;
+    await fs.promises.rm(path.join(dir, name), { force: true }).then(() => { deleted += 1; }).catch(() => undefined);
+  }
+  return { deleted, kept: old.length - deleted };
 }

@@ -230,6 +230,8 @@ export async function ensureConversationContactProfile(conversation: {
   subscriberId: string;
   name: string | null;
   contactProfileId: string | null;
+  /** Наш аккаунт, в который написали: фото профиля спрашивается ключом ЭТОГО аккаунта, а не общим. */
+  accountId?: string | null;
 }): Promise<string | null> {
   const identities = identitiesForMessengerChannel(conversation.channel, conversation.subscriberId);
   if (identities.length === 0) return conversation.contactProfileId;
@@ -248,7 +250,7 @@ export async function ensureConversationContactProfile(conversation: {
     },
   });
   // Миниатюра для списка чатов (lib/contactAvatar.ts): один раз на человека, в отрыве, отказ канала тихий.
-  void ensureContactAvatar({ profileId, channel: conversation.channel, subscriberId: conversation.subscriberId });
+  void ensureContactAvatar({ profileId, channel: conversation.channel, subscriberId: conversation.subscriberId, accountId: conversation.accountId });
   return profileId;
 }
 

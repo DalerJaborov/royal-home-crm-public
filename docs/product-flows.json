@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 787,
-  "forks": 4352,
+  "forks": 4356,
   "mounts": 87,
   "cron": 145,
   "jobs": 37,
@@ -109811,6 +109811,120 @@
         {
          "k": "do",
          "t": "console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const avatars = await cleanupOrphanContactAvatars();",
+       "a": [
+        "зовёт cleanupOrphanContactAvatars()"
+       ],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const name of await fs.promises.readdir(dir)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!AVATAR_NAME_RE.test(name)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "old.push(name);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: let i = 0; i < old.length; i += 500",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const rows = await prisma.contactProfile.findMany({ where: { avatarKey: { in: old.slice(i, i + 500) } }, sele…",
+           "a": [
+            "читает в базе: contactProfile"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const row of rows",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "if (row.avatarKey) used.add(row.avatarKey);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const name of old",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "used.has(name)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "cleanupOrphanContactAvatars() — apps/api/src/lib/contactAvatar.ts"
+      },
+      {
+       "k": "if",
+       "t": "avatars.deleted",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Миниатюры без досье убраны: ${avatars.deleted}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],
