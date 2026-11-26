@@ -19,9 +19,11 @@ import { createCustomerMessengerFixture, type CustomerMessengerFixture } from ".
  * `reactionOnly` и `result.reactOnly`).
  */
 
+// 26.11.2026: реакция во всех каналах Meta идёт одной дверью sendCustomerReaction (WhatsApp — эмодзи,
+// Instagram/Messenger — "love"); отдельного сообщения-смайлика больше нет — sendMessage не зовётся никогда.
 const { sendMessage, sendReaction, verifySignature, isMetaEnabled, getWaPhoneId } = vi.hoisted(() => ({
   sendMessage: vi.fn(async (..._args: unknown[]) => "mid-fake-1"),
-  sendReaction: vi.fn(async (..._args: unknown[]) => {}),
+  sendReaction: vi.fn(async (..._args: unknown[]) => true),
   verifySignature: vi.fn(async () => true),
   isMetaEnabled: vi.fn(async () => true),
   getWaPhoneId: vi.fn(async () => undefined as string | undefined),
@@ -40,7 +42,7 @@ vi.mock("../src/ai/client.js", async (importOriginal) => ({
 vi.mock("../src/messengers/meta.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/messengers/meta.js")>()),
   sendMessage,
-  sendReaction,
+  sendCustomerReaction: sendReaction,
   verifySignature,
   isMetaEnabled,
   getWaPhoneId,
@@ -219,6 +221,24 @@ describe("смайлик-реакция подчиняется тем же пр�
     await waitForReactionSaved("WHATSAPP", from);
 
     expect(sendReaction).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(callAi).not.toHaveBeenCalled();
+  });
+
+  it("Instagram без пауз — настоящая реакция на сообщение клиента, без отдельного сообщения-смайлика", async () => {
+    const page = instagram.externalId;
+    const sender = `react-pause-${runId}-ig-ok`;
+    const mid = `mid-react-pause-${runId}-e`;
+    const body = igReactionBody(page, sender, mid);
+    const res = await request(app)
+      .post("/api/v1/webhooks/meta")
+      .set("x-hub-signature-256", instagram.sign(body))
+      .send(body);
+    expect(res.status).toBe(200);
+    await waitForReactionSaved("INSTAGRAM", sender);
+
+    expect(sendReaction).toHaveBeenCalledTimes(1);
+    expect(sendReaction.mock.calls[0]?.slice(0, 3)).toEqual(["INSTAGRAM", sender, mid]);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(callAi).not.toHaveBeenCalled();
   });
