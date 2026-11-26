@@ -549,10 +549,15 @@ describe("живые сценарии чтения Мадины", () => {
 });
 
 describe("группа: когда бот отвечает", () => {
-  it("группа не подключена — молчит даже на упоминание сотрудника", async () => {
+  // С 23.11.2026 (#403) неподключённая группа на прямое обращение получает подсказку «как подключить» —
+  // раз в 10 минут, без модели. Прежнее ожидание «полная тишина» было красным и на main (сверено 26.11.2026).
+  it("группа не подключена — модель не зовётся, на упоминание только подсказка «как подключить» раз в 10 минут", async () => {
+    await handleTelegramUpdate(groupMsg("author", `@${BOT} найди клиента`));
     await handleTelegramUpdate(groupMsg("author", `@${BOT} найди клиента`));
     expect(runner).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
+    const texts = sendMessage.mock.calls.map((call) => String(call[1]));
+    expect(texts.every((text) => /не подключена|пайваст нестам/u.test(text))).toBe(true);
+    expect(texts.length).toBeLessThanOrEqual(2);
     expect(sendHtmlMessage).not.toHaveBeenCalled();
   });
 
