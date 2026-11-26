@@ -199,6 +199,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Тесты этого файла берут одни и те же message_id: отметки «ответ ушёл» (lib/assistantTurnReplied.ts) между ними не нужны.
   await prisma.processedMessage.deleteMany({ where: { channel: "ASSISTANT_TURN_REPLY" } });
+  // Подсказка непривязанному — раз в 6 часов на человека в группе (26.11.2026): между тестами окно не нужно.
+  await prisma.assistantGroupPerson.deleteMany({ where: { chatId: { in: [String(GROUP), String(OTHER_GROUP)] } } });
   sendStaffCard.mockReset().mockResolvedValue("sent");
   for (const m of [sendMessage, removeKeyboard, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction]) {
     m.mockReset();
@@ -225,6 +227,7 @@ afterAll(async () => {
   const ids = Object.values(agents).map((a) => a.id);
   await prisma.telegramDialogState.deleteMany({ where: { agentId: { in: ids } } });
   await prisma.assistantTelegramGroup.deleteMany({ where: { chatId: { in: [String(GROUP), String(OTHER_GROUP)] } } });
+  await prisma.assistantGroupPerson.deleteMany({ where: { chatId: { in: [String(GROUP), String(OTHER_GROUP)] } } });
   await prisma.telegramCallbackSeen.deleteMany({ where: { id: { startsWith: `cb-${runId}` } } });
   await cleanupAssistantActionAgents(ids);
   if (savedMontajer) await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: savedMontajer } });
@@ -596,9 +599,10 @@ describe("группа: когда бот отвечает", () => {
     expect(runner).toHaveBeenCalledTimes(2);
   });
 
-  // 24.11.2026: вместо «Привяжите аккаунт» — предложение привязки (telegram/assistantGroupNewcomer.ts). Привязка по
+  // 24.11.2026: вместо «Привяжите аккаунт» — подсказка привязки (telegram/assistantGroupNewcomer.ts). Привязка по
   // номеру по умолчанию выключена (ревью 25.11.2026): путь через профиль, без кнопки ?start=staff.
-  const linkOffer = () => sendMessageWithButtons.mock.calls.find((call) => String(call[1]).includes("не привязан к CRM"));
+  // С 26.11.2026 подсказка короткая, одним языком: «…привяжите Telegram в CRM: Профиль → Telegram.»
+  const linkOffer = () => sendMessageWithButtons.mock.calls.find((call) => String(call[1]).includes("Профиль → Telegram"));
   it("не привязанный сотрудник — путь привязки через профиль, модель не зовётся", async () => {
     await handleTelegramUpdate(groupMsg(null, `@${BOT} снизь цену`));
     expect(runner).not.toHaveBeenCalled();

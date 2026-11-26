@@ -6,11 +6,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
  * неподключённой группы, при «помолчи» и выключенном рубильнике; в личке — привязка только своим
  * контактом, только в окне после `/start staff`, только к одному действующему сотруднику без другого Telegram.
  */
-const sent = vi.hoisted(() => ({ buttons: [] as unknown[][], contact: [] as unknown[][], removed: [] as unknown[][] }));
+const sent = vi.hoisted(() => ({ buttons: [] as unknown[][], contact: [] as unknown[][], removed: [] as unknown[][], failNext: false }));
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   getBotUsername: async () => "royal_test_bot",
-  sendMessageWithButtons: async (...args: unknown[]) => { sent.buttons.push(args); return { message_id: 1 }; },
+  sendMessageWithButtons: async (...args: unknown[]) => {
+    if (sent.failNext) { sent.failNext = false; throw new Error("telegram down"); }
+    sent.buttons.push(args);
+    return { message_id: 1 };
+  },
   requestContact: async (...args: unknown[]) => { sent.contact.push(args); return {}; },
   removeKeyboard: async (...args: unknown[]) => { sent.removed.push(args); return {}; },
 }));
@@ -37,7 +41,7 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { offerTelegramLinkToNewcomer, resetNewcomerMemoryForTests } = await import("../src/telegram/assistantGroupNewcomer.js");
+const { offerTelegramLinkToNewcomer, claimNewMemberWelcome, NEWCOMER_HINT_COOLDOWN_MS } = await import("../src/telegram/assistantGroupNewcomer.js");
 const { askStaffContactForLink, tryLinkAgentByContact, tryConfirmStaffLinkCode } = await import("../src/lib/telegramAgentLink.js");
 const { cleanupTelegramLinkOffers, LINK_OFFER_RETENTION_MS } = await import("../src/telegram/assistantGroupNewcomer.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
@@ -71,38 +75,89 @@ beforeEach(async () => {
   switchesOff.clear();
   switchesOn.clear();
   switchesOn.add("telegramPhoneLinkEnabled"); // сценарии привязки по номеру; выключенный — отдельным тестом
-  resetNewcomerMemoryForTests();
+  sent.failNext = false;
+  await prisma.assistantGroupPerson.deleteMany({ where: { chatId } });
   await prisma.assistantTelegramGroup.update({ where: { chatId }, data: { proactiveMutedUntil: null } });
 });
 
 afterAll(async () => {
   await prisma.assistantTelegramLinkOffer.deleteMany({ where: { telegramUserId: { in: telegramIds } } });
+  await prisma.assistantGroupPerson.deleteMany({ where: { chatId } });
   await prisma.assistantTelegramGroup.deleteMany({ where: { chatId } });
   await deleteAgentsWithTraces(agentIds);
   await prisma.$disconnect();
 });
 
-describe("предложение привязки новичку в группе", () => {
-  it("один раз на Telegram-аккаунт, кнопкой в личку", async () => {
+const groupMsgAs = (fromId: string, text: string, extra: Record<string, unknown> = {}) =>
+  ({ ...groupMsg(fromId, text), from: { id: Number(fromId), is_bot: false, first_name: "Бехруз" }, ...extra }) as never;
+
+describe("подсказка непривязанному в группе (26.11.2026: на обращение, раз в 6 часов, одним языком)", () => {
+  it("5 обращений подряд от непривязанного — не больше одного ответа", async () => {
     const id = newTelegramId();
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(true);
+    const replies: boolean[] = [];
+    for (const text of ["Шабнам, салом", "Шабнам?", "Манро пайваст кун", "Иҷро шуд", "Салом алейкум"]) {
+      replies.push(await offerTelegramLinkToNewcomer(groupMsgAs(id, text), "addressed"));
+    }
+    expect(replies.filter(Boolean)).toHaveLength(1);
     expect(sent.buttons).toHaveLength(1);
     const [toChat, text, buttons] = sent.buttons[0] as [string, string, { text: string; url: string }[][]];
     expect(toChat).toBe(chatId);
-    expect(text).toContain("Шабнам");
-    expect(text).toContain("Ассалому алейкум");
+    expect(text.startsWith("Бехруз, ")).toBe(true);
+    expect(text).not.toMatch(/не узнаю|намешиносам|—|\n/u);
     expect(buttons[0][0].url).toBe("https://t.me/royal_test_bot?start=staff");
-    resetNewcomerMemoryForTests(); // как после перезапуска: решает строка в базе
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "ещё раз") as never, "ambient")).toBe(false);
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "/start") as never, "start")).toBe(false);
+  });
+
+  it("одновременные обращения — один ответ (победитель гонки один)", async () => {
+    const id = newTelegramId();
+    const results = await Promise.all([1, 2, 3].map(() => offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, ёрӣ деҳ"), "addressed")));
+    expect(results.filter(Boolean)).toHaveLength(1);
     expect(sent.buttons).toHaveLength(1);
   });
 
-  it("позвал по имени — отвечает и после первого раза", async () => {
+  it("фото, стикер, голосовое без подписи — тишина, даже ответом на её сообщение", async () => {
     const id = newTelegramId();
-    await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient");
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "Шабнам, ты где?") as never, "addressed")).toBe(true);
+    const reply_to_message = { chat: { id: Number(chatId) }, from: { id: 1, is_bot: true, username: "royal_test_bot" } };
+    for (const extra of [{ photo: [{ file_id: "p" }] }, { sticker: { file_id: "s" } }, { voice: { file_id: "v", duration: 4 } }]) {
+      expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "", { text: undefined, reply_to_message, ...extra }), "addressed")).toBe(false);
+    }
+    expect(sent.buttons).toHaveLength(0);
+    // Тишина не тратит его подсказку.
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(true);
+  });
+
+  it("таджикский — ответ и кнопка только по-таджикски", async () => {
+    const id = newTelegramId();
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнамчун, хонаҳои заминиро равон кунед"), "addressed")).toBe(true);
+    const [, text, buttons] = sent.buttons[0] as [string, string, { text: string; url: string }[][]];
+    expect(text).toMatch(/чати шахсӣ/u);
+    expect(text).not.toMatch(/напишите|привяжу|личку|Здравствуйте/iu);
+    expect(buttons[0][0].text).toMatch(/чати шахсӣ/u);
+    expect(buttons[0][0].text).not.toMatch(/Написать|\//u);
+  });
+
+  it("русский — ответ только по-русски", async () => {
+    const id = newTelegramId();
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, привяжи меня пожалуйста"), "addressed")).toBe(true);
+    const [, text, buttons] = sent.buttons[0] as [string, string, { text: string; url: string }[][]];
+    expect(text).not.toMatch(/[ҳҷқғӯӣ]/iu);
+    expect(buttons[0][0].text).toBe("Написать Шабнам в личку");
+  });
+
+  it("через 6 часов можно ещё раз — и уже другой фразой", async () => {
+    const id = newTelegramId();
+    const start = new Date();
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed", start)).toBe(true);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed", new Date(start.getTime() + NEWCOMER_HINT_COOLDOWN_MS - 60_000))).toBe(false);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed", new Date(start.getTime() + NEWCOMER_HINT_COOLDOWN_MS + 1_000))).toBe(true);
     expect(sent.buttons).toHaveLength(2);
+    expect(sent.buttons[1][1]).not.toBe(sent.buttons[0][1]);
+  });
+
+  it("сбой отправки — подсказка не потрачена", async () => {
+    const id = newTelegramId();
+    sent.failNext = true;
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(false);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(true);
   });
 
   it("привязанного сотрудника не трогает", async () => {
@@ -110,27 +165,40 @@ describe("предложение привязки новичку в группе
     const agentId = await createTestAgent(`Агент новичков ${runId}-${seq}`);
     agentIds.push(agentId);
     await prisma.agent.update({ where: { id: agentId }, data: { telegramUserId: id } });
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(false);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(false);
     expect(sent.buttons).toHaveLength(0);
   });
 
   it("неподключённая группа, бот, пересылка — мимо", async () => {
     const id = newTelegramId();
-    expect(await offerTelegramLinkToNewcomer({ ...groupMsg(id), chat: { id: -1009, type: "supergroup" } } as never, "ambient")).toBe(false);
-    expect(await offerTelegramLinkToNewcomer({ ...groupMsg(id), from: { id: Number(id), is_bot: true } } as never, "ambient")).toBe(false);
-    expect(await offerTelegramLinkToNewcomer({ ...groupMsg(id), forward_origin: { type: "user" } } as never, "ambient")).toBe(false);
+    const base = groupMsg(id, "Шабнам, салом");
+    expect(await offerTelegramLinkToNewcomer({ ...base, chat: { id: -1009, type: "supergroup" } } as never, "addressed")).toBe(false);
+    expect(await offerTelegramLinkToNewcomer({ ...base, from: { id: Number(id), is_bot: true } } as never, "addressed")).toBe(false);
+    expect(await offerTelegramLinkToNewcomer({ ...base, forward_origin: { type: "user" } } as never, "addressed")).toBe(false);
     expect(sent.buttons).toHaveLength(0);
   });
 
-  it("«помолчи» и выключенный рубильник глушат реплику, но не /start", async () => {
+  it("/start — тот же лимит", async () => {
     const id = newTelegramId();
-    await prisma.assistantTelegramGroup.update({ where: { chatId }, data: { proactiveMutedUntil: new Date(Date.now() + 60_000) } });
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(false);
-    await prisma.assistantTelegramGroup.update({ where: { chatId }, data: { proactiveMutedUntil: null } });
-    switchesOff.add("shabnamGroupUnaddressedEnabled");
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(false);
-    expect(sent.buttons).toHaveLength(0);
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "/start") as never, "start")).toBe(true);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "/start"), "start")).toBe(true);
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(false);
+  });
+});
+
+describe("приветствие нового участника — один раз на человека в группе", () => {
+  it("тот же человек приглашён второй раз — 0 новых; боты не считаются", async () => {
+    const a = newTelegramId();
+    const b = newTelegramId();
+    expect(await claimNewMemberWelcome(chatId, [{ id: Number(a), is_bot: false }, { id: 1, is_bot: true }])).toBe(1);
+    expect(await claimNewMemberWelcome(chatId, [{ id: Number(a), is_bot: false }])).toBe(0);
+    expect(await claimNewMemberWelcome(chatId, [{ id: Number(a), is_bot: false }, { id: Number(b), is_bot: false }])).toBe(1);
+  });
+
+  it("строка уже была от подсказки — приветствие всё равно один раз", async () => {
+    const id = newTelegramId();
+    expect(await offerTelegramLinkToNewcomer(groupMsgAs(id, "Шабнам, салом"), "addressed")).toBe(true);
+    expect(await claimNewMemberWelcome(chatId, [{ id: Number(id), is_bot: false }])).toBe(1);
+    expect(await claimNewMemberWelcome(chatId, [{ id: Number(id), is_bot: false }])).toBe(0);
   });
 });
 
@@ -142,14 +210,23 @@ describe("рубильник «Привязка Telegram по номеру» в�
     expect(await automationSwitchOn("telegramPhoneLinkEnabled")).toBe(false);
   });
 
-  it("новичку в группе — путь через профиль, без кнопки ?start=staff", async () => {
+  it("в группе — путь через профиль, без кнопки ?start=staff", async () => {
     switchesOn.clear();
     const id = newTelegramId();
-    expect(await offerTelegramLinkToNewcomer(groupMsg(id) as never, "ambient")).toBe(true);
+    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "Шабнам, ёрӣ деҳ") as never, "addressed")).toBe(true);
     const [, text, buttons] = sent.buttons[0] as [string, string, { text: string; url: string }[][]];
-    expect(text).toContain("Профиль → Telegram");
-    expect(text).toContain("Ассалому алейкум");
+    expect(text).toMatch(/Профил → Telegram|профили CRM/u);
     expect(JSON.stringify(buttons)).not.toContain("start=staff");
+  });
+
+  it("«привяжи меня» — путь: профиль или ссылка «Подключить к Шабнам» от руководителя, без срока цифрой", async () => {
+    switchesOn.clear();
+    const id = newTelegramId();
+    expect(await offerTelegramLinkToNewcomer(groupMsg(id, "Шабнам, привяжи меня") as never, "addressed")).toBe(true);
+    const text = String(sent.buttons[0][1]);
+    expect(text).toContain("Профиль → Telegram");
+    expect(text).toContain("«Подключить к Шабнам»");
+    expect(text).not.toMatch(/\d/u);
   });
 
   it("/start staff в личке номер не просит, контакт в старом окне не привязывает", async () => {

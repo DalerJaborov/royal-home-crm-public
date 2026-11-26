@@ -8,6 +8,7 @@ import * as shared from "@royal-home/shared";
 import * as replies from "../../src/telegram/assistantReply.js";
 import { maskAssistantContacts } from "../../src/lib/assistantContacts.js";
 import * as participation from "../../src/telegram/assistantGroupParticipation.js";
+import * as assistantName from "../../src/telegram/assistantName.js";
 import { matchPublicShellRequest } from "../../src/telegram/assistantPublicShellSearch.js";
 import { assistantLanguage } from "../../src/ai/assistant/languageRouting.js";
 import type { TelegramIncomingMessage } from "../../src/telegram/api.js";
@@ -31,6 +32,18 @@ export function assistantGroupFixture() {
   // Рубильник «Шабнам отвечает в группах без обращения» и память, выключенная командой (24.11.2026).
   let unaddressedOn = true, contextOptOutAt: Date | null = null;
   const offer = vi.fn(async (_msg: unknown, _mode: string) => false);
+  // Приветствие нового участника (26.11.2026): один раз на человека в группе — та же форма, что у AssistantGroupPerson.
+  const welcomed = new Set<string>();
+  const welcomeClaim = vi.fn(async (chatId: string, members: unknown) => {
+    let fresh = 0;
+    for (const m of Array.isArray(members) ? members : []) {
+      if (!m || (m as { is_bot?: boolean }).is_bot || typeof (m as { id?: unknown }).id !== "number") continue;
+      const key = `${chatId}:${(m as { id: number }).id}`;
+      if (!welcomed.has(key)) { welcomed.add(key); fresh += 1; }
+    }
+    return fresh;
+  });
+  const welcome = vi.fn(async (_chatId: string) => {});
   const contextPurge = vi.fn(async (_args: unknown) => ({ count: 0 }));
   const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE", instagramUrl: null as string | null }] }));
   const plain = vi.fn(async (..._args: unknown[]) => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
@@ -124,7 +137,8 @@ export function assistantGroupFixture() {
         },
         deleteMany: async () => { registered = false; return { count: 1 }; } },
       assistantTelegramContext: { deleteMany: contextPurge } } },
-    "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer },
+    "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer, claimNewMemberWelcome: welcomeClaim, sendColleagueWelcome: welcome },
+    "./assistantName.js": assistantName,
     "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
@@ -171,7 +185,7 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, presses, offer, contextPurge,
+  return { adapter, presses, offer, welcome, welcomeClaim, contextPurge,
     setUnaddressed: (value: boolean) => { unaddressedOn = value; },
     memory: () => ({ contextEnabledAt, contextOptOutAt }), plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
