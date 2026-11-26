@@ -30,10 +30,10 @@
   --rh-ui-press: rgba(90, 96, 112, .13);
   --rh-ui-hover: rgba(90, 96, 112, .06);
   --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
-  --rh-ui-primary: #2c66f2;
+  --rh-ui-primary: #1d5fe0;
   --rh-ui-primary-fg: #ffffff;
-  --rh-ui-primary-hover: #2459d6;
-  --rh-ui-primary-ink: #2459d6;
+  --rh-ui-primary-hover: #154ab0;
+  --rh-ui-primary-ink: #154ab0;
   --rh-ui-primary-soft: #e5ecfd;
   --rh-ui-primary-soft-fg: #1f4fc4;
   /* Подложка мини-карточек на синем: темнее плиты, белый текст держит 4,5:1+. */
@@ -241,8 +241,8 @@
   --rh-ui-cat-ads: #c2571c;
   --rh-ui-cat-salary: #26836d;
   --rh-ui-cat-other: #7a68c9;
-  --rh-ui-solid: #2c66f2;
-  --rh-ui-solid-hover: #2459d6;
+  --rh-ui-solid: #1d5fe0;
+  --rh-ui-solid-hover: #154ab0;
   --rh-ui-money-amber: #e39a2d;
   /* Цвета долей кольца (аналитика): текст долей, подписанных в легенде. */
   --rh-ui-ink-aqua: #0d7f74;
@@ -956,6 +956,12 @@
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]) {
   background: var(--rh-tab-on); color: var(--rh-tab-on-fg);
 }
+/* Счётчик в кнопке среза/вкладки («Активные · 0», «7 дней · 11»): наследует цвет кнопки и ложится на её
+   фон тонкой подложкой. Прежний белый на 70% из старой темы был рассчитан на чёрную выбранную кнопку и
+   на светло-синей выбранной вкладке «Нового вида» пропадал (замер 26.11.2026: контраст 1:1 на «Подборе
+   сотрудников» и «Активности команды»). Правило общее, а не по разделам: разделы дублировали его по одному. */
+:root[data-ui-look="royal"][data-ui-look] :is(.ry-seg, .ry-tabs, .seg) > :is(button, a, [role="tab"], [role="radio"]) .n { color: inherit; opacity: 1; }
+/* (атрибут повторён нарочно: старое правило темы `.rh2 .scr .seg button[aria-selected=true] .n` весит столько же) */
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is(:disabled, [disabled], [aria-disabled="true"]),
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) > :is(button, a, [role="tab"]):is([aria-selected="true"], [aria-current="page"]):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
