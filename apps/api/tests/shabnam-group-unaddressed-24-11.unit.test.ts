@@ -114,12 +114,13 @@ describe("поведение в группе", () => {
     expect(f.run).not.toHaveBeenCalled();
   });
 
-  it("незнакомый CRM: вопрос не уходит модели, идёт предложение привязки (ambient)", async () => {
+  // 26.11.2026 (жалоба «срамит и повторяется»): без обращения непривязанному — тишина, подсказки нет.
+  it("незнакомый CRM без обращения: модель не зовётся, подсказки нет", async () => {
     const f = fixture();
     f.setLinked(false);
     await f.send("Есть варианты двушки в Сино?");
     expect(f.run).not.toHaveBeenCalled();
-    expect(f.offer).toHaveBeenCalledWith(expect.objectContaining({ text: "Есть варианты двушки в Сино?" }), "ambient");
+    expect(f.offer).not.toHaveBeenCalled();
   });
 
   it("незнакомый CRM позвал по имени — кнопка привязки вместо «я вас не знаю»", async () => {
@@ -138,11 +139,10 @@ describe("поведение в группе", () => {
     expect(f.offer).toHaveBeenCalledWith(expect.anything(), "start");
   });
 
-  it("сотрудника с привязкой новичком не считает", async () => {
+  it("болтовня без имени — ни подсказки, ни модели", async () => {
     const f = fixture();
     await f.send("Всем доброе утро");
-    expect(f.offer).toHaveBeenCalledWith(expect.anything(), "ambient");
-    // Решает сам модуль предложения (найдёт привязку и промолчит); здесь — что модель не звали.
+    expect(f.offer).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
   });
 });

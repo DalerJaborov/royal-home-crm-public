@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { runLegacyQualifyTurn, type QualifyTurnOptions } from "../ai/legacyQualifyDoor.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
+import { ackReactionCandidate, ackReactionTurn, lastBotSpeech, type BotLineEntry } from "../ai/ackTurnDoor.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { EMPTY_TOPIC_STATE } from "../ai/topicLock.js";
 import { aiDailyBudgetOf, spendAiTurns } from "../lib/aiDailyBudget.js";
@@ -12,6 +13,12 @@ import { finalizeBotReply, inClientLanguage, intendedSilenceReply, verifiedCoreR
 import type { MessengerTurnInput, MessengerTurnResult } from "./turnTypes.js";
 
 const HELD: MessengerTurnResult = { reply: "", ready: false, accepted: false, shouldReply: false, silenced: "held" };
+
+/** Последние слова бота/сотрудника в переписке (ai/ackTurnDoor.ts::lastBotSpeech); сбой чтения — null (тогда обычный ход). */
+async function lastBotLineOf(conversationId: string): Promise<{ text: string; at: number | null } | null> {
+  const row = await prisma.botConversation.findUnique({ where: { id: conversationId }, select: { messages: true } }).catch(() => null);
+  return lastBotSpeech(Array.isArray(row?.messages) ? row.messages as BotLineEntry[] : []);
+}
 const NO_EFFECT = { ru: "Запрос пока не оформлен.", tg: "Дархост ҳоло сабт нашудааст." };
 
 /** Temporary read-only invocation adapter for the existing qualifier/reply
@@ -46,6 +53,13 @@ async function invokeScopedCustomerQualifier(input: MessengerTurnInput, initial:
   // This initial adapter consumes authenticated text only. Media/ASR adapters
   // must bind their interpretation explicitly before they can enter P14.
   if (!text.trim()) return { ...HELD };
+  // «Ок / спасибо / пока» после реплики бота — реакция, без модели (одна дверь ai/ackTurnDoor.ts, 26.11.2026). Модель
+  // здесь истории не видит и отвечала бы на «Ок» с чистого листа. Последнюю реплику бота читаем только для решения,
+  // модели она не уходит. Реплика клиента уже записана (recordScopedCustomerInput выше).
+  const botLine = ackReactionCandidate(text) ? await lastBotLineOf(lane.ticket.conversationId) : null;
+  if (botLine && ackReactionTurn({ text, hasMedia: (input.attachments?.length ?? 0) > 0, lastBotText: botLine.text, lastBotAt: botLine.at })) {
+    return { reply: "", ready: false, accepted: false, shouldReply: false, reactOnly: true };
+  }
   const budgetRow = await prisma.botConversation.findUnique({ where: { id: lane.ticket.conversationId }, select: {
     id: true, aiBudgetDate: true, aiTurnsToday: true, aiVoiceToday: true, aiPhotoToday: true,
     aiVideoToday: true, aiDocToday: true, aiLimitNoticeAt: true,

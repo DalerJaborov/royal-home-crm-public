@@ -1003,9 +1003,9 @@ export async function deliverVoiceToConversation(
  * lib/stuckConversations.ts), и там нет под рукой id BotConversation:
  * processMessengerTurn ищет/заводит диалог внутри себя и наружу его не отдаёт.
  *
- * Эта функция — тот самый недостающий кусок: тот же (channel, subscriberId),
- * которым уже пользовался processMessengerTurn (уникальный ключ
- * BotConversation.channel_subscriberId) — и повторный upsert не нужен: диалог
+ * Эта функция — тот самый недостающий кусок: та же переписка области
+ * (channel, subscriberId, номер/аккаунт — findScopedBotConversation), которой уже
+ * пользовался processMessengerTurn, — и повторный upsert не нужен: диалог
  * уже точно существует, раз мы отвечаем на него текстом секундой раньше.
  *
  * ВАЖНО: `pausedUntilOverride: new Date()` — обязателен, не косметика.

@@ -25,6 +25,18 @@ import { customerAgentManifestId, decodeCustomerAgentRevision, type CustomerAgen
 import { CustomerAgentOwnerError, CUSTOMER_AGENT_AUTO_REFRESH_ACTOR_NAME, publishCustomerAgentAutoRefresh } from "./customerAgentOwnerPolicy.js";
 import { customerAgentQualityContinuityUpgradeVersion } from "./customerAgentQualityContinuityUpgrade.js";
 import { reportCustomerAgentRevisionHeld, setCustomerAgentAutoRefreshPending } from "./customerAgentRevisionAlert.js";
+import { releaseOrphanedCustomerAgentClaims } from "./customerAgentOrphanClaims.js";
+
+/** What keeps the core from being idle, from the ONE idle door the advance
+ * trigger also calls. Unreadable → empty (the alert then says it generally). */
+export async function readCustomerAgentIdleBlockers(): Promise<string[]> {
+  try {
+    const [row] = await prisma.$queryRaw<Array<{ blockers: string[] | null }>>`SELECT customer_agent_core_idle_blockers() AS blockers`;
+    return row?.blockers ?? [];
+  } catch {
+    return [];
+  }
+}
 
 export type CustomerAgentAutoRefreshResult =
   | { status: "inactive" | "current" | "refreshed" }
@@ -61,6 +73,9 @@ async function attempt(): Promise<CustomerAgentAutoRefreshResult> {
   // while this attempt is deciding must not page the director for nothing.
   setCustomerAgentAutoRefreshPending(true, (busySince ?? Date.now()) + AUTO_REFRESH_GRACE_MS);
   let activeId: string | null = null;
+  // A ticket abandoned by a dead worker would otherwise count as in-flight for
+  // ever and block the advance below (prod 26.11.2026). Never throws.
+  await releaseOrphanedCustomerAgentClaims();
   try {
     return await decide(id => { activeId = id; });
   } catch (error) {
@@ -77,9 +92,19 @@ async function wait(activeId: string | null, reason: string, error?: unknown): P
   busySince ??= Date.now();
   setCustomerAgentAutoRefreshPending(true, busySince + AUTO_REFRESH_GRACE_MS);
   if (activeId && Date.now() - busySince >= AUTO_REFRESH_GRACE_MS) {
-    setCustomerAgentAutoRefreshPending(false);
-    await (error ? reportCustomerAgentRevisionHeld(activeId, "current_artifact_verification_unavailable", error)
-      : reportCustomerAgentRevisionHeld(activeId, "current_artifact_revision_mismatch"));
+    if (error) {
+      setCustomerAgentAutoRefreshPending(false);
+      await reportCustomerAgentRevisionHeld(activeId, "current_artifact_verification_unavailable", error);
+    } else if (reason === "core_work_requires_idle_publication") {
+      // The button would hit the same idle check: say WHAT blocks instead of
+      // sending the owner to it (prod 26.11.2026). Reported before the hold-back
+      // is lifted, so this text, not «press the button», takes the daily slot.
+      await reportCustomerAgentRevisionHeld(activeId, "core_idle_blocked", await readCustomerAgentIdleBlockers());
+      setCustomerAgentAutoRefreshPending(false);
+    } else {
+      setCustomerAgentAutoRefreshPending(false);
+      await reportCustomerAgentRevisionHeld(activeId, "current_artifact_revision_mismatch");
+    }
   }
   return { status: "busy", reason };
 }

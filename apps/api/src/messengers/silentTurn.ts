@@ -5,7 +5,7 @@
  */
 import type { ChatMessage } from "../ai/client.js";
 import { guardFired } from "../ai/guardMetrics.js";
-import { botAskedQuestion, isAckOnlyMessage } from "../ai/ackOnly.js";
+import { ackReactionTurn, lastBotSpeech } from "../ai/ackTurnDoor.js";
 import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 
@@ -29,7 +29,9 @@ export function silentTurnReason(input: {
   history: ChatMessage[];
 }): "ack_only" | "bare_share_repeat" | "photo_ack_repeat" | null {
   const lastBot = [...input.history].reverse().find((m) => m.role === "assistant");
-  if (!input.hasMedia && lastBot && isAckOnlyMessage(input.text) && !botAskedQuestion(lastBot.content)) {
+  // Одна дверь «ок / спасибо / пока → реакция» (ai/ackTurnDoor.ts) — та же, что у старого пути Meta и у ядра.
+  const botLine = lastBotSpeech(input.history);
+  if (ackReactionTurn({ text: input.text, hasMedia: input.hasMedia, lastBotText: botLine?.text, lastBotAt: botLine?.at })) {
     guardFired("ack_only");
     return "ack_only";
   }

@@ -12,7 +12,23 @@ import { logSystemError } from "./systemError.js";
 const reported = new Set<string>();
 const DAY = 24 * 60 * 60_000;
 
-export type CustomerAgentRevisionHeldReason = "current_artifact_revision_mismatch" | "current_artifact_verification_unavailable";
+export type CustomerAgentRevisionHeldReason = "current_artifact_revision_mismatch" | "current_artifact_verification_unavailable" |
+  /** The automatic refresh is allowed but the core is not idle past the grace: the button would fail the same way. */
+  "core_idle_blocked";
+
+/** Plain words for each code of customer_agent_core_idle_blockers() (migration 20261126190000). */
+const IDLE_BLOCKER_WORDS: Record<string, string> = {
+  customer_turn: "сообщение клиента ещё в работе у бота",
+  instagram_comment: "комментарий в Instagram ещё в работе",
+  telegram_comment: "комментарий в Telegram ещё в работе",
+  delivery: "ответ клиенту ещё отправляется или его доставка не подтверждена",
+  public_effect: "действие с публичным комментарием ещё выполняется",
+  provider_operation: "ещё идёт запрос к ИИ",
+};
+export function describeCustomerAgentIdleBlockers(codes: readonly string[]): string {
+  const words = codes.map(code => IDLE_BLOCKER_WORDS[code] ?? code).slice(0, 6);
+  return words.length ? words.join("; ") : "причину прочитать не удалось";
+}
 
 /** Error text only, never the stack or provider/customer data; bounded. */
 function errorText(error: unknown): string {
@@ -27,15 +43,21 @@ export function setCustomerAgentAutoRefreshPending(pending: boolean, until = Dat
   autoRefreshPendingUntil = pending ? until : 0;
 }
 
-export async function reportCustomerAgentRevisionHeld(revisionId: string, reason: CustomerAgentRevisionHeldReason, error?: unknown): Promise<void> {
+/** `detail`: the error for a verification failure, the blocker codes for `core_idle_blocked`. */
+export async function reportCustomerAgentRevisionHeld(revisionId: string, reason: CustomerAgentRevisionHeldReason, detail?: unknown): Promise<void> {
   if (reason === "current_artifact_revision_mismatch" && Date.now() < autoRefreshPendingUntil) return;
   const key = `${reason}:${revisionId}`;
   if (reported.has(key)) return;
   reported.add(key);
   const short = revisionId.slice(0, 12);
+  const idle = reason === "core_idle_blocked";
   const message = reason === "current_artifact_revision_mismatch"
     ? `Ядро нового бота остановлено: установленный код не совпадает с активной версией ${short}. Откройте Настройки → Новый бот → «Обновить версию бота». Пока это не сделано, бот не отвечает в подключённых диалогах`
-    : `Ядро нового бота остановлено: не удалось проверить установленный код против активной версии ${short} (${errorText(error)}). Откройте Настройки → Новый бот → «Обновить версию бота». Пока это не сделано, бот не отвечает в подключённых диалогах`;
+    : idle
+    ? `Ядро нового бота остановлено: после выката оно ждёт, когда закончится текущая работа, и ждёт уже больше 15 минут (версия ${short}). ` +
+      `Мешает: ${describeCustomerAgentIdleBlockers(Array.isArray(detail) ? detail.map(String) : [])}. ` +
+      "Кнопка «Обновить версию бота» сейчас не поможет — она ждёт того же. Если это держится больше часа, нужен разработчик. Пока бот не отвечает в подключённых диалогах"
+    : `Ядро нового бота остановлено: не удалось проверить установленный код против активной версии ${short} (${errorText(detail)}). Откройте Настройки → Новый бот → «Обновить версию бота». Пока это не сделано, бот не отвечает в подключённых диалогах`;
   try {
     await logSystemError("ai", message, { dedupKey: `customer-agent-revision-held:${revisionId}`, dedupWindowMs: DAY });
   } catch {
@@ -43,7 +65,7 @@ export async function reportCustomerAgentRevisionHeld(revisionId: string, reason
     reported.delete(key);
     return;
   }
-  await alertDirectorsOnce(revisionId);
+  await alertDirectorsOnce(revisionId, idle);
 }
 
 /**
@@ -56,7 +78,7 @@ export async function reportCustomerAgentRevisionHeld(revisionId: string, reason
  * шум: тревога уровня CRITICAL со ссылкой прямо на кнопку. Повтор гасит метка за
  * сутки (api и worker проверяют версию при старте оба); отказ очереди ход не роняет.
  */
-async function alertDirectorsOnce(revisionId: string): Promise<void> {
+async function alertDirectorsOnce(revisionId: string, idleBlocked = false): Promise<void> {
   const tag = `customer-agent-held:${revisionId.slice(0, 12)}`;
   try {
     const already = await prisma.pendingDirectorAlert.findFirst({
@@ -65,7 +87,10 @@ async function alertDirectorsOnce(revisionId: string): Promise<void> {
     if (already) return;
     await enqueueDirectorAlert({
       title: "Новый бот остановлен — клиенты без ответа",
-      body: "После обновления CRM бот ждёт подтверждения версии. Настройки → Новый бот → «Обновить версию бота».",
+      // Idle-blocked: the button hits the same wait, so do not send the owner to it (prod 26.11.2026).
+      body: idleBlocked
+        ? "После обновления CRM бот ждёт окончания текущей работы дольше 15 минут. Кнопка «Обновить версию бота» сейчас не поможет; причина — в журнале ошибок."
+        : "После обновления CRM бот ждёт подтверждения версии. Настройки → Новый бот → «Обновить версию бота».",
       url: "/settings?tab=bot&task=rollout",
       level: "CRITICAL",
       severity: "critical",

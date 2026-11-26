@@ -208,8 +208,8 @@ describe("ступень 3: сторож «номер есть, карточки
   });
 
   it("непонятный по ДЛИНЕ номер тоже доходит до человека — с тем, что клиент прислал на самом деле", async () => {
-    await prisma.botConversation.update({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: SUB_WATCH } },
+    await prisma.botConversation.updateMany({
+      where: { channel: "INSTAGRAM", subscriberId: SUB_WATCH },
       data: {
         messages: [
           { role: "assistant", content: "Рақами телефонатонро нависед" },

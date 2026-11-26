@@ -21,6 +21,7 @@ export const CUSTOMER_TURN_INTENDED_SILENCE: readonly string[] = [
   "staff_sender", "outgoing_mid", // our own staff or our own message coming back: the customer said nothing
   "turn_already_owned", // another worker is running this very turn
   "lead_only_operator_silent", // the lead-only operator decided not to answer (ок after a lead, a third role question, a repeated attachment)
+  "ack_only_reaction", // «ок / спасибо / пока» with nothing to answer: a reaction instead of text, decided by code (ai/ackTurnDoor.ts, owner 26.11.2026)
   // NOT here: "lead_only_operator_yields" — the bot stays silent because a staff member leads the chat; the silence watchdog
   // must see it (review #333, round 2), the operator also signals that person at once.
 ];

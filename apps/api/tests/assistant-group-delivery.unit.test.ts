@@ -6,6 +6,7 @@ import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import * as assistantReply from "../src/telegram/assistantReply.js";
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
+import * as assistantName from "../src/telegram/assistantName.js";
 
 vi.mock("../src/db.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/db.js")>()),
@@ -37,6 +38,7 @@ function fixture() {
     "./api.js": { sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: plain, TelegramApiError },
     "./assistantReply.js": assistantReply,
     "./assistantGroupParticipation.js": participation,
+    "./assistantName.js": assistantName,
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
   };
   const delivery = {} as typeof import("../src/telegram/assistantDelivery.js");

@@ -30,6 +30,7 @@ import { decryptSecret } from "../src/crypto.js";
 import { ensureScopedBotConversation } from "../src/lib/customerConversationScope.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
 import { waitFor } from "./helpers/waitFor.js";
+import { ACK_REACTION_HELD } from "../src/ai/ackTurnDoor.js";
 
 /**
  * ОПЕРАТОР ПРИЁМА ЗАЯВОК НА НАСТОЯЩЕМ ПУТИ ЯДРА (этап 1.2): подписанный вход → билет → ход ядра (lib/customerDmAgentTurn.ts)
@@ -89,6 +90,11 @@ async function coreFixture(text: string, channel: "INSTAGRAM" | "WHATSAPP", igAt
     // Ядро читает ник отправителя Instagram (защита от собственного аккаунта).
     if (u.origin === "https://synthetic-lead-only-instagram.invalid" && u.pathname === `/v23.0/${peer}` && (init?.method ?? "GET") === "GET") {
       io.push("profile"); return new Response(JSON.stringify({ id: peer, username: "synthetic_lead_only_customer" }));
+    }
+    // Реакция Instagram на «ок / спасибо» (26.11.2026): sender_action react — жест, не сообщение.
+    if (u.origin === "https://synthetic-lead-only-instagram.invalid" && u.pathname.endsWith("/me/messages") && init?.method === "POST") {
+      const sent = JSON.parse(String(init.body)) as { sender_action?: string; payload?: { message_id?: string; reaction?: string } };
+      if (sent.sender_action === "react") { io.push(`react:${sent.payload?.reaction}:${sent.payload?.message_id}`); return new Response("{}"); }
     }
     if (u.origin !== "https://synthetic-lead-only-gemini.invalid" || init?.method !== "POST") throw new Error(`Unexpected HTTP ${u.origin}${u.pathname}`);
     if (u.pathname.endsWith(":countTokens")) { io.push("count"); return new Response(JSON.stringify({ totalTokens: 1000 })); }
@@ -252,7 +258,9 @@ describe("оператор приёма заявок на настоящем п�
     await settle(second);
     expect(await runCustomerLeadOnlyIntake(note!.payload)).toEqual({ status: "noted" });
     const third = await f.receive("ок");
-    await silent(third);
+    // 26.11.2026: «ок» после «Передал агенту.» решает дверь до оператора (ai/ackTurnDoor.ts) — реакция, без текста.
+    expect(await runCustomerDmAgentTurn(third)).toEqual({ status: "held", reason: ACK_REACTION_HELD });
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: third } })).toBe(0);
     coreModelUntouched(f);
     const conv = await prisma.botConversation.findUniqueOrThrow({ where: { id: conversationId }, select: { clientId: true } });
     clientIds.push(conv.clientId!);
@@ -312,6 +320,21 @@ describe("оператор приёма заявок на настоящем п�
     clientIds.push(conv.clientId!);
     const client = await prisma.client.findUniqueOrThrow({ where: { id: conv.clientId! } });
     expect(client.assignedAgentId).toBe(ownerId);
+    coreModelUntouched(f);
+    // Живой случай 26.11.2026 (Instagram): после «номер получил» клиент пишет «Ок» — ни текста (раньше оператор писал
+    // «Ваша заявка у агента, он с вами свяжется.»), ни понимания моделью; одна реакция «love» на это сообщение.
+    understandModel.mockClear();
+    const ack = await f.receive("Ок");
+    expect(await runCustomerDmAgentTurn(ack)).toEqual({ status: "held", reason: ACK_REACTION_HELD });
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: ack } })).toBe(0);
+    expect(understandModel).not.toHaveBeenCalled();
+    await waitFor(async () => f.io.some(entry => entry.startsWith("react:love:")), { timeoutMs: 5000, label: "реакция Instagram" });
+    expect(f.io.filter(entry => entry.startsWith("react:"))).toHaveLength(1);
+    // «Пока» и «Рахмат, худо ҳофиз» — тоже реакция; вопрос — снова обычный ход оператора.
+    const bye = await f.receive("Рахмат, худо ҳофиз");
+    expect(await runCustomerDmAgentTurn(bye)).toEqual({ status: "held", reason: ACK_REACTION_HELD });
+    const question = await f.receive("Ок, а когда позвонят?");
+    expect((await runCustomerDmAgentTurn(question)).status).not.toBe("held");
     coreModelUntouched(f);
   });
 
