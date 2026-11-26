@@ -38,7 +38,7 @@ import {
 import { loadHeatmapAdviceSettings } from "../lib/publishScheduleRules.js";
 import { logSystemError } from "../lib/systemError.js";
 import { visibleNewCandidatesWhere } from "../lib/vacancyVisibility.js";
-import { COMMISSION_COMPANY_PERCENT, RATED_ROLES } from "@royal-home/shared";
+import { COMMISSION_COMPANY_PERCENT, RATED_ROLES, SALES_AGENT_ROLES } from "@royal-home/shared";
 import { UNASSIGNED_LEADS_LIMIT, UNASSIGNED_LEADS_WHERE } from "../lib/unassignedLeads.js";
 
 export const dashboardRouter = Router();
@@ -728,6 +728,17 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
   ]);
 
   /**
+   * ЧЕЙ СПИСОК «ПОЗВОНИТЬ» (26.11.2026, владелец: у Нозы РОП исчезло «Позвонить
+   * клиентам»). `ownAgentId` пуст у каждого, кто видит всех клиентов, а у РОП
+   * право clients.viewAll есть, — и обязанность первого звонка по её личным
+   * клиентам молча пропадала с экрана, хотя крон её по-прежнему считает (РОП
+   * «работает как агент», SALES_AGENT_ROLES). Поэтому для звонка берём свой id и
+   * у роли, которая ведёт клиентов; директору и админу, у кого своих лидов нет,
+   * список по-прежнему не нужен.
+   */
+  const callOwnerId = ownAgentId ?? (req.agent && (SALES_AGENT_ROLES as readonly string[]).includes(req.agent.role) ? req.agent.id : undefined);
+
+  /**
    * СРОК ПЕРВОГО ЗВОНКА НА ГЛАВНОЙ АГЕНТА (задание 17.09.2026, «клиент
    * теряется, если вовремя не позвонить»). Только у агента — у руководства
    * нет личного «Моего фокуса», а список чужих обязанностей здесь не место.
@@ -743,7 +754,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    * ждёт звонка от этого агента).
    */
   let firstCallDue: { id: string; shortId: number; fullName: string; phone: string; dueAt: string; afterDue: string }[] = [];
-  if (ownAgentId) {
+  if (callOwnerId) {
     /**
      * ТО ЖЕ ОКНО КАНДИДАТОВ, ЧТО У КРОНА (19.09.2026, жалоба владельца: «клиент
      * 00059 стоит на дашборде, что нужно как будто срочно ему звонить, хотя не
@@ -760,7 +771,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
     const { from: firstCallFrom } = firstCallCandidateWindow(settings, new Date());
     const dueCandidates = await prisma.client.findMany({
       where: {
-        assignedAgentId: ownAgentId,
+        assignedAgentId: callOwnerId,
         acceptedAt: { not: null, gte: firstCallFrom },
         kind: { not: "OTHER" },
         status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
@@ -823,11 +834,11 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
    * хронологии, что пишет changeClientAgent (`[lifecycle.assign] …`).
    */
   let assignedBySupervisor: { id: string; shortId: number; fullName: string; phone: string; assignedAt: string; byName: string | null }[] = [];
-  if (ownAgentId) {
+  if (callOwnerId) {
     const since = new Date(Date.now() - 3 * 24 * 3600_000);
     const assigned = await prisma.client.findMany({
       where: {
-        assignedAgentId: ownAgentId,
+        assignedAgentId: callOwnerId,
         assignReason: SUPERVISOR_ASSIGN_REASON,
         assignedAt: { gte: since },
         acceptedAt: { not: null },

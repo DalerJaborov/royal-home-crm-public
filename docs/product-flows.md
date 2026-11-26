@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4348**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4353**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4803,6 +4803,11 @@
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
     · ответ 400 — «Файл не передан»
+- const pauseParsed = replyVoicePauseSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой replyVoicePauseSchema
+- если !pauseParsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: pauseParsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
 - const conversation = isTelegram ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_…
   · читает в базе: telegramConversation
   · читает в базе: botConversation
@@ -5343,10 +5348,10 @@
   · читает в базе: deal
   · читает в базе: settings
   · читает в базе: property
-- если ownAgentId
+- если callOwnerId
   - const { from: firstCallFrom } = firstCallCandidateWindow(settings, new Date());
     · зовёт firstCallCandidateWindow()
-  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, acceptedAt: { not:…
+  - const dueCandidates = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, acceptedAt: { not…
     · читает в базе: client
   - если dueCandidates.length > 0
     - const status = await firstCallStatus(dueCandidates, { leadCallMinutes: settings?.leadCallMinutes ?? null, lea…
@@ -5357,8 +5362,8 @@
           · дословно из кода
       - return { id: c.id, shortId: c.shortId, fullName: clientNamePhoneSafe(c.fullName, canSeePhone), phone: clientP…
         · зовёт clientNamePhoneSafe()
-- если ownAgentId
-  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: ownAgentId, assignReason: SUPERVISO…
+- если callOwnerId
+  - const assigned = await prisma.client.findMany({ where: { assignedAgentId: callOwnerId, assignReason: SUPERVIS…
     · читает в базе: client
   - если waiting.length > 0
     - const notes = await prisma.interaction.findMany({ where: { clientId: { in: waiting.map((c)
@@ -12935,7 +12940,7 @@
     · ответ 404 — «Объект не найден»
 - const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   · зовёт stripEmbedding()
-- const ownsIt = ownsProperty(req.agent!.id, property);
+- const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === "HEAD_OF_SALES";
   · зовёт ownsProperty()
 - res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…
   · ответ 200
@@ -18976,7 +18981,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
+              - traceOutcome("blocked", "dm_lane_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
@@ -21036,6 +21041,39 @@
   - в любом случае
     - customerBusy[lane] = false;
       · дословно из кода
+
+### customer-media-settle — */5 * * * *
+
+- если isMediaSettleRunning
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await settleStalePendingCustomerMedia();
+    · зовёт settleStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ channel: string; subscriberId: string; mid: string; lost: unknown }[]>`…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - const out = await attachOrPark({ channel: row.channel, subscriberId: row.subscriberId, mid: row.mid }, [], lo…
+        · зовёт attachOrPark()
+      - если out.result === "attached" || out.result === "already"
+        - settled++;
+          · дословно из кода
+      - если out.conversationId
+        - void publishConversationUpdated("bot", out.conversationId);
+          · зовёт publishConversationUpdated()
+    - если settled
+      - void logSystemError("meta", `Файлы клиентов не докачались (обрыв или очередь): пометка «не скачалось» поставл…
+        · запись в журнал ошибок
+- если сорвалось
+  - reportCronTickError("Ошибка сверки файлов клиентов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- в любом случае
+  - isMediaSettleRunning = false;
+    · дословно из кода
 
 ### customer-outbox-jobs — */5 * * * * *
 

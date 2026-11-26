@@ -22,6 +22,7 @@ import { UploadCancelledError } from "../lib/chunkedUpload";
 import { useMediaUploadsStore, type PendingMediaUpload } from "../store/mediaUploads";
 import type { ConversationMessage, Paginated } from "../types";
 import { audioFileNameFor } from "../lib/audioRecording";
+import { pausedUntilIso } from "../lib/botPauseOptions";
 
 /**
  * Отказ отправки из-за закрытого 24-часового окна Meta (решение владельца
@@ -320,13 +321,19 @@ export function useReplyToConversation(id: string | null) {
 
 /** Голосовое из инбокса — тот же диалог, что и useReplyToConversation, но
  *  multipart вместо JSON: файл, а не строка. */
-export function useSendVoiceMessage(id: string | null) {
+export function useSendVoiceMessage(
+  id: string | null,
+  /** Срок паузы бота, выбранный при ответе (минуты), читается в момент отправки. Нет — умолчание сервера. */
+  pauseMinutes?: () => number | null | undefined
+) {
   const queryClient = useQueryClient();
   const intent = useSendIntent();
   return useMutation({
     mutationFn: (blob: Blob) => {
       const form = new FormData();
       form.append("audio", blob, audioFileNameFor(blob.type));
+      const minutes = pauseMinutes?.();
+      if (minutes) form.append("pausedUntil", pausedUntilIso(minutes));
       return sendToClient<{ ok: boolean; pausedUntil: string }>(intent, `/conversations/${id}/reply-voice`, form);
     },
     // silent: то же, что в useReplyToConversation — отправка, а не сохранение.
@@ -427,7 +434,9 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           (percent) => setProgress(conversationId, upload.localId, percent),
           upload.uploadKey ?? `media:${upload.localId}`,
           upload.localId,
-          (live) => setLive(conversationId, upload.localId, live)
+          (live) => setLive(conversationId, upload.localId, live),
+          // Минуты, а не дата: ISO считается в момент «собрать» (на каждой попытке заново), а не при старте долгой загрузки.
+          upload.pauseMinutes
         );
         if (result?.queued && result.jobId) {
           await follow(conversationId, upload, result.jobId);
@@ -447,7 +456,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
   );
 
   const start = useCallback(
-    (file: File, caption?: string) => {
+    (file: File, caption?: string, pauseMinutes?: number | null) => {
       if (!id) return;
       const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const upload: PendingMediaUpload = {
@@ -456,6 +465,7 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
         previewUrl: URL.createObjectURL(file),
         kind: file.type.startsWith("image/") ? "image" : "video",
         caption,
+        ...(pauseMinutes ? { pauseMinutes } : {}),
         progress: 0,
         status: "uploading",
       };

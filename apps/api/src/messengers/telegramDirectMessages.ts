@@ -22,7 +22,7 @@ import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "../jobs/aiReplyRetryPolicy.js";
-import { storeFetchedAttachments } from "./attachments.js";
+import { lostAfterStore, storeFetchedAttachments } from "./attachments.js";
 import { fetchTelegramAlbumAttachments, telegramUnsupportedMark } from "../telegram/attachments.js";
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
 import { stripUntrusted, wrapUntrusted } from "../ai/untrustedContent.js";
@@ -594,7 +594,12 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
   }
   if (!text && images.length > 0) text = "[📷]";
 
-  const userMessage = (content: string): ChatMessage => (saved.length > 0 ? { role: "user", content, attachments: saved } : { role: "user", content });
+  const lostNotes = lostAfterStore(fetched, saved.length);
+  const userMessage = (content: string): ChatMessage => ({
+    role: "user", content,
+    ...(saved.length > 0 ? { attachments: saved } : {}),
+    ...(lostNotes.length > 0 ? { attachmentsLost: lostNotes } : {}),
+  });
   const historyText =
     text || (saved.length > 0 ? (saved.some((a) => a.kind === "audio") ? "[🎤]" : "[📎]") : fetched.hadUnsupported ? telegramUnsupportedMark([msg]) : "");
   const saveIncoming = async (content: string): Promise<void> => {

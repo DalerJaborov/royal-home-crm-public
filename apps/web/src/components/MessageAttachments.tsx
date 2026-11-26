@@ -86,17 +86,16 @@ const LOST_WHY: Record<string, string> = {
   unsupported: "формат CRM не открывает",
   failed: "не скачалось",
   too_many: "слишком много файлов за раз",
-};
-const LOST_LIMIT: Record<string, string> = {
-  image: "больше 5 МБ",
-  audio: "длиннее 10 минут или больше 3 МБ",
-  video: "больше 16 МБ или длиннее 3 минут",
-  file: "больше 16 МБ",
+  too_big: "слишком большой файл",
+  too_long: "слишком длинная запись",
+  // Канал не отдал файл (ссылка Meta уже не работает) и отказ ключа канала — 26.11.2026.
+  unavailable: "канал не отдал файл",
+  no_key: "канал не отдал файл: ключ канала не работает, руководство уже предупреждено",
 };
 
 export function lostAttachmentText(kind: string, reason: string, channel?: string | null): string {
   const what = LOST_WHAT[kind] ?? "файл";
-  const why = reason === "too_big" || reason === "too_long" ? LOST_LIMIT[kind] ?? "слишком большой" : LOST_WHY[reason] ?? LOST_WHY.failed;
+  const why = LOST_WHY[reason] ?? LOST_WHY.failed;
   return `Клиент прислал ${what} — ${why}, в CRM не сохранилось. Откройте ${whereToLook(channel)}`;
 }
 
