@@ -87,7 +87,7 @@ describe("умолчание и подписи (packages/shared)", () => {
       expect(isAutomationSwitchOn({ [key]: true }, key)).toBe(true);
     }
     // Выключенные по умолчанию — осознанный список: «Записать результат» и привязка Telegram по номеру (ревью 25.11.2026).
-    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["clientRecordResultEnabled", "telegramPhoneLinkEnabled"]);
+    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["botPauseOnStaffReplyEnabled", "clientRecordResultEnabled", "telegramPhoneLinkEnabled"]);
     const [first, second] = AUTOMATION_SWITCH_KEYS;
     expect(isAutomationSwitchOn({ [first]: false }, second)).toBe(true);
   });

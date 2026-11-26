@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Рубильник «ответ сотрудника останавливает бота» по умолчанию выключен (27.11.2026); тут проверяется сама пауза, поэтому он включён подменой.
+vi.mock("../src/lib/automationSwitches.js", async (importOriginal) =>
+  (await import("./helpers/staffReplyPauseOn.js")).withStaffReplyPauseOn(await importOriginal()));
 import bcrypt from "bcrypt";
 import request from "supertest";
 
