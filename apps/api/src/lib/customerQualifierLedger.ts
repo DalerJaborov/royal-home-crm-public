@@ -8,7 +8,7 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { assertCustomerFence, loadCustomerStateSnapshot, lockCustomerStateSnapshot } from "./customerState.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
-import { keepIngressMediaInBackground, takePendingCustomerMedia, type StoredIngressMedia } from "./customerInputMedia.js";
+import { insertSettlementPlaceholder, keepIngressMediaInBackground, takePendingCustomerMedia, type StoredIngressMedia } from "./customerInputMedia.js";
 import { publishMessageNew } from "./livePublish.js";
 import { traceWebsiteMessagesPersisted } from "./botTurnTrace.js";
 import type { ScopedCustomerQualifierLane } from "./customerQualifierContext.js";
@@ -60,6 +60,8 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
         WHERE "eventKey"=${ticket.eventKey} AND "inputRecordedAt" IS NULL`;
       if (marked !== 1) throw new Error("Scoped input marker unavailable");
       appended = result.messages;
+      // Файл ещё не скачан: заявка в этой же транзакции, чтобы обрыв до скачивания дал пометку, а не пустоту.
+      if (incomingMedia?.media.length && !pendingMedia) await insertSettlementPlaceholder(tx, { channel: evidence.channel, peer: evidence.peer, mid: evidence.eventId, ...incomingMedia });
       return true;
     });
     if (saved && appended.length) {

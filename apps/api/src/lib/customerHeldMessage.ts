@@ -23,7 +23,7 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { scrubMentionedClientPhonesInText } from "./clientPhoneMasking.js";
 import { publishMessageNew } from "./livePublish.js";
-import { keepIngressMediaInBackground } from "./customerInputMedia.js";
+import { insertSettlementPlaceholder, keepIngressMediaInBackground } from "./customerInputMedia.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
@@ -95,6 +95,9 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
         const message: ChatMessage = { role: "user", content, mid: input.eventId, heldRouting: true,
           ...(input.providerOccurredAt ? { at: new Date(input.providerOccurredAt).toISOString() } : {}) };
         await appendConversationMessagesInTransaction(tx, native.id, [message]);
+        // Файл скачивается после коммита: заявка в этой же транзакции (обрыв даст пометку, а не пустоту).
+        if (input.media.length) await insertSettlementPlaceholder(tx, { channel: input.channel, peer: input.peer, mid: input.eventId,
+          media: input.media, kinds: input.observations.classifier?.mediaKinds });
         // Unread for staff, same guard as the legacy controller: never wake a
         // sleeping debounce winner of the old bot.
         await tx.$executeRaw`UPDATE "BotConversation" SET "lastMessageAt"=now() WHERE "id"=${native.id}

@@ -57,7 +57,7 @@ const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
  * ПЛАТФОРМЫ, а не по потолкам разбора моделью. Потолки выше — про счёт за ИИ и память;
  * сотруднику нужно видеть всё, что клиент смог отправить: WhatsApp принимает до 100 МБ,
  * Instagram/Messenger — до 25 МБ. Длительность не ограничивается (платить за разбор не надо).
- * Параллельность скачивания ниже (две), чтобы стомегабайтные файлы не раздували память API.
+ * Скачивание по одному файлу (и один процесс-семафор в lib/customerInputMedia.ts), чтобы стомегабайтные файлы не раздували память API.
  */
 export type FetchProfile = "model" | "staff";
 const STAFF_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -257,6 +257,8 @@ export type LostReason = "too_big" | "too_long" | "unsupported" | "failed" | "to
 export interface LostAttachment {
   kind: "image" | "audio" | "video" | "file";
   reason: LostReason;
+  /** Пометку поставила сверка (скачивание не состоялось), а не само скачивание: настоящая попытка ещё допустима. */
+  settled?: true;
 }
 type FetchedAttachment = FetchedImage | FetchedAudio | FetchedMedia | { kind: "unsupported"; lost?: LostAttachment };
 
@@ -385,9 +387,12 @@ const DOWNLOAD_RETRY_DELAY_MS = 700;
  * защищает ни от чего. Подробности — в lib/safeFetch.ts.
  */
 export interface ManagedAttachmentDownload { readonly signal: AbortSignal; readonly deadlineAt: number }
-async function fetchOnce(url: string, headers: Record<string, string> | undefined, managed?: ManagedAttachmentDownload): Promise<Response> {
+/** Срок на ВСЮ загрузку, тело включая (safeOpen вешает его сигналом на запрос): стомегабайтный файл по плохому
+ *  каналу не укладывается в минуту — профиль «для сотрудника» получает три минуты (ревью #465). */
+export const STAFF_FETCH_TIMEOUT_MS = 180_000;
+async function fetchOnce(url: string, headers: Record<string, string> | undefined, managed?: ManagedAttachmentDownload, profile: FetchProfile = "model"): Promise<Response> {
   managed?.signal.throwIfAborted();
-  const timeoutMs = managed ? Math.min(30_000, managed.deadlineAt - Date.now()) : FETCH_TIMEOUT_MS;
+  const timeoutMs = managed ? Math.min(30_000, managed.deadlineAt - Date.now()) : profile === "staff" ? STAFF_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
   if (timeoutMs <= 0) throw new Error("Original media deadline expired");
   const { res } = await safeOpen(url, { headers, timeoutMs, maxRedirects: MAX_REDIRECTS, signal: managed?.signal });
   return res;
@@ -568,7 +573,7 @@ async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDow
     const attempts = managed ? 1 : DOWNLOAD_ATTEMPTS;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        res = await fetchOnce(url, headers, managed);
+        res = await fetchOnce(url, headers, managed, profile);
         break;
       } catch (err) {
         lastErr = err;
@@ -697,7 +702,7 @@ async function fetchAttachmentsImpl(sources: AttachmentSource[], managed: Manage
   const picked = sources.slice(0, maxFiles);
   const results: Array<FetchedAttachment | null> = new Array(picked.length);
   let next = 0;
-  const concurrency = profile === "staff" ? 2 : DOWNLOAD_CONCURRENCY;
+  const concurrency = profile === "staff" ? 1 : DOWNLOAD_CONCURRENCY;
   await Promise.all(Array.from({ length: Math.min(concurrency, picked.length) }, async () => {
     while (next < picked.length) {
       const i = next++;

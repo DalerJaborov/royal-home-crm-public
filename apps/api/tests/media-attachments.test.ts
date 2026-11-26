@@ -331,4 +331,20 @@ describe("Профиль «для сотрудника»: потолки пла�
     expect(fetched.medias).toHaveLength(0);
     expect(fetched.lost).toEqual([{ kind: "video", reason: "too_big" }]);
   });
+
+  it("граница фото 25 МБ: ровно 25 берём, 26 — «слишком большой»", async () => {
+    fetchMock.mockImplementation(async () => respond("image/jpeg", 25 * 1024 * 1024));
+    expect((await fetchAttachments([{ url: "https://cdn.example/p25" }], undefined, 10, "staff")).images).toHaveLength(1);
+    fetchMock.mockImplementation(async () => respond("image/jpeg", 26 * 1024 * 1024));
+    const over = await fetchAttachments([{ url: "https://cdn.example/p26" }], undefined, 10, "staff");
+    expect(over.images).toHaveLength(0);
+    expect(over.lost).toEqual([{ kind: "image", reason: "too_big" }]);
+  });
+
+  it("видео без Content-Length, но тяжелее 100 МБ, обрывается на потолке (чтение кусками)", async () => {
+    fetchMock.mockImplementation(async () => respond("video/mp4", 101 * 1024 * 1024, null));
+    const fetched = await fetchAttachments([{ url: "https://cdn.example/stream" }], undefined, 10, "staff");
+    expect(fetched.medias).toHaveLength(0);
+    expect(fetched.lost).toEqual([{ kind: "video", reason: "too_big" }]);
+  });
 });

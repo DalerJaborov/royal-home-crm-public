@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4348**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21036,6 +21036,39 @@
   - в любом случае
     - customerBusy[lane] = false;
       · дословно из кода
+
+### customer-media-settle — */5 * * * *
+
+- если isMediaSettleRunning
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await settleStalePendingCustomerMedia();
+    · зовёт settleStalePendingCustomerMedia()
+    - const rows = await prisma.$queryRaw<{ channel: string; subscriberId: string; mid: string; lost: unknown }[]>`…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - const out = await attachOrPark({ channel: row.channel, subscriberId: row.subscriberId, mid: row.mid }, [], lo…
+        · зовёт attachOrPark()
+      - если out.result === "attached" || out.result === "already"
+        - settled++;
+          · дословно из кода
+      - если out.conversationId
+        - void publishConversationUpdated("bot", out.conversationId);
+          · зовёт publishConversationUpdated()
+    - если settled
+      - void logSystemError("meta", `Файлы клиентов не докачались (обрыв или очередь): пометка «не скачалось» поставл…
+        · запись в журнал ошибок
+- если сорвалось
+  - reportCronTickError("Ошибка сверки файлов клиентов", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+- в любом случае
+  - isMediaSettleRunning = false;
+    · дословно из кода
 
 ### customer-outbox-jobs — */5 * * * * *
 
