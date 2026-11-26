@@ -282,6 +282,87 @@ WhatsApp-незнакомые шли **только** на 2020 (без очер
 - **Проверка:** WhatsApp Manager → «Статистика звонка»; через неделю — доля отвеченных.
 - **Клиент видит:** значок звонка в чате и в профиле агентства (у части клиентов — до 7 дней, ФАКТ call-settings).
 
+### Операция 15 — «Второй номер WhatsApp «Арван» (+992 87 791 4444) на том же шлюзе» (26.11.2026)
+
+Что поменялось в коде (ветка `feat/wa-gateway-second-number-26-11`, журнал
+`docs/journal/2026-11-26-wa-gateway-second-number.md`): шлюз принимает список номеров (`WA_EXTRA_NUMBERS`),
+у каждого номера свой SIP-пароль Meta (`secrets/meta/meta_sip_password.<номер>`; основной — прежний файл
+`meta_sip_password`), звонок на второй номер уходит на станцию его phone_number_id, станция ставит метку
+линии и оставляет имя «WhatsApp Arvan», CRM пишет `IncomingCall.waPhoneNumberId` и показывает «WhatsApp · Арван».
+Строка канала WhatsApp «Арван» в CRM уже есть (26.11, id 74555485-…) — без неё `graph-call.mjs` откажет.
+
+**Порядок важен:** станция → шлюз → Meta. Пока шлюз не знает номер, звонок на него шлюз отбивает («чужой
+номер»), поэтому Meta включается последней. Каждый шаг — отдельное «да» владельца.
+
+**15.1 «АТС: обновить блок from-trunk-whatsapp (вторая линия WhatsApp)»** — обычные звонки и звонки на
+основной номер не меняются (имя «WhatsApp» сохраняется, новая строка только для 13+ цифр).
+```bash
+# копия
+ssh rh-pbx 'cd /etc/asterisk && s=$(date +%Y%m%d-%H%M%S) && cp -p extensions_custom.conf extensions_custom.conf.bak-$s && ls -la extensions_custom.conf.bak-$s'
+# сверка: блок WhatsApp на станции = прежний блок из main до этой правки (иначе — стоп и разбор)
+ssh rh-pbx "sed -n '/^; === Royal Home: звонки клиентов из WhatsApp/,\$p' /etc/asterisk/extensions_custom.conf" \
+  | diff - <(git show ce58e6219:ops/asterisk/extensions_custom.conf | sed -n '/^; === Royal Home: звонки клиентов из WhatsApp/,$p')
+# замена блока (он последний в файле) на новый из репозитория
+{ ssh rh-pbx "sed '/^; === Royal Home: звонки клиентов из WhatsApp/,\$d' /etc/asterisk/extensions_custom.conf"; \
+  sed -n '/^; === Royal Home: звонки клиентов из WhatsApp/,$p' ops/asterisk/extensions_custom.conf; } > /tmp/ext_custom.new
+ssh rh-pbx 'cat > /etc/asterisk/extensions_custom.conf.new' < /tmp/ext_custom.new
+ssh rh-pbx 'cd /etc/asterisk && chown asterisk:asterisk extensions_custom.conf.new && mv extensions_custom.conf.new extensions_custom.conf && asterisk -rx "dialplan reload"'
+```
+- Проверка: `ssh rh-pbx 'asterisk -rx "dialplan show from-trunk-whatsapp"'` — есть `_XXXXXXXXXXXX.` и метка `common`.
+- Откат: `ssh rh-pbx 'cd /etc/asterisk && cp -p extensions_custom.conf.bak-<время> extensions_custom.conf && asterisk -rx "dialplan reload"'`.
+
+**15.2 «Сервер: обновить шлюз и добавить номер Арван (без пароля, звонки на него пока отбиваются)»**
+```bash
+ssh rh-new
+sudo cp -p /opt/royalhome-wa-gateway/gateway.env /opt/royalhome-wa-gateway/gateway.env.bak-$(date -u +%Y%m%dT%H%M%SZ)
+sudo /opt/royalhome-crm/ops/whatsapp-gateway/bin/wa-install.sh            # копия прежних файлов — backup-<время>/
+grep -q '^WA_EXTRA_NUMBERS=' /opt/royalhome-wa-gateway/gateway.env \
+  && sudo sed -i 's/^WA_EXTRA_NUMBERS=.*/WA_EXTRA_NUMBERS=992877914444:1476112588909838:Arvan/' /opt/royalhome-wa-gateway/gateway.env \
+  || echo 'WA_EXTRA_NUMBERS=992877914444:1476112588909838:Arvan' | sudo tee -a /opt/royalhome-wa-gateway/gateway.env
+# yes требовал бы пароль и у Арван, которого ещё нет, — шлюз бы не встал. auto: проверка пароля
+# остаётся ВКЛЮЧЁННОЙ (у основного он есть), звонки на Арван без пароля отбиваются.
+sudo sed -i 's/^WA_REQUIRE_AUTH=.*/WA_REQUIRE_AUTH=auto/' /opt/royalhome-wa-gateway/gateway.env
+cd /opt/royalhome-wa-gateway && sudo docker compose build && sudo docker compose up -d --force-recreate
+```
+- Пересборка тянет базовый образ `debian:sid-20261104-slim` (теперь прибит к дате) и тот же Asterisk.
+  Перезапуск рвёт идущие WhatsApp-звонки (несколько секунд) — делать, когда звонка нет:
+  `sudo docker exec royalhome-wa-gateway asterisk -rx "core show channels count"`.
+- Проверка: `sudo docker logs royalhome-wa-gateway 2>&1 | grep -E "номера бизнеса|пароля Meta|нет пароля"` →
+  «номера бизнеса: <основной> 992877914444», «ВКЛЮЧЕНА: meta-inbound», «у номера 992877914444 нет пароля»;
+  `sudo docker exec royalhome-wa-gateway asterisk -rx "dialplan show from-whatsapp" | grep 992877914444`;
+  `sudo /opt/royalhome-wa-gateway/bin/wa-health.sh --local`; живой звонок на основной номер — как раньше.
+- Откат: `sudo cp -p /opt/royalhome-wa-gateway/gateway.env.bak-<время> /opt/royalhome-wa-gateway/gateway.env;
+  sudo cp -a /opt/royalhome-wa-gateway/backup-<время>/* /opt/royalhome-wa-gateway/; cd /opt/royalhome-wa-gateway &&
+  sudo docker compose build && sudo docker compose up -d --force-recreate`.
+
+**15.3 «Meta: включить звонки и SIP на номере Арван, кнопка скрыта»**
+```bash
+sudo /opt/royalhome-wa-gateway/bin/wa-calling.sh status --number=992877914444 > /root/wa-settings-arvan-before-$(date -u +%Y%m%dT%H%M%SZ).json
+sudo /opt/royalhome-wa-gateway/bin/wa-calling.sh enable --number=992877914444 --dry-run
+sudo /opt/royalhome-wa-gateway/bin/wa-calling.sh enable --number=992877914444
+```
+- Откат: `wa-calling.sh disable --number=992877914444`.
+
+**15.4 «Сервер: SIP-пароль Arvan в файл, проверка пароля у обоих номеров»**
+```bash
+sudo /opt/royalhome-wa-gateway/bin/wa-sip-password.sh --number=992877914444
+sudo sed -i 's/^WA_REQUIRE_AUTH=.*/WA_REQUIRE_AUTH=yes/' /opt/royalhome-wa-gateway/gateway.env
+cd /opt/royalhome-wa-gateway && sudo docker compose up -d --force-recreate
+```
+- Проверка: в журнале «ВКЛЮЧЕНА: meta-inbound,meta-inbound-992877914444»; `stat -c %a
+  /opt/royalhome-wa-gateway/secrets/meta/meta_sip_password.992877914444` → 600; `wa-health.sh` (теперь
+  проверяет `can_receive_call_sip` у каждого номера).
+- Откат: `sudo rm /opt/royalhome-wa-gateway/secrets/meta/meta_sip_password.992877914444`, `WA_REQUIRE_AUTH=auto`,
+  `docker compose up -d --force-recreate` (Арван снова отбивается, основной номер не затронут).
+
+**15.5 «Проверочный звонок на Арван»** — `wa-test-call-button.sh <номер владельца> --number=992877914444`
+(текст сообщения зашит в `graph-call.mjs` и говорит «Royal Home» — на «да» владельца на этот текст) либо звонок
+из WhatsApp, если кнопка видна. Ждём: агент видит «WhatsApp Arvan» на телефоне, в CRM строка «WhatsApp · Арван»,
+в хронологии «Входящий звонок … из WhatsApp (Арван)».
+
+**15.6 «Meta: показать кнопку звонка у номера Арван»** — `wa-calling.sh show-button --number=992877914444`
+(откат `hide-button --number=992877914444`).
+
 ## Что владелец делает сам
 
 1. **DNS-запись (операция 1).** Откройте dash.cloudflare.com → сайт `royalhome.tj` → DNS → Records → «Add record».

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4363,
+  "forks": 4370,
   "mounts": 87,
   "cron": 147,
   "jobs": 37,
@@ -7259,7 +7259,7 @@
     },
     {
      "k": "if",
-     "t": "!access?.isActive || !access.permissions.has(\"messages.viewAttachments\")",
+     "t": "!access?.isActive || !allowed",
      "a": [],
      "c": [
       {
@@ -7269,6 +7269,108 @@
         "ответ 403 — «Ссылка на вложение устарела — обновите переписку»"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "isAvatar",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const avatarPath = contactAvatarPath(params.data.name);",
+       "a": [
+        "зовёт contactAvatarPath()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!avatarPath",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Файл не найден\" });",
+         "a": [
+          "ответ 404 — «Файл не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Type\", \"image/webp\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"X-Content-Type-Options\", \"nosniff\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Content-Disposition\", \"inline\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Referrer-Policy\", \"no-referrer\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Cross-Origin-Resource-Policy\", \"same-site\");",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.setHeader(\"Cache-Control\", `private, max-age=${privateMaxAge(query.data.e)}`);",
+       "a": [
+        "ставит заголовок ответа"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.sendFile(path.basename(avatarPath), { root: path.dirname(avatarPath), cacheControl: false, dotfile…",
+       "a": [
+        "ответ 500 — «Не удалось прочитать файл»"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "err && !res.headersSent",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "res.status(500).json({ error: \"Не удалось прочитать файл\" });",
+           "a": [
+            "ответ 500 — «Не удалось прочитать файл»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },
@@ -9812,14 +9914,6 @@
        ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const safeItems = items.map((call)",
-     "a": [
-      "зовёт clientPhoneFor()"
-     ],
-     "c": []
     },
     {
      "k": "do",
@@ -22315,6 +22409,14 @@
      "c": [
       {
        "k": "do",
+       "t": "const archiveEnabled = await automationSwitchOn(\"chatArchiveEnabled\");",
+       "a": [
+        "зовёт automationSwitchOn()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "const directCount = accountId || (channel && channel !== \"TELEGRAM_DIRECT\") ? 0 : await prisma.telegramDirect…",
        "a": [
         "считает в базе: telegramDirectConversation"
@@ -22323,7 +22425,7 @@
       },
       {
        "k": "do",
-       "t": "res.json({ items: result.items, total: result.total, page, pageSize: PAGE_SIZE, channels: canSeeOrigin ? [...…",
+       "t": "res.json({ items: result.items, total: result.total, page, pageSize: GROUPED_PAGE_SIZE, archiveEnabled, chann…",
        "a": [
         "ответ 200"
        ],
@@ -110150,6 +110252,120 @@
         {
          "k": "do",
          "t": "console.log(`[cron] Ничьи файлы клиентов убраны: ${stale.deleted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const avatars = await cleanupOrphanContactAvatars();",
+       "a": [
+        "зовёт cleanupOrphanContactAvatars()"
+       ],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const name of await fs.promises.readdir(dir)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!AVATAR_NAME_RE.test(name)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "old.push(name);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: let i = 0; i < old.length; i += 500",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const rows = await prisma.contactProfile.findMany({ where: { avatarKey: { in: old.slice(i, i + 500) } }, sele…",
+           "a": [
+            "читает в базе: contactProfile"
+           ],
+           "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const row of rows",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "if (row.avatarKey) used.add(row.avatarKey);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const name of old",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "used.has(name)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "cleanupOrphanContactAvatars() — apps/api/src/lib/contactAvatar.ts"
+      },
+      {
+       "k": "if",
+       "t": "avatars.deleted",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Миниатюры без досье убраны: ${avatars.deleted}`);",
          "a": [
           "пишет строку в журнал сервера"
          ],

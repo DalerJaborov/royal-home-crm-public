@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 147,
   "jobs": 37,
-  "conditions": 4324,
-  "untranslatedUnique": 497,
-  "untranslatedTotal": 639,
-  "partialUnique": 1142,
+  "conditions": 4331,
+  "untranslatedUnique": 498,
+  "untranslatedTotal": 640,
+  "partialUnique": 1145,
   "translatedShare": 85
  },
  "untranslated": [
@@ -486,6 +486,7 @@
   "st?.isFile() && now - st.mtimeMs > ORPHAN_KEEP_MS",
   "staffOf(call.phone)",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
+  "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
   "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
   "state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000",
   "stillTalking(c, shootingDate)",
@@ -13846,7 +13847,7 @@
      "raw": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…"
     },
     {
-     "t": "если нет: is активен или permissions не содержит «messages.viewAttachments»",
+     "t": "если нет: is активен или нет: allowed",
      "k": "if",
      "a": [],
      "c": [
@@ -13855,6 +13856,46 @@
        "k": "do",
        "a": [],
        "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть is avatar",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: avatar path",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: не нашли: «Файл не найден»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "поломка внутри системы: «Не удалось прочитать файл»",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть ошибка и нет: headers отправленных",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка внутри системы: «Не удалось прочитать файл»",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },
@@ -75246,6 +75287,69 @@
       },
       {
        "t": "если есть удалён (залежался)",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: имя подходит по формату",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "stat && now.getTime() - stat.mtimeMs > ORPHAN_GRACE_MS",
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если used содержит есть имя",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если есть удалён",
        "k": "if",
        "a": [],
        "c": []

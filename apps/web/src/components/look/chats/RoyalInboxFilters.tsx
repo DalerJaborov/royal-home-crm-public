@@ -4,7 +4,7 @@ import { SlidersHorizontal } from "lucide-react";
 import type { ChatSegment, ConversationSegmentCounts } from "../../../hooks/useConversations";
 
 /**
- * ОДИН ФИЛЬТР «Ждут / Мои / Все» нового вида (владелец, макет 17–18.11.2026).
+ * ОДИН ФИЛЬТР «Все / Ждут / Мои» нового вида (владелец, макет 17–18.11.2026; 26.11.2026: «Все» первая и открыта по умолчанию).
  *
  * Срезы те же, что у прежней полосы, и уходят тем же полем в GET
  * /conversations; поменялись порядок и подписи. «Все N» — то же общее число,
@@ -15,9 +15,9 @@ import type { ChatSegment, ConversationSegmentCounts } from "../../../hooks/useC
  * переключают, в Tab-порядке одна кнопка.
  */
 export const ROYAL_SEGMENTS: Array<{ id: ChatSegment; label: string; count: keyof ConversationSegmentCounts }> = [
+  { id: "all", label: "Все", count: "all" },
   { id: "needsHuman", label: "Ждут", count: "needsHuman" },
   { id: "mine", label: "Мои", count: "mine" },
-  { id: "all", label: "Все", count: "all" },
 ];
 
 /** Срез, на который ведёт стрелка: по кругу; из спрятанного («пауза») — с первого. */

@@ -122,11 +122,19 @@ if (!/^\d{6,20}$/.test(phoneId)) fail("WA_PHONE_ID не задан");
 const dist = process.env.WA_CRM_DIST || "/repo/apps/api/dist";
 const meta = await import(`file://${dist}/messengers/meta.js`);
 const creds = await meta.loadCredentials();
-const token = creds.waToken;
-if (!token) fail("в CRM нет ключа WhatsApp (Настройки → Каналы / META_WA_TOKEN)");
+let token = creds.waToken;
 if (creds.waPhoneId && creds.waPhoneId !== phoneId) {
-  fail(`CRM настроена на номер ${creds.waPhoneId}, а шлюз — на ${phoneId}. Остановлено.`);
+  // Не основной номер (26.11.2026: второй — «Арван», WA_EXTRA_NUMBERS в gateway.env).
+  // Он обязан быть заведён в CRM строкой канала (Настройки → Каналы), и ключ берётся
+  // ЕГО (accountTokenById — та же дверь, что у отправки сообщений), а не общий:
+  // операция у Meta по номеру, которого CRM не знает, — опечатка в gateway.env.
+  const accounts = await import(`file://${dist}/messengers/accounts.js`);
+  const row = (await accounts.listAccounts("WHATSAPP")).find((r) => r.externalId === phoneId);
+  if (!row) fail(`номера ${phoneId} нет в CRM (основной — ${creds.waPhoneId}, других строк WhatsApp с таким id нет). Остановлено.`);
+  const own = await accounts.accountTokenById(row.id, "WHATSAPP");
+  token = own?.token || undefined;
 }
+if (!token) fail("в CRM нет ключа WhatsApp для этого номера (Настройки → Каналы / META_WA_TOKEN)");
 const redact = (s) => String(s).split(token).join("***");
 const base = `https://graph.facebook.com/${meta.GRAPH_VERSION}/${phoneId}`;
 

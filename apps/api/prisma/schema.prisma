@@ -7486,6 +7486,10 @@ model Settings {
   /// Сервер сжимает фото и видео сотрудника под предел канала клиента и шлёт их в фоне (25.11.2026,
   /// lib/outgoingMediaJobs.ts). ВКЛ. Выключено — прежняя отправка как есть: видео больше предела уходит ссылкой.
   outgoingMediaCompressEnabled          Boolean @default(true)
+  /// «Архив чатов» (владелец 26.11.2026): переписки БЕЗ карточки клиента и без сообщений 30 дней не показываются в
+  /// «Все/Ждут/Мои», а лежат в «Архиве». Ничего не удаляется и не переносится: правило считает запрос списка
+  /// (lib/chatArchive.ts). ВКЛ. Выключено — список как раньше.
+  chatArchiveEnabled                    Boolean @default(true)
   /// Объект из чата уходит в ЛЮБУЮ переписку, в том числе без карточки клиента (26.11.2026, lib/conversationPropertySend.ts).
   /// ВКЛ. Выключено — прежний отказ «сначала примите заявку»: отправка только клиенту с принятой карточкой.
   sendPropertiesWithoutCardEnabled      Boolean @default(true)
@@ -9499,6 +9503,11 @@ model IncomingCall {
   /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
   /// решает lib/telephony/callSource.ts.
   source            String    @default("phone")
+  /// Наш номер WhatsApp (phone_number_id у Meta), на который звонили, — если это НЕ
+  /// основной номер (26.11.2026, второй — «Арван»). Шлюз набирает станцию этим id
+  /// вместо городского номера; бренд — из строки канала с тем же externalId
+  /// (messengers/accounts.ts::whatsappLineBrand). null — основной номер или линия.
+  waPhoneNumberId   String?
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди
@@ -10522,6 +10531,11 @@ model ContactProfile {
   /// Сколько входящих сообщений от него насчитали всего. Дешёвая мера «свой или
   /// случайный», по которой видно вернувшегося человека без чтения переписок.
   messagesIn      Int              @default(0)
+  /// Миниатюра профиля из канала (Instagram, Messenger, Telegram), 96px webp, лежит в закрытом хранилище
+  /// `avatars/<ключ>` (lib/contactAvatar.ts). null — фото нет или канал его не отдаёт (WhatsApp).
+  avatarKey       String?
+  /// Когда пробовали забрать фото (успех или отказ): по ней один раз, а не на каждое сообщение.
+  avatarFetchedAt DateTime?
   /// Карточка клиента, если она у человека уже появилась. Досье НЕ заменяет её:
   /// досье есть у каждого написавшего, `Client` — только у оформленного лида.
   clientId        String?

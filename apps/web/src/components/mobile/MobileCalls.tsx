@@ -284,7 +284,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
-          <CallSourceMark source={call.source} look="royal" />
+          <CallSourceMark source={call.source} brand={call.brand} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
           {staff && <RoyalCallFlag tone={pillTone("info")}>свой номер, не клиент</RoyalCallFlag>}
           {!call.answered && !staff && (call.callbackAgent
@@ -327,7 +327,7 @@ function MhIncomingRow({ call, royal = false }: { call: IncomingCallRow; royal?:
               name
             )}
           </span>
-          <CallSourceMark source={call.source} look="chip-xs" />
+          <CallSourceMark source={call.source} brand={call.brand} look="chip-xs" />
           {call.irrelevant && <span className="chip lav xs">не по делу</span>}
           {staff && <span className="chip lav xs">свой номер, не клиент</span>}
           {!call.answered && !staff &&
@@ -1180,7 +1180,7 @@ function FeedRow({ call, royal = false }: { call: CallFeedRow; royal?: boolean }
           !call.client && !call.staff && call.kind !== "OUT" ? "в базе нет" : null,
         ]}
         flags={(analysis || isWhatsappCallSource(call.source)) && <>
-          <CallSourceMark source={call.source} look="royal" />
+          <CallSourceMark source={call.source} brand={call.brand} look="royal" />
           {analysis && <RoyalCallFlag tone={scorePillTone(analysis.score)}>балл {analysis.score}</RoyalCallFlag>}
         </>}
         action={expandable

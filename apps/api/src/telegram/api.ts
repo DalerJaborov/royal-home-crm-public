@@ -1456,7 +1456,10 @@ export async function getUserProfilePhotoUrl(userId: string): Promise<string | n
     return await fileDownloadUrl(fileId);
   } catch (err) {
     console.error("[telegram] getUserProfilePhotos:", err instanceof Error ? err.message : err);
-    void logSystemError("telegram", `getUserProfilePhotos ${userId}: ${describeError(err)}`);
+    // Сеть и таймаут: миниатюра в списке чатов не стоит записи в журнал ошибок (кружок с буквой остаётся).
+    if (!/timeout|timed out|таймаут|fetch failed|ECONNRESET|ENOTFOUND|ECONNREFUSED|UND_ERR/i.test(describeError(err))) {
+      void logSystemError("telegram", `getUserProfilePhotos ${userId}: ${describeError(err)}`);
+    }
     return null;
   }
 }
