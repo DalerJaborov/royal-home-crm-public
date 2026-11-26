@@ -41,6 +41,7 @@ const CHANNEL_NAME: Record<string, string> = { INSTAGRAM: "Instagram", FACEBOOK:
 const REASON_TEXT: Record<string, string> = {
   owned_subject_stopped: "новый бот выключен, а переписка закреплена за ним",
   historical_subject_owned_or_closed: "переписка по старой записи закреплена за новым ботом",
+  whatsapp_peer_on_other_number: "клиент написал на второй номер WhatsApp, а его переписка уже идёт с другого нашего номера",
 };
 /** A turn that has a text but no answer: the same words for the staff push. */
 const UNANSWERED_REASON_TEXT: Record<string, string> = {
@@ -52,10 +53,21 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   sender_read_unavailable: "не удалось прочитать данные собеседника",
   original_context_changed: "переписка изменилась, пока бот готовил ответ, и ответ не ушёл",
   consume_job_gave_up: "бот не смог обработать сообщение после повторов",
+  // lib/customerAgentOrphanClaims.ts: the worker restarted mid-answer (deploy), the answer never went out.
+  claim_orphaned_after_deadline: "бот готовил ответ, но сервер перезапустился, и ответ не ушёл",
+  received_orphaned_after_deadline: "сообщение не дошло до бота вовремя (сбой очереди), ответа не было",
   // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
 const plainReason = (reason: string) => REASON_TEXT[reason] ?? `служебная причина «${reason}»`;
+/** customerAgentEnrollment.ts: a WhatsApp customer wrote to our other number while their chat lives on the first one. */
+const WHATSAPP_OTHER_NUMBER = "whatsapp_peer_on_other_number";
+
+async function existingWhatsappChat(tx: Pick<import("../db.js").TxClient, "$queryRaw">, peer: string): Promise<{ id: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "BotConversation"
+    WHERE "channel"='WHATSAPP' AND "subscriberId"=${peer} LIMIT 2`;
+  return rows.length === 1 ? rows[0] : null;
+}
 const tagOf = (conversationId: string) => `customer-held-${conversationId}`;
 
 function contentOf(input: CustomerNormalizedIngressInput): string {
@@ -73,9 +85,14 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
   const raw = contentOf(input);
   try {
     const recorded = await prisma.$transaction(async tx => {
+      // The person already talks to us on our OTHER WhatsApp number (26.11.2026): their one CRM chat is that one. A chat
+      // in this number's scope cannot exist next to it (global unique channel+peer), so the text goes where staff already
+      // read this person. No chat at all (deleted meanwhile) falls through to the ordinary path below.
+      const otherNumberChat = hold.reason === WHATSAPP_OTHER_NUMBER && input.channel === "WHATSAPP"
+        ? await existingWhatsappChat(tx, input.peer) : null;
       // A chat staff deleted is not resurrected by a held message (13.11.2026):
       // its inquiry/ticket keep the tombstone (conversationId set to NULL).
-      if (!await findScopedBotConversation({ channel: input.channel, subscriberId: input.peer, transport }, tx)) {
+      if (!otherNumberChat && !await findScopedBotConversation({ channel: input.channel, subscriberId: input.peer, transport }, tx)) {
         const scopeKey = customerPropertyScopeKey(input.channel, input.peer, transport.accountId, transport.endpointScopeId);
         const [gone] = await tx.$queryRaw<Array<{ deleted: boolean }>>`SELECT
           EXISTS(SELECT 1 FROM "CustomerInquiry" WHERE "endpointScopeId"=${transport.endpointScopeId} AND "peerId"=${input.peer}
@@ -84,7 +101,7 @@ export async function recordHeldCustomerMessage(hold: { reason: string; input: C
             AND "originalConversationId" IS NOT NULL AND "conversationId" IS NULL) AS "deleted"`;
         if (gone?.deleted) return null;
       }
-      const native = await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport });
+      const native = otherNumberChat ?? await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport });
       // Row lock: two deliveries of the same MID must not both append.
       const [row] = await tx.$queryRaw<Array<{ clientId: string | null; present: boolean }>>`SELECT "clientId",
         "messages" @> ${JSON.stringify([{ mid: input.eventId }])}::jsonb AS "present"

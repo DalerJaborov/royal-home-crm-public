@@ -13,6 +13,7 @@ import { customerRoutingHoldDisposition } from "./customerRoutingHold.js";
 import { recordHeldCustomerMessage, type CustomerHeldMessage } from "./customerHeldMessage.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { CUSTOMER_CHANNEL_OFF_REASON, isCustomerIngressTicketChannelOff } from "./customerAgentChannelOff.js";
+import { CUSTOMER_TICKET_ORPHAN_REASONS } from "./customerTicketOrphanReasons.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
@@ -181,10 +182,16 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
   { status: "held" | "unchanged"; reason: string } | { status: "planned"; partIds: string[] }
 > {
   if (!/^[a-f0-9]{64}$/.test(eventKey)) return { status: "held", reason: "invalid_event_key" };
-  const selected = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { intakeAgentRevisionId: true, payloadVersion: true } });
+  const selected = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey },
+    select: { intakeAgentRevisionId: true, payloadVersion: true, processingState: true, errorCode: true } });
   // Historical property admissions are not durable P11 envelopes. Updating
   // their processing state would violate the payload/state SQL constraint.
   if (selected && selected.payloadVersion !== 1) return { status: "held", reason: "historical_payload_unavailable" };
+  // Released by the orphan sweep (customerAgentOrphanClaims.ts): final, a person was told once. A stale queue job
+  // (a RUNNING lock reclaimed after a restart) must not overwrite the code with "expired" nor report it again.
+  if (selected?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? "")) {
+    return { status: "held", reason: selected.errorCode! };
+  }
   if (selected?.intakeAgentRevisionId) {
     // Emergency kill switch (CUSTOMER_AGENT_CHANNEL_OFF): no core turn, no model. The ticket is HELD and the one
     // «unanswered turn» door tells a person (episode-deduplicated). Empty switch = no extra query, the old path below.
@@ -199,9 +206,15 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
     const { runCustomerDmAgentTurn } = await import("./customerDmAgentTurn.js");
     const result = await runCustomerDmAgentTurn(eventKey);
     if (result.status === "held") {
-      await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
+      const changed = await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
         SET "processingState"='HELD',"errorCode"=${result.reason} WHERE "eventKey"=${eventKey}
-        AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
+        AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL
+        AND ("errorCode" IS NULL OR NOT ("errorCode"=ANY(${[...CUSTOMER_TICKET_ORPHAN_REASONS]}::text[])))`;
+      // The sweep released this very ticket while the turn ran (race with the check above): already final and reported.
+      if (changed === 0) {
+        const now = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { processingState: true, errorCode: true } });
+        if (now?.processingState === "HELD" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(now.errorCode ?? "")) return { status: "held", reason: now.errorCode! };
+      }
       // This input ended WITHOUT an answer. An older one it had put aside
       // (`newer_input_pending`) must not be left unanswered with it (F12).
       let rearmed: string | null = null;
