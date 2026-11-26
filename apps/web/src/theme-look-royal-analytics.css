@@ -173,6 +173,11 @@
   display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px;
   color: var(--rh-ui-primary-ink); font-size: var(--rh-fs-md); font-weight: 600; text-decoration: none;
 }
+/* «Показаны 6 из 7 каналов. Показать ещё (1)»: `.state` — flex в одну строку, кнопка с nowrap-текстом сжималась
+   до 105 px, а её текст вылезал за край и давал горизонтальный скролл страницы на 320 (замер 26.11.2026,
+   «Источники заявок»). Строка переносится, кнопка не сжимается. */
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state { flex-wrap: wrap; }
+:root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state > :is(.lnk, button.lk) { flex: none; max-width: 100%; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state.err button.lk, :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr .state.err .lnk { color: var(--rh-ui-crit-text); text-decoration: underline; }
 :root[data-ui-look="royal"] .rh2[data-ry-section="analytics"] .scr a.lk { color: var(--rh-ui-primary-ink); font-weight: 600; }
 
