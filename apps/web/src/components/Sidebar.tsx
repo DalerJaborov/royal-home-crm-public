@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Home, ChevronsLeft, ChevronsRight, Search } from "lucide-react";
 import { useBranding } from "../hooks/useBranding";
+import { useSearchHotkey } from "../hooks/useSearchHotkey";
 import { useUiPrefs } from "../store/uiPrefs";
 // Поиск подгружается по нажатию (CommandPaletteLazy.tsx): палитра не должна
 // лежать во входном куске сборки, который читается до первой отрисовки.
@@ -97,16 +98,7 @@ export function Sidebar() {
   // Меню плоское: девять строк, без складок (решение владельца 15.09.2026).
   const { main, more } = useNavigation();
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setShowSearch(true);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useSearchHotkey(true, () => setShowSearch(true));
 
   return (
     <div className="hidden md:block shrink-0" style={{ width: pinnedWidth }}>
