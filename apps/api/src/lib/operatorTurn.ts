@@ -72,10 +72,14 @@ export const OPERATOR_BURST_MS = 3 * 60_000;
  * Сотрудник сам писал в этой переписке за последние `minutes` минут (агент из CRM, ответ из приложения Meta): после заявки
  * бот уступает человеку (владелец 20.11.2026). Сбой чтения — «нет»: молчание без причины хуже короткого ответа.
  */
-export async function staffWroteRecently(conversationId: string, minutes: number, now: Date): Promise<boolean> {
+export async function staffWroteRecently(conversationId: string, minutes: number, now: Date, kind: "bot" | "telegram" = "bot"): Promise<boolean> {
   try {
     const since = new Date(now.getTime() - Math.max(1, minutes) * 60_000).toISOString();
-    const rows = await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "BotConversation" c,
+    const rows = kind === "telegram"
+      ? await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "TelegramConversation" c,
+        jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages") = 'array' THEN c."messages" ELSE '[]'::jsonb END) e
+      WHERE c."id"=${conversationId} AND e->>'role'='assistant' AND e->'by'->>'kind' IN ('agent','manual') AND e->>'at' >= ${since} LIMIT 1`
+      : await prisma.$queryRaw<Array<{ n: number }>>`SELECT 1 AS "n" FROM "BotConversation" c,
         jsonb_array_elements(CASE WHEN jsonb_typeof(c."messages") = 'array' THEN c."messages" ELSE '[]'::jsonb END) e
       WHERE c."id"=${conversationId} AND e->>'role'='assistant' AND e->'by'->>'kind' IN ('agent','manual') AND e->>'at' >= ${since} LIMIT 1`;
     return rows.length > 0;

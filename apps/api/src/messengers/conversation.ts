@@ -63,6 +63,7 @@ import { extractAllPhones, extractTypedPhone, extractVolunteeredPhone, unreadabl
 import { lastClientLanguage, shortAgentReply } from "../ai/shortAgentReply.js";
 import { loadLeadOnlyConfig, leadOnlyWhen } from "../lib/leadOnlySettings.js";
 import { withoutAgreementOpenings } from "../ai/customerAgentHumanText.js";
+import { staffQuietActive } from "../lib/staffQuiet.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine, leadOnlyFilterReply, leadOnlyOutgoing, leadOnlyStripPhoneAsk } from "../ai/leadOnlyMode.js";
 import { alarmLeadOnlyIntake, leadOnlyCardAgentActive, noteLeadOnlyNewPhone, noteLeadOnlyOnCard } from "../lib/leadOnlyHandover.js";
 import { leadOnlyQuietBeforeLead } from "../lib/leadOnlyConfig.js";
@@ -2110,7 +2111,9 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   // проверка 24.09.2026, находка №114) — её же зовёт telegram/bot.ts, чтобы
   // Telegram снимал «бессрочную» паузу тем же протуханием и статусом
   // LOST/ARCHIVED/INACTIVE, что и каналы Meta, а не только здесь.
-  const isPaused = await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId);
+  const isPaused = (await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId))
+    // Чат сайта: сотрудник писал недавно — бот молчит и без автопаузы (lib/staffQuiet.ts, 27.11.2026).
+    || (await staffQuietActive({ kind: "bot", id: conversation.id, channel }));
 
   // Рубильники бота (Настройки → Бот): общий «Бот отвечает клиентам» И рубильник
   // ЭТОГО канала — выключить Instagram, оставив WhatsApp, это то же самое «молчим,
