@@ -4,7 +4,7 @@ import { ApiError } from "../lib/apiError";
 import { withRetryKey, type RetryKey } from "./useRetryKey";
 import { OfflineQueuedError } from "../lib/offlineQueue";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
-import { attachDealVersion, findCachedDeal } from "../lib/dealVersion";
+import { attachDealVersion, findCachedDeal, isMoneyDealWrite } from "../lib/dealVersion";
 import type { Deal } from "../types";
 
 export function useDeals(filters: { stage?: string; agentId?: string } = {}) {
@@ -103,9 +103,12 @@ export function useUpdateDeal() {
     onMutate: async ({ id, body }) => {
       await qc.cancelQueries({ queryKey: ["deals"] });
       const prev = qc.getQueriesData<Deal[]>({ queryKey: ["deals"] });
-      qc.setQueriesData<Deal[]>({ queryKey: ["deals"] }, (old) =>
-        old?.map((d) => (d.id === id ? ({ ...d, ...body } as Deal) : d))
-      );
+      // Деньги — только после ответа сервера (см. isMoneyDealWrite): окно закрытия ждёт его само.
+      if (!isMoneyDealWrite(body)) {
+        qc.setQueriesData<Deal[]>({ queryKey: ["deals"] }, (old) =>
+          old?.map((d) => (d.id === id ? ({ ...d, ...body } as Deal) : d))
+        );
+      }
       return { prev, epoch: currentSessionEpoch() };
     },
     onError: (err, _vars, ctx) => {
