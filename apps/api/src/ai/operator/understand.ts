@@ -52,7 +52,8 @@ export interface OperatorTurnInput {
   conversationId?: string | null;
 }
 
-export const OPERATOR_UNDERSTAND_ENDPOINT = "lead-only-operator";
+import { OPERATOR_UNDERSTAND_ENDPOINT } from "./endpoints.js";
+export { OPERATOR_UNDERSTAND_ENDPOINT };
 const MAX_RECENT = 8;
 const MAX_VALUE = 80;
 

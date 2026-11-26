@@ -34,6 +34,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "botSpamFilterEnabled",
   "botCoreFailAlertEnabled",
   "botRetryCapEnabled",
+  "botDailySpendCapEnabled",
   "shabnamSocialPublishEnabled",
   "shabnamGroupAutoMemoryEnabled",
   "chatMediaTranscodeEnabled",
@@ -59,6 +60,8 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "clientRecordResultEnabled",
   // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
   "telegramPhoneLinkEnabled",
+  // Ревью #450 (26.11.2026): сумму денежного потолка бота выбирает владелец, до этого потолок выключен. Колонка `DEFAULT false`.
+  "botDailySpendCapEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -140,6 +143,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     title: "Бот не может ответить: не повторять бесконечно",
     on: "Если бот трижды подряд решил, что на сообщение отвечать не нужно, он больше не повторяет попытку 6 часов. Если ключ канала не работает, бот сразу останавливается на 2 часа и сообщает ответственному. О клиенте без ответа напомнит сторож «клиент ждёт ответа», если он включён. Кнопка «Повторить зависшим» снимает остановку сразу.",
     off: "Бот повторяет попытку каждые полчаса, пока клиент не получит ответ: тратит ИИ, даже если ответ не может уйти.",
+  },
+  // CRM-47 (26.11.2026): у бота клиентов не было потолка в деньгах, петля останавливалась только лимитом Google на весь прод.
+  botDailySpendCapEnabled: {
+    title: "Бот клиентов: суточный потолок трат на ИИ",
+    on: "Бот потратил за сутки по Душанбе сумму из поля «Потолок трат бота»: до полуночи в WhatsApp, Instagram и Facebook он отвечает готовыми фразами без ИИ, заявки заводятся как обычно. Комментарии и чат сайта работают с ИИ. Руководству одна тревога в сутки.",
+    off: "Потолка нет: бот тратит на ИИ сколько нужно, остановит только лимит проекта Google, а он останавливает всю CRM. Предложено 5 $ в сутки: впишите сумму и включите.",
   },
   // Владелец 20.11.2026: «таким спамерам как то не отвечать или как то сэкономить токены».
   botSpamFilterEnabled: {
@@ -234,10 +243,18 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "botDailySpendCapEnabled","instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
 export function automationSwitchLabel(key: AutomationSwitchKey | "dealStaleSellersEnabled"): AutomationSwitchLabel {
   return key === "dealStaleSellersEnabled" ? SELLER_SWITCH_LABELS.dealStaleSellersEnabled : AUTOMATION_SWITCH_LABELS[key];
 }
+
+/**
+ * Суточный денежный потолок бота клиентов (CRM-47, 26.11.2026): умолчание и верх поля «Потолок трат бота» — одно место
+ * для сервера (apps/api/src/lib/customerBotSpendCap.ts, PATCH /settings) и экрана. 0 — без потолка. Верх — защита от
+ * лишнего нуля. Умолчание безопасное (обычный день бота — меньше доллара), сумму решает владелец.
+ */
+export const BOT_DAILY_SPEND_CAP_DEFAULT_USD = 5;
+export const BOT_DAILY_SPEND_CAP_MAX_USD = 200;

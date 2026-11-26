@@ -459,6 +459,8 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
    *  0 — без потолка. */
   liveVoiceDailyMinutesCap: number;
   liveVoiceMonthlyMinutesCap: number;
+  /** Суточный денежный потолок бота клиентов в USD (CRM-47, 26.11.2026); 0 — без потолка. */
+  botDailySpendCapUsd: number;
   /** Сколько робот наговорил против потолка (считает сервер, только чтение); null — не прочиталось. */
   liveVoiceSpend?: {
     day: LiveVoiceSpendPeriod;

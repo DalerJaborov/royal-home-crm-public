@@ -1,6 +1,7 @@
 import { AUTOMATION_SWITCH_GROUPS, automationSwitchLabel, isAutomationSwitchOn, type AutomationSwitchKey } from "@royal-home/shared";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
+import { BotSpendCapAmount } from "./BotSpendCapAmount";
 
 /**
  * «АВТОМАТИКА ИИ И НАПОМИНАНИЯ» (владелец 19.11.2026: «оставить все эти функции,
@@ -33,7 +34,7 @@ export function AutomationSwitchesSection() {
               ? (settings.dealStaleSellersEnabled ?? true)
               : isAutomationSwitchOn(settings as Partial<Record<AutomationSwitchKey, boolean>>, key);
             const label = automationSwitchLabel(key);
-            return (
+            const row = (
               <SwitchRow
                 key={key}
                 title={label.title}
@@ -42,6 +43,8 @@ export function AutomationSwitchesSection() {
                 hint={on ? label.on : label.off}
               />
             );
+            // Сумма потолка трат бота — сразу под его рубильником, и при выключенном тоже: сумму выбирают до включения (CRM-47).
+            return key === "botDailySpendCapEnabled" ? <div key={key}>{row}<BotSpendCapAmount stored={settings.botDailySpendCapUsd} enabled={on} /></div> : row;
           })}
         </div>
       ))}
