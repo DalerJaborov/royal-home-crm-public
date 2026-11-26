@@ -212,7 +212,7 @@ describe("мастер объекта в Telegram", () => {
     await writeFile(file, bytes);
     resolveFile.mockResolvedValue({ kind: "path", path: file });
     await send("author", { video: { file_id: "video-1", file_size: bytes.length, mime_type: "video/mp4" } });
-    expect(lastText()).toContain("Видео загружается");
+    expect(lastText()).toContain("Получила видео");
     await waitForTelegramDraftUploadsForTests();
     const media = (await draftOf("author")).media.filter(m => m.kind === "VIDEO");
     expect(media).toHaveLength(1);

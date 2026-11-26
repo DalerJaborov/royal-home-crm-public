@@ -191,6 +191,13 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   if (s.surface === "dm") {
     const native = await tx.$queryRaw<Array<{ id: string; endpointScopeId: string | null }>>`SELECT "id","endpointScopeId"
       FROM "BotConversation" WHERE "channel"=${e.channel} AND "subscriberId"=${s.peer}`;
+    // Two WhatsApp numbers (Royal Home + Arvan, 26.11.2026): a WhatsApp peer IS a phone number, so the same person who already
+    // has a chat on one number collides with that chat when writing to the other one (global unique channel+peer, Gate A).
+    // That is a normal customer, not a race: the text goes into the person's existing CRM chat and a person is told
+    // (customerHeldMessage.ts). Instagram/Facebook peers are per-account IDs, there it stays the 503 guard.
+    if (e.channel === "WHATSAPP" && native.length === 1 && native[0].endpointScopeId && native[0].endpointScopeId !== e.endpointScopeId) {
+      return held("whatsapp_peer_on_other_number");
+    }
     if (native.length > 1 || native.some(row => row.endpointScopeId !== e.endpointScopeId)) return held("legacy_native_scope_collision");
     const originalScopeKey = customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId);
     // Only what the CUSTOMER sent counts as history. Our own outgoing echo
