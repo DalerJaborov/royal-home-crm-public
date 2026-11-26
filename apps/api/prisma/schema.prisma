@@ -7469,6 +7469,9 @@ model Settings {
   telegramPhoneLinkEnabled              Boolean @default(false)
   /// Потолок фонового повтора ответа бота: 3 пустых повтора на одно сообщение клиента, отказ ключа канала — стоп на 2 часа (25.11.2026). ВКЛ.
   botRetryCapEnabled                    Boolean @default(true)
+  /// «Бот отвечает на языке клиента» (владелец 26.11.2026, ai/clientReplyLanguage.ts). ВКЛ. Выключено — клиенту на другом
+  /// языке (не русском и не таджикском) оператор заявок отвечает по-русски, как до правки.
+  botForeignReplyEnabled                Boolean @default(true)
   shabnamGroupAutoMemoryEnabled         Boolean @default(true)
   /// Копия голосового/видео клиента в формате, который играет любой браузер (25.11.2026, ВКЛ).
   chatMediaTranscodeEnabled             Boolean @default(true)

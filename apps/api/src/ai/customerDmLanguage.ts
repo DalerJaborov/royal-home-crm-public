@@ -1,5 +1,5 @@
 import { clientLanguageScores as baseClientLanguageScores, detectClientLanguage as detectRawClientLanguage, isUnreadableLatin, stripNonLanguage,
-  type ClientLanguage, type ClientLanguageExtension } from "./clientLanguage.js";
+  UZBEK_LATIN_WORDS, type ClientLanguage, type ClientLanguageExtension } from "./clientLanguage.js";
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
@@ -24,10 +24,11 @@ const CORE_TAJIK = new RegExp(`(?<![${L}])(?:ме(?:кун|кн|диҳ|дих|д
 const CORE_RUSSIAN = new RegExp(`(?<![${L}])(?:я|мы|вас|нас|вам|нам|так|но|понял|поняла|понятно|извините|хорошо|ладно|рекламу|реклама|увидела|увидел` +
   `|написала|написал|ищете|ищите|ищу|продажам|продажи|городе|город|здесь|там|был|была|было|уже|только|если|чтобы|нужна|нужен|можете|хотела|хотел` +
   `|узнать|подробнее|звонила|звонил|берёт|берет|трубку|никто|ничего|вакансию|вакансии|график|офисный)(?![${L}])`, "giu");
-/** Uzbek Latin («Bu haqida yana maʼlumot olsam boʻladimi?») is not Tajik: no language is forced. */
-const CORE_UZBEK = /(^|[^a-zʻʼ'])(bu|haqida|yana|olsam|bo[ʻʼ']?ladimi|bo[ʻʼ']?ladi|kerak|qancha|uy|uyni|sotaman|sotib|olaman|ishlaysizmi|ish|batafsil|ko[ʻʼ']?proq)([^a-zʻʼ']|$)/gi;
-const CORE_LANGUAGE: ClientLanguageExtension = { tajik: CORE_TAJIK, russian: CORE_RUSSIAN, uzbekLatin: CORE_UZBEK };
+/** Uzbek Latin («Bu haqida yana maʼlumot olsam boʻladimi?») is not Tajik: no language is forced (one list: ai/clientLanguage.ts). */
+const CORE_LANGUAGE: ClientLanguageExtension = { tajik: CORE_TAJIK, russian: CORE_RUSSIAN, uzbekLatin: UZBEK_LATIN_WORDS };
 const clientLanguageScores = (text: string) => baseClientLanguageScores(text, CORE_LANGUAGE);
+/** Разговорные таджикские слова ядра кириллицей («нархаш», «мефурӯшам», «нест»): признак таджикского для двери другого языка. */
+export function coreTajikWordCount(text: string): number { return (text.match(CORE_TAJIK) ?? []).length; }
 
 /** Customer-core view of the detector: Latin noise is no evidence of Tajik (the legacy detector guesses "tg"). */
 function detectClientLanguage(input: string): ClientLanguage {

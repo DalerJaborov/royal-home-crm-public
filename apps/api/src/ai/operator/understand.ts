@@ -24,6 +24,7 @@ import { clientOwnWords } from "../untrustedContent.js";
 import { customerRoleSignals, foldCustomerText, foldCustomerTextForRole } from "../customerAgentRole.js";
 import { customerDmDialogueLanguage, customerDmLanguagePreference, groundedCustomerDmLanguage, isNeutralShortReply, resolveCustomerDmLanguage } from "../customerDmLanguage.js";
 import { detectOutsideCoverage } from "../coverageGuard.js";
+import { decisiveOwnLanguage, foreignClientLanguage, foreignReplyLanguage } from "../clientReplyLanguage.js";
 import { isAckOnlyMessage, isThanksOnlyMessage } from "../ackOnly.js";
 import { customerRecruitmentRequested, selectedRecruitmentPosition } from "../customerAgentRecruitmentProtocol.js";
 import { looksLikeRentRequest } from "../rentGuard.js";
@@ -481,6 +482,10 @@ function codeFacts(input: OperatorTurnInput) {
     language: langLetters >= 2 && !langNeutral && !adOpener ? (tajikOnlyWords(langOwn) ? "tg" : customerDmDialogueLanguage([langOwn]) ?? russianGuess(langOwn)) : null,
     languageHint: langLetters >= 1 ? tajikHint(langOwn) ?? resolveCustomerDmLanguage(langOwn) : null,
     contextLanguage: operatorContextLanguage(input.recent),
+    // Другой язык (английский, узбекский, любой — 26.11.2026): этого сообщения и, когда в нём языка нет, прежних слов клиента.
+    foreignLanguage: foreignClientLanguage(langOwn),
+    ownLanguageDecisive: decisiveOwnLanguage(langOwn),
+    contextForeign: foreignReplyLanguage("", (input.recent ?? []).filter(turn => turn.role === "user").map(turn => turn.text)),
     ackOnly: isAckOnlyMessage(own), thanksOnly: isThanksOnlyMessage(own),
     greetingOnly: letters > 0 && clientSaidNothingSubstantive(own) && !isAckOnlyMessage(own) && !adOpener,
     // Реакция: есть эмодзи, нет букв, цифр и вложений (прод 23.11.2026: «😍» на ролик принят за вложение). «+», «?», «...» без
@@ -594,6 +599,7 @@ export function understandFallback(input: OperatorTurnInput, state: OperatorStat
     showing: code.showing, agrees: code.agrees, declines: code.declines || code.refusalOnly, refusalOnly: code.refusalOnly,
     roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
     agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
+    foreignLanguage: code.foreignLanguage, ownLanguageDecisive: code.ownLanguageDecisive, contextForeign: code.contextForeign,
     installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
     propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
     // «Ман ҳам хона дорам, нархаш чанд?», «у меня в этом доме квартира, сколько стоит?» — своё жильё без слов продажи и покупки:
@@ -823,6 +829,8 @@ export function understandingFromModel(raw: unknown, input: OperatorTurnInput, s
       showing: code.showing, agrees: code.agrees, declines: code.declines || code.refusalOnly, refusalOnly: code.refusalOnly,
       ...(roleConflict ? { roleConflict: true } : {}),
       agentTopic: code.agentTopic, languageSwitchOk: code.languageSwitchOk, languagePreference: code.languagePreference,
+      // Другой язык решает код, не модель (её схема знает только ru/tg).
+      foreignLanguage: code.foreignLanguage, ownLanguageDecisive: code.ownLanguageDecisive, contextForeign: code.contextForeign,
       installmentQuestion: code.installmentQuestion, stockQuestion: code.stockQuestion, nextStepQuestion: code.nextStepQuestion, photoRequest: code.photoRequest,
       propertyFacts: code.propertyFacts, priceAsked: code.priceAsked,
       roleByQuestion: roleByQuestion(role, question, code.own, code.questionSignal),
