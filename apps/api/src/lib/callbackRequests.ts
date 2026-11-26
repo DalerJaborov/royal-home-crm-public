@@ -13,7 +13,7 @@
 
 import { prisma } from "../db.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
-import type { CallbackRequest } from "../generated/prisma/client.js";
+import type { CallbackRequest, Prisma } from "../generated/prisma/client.js";
 import { isReadOnlyRole, parsePermissionOverrides, resolvePermissions, type Role, type CallbackRequestView } from "@royal-home/shared";
 export type { CallbackRequestView } from "@royal-home/shared";
 import { ownBotConversationSql } from "./ownBotConversationScope.js";
@@ -48,13 +48,14 @@ export async function routeMessengerCallbackRequest(input: {
 }): Promise<boolean> {
   if (!input.clientId) return false;
   const client = await prisma.client
-    .findFirst({ where: { id: input.clientId, deletedAt: null }, select: { assignedAgentId: true } })
+    .findFirst({ where: { id: input.clientId, deletedAt: null }, select: { assignedAgentId: true, assignedAt: true } })
     .catch((err) => {
       void logSystemError("ai", `Обратный звонок: агент клиента не прочитан: ${describeError(err)}`);
       return null;
     });
   if (!client?.assignedAgentId) return false;
-  await recordCallbackRequest({ ...input, targetAgentId: client.assignedAgentId, autoConnect: false });
+  // Просьбы и метки до назначения этого агента его пуш не глушат (ревью #447, п.2).
+  await recordCallbackRequest({ ...input, targetAgentId: client.assignedAgentId, autoConnect: false, since: client.assignedAt });
   return true;
 }
 
@@ -95,6 +96,7 @@ export async function notifyHumanAsk(input: {
 }): Promise<"sent" | "not_asked" | "duplicate" | "no_recipient" | "failed"> {
   if (!input.clientText || !clientAskedForOperator([input.clientText])) return "not_asked";
   try {
+    // Быстрый выход без блокировки; окончательная проверка — под блокировкой ниже.
     const recent = await prisma.callbackRequest.findFirst({
       where: {
         conversationId: input.conversationId,
@@ -117,16 +119,28 @@ export async function notifyHumanAsk(input: {
     if (!agentId) return "no_recipient";
 
     const phone = await volunteeredPhoneFromConversation(input.conversationId);
-    await prisma.callbackRequest.create({
-      data: {
-        conversationId: input.conversationId,
-        clientId: input.clientId,
-        channel: input.channel,
-        phone,
-        topic: input.topic.trim().slice(0, 500),
-        byClientRequest: true,
-      },
+    // Проверка и запись — под той же блокировкой переписки, что у recordCallbackRequest (CRM-38): два хода одной
+    // переписки («оператор?» и сразу «соедините») иначе оба не видели записи и слали два пуша.
+    const created = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`callback-request:${input.conversationId}`})::bigint)`;
+      const recent = await tx.callbackRequest.findFirst({
+        where: { conversationId: input.conversationId, requestedAt: { gte: new Date(Date.now() - HUMAN_ASK_PUSH_WINDOW_MS) } },
+        select: { id: true },
+      });
+      if (recent) return false;
+      await tx.callbackRequest.create({
+        data: {
+          conversationId: input.conversationId,
+          clientId: input.clientId,
+          channel: input.channel,
+          phone,
+          topic: input.topic.trim().slice(0, 500),
+          byClientRequest: true,
+        },
+      });
+      return true;
     });
+    if (!created) return "duplicate";
     await sendPushToAgent(agentId, {
       title: "🙋 Клиент просит живого человека",
       body: `${input.topic}${phone ? ` Телефон: ${phone}` : " Телефона пока нет — спросите в переписке."}`,
@@ -189,6 +203,87 @@ const LIVE_VOICE_CHANNEL = "LIVE_VOICE";
 /** Окно, в котором повторная эскалация живого голоса за того же человека не плодит запись и пуш. */
 export const LIVE_VOICE_ESCALATION_DEDUPE_MS = 10 * 60_000;
 
+/**
+ * ОДНА ОТКРЫТАЯ ПРОСЬБА О ЗВОНКЕ НА ЧЕЛОВЕКА — ВО ВСЕХ КАНАЛАХ (CRM-38, 26.11.2026).
+ *
+ * Было: защита от повтора стояла только у живого голоса. В переписке клиент пишет «перезвоните»,
+ * через десять минут ещё раз «ну перезвоните же» — и каждая реплика заводила НОВУЮ запись и новый
+ * пуш «📞 Клиент просит звонок» агенту (WhatsApp, Instagram, Facebook, Telegram, сайт: все они
+ * приходят сюда через routeMessengerCallbackRequest). Кнопка Telegram проверяла открытую просьбу
+ * сама, текст — нет. Теперь правило одно и стоит в единственной двери записи:
+ *  • живой голос с просьбой клиента — как раньше, 10 минут и только такие же записи;
+ *  • живой голос без просьбы клиента (save_contact, итог разговора) — без изменений: у сессии свой
+ *    флаг callbackRequestSent, повтор за повтором здесь не ловим;
+ *  • все остальные каналы — пока у того же человека (карточка, переписка или номер) есть открытая
+ *    просьба не старше срока автозакрытия (AUTO_CONNECT_MAX_AGE_MS, двое суток), вторая не
+ *    заводится. Агент закрыл первую («позвонил») — следующая просьба снова новая.
+ * Проверка и запись — в одной транзакции под блокировкой человека: два параллельных хода одного
+ * клиента не проскакивают оба (тот же приём, что был у голоса).
+ */
+type CallbackRepeatRule = { windowMs: number; where: { channel?: string | { not: string }; byClientRequest?: boolean } };
+export function callbackRepeatRule(input: { channel: string; byClientRequest: boolean }): CallbackRepeatRule | null {
+  if (input.channel === LIVE_VOICE_CHANNEL) {
+    return input.byClientRequest
+      ? { windowMs: LIVE_VOICE_ESCALATION_DEDUPE_MS, where: { channel: LIVE_VOICE_CHANNEL, byClientRequest: true } }
+      : null;
+  }
+  return { windowMs: AUTO_CONNECT_MAX_AGE_MS, where: { channel: { not: LIVE_VOICE_CHANNEL } } };
+}
+
+/**
+ * ЗВОНОК АГЕНТА, КОТОРЫЙ ЗАКРЫВАЕТ ПРОСЬБУ, — ОДНО УСЛОВИЕ НА ДВА МЕСТА (ревью #447, п.1): тик closeSettledCallbackRequests
+ * и повтор просьбы в recordCallbackRequest. Звонок живого агента строго после просьбы; несостоявшийся (агент не снял трубку,
+ * отбой до ответа) не в счёт, NO_ANSWER — попытка, в счёт.
+ */
+export function agentCallAfterWhere(clientIds: string[], after: Date) {
+  return {
+    type: "CALL",
+    archiveReview: false,
+    clientId: { in: clientIds },
+    createdAt: { gt: after },
+    agentId: { not: null },
+    OR: [{ callAttempt: null }, { callAttempt: { notIn: ["AGENT_NO_PICKUP", "CANCELLED"] } }],
+  } satisfies Prisma.InteractionWhereInput;
+}
+/** Повтор без звонка агента — напоминание агенту не чаще раза в полчаса и не раньше, чем через полчаса после просьбы. */
+export const CALLBACK_REPEAT_REMIND_MS = 30 * 60_000;
+const CALLBACK_REMIND_CHANNEL = "callback-repeat-remind";
+
+/** Одно напоминание на просьбу за полчаса на все процессы (отметка в ProcessedMessage, уборка общая через 3 дня). */
+async function remindCallbackRepeat(openId: string, agentId: string): Promise<void> {
+  try {
+    const slot = Math.floor(Date.now() / CALLBACK_REPEAT_REMIND_MS);
+    const first = await prisma.processedMessage.create({ data: { channel: CALLBACK_REMIND_CHANNEL, messageId: `${openId}:${slot}`, completedAt: new Date() } })
+      .then(() => true, () => false);
+    if (!first) return;
+    const row = await prisma.callbackRequest.findUnique({ where: { id: openId }, select: { topic: true, phone: true, clientId: true, doneAt: true } });
+    if (!row || row.doneAt) return;
+    await sendPushToAgent(agentId, {
+      title: "📞 Клиент снова просит звонок",
+      body: `${row.topic}${row.phone ? ` Телефон: ${row.phone}` : ""}`.slice(0, 300),
+      url: row.clientId ? `/clients/${row.clientId}` : "/messages",
+    });
+  } catch (err) {
+    void logSystemError("ai", `Напоминание о повторной просьбе звонка не отправлено: ${describeError(err)}`);
+  }
+}
+/**
+ * Кто просит: ключ блокировки и любое совпадение по трём признакам. Ключ — переписка, если она есть: карточка
+ * появляется посреди разговора, и два хода одной переписки до и после заявки должны ждать друг друга. У живого
+ * голоса переписки нет — ключ карточка, иначе номер (как было).
+ */
+export function callbackPerson(input: { clientId?: string | null; conversationId?: string | null; phone?: string | null }):
+  { lockKey: string; match: Array<{ clientId: string } | { conversationId: string } | { phone: string }> } | null {
+  const match: Array<{ clientId: string } | { conversationId: string } | { phone: string }> = [];
+  if (input.clientId) match.push({ clientId: input.clientId });
+  if (input.conversationId) match.push({ conversationId: input.conversationId });
+  // Номер — только когда больше не за что зацепиться (ревью #447, п.4): общий номер семьи или офиса не должен склеивать
+  // просьбы двух разных карточек или переписок.
+  if (input.phone && !input.clientId && !input.conversationId) match.push({ phone: input.phone });
+  const lockKey = input.conversationId ?? input.clientId ?? input.phone;
+  return lockKey && match.length ? { lockKey, match } : null;
+}
+
 export async function recordCallbackRequest(input: {
   conversationId?: string | null;
   clientId?: string | null;
@@ -232,6 +327,8 @@ export async function recordCallbackRequest(input: {
    * просьбу нельзя ни при каком пороге.
    */
   byClientRequest?: boolean;
+  /** Окно повтора не раньше этого момента: назначение нынешнего агента (routeMessengerCallbackRequest, ревью #447 п.2). */
+  since?: Date | null;
 }): Promise<void> {
   const byClientRequest = input.byClientRequest ?? false;
   try {
@@ -248,8 +345,6 @@ export async function recordCallbackRequest(input: {
     // робота 02.10.2026, п.17): два параллельных вызова (модель позвала функцию дважды в
     // одном ходу) оба не находили свежую запись и оба её создавали. Ключ блокировки —
     // карточка либо номер, тот же человек сериализуется, разные — нет.
-    const dedupeKey = input.clientId ?? phone;
-    const dedupe = input.channel === LIVE_VOICE_CHANNEL && byClientRequest && !!dedupeKey;
     const data = {
       conversationId: input.conversationId ?? null,
       clientId: input.clientId ?? null,
@@ -258,23 +353,44 @@ export async function recordCallbackRequest(input: {
       topic: input.topic.trim().slice(0, 500),
       byClientRequest,
     };
-    const row = dedupe
+    const rule = callbackRepeatRule({ channel: input.channel, byClientRequest });
+    const person = callbackPerson({ clientId: input.clientId, conversationId: input.conversationId, phone });
+    let remindOpenId: string | null = null;
+    const row = rule && person
       ? await prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`callback-request:${dedupeKey}`})::bigint)`;
-          const recent = await tx.callbackRequest.findFirst({
-            where: {
-              channel: LIVE_VOICE_CHANNEL,
-              byClientRequest: true,
-              doneAt: null,
-              requestedAt: { gte: new Date(Date.now() - LIVE_VOICE_ESCALATION_DEDUPE_MS) },
-              OR: [...(input.clientId ? [{ clientId: input.clientId }] : []), ...(phone ? [{ phone }] : [])],
-            },
-            select: { id: true },
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`callback-request:${person.lockKey}`})::bigint)`;
+          // Окно — не раньше назначения нынешнего агента (ревью #447, п.2): просьба или метка, заведённые при прежнем агенте
+          // или до агента (пуш ушёл дежурному), новому агенту пуш не глушат.
+          const floor = Math.max(Date.now() - rule.windowMs, input.since?.getTime() ?? 0);
+          const open = await tx.callbackRequest.findFirst({
+            where: { ...rule.where, doneAt: null, requestedAt: { gte: new Date(floor) }, OR: person.match },
+            orderBy: { requestedAt: "desc" },
+            select: { id: true, phone: true, topic: true, clientId: true, requestedAt: true },
           });
-          return recent ? null : tx.callbackRequest.create({ data });
+          if (!open) return tx.callbackRequest.create({ data });
+          // Агент уже позвонил после этой просьбы, а тик закрытия (раз в 10 минут) её ещё не закрыл (ревью #447, п.1):
+          // «пропустил, перезвоните» — это НОВАЯ просьба. Старую закрываем автором звонка, заводим новую.
+          const clientId = open.clientId ?? input.clientId ?? null;
+          const call = clientId ? await tx.interaction.findFirst({ where: agentCallAfterWhere([clientId], open.requestedAt),
+            orderBy: { createdAt: "asc" }, select: { agentId: true } }) : null;
+          if (call?.agentId) {
+            await tx.callbackRequest.updateMany({ where: { id: open.id, doneAt: null }, data: { doneAt: new Date(), doneById: call.agentId } });
+            return tx.callbackRequest.create({ data });
+          }
+          // Повтор той же просьбы: второй записи и обычного пуша нет. Поправленный номер и новая тема («по второму
+          // объекту») не теряются (ревью #447, п.3).
+          const topic = data.topic && !open.topic.includes(data.topic) ? `${open.topic}\nПовторно: ${data.topic}`.slice(0, 500) : open.topic;
+          const patch = { ...(data.phone && data.phone !== open.phone ? { phone: data.phone } : {}), ...(topic !== open.topic ? { topic } : {}) };
+          if (Object.keys(patch).length) await tx.callbackRequest.update({ where: { id: open.id }, data: patch });
+          // Клиент ждёт дольше получаса — агенту напоминание, а не глухое подавление.
+          if (input.targetAgentId && Date.now() - open.requestedAt.getTime() >= CALLBACK_REPEAT_REMIND_MS) remindOpenId = open.id;
+          return null;
         })
       : await prisma.callbackRequest.create({ data });
-    if (!row) return;
+    if (!row) {
+      if (remindOpenId && input.targetAgentId) await remindCallbackRepeat(remindOpenId, input.targetAgentId);
+      return;
+    }
     requestPultSnapshot(); // пульт: новый запрос «перезвоните»
 
     /**
@@ -570,21 +686,10 @@ export async function closeSettledCallbackRequests(now = new Date()): Promise<{ 
   // самую старую из просьб, и раскладываем по клиентам уже в памяти.
   const earliest = withClient.reduce((min, r) => (r.requestedAt < min ? r.requestedAt : min), withClient[0].requestedAt);
   const calls = await prisma.interaction.findMany({
-    where: {
-      type: "CALL",
-      archiveReview: false,
-      clientId: { in: withClient.map((r) => r.resolvedClientId) },
-      createdAt: { gt: earliest },
-      // Закрыть просьбу может только звонок живого агента (actorKind=AGENT) —
-      // системный/ИИ-след здесь не в счёт (П-10, 17.09.2026).
-      agentId: { not: null },
-      // Несостоявшийся звонок просьбу не закрывает (аудит 04.10.2026, CALL-01):
-      // AGENT_NO_PICKUP (агент не снял свою трубку, клиенту не звонили) и CANCELLED
-      // (отбой до ответа клиента). Простое `notIn` отбросило бы и null (ручную
-      // запись и звонки до 27.08.2026), поэтому null разрешён отдельно. NO_ANSWER
-      // оставлен закрывающим: клиенту звонили, это попытка (как в inactiveTrafficLight).
-      OR: [{ callAttempt: null }, { callAttempt: { notIn: ["AGENT_NO_PICKUP", "CANCELLED"] } }],
-    },
+    // Закрыть просьбу может только звонок живого агента (actorKind=AGENT, П-10, 17.09.2026); несостоявшийся звонок
+    // (AGENT_NO_PICKUP, CANCELLED; аудит 04.10.2026, CALL-01) не закрывает, null (ручная запись, звонки до 27.08) и
+    // NO_ANSWER закрывают. Условие одно с повтором просьбы — agentCallAfterWhere.
+    where: agentCallAfterWhere(withClient.map((r) => r.resolvedClientId), earliest),
     orderBy: { createdAt: "asc" },
     take: 500,
     select: { clientId: true, agentId: true, createdAt: true },
