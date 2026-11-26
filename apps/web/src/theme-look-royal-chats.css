@@ -624,7 +624,7 @@
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-av .ry-avatar { border-radius: var(--rh-r-full); }
 
 /* Совсем узкий экран (320): вкладки по ширине содержимого, а не по равным долям, иначе «Все 1369» наезжает на «Ждут». */
-@media (max-width: 359px) {
+@media (max-width: 359.98px) {
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg { grid-auto-columns: auto; justify-content: space-between; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; gap: 3px; }
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg { padding: 2px; }
