@@ -69,6 +69,7 @@ import { bindCustomerMetaSendCredentials } from "./customerMetaTransport.js";
 import { loadLeadOnlyConfig } from "./leadOnlySettings.js";
 import { assertOperatorStateCurrentTx, enqueueCustomerLeadOnlyIntakeTx, LEAD_ONLY_OPERATOR_SILENT, OperatorStateStaleError, planCustomerLeadOnlyTurn,
   type CustomerLeadOnlyTurnPlan } from "./customerLeadOnlyCore.js";
+import { leadOnlyPlanAvoidingShieldRepeat } from "./leadOnlyShieldRepeat.js";
 import { leadOnlyAppliesTo, leadOnlyEscalateLine } from "../ai/leadOnlyMode.js";
 import { selfAnswerLeadIntake } from "./selfAnswerLead.js";
 import { z } from "zod";
@@ -334,7 +335,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const leadOnlyFocusId = focus?.snapshot.focus.status === "resolved" ? focus.snapshot.focus.propertyId ?? null : null;
     // Объект определён именно этим сообщением, а не остался в фокусе с прошлых ходов (ревью: «залипший» объект).
     const leadOnlyFocusFresh = !!leadOnlyFocusId && focus?.snapshot.focus.eventKey === lane.ticket.eventKey;
-    const planLeadOnly = async (plan: CustomerLeadOnlyTurnPlan): Promise<CustomerDmAgentTurnResult> => {
+    const planLeadOnly = async (decided: CustomerLeadOnlyTurnPlan): Promise<CustomerDmAgentTurnResult> => {
+      // CRM-36: ответ, который щит исходящих вырежет как повтор, не идёт в очередь (там он пропал бы молча) — другие слова
+      // того же шага, а если и они звучали — тишина с сигналом человеку (lib/leadOnlyShieldRepeat.ts).
+      const plan = await leadOnlyPlanAvoidingShieldRepeat(decided, texts => customerReplyRepeatBlocked(mutations.principal, texts));
       let stateError: unknown = null;
       const now = new Date();
       const partIds = await prisma.$transaction(async tx => {

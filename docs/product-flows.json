@@ -89567,9 +89567,17 @@
      "c": [
       {
        "k": "do",
-       "t": "return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;",
+       "t": "const offers = await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } });",
        "a": [
         "удаляет в базе: assistantTelegramLinkOffer"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const people = await prisma.assistantGroupPerson.deleteMany({ where: { AND: [ { OR: [{ linkHintAt: null }, { …",
+       "a": [
+        "удаляет в базе: assistantGroupPerson"
        ],
        "c": []
       }
