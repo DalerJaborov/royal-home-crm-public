@@ -4,7 +4,6 @@ import { handleModerationCallback, handleModerationText, claimCallback } from ".
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
 import { handleTransferReviewCallback } from "./transferReviewBot.js";
 import { isOperatorPauseActive } from "../lib/conversationState.js";
-import { staffQuietActive } from "../lib/staffQuiet.js";
 import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
@@ -209,8 +208,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
      * гасим «часики» на кнопке, ничего не создаём и ничего не пишем клиенту.
      */
     if (conversation) {
-      const paused = (await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId))
-        || (await staffQuietActive({ kind: "telegram", id: conversation.id }));
+      const paused = await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId);
       if (paused || !(await isBotEnabledForChannel("TELEGRAM"))) {
         await answerCallbackQuery(query.id);
         return;
@@ -1203,9 +1201,7 @@ async function handleClientMessages(msgs: TelegramIncomingMessage[]): Promise<Te
   // снимали, бот молчал навсегда. В каналах Meta (messengers/conversation.ts)
   // это уже работало — формула вынесена в lib/conversationState.ts
   // (isOperatorPauseActive) и теперь общая для обоих каналов.
-  const isPaused = (await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId))
-    // Сотрудник писал недавно — бот молчит и без автопаузы (lib/staffQuiet.ts, 27.11.2026).
-    || (await staffQuietActive({ kind: "telegram", id: conversation.id }));
+  const isPaused = await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId);
   /** Бот подаёт голос, только когда включён и диалог не забрал себе сотрудник. От
    *  этого зависит платная часть разбора вложений — расшифровка речи. */
   const botSpeaks = botEnabled && !isPaused;
@@ -1980,7 +1976,6 @@ async function replyToBatch(p: {
    */
   if (!(await isBotEnabledForChannel("TELEGRAM"))) return;
   if (await isOperatorPauseActive(conversation.pausedUntil, conversation.botPausedAt, conversation.clientId)) return;
-  if (await staffQuietActive({ kind: "telegram", id: conversation.id })) return;
   if (!p.registeredClientId && conversation.clientId) return;
 
   const history = (conversation.messages as unknown as ChatMessage[]) ?? [];
