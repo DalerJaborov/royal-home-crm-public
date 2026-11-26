@@ -580,3 +580,54 @@
    было «Фаррух Н…», а значок бота сжимался (съёмка экранов 20.11). */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who-tx b { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-who > :not(.ry-chat-who-tx) { flex: none; }
+
+/* ===================== список: метка «продаёт», архив, догрузка (26.11.2026) ===================== */
+
+/* Ярлык «Продаёт» у безымянного: маленькая метка в верхнем углу кружка, как в макете владельца. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-kind {
+  position: absolute; left: -4px; top: -4px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-warn-soft, var(--rh-ui-bg)); color: var(--rh-ui-warn); box-shadow: 0 0 0 2px var(--rh-ui-card);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-kind svg { width: 13px; height: 13px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-av .ry-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* Вход в «Архив» и шапка самого архива: одна спокойная строка. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 16px;
+  border: 0; background: transparent; color: var(--rh-ui-text); font: inherit; text-align: left; cursor: pointer;
+  box-shadow: inset 0 -1px 0 var(--rh-ui-sep);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -2px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-ic {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); color: var(--rh-ui-hint);
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-ic svg { width: 22px; height: 22px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-tx { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-tx b { font-size: var(--rh-fs-lg); font-weight: 600; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-tx span { font-size: var(--rh-fs-md); line-height: 1.3; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-n { flex: none; font-size: var(--rh-fs-md); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--rh-ui-hint); }
+
+/* Серые строки на время подгрузки: список течёт без кнопки «Показать ещё». */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 10px 16px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel > i { display: block; flex: none; width: 48px; height: 48px; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel > span { display: grid; flex: 1 1 auto; gap: 8px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel > span > i { display: block; height: 12px; border-radius: var(--rh-r-full); background: var(--rh-ui-bg); }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel > span > i:first-child { width: 40%; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel > span > i:last-child { width: 78%; }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-skel :is(i) { animation: ry-chat-skel 1.4s ease-in-out infinite; }
+}
+@keyframes ry-chat-skel { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-more-end { height: 1px; }
+/* Кружок, а не квадрат (макет владельца 26.11.2026): и фото, и буква, и метка интереса. */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-av .ry-avatar { border-radius: var(--rh-r-full); }
+
+/* Совсем узкий экран (320): вкладки по ширине содержимого, а не по равным долям, иначе «Все 1369» наезжает на «Ждут». */
+@media (max-width: 359px) {
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg { grid-auto-columns: auto; justify-content: space-between; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg button { padding: 0 4px; gap: 3px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-seg { padding: 2px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-more > summary { width: 44px; height: 44px; }
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-filters { gap: 4px; }
+}

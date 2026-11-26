@@ -1834,6 +1834,32 @@ export async function fetchMessengerName(psid: string, tokenOverride?: string): 
 }
 
 /**
+ * Адрес фото профиля собеседника в Messenger (Facebook) по PSID: для миниатюры в списке чатов
+ * (lib/contactAvatar.ts). Тот же ключ Страницы, что у `fetchMessengerName`; отказ тихий: без фото в списке
+ * остаётся кружок с буквой, ожидаемый отказ Meta («Unsupported get request») не поломка.
+ */
+export async function fetchMessengerProfilePic(psid: string, tokenOverride?: string): Promise<string | undefined> {
+  const { pageToken: fallbackToken } = await loadCredentials();
+  const personal = tokenOverride || fallbackToken;
+  if (!personal) return undefined;
+  try {
+    const token = await facebookPageTokenFor(personal);
+    const res = await fetchWithRetry(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(psid)}?fields=profile_pic&access_token=${encodeURIComponent(token)}`,
+      {}
+    );
+    if (!res.ok) {
+      await res.text().catch(() => "");
+      return undefined;
+    }
+    const data = (await res.json()) as { profile_pic?: string };
+    return typeof data.profile_pic === "string" && data.profile_pic ? data.profile_pic : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Адрес файла WhatsApp по идентификатору медиа.
  *
  * WhatsApp, в отличие от Instagram и Messenger, не кладёт в вебхук ссылку на файл —

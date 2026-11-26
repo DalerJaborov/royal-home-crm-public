@@ -51,6 +51,8 @@ export interface ConversationFilters {
   mine?: boolean;
   /** Show one row per exact linked client, with standalone unlinked chats. */
   grouped?: boolean;
+  /** «Архив»: переписки без карточки клиента и тише 30 дней (сервер: lib/chatArchive.ts). */
+  archived?: boolean;
   page?: number;
 }
 
@@ -86,6 +88,14 @@ export interface ConversationListItem {
    *  (владелец 18.09.2026) — список ставит такой диалог первым и красным,
    *  пока это не null. Гасится реальным ответом/звонком закреплённого агента. */
   agentAttentionRequestedAt: string | null;
+  /** Имени нет вовсе (ни карточки, ни профиля канала): тогда `name` собран из интереса, а кружок несёт его метку. */
+  unnamed?: boolean;
+  /** Что человеку нужно, по тому, что бот уже собрал: «Ищет 2к · Шохмансур», «до 650 тыс.», «2к». */
+  interest?: { title: string; budget: string | null; badge: string | null; kind: "buy" | "rent" | "sell" | "job" | null } | null;
+  /** Подписанная ссылка на фото из профиля канала (Instagram, Messenger, Telegram); null: фото нет или канал его не отдаёт. */
+  avatarUrl?: string | null;
+  /** Чем красить кружок: закреплено за человеком, а не за строкой. */
+  avatarSeed?: string;
   /** Source conversation IDs represented by this row (grouped inbox only). */
   sourceConversationIds?: string[];
   /** Channels represented by this row (hidden unless clients.viewOrigin). */
@@ -105,6 +115,8 @@ export interface ConversationSegmentCounts {
   needsHuman: number;
   paused: number;
   mine: number;
+  /** Сколько переписок лежит в «Архиве»; нет поля, пока сервер старый или рубильник выключен. */
+  archived?: number;
 }
 
 /** Тихие строки сверху инбокса (`.quiet.crit` / `.quiet.warn`, эталон messages.html). */
@@ -119,6 +131,8 @@ export type ConversationsPage = Omit<Paginated<ConversationListItem>, "total"> &
   /** Подключённые аккаунты — для переключателя над списком. */
   accounts: InboxAccount[];
   counts: ConversationSegmentCounts | null;
+  /** Рубильник «Архив чатов» (Настройки): выключен, пункта «Архив» нет. */
+  archiveEnabled?: boolean;
   /** Grouped source loading reached the safety cap; totals and segment counts are intentionally omitted. */
   groupedIncomplete?: boolean;
   alerts: ConversationAlerts;
@@ -162,12 +176,13 @@ export interface ConversationDetail {
  *  («ждут человека» ∩ «мои») мокет не просит. Живёт здесь, а не в pages/Messages.tsx:
  *  тип нужен и components/mobile/MobileChatsList.tsx, а тот файл уже импортирует
  *  саму страницу Messages.tsx под свой заголовок — обратный импорт замкнул бы цикл. */
-export type ChatSegment = "all" | "needsHuman" | "paused" | "mine";
+export type ChatSegment = "all" | "needsHuman" | "paused" | "mine" | "archive";
 
 export function segmentFromFilters(filters: ConversationFilters): ChatSegment {
   if (filters.needsHuman) return "needsHuman";
   if (filters.paused) return "paused";
   if (filters.mine) return "mine";
+  if (filters.archived) return "archive";
   return "all";
 }
 
@@ -180,6 +195,7 @@ function toQuery(filters: ConversationFilters) {
   if (filters.paused) params.set("paused", "1");
   if (filters.mine) params.set("mine", "1");
   if (filters.grouped) params.set("grouped", "1");
+  if (filters.archived) params.set("archived", "1");
   if (filters.page) params.set("page", String(filters.page));
   const qs = params.toString();
   return qs ? `?${qs}` : "";

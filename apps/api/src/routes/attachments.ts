@@ -4,6 +4,7 @@ import { z } from "zod";
 import { loadAgentAccess, requireAuth, requirePermission } from "../auth/middleware.js";
 import { findAttachmentOwnerClientId, privateFilePath, privateMimeType } from "../lib/privateFiles.js";
 import { prisma } from "../db.js";
+import { contactAvatarPath } from "../lib/contactAvatar.js";
 import { canOpenChatAttachments, verifyAttachmentLink } from "../lib/chatAttachmentLinks.js";
 import { DerivedMediaUnavailable, derivedMime, ensureDerived } from "../lib/chatMediaDerived.js";
 
@@ -117,7 +118,8 @@ const signedQuerySchema = z.object({
   a: z.string().min(1).max(64),
   e: z.coerce.number().int().positive(),
   k: z.string().min(16).max(64),
-  v: z.enum(["t", "p"]).optional(),
+  /** t: миниатюра фото, p: копия для браузера, a: миниатюра собеседника в списке чатов (lib/contactAvatar.ts). */
+  v: z.enum(["t", "p", "a"]).optional(),
   m: z.enum(["a", "v"]).optional(),
 });
 
@@ -152,8 +154,26 @@ signedAttachmentsRouter.get("/:name", async (req, res) => {
   // Подпись выдана конкретному сотруднику: отключили учётку — ссылка гаснет сразу
   // (кэш доступа — секунды, общий с requireAuth), а не через часы до конца срока.
   const access = await loadAgentAccess(query.data.a).catch(() => null);
-  if (!access?.isActive || !access.permissions.has("messages.viewAttachments")) {
+  // Миниатюра собеседника (v=a) открыта тем, кто видит список чатов; вложения переписки: правом на вложения.
+  const isAvatar = query.data.v === "a";
+  const allowed = isAvatar
+    ? !!access && (access.permissions.has("messages.view") || access.permissions.has("messages.viewOwn"))
+    : !!access?.permissions.has("messages.viewAttachments");
+  if (!access?.isActive || !allowed) {
     return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
+  }
+  if (isAvatar) {
+    const avatarPath = contactAvatarPath(params.data.name);
+    if (!avatarPath) return res.status(404).json({ error: "Файл не найден" });
+    res.setHeader("Content-Type", "image/webp");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+    res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
+    return res.sendFile(path.basename(avatarPath), { root: path.dirname(avatarPath), cacheControl: false, dotfiles: "deny" }, (err) => {
+      if (err && !res.headersSent) res.status(500).json({ error: "Не удалось прочитать файл" });
+    });
   }
   const fullPath = privateFilePath(params.data.name);
   if (!fullPath) return res.status(404).json({ error: "Файл не найден" });

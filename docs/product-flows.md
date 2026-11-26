@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4349**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2525**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1633,9 +1633,32 @@
     · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
 - const access = await loadAgentAccess(query.data.a).catch(()
   · зовёт loadAgentAccess()
-- если !access?.isActive || !access.permissions.has("messages.viewAttachments")
+- если !access?.isActive || !allowed
   - return res.status(403).json({ error: "Ссылка на вложение устарела — обновите переписку" });
     · ответ 403 — «Ссылка на вложение устарела — обновите переписку»
+- если isAvatar
+  - const avatarPath = contactAvatarPath(params.data.name);
+    · зовёт contactAvatarPath()
+  - если !avatarPath
+    - return res.status(404).json({ error: "Файл не найден" });
+      · ответ 404 — «Файл не найден»
+  - res.setHeader("Content-Type", "image/webp");
+    · ставит заголовок ответа
+  - res.setHeader("X-Content-Type-Options", "nosniff");
+    · ставит заголовок ответа
+  - res.setHeader("Content-Disposition", "inline");
+    · ставит заголовок ответа
+  - res.setHeader("Referrer-Policy", "no-referrer");
+    · ставит заголовок ответа
+  - res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+    · ставит заголовок ответа
+  - res.setHeader("Cache-Control", `private, max-age=${privateMaxAge(query.data.e)}`);
+    · ставит заголовок ответа
+  - return res.sendFile(path.basename(avatarPath), { root: path.dirname(avatarPath), cacheControl: false, dotfile…
+    · ответ 500 — «Не удалось прочитать файл»
+    - если err && !res.headersSent
+      - res.status(500).json({ error: "Не удалось прочитать файл" });
+        · ответ 500 — «Не удалось прочитать файл»
 - const fullPath = privateFilePath(params.data.name);
   · зовёт privateFilePath()
 - если !fullPath
@@ -5031,9 +5054,11 @@
 - const ownAgentId = chatScopeAgentId(req);
   · зовёт chatScopeAgentId()
 - если grouped
+  - const archiveEnabled = await automationSwitchOn("chatArchiveEnabled");
+    · зовёт automationSwitchOn()
   - const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT") ? 0 : await prisma.telegramDirect…
     · считает в базе: telegramDirectConversation
-  - res.json({ items: result.items, total: result.total, page, pageSize: PAGE_SIZE, channels: canSeeOrigin ? [...…
+  - res.json({ items: result.items, total: result.total, page, pageSize: GROUPED_PAGE_SIZE, archiveEnabled, chann…
     · ответ 200
   - return;
     · дальше не идёт, ничего не меняя

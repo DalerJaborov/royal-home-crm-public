@@ -110,6 +110,7 @@ import {
   recordContactTurn,
 } from "../lib/contactProfiles.js";
 import { recordAudienceMessage } from "../lib/audienceHeatmap.js";
+import { ensureContactAvatar } from "../lib/contactAvatar.js";
 import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProfileMemory.js";
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { ingestGroupComment, isTelegramGroupCommentsEnabled } from "../messengers/telegramGroupComments.js";
@@ -143,6 +144,8 @@ async function getConversation(chatId: string, username: string | undefined) {
       });
     },
   });
+  // Миниатюра для списка чатов: один раз на человека, в отрыве (lib/contactAvatar.ts).
+  void ensureContactAvatar({ profileId: contactProfileId, channel: "TELEGRAM", subscriberId: chatId });
   return { ...conversation, contactProfileId };
 }
 

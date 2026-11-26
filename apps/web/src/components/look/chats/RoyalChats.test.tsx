@@ -123,13 +123,15 @@ describe("RoyalDialogRow — строка нового вида не теряе�
   });
 });
 
-describe("RoyalInboxFilters — один фильтр «Ждут / Мои / Все», редкое под «Ещё»", () => {
+describe("RoyalInboxFilters — один фильтр «Все / Ждут / Мои», редкое под «Ещё»", () => {
   it("renders the three segments in the owner's order with server counts", () => {
     const html = renderToStaticMarkup(createElement(RoyalInboxFilters, {
       segment: "needsHuman", counts: { all: 8, needsHuman: 4, paused: 1, mine: 2 }, onSegmentChange: () => {}, moreActive: false,
       children: createElement("span", null, "Бот на паузе"),
     }));
-    const order = ["Ждут", "Мои", "Все"].map((label) => html.indexOf(label));
+    // Владелец 26.11.2026: «Все» первая вкладка.
+    const order = ["Все", "Ждут", "Мои"].map((label) => html.indexOf(label));
+    expect(order.every((i) => i >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(html).toMatch(/aria-checked="true"[^>]*>Ждут<b class="ry-num">4<\/b>/);
     expect(html).toContain("Бот на паузе");
@@ -138,8 +140,9 @@ describe("RoyalInboxFilters — один фильтр «Ждут / Мои / Вс
     expect(segmentByArrow("needsHuman", "ArrowRight")).toBe("mine");
     expect(segmentByArrow("all", "ArrowRight")).toBe("needsHuman");
     expect(segmentByArrow("needsHuman", "ArrowLeft")).toBe("all");
-    expect(segmentByArrow("paused", "ArrowRight")).toBe("needsHuman");
-    expect(segmentByArrow("mine", "End")).toBe("all");
+    expect(segmentByArrow("mine", "ArrowRight")).toBe("all");
+    expect(segmentByArrow("paused", "ArrowRight")).toBe("all");
+    expect(segmentByArrow("all", "End")).toBe("mine");
     expect(segmentByArrow("mine", "a")).toBeNull();
     const html = renderToStaticMarkup(createElement(RoyalInboxFilters, {
       segment: "mine", counts: null, onSegmentChange: () => {}, moreActive: false, children: null,

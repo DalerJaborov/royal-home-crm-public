@@ -237,6 +237,8 @@ export const conversationQuerySchema = z.object({
   mine: z.literal("1").optional(),
   /** Opt-in inbox rows grouped by exact linked CRM client. */
   grouped: z.literal("1").optional(),
+  /** Вход в «Архив»: переписки без карточки клиента и тише 30 дней (lib/chatArchive.ts). */
+  archived: z.literal("1").optional(),
   page,
 });
 export type ConversationQuery = z.infer<typeof conversationQuerySchema>;

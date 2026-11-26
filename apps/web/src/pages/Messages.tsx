@@ -37,7 +37,8 @@ import { planOutgoingMediaPick } from "../lib/mediaUpload";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
-import { Pagination } from "../components/Pagination";
+import { useLoadMoreSentinel } from "../hooks/useLoadMoreSentinel";
+import { ArchiveEntryRow, ArchiveHeaderRow, ChatSkeletonRows } from "../components/look/chats/ChatListExtras";
 import { MessageAttachments } from "../components/MessageAttachments";
 import { PendingMediaBubble } from "../components/PendingMediaBubble";
 import { DeliveryTicks } from "../components/DeliveryTicks";
@@ -159,6 +160,7 @@ export function Messages() {
       needsHuman: segment === "needsHuman" ? true : undefined,
       paused: segment === "paused" ? true : undefined,
       mine: segment === "mine" ? true : undefined,
+      archived: segment === "archive" ? true : undefined,
       page: 1,
     }));
   }, []);
@@ -208,7 +210,7 @@ export function Messages() {
 
   // enabled: агенту этот эндпоинт отвечает 403 — не ходим за ним вовсе, иначе
   // журнал ошибок засоряется отказами при каждом заходе по прямой ссылке.
-  const { data, isLoading, error, refetch } = useConversations({ ...filters, grouped: true }, { enabled: !noAccess });
+  const { data, isLoading, error, refetch, isFetching } = useConversations({ ...filters, grouped: true }, { enabled: !noAccess });
   const conversations = data?.items;
 
   // Копим страницы поверх обычной пагинации (решение владельца 15.09.2026):
@@ -228,6 +230,17 @@ export function Messages() {
     headPage?.items
   );
   const feedData = data ? { ...data, items: feedItems } : data;
+  // ПОДГРУЗКА ПРИ ПРОКРУТКЕ (владелец 26.11.2026): кнопки «Показать ещё» нет, следующую порцию просит сам список,
+  // когда подходит к концу. Страница считается от той, что уже пришла (`data.page`), а не от запрошенной: повторный
+  // вызов, пока порция едет, ничего не меняет, а упавший запрос не раскручивает номер страницы.
+  const requestedPage = filters.page ?? 1;
+  const hasMore = !!data && data.total != null && data.page * data.pageSize < data.total;
+  const loadingMore = isFetching && !!data && data.page < requestedPage;
+  const loadMore = useCallback(() => {
+    if (!data || data.total == null) return;
+    const next = data.page + 1;
+    setFilters((f) => ((f.page ?? 1) === next ? f : { ...f, page: next }));
+  }, [data]);
 
   // Взведён, когда стартовый выбор диалога (по ссылке ?open= или автовыбор первого
   // в списке ниже) уже случился — оба места используют один и тот же флаг, чтобы
@@ -305,7 +318,7 @@ export function Messages() {
    * ни поиск, ни переключатели.
    */
   const noFiltersActive =
-    !filters.q && !filters.accountId && !filters.channel && !filters.needsHuman && !filters.paused && !filters.mine;
+    !filters.q && !filters.accountId && !filters.channel && !filters.needsHuman && !filters.paused && !filters.mine && !filters.archived;
   const isEmptyOverall = !isLoading && !error && noFiltersActive && (!conversations || conversations.length === 0) && filters.page === 1;
 
   // Проверка роли стоит ПОСЛЕ всех хуков намеренно. Раньше здесь был ранний return
@@ -360,7 +373,9 @@ export function Messages() {
         segment={segmentFromFilters(filters)}
         onSegmentChange={setSegment}
         onSelect={setLegacySelectedId}
-        onPageChange={(page) => setFilters((f) => ({ ...f, page }))}
+        onLoadMore={loadMore}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
       />
     );
   }
@@ -490,7 +505,9 @@ export function Messages() {
             onSegmentChange={setSegment}
             selectedId={selectedId}
             onSelect={(id) => { autoSelectedRef.current = true; selectConversation(id); }}
-            onPageChange={(page) => setFilters((f) => ({ ...f, page }))}
+            onLoadMore={loadMore}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
           />
           {/* key=id — принудительный ремонт при смене диалога: без него состояние ошибки
               неудачной отправки (useReplyToConversation) переживало переключение и
@@ -520,7 +537,7 @@ export function Messages() {
  * запросы те же, что были: изменилась только одежда.
  */
 
-function ConversationList({
+export function ConversationList({
   clean = false,
   royal = false,
   data,
@@ -537,7 +554,9 @@ function ConversationList({
   onSegmentChange,
   selectedId,
   onSelect,
-  onPageChange,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: {
   clean?: boolean;
   /** «Новый вид»: та же выдача и те же фильтры, другая разметка (18.11.2026). */
@@ -556,9 +575,16 @@ function ConversationList({
   onSegmentChange: (segment: ChatSegment) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onPageChange: (page: number) => void;
+  /** Следующая порция: зовёт сам список, когда подошёл к концу (без кнопки). */
+  onLoadMore: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
 }) {
   const conversations = data?.items ?? [];
+  const sentinelRef = useLoadMoreSentinel(onLoadMore, hasMore && !loadingMore && !error, conversations.length);
+  const archiveCount = data?.counts?.archived ?? 0;
+  const inArchive = segment === "archive";
+  const showArchiveEntry = !!data?.archiveEnabled && archiveCount > 0 && segment === "all" && !searchInput;
   const accounts = data?.accounts ?? [];
   const showAccounts = accounts.length > 1;
   const noFilter = !channel && !accountId;
@@ -740,6 +766,12 @@ function ConversationList({
       )}
 
       <div className="pane-scroll">
+        {showArchiveEntry && (royal
+          ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
+          : <div className="pane-b"><button type="button" className="pill ghost sm" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
+        {inArchive && (royal
+          ? <ArchiveHeaderRow count={archiveCount} onBack={() => onSegmentChange("all")} />
+          : <div className="pane-b"><button type="button" className="pill ghost sm" onClick={() => onSegmentChange("all")}>Назад ко всем · в архиве {archiveCount}</button></div>)}
         {error && conversations.length > 0 ? (
           <div className="pane-b">
             <div className="state err">
@@ -802,7 +834,9 @@ function ConversationList({
                           ? "Ни один диалог не стоит на паузе."
                           : segment === "mine"
                             ? "У вас пока нет диалогов."
-                            : "Диалогов нет."}
+                            : segment === "archive"
+                              ? "В архиве пусто."
+                              : "Диалогов нет."}
               </p>
               {(accountId || channel || segment !== "all") && !searchInput && (
                 <button
@@ -844,19 +878,11 @@ function ConversationList({
             />
           ))
         )}
+        {/* Подгрузка без кнопки: полоска в конце прокручиваемого списка просит следующую порцию, пока она едет,
+            показываем серые строки. */}
+        {hasMore && <div ref={sentinelRef} className="ry-chat-more-end" aria-hidden="true" data-testid="chat-load-more" />}
+        {loadingMore && (royal ? <ChatSkeletonRows /> : <div className="pane-b"><div className="state" role="status">Подгружаем ещё</div></div>)}
       </div>
-
-      {data?.total != null && (
-        <div className="pane-b" style={{ borderTop: "1px solid var(--line-soft)" }}>
-          <Pagination
-            variant="loadMore"
-            page={data.page}
-            pageSize={data.pageSize}
-            total={data.total}
-            onPageChange={onPageChange}
-          />
-        </div>
-      )}
     </section>
   );
 }

@@ -16,10 +16,10 @@
   "paths": 787,
   "cron": 145,
   "jobs": 37,
-  "conditions": 4310,
+  "conditions": 4313,
   "untranslatedUnique": 497,
   "untranslatedTotal": 638,
-  "partialUnique": 1138,
+  "partialUnique": 1140,
   "translatedShare": 85
  },
  "untranslated": [
@@ -13591,7 +13591,7 @@
      "raw": "!params.success || !query.success || !verifyAttachmentLink(params.data.name, query.data.a, query.data.e, quer…"
     },
     {
-     "t": "если нет: is активен или permissions не содержит «messages.viewAttachments»",
+     "t": "если нет: is активен или нет: allowed",
      "k": "if",
      "a": [],
      "c": [
@@ -13600,6 +13600,46 @@
        "k": "do",
        "a": [],
        "c": []
+      }
+     ]
+    },
+    {
+     "t": "если есть is avatar",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: avatar path",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: не нашли: «Файл не найден»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "поломка внутри системы: «Не удалось прочитать файл»",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть ошибка и нет: headers отправленных",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка внутри системы: «Не удалось прочитать файл»",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
       }
      ]
     },

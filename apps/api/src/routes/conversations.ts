@@ -12,6 +12,7 @@ import {
   maskPhonesForReader,
   clientDisplayName,
   type ConversationMessage,
+  type ContactFacts,
   type ClientKind,
   type ClientSource,
   uploadErrorBody,
@@ -47,6 +48,10 @@ import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
+import { chatArchiveCutoff } from "../lib/chatArchive.js";
+import { buildChatInterest, type ChatInterest } from "../lib/chatInterest.js";
+import { contactAvatarLink } from "../lib/contactAvatar.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
 /**
@@ -107,6 +112,8 @@ type StoredMessage = ConversationMessage;
 
 /** Размер страницы инбокса — как у списка клиентов (Clients.tsx), для единообразия UI. */
 const PAGE_SIZE = 20;
+/** Порция группированного списка чатов: он подгружается при прокрутке сам, мелкими страницами это дёргало бы сервер. */
+const GROUPED_PAGE_SIZE = 40;
 /** Потолок legacy single-source inbox. Grouped inbox pages/counts in SQL without this cap. */
 const MAX_MERGE_CANDIDATES = 20_000;
 
@@ -371,6 +378,8 @@ interface SegmentFilters {
   mine?: boolean;
   /** Кто смотрит — нужен только срезу «Мои». */
   viewerAgentId?: string;
+  /** Вход в «Архив»: только переписки без карточки и тише 30 дней (lib/chatArchive.ts). */
+  archived?: boolean;
 }
 
 async function loadPageCandidates(
@@ -1033,6 +1042,8 @@ async function loadGroupedInboxRows(input: {
   segments: SegmentFilters;
   canSeeOrigin: boolean;
   phonesAllowed: boolean;
+  /** Рубильник «Архив чатов» (Settings.chatArchiveEnabled). */
+  archiveEnabled: boolean;
 }) {
   const { channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed } = input;
   const like = toLikePattern(q);
@@ -1137,23 +1148,37 @@ async function loadGroupedInboxRows(input: {
   };
   const sourceRowsSql = Prisma.sql`${botRows} UNION ALL ${telegramRows} UNION ALL ${directRows}`;
   const now = new Date();
-  const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint }[]>(Prisma.sql`
+  // Архив чатов (lib/chatArchive.ts): правило считает сам запрос. Поиск архив не прячет (`q`), «Архив» показывает
+  // только его, выключенный рубильник возвращает список как был.
+  const archiveOn = input.archiveEnabled;
+  const archivedView = archiveOn && !!segments.archived;
+  const hideArchived = archiveOn && !archivedView && !like;
+  // Числа на вкладках всегда про основной список: открытый «Архив» их не раздувает (поиск архив не прячет, и числа тоже).
+  const hideInCounts = archiveOn && !like;
+  const archiveCutoff = chatArchiveCutoff(now);
+  const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint; countArchived: bigint }[]>(Prisma.sql`
     WITH source_rows AS (${sourceRowsSql}), keyed AS (
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
         COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
-        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
+        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused",
+        (s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${archiveCutoff}) AS "isArchived"
       FROM source_rows s
     ), grouped AS (
       SELECT "groupId", BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
-        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine"
+        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine", BOOL_AND("isArchived") AS "isArchived"
       FROM keyed GROUP BY "groupId"
     )
-    SELECT COUNT(*) AS "groupTotal", COUNT(*) FILTER (WHERE "waitingUser") AS "countNeedsHuman",
-      COUNT(*) FILTER (WHERE "isPaused") AS "countPaused", COUNT(*) FILTER (WHERE "isMine") AS "countMine",
+    SELECT COUNT(*) FILTER (WHERE NOT (${hideInCounts}::boolean AND "isArchived")) AS "groupTotal",
+      COUNT(*) FILTER (WHERE "waitingUser" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countNeedsHuman",
+      COUNT(*) FILTER (WHERE "isPaused" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countPaused",
+      COUNT(*) FILTER (WHERE "isMine" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countMine",
+      COUNT(*) FILTER (WHERE ${archiveOn}::boolean AND "isArchived") AS "countArchived",
       COUNT(*) FILTER (WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR "waitingUser")
         AND (${segments.paused ?? false}::boolean = FALSE OR "isPaused")
-        AND (${segments.mine ?? false}::boolean = FALSE OR "isMine")) AS "countAll"
+        AND (${segments.mine ?? false}::boolean = FALSE OR "isMine")
+        AND (${archivedView}::boolean = FALSE OR "isArchived")
+        AND NOT (${hideArchived}::boolean AND "isArchived")) AS "countAll"
     FROM grouped
   `);
   const rows = await prisma.$queryRaw<GroupedSourceRow[]>(Prisma.sql`
@@ -1161,20 +1186,23 @@ async function loadGroupedInboxRows(input: {
       SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
         COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
         COALESCE(${waitingForHumanSql(groupedWaitingParts)}, FALSE) AS "waitingUser",
-        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
+        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused",
+        (s."clientId" IS NULL AND COALESCE(s."lastMessageAt", s."updatedAt") < ${archiveCutoff}) AS "isArchived"
       FROM source_rows s
     ), grouped AS (
       SELECT "groupId", MAX("activityAt") AS "activityAt", BOOL_OR("agentAttentionRequestedAt" IS NOT NULL) AS attention,
         BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
-        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine",
+        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine", BOOL_AND("isArchived") AS "isArchived",
         SUM("messagesCount")::int AS "groupMessagesCount", ARRAY_AGG(DISTINCT channel ORDER BY channel) AS channels,
         ARRAY_AGG("sourceId" ORDER BY "activityAt" DESC, "sourceId" DESC) AS "sourceIds",
         MAX("agentAttentionRequestedAt") AS "agentAttentionRequestedAt",
         MIN("activityAt") FILTER (WHERE "waitingUser") AS "awaitingHumanSince"
       FROM keyed GROUP BY "groupId"
     ), metrics AS (
-      SELECT COUNT(*) AS "groupTotal", COUNT(*) FILTER (WHERE "waitingUser") AS "countNeedsHuman",
-        COUNT(*) FILTER (WHERE "isPaused") AS "countPaused", COUNT(*) FILTER (WHERE "isMine") AS "countMine"
+      SELECT COUNT(*) FILTER (WHERE NOT (${hideInCounts}::boolean AND "isArchived")) AS "groupTotal",
+        COUNT(*) FILTER (WHERE "waitingUser" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countNeedsHuman",
+        COUNT(*) FILTER (WHERE "isPaused" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countPaused",
+        COUNT(*) FILTER (WHERE "isMine" AND NOT (${hideInCounts}::boolean AND "isArchived")) AS "countMine"
       FROM grouped
     ), selected AS (
       SELECT g.*, m."groupTotal", m."countNeedsHuman", m."countPaused", m."countMine",
@@ -1183,8 +1211,10 @@ async function loadGroupedInboxRows(input: {
       WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR g."waitingUser")
         AND (${segments.paused ?? false}::boolean = FALSE OR g."isPaused")
         AND (${segments.mine ?? false}::boolean = FALSE OR g."isMine")
+        AND (${archivedView}::boolean = FALSE OR g."isArchived")
+        AND NOT (${hideArchived}::boolean AND g."isArchived")
     ), page_groups AS (
-      SELECT * FROM selected WHERE rn > ${(page - 1) * PAGE_SIZE} AND rn <= ${page * PAGE_SIZE}
+      SELECT * FROM selected WHERE rn > ${(page - 1) * GROUPED_PAGE_SIZE} AND rn <= ${page * GROUPED_PAGE_SIZE}
     )
     SELECT k.*, p."groupId", p."sourceIds", p.channels, p."groupMessagesCount", p."groupTotal",
       p."waitingUser" AS "groupUnread", 0::int AS "groupUnreadCount", p."awaitingHumanSince",
@@ -1202,7 +1232,10 @@ async function loadGroupedInboxRows(input: {
   }
   const pageRows = [...groups.values()];
   const unreadCounts = await loadUnreadCounts(pageRows.flatMap(({ sources }) => sources));
-  const labels = await loadClientDisplayLabels(pageRows.flatMap(({ sources }) => sources.map((r) => r.clientId)), { ownAgentId: ownAgentId ?? undefined, canSeeOrigin });
+  const [labels, enrichment] = await Promise.all([
+    loadClientDisplayLabels(pageRows.flatMap(({ sources }) => sources.map((r) => r.clientId)), { ownAgentId: ownAgentId ?? undefined, canSeeOrigin }),
+    loadRowEnrichment(pageRows.flatMap(({ sources }) => sources.map((r) => r.id))),
+  ]);
   const items = pageRows.map(({ sources, meta }) => {
     const latest = sources[0]!;
     const channels = [...new Set(meta.channels)].sort();
@@ -1229,14 +1262,72 @@ async function loadGroupedInboxRows(input: {
       awaitingHumanSince: meta.awaitingHumanSince,
     };
     const present = presentListRow(row, canSeeOrigin, phonesAllowed, new Map(), labels);
-    return { ...present, id: row.id, sourceConversationIds: row.sourceConversationIds, channels: row.channels, unread: row.unread, unreadCount: row.unreadCount };
+    // Имя безымянного чата по интересу и миниатюра собеседника (lib/chatInterest.ts, lib/contactAvatar.ts).
+    const enriched = sources.map((source) => enrichment.get(source.id));
+    const interest = enriched.find((e) => e?.interest)?.interest ?? null;
+    const avatarKey = enriched.find((e) => e?.avatarKey)?.avatarKey ?? null;
+    const unnamed = !present.name;
+    return {
+      ...present,
+      id: row.id,
+      name: present.name ?? interest?.title ?? null,
+      unnamed,
+      interest,
+      avatarUrl: contactAvatarLink(avatarKey, input.viewerAgentId),
+      // Цвет кружка закреплён за человеком: за досье, а не за строкой, которая меняется при привязке карточки.
+      avatarSeed: enriched.find((e) => e?.profileId)?.profileId ?? row.id,
+      sourceConversationIds: row.sourceConversationIds,
+      channels: row.channels,
+      unread: row.unread,
+      unreadCount: row.unreadCount,
+    };
   });
   const summary = countRows[0];
   const counts = summary ? {
     all: Number(summary.groupTotal), needsHuman: Number(summary.countNeedsHuman),
-    paused: Number(summary.countPaused), mine: Number(summary.countMine),
-  } : { all: 0, needsHuman: 0, paused: 0, mine: 0 };
+    paused: Number(summary.countPaused), mine: Number(summary.countMine), archived: Number(summary.countArchived),
+  } : { all: 0, needsHuman: 0, paused: 0, mine: 0, archived: 0 };
   return { items, total: summary ? Number(summary.countAll) : 0, counts, truncated: false };
+}
+
+interface RowEnrichment {
+  interest: ChatInterest | null;
+  avatarKey: string | null;
+  profileId: string | null;
+}
+
+/**
+ * Интерес и миниатюра для строк ОДНОЙ страницы списка: три запроса по первичному ключу (сорок id), а не
+ * лишние колонки в объединении всех переписок. Ключ результата: id источника в том виде, как он в списке
+ * (`tg_…`, `td_…` или обычный id диалога бота).
+ */
+async function loadRowEnrichment(sourceIds: string[]): Promise<Map<string, RowEnrichment>> {
+  const out = new Map<string, RowEnrichment>();
+  if (sourceIds.length === 0) return out;
+  const bot = sourceIds.filter((id) => !id.startsWith(TG_PREFIX) && !id.startsWith("td_"));
+  const telegram = sourceIds.filter((id) => id.startsWith(TG_PREFIX)).map((id) => id.slice(TG_PREFIX.length));
+  const direct = sourceIds.filter((id) => id.startsWith("td_")).map((id) => id.slice(3));
+  type Row = { id: string; draft: unknown; profileId: string | null; category: string | null; facts: unknown; avatarKey: string | null };
+  const pick = (table: "BotConversation" | "TelegramConversation" | "TelegramDirectConversation", ids: string[], prefix: string) =>
+    ids.length === 0
+      ? Promise.resolve([] as Row[])
+      : prisma.$queryRaw<Row[]>(Prisma.sql`
+          SELECT ${prefix}::text || c.id AS id, c."leadDraft" AS draft, p.id AS "profileId", p.category, p.facts, p."avatarKey"
+          FROM ${Prisma.raw(`"${table}"`)} c LEFT JOIN "ContactProfile" p ON p.id = c."contactProfileId"
+          WHERE c.id = ANY(${ids}::text[])`);
+  const [a, b, c] = await Promise.all([pick("BotConversation", bot, ""), pick("TelegramConversation", telegram, TG_PREFIX), pick("TelegramDirectConversation", direct, "td_")]);
+  for (const row of [...a, ...b, ...c]) {
+    out.set(row.id, {
+      interest: buildChatInterest({
+        draft: row.draft as Record<string, unknown> | null,
+        category: row.category,
+        facts: row.facts as ContactFacts | null,
+      }),
+      avatarKey: row.avatarKey,
+      profileId: row.profileId,
+    });
+  }
+  return out;
 }
 
 conversationsRouter.get("/", requireAuth, async (req, res) => {
@@ -1244,7 +1335,7 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
-  const { q, page, channel, accountId, needsHuman, paused, mine, grouped } = parsed.data;
+  const { q, page, channel, accountId, needsHuman, paused, mine, grouped, archived } = parsed.data;
 
   // Список каналов для фильтра строится ИЗ ДАННЫХ: новый канал, подключённый
   // канал (Messenger и т.п.) появляется в фильтре автоматически.
@@ -1263,12 +1354,13 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   // Фильтр и поиск целиком в SQL — в приложение приезжает ровно одна страница.
   const ownAgentId = chatScopeAgentId(req);
   const viewerAgentId = req.agent!.id;
-  const segments: SegmentFilters = { needsHuman: !!needsHuman, paused: !!paused, mine: !!mine, viewerAgentId };
+  const segments: SegmentFilters = { needsHuman: !!needsHuman, paused: !!paused, mine: !!mine, viewerAgentId, archived: !!archived };
   const canSeeOrigin = can(req, "clients.viewOrigin");
   const phonesAllowed = can(req, "clients.viewPhone");
   if (grouped) {
+    const archiveEnabled = await automationSwitchOn("chatArchiveEnabled");
     const result = await loadGroupedInboxRows({
-      channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed,
+      channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed, archiveEnabled,
     });
     const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT")
       ? 0
@@ -1281,7 +1373,8 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
       items: result.items,
       total: result.total,
       page,
-      pageSize: PAGE_SIZE,
+      pageSize: GROUPED_PAGE_SIZE,
+      archiveEnabled,
       channels: canSeeOrigin ? [...new Set([...channels, ...(directCount > 0 ? ["TELEGRAM_DIRECT"] : [])])].sort() : [],
       accounts: canSeeOrigin
         ? (await listAccounts()).filter((a) => a.enabled).map((a) => ({ id: a.id, title: a.title, channel: a.channel }))

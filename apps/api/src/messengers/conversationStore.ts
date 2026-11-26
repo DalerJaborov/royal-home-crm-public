@@ -9,6 +9,7 @@ import {
   type CustomerTransportReference,
 } from "../lib/customerConversationScope.js";
 import { attachContactProfile, identitiesForMessengerChannel } from "../lib/contactProfiles.js";
+import { ensureContactAvatar } from "../lib/contactAvatar.js";
 import { describeError } from "../lib/describeError.js";
 import { traceStamp } from "../lib/botTurnTrace.js";
 import type { MessengerChannel } from "./turnTypes.js";
@@ -232,7 +233,7 @@ export async function ensureConversationContactProfile(conversation: {
 }): Promise<string | null> {
   const identities = identitiesForMessengerChannel(conversation.channel, conversation.subscriberId);
   if (identities.length === 0) return conversation.contactProfileId;
-  return attachContactProfile({
+  const profileId = await attachContactProfile({
     existingProfileId: conversation.contactProfileId,
     identities,
     name: conversation.name,
@@ -246,6 +247,9 @@ export async function ensureConversationContactProfile(conversation: {
       });
     },
   });
+  // Миниатюра для списка чатов (lib/contactAvatar.ts): один раз на человека, в отрыве, отказ канала тихий.
+  void ensureContactAvatar({ profileId, channel: conversation.channel, subscriberId: conversation.subscriberId });
+  return profileId;
 }
 
 /**
