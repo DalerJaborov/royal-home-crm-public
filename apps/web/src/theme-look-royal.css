@@ -940,6 +940,11 @@
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is(:disabled, [disabled], [aria-disabled="true"]),
 :root[data-ui-look="royal"] :is(.ry-seg, .seg:not(.rh-tabs)) > :is(button, [role="radio"], a):is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"], .on):is(:disabled, [disabled], [aria-disabled="true"]) { opacity: .5; cursor: not-allowed; }
+/* Ряд «Всё · Клиенты · Объекты · Сделки · Разделы» в шторке поиска: сегмент сжимался до ширины экрана, кнопки
+   `flex: 1 1 auto` ужимались до текста, и подписи стояли вплотную. Ряд держит свою ширину и листается вбок. */
+:root[data-ui-look="royal"] .sheet-b > .hscroll { overflow-x: auto; scrollbar-width: none; }
+:root[data-ui-look="royal"] .sheet-b > .hscroll > .seg { flex-wrap: nowrap; width: max-content; max-width: none; }
+:root[data-ui-look="royal"] .sheet-b > .hscroll > .seg > button { flex: none; }
 :root[data-ui-look="royal"] :is(.ry-tabs, .seg.rh-tabs) {
   display: flex; gap: 4px; min-width: 0; max-width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none;
   overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;

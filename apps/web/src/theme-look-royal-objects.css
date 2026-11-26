@@ -54,6 +54,9 @@
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--rh-r-full);
   background: var(--rh-ui-raised); color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer;
 }
+/* Вид чипа 32 px, зона нажатия 44: невидимое продолжение вверх и вниз (соседний чип в той же строке — сбоку, не вплотную). */
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending { position: relative; }
+:root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending::after { content: ""; position: absolute; inset: -6px -2px; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending b { font-size: var(--rh-fs-sm); color: inherit; }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="warn"] { background: var(--rh-ui-warn-soft); color: var(--rh-ui-warn); }
 :root[data-ui-look="royal"] [data-ry-section="objects"] .ry-objects-pending[data-tone="crit"] { background: var(--rh-ui-crit-soft, var(--rh-ui-raised)); color: var(--rh-ui-crit-text); }
