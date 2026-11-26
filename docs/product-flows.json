@@ -90875,7 +90875,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
+         "t": "const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)",
          "a": [
           "читает в базе: interaction"
          ],

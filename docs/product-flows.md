@@ -20321,7 +20321,7 @@
     - если withClient.length === 0
       - return { byCall: 0, expired };
         · дословно из кода
-    - const calls = await prisma.interaction.findMany({ where: { type: "CALL", archiveReview: false, clientId: { in…
+    - const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)
       · читает в базе: interaction
     - если calls.length === 0
       - return { byCall: 0, expired };

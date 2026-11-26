@@ -176,6 +176,9 @@ services:
       # WHATSAPP, INSTAGRAM, FACEBOOK, WEBSITE, TELEGRAM. Empty = WHATSAPP,INSTAGRAM,FACEBOOK (owner 13.11);
       # unknown names are ignored and logged. The mode itself is the switch in Settings → Bot.
       BOT_LEAD_ONLY_CHANNELS: "${BOT_LEAD_ONLY_CHANNELS:-}"
+      # WhatsApp: own chat per our number (26.11.2026, lib/customerConversationScope.ts). Empty/on = each number
+      # (Royal Home, Arvan) has its own chat with a person; off = the #475 fallback (one chat per person, held for staff).
+      WHATSAPP_CHAT_PER_NUMBER: "${WHATSAPP_CHAT_PER_NUMBER:-}"
       # Customer core switches (31.10.2026). Without these lines a value in
       # .env.production never reaches the container. Both are off by default:
       # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
