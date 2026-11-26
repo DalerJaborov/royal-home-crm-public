@@ -48,7 +48,7 @@ export function Integrations() {
               <span className="ic">
                 {royal ? <RoyalIcon name="shield-check" /> : <Activity className="i" aria-hidden />}
               </span>
-              <p>Этот раздел доступен только тем, у кого есть право на журнал ошибок.</p>
+              <p>Этот раздел открыт директору и тем, кому директор дал доступ к системе. Если он нужен, попросите директора.</p>
             </div>
           </div>
         </div>
