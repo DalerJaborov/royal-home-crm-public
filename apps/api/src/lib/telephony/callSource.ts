@@ -22,6 +22,30 @@ export function incomingCallSourceFromChannel(channelName: string | null | undef
 }
 
 /**
+ * НА КАКОЙ НАШ НОМЕР WHATSAPP ЗВОНИЛИ (26.11.2026, второй номер — «Арван»).
+ *
+ * Звонок на основной номер шлюз набирает станции городским номером (6501414), на
+ * любой другой — его phone_number_id у Meta (13–20 цифр; шлюз это проверяет —
+ * ops/whatsapp-gateway/entrypoint.sh, станция ловит такие номера шаблоном —
+ * ops/asterisk/extensions_custom.conf, [from-trunk-whatsapp]). Событие создания
+ * канала несёт этот номер в `dialplan.exten`, пока станция ещё не увела звонок в
+ * маршрут городского номера.
+ *
+ * Возвращает phone_number_id не основного номера, иначе null: основной номер,
+ * обычная линия или канал, подхваченный досинхронизацией уже ПОСЛЕ перехода в
+ * маршрут (тогда exten — 6501414 или номер очереди, бренд не узнать — звонок
+ * пишется как на основной номер; это только при разрыве связи с станцией).
+ */
+const WHATSAPP_LINE_ID = /^\d{13,20}$/;
+export function whatsappLineFromChannel(
+  channel: { name?: string | null; dialplan?: { exten?: string | null } | null } | null | undefined
+): string | null {
+  if (incomingCallSourceFromChannel(channel?.name) !== "whatsapp") return null;
+  const exten = channel?.dialplan?.exten ?? "";
+  return WHATSAPP_LINE_ID.test(exten) ? exten : null;
+}
+
+/**
  * Откуда клиент, если карточку завёл звонок. WhatsApp-звонок — это канал WhatsApp
  * (`ClientSource.WHATSAPP`), а не телефонная линия: иначе отчёт по источникам
  * записал бы клиента из WhatsApp в «звонки».
@@ -43,8 +67,11 @@ export function clientSourceForCall(source: string | null | undefined): "WHATSAP
  * tests/whatsapp-call-source.test.ts).
  *
  * `ofClient` — вариант «Входящий звонок клиента…» (звонивший — клиент в базе).
+ * `brand` — имя страницы не основного номера WhatsApp («Арван»): «…из WhatsApp (Арван)».
  */
-export function inboundCallNotePrefix(source: string | null | undefined, ofClient: boolean): string {
+export function inboundCallNotePrefix(source: string | null | undefined, ofClient: boolean, brand?: string | null): string {
   const base = ofClient ? `${INCOMING_CALL_NOTE_PREFIX} клиента` : INCOMING_CALL_NOTE_PREFIX;
-  return source === "whatsapp" ? `${base} из WhatsApp` : base;
+  if (source !== "whatsapp") return base;
+  const name = brand?.trim();
+  return name ? `${base} из WhatsApp (${name})` : `${base} из WhatsApp`;
 }

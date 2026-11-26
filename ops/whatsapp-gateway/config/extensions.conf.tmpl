@@ -1,8 +1,9 @@
 ; =====================================================================
 ; Диалплан шлюза WhatsApp -> АТС. Шаблон: entrypoint подставляет ТОЛЬКО
-; переменные окружения WA_BUSINESS_NUMBER, WA_STATION_DID, WA_ANSWER_MODE,
-; WA_RING_MAX (envsubst по списку) — переменные диалплана здесь зовутся GW_*,
-; чтобы их не спутать.
+; переменные окружения WA_ANSWER_MODE, WA_RING_MAX (envsubst по списку) —
+; переменные диалплана здесь зовутся GW_*, чтобы их не спутать. Номера бизнеса
+; (WA_BUSINESS_NUMBER + WA_EXTRA_NUMBERS) entrypoint пишет отдельным файлом
+; extensions_wa_numbers.conf — он подключается в [from-whatsapp] ниже.
 ;
 ; Шлюз ничего не решает о маршруте: он принимает звонок Meta и передаёт его
 ; станции как обычный входящий на городской номер агентства. Кто возьмёт трубку
@@ -25,21 +26,28 @@ clearglobalvars = yes
 ;         держать ≤ 25 с, иначе Meta сама обрывает звонок.
 GW_ANSWER_MODE = ${WA_ANSWER_MODE}
 GW_RING_MAX = ${WA_RING_MAX}
-GW_STATION_DID = ${WA_STATION_DID}
 
 ; Meta шлёт INVITE на номер бизнеса в международном виде: sip:+<номер>@<наш хост>
 ; [SIP → Sample requests: «INVITE sip:+17015558857@meta-voip.example.com»].
 ; Всё, что адресовано не нашему номеру, отбивается: так случайный сканер,
 ; пробившийся через файрвол и проверку пароля, не попадёт никуда.
+;
+; Номеров бизнеса может быть несколько (26.11.2026: второй — «Арван»). Для каждого
+; файл extensions_wa_numbers.conf задаёт три переменные и уводит в wa-in:
+;   GW_DID  — что набрать на станции: основной — городской номер (WA_STATION_DID),
+;             остальные — свой phone_number_id; по нему станция ставит метку
+;             линии, а CRM узнаёт бренд (apps/api/src/lib/telephony/callSource.ts);
+;   GW_NAME — имя звонящего на станции: «WhatsApp» или «WhatsApp <метка>» — его
+;             видит агент на экране телефона и понимает, каким брендом отвечать;
+;   __GW_BIZ — номер бизнеса, заголовком X-WA-Business-Number на плечо к станции.
 [from-whatsapp]
-exten => +${WA_BUSINESS_NUMBER},1,Goto(wa-in,s,1)
-exten => ${WA_BUSINESS_NUMBER},1,Goto(wa-in,s,1)
+#include extensions_wa_numbers.conf
 exten => h,1,NoOp(WA: отбой)
 exten => _.,1,NoOp(WA: вызов на чужой номер ${EXTEN} — отбой)
  same => n,Hangup(1)
 
 [wa-in]
-exten => s,1,NoOp(WA: входящий от ${CALLERID(num)})
+exten => s,1,NoOp(WA: входящий от ${CALLERID(num)} на номер ${GW_BIZ} -> станция ${GW_DID})
  ; ID звонка WhatsApp и BSUID — для будущей связки с вебхуком calls в CRM
  ; [SIP → Custom SIP headers: x-wa-meta-wacid, x-wa-meta-user-id].
  same => n,Set(__GW_WACID=${PJSIP_HEADER(read,x-wa-meta-wacid)})
@@ -60,7 +68,7 @@ exten => s,1,NoOp(WA: входящий от ${CALLERID(num)})
  same => n,ExecIf($["${GW_NUM:0:3}" = "992" & ${LEN(${GW_NUM})} = 12]?Set(GW_LOCAL=1))
  same => n,ExecIf($[${GW_LOCAL} = 1]?Set(GW_NUM=${GW_NUM:3}))
  same => n,ExecIf($[${GW_LOCAL} = 0 & "${GW_NUM}" != ""]?Set(GW_NUM=+${GW_NUM}))
- same => n,Set(CALLERID(all)="WhatsApp" <${GW_NUM}>)
+ same => n,Set(CALLERID(all)="${GW_NAME}" <${GW_NUM}>)
  same => n,NoOp(WA: на станцию как ${CALLERID(num)}, wacid=${GW_WACID})
  ; Станция по VPN недоступна (проверка OPTIONS раз в 30 с) — трубку не снимаем:
  ; клиенту лучше «не отвечено», чем снятая трубка и тишина.
@@ -68,7 +76,7 @@ exten => s,1,NoOp(WA: входящий от ${CALLERID(num)})
  same => n,ExecIf($["${GW_ANSWER_MODE}" = "early"]?Answer())
  ; r — гудки клиенту, пока станция не соединила (на снятом канале шлюз играет
  ; их сам, тон из indications.conf). b() — заголовки X-WA-* на плечо к станции.
- same => n,Dial(PJSIP/${GW_STATION_DID}@station,${GW_RING_MAX},rb(wa-station-headers^s^1))
+ same => n,Dial(PJSIP/${GW_DID}@station,${GW_RING_MAX},rb(wa-station-headers^s^1))
  same => n,NoOp(WA: станция вернула ${DIALSTATUS})
  same => n,Hangup()
  same => n(down),Log(WARNING,WA: станция недоступна по VPN — звонок ${CALLERID(num)} не принят)
@@ -79,6 +87,7 @@ exten => s,1,NoOp(WA: входящий от ${CALLERID(num)})
 ; ops/asterisk/), CRM прочитает их в следующей правке.
 [wa-station-headers]
 exten => s,1,ExecIf($["${GW_WACID}" != ""]?Set(PJSIP_HEADER(add,X-WA-Call-Id)=${GW_WACID}))
+ same => n,ExecIf($["${GW_BIZ}" != ""]?Set(PJSIP_HEADER(add,X-WA-Business-Number)=${GW_BIZ}))
  same => n,ExecIf($["${GW_UID}" != ""]?Set(PJSIP_HEADER(add,X-WA-User-Id)=${GW_UID}))
  same => n,Return()
 

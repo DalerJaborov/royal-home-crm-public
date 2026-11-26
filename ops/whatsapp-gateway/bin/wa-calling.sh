@@ -5,6 +5,7 @@
 #   wa-calling.sh disable [--dry-run]   звонки выключены (адрес SIP Meta помнит)
 #   wa-calling.sh show-button | show-button-tj | hide-button [--dry-run]
 #   wa-calling.sh status                только чтение: настройки звонков (без пароля)
+#   --number=<номер бизнеса>            не основной номер (из WA_EXTRA_NUMBERS), например Arvan
 #
 # Каждая операция кроме status МЕНЯЕТ настройку номера у Meta — только с «да»
 # владельца на эту операцию (runbook). Откат enable — disable; show-button — hide-button.
@@ -20,6 +21,7 @@ case "$op" in
 esac
 wa_require_root
 wa_load_env
+wa_select_number
 
 if [ "$op" = "status" ]; then
   wa_graph settings
@@ -36,6 +38,6 @@ if [ "$op" = "enable" ] && [ "$DRY_RUN" != "1" ]; then
     | grep "Verify return code: 0 (ok)" >/dev/null || wa_die "сертификат $WA_SIP_HOST:${WA_TLS_PORT:-5061} не проходит проверку openssl — Meta его тоже не примет"
 fi
 
-wa_log "операция у Meta: $op (номер ${WA_PHONE_ID:-?})"
+wa_log "операция у Meta: $op (номер $WA_SELECTED_NUMBER, phone_number_id ${WA_PHONE_ID:-?})"
 wa_graph "$op"
 [ "$DRY_RUN" = "1" ] || wa_log "готово. Проверка: wa-calling.sh status; wa-health.sh"

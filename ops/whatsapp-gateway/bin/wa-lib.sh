@@ -26,10 +26,37 @@ wa_parse_common() {
   for a in "$@"; do
     case "$a" in
       --dry-run) DRY_RUN=1 ;;
+      --number=*) WA_TARGET_NUMBER="${a#--number=}" ;;
       *) WA_ARGS+=("$a") ;;
     esac
   done
   if [ "$DRY_RUN" = "1" ]; then wa_log "РЕЖИМ --dry-run: ничего не меняется, команды только печатаются"; fi
+}
+
+# С каким номером бизнеса работает скрипт (26.11.2026: номеров может быть несколько,
+# см. WA_EXTRA_NUMBERS в gateway.env и entrypoint.sh). Зовётся после wa_load_env.
+#   --number=<цифры> не задан или равен WA_BUSINESS_NUMBER — основной номер:
+#     WA_PHONE_ID из gateway.env, файл пароля прежний — meta_sip_password;
+#   номер из WA_EXTRA_NUMBERS — WA_PHONE_ID становится его phone_number_id,
+#     файл пароля — meta_sip_password.<номер>.
+# Незнакомый номер — остановка: операция у Meta по чужому номеру хуже, чем никакая.
+wa_select_number() {
+  local want="${WA_TARGET_NUMBER:-}" extra="${WA_EXTRA_NUMBERS:-}" item x_num x_id x_rest
+  WA_PW_FILE_NAME="meta_sip_password"
+  WA_SELECTED_NUMBER="${WA_BUSINESS_NUMBER:-}"
+  if [ -z "$want" ] || [ "$want" = "${WA_BUSINESS_NUMBER:-}" ]; then return 0; fi
+  [[ "$want" =~ ^[0-9]{8,15}$ ]] || wa_die "--number — номер бизнеса цифрами, без +"
+  for item in ${extra//,/ }; do
+    IFS=: read -r x_num x_id x_rest <<< "$item"
+    if [ "$x_num" = "$want" ]; then
+      [[ "$x_id" =~ ^[0-9]{13,20}$ ]] || wa_die "у номера $want в WA_EXTRA_NUMBERS нет phone_number_id"
+      WA_PHONE_ID="$x_id"
+      WA_PW_FILE_NAME="meta_sip_password.$want"
+      WA_SELECTED_NUMBER="$want"
+      return 0
+    fi
+  done
+  wa_die "номера $want нет ни в WA_BUSINESS_NUMBER, ни в WA_EXTRA_NUMBERS ($WA_ENV_FILE)"
 }
 
 wa_run() {

@@ -290,7 +290,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
           call.qualifiedBy ? `разобрал ${call.qualifiedBy.fullName}` : null,
         ]}
         flags={<>
-          <CallSourceMark source={call.source} look="royal" />
+          <CallSourceMark source={call.source} brand={call.brand} look="royal" />
           {call.irrelevant && <RoyalCallFlag tone={pillTone("info")}>не по делу</RoyalCallFlag>}
           {staff && <RoyalCallFlag tone={pillTone("info")}>свой номер, не клиент</RoyalCallFlag>}
           {!call.answered && !staff && (call.callbackAgent
@@ -345,7 +345,7 @@ function IncomingRowItem({ call, royal = false }: { call: IncomingCallRow; royal
       ) : (
         <span className="dur crit">не дошёл</span>
       )}
-      <CallSourceMark source={call.source} look="chip" />
+      <CallSourceMark source={call.source} brand={call.brand} look="chip" />
       {call.irrelevant && <span className="chip mute">не по делу</span>}
       {staff && <span className="chip mute">свой номер, не клиент</span>}
       {!call.answered && !staff &&
