@@ -238,7 +238,9 @@ export async function syncPropertiesToSite(
   action: SiteSyncAction
 ): Promise<SiteSyncResult> {
   if (!SITE_SYNC_URL || !SITE_SYNC_API_KEY) {
-    return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", retryable: false };
+    // Имена переменных окружения человеку не показываем — они в журнале сервера.
+    console.warn("[site-sync] не заданы SITE_SYNC_URL / SITE_SYNC_API_KEY");
+    return { ok: false, error: "Синхронизация с сайтом не настроена. Обратитесь к администратору.", retryable: false };
   }
   let usdToTjsRate: number | null = null;
   if (action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedStatus(p.status))) {
