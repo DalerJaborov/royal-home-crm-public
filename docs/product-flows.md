@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2509**; вместе с задачами по расписанию и фоновыми заданиями — **4265**. Модулей: **87**.
+Путей: **785**. Развилок в самих путях: **2510**; вместе с задачами по расписанию и фоновыми заданиями — **4284**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -10549,11 +10549,12 @@
 - если property.status !== "SOLD"
   - return res.status(409).json({ error: "Объект не в статусе «продан» — печать ставить рано" });
     · ответ 409 — «Объект не в статусе «продан» — печать ставить рано»
-- const summary = await publishPropertySoldStory(property.id, { force: true });
-  · зовёт publishPropertySoldStory()
-- logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, { published: summary.publis…
+- если !(await queuePropertySoldStory(property.id))
+  - return res.status(502).json({ error: "Не удалось поставить историю в очередь — попробуйте ещё раз через минут…
+    · ответ 502 — «Не удалось поставить историю в очередь — попробуйте ещё раз через…»
+- logAudit(req, "PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED", "Property", property.id, { queued: true });
   · зовёт logAudit()
-- res.status(200).json({ ok: summary.publishedParts === 1, error: summary.error ?? null });
+- res.status(200).json({ ok: true, queued: true, error: null });
   · ответ 200
 
 ### GET /api/v1/properties/:id/matching-clients
@@ -29751,6 +29752,88 @@
     · зовёт closeStuckScheduledPhotoPosts()
     - const res = await prisma.propertyPhotoPost.updateMany({ where: { propertyId, status: "SCHEDULED" }, data: { s…
       · меняет в базе: propertyPhotoPost
+
+### propertyStatusStoryJob
+
+`apps/api/src/jobs/propertyStatusStory.ts`
+
+- const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true…
+  · читает в базе: property
+- если !property || property.deletedAt
+  - return;
+    · дальше не идёт, ничего не меняя
+- если payload.kind === "PRICE_DROP" && property.status !== "AVAILABLE"
+  - return;
+    · дальше не идёт, ничего не меняя
+- если payload.kind === "PRICE_DROP" && payload.priceWasTjs
+  - const rate = property.currency === "USD" ? (await loadUsdRateInfo()).rate : null;
+    · зовёт loadUsdRateInfo()
+  - если nowTjs !== null && nowTjs >= payload.priceWasTjs
+    - return;
+      · дальше не идёт, ничего не меняя
+- если payload.kind === "SOLD"
+  - const done = await prisma.propertyStoryPost.findFirst({ where: { propertyId: payload.propertyId, kind: "SOLD"…
+    · читает в базе: propertyStoryPost
+  - если done
+    - return;
+      · дальше не идёт, ничего не меняя
+- const decision = storyJobDecision({ kind: payload.kind, remixPending: priceDrop ? await narrationRemixPending…
+  · зовёт storyJobDecision()
+  - если input.kind !== "PRICE_DROP"
+    - return "PUBLISH";
+      · дословно из кода
+- если decision === "WAIT"
+  - throw new Error("озвучка с новой ценой ещё не легла в ролик — историю выложим следом");
+    · ошибка Error — «озвучка с новой ценой ещё не легла в ролик — историю выложим следом»
+- если payload.kind === "SOLD"
+  - const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, d…
+    · читает в базе: property
+  - если !fresh || fresh.deletedAt || fresh.status !== "SOLD"
+    - return;
+      · дальше не идёт, ничего не меняя
+- const summary = payload.kind === "PRICE_DROP" ? await publishPropertyPriceDropStory(payload.propertyId, paylo…
+  · зовёт publishPropertyPriceDropStory()
+- если summary.pending
+  - return;
+    · дальше не идёт, ничего не меняя
+- если summary.attempted && summary.publishedParts === 0 && summary.error
+  - throw new Error(summary.error);
+    · ошибка Error — «summary.error»
+- когда попытки кончились
+  - await logSystemError( "meta", `История «${payload.kind === "SOLD" ? "продано" : "цена снижена"}» (объект ${pa…
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
 
 ### recording-search-retry
 

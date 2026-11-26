@@ -243,7 +243,7 @@ function ChangeRequestFormSheet({
     let built;
     switch (kind) {
       case "PRICE_CHANGE":
-        built = buildPriceChangeBody({ newPrice, remake, comment });
+        built = buildPriceChangeBody({ newPrice, remake: false, comment });
         break;
       case "CARD_DATA":
         built = buildCardDataBody({ current, edited, remake, comment });
@@ -307,7 +307,6 @@ function ChangeRequestFormSheet({
               autoFocus
             />
           </label>
-          <RemakeSwitch checked={remake} onChange={setRemake} />
         </>
       )}
 

@@ -52,12 +52,11 @@ import {
   generateReelsCaptionFromTemplates,
   withPostFooter,
   applyContactFooter,
-  propertyPriceTjsText,
   buildPriceDisplay,
 } from "./reelsCaptionTemplate.js";
 import { replaceCaptionPriceLines } from "./captionPriceLine.js";
 import { makePropertyCover } from "./video/coverOpenAi.js";
-import { loadMoneyContext, loadUsdRateInfo } from "./money.js";
+import { loadMoneyContext } from "./money.js";
 import { videoHandoffDir } from "../upload.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
 import { legacyHandoffCoverPath } from "./diskCleanup.js";
@@ -84,8 +83,7 @@ import { loadOccupiedPublishSlots, PUBLISH_SLOT_LOCK_ID } from "./publishSlots.j
 import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
 import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
-import { narrationPublishGapMin, propertyPriceTjsProblem, propertyPriceTjsProblemText, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
-import { narrationFactsCurrent, snapshotNarrationRate } from "./propertyNarration.js";
+import { narrationPublishGapMin, PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 import { loadNarrationConfiguration } from "./narrationGeneration.js";
 import { sendAgentSharePost } from "./agentSharePost.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
@@ -162,14 +160,6 @@ export function montajerDeliveryControlText(shortId: number, deliveredCount: num
     : `Объект №${shortId}: дошло ${deliveredCount} из ${total} ${filesAfterIz(total)}, остальное дошлю автоматически.`;
 }
 
-/** Курс доллара для цены в задании монтажёру: снимок последней версии озвучки, если её факты актуальны, иначе Настройки. */
-async function montajerPriceRate(property: Parameters<typeof narrationFactsCurrent>[1] & { id: string }): Promise<number | null> {
-  const voiced = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: property.id }, orderBy: { revision: "desc" },
-    select: { factsHash: true, factsSnapshot: true } });
-  const snapshot = voiced && narrationFactsCurrent(voiced, property) ? snapshotNarrationRate(voiced.factsSnapshot) : null;
-  return snapshot ?? (await loadUsdRateInfo()).rate;
-}
-
 export async function propertyFactsForMontajer(propertyId: string): Promise<string> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
@@ -198,32 +188,21 @@ export async function propertyFactsForMontajer(propertyId: string): Promise<stri
     address: property.address,
   });
   /**
-   * МОНТАЖЁРУ — ТОЛЬКО СОМОНИ (владелец 23.09.2026: «монтажёру пусть цена идёт
-   * только в сомони, а в автопостинге и в сомони, и в $»).
-   *
-   * Цена внутри кадра — та, что монтажёр наберёт с этой строки, и две суммы в
-   * ней означают ровно одно: половина роликов выйдет с долларами на картинке.
-   * Публичная подпись под постом продолжает показывать обе (buildPriceDisplay) —
-   * это разные тексты для разных людей, и различие здесь намеренное.
+   * ЦЕНЫ В ЗАДАНИИ МОНТАЖЁРУ БОЛЬШЕ НЕТ (владелец 25.11.2026: «все наши ролики
+   * будут без цены»). Цена в кадре стареет при каждой смене цены, а сервер не
+   * умеет её перерисовать: ролик уходил монтажёру заново (№214, 25.11) и выходил
+   * в историю со старой суммой. Без цены в картинке смена цены ролик не трогает —
+   * цену в сетях и на сайте обновляет подпись, голос озвучки перемикшует CRM.
+   * Число в задании не нужно, поэтому и курс доллара, и сторож «цена не передана»
+   * отсюда убраны вместе со строкой.
    */
-  // Курс — только из Настроек (21.11.2026, владелец: цена только в сомони по нашему курсу). Нет курса —
-  // долларовую цену монтажёру не даём вовсе (он набрал бы доллары или сумму по выдуманному курсу) и пишем в журнал.
-  // Число — общее `propertyPriceTjs` (ревью #348): то же, что говорит голос и пишет обложка.
-  // Курс — из снимка актуальной озвучки объекта, если она есть (голос и задание говорят одно число, даже если курс
-  // в Настройках с тех пор сменился); иначе из Настроек (ревью #348, круг 2).
-  const rate = property.currency === "USD" ? await montajerPriceRate(property) : null;
-  const priceForMontajer = propertyPriceTjsText(property.price, property.currency, rate);
-  const priceProblem = propertyPriceTjsProblem(property.price, property.currency, rate);
-  if (priceProblem) {
-    void logSystemError("video-handoff", `Объект №${property.shortId}: монтажёру цена не передана: ${propertyPriceTjsProblemText(priceProblem)}.`,
-      { dedupKey: `montajer-price-${priceProblem}:${property.shortId}`, dedupWindowMs: 24 * 60 * 60_000 });
-  }
   // Владелец 16.09.2026 (второй заход) — назвал ровно семь фактов, каждый
   // отдельной строкой, теми же названиями, что в карточке объекта: Район,
   // Адрес, Этаж, Этажность (отдельно от этажа, не "X из Y" одной строкой),
-  // Площадь, Комнаты, Цена. "Ориентир" переименован в "Адрес" ранее тем же
-  // днём — то же самое поле property.address, просто в публичных
-  // Reels-шаблонах его называют "ориентир", а тут текст не публичный.
+  // Площадь, Комнаты (Цена — убрана 25.11.2026, см. выше). "Ориентир"
+  // переименован в "Адрес" ранее тем же днём — то же самое поле
+  // property.address, просто в публичных Reels-шаблонах его называют
+  // "ориентир", а тут текст не публичный.
   /**
    * АГЕНТ — ОДНОЙ СТРОКОЙ ПОСЛЕ НОМЕРА (владелец 21.09.2026: «чтобы имя агента
    * тоже уходило вместе с информацией про объект и номером объекта»).
@@ -244,7 +223,6 @@ export async function propertyFactsForMontajer(propertyId: string): Promise<stri
     v.totalFloors ? `Этажность: ${v.totalFloors}` : null,
     v.areaSqm ? `Площадь: ${v.areaSqm} м²` : null,
     v.rooms ? `Комнаты: ${v.rooms}` : null,
-    priceForMontajer ? `Цена: ${priceForMontajer}` : null,
   ].filter((l): l is string => l !== null);
   return lines.join("\n");
 }
@@ -284,6 +262,9 @@ function cardFactsDiff(oldFactsText: string | null, newFactsText: string): strin
     const oldVal = oldMap.get(label);
     const newVal = newMap.get(label);
     if (oldVal === newVal) continue;
+    // Цены в задании монтажёру больше нет (25.11.2026), а в сохранённых фактах прошлой передачи она ещё есть:
+    // без этого первый перемонтаж после выката писал бы «Цена: было …, теперь не указано».
+    if (label === "Цена") continue;
     if (oldVal === undefined) changes.push(`${label}: добавилось — ${newVal}`);
     else if (newVal === undefined) changes.push(`${label}: было «${oldVal}», теперь не указано`);
     else changes.push(`${label}: «${oldVal}» → «${newVal}»`);

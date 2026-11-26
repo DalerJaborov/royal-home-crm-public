@@ -65,6 +65,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "outgoing-media-photo": "Отправка фото клиенту (сжатие и доставка)",
   "outgoing-media-send": "Отправка видео клиенту (сжатие и доставка)",
   "photo-post-publish": "Публикация фото-поста",
+  "property-status-story": "История-ролик «цена снижена» / «продано»",
   "recording-search-retry": "Поиск записи разговора",
   "seller-facts": "Разбор фактов из переписки с продавцом",
   "seller-photo-insight": "Оценка фото продавца",

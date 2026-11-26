@@ -87,6 +87,9 @@ const HANDOFF_PATTERNS: Array<{ re: RegExp; kind: FileKind }> = [
   { re: new RegExp(`^(${UUID})-(\\d{10,})(?:\\.[A-Za-z0-9]{1,5})?$`, "i"), kind: "final" },
   { re: new RegExp(`^(${UUID})-(\\d{10,})-cover\\.jpg$`, "i"), kind: "legacyCover" },
   { re: new RegExp(`^(${UUID})-(\\d{10,})-story-\\d+\\.mp4$`, "i"), kind: "storyPart" },
+  // История-ролик «цена снижена»/«продано» с карточкой (25.11.2026, instagramStories.ts::publishCardVideoStory):
+  // `<id>-price_drop-story-<время>.mp4`. Остаётся на диске, пока контейнер ждёт Meta, — уборка по возрасту.
+  { re: new RegExp(`^(${UUID})-([a-z_]+)-story-(\\d{10,})\\.mp4$`, "i"), kind: "storyPart" },
   { re: new RegExp(`^(${UUID})-([a-z_]+)-(\\d{10,})\\.jpg$`, "i"), kind: "storyCard" },
   { re: new RegExp(`^montajer-(${UUID})(?:\\.[A-Za-z0-9]{1,5})?$`, "i"), kind: "montajerTmp" },
 ];

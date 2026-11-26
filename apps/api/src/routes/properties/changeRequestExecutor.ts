@@ -465,7 +465,9 @@ async function executeFieldsChange(a: {
   actorId: string;
 }): Promise<string | null> {
   const { pre, claim, result } = a;
-  const remake = a.pricePlan?.remake ?? a.cardPlan?.remake ?? false;
+  // Цена в ролик не пишется (владелец 25.11.2026) — смена цены перемонтаж не запускает, даже если
+  // старая заявка пришла с remake: true. Перемонтаж остаётся только у заявок «Данные карточки».
+  const remake = a.pricePlan ? false : a.cardPlan?.remake ?? false;
   const channels = pre.property.publishedChannels ?? [];
 
   if (!claim) {

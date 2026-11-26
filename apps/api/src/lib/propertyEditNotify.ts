@@ -8,6 +8,7 @@ import { CAPTION_FACT_FIELDS } from "./publishedVideoFix.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { logSystemError } from "./systemError.js";
 import { propertyFactsForMontajer, recordMontajerMessage } from "./videoHandoff.js";
+import { clipHasPriceInFrame, priceLineInFrame } from "./clipPriceInFrame.js";
 import { sendToMontajer } from "./montageObservers.js";
 
 /**
@@ -36,8 +37,12 @@ const EXTERNAL_CALL_TIMEOUT_MS = 20_000;
 /** Поля, о правке которых стоит сообщать: цена и всё, что стоит в подписи ролика. */
 const VISIBLE_FIELDS: ReadonlySet<string> = new Set(["price", "currency", ...CAPTION_FACT_FIELDS]);
 
-/** Поля, которые видны ВНУТРИ готового ролика (монтажёр набирает их в кадр). */
-const FRAME_FIELDS: ReadonlySet<string> = new Set(["price", "currency", "areaSqm", "rooms", "floor", "totalFloors"]);
+/** Поля, которые видны ВНУТРИ готового ролика (монтажёр набирает их в кадр).
+ *  Цены здесь нет с 25.11.2026 (владелец: «все наши ролики будут без цены») —
+ *  её правка новый ролик не устаревает. Старый ролик, где цена набрана в кадр
+ *  (`clipHasPriceInFrame`), — исключение: там цена и валюта остаются полями кадра. */
+const FRAME_FIELDS: ReadonlySet<string> = new Set(["areaSqm", "rooms", "floor", "totalFloors"]);
+const PRICE_FIELDS: ReadonlySet<string> = new Set(["price", "currency"]);
 
 /** Статусы очереди монтажа, при которых готовый ролик уже у нас. */
 function clipAlreadyReceived(p: { videoHandoffStatus: string; clipReviewStatus: string }): boolean {
@@ -76,12 +81,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Строки «Цена: 50000 USD → 55000 USD; Этаж: 3 → 4» — только видимые поля. Пусто — сообщать нечего. */
+/** Строки «Цена: 50000 USD → 55000 USD; Этаж: 3 → 4» — только видимые поля. Пусто — сообщать нечего.
+ *  `withPrice: false` — для монтажа: цены в ролике нет, правка цены его не касается (модератору она нужна). */
 export function visibleChangeLines(
   changes: PropertyFieldChange[],
-  currencies: { before: string; after: string }
+  currencies: { before: string; after: string },
+  options: { withPrice?: boolean; priceInFrame?: boolean } = {}
 ): { lines: string[]; frameChanged: boolean } {
-  const visible = changes.filter((c) => VISIBLE_FIELDS.has(c.field));
+  const priceInFrame = options.priceInFrame ?? false;
+  // Цена в кадре старого ролика — её правка видна и монтажёру, и за готовым роликом.
+  const withPrice = (options.withPrice ?? true) || priceInFrame;
+  const visible = changes.filter((c) => VISIBLE_FIELDS.has(c.field) && (withPrice || (c.field !== "price" && c.field !== "currency")));
   const priceChanged = visible.some((c) => c.field === "price");
   const lines: string[] = [];
   for (const c of visible) {
@@ -94,7 +104,7 @@ export function visibleChangeLines(
       lines.push(`${c.label}: ${c.was} → ${c.becomes}`);
     }
   }
-  return { lines, frameChanged: visible.some((c) => FRAME_FIELDS.has(c.field)) };
+  return { lines, frameChanged: visible.some((c) => FRAME_FIELDS.has(c.field) || (priceInFrame && PRICE_FIELDS.has(c.field))) };
 }
 
 async function notifyModerators(
@@ -145,9 +155,14 @@ async function notifyMontajerFactsChanged(input: PropertyEditNotifyInput, summar
   // Следующий «Что изменилось в карточке» (перемонтаж) считается от этих фактов.
   const facts = await propertyFactsForMontajer(before.id);
   if (facts) {
+    // Задание ушло монтажёру ещё с ценой (до 25.11.2026) — её строку сохраняем: это признак «цена в кадре»
+    // (clipHasPriceInFrame), иначе следующая правка цены этого ролика монтажёру уже не сообщилась бы.
+    // В «Что изменилось в карточке» строка «Цена» не сравнивается (cardFactsDiff), так что старая сумма там не всплывёт.
+    const prev = await prisma.property.findUnique({ where: { id: before.id }, select: { videoHandoffLastFactsText: true } });
+    const priceLine = priceLineInFrame(prev?.videoHandoffLastFactsText ?? null);
     await prisma.property.updateMany({
       where: { id: before.id, videoHandoffStatus: "SENT_TO_EDITOR" },
-      data: { videoHandoffLastFactsText: facts },
+      data: { videoHandoffLastFactsText: priceLine ? `${facts}\n${priceLine}` : facts },
     });
   }
 }
@@ -162,7 +177,12 @@ export async function notifyPropertyEditedBeforePublish(input: PropertyEditNotif
     if (before.status !== after.status) return;
     if (before.status !== "PENDING_REVIEW" && before.status !== "EDITING") return;
 
-    const { lines, frameChanged } = visibleChangeLines(input.changes, { before: before.currency, after: after.currency });
+    // На проверке модератору важна и цена; на монтаже её нет (в ролике цены нет, 25.11.2026) — кроме старого
+    // ролика или задания, где цена набрана в кадр (clipHasPriceInFrame): там о цене сообщаем, как раньше.
+    const frameFacts = await prisma.property.findUnique({ where: { id: before.id }, select: { videoHandoffLastFactsText: true } });
+    const priceInFrame = !!frameFacts && clipHasPriceInFrame(frameFacts);
+    const { lines, frameChanged } = visibleChangeLines(input.changes, { before: before.currency, after: after.currency },
+      { withPrice: before.status === "PENDING_REVIEW", priceInFrame });
     if (lines.length === 0) return;
     const summary = lines.join("; ");
     const code = formatShortCode("ОБ", before.shortId);

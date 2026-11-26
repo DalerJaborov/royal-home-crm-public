@@ -612,6 +612,7 @@ function PublicationsSection() {
   const autoPublishOn = settings?.autoPublishEnabled ?? false;
   const instagramStoriesOn = settings?.instagramStoriesEnabled ?? false;
   const facebookStoriesOn = settings?.facebookStoriesEnabled ?? false;
+  const storyVideoOn = settings?.instagramStoryVideoEnabled ?? true;
   const dailyStoriesOn = settings?.dailyStoriesEnabled ?? false;
   const dailyStoriesCount = settings?.dailyStoriesCount ?? 3;
   const dailyStoriesHour = settings?.dailyStoriesHourDushanbe ?? 11;
@@ -681,6 +682,17 @@ function PublicationsSection() {
               : "Истории уходят только в Instagram — Страница Facebook сторис не получает, даже если рубильник выше включён."
           }
           warning={facebookStoriesOn && !settings?.metaPageTokenMasked ? "Маркер Facebook (Страница) не задан выше — публикация не пройдёт." : null}
+        />
+
+        <SwitchRow
+          title="«Цена снижена» и «Продано» в историях готовым роликом"
+          on={storyVideoOn}
+          onToggle={() => updateSettings.mutate({ instagramStoryVideoEnabled: !storyVideoOn })}
+          hint={
+            storyVideoOn
+              ? "История выходит роликом объекта, первые пять секунд поверх него карточка. Нет ролика, в ролике старая цена или голос ещё со старой ценой — выйдет фото с карточкой."
+              : "История всегда выходит фото с карточкой."
+          }
         />
 
         <SwitchRow

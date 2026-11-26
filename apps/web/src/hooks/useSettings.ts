@@ -298,6 +298,8 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   /** Истории Facebook (28.09.2026, Page Stories API) — ПОВЕРХ Instagram, свой
    *  рубильник, проверяется всегда (и ручными кнопками тоже). */
   facebookStoriesEnabled: boolean;
+  /** История «цена снижена»/«продано» готовым роликом с карточкой (26.11.2026); выключено — фото-карточка. */
+  instagramStoryVideoEnabled: boolean;
   /** Ежедневная подборка сторис (26.09.2026) — публикует карточки объектов
    *  без привязки к событию, раз в сутки. */
   dailyStoriesEnabled: boolean;
