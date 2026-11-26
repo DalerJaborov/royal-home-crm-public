@@ -105,6 +105,12 @@
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .hd {
   padding-bottom: 4px; font-size: var(--rh-fs-xs); font-weight: 700; color: var(--rh-ui-hint); text-transform: uppercase; letter-spacing: .04em;
 }
+/* 320 px: карточка месяца теряла по 16 px с каждой стороны, и ячейки дней были по 33 px. Внутренний отступ 8 и зазор 2 дают ~37 px
+   (40 на 320 физически не помещается: 7 столбцов + поля страницы 16). Высота ячейки 48 не меняется. */
+@media (max-width: 359.98px) {
+  :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .card:has(> .cal) { padding-inline: 8px; }
+  :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .mh .card > .cal { gap: 2px; }
+}
 :root[data-ui-look="royal"] .ry-calendar[data-ry-section="calendar"] .cal .d {
   border: 0; border-radius: var(--rh-r-md); background: var(--rh-ui-bg); color: var(--rh-ui-text); outline: 0; box-shadow: none;
   transition: background-color 160ms;
