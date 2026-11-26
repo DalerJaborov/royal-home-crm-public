@@ -5,7 +5,7 @@
 # messages»]. Сообщение уходит только в открытое окно 24 ч: владелец сначала
 # сам пишет в WhatsApp агентства.
 #
-#   wa-test-call-button.sh <номер владельца цифрами, 992…> [--dry-run]
+#   wa-test-call-button.sh <номер владельца цифрами, 992…> [--number=<номер бизнеса>] [--dry-run]
 #
 # Это СООБЩЕНИЕ человеку — только с «да» владельца на номер и текст
 # (текст зашит в graph-call.mjs, TEST_TEXT; --dry-run его показывает).
@@ -17,5 +17,7 @@ to="${1:-}"
 [[ "$to" =~ ^[0-9]{9,15}$ ]] || wa_die "использование: wa-test-call-button.sh <номер цифрами с кодом страны> [--dry-run]"
 wa_require_root
 wa_load_env
+# --number=<номер бизнеса> — сообщение уходит с этого номера (WA_EXTRA_NUMBERS, 26.11.2026).
+wa_select_number
 export WA_TEST_TO="$to"
 wa_graph test-call-button

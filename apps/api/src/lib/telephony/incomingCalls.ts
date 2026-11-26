@@ -36,7 +36,8 @@ import { loadAriCredentials, answerChannel, startMoh } from "./ariClient.js";
 import type { AriChannel } from "./ariTypes.js";
 import { SERVICE_NUMBER_IRRELEVANT_MARKS } from "./incomingCallConstants.js";
 import { publishCallUpdated } from "../livePublish.js";
-import { clientSourceForCall, inboundCallNotePrefix, incomingCallSourceFromChannel } from "./callSource.js";
+import { clientSourceForCall, inboundCallNotePrefix, incomingCallSourceFromChannel, whatsappLineFromChannel } from "./callSource.js";
+import { whatsappLineBrand } from "../../messengers/accounts.js";
 import { findStaffPhone } from "../staffPhoneGuard.js";
 import { CONSULTANT_SESSION_WAIT_MS } from "./liveVoiceTimings.js";
 // Реэкспорт — эта константа жила здесь до 03.09.2026 (аудит циклов), переехала
@@ -263,6 +264,8 @@ interface LiveIncoming {
    * по его идентификатору ARI.
    */
   channelName?: string;
+  /** Не основной номер WhatsApp, на который звонили (phone_number_id, callSource.ts::whatsappLineFromChannel). */
+  waPhoneNumberId?: string | null;
   /** Номер в виде CRM (+992…). */
   phone: string;
   startedAt: Date;
@@ -547,6 +550,8 @@ export async function startIncomingCall(channel: AriChannel): Promise<void> {
   const entry: LiveIncoming = {
     channelId: channel.id,
     channelName: channel.name,
+    // Номер, который набрал шлюз, есть только в событии создания канала (callSource.ts).
+    waPhoneNumberId: whatsappLineFromChannel(channel),
     phone,
     startedAt: new Date(),
     ready: Promise.resolve(),
@@ -603,6 +608,7 @@ async function setupIncomingCall(entry: LiveIncoming): Promise<void> {
         phone: entry.phone,
         // WhatsApp или линия — по имени канала станции (lib/telephony/callSource.ts).
         source: incomingCallSourceFromChannel(entry.channelName),
+        waPhoneNumberId: entry.waPhoneNumberId ?? null,
         clientId: known?.id ?? null,
         startedAt: entry.startedAt,
       },
@@ -1534,8 +1540,10 @@ export async function finishIncomingCall(channelId: string): Promise<FinishedInc
     // «Входящий звонок клиента из WhatsApp: …» — начало строки держат noContact.ts и
     // callRecordings.ts, поэтому WhatsApp только дописывается (см. callSource.ts).
     const callSource = incomingCallSourceFromChannel(entry.channelName);
-    const ofClientTitle = inboundCallNotePrefix(callSource, true);
-    const unknownTitle = inboundCallNotePrefix(callSource, false);
+    // Не основной номер WhatsApp — «…из WhatsApp (Арван)»: агент видит, каким брендом отвечать.
+    const lineBrand = await whatsappLineBrand(entry.waPhoneNumberId);
+    const ofClientTitle = inboundCallNotePrefix(callSource, true, lineBrand);
+    const unknownTitle = inboundCallNotePrefix(callSource, false, lineBrand);
     try {
       const interaction = await logTimeline({
         clientId: client.id,

@@ -9497,6 +9497,11 @@ model IncomingCall {
   /// требует миграции типа. Значения — INCOMING_CALL_SOURCES в packages/shared,
   /// решает lib/telephony/callSource.ts.
   source            String    @default("phone")
+  /// Наш номер WhatsApp (phone_number_id у Meta), на который звонили, — если это НЕ
+  /// основной номер (26.11.2026, второй — «Арван»). Шлюз набирает станцию этим id
+  /// вместо городского номера; бренд — из строки канала с тем же externalId
+  /// (messengers/accounts.ts::whatsappLineBrand). null — основной номер или линия.
+  waPhoneNumberId   String?
   startedAt         DateTime  @default(now())
   endedAt           DateTime?
   /// Разговор состоялся: кто-то из операторов снял трубку. Ответ самой очереди

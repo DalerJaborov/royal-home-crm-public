@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Пароль SIP от Meta → сразу в файл secrets/meta/meta_sip_password (права 600).
+# Пароль SIP от Meta → сразу в файл secrets/meta/meta_sip_password (права 600);
+# у дополнительного номера (--number=…, WA_EXTRA_NUMBERS) — свой файл
+# secrets/meta/meta_sip_password.<номер>: Meta выдаёт пароль каждому номеру.
 # Ни на экран, ни в журнал значение не выводится: Graph отдаёт его только API
 # (include_sip_credentials=true), а graph-call.mjs пишет в stdout один пароль,
 # который здесь же уходит в файл.
 #
-#   wa-sip-password.sh [--dry-run]
+#   wa-sip-password.sh [--number=<номер бизнеса цифрами>] [--dry-run]
 #
 # Пароль у Meta появляется после «wa-calling.sh enable». Применить: перезапуск
 # шлюза (runbook, отдельная операция) — тогда шлюз начнёт проверять пароль.
@@ -15,9 +17,11 @@ set -euo pipefail
 wa_parse_common "$@"; set -- "${WA_ARGS[@]}"
 wa_require_root
 wa_load_env
+wa_select_number
+wa_log "номер бизнеса $WA_SELECTED_NUMBER (phone_number_id ${WA_PHONE_ID:-?})"
 
 dir="$WA_HOME/secrets/meta"
-target="$dir/meta_sip_password"
+target="$dir/$WA_PW_FILE_NAME"
 if [ "$DRY_RUN" = "1" ]; then
   wa_run install -d -m 700 "$dir"
   wa_graph sip-password

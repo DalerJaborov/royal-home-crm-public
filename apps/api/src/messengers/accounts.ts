@@ -186,6 +186,31 @@ export async function configuredBrandNames(): Promise<string[]> {
   }
 }
 
+/**
+ * Бренд номера WhatsApp по его phone_number_id (26.11.2026, звонки на второй номер —
+ * «Арван», lib/telephony/callSource.ts::whatsappLineFromChannel). Имя компании строки
+ * канала, а если не задано — её название (иначе звонки двух номеров не различить).
+ * Нет такой строки или отказ базы — null: звонок покажется просто «WhatsApp».
+ */
+export async function whatsappLineBrand(phoneNumberId: string | null | undefined): Promise<string | null> {
+  if (!phoneNumberId) return null;
+  try {
+    return whatsappLineBrandFrom(await loadAccounts(), phoneNumberId);
+  } catch {
+    return null;
+  }
+}
+
+/** Чистое правило whatsappLineBrand — для списков (лента звонков берёт строки один раз на страницу). */
+export function whatsappLineBrandFrom(
+  rows: ReadonlyArray<{ channel: string; externalId: string; brandName: string | null; title: string }>,
+  phoneNumberId: string | null | undefined
+): string | null {
+  if (!phoneNumberId) return null;
+  const row = rows.find((r) => r.channel === "WHATSAPP" && r.externalId === phoneNumberId);
+  return row ? row.brandName?.trim() || row.title.trim() || null : null;
+}
+
 export async function accountBrandName(accountId: string | null | undefined): Promise<string | null> {
   if (!accountId) return null;
   try {

@@ -37,6 +37,33 @@ for p in WA_TLS_PORT WA_LOCAL_SIP_PORT WA_STATION_PORT WA_RTP_START WA_RTP_END; 
   [[ "${!p}" =~ ^[0-9]{2,5}$ ]] || die "$p — номер порта"
 done
 (( WA_RTP_START < WA_RTP_END )) || die "WA_RTP_START должен быть меньше WA_RTP_END"
+# --- Номера бизнеса (26.11.2026: второй номер — «Арван») ----------------------
+# Основной — WA_BUSINESS_NUMBER, как было: звонок на него идёт на станцию городским
+# номером WA_STATION_DID, имя звонящего «WhatsApp». Дополнительные — WA_EXTRA_NUMBERS,
+# через запятую или пробел, каждый «номер:phone_number_id[:метка]», например
+#   WA_EXTRA_NUMBERS=992877914444:1476112588909838:Arvan
+# Звонок на такой номер идёт на станцию его phone_number_id (по нему станция
+# ставит метку линии, а CRM узнаёт бренд), имя звонящего «WhatsApp <метка>».
+# Пусто — шлюз ровно прежний, с одним номером.
+WA_EXTRA_NUMBERS="${WA_EXTRA_NUMBERS:-}"
+wa_numbers=("$WA_BUSINESS_NUMBER")
+wa_dids=("$WA_STATION_DID")
+wa_names=("WhatsApp")
+for item in ${WA_EXTRA_NUMBERS//,/ }; do
+  IFS=: read -r x_num x_id x_label x_rest <<< "$item"
+  [[ -z "${x_rest:-}" ]] || die "WA_EXTRA_NUMBERS: лишнее в «$item» (формат номер:phone_number_id[:метка])"
+  [[ "$x_num" =~ ^[0-9]{8,15}$ ]] || die "WA_EXTRA_NUMBERS: номер «$x_num» — только цифры, без +"
+  # 13+ цифр — так станция отличает phone_number_id от городского номера
+  # (ops/asterisk/extensions_custom.conf, [from-trunk-whatsapp]).
+  [[ "${x_id:-}" =~ ^[0-9]{13,20}$ ]] || die "WA_EXTRA_NUMBERS: у номера $x_num phone_number_id «${x_id:-}» — от 13 до 20 цифр"
+  [[ -z "${x_label:-}" || "$x_label" =~ ^[A-Za-z0-9]{1,16}$ ]] || die "WA_EXTRA_NUMBERS: метка «$x_label» — латиница и цифры, до 16 знаков"
+  for seen in "${wa_numbers[@]}"; do [[ "$seen" != "$x_num" ]] || die "WA_EXTRA_NUMBERS: номер $x_num указан дважды"; done
+  wa_numbers+=("$x_num")
+  wa_dids+=("$x_id")
+  wa_names+=("WhatsApp${x_label:+ $x_label}")
+done
+log "номера бизнеса: ${wa_numbers[*]}"
+
 if [[ "$WA_ANSWER_MODE" == relay && "$WA_RING_MAX" -gt 25 ]]; then
   log "ВНИМАНИЕ: relay и WA_RING_MAX=$WA_RING_MAX > 25 — Meta может оборвать звонок раньше (~30–60 с)"
 fi
@@ -66,30 +93,57 @@ openssl x509 -in /var/lib/asterisk/keys/wa-fullchain.pem -noout -checkend 0 >/de
   || die "сертификат просрочен ($cert_end)"
 log "сертификат действует до $cert_end"
 
-# Пароль Meta (digest). Пусто — проверка выключена (так шлюз живёт до шага
-# «получить пароль Meta»: пароль появляется у Meta только после включения SIP).
+# Пароль Meta (digest) — СВОЙ НА КАЖДЫЙ НОМЕР: Meta выдаёт его номеру
+# (settings?include_sip_credentials=true), имя — номер бизнеса без «+».
+# Файлы в $WA_SECRETS_DIR:
+#   meta_sip_password.<номер> — пароль этого номера (wa-sip-password.sh --number=…);
+#   meta_sip_password         — прежнее имя, пароль ОСНОВНОГО номера (обратная
+#                               совместимость: шлюз с одним номером не трогаем).
+# Каждый пароль — своя секция auth; конечная точка whatsapp перечисляет их все, и
+# Asterisk пускает звонок, если имя и пароль сошлись хоть с одной. Пароль одного
+# номера к другому номеру не подходит: секция сверяет и имя (проверено run-e2e.sh).
+# Пароля нет ни у одного номера — проверка выключена (так шлюз живёт до шага
+# «получить пароль Meta»). Есть хоть у одного — включена для всех: номер без
+# пароля тогда не пустит НИКОГО (защита по умолчанию), об этом строка в журнале.
 umask 077
 rm -f /etc/asterisk/pjsip_auth.conf
-pw_file="$WA_SECRETS_DIR/meta_sip_password"
-if [[ -s "$pw_file" && "$WA_REQUIRE_AUTH" != "no" ]]; then
+: > /etc/asterisk/pjsip_auth.conf
+auth_sections=()
+missing_pw=()
+for i in "${!wa_numbers[@]}"; do
+  num="${wa_numbers[$i]}"
+  pw_file="$WA_SECRETS_DIR/meta_sip_password.$num"
+  if [[ ! -s "$pw_file" && "$i" == 0 ]]; then pw_file="$WA_SECRETS_DIR/meta_sip_password"; fi
+  if [[ ! -s "$pw_file" ]]; then missing_pw+=("$num"); continue; fi
   pw="$(tr -d '\r\n' < "$pw_file")"
-  [[ -n "$pw" ]] || die "файл пароля Meta пуст"
+  [[ -n "$pw" ]] || die "файл пароля Meta $pw_file пуст"
   # «;» в конфигурации Asterisk начинает комментарий — экранируем.
   pw_escaped="${pw//;/\\;}"
+  if [[ "$i" == 0 ]]; then section="meta-inbound"; else section="meta-inbound-$num"; fi
   {
-    printf '[meta-inbound]\ntype = auth\nauth_type = userpass\n'
-    printf 'username = %s\n' "$WA_BUSINESS_NUMBER"
-    printf 'password = %s\n' "$pw_escaped"
-  } > /etc/asterisk/pjsip_auth.conf
-  unset pw pw_escaped
+    printf '[%s]\ntype = auth\nauth_type = userpass\n' "$section"
+    printf 'username = %s\n' "$num"
+    printf 'password = %s\n\n' "$pw_escaped"
+  } >> /etc/asterisk/pjsip_auth.conf
+  auth_sections+=("$section")
+done
+unset pw pw_escaped
+if [[ "${#auth_sections[@]}" -gt 0 && "$WA_REQUIRE_AUTH" != "no" ]]; then
+  [[ "$WA_REQUIRE_AUTH" != "yes" || "${#missing_pw[@]}" == 0 ]] \
+    || die "WA_REQUIRE_AUTH=yes, а пароля Meta нет у номера: ${missing_pw[*]} (wa-sip-password.sh --number=…)"
   chown asterisk:asterisk /etc/asterisk/pjsip_auth.conf
   chmod 0600 /etc/asterisk/pjsip_auth.conf
-  export WA_AUTH_LINE="auth = meta-inbound"
-  log "проверка пароля Meta (digest) ВКЛЮЧЕНА"
+  auth_list="$(IFS=,; printf '%s' "${auth_sections[*]}")"
+  export WA_AUTH_LINE="auth = $auth_list"
+  log "проверка пароля Meta (digest) ВКЛЮЧЕНА: $auth_list"
+  for num in "${missing_pw[@]}"; do
+    log "ВНИМАНИЕ: у номера $num нет пароля Meta — звонки на него будут отбиты (wa-sip-password.sh --number=$num)"
+  done
 else
-  [[ "$WA_REQUIRE_AUTH" == "yes" ]] && die "WA_REQUIRE_AUTH=yes, а файла $pw_file нет"
+  [[ "$WA_REQUIRE_AUTH" == "yes" ]] && die "WA_REQUIRE_AUTH=yes, а файлов пароля Meta в $WA_SECRETS_DIR нет"
+  : > /etc/asterisk/pjsip_auth.conf
   export WA_AUTH_LINE="; проверка пароля Meta выключена: нет файла пароля"
-  log "ВНИМАНИЕ: проверка пароля Meta ВЫКЛЮЧЕНА (нет $pw_file) — защита только файрволом"
+  log "ВНИМАНИЕ: проверка пароля Meta ВЫКЛЮЧЕНА (нет файлов пароля в $WA_SECRETS_DIR) — защита только файрволом"
 fi
 umask 022
 
@@ -100,8 +154,21 @@ cp /etc/wa-gateway/asterisk.conf /etc/wa-gateway/logger.conf /etc/wa-gateway/mod
 envsubst '${WA_RTP_START} ${WA_RTP_END}' < /etc/wa-gateway/rtp.conf.tmpl > /etc/asterisk/rtp.conf
 envsubst '${WA_SIP_HOST} ${WA_PUBLIC_IP} ${WA_TLS_PORT} ${WA_STATION_LOCAL_IP} ${WA_LOCAL_SIP_PORT} ${WA_STATION_IP} ${WA_STATION_PORT} ${WA_AUTH_LINE}' \
   < /etc/wa-gateway/pjsip.conf.tmpl > /etc/asterisk/pjsip.conf
-envsubst '${WA_BUSINESS_NUMBER} ${WA_STATION_DID} ${WA_ANSWER_MODE} ${WA_RING_MAX}' \
+envsubst '${WA_ANSWER_MODE} ${WA_RING_MAX}' \
   < /etc/wa-gateway/extensions.conf.tmpl > /etc/asterisk/extensions.conf
+# Номера бизнеса — по три переменные на номер (смысл — в шапке [from-whatsapp]).
+# Значения уже проверены выше: только цифры и латиница, кавычки и «;» не пройдут.
+{
+  printf '; Собрано entrypoint.sh из WA_BUSINESS_NUMBER и WA_EXTRA_NUMBERS. Руками не править.\n'
+  for i in "${!wa_numbers[@]}"; do
+    num="${wa_numbers[$i]}"
+    printf 'exten => +%s,1,Set(GW_DID=%s)\n' "$num" "${wa_dids[$i]}"
+    printf ' same => n,Set(GW_NAME=%s)\n' "${wa_names[$i]}"
+    printf ' same => n,Set(__GW_BIZ=%s)\n' "$num"
+    printf ' same => n,Goto(wa-in,s,1)\n'
+    printf 'exten => %s,1,Goto(+%s,1)\n' "$num" "$num"
+  done
+} > /etc/asterisk/extensions_wa_numbers.conf
 chown -R asterisk:asterisk /etc/asterisk
 install -d -o asterisk -g asterisk -m 0755 /var/run/asterisk /var/log/asterisk /var/spool/asterisk
 

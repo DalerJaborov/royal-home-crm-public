@@ -19,9 +19,21 @@ import { incomingOperatorIds, loadIncomingSettings } from "../lib/telephony/inco
 import { elapsedWorkingMinutes, findCallbackContacts, missedWithoutCallbackIds } from "../lib/telephony/missedCallEscalation.js";
 import { loadDisciplineRules } from "../lib/disciplineRules.js";
 import { loadStaffPhoneChecker } from "../lib/staffPhoneGuard.js";
+import { whatsappLineBrand } from "../messengers/accounts.js";
 
 /** Звонивший — действующий сотрудник (номер из его карточки), а не клиент. */
 type StaffRef = { id: string; fullName: string };
+
+/**
+ * Бренд не основного номера WhatsApp у входящих страницы (26.11.2026, второй номер —
+ * «Арван»): в строке звонка «WhatsApp · Арван». Номеров — единицы, строки каналов
+ * держит кэш accounts.ts, поэтому это не N+1, а один проход по кэшу на номер.
+ */
+async function lineBrands(ids: Array<string | null>): Promise<(id: string | null) => string | null> {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))];
+  const brands = new Map(await Promise.all(unique.map(async (id) => [id, await whatsappLineBrand(id)] as const)));
+  return (id) => (id ? (brands.get(id) ?? null) : null);
+}
 
 /**
  * НОМЕР СОТРУДНИКА В ЖУРНАЛЕ ЗВОНКОВ (21.11.2026). Агент перезвонил в офис со
@@ -357,6 +369,8 @@ callsRouter.get("/feed", async (req, res) => {
         phone: true,
         // «WhatsApp» или линия — метка в строке ленты (lib/telephony/callSource.ts).
         source: true,
+        // Не основной номер WhatsApp — метка «WhatsApp · Арван» (lineBrands ниже).
+        waPhoneNumberId: true,
         startedAt: true,
         answered: true,
         talkSeconds: true,
@@ -379,6 +393,7 @@ callsRouter.get("/feed", async (req, res) => {
   const nameByExtension = new Map(operators.map((a) => [a.sipExtension!, a.fullName]));
   const staffOf = await staffLookup(incoming.map((c) => c.phone));
   const clientLabels = await loadClientDisplayLabels([...outgoing, ...incoming].map((c) => c.client?.id), viewerFromRequest(req));
+  const brandOfLine = await lineBrands(incoming.map((c) => c.waPhoneNumberId));
 
   /**
    * У исходящего отдаём и содержимое разговора — запись, расшифровку, разбор.
@@ -402,6 +417,7 @@ callsRouter.get("/feed", async (req, res) => {
       staff: null as StaffRef | null,
       // Исходящий через CRM всегда идёт по линии станции.
       source: "phone" as string,
+      brand: null as string | null,
       durationSec: i.recordingDurationSec,
       callAttempt: i.callAttempt,
       agentName: i.agent?.fullName ?? null,
@@ -427,6 +443,7 @@ callsRouter.get("/feed", async (req, res) => {
       phone: clientPhoneFor(c.phone, canSeePhone) as string | null,
       staff: staffOf(c.phone),
       source: c.source,
+      brand: brandOfLine(c.waPhoneNumberId),
       durationSec: c.talkSeconds,
       // У входящего callAttempt не бывает — это поле станции для звонков через
       // CRM (см. outgoing выше). null здесь, а не отсутствие поля: строки ленты
@@ -551,6 +568,7 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
         phone: true,
         // Откуда звонок: "phone" | "whatsapp" — метка «WhatsApp» в журнале входящих.
         source: true,
+        waPhoneNumberId: true,
         startedAt: true,
         endedAt: true,
         answered: true,
@@ -638,14 +656,17 @@ callsRouter.get("/incoming", supervisorOnly, async (req, res) => {
   );
   const staffOf = await staffLookup(items.map((c) => c.phone));
   const clientLabels = await loadClientDisplayLabels(items.map((c) => c.client?.id), viewerFromRequest(req));
+  const brandOfLine = await lineBrands(items.map((c) => c.waPhoneNumberId));
   const missingCallbackById = new Map<string, boolean>();
   for (const call of overdue) {
     if (staffOf(call.phone)) continue; // свой сотрудник — клиенту перезванивать некому
     if (!calledBackIds.has(call.id)) missingCallbackById.set(call.id, true);
   }
 
-  const safeItems = items.map((call) => ({
+  const safeItems = items.map(({ waPhoneNumberId, ...call }) => ({
     ...call,
+    // Не основной номер WhatsApp — имя страницы («Арван»), см. lineBrands.
+    brand: brandOfLine(waPhoneNumberId),
     phone: clientPhoneFor(call.phone, canSeePhone),
     staff: staffOf(call.phone),
     // Имя карточки закрывается тем же правом, что и номер (22.09.2026): раздел

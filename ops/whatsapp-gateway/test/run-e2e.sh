@@ -10,7 +10,11 @@
 #
 # Сценарии: ok (звонок доходит, номер приведён к 9 цифрам, метка whatsapp и ID
 # звонка доехали, звук SRTP/SDES, a-law), nohdr / wrongnum / noauth — шлюз
-# обязан отказать. В конце всё гасится: контейнеры, сети, временные ключи.
+# обязан отказать. Второй номер бизнеса (26.11.2026): ok2 — звонок на него со
+# своим паролем доходит до станции с меткой линии (phone_number_id) и именем
+# «WhatsApp Arvan»; cross — его имя с паролем первого номера — отказ. Пароль
+# первого номера лежит под прежним именем файла (обратная совместимость).
+# В конце всё гасится: контейнеры, сети, временные ключи.
 #
 #   ops/whatsapp-gateway/test/run-e2e.sh [--keep] [--no-build]
 #     --keep      не гасить контейнеры (для ручного разбора)
@@ -59,12 +63,15 @@ docker run --rm -v "$(hp "$work/certs"):/w" --entrypoint bash "$IMAGE" -c '
   chmod 644 *.pem *.key'
 pw="e2e-$(od -An -tx1 -N12 /dev/urandom | tr -d ' \n')"
 printf '%s\n' "$pw" > "$work/secrets-meta/meta_sip_password"
-chmod 600 "$work/secrets-meta/meta_sip_password" 2>/dev/null || true
+# Второй номер — свой пароль, файл с номером в имени (как пишет wa-sip-password.sh --number=…).
+pw2="e2e2-$(od -An -tx1 -N12 /dev/urandom | tr -d ' \n')"
+printf '%s\n' "$pw2" > "$work/secrets-meta/meta_sip_password.992900000002"
+chmod 600 "$work/secrets-meta/meta_sip_password" "$work/secrets-meta/meta_sip_password.992900000002" 2>/dev/null || true
 
 cp "$here"/station-sim/*.conf "$work/station/"
 cp "$asterisk_dir/pjsip.endpoint_custom_post.conf" "$asterisk_dir/extensions_custom.conf" "$work/station/"
 cp "$here"/meta-sim/*.conf "$work/meta/"
-sed -i "s/__META_SIM_PASSWORD__/$pw/" "$work/meta/pjsip.conf"
+sed -i "s/__META_SIM_PASSWORD2__/$pw2/; s/__META_SIM_PASSWORD__/$pw/" "$work/meta/pjsip.conf"
 
 echo "== сети: «интернет» 192.168.231.0/24 и «VPN» 10.9.0.0/24"
 docker network create --subnet 192.168.231.0/24 wa-e2e-pub >/dev/null
@@ -81,6 +88,7 @@ docker create --name wa-e2e-gw --network wa-e2e-pub --ip 192.168.231.20 --networ
   --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add SETUID --cap-add SETGID --cap-add FOWNER \
   --security-opt no-new-privileges:true \
   -e WA_PUBLIC_IP=192.168.231.20 -e WA_SIP_HOST=wa-sip.test -e WA_BUSINESS_NUMBER=992900000001 \
+  -e WA_EXTRA_NUMBERS=992900000002:1000000000000002:Arvan \
   -e WA_STATION_IP=10.9.0.2 -e WA_STATION_LOCAL_IP=10.9.0.1 -e WA_REQUIRE_AUTH=yes \
   -v "$(hp "$work/certs"):/etc/wa-certs:ro" -v "$(hp "$work/secrets-meta"):/run/wa-secrets:ro" \
   "$IMAGE" >/dev/null
@@ -102,8 +110,9 @@ gw() { docker exec wa-e2e-gw asterisk -rx "$1"; }
 gw "pjsip show transports" | grep -E "transport-(tls|station)" | sed 's/^/    /'
 gw "pjsip show transports" | grep -q "transport-tls  *tls.*192.168.231.20:5061" && ok "TLS 5061 на публичном адресе" || bad "нет транспорта TLS"
 gw "pjsip show contacts" | grep -q "station.*Avail" && ok "станция по «VPN» отвечает на OPTIONS" || bad "станция недоступна"
-gw "pjsip show endpoint whatsapp" | grep -qE "auth *: *meta-inbound" && ok "проверка пароля Meta включена" || bad "у whatsapp нет auth"
+gw "pjsip show endpoint whatsapp" | grep -qE "auth *: *meta-inbound,meta-inbound-992900000002" && ok "проверка пароля Meta включена, свой пароль у каждого номера" || bad "у whatsapp нет auth на оба номера"
 gw "dialplan show from-whatsapp" | grep -q "+992900000001" && ok "диалплан шлюза загружен" || bad "диалплан шлюза"
+gw "dialplan show from-whatsapp" | grep -q "+992900000002" && ok "второй номер в диалплане шлюза" || bad "второго номера нет в диалплане шлюза"
 gw "module show like opus" | grep -q codec_opus && ok "Opus-перекодер есть (запас, если Meta не даст PCMA)" || bad "нет codec_opus"
 docker exec wa-e2e-station asterisk -rx "dialplan show from-trunk-whatsapp" | grep -q "ext-did" && ok "станция: контекст from-trunk-whatsapp загружен" || bad "станция: нет from-trunk-whatsapp"
 docker exec wa-e2e-station asterisk -rx "dialplan show royalhome-inbound" | grep -q "RH_CRM_VERDICT" && ok "станция: весь extensions_custom.conf разобран Asterisk 22" || bad "станция: royalhome-inbound не загружен"
@@ -114,7 +123,10 @@ gw "rtp set debug on" >/dev/null
 call() { docker exec wa-e2e-meta asterisk -rx "channel originate Local/$1@meta-test application Wait 8" >/dev/null; }
 echo "== звонок «ok»"
 call ok; sleep 12
-echo "== звонки, которые шлюз обязан отбить: nohdr, wrongnum, noauth"
+echo "== звонок на второй номер «ok2»"
+call ok2; sleep 12
+echo "== звонки, которые шлюз обязан отбить: cross, nohdr, wrongnum, noauth"
+call cross; sleep 6
 call nohdr; sleep 6
 call wrongnum; sleep 6
 call noauth; sleep 8
@@ -126,8 +138,14 @@ docker logs wa-e2e-station > "$work/station.log" 2>&1
 docker logs wa-e2e-meta > "$work/meta.log" 2>&1
 
 echo "== итоги"
-grep -q "STATION-SIM: вход num=931234567 name=WhatsApp src=whatsapp wacid=wacid.TEST123" "$work/station.log" \
-  && ok "станция получила звонок: номер 9 цифр, имя WhatsApp, метка whatsapp, ID звонка" || bad "станция не получила звонок как надо"
+grep -q "STATION-SIM: вход num=931234567 name=WhatsApp src=whatsapp wacid=wacid.TEST123 line= biz=992900000001 " "$work/station.log" \
+  && ok "станция получила звонок: номер 9 цифр, имя WhatsApp, метка whatsapp, ID звонка, без метки линии" || bad "станция не получила звонок как надо"
+grep -q "STATION-SIM: вход num=931234567 name=WhatsApp Arvan src=whatsapp wacid=wacid.TEST222 line=1000000000000002 biz=992900000002 " "$work/station.log" \
+  && ok "второй номер: станция получила звонок с меткой линии и именем «WhatsApp Arvan»" || bad "второй номер не дошёл до станции как надо"
+grep -q "DIALSTATUS=ANSWER talk=[0-9]* HDR=1 TARGET=+992900000002@gw2$" "$work/meta.log" && ok "«Meta»: звонок на второй номер отвечен" || bad "«Meta»: звонок на второй номер не отвечен"
+grep -q "TARGET=+992900000002@gw2-cross$" "$work/meta.log" && ! grep -q "DIALSTATUS=ANSWER talk=[0-9]* HDR=1 TARGET=+992900000002@gw2-cross" "$work/meta.log" \
+  && ! grep -q "wacid=wacid.CROSS" "$work/station.log" \
+  && ok "имя второго номера с паролем первого — отказ" || bad "пароль первого номера подошёл ко второму"
 grep -q "STATION-SIM: ответ, кодек (alaw)" "$work/station.log" && ok "плечо до станции — a-law" || bad "кодек до станции не a-law"
 grep -q "DIALSTATUS=ANSWER talk=[0-9]* HDR=1 TARGET=+992900000001@gw$" "$work/meta.log" && ok "«Meta»: звонок отвечен" || bad "«Meta»: звонок не отвечен"
 grep -qE "m=audio [0-9]+ RTP/SAVP 8( |$)" "$work/gw.log" && ok "ответ шлюза Meta: SRTP (RTP/SAVP) и PCMA" || bad "в ответе шлюза нет RTP/SAVP 8"
@@ -143,7 +161,7 @@ grep -q "TARGET=+992900000099@gw$" "$work/meta.log" && ! grep -q "DIALSTATUS=ANS
   && ok "чужой номер — отказ" || bad "чужой номер прошёл"
 grep -q "TARGET=+992900000001@gw-noauth$" "$work/meta.log" && ! grep -q "DIALSTATUS=ANSWER talk=[0-9]* HDR=1 TARGET=+992900000001@gw-noauth" "$work/meta.log" \
   && ok "без пароля — отказ" || bad "без пароля звонок прошёл"
-if grep -q "$pw" "$work/gw.log"; then bad "пароль Meta попал в журнал шлюза"; else ok "пароля в журнале шлюза нет"; fi
+if grep -q -e "$pw" -e "$pw2" "$work/gw.log"; then bad "пароль Meta попал в журнал шлюза"; else ok "паролей в журнале шлюза нет"; fi
 grep -E "ERROR|Unable to load|Failed to load" "$work/gw.log" | grep -v "SIP/2.0" | head -5 | sed 's/^/    журнал шлюза: /' || true
 
 echo "ЗЕЛЁНЫХ: $pass, КРАСНЫХ: $fail"

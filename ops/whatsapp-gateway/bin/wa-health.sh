@@ -64,6 +64,18 @@ if [ "$LOCAL_ONLY" != "1" ]; then
   rc=$?
   set -e
   [ "$rc" = "0" ] || problems+=("Meta: can_receive_call_sip не AVAILABLE (код $rc)")
+  # Дополнительные номера (WA_EXTRA_NUMBERS, 26.11.2026): у каждого своя готовность у
+  # Meta — иначе второй номер мог бы молча перестать принимать звонки.
+  extra="${WA_EXTRA_NUMBERS:-}"
+  for item in ${extra//,/ }; do
+    IFS=: read -r x_num x_id _ <<< "$item"
+    [[ "$x_id" =~ ^[0-9]{13,20}$ ]] || { problems+=("WA_EXTRA_NUMBERS: у номера $x_num нет phone_number_id"); continue; }
+    set +e
+    WA_PHONE_ID="$x_id" wa_graph health
+    rc=$?
+    set -e
+    [ "$rc" = "0" ] || problems+=("Meta, номер $x_num: can_receive_call_sip не AVAILABLE (код $rc)")
+  done
 fi
 
 # Тревога — только при смене состояния (красное впервые / снова зелёное), а не
