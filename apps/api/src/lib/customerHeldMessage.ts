@@ -53,6 +53,8 @@ const UNANSWERED_REASON_TEXT: Record<string, string> = {
   sender_read_unavailable: "не удалось прочитать данные собеседника",
   original_context_changed: "переписка изменилась, пока бот готовил ответ, и ответ не ушёл",
   consume_job_gave_up: "бот не смог обработать сообщение после повторов",
+  // lib/customerAgentOrphanClaims.ts: the worker restarted mid-answer (deploy), the answer never went out.
+  claim_orphaned_after_deadline: "бот готовил ответ, но сервер перезапустился, и ответ не ушёл",
   // lib/customerAgentChannelOff.ts: the emergency kill switch, the customer heard nothing from the bot.
   customer_channel_off: "бот в этом канале временно выключен, клиенту он не отвечал",
 };
