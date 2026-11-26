@@ -122,6 +122,6 @@
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-filters .ry-seg.hscroll { display: flex; overflow-x: auto; max-width: 100%; }
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-filters .ry-seg.hscroll > button { flex: 1 0 auto; white-space: nowrap; }
 /* Поля выбора: рамку и фон даёт общее правило полей нового вида, здесь только высота под палец. */
-:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter select { min-height: 48px; }
+:root[data-ui-look="royal"] [data-ry-section="director"] .dd-filter :is(select, input) { min-height: 48px; border-radius: var(--rh-r-md); }
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-ring b { display: flex; align-items: center; justify-content: center; gap: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="director"] .dd-plan-note { grid-column: 1 / -1; }

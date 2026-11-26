@@ -6,6 +6,7 @@ import { geoMatchKey } from "./geoNormalize.js";
 import { budgetWindowTjs, loadMatchPolicy } from "./matchPolicy.js";
 import { loadMoneyContext, priceCeilingFilter, toTjs } from "./money.js";
 import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { comparePrice, foldOA, fuzzyPlaceWord, isFreshProperty, placeTypeHits, placeTypeWords } from "./propertyClueScoring.js";
 import { isRudakiProperty, isSuburbanProperty, propertyOutsideServiceArea, queryOutsideServiceArea } from "./suburbanProperty.js";
 import { RUDAKI_DISTRICT_NAME } from "./serviceArea.js";
 import { siteListingUrl } from "./siteListingUrl.js";
@@ -435,9 +436,15 @@ export function matchFitNote(fit: MatchFit): string | null {
  * канал честно сказал «этот уже продан» и предложил похожие, а не молчал.
  * Противоречие снимает баллы, а не вычёркивает (24.09.2026, ОБ-000118): тип и
  * комнаты в карточке заводит человек, а в звонке их называет человек и
- * пересказывает модель, — ошибиться может любая сторона. Вычёркивает только
- * ЦЕНА ОБЪЯВЛЕНИЯ дальше 20 % (`priceTjs`); бюджет клиента (`budgetTjs`) —
- * не цена объекта, по нему не вычёркиваем.
+ * пересказывает модель, — ошибиться может любая сторона. С 26.11.2026 НЕ
+ * ВЫЧЁРКИВАЕТ И ЦЕНА (ПК-001086: расшифровка потеряла первую цифру, «165 ҳазор»
+ * вместо 965 000, и прежнее вето по цене отбросило ровно тот объект, о котором
+ * шла речь). Расхождение цены теперь снимает баллы, типичные ошибки — другая
+ * валюта, потерянные тысячи, одна неверная цифра — дают маленький плюс
+ * (lib/propertyClueScoring.ts). Бюджет клиента (`budgetTjs`) — не цена объекта,
+ * по нему только мягко. Ориентиры сравниваются с допуском на написание
+ * («Казакон» = «Қазоқон»), вид места — по-таджикски и по-русски одно слово
+ * («масҷид» = «мечеть»), свежий объект (ролик только что вышел) получает +1.
  *
  * ЧТОБЫ НЕ ПРОМАХНУТЬСЯ. Объект считается найденным, только если среди примет
  * есть МЕСТО (ориентир словами, по карте или слово из адреса — район один не в
@@ -493,16 +500,26 @@ export interface PropertyIdentification {
   via: "hint" | "description" | null;
   /** Лучшие кандидаты по убыванию баллов (до трёх), для переспроса. */
   candidates: IdentifiedCandidate[];
+  /**
+   * СИЛЬНОЕ совпадение по приметам (26.11.2026): объект узнан уверенно И у него,
+   * кроме места, сошлись не меньше двух числовых примет (цена, комнаты, этаж,
+   * площадь, этажность). Только такое совпадение по описанию вправе перебить
+   * агента, который сам снял трубку (lib/telephony/qualifyIncoming.ts); для
+   * обычной раздачи хватает `propertyId`.
+   */
+  strong: boolean;
+  /** Отрыв лучшего кандидата от второго в баллах; null — кандидат один или их нет. */
+  lead: number | null;
 }
 
-/** Цена в пределах — «та самая» (человек округляет, модель пересчитывает валюту). */
-const PRICE_MATCH = 0.1;
-/** Дальше этого — точно другой объект. */
-const PRICE_VETO = 0.2;
 /** Сколько баллов нужно, чтобы назвать объект уверенно. */
 const MIN_SCORE = 5;
 /** Отрыв от второго кандидата. */
 const MIN_LEAD = 2;
+/** Сколько числовых примет, кроме места, делает совпадение СИЛЬНЫМ. */
+const STRONG_NUMERIC_SIGNALS = 2;
+/** Баллы для сильного совпадения — выше обычного порога. */
+const STRONG_SCORE = MIN_SCORE + 2;
 /** Предел выборки: опубликованных объектов в продаже сотни, не десятки тысяч. */
 const POOL_LIMIT = 5000;
 /** Сколько дней проданный объект ещё узнаём по объявлению. */
@@ -542,6 +559,32 @@ function anySameWord(said: string[], card: string[]): number {
   return said.filter((w) => card.some((c) => sameWord(w, c))).length;
 }
 
+/** То же с допуском на написание «о/а» («казакон» = «казокон») для всех каналов; `loose` —
+ *  ещё и одна замена буквы, только у разбора звонка с допуском на расшифровку. */
+function anyFuzzyWord(said: string[], card: string[], loose: boolean): number {
+  // Дешёвое прежнее правило первым; «о/а» и замена буквы — только для слов от шести букв
+  // (горячий путь: пул объектов × слова карточки, без лишних выделений строк).
+  const longCard = card.filter((c) => c.length >= 6).map((c) => ({ c, fc: foldOA(c) }));
+  return said.filter((w) => {
+    if (card.some((c) => sameWord(w, c))) return true;
+    if (w.length < 6) return false;
+    const fw = foldOA(w);
+    return longCard.some(({ c, fc }) => fuzzyPlaceWord(w, c, { loose, fa: fw, fb: fc }));
+  }).length;
+}
+
+export interface IdentifyOptions {
+  /**
+   * ДОПУСК НА ОШИБКУ РАСШИФРОВКИ (26.11.2026, ПК-001086) — только разбор звонка
+   * оператора при включённом рубильнике callObjectToOwnerEnabled. Включает: цену без
+   * вычёркивания (другая валюта, потерянные тысячи, старший разряд — плюс; совсем
+   * другая — минус три), ориентиры с одной заменой буквы, вид места TJ↔RU («масҷид» =
+   * «мечеть»). Без флага (чат, голосовой консультант, рубильник выключен) — правила
+   * 24.09.2026 без изменений: цена дальше 20 % вычёркивает объект.
+   */
+  tolerateAsr?: boolean;
+}
+
 function num(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -569,6 +612,7 @@ const CARD_SELECT = {
   intakeAgentId: true,
   assignedAgentId: true,
   createdById: true,
+  createdAt: true,
 } as const;
 
 /** Имена агентов лучших кандидатов — одним запросом, не по одному. */
@@ -583,17 +627,18 @@ async function withAgents(list: Omit<IdentifiedCandidate, "agentName">[]): Promi
   });
 }
 
-export async function identifyProperty(clues: PropertyClues): Promise<PropertyIdentification> {
+export async function identifyProperty(clues: PropertyClues, options: IdentifyOptions = {}): Promise<PropertyIdentification> {
+  const tolerateAsr = options.tolerateAsr === true;
   const text = clues.text?.trim() || null;
   if (text) {
-    const byHint = await resolveCallPropertyHint(text);
+    const byHint = await resolveCallPropertyHint(text, { spelledNumbers: tolerateAsr });
     if (byHint) {
       const p = await prisma.property.findUnique({ where: { id: byHint }, select: CARD_SELECT });
       if (p) {
         const [c] = await withAgents([
           { id: p.id, shortId: p.shortId, status: p.status, agentId: propertyOwnerAgentId(p), score: 99, signals: ["номер/адрес"] },
         ]);
-        return { propertyId: p.id, via: "hint", candidates: [c] };
+        return { propertyId: p.id, via: "hint", candidates: [c], strong: true, lead: null };
       }
     }
   }
@@ -601,6 +646,8 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
   const placeText = clues.place?.trim() || null;
   const placeWords = words(placeText);
   const textWords = words(text);
+  // Вид места («мечеть», «рынок») — отдельно от названий: он слабая примета (только с допуском).
+  const saidPlaceTypes = tolerateAsr ? placeTypeWords([placeText, text].filter(Boolean).join(" ")) : new Set<string>();
   const [places, pool, money] = await Promise.all([
     placeText || text ? placesMentioned([placeText, text].filter(Boolean).join(" "), { loose: true }) : Promise.resolve([]),
     prisma.property.findMany({
@@ -622,7 +669,8 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     loadMoneyContext(),
   ]);
 
-  const scored: (Omit<IdentifiedCandidate, "agentName"> & { located: boolean })[] = [];
+  const scored: (Omit<IdentifiedCandidate, "agentName"> & { located: boolean; numeric: number; fresh: boolean })[] = [];
+  const now = Date.now();
   for (const p of pool) {
     const signals: string[] = [];
     let score = 0;
@@ -630,6 +678,8 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     let priceExact = false;
     let roomsMatch = false;
     let floorMatch = false;
+    /** Сколько числовых примет сошлось (цена, комнаты, этаж, площадь, этажность). */
+    let numeric = 0;
 
     /**
      * ТИП — НЕ ПРИГОВОР, А ПРИМЕТА (24.09.2026, живой звонок про ОБ-000118).
@@ -652,39 +702,45 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     if (clues.rooms && p.rooms && p.rooms !== clues.rooms) score -= 3;
 
     if (clues.priceTjs && clues.priceTjs > 0) {
-      const tjs = toTjs(p.price, p.currency, money);
-      const diff = tjs > 0 ? Math.abs(tjs - clues.priceTjs) / clues.priceTjs : 1;
-      if (diff > PRICE_VETO) continue;
-      if (diff <= 0.03) {
-        score += 4;
-        priceExact = true;
-        signals.push("цена");
-      } else if (diff <= PRICE_MATCH) {
-        score += 3;
-        signals.push("цена");
-      }
+      /**
+       * ЦЕНА ОБЪЯВЛЕНИЯ. Без допуска (чат, голос, рубильник выключен) — правило
+       * 24.09.2026: дальше 20 % объект вычёркивается. С допуском на ошибку
+       * расшифровки (разбор звонка оператора, 26.11.2026, ПК-001086): другая валюта,
+       * потерянные тысячи, старший разряд — маленький плюс; совсем другая — минус
+       * три, но объект остаётся: решают место и остальные приметы (propertyClueScoring.ts).
+       */
+      const verdict = comparePrice(clues.priceTjs, toTjs(p.price, p.currency, money), money.usdToTjs, { tolerateAsr });
+      if (verdict.veto) continue;
+      score += verdict.score;
+      if (verdict.signal) signals.push(verdict.signal);
+      if (verdict.exact) priceExact = true;
+      if (verdict.kind === "exact" || verdict.kind === "close" || verdict.kind === "other_currency") numeric++;
     } else if (clues.budgetTjs && clues.budgetTjs > 0) {
       // Бюджет: близко к цене — та же примета, намного дороже — улика против, но не приговор.
       const tjs = toTjs(p.price, p.currency, money);
-      const diff = tjs > 0 ? Math.abs(tjs - clues.budgetTjs) / clues.budgetTjs : 1;
-      if (diff <= 0.03) {
-        score += 4;
-        priceExact = true;
+      const verdict = comparePrice(clues.budgetTjs, tjs, money.usdToTjs);
+      if (verdict.kind === "exact" || verdict.kind === "close") {
+        score += verdict.score;
+        priceExact = verdict.exact;
+        numeric++;
         signals.push("цена");
-      } else if (diff <= PRICE_MATCH) {
-        score += 3;
-        signals.push("цена");
-      } else if (tjs > clues.budgetTjs * (1 + PRICE_VETO)) {
+      } else if (tjs > clues.budgetTjs * 1.2) {
         // Дороже бюджета — улика против. Дешевле — нет: «ищу до 400, видел за 300».
         score -= 2;
       }
     }
 
-    const cardWords = words([p.landmark, p.address, p.title].filter(Boolean).join(" "));
-    if (anySameWord(placeWords, cardWords) > 0) {
+    const cardText = [p.landmark, p.address, p.title].filter(Boolean).join(" ");
+    const cardWords = words(cardText);
+    if (anyFuzzyWord(placeWords, cardWords, tolerateAsr) > 0) {
       score += 3;
       located = true;
       signals.push("ориентир");
+    }
+    // Вид места совпал («масҷид» ↔ «мечеть») — слабая примета, местом не считается.
+    if (saidPlaceTypes.size > 0 && placeTypeHits(saidPlaceTypes, placeTypeWords(cardText)) > 0) {
+      score += 1;
+      signals.push("вид места");
     }
 
     const lat = num(p.lat);
@@ -699,7 +755,7 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     }
 
     if (textWords.length > 0) {
-      const hits = anySameWord(textWords, cardWords);
+      const hits = anyFuzzyWord(textWords, cardWords, tolerateAsr);
       if (hits > 0) {
         score += Math.min(3, hits);
         located = true;
@@ -723,12 +779,14 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     if (clues.rooms && p.rooms === clues.rooms) {
       score += 2;
       roomsMatch = true;
+      numeric++;
       signals.push("комнаты");
     }
     if (clues.floor && p.floor) {
       if (p.floor === clues.floor) {
         score += 2;
         floorMatch = true;
+        numeric++;
         signals.push("этаж");
       } else {
         score -= 2;
@@ -736,6 +794,7 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     }
     if (clues.totalFloors && p.totalFloors === clues.totalFloors) {
       score += 1;
+      numeric++;
       signals.push("этажность");
     }
     const area = num(p.areaSqm);
@@ -745,10 +804,12 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
       if (d <= 0.03) {
         score += 2;
         areaMatch = true;
+        numeric++;
         signals.push("площадь");
       } else if (d <= 0.07) {
         score += 1;
         areaMatch = true;
+        numeric++;
         signals.push("площадь");
       } else if (d > 0.15) {
         // Названная площадь не та — такая же улика против, как чужой этаж.
@@ -769,11 +830,19 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
       if (d <= 0.05) {
         score += 2;
         areaMatch = true;
+        numeric++;
         signals.push("сотки");
       } else if (d > 0.2) {
         score -= 2;
       }
     }
+
+    /**
+     * СВЕЖИЙ ОБЪЕКТ (26.11.2026): ролик вышел вчера — звонят чаще всего по нему.
+     * Не баллы и не порог (ревью architect 26.11): только порядок между объектами с
+     * РАВНЫМИ баллами, уже совпавшими по приметам. В кандидаты сам по себе не ведёт.
+     */
+    const fresh = isFreshProperty(p.createdAt, now);
 
     if (priceExact && areaMatch && sameDistrict === true) located = true;
     /**
@@ -784,13 +853,16 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     if (priceExact && areaMatch && roomsMatch && floorMatch) located = true;
 
     if (score > 0) {
-      scored.push({ id: p.id, shortId: p.shortId, status: p.status, agentId: propertyOwnerAgentId(p), score, signals, located });
+      scored.push({ id: p.id, shortId: p.shortId, status: p.status, agentId: propertyOwnerAgentId(p), score, signals, located, numeric, fresh });
     }
   }
 
-  scored.sort((a, b) => b.score - a.score || b.shortId - a.shortId);
-  const candidates = await withAgents(scored.slice(0, 3).map(({ located: _located, ...c }) => c));
+  // Баллы → свежесть (тай-брейк при равных баллах) → номер карточки.
+  scored.sort((a, b) => b.score - a.score || (tolerateAsr ? Number(b.fresh) - Number(a.fresh) : 0) || b.shortId - a.shortId);
+  const candidates = await withAgents(scored.slice(0, 3).map(({ located: _located, numeric: _numeric, fresh: _fresh, ...c }) => c));
   const [top, second] = scored;
-  const sure = !!top && top.located && top.score >= MIN_SCORE && (!second || top.score - second.score >= MIN_LEAD);
-  return { propertyId: sure ? top.id : null, via: sure ? "description" : null, candidates };
+  const lead = top && second ? top.score - second.score : null;
+  const sure = !!top && top.located && top.score >= MIN_SCORE && (lead === null || lead >= MIN_LEAD);
+  const strong = sure && top.numeric >= STRONG_NUMERIC_SIGNALS && top.score >= STRONG_SCORE;
+  return { propertyId: sure ? top.id : null, via: sure ? "description" : null, candidates, strong, lead };
 }

@@ -47,6 +47,8 @@ import { mapPointFromText } from "../lib/mapLinkResolve.js";
 import { DRAFT_PHOTO_MAX_BYTES, isAcceptedDraftPhoto } from "../upload.js";
 import { completeDraftVideo, deleteDraftMedia, importClientIntoDraft, startDraftVideoSession, writeDraftVideoPart } from "../lib/propertyDraftMedia.js";
 import { logSystemError } from "../lib/systemError.js";
+import { ALLOWED_VIDEO_EXTENSIONS, formatVideoSizeMb, isVideoDocument } from "../lib/videoFileExtension.js";
+import { openVideoBatch, settleVideoBatch } from "./videoBatch.js";
 import { findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { createProperty, formatGeoAddressGuess } from "../routes/properties/crud.js";
 import { savePropertyDraftPhotos } from "../routes/properties/drafts.js";
@@ -243,8 +245,10 @@ const copy = {
     removeFile: (label: string) => `Убрать: ${label}`,
     fileRemoved: "Файл убран.",
     listChanged: "Список файлов изменился.",
-    videoUploading: "Видео загружается. Пришлю карточку, когда файл будет готов.",
-    videoQueued: "Видео в очереди на загрузку: сначала догрузится предыдущее. Пришлю карточку, когда файл будет готов.",
+    videoUploading: (size: string | null) => `Получила видео${size ? ` (${size})` : ""}, сохраняю в черновик. Пришлю карточку, когда файл будет готов.`,
+    videoQueued: (size: string | null) => `Получила видео${size ? ` (${size})` : ""}. Оно в очереди: сначала сохранится предыдущее. Пришлю карточку, когда все файлы будут готовы.`,
+    videosAdded: (n: number) => `Видео добавлено: ${n}.`,
+    videoNoteWarning: "Это кружок Telegram: он сжат до маленького квадрата и для объявления плохо подходит. Если есть обычный ролик, пришлите его видео или файлом (скрепка → Файл).",
     queuedFiles: (n: number) => `видео в очереди на загрузку: ${n} — «Создать» станет доступна, когда файлы догрузятся`,
     inQueue: "в очереди",
     videoInterrupted: (name: string) => `Загрузка видео «${name}» прервалась при перезапуске сервера. Пришлите его ещё раз.`,
@@ -329,8 +333,10 @@ const copy = {
     removeFile: (label: string) => `Нест кардан: ${label}`,
     fileRemoved: "Файл нест карда шуд.",
     listChanged: "Рӯйхати файлҳо тағйир ёфт.",
-    videoUploading: "Видео бор шуда истодааст. Вақте ки тайёр шуд, кортро мефиристам.",
-    videoQueued: "Видео дар навбати боркунӣ: аввал видеои қаблӣ бор мешавад. Вақте ки тайёр шуд, кортро мефиристам.",
+    videoUploading: (size: string | null) => `Видеоро гирифтам${size ? ` (${size})` : ""}, ба сиёҳнавис нигоҳ медорам. Вақте ки тайёр шуд, кортро мефиристам.`,
+    videoQueued: (size: string | null) => `Видеоро гирифтам${size ? ` (${size})` : ""}. Дар навбат аст: аввал видеои қаблӣ нигоҳ дошта мешавад. Вақте ки ҳама тайёр шуданд, кортро мефиристам.`,
+    videosAdded: (n: number) => `Видео илова шуд: ${n}.`,
+    videoNoteWarning: "Ин видеои давра (кружок)-и Telegram аст: он то квадрати хурд фишурда шудааст ва барои эълон кам мувофиқ аст. Агар видеои оддӣ дошта бошед, лутфан онро ҳамчун видео ё файл фиристед (гиреҳ → Файл).",
     queuedFiles: (n: number) => `видео дар навбати боркунӣ: ${n} — «Сохтан» баъди боршавии файлҳо дастрас мешавад`,
     inQueue: "дар навбат",
     videoInterrupted: (name: string) => `Боркунии видеои «${name}» ҳангоми бозоғози сервер қатъ шуд. Лутфан онро боз фиристед.`,
@@ -928,7 +934,7 @@ function incomingVideo(msg: TelegramIncomingMessage): IncomingVideo | null {
   if (msg.video) return msg.video;
   if (msg.video_note) return msg.video_note;
   const doc = msg.document;
-  if (doc && (doc.mime_type?.startsWith("video/") || /\.(?:mov|mp4|m4v|webm)$/iu.test(doc.file_name ?? ""))) return doc;
+  if (doc && isVideoDocument(doc)) return doc;
   return null;
 }
 
@@ -1007,7 +1013,7 @@ const VIDEO_EXTENSION_BY_MIME: Record<string, string> = { "video/mp4": ".mp4", "
 export function telegramVideoFilename(name: string | undefined, mime: string, messageId?: number): string {
   const base = name?.trim() || `telegram-${messageId ?? "video"}`;
   const ext = /\.[A-Za-z0-9]{2,5}$/u.exec(base)?.[0].toLowerCase();
-  const known = ext && Object.values(VIDEO_EXTENSION_BY_MIME).includes(ext);
+  const known = ext && (ALLOWED_VIDEO_EXTENSIONS as readonly string[]).includes(ext);
   const byMime = VIDEO_EXTENSION_BY_MIME[mime];
   return (known || !byMime ? base : `${base}${byMime}`).slice(0, 255);
 }
@@ -1210,12 +1216,27 @@ export async function waitForTelegramDraftUploadsForTests(): Promise<void> {
   while (runningVideoUploads.size) await Promise.all([...runningVideoUploads]);
 }
 
+/**
+ * Пачка роликов в один черновик (альбом или несколько подряд, 26.11.2026): карточка —
+ * одна, когда сохранится последний из пачки, с итогом «Видео добавлено: N». Раньше
+ * каждый ролик присылал свою карточку — пять роликов давали пять одинаковых карточек.
+ * Сбой ролика сообщается сразу (telegram/videoBatch.ts).
+ */
 function queueVideoTransfer(ctx: Context, draftId: string, fileId: string, opened: Extract<OpenedVideo, { kind: "transfer" }>) {
+  const batchKey = `${ctx.chatId}:${draftId}`;
+  openVideoBatch(batchKey);
   const job = withVideoUploadSlot(ctx.agentId, opened.mediaId, async () => {
+    let settled = false;
     try {
       const note = await transferTelegramVideo(ctx, draftId, fileId, opened);
-      await sendReview(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId }), note);
+      const added = note === t(ctx.lang).videoAdded;
+      settled = true;
+      const total = settleVideoBatch(batchKey, added);
+      if (!added) await sendMessageWithButtons(ctx.chatId, note, controls(draftId, ctx.lang));
+      const summary = total ? (total > 1 ? t(ctx.lang).videosAdded(total) : t(ctx.lang).videoAdded) : null;
+      if (summary) await sendReview(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId }), summary);
     } catch (error) {
+      if (!settled) settleVideoBatch(batchKey, false);
       if (error instanceof DraftConflictError) {
         await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, controls(draftId, ctx.lang)).catch(() => {});
         return;
@@ -1376,7 +1397,9 @@ async function handleInDraft(
       // поправку, которую агент успел сделать за это время. В фоне — только файл.
       const queued = !canStartVideo(agent.id);
       queueVideoTransfer(ctx, draft.id, video.file_id, opened);
-      const note = queued ? t(lang).videoQueued : t(lang).videoUploading;
+      const size = formatVideoSizeMb(video.file_size);
+      const received = queued ? t(lang).videoQueued(size) : t(lang).videoUploading(size);
+      const note = msg.video_note ? `${received}\n${t(lang).videoNoteWarning}` : received;
       if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: note });
       else await sendMessageWithButtons(chatId, note, controls(draft.id, lang));
     }

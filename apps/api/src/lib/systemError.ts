@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { isShuttingDown } from "./shutdownState.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { maskPhoneNumbersInText } from "./clientPhone.js";
+import { redactSecretsInText } from "./secretRedaction.js";
 
 /**
  * Запись отказа интеграции в журнал ошибок.
@@ -155,6 +156,12 @@ export async function logSystemError(
   // штатная маска номера, что у карточки (lib/clientPhone.ts); ники и ссылки не
   // трогаем — в служебной ошибке это обычно имя нашей же страницы.
   message = maskPhoneNumbersInText(String(message));
+  // Секреты (маркеры доступа в адресах, Bearer, ключ бота Telegram) — той же дверью
+  // и ДО лога контейнера ниже (26.11.2026, lib/secretRedaction.ts).
+  message = redactSecretsInText(message);
+  if (context && (context.url || context.stack)) {
+    context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+  }
   if (isPrivateOperation()) source = "investigation";
   if (source === "investigation") context = { ...context, silent: true };
   // ОБЩИЙ МЕХАНИЗМ ОСТАНОВКИ (17.09.2026, shutdownState.ts). Фоновые задачи

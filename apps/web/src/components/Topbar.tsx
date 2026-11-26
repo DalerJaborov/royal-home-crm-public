@@ -19,6 +19,7 @@ import { ProfileAvatar } from "./ProfileAvatar";
 import { MoreSheet } from "./MoreSheet";
 import { useShellStore } from "../store/shell";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useSearchHotkey } from "../hooks/useSearchHotkey";
 import { useGoBack } from "../hooks/useGoBack";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import {
@@ -68,6 +69,9 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
   // ОТКРЫЛ СПИСОК — МЕТКА ГАСНЕТ СРАЗУ, без таймера (владелец 21.11.2026).
   useSeenOnShow(shownItems, showNotifications, { listedAt: notifications?.listedAt, unseenCount: notifications?.unseenCount });
   const [showSearch, setShowSearch] = useState(false);
+  // Ctrl+K: в «чистой» оболочке бокового меню нет, и без этой строки горячая клавиша молчала.
+  // В старой оболочке её держит Sidebar — второй раз не вешаем, иначе откроются два поиска.
+  useSearchHotkey(clean, () => setShowSearch(true));
   // Значка телефонии в шапке больше нет (владелец 18.08.2026). Он показывал
   // состояние браузерной трубки и вёл в «Телефонию», а трубку и роль оператора
   // входящих удалили целиком — звонки идут прямо агентам на мобильный. Раздел

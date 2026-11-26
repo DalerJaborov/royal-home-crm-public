@@ -2,7 +2,7 @@ import { meaningfulPropertyAddress } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { ShowcaseResult } from "../ai/showcaseResult.js";
 export type { ShowcaseResult };
-export { recordExposures } from "../lib/propertyExposures.js";
+export { recordExposures, linkExposuresToClient } from "../lib/propertyExposures.js";
 import { traceResolution } from "../lib/botTurnTrace.js";
 import { DEFAULT_PHOTOS_PER_OFFER } from "../ai/photoOffer.js";
 import type { PropertyCard, StoredAttachment } from "../ai/shared.js";
@@ -204,8 +204,10 @@ async function wasShownRecently(channel: string, recipientId: string, shortId: n
     if (policy?.contractVersion === "scoped") return false;
     // Gate A still has the old global index. An unknown recent mark suppresses
     // a possible duplicate conservatively; it does not become customer memory.
-    const legacy = await prisma.shownProperty.findUnique({ where: { channel_recipientId_shortId: { channel, recipientId, shortId } },
-      select: { sentAt: true, endpointScopeId: true } });
+    // Unique per (channel, recipient, object) outside WhatsApp; a WhatsApp peer may hold one mark per our number.
+    const legacy = await prisma.shownProperty.findFirst({ where: { channel, recipientId, shortId,
+      ...(channel === "WHATSAPP" ? { OR: [{ endpointScopeId: null }, { endpointScopeId }] } : {}) },
+      select: { sentAt: true, endpointScopeId: true }, orderBy: { sentAt: "desc" } });
     return !!legacy && ((legacy.endpointScopeId !== null && legacy.endpointScopeId !== endpointScopeId) ||
       Date.now() - legacy.sentAt.getTime() < SHOW_AGAIN_AFTER_MS);
   } catch (err) {
@@ -234,8 +236,10 @@ async function markShown(channel: string, recipientId: string, shortId: number, 
           update: { sentAt: now }, create: { channel, recipientId, shortId, endpointScopeId, sentAt: now } });
         return;
       }
-      const legacy = await tx.shownProperty.findUnique({ where: { channel_recipientId_shortId: { channel, recipientId, shortId } },
-        select: { id: true, endpointScopeId: true } });
+      // WhatsApp: a mark of our OTHER number belongs to that number's chat (26.11.2026), not a collision here.
+      const legacy = await tx.shownProperty.findFirst({ where: { channel, recipientId, shortId,
+        ...(channel === "WHATSAPP" ? { OR: [{ endpointScopeId: null }, { endpointScopeId }] } : {}) },
+        select: { id: true, endpointScopeId: true }, orderBy: [{ endpointScopeId: { sort: "asc", nulls: "first" } }, { id: "asc" }] });
       if (legacy) {
         // This stamp represents a NEW observed send in the current scope. It
         // neither reclassifies the old history nor overwrites another account.
@@ -302,34 +306,6 @@ export async function recordExposure(
   }
 }
 
-
-/**
- * Привязывает показы этой переписки к появившейся карточке клиента.
- *
- * Вызывается один раз — в момент, когда из разговора родился лид. До этого
- * записи журнала висят на паре (канал, собеседник): бот показывает объекты
- * раньше, чем узнаёт телефон, и именно те, ранние, показы и есть самые ценные —
- * клиент выбирал по ним.
- *
- * Отказ не роняет приём заявки: карточка клиента важнее журнала. Но записать
- * отказ обязательно — без привязки правило «свой объект» промахнётся молча.
- */
-export async function linkExposuresToClient(
-  channel: string,
-  recipientId: string,
-  clientId: string,
-  transport?: CustomerTransportHint
-): Promise<void> {
-  try {
-    const endpoint = await resolveCustomerEndpoint(customerTransportInput(channel, recipientId, transport));
-    await prisma.propertyExposure.updateMany({
-      where: { channel, recipientId, endpointScopeId: endpoint.endpointScopeId, clientId: null },
-      data: { clientId },
-    });
-  } catch (err) {
-    void logSystemError("meta", `Показы объектов не привязаны к клиенту: ${describeError(err)}`);
-  }
-}
 
 /**
  * То же самое свойство «объект существует, доступен, опубликован» (см.

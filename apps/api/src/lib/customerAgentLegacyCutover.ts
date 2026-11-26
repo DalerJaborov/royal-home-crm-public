@@ -9,6 +9,7 @@
 // субъекта отдать ядру, не перехватив диалог у человека и не оборвав
 // незавершённую работу старого движка. Только чтение, в транзакции вызывающего.
 import type { TxClient } from "../db.js";
+import { peerChatsForScope } from "./customerConversationScope.js";
 
 type Db = Pick<TxClient, "$queryRaw">;
 
@@ -49,13 +50,15 @@ export function customerAgentLegacyCutoverEnabled(env: NodeJS.ProcessEnv = proce
 export async function readCustomerLegacyCutoverReadiness(db: Db, subject: {
   channel: string; peer: string; endpointScopeId: string; scopeKey: string;
 }, now: Date = new Date()): Promise<CustomerLegacyCutoverReadiness> {
-  const natives = await db.$queryRaw<Array<{ id: string; endpointScopeId: string | null; pausedUntil: Date | null;
+  const rows = await db.$queryRaw<Array<{ id: string; endpointScopeId: string | null; scopeKind: string | null; pausedUntil: Date | null;
     propertyChatAgentId: string | null; spamFlaggedAt: Date | null; pendingSince: Date | null; pendingCount: number }>>`
-    SELECT c."id",c."endpointScopeId",c."pausedUntil",c."propertyChatAgentId",c."spamFlaggedAt",c."pendingSince",
+    SELECT c."id",c."endpointScopeId",s."kind" AS "scopeKind",c."pausedUntil",c."propertyChatAgentId",c."spamFlaggedAt",c."pendingSince",
       (jsonb_array_length(COALESCE(c."pendingMessages",'[]'::jsonb))+jsonb_array_length(COALESCE(c."pendingAttachments",'[]'::jsonb)))::int AS "pendingCount"
-    FROM "BotConversation" c
+    FROM "BotConversation" c LEFT JOIN "CustomerEndpointScope" s ON s."id"=c."endpointScopeId"
     WHERE c."channel"=${subject.channel} AND c."subscriberId"=${subject.peer}`;
-  if (natives.length > 1 || natives.some(row => row.endpointScopeId !== subject.endpointScopeId)) {
+  // WhatsApp: the person's chat with our OTHER number is a separate chat (26.11.2026) — same rule as enrollment.
+  const { own: natives, blocking } = peerChatsForScope(subject.channel, rows, subject.endpointScopeId);
+  if (natives.length > 1 || blocking.length) {
     return { ready: false, reason: "native_scope_collision" };
   }
   const [inquiry] = await db.$queryRaw<Array<{ closed: boolean; human: boolean }>>`SELECT

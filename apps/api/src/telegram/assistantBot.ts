@@ -2,12 +2,13 @@ import { assistantInstagramLink, dropVoiceAvailabilityClaims, renderAssistantFor
   type AssistantReplyMode, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
-import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING, ASSISTANT_GROUP_NOT_CONNECTED, ASSISTANT_GROUP_SKILLS, ASSISTANT_GROUP_START_PRESSED, ASSISTANT_GROUP_START_PRESSED_HINT } from "./assistantGroupPhrases.js";
+import { ASSISTANT_GROUP_GREETING, ASSISTANT_GROUP_NOT_CONNECTED, ASSISTANT_GROUP_SKILLS, ASSISTANT_GROUP_START_PRESSED, ASSISTANT_GROUP_START_PRESSED_HINT } from "./assistantGroupPhrases.js";
 import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPublicListingQuestion } from "./assistantGroupPublicListing.js";
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
-import { offerTelegramLinkToNewcomer } from "./assistantGroupNewcomer.js";
+import { claimNewMemberWelcome, offerTelegramLinkToNewcomer, releaseNewMemberWelcome, sendColleagueWelcome } from "./assistantGroupNewcomer.js";
+import { ASSISTANT_NAME_SOURCE, addressesAssistantByName, assistantNameAtStart } from "./assistantName.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, unaddressedHelpQuestion, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
@@ -38,6 +39,8 @@ import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNa
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleAdTextRequest, handleFreeNarrationCallback, handleFreeNarrationMessage, isBareNarrationAsk, looksLikeNarrationDictation, narrationBodyAfterCue, narrationDictationReply, offerNarrationButton, parseFreeNarrationTrigger, showVoiceNarrationDraft, startFreeNarrationFromAsk } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
+import { bareVideoReason, bareVideoReplyText } from "./bareVideoReply.js";
+import { isVideoDocument } from "../lib/videoFileExtension.js";
 import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
@@ -133,8 +136,6 @@ const GROUP_AUDIO_MAX_SECONDS = 120;
 const DIALOG_KIND = "assistant";
 const DIALOG_TTL_MS = 15 * 60_000;
 
-const NOT_LINKED_TEXT =
-  "Я вас не знаю. Привяжите аккаунт в личке с ботом: CRM → Профиль → Telegram, откройте ссылку или отправьте мне код.";
 const DISABLED_TEXT = "ИИ-помощник выключен в Настройках CRM.";
 /**
  * Ответ на нажатие не должен ронять обработку: кнопка могла ждать в очереди чата за долгим
@@ -981,8 +982,7 @@ export async function handleAssistantPrivate(
   const cardScope: CardScope = { chatId, agentId: agent.id, replyTo: msg.message_id };
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
-    const videoDocument = msg.document && (msg.document.mime_type?.startsWith("video/")
-      || /\.(?:mov|mp4|m4v|mkv|avi|webm)$/iu.test(msg.document.file_name ?? "")) ? msg.document : undefined;
+    const videoDocument = isVideoDocument(msg.document) ? msg.document : undefined;
     const video = msg.video ?? msg.video_note ?? videoDocument;
     if (!IS_LOCAL_BOT_API && video?.file_size && video.file_size > TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES) {
       await send("Это видео больше 20 МБ — в текущем подключении к Telegram я не могу его скачать. Загрузите ролик через CRM-панель объекта. Файл ещё не сохранён в CRM.");
@@ -1079,6 +1079,13 @@ export async function handleAssistantPrivate(
         // Фото без слов у того, кто ведёт расходы, помнится 30 минут: «мана акс, ворид кун» следом
         // разберёт его как расходы (assistantExpenseFollowup.ts), а не уйдёт модели без фото.
         if (msg.photo?.length) await rememberExpensePhoto(msg, agent.id).catch(() => false);
+        // Видео, которое никто не взял, — честный ответ «не сохранён, что сделать» (26.11.2026):
+        // молчаливое «👀» агент принимал за «ролик в CRM».
+        const videoReason = bareVideoReason(msg);
+        if (videoReason) {
+          await send(bareVideoReplyText(videoReason, await stepUpLanguageOf(chatId, agent.id)));
+          return;
+        }
         await setMessageReaction(chatId, msg.message_id, "👀");
         return;
       }
@@ -1209,8 +1216,9 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // A name in conversation is not an address. Without punctuation require an imperative.
 const NAMED_REQUEST = /^(?:пожалуйста[, ]+)?(?:найди|покажи|помоги|проверь|скажи|ответь|подскажи|снизь|подними|измени|поменяй|поставь|сними|удали|верни|добавь|запиши|навис|нишон\s+деҳ|ҷавоб\s+деҳ|санҷ|кумак\s+кун)(?=\s|[!?.,:]|$)/iu;
 // A question addressed to the group and Shabnam can follow a greeting.
-const GROUP_NAMED_QUESTION = /(?:^|[\n.!?])\s*(?:савол\s+ба\s+(?:(?:аҳли\s+)?гур[ӯу]ҳ\s+ва\s+)?|вопрос\s+(?:(?:к\s+)?(?:коллегам|группе)\s+и\s+|к\s+)?)(?:шабнам|мушовир)(?=$|[\n.!?:—–-])/iu;
-const GREETED_BOT = /^(?:салом|ассалому\s+алайкум|привет|здравствуйте|добрый\s+(?:день|вечер|утро))[,!:.\s]+(?:шабнам|мушовир)(?=$|[,!:.?\s—–-])/iu;
+// Имя — все написания и ласковые формы из одного места (telegram/assistantName.ts, 26.11.2026).
+const GROUP_NAMED_QUESTION = new RegExp(String.raw`(?:^|[\n.!?])\s*(?:савол\s+ба\s+(?:(?:аҳли\s+)?гур[ӯу]ҳ\s+ва\s+)?|вопрос\s+(?:(?:к\s+)?(?:коллегам|группе)\s+и\s+|к\s+)?)` + ASSISTANT_NAME_SOURCE + String.raw`(?=$|[\n.!?:—–-])`, "iu");
+const GREETED_BOT = new RegExp(String.raw`^(?:салом|ассалому\s+ал[аея]йкум|привет|здравствуйте|добрый\s+(?:день|вечер|утро))[,!:.\s]+` + ASSISTANT_NAME_SOURCE + String.raw`(?=$|[,!:.?\s—–-])`, "iu");
 
 /** Позвали бота: прямое имя, @упоминание, /ai или ответ на его сообщение. */
 export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string): { addressed: boolean; text: string } {
@@ -1222,13 +1230,16 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const command = /^\/(?:ai|помощник)(?:@(\w+))?(?:\s|$)/i.exec(raw);
   const commandForUs = command ? !command[1] || command[1].toLowerCase() === botUsername.toLowerCase() : false;
   const mentioned = new RegExp(mentionSource, "i").test(raw);
-  const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw) ?? GREETED_BOT.exec(raw);
-  const afterName = named ? raw.slice(named[0].length) : "";
-  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName)
+  const atStart = assistantNameAtStart(raw);
+  const greeted = atStart ? null : GREETED_BOT.exec(raw);
+  const named = atStart ? { length: atStart.length } : greeted ? { length: greeted[0].length } : null;
+  const afterName = named ? raw.slice(named.length) : "";
+  // Ласковая форма («Шабнамчун …», «Шабнамҷон …») — обращение всегда, даже без знака и глагола.
+  const namedAddress = Boolean(named && (atStart?.vocative || !afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName)
     || NAMED_REQUEST.test(afterName.trim()) || requestedGroupParticipation(afterName)));
   const groupQuestion = GROUP_NAMED_QUESTION.exec(raw);
   const addressed = mentioned || replyToBot || commandForUs || namedAddress || Boolean(groupQuestion);
-  const addressEnd = groupQuestion ? groupQuestion.index + groupQuestion[0].length : named && namedAddress ? named[0].length : 0;
+  const addressEnd = groupQuestion ? groupQuestion.index + groupQuestion[0].length : named && namedAddress ? named.length : 0;
   let text = raw.slice(addressEnd).replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");
   if (addressEnd) text = text.replace(/^[\s,:;.!?—–-]*/u, "");
@@ -1435,11 +1446,8 @@ async function answerGroupHelp(msg: TelegramIncomingMessage, isStart: boolean): 
   // отмечаем при следующей подсказке или приветствии (владелец 23.11: «все, кто нажали, пусть сработает»).
   await rememberStartPress(msg).catch((err) => logSystemError("telegram",
     `Шабнам: не удалось запомнить нажавшего /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
-  // Нажал /start, а CRM его не знает (24.11.2026): один раз кнопка привязки по номеру, ответом ему.
-  if (isStart && !(await senderOf(msg))) {
-    await offerTelegramLinkToNewcomer(msg, "start").catch((err) => logSystemError("telegram",
-      `Шабнам: предложение привязки после /start: ${describeError(err)}`, { dedupKey: "assistant-group-link-offer" }));
-  }
+  // Нажал /start, а CRM его не знает: та же дверь подсказки (раз в 6 часов на человека в группе).
+  if (isStart && !(await senderOf(msg))) await offerNewcomerHint(msg, "start");
   if (claimGroupHint("skills", chatId)) {
     // Сбой отметки нажавших не должен лишать запросившего самой подсказки умений.
     await greetStartPressers(msg, "hint", { preClaimed: true, except: msg.from?.id ? String(msg.from.id) : undefined })
@@ -1503,23 +1511,29 @@ async function groupMontageReply(
  * Сообщение из группы. true — разобрано здесь (бот сам и адресат); false — не про
  * помощника, дальше обычная логика групп (комментарии канала).
  *
- * Сообщение, которое помощница не взяла, может быть от новичка, которого CRM не узнаёт
- * (24.11.2026): ему один раз предлагаем привязку по номеру (telegram/assistantGroupNewcomer.ts).
- * Одна точка после всего разбора: любой путь «молчим» (болтовня, вопрос без привязки) проходит здесь.
+ * Сообщение, которое помощница не взяла, может быть от человека, которого CRM не узнаёт. С 26.11.2026
+ * (жалоба владельца: Шабнам «срамит» и повторяется) ему отвечаем ТОЛЬКО если к ней обратились: имя в начале
+ * текста или подписи, приветствие с именем (addressesAssistantByName, telegram/assistantName.ts); имя в середине фразы — разговор о ней. Без обращения, на фото, стикер,
+ * открытку, голосовое без подписи и пересылку — тишина. Сама подсказка — одна дверь offerNewcomerHint.
  */
 export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (await handleAssistantGroupMessageCore(msg, updateId)) return true;
+  if (!addressesAssistantByName(msg.text ?? msg.caption ?? "")) return false;
+  return offerNewcomerHint(msg, "addressed");
+}
+
+/** Одна дверь подсказки непривязанному в группе: правила и лимит внутри assistantGroupNewcomer.ts, сбой — в журнал. */
+async function offerNewcomerHint(msg: TelegramIncomingMessage, mode: "addressed" | "start"): Promise<boolean> {
   try {
-    return await offerTelegramLinkToNewcomer(msg, "ambient");
+    return await offerTelegramLinkToNewcomer(msg, mode);
   } catch (err) {
-    await logSystemError("telegram", `Шабнам: предложение привязки новичку: ${describeError(err)}`, { dedupKey: "assistant-group-link-offer" });
+    await logSystemError("telegram", `Шабнам: подсказка непривязанному в группе: ${describeError(err)}`, { dedupKey: "assistant-group-link-offer" });
     return false;
   }
 }
 
-/** Ответ на /assistant_memory (директор или админ): память группы вкл/выкл или её состояние. */
-async function groupMemoryCommand(chatId: string, arg: string, agentId: string | undefined): Promise<string> {
-  if (!agentId) return NOT_LINKED_TEXT;
+/** Ответ на /assistant_memory (директор или админ): память группы вкл/выкл или её состояние. Непривязанного сюда не пускают. */
+async function groupMemoryCommand(chatId: string, arg: string, agentId: string): Promise<string> {
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive || !GROUP_ADMIN_ROLES.has(access.role)) return "Память группы включает и выключает только директор или администратор.";
   const group = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
@@ -1662,7 +1676,8 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
     }
     const sender = membership === "people-joined" ? null : await senderOf(msg);
     if (verb === "memory") {
-      await reply(await groupMemoryCommand(chatId, groupCommand?.[2]?.toLowerCase() ?? "", sender?.id));
+      if (!sender) await offerNewcomerHint(msg, "addressed");
+      else await reply(await groupMemoryCommand(chatId, groupCommand?.[2]?.toLowerCase() ?? "", sender.id));
       return true;
     }
     if (onOff || membership === "bot-added") {
@@ -1677,7 +1692,10 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
         else if (!(await prisma.assistantTelegramGroup.findUnique({ where: { chatId } }))) await explainGroupNotConnected(msg);
       };
       if (!sender) {
-        await deny(NOT_LINKED_TEXT);
+        // Непривязанный (26.11.2026): в подключённой группе на /assistant_on — та же дверь подсказки (раз в
+        // 6 часов); в неподключённой — короткий личный ответ на явную команду (ревью 23.11), без «я вас не знаю».
+        if (onOff && await prisma.assistantTelegramGroup.findUnique({ where: { chatId } })) await offerNewcomerHint(msg, "addressed");
+        else await deny("Подключать группы может только директор или администратор.");
         return true;
       }
       const access = await loadAgentAccess(sender.id);
@@ -1745,6 +1763,10 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
     };
     if (membership === "people-joined") {
       if (!(await isAiAssistantEnabled())) return true;
+      if (registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return true;
+      // Один раз на человека в группе (26.11.2026: одного и того же пригласили дважды, приветствовали
+      // дважды). Все уже приветствованы — молчим; иначе прежний кулдаун на группу.
+      if (await claimNewMemberWelcome(chatId, msg.new_chat_members, now) === 0) return true;
       const cooldown = new Date(now.getTime() - GROUP_WELCOME_INTERVAL_MS);
       const claim = await prisma.assistantTelegramGroup.updateMany({
         where: {
@@ -1756,8 +1778,13 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
         },
         data: { lastJoinWelcomeAt: now },
       });
-      if (claim.count === 1) {
-        await greetGroup(chatId, ASSISTANT_COLLEAGUE_GREETING);
+      if (claim.count !== 1) {
+        await releaseNewMemberWelcome(chatId, msg.new_chat_members, now);
+        return true;
+      }
+      {
+        // Одно текстовое сообщение на двух языках, а не два голосовых подряд (26.11.2026).
+        if (!(await sendColleagueWelcome(chatId))) await releaseNewMemberWelcome(chatId, msg.new_chat_members, now);
         await greetStartPressers(msg, "hint").catch((err) => logSystemError("telegram",
           `Шабнам: не удалось отметить нажавших /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
       }
@@ -1906,7 +1933,7 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
       continuationRef = entry?.registeredAt === registeredAt ? continuation(raw) : undefined;
       statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
       const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
-      if (!isForwarded && /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
+      if (!isForwarded && assistantNameAtStart(raw)
         && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
         addressed = true;
         text = spoken.text;
@@ -2040,9 +2067,11 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
     if (!addressed && !continuationRef && windowText === null) return false;
 
     if (!sender) {
-      // Позвал, а CRM его не знает (24.11.2026): вместо «я вас не знаю» сразу кнопка привязки по номеру.
-      if (!msg.sender_chat && await offerTelegramLinkToNewcomer(msg, "addressed")) return true;
-      await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
+      // Позвал, а CRM его не знает: одна дверь ответов непривязанному (26.11.2026, жалоба «срамит и
+      // повторяется»): короткая подсказка его языком, не чаще раза в 6 часов на человека в этой группе,
+      // остальное время тишина. Длинного «я вас не знаю» перед всей группой больше нет.
+      if (msg.sender_chat) await reply("Анонимного админа не узнаю, напишите от своего имени.");
+      else await offerNewcomerHint(msg, "addressed");
       return true;
     }
     let request = windowText ?? text;

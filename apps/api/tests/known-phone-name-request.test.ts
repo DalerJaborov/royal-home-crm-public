@@ -99,7 +99,7 @@ describe("explicit name-phone imperative with a known contact", () => {
     // The established reply normalizer removes final full stops.
     expect(result.reply).toBe("Уточните район");
     expect(result.reply2).toBeUndefined();
-    const conversation = await prisma.botConversation.findUniqueOrThrow({ where: { channel_subscriberId: { channel: "WHATSAPP", subscriberId: subscriber } } });
+    const conversation = await prisma.botConversation.findFirstOrThrow({ where: { channel: "WHATSAPP", subscriberId: subscriber } });
     expect(conversation.clientId).toBe(clientId);
     expect(conversation.leadDraft).not.toMatchObject({ stage: "awaiting_phone" });
     expect(await prisma.client.count({ where: { id: clientId, phone: { not: "" } } })).toBe(1);

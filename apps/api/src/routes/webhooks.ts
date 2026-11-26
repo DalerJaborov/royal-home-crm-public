@@ -19,7 +19,6 @@ import { isFinalCustomerInputFrame } from "../lib/customerInputFrame.js";
 import { reserveCustomerPropertyFocus } from "../lib/customerPropertyFocus.js";
 import { verifyCustomerAccountSignature, verifyPublicCustomerAccountSignature } from "../messengers/meta.js";
 import type { MetaIncoming } from "../messengers/meta.js";
-import { keepCustomerInputMediaInBackground } from "../lib/customerInputMedia.js";
 import { customerPropertyEvidenceFromMeta } from "../lib/customerPropertyEvidence.js";
 import { peekAdReferral, consumeAdReferral } from "../messengers/metaPeerMemory.js";
 import { sendManagedCustomerPropertyReply } from "../lib/customerPropertyDelivery.js";
@@ -90,7 +89,7 @@ import {
   showReadAndTyping as showMetaReadAndTyping,
   verifyHandshake as verifyMetaHandshake,
   verifySignature as verifyMetaSignature,
-  whatsAppMediaSource,
+  lookupWhatsAppMedia,
   type MetaChannel,
 } from "../messengers/meta.js";
 import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
@@ -116,7 +115,7 @@ import {
 // не было вовсе, и три снимка уходили одним залпом.
 import { sleep, typingDelayMs } from "../messengers/humanPacing.js";
 import { loadBotChannelToggles } from "../messengers/botChannels.js";
-import type { AttachmentSource } from "../messengers/attachments.js";
+import type { AttachmentSource, LostAttachment } from "../messengers/attachments.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import {
@@ -1468,7 +1467,9 @@ const DOWNLOADABLE_ATTACHMENTS = new Set(["image", "audio", "voice", "video", "d
  */
 async function clientAttachmentSources(
   msg: MetaIncoming,
-  account: { id: string | null; token?: string | null }
+  account: { id: string | null; token?: string | null },
+  /** Файл заявлен, а адрес не получен (WhatsApp не отдал media_id): причина для пометки в переписке (26.11.2026). */
+  lostOut?: LostAttachment[]
 ): Promise<AttachmentSource[]> {
   const attachments: AttachmentSource[] = [];
   if (DOWNLOADABLE_ATTACHMENTS.has(msg.attachmentType ?? "")) {
@@ -1476,8 +1477,9 @@ async function clientAttachmentSources(
       // Ключ номера-получателя: файл чужого аккаунта WhatsApp Business ключ
       // Настроек не видит (см. whatsAppMediaSource). account.id = null — основной
       // номер из Настроек.
-      const source = msg.mediaId ? await whatsAppMediaSource(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
-      if (source) attachments.push({ ...source, declaredKind: msg.attachmentType });
+      const found = msg.mediaId ? await lookupWhatsAppMedia(msg.mediaId, account.id ? (account.token ?? null) : undefined) : null;
+      if (found?.source) attachments.push({ ...found.source, declaredKind: msg.attachmentType });
+      else if (found) lostOut?.push({ kind: msg.attachmentType === "image" || msg.attachmentType === "video" ? msg.attachmentType : msg.attachmentType === "audio" || msg.attachmentType === "voice" ? "audio" : "file", reason: found.reason });
     } else if (msg.attachmentUrl) {
       // "ig_reel" — единственный тип с двойным смыслом (см. комментарий у
       // DOWNLOADABLE_ATTACHMENTS): страница чужой/нашей публикации ИЛИ прямой
@@ -2094,15 +2096,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // A held DM was written into its CRM chat before the ACK and belongs to
       // no bot: skip it BEFORE any account/Graph profile lookup (13.11.2026).
       if (inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD") {
-        // Текст уже в чате; файлы клиента — тоже сотруднику, в фоне (25.11.2026):
-        // раньше у удержанного сообщения оставалась только пометка «[вложение: image]».
-        if (msg.messageId && !msg.isEcho) {
-          const held = msg;
-          void resolveIncomingAccount(held.channel, held.accountExternalId, held.senderId)
-            .then((account) => clientAttachmentSources(held, account))
-            .then((sources) => keepCustomerInputMediaInBackground({ channel: held.channel, subscriberId: held.senderId, mid: held.messageId, sources }))
-            .catch(() => undefined);
-        }
+        // Текст и файлы клиента уже записаны до ACK (lib/customerHeldMessage.ts → keepIngressMediaInBackground):
+        // здесь, после ACK, файл не качаем — путь один на удержанные и на ядро (26.11.2026).
         traceOutcome("blocked", "dm_lane_held");
         continue;
       }
@@ -2320,7 +2315,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // на прямую Meta бот перестал видеть вложения — доходило одно слово «image».
       // У Instagram и Messenger адрес файла лежит в вебхуке, у WhatsApp его надо
       // добыть по идентификатору медиа отдельным запросом с маркером.
-      const attachments: AttachmentSource[] = await clientAttachmentSources(msg, account);
+      const clientLost: LostAttachment[] = [];
+      const attachments: AttachmentSource[] = await clientAttachmentSources(msg, account, clientLost);
 
       /**
        * ОТВЕТ НА НАШУ ИСТОРИЮ — ЭТО ТОЖЕ КАРТИНКА, А НЕ ТОЛЬКО ФЛАЖОК.
@@ -2791,6 +2787,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         silent: reactionOnly || moneyRequestOnly || silentForeignShare || recordOnly,
         name: msg.name ?? (await resolveInstagramName(msg.channel, msg.senderId, account.token, account.id, customerTransport)),
         attachments,
+        // Сколько вложений прислал сам клиент (дальше к ним могли добавиться кадр истории и наш файл) и что не
+        // удалось получить вовсе: пометка в переписке вместо молчания (26.11.2026).
+        clientAttachmentCount,
+        ...(clientLost.length ? { attachmentsLostBefore: clientLost } : {}),
         // Для цитат в переписке CRM: чем это сообщение было у Meta и на что клиент
         // отвечал «ответом».
         messageId: msg.messageId,

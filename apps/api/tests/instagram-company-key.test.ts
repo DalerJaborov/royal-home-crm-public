@@ -236,6 +236,22 @@ describe("Meta закрыла доступ к аккаунту — одна от
     await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: null, accessLostReason: null } });
   });
 
+  it("дата «закрыт с …» в проверке — по Душанбе, а не по UTC (охота 26.11)", async () => {
+    // 25.11 20:30 UTC = 26.11 01:30 в Душанбе: руководству писали «с 2026-11-25» — на день раньше.
+    await prisma.messengerAccount.update({
+      where: { id: lockedId },
+      data: { accessLostAt: new Date("2026-11-25T20:30:00Z"), accessLostReason: LOCKED_TEXT },
+    });
+    meta.lockedMeOk = false;
+    try {
+      const [row] = await checkInstagramAccountsHealth([lockedId]);
+      expect(row.ok).toBeNull();
+      expect(row.detail).toContain("с 2026-11-26");
+    } finally {
+      await prisma.messengerAccount.update({ where: { id: lockedId }, data: { accessLostAt: null, accessLostReason: null } });
+    }
+  });
+
   it("новый маркер («Заменить маркер») снимает отметку сразу", async () => {
     await prisma.messengerAccount.update({ where: { id: lockedId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401" } });
     await saveAccount({ id: lockedId, channel: "INSTAGRAM", externalId: IG_LOCKED, title: `Закрыт ${run}`, token: `${LOCKED_TOKEN}-new` });

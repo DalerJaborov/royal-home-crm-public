@@ -674,8 +674,8 @@ describe("ответ в директ и проверка подписки", () =
     await tryLeadMagnetComment(comment("чеклист"));
     await tryLeadMagnetMessage({ channel: "INSTAGRAM", accountExternalId: instagram.externalId, senderId: IG_USER, text: "Хочу чек-лист", payload: `lm:${campaignId}:want` });
 
-    const conversation = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const conversation = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const messages = (conversation?.messages ?? []) as { role: string; content: string }[];
     expect(messages.map((m) => m.content)).toContain(CAMPAIGN.inviteText);
@@ -695,8 +695,8 @@ describe("ответ в директ и проверка подписки", () =
     await tryLeadMagnetComment(comment("чеклист"));
     await tryLeadMagnetMessage({ channel: "INSTAGRAM", accountExternalId: instagram.externalId, senderId: IG_USER, text: "Хочу чек-лист", payload: `lm:${campaignId}:want` });
 
-    const before = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const before = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const beforeMessages = (before?.messages ?? []) as { role: string; content: string; mid?: string }[];
     const invite = beforeMessages.find((m) => m.content === CAMPAIGN.inviteText);
@@ -708,8 +708,8 @@ describe("ответ в директ и проверка подписки", () =
     await handleOutgoingEcho({ channel: "INSTAGRAM", accountExternalId: instagram.externalId, senderId: IG_USER, text: CAMPAIGN.inviteText, messageId: invite!.mid });
     await handleOutgoingEcho({ channel: "INSTAGRAM", accountExternalId: instagram.externalId, senderId: IG_USER, text: CAMPAIGN.deliveredText, messageId: delivered!.mid });
 
-    const after = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const after = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const afterMessages = (after?.messages ?? []) as { role: string; content: string }[];
     expect(afterMessages).toHaveLength(beforeMessages.length);
@@ -736,8 +736,8 @@ describe("ответ в директ и проверка подписки", () =
     await tryLeadMagnetComment(comment("чеклист"));
     await tryLeadMagnetMessage({ channel: "INSTAGRAM", accountExternalId: instagram.externalId, senderId: IG_USER, text: "Хочу чек-лист", payload: `lm:${campaignId}:want` });
 
-    const before = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const before = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const beforeMessages = (before?.messages ?? []) as { role: string; content: string }[];
 
@@ -751,8 +751,8 @@ describe("ответ в директ и проверка подписки", () =
       messageId: RACE_MID,
     });
 
-    const after = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const after = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const afterMessages = (after?.messages ?? []) as { role: string; content: string }[];
     expect(afterMessages).toHaveLength(beforeMessages.length);
@@ -774,8 +774,8 @@ describe("ответ в директ и проверка подписки", () =
       messageId: `mid-manual-${Date.now()}`,
     });
 
-    const after = await prisma.botConversation.findUnique({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId: IG_USER } },
+    const after = await prisma.botConversation.findFirst({
+      where: { channel: "INSTAGRAM", subscriberId: IG_USER },
     });
     const afterMessages = (after?.messages ?? []) as { role: string; content: string }[];
     expect(afterMessages.some((m) => m.content === "Здравствуйте, это Нурмухаммад, отвечаю лично")).toBe(true);

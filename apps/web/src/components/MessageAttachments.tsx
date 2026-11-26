@@ -86,17 +86,16 @@ const LOST_WHY: Record<string, string> = {
   unsupported: "формат CRM не открывает",
   failed: "не скачалось",
   too_many: "слишком много файлов за раз",
-};
-const LOST_LIMIT: Record<string, string> = {
-  image: "больше 5 МБ",
-  audio: "длиннее 10 минут или больше 3 МБ",
-  video: "больше 16 МБ или длиннее 3 минут",
-  file: "больше 16 МБ",
+  too_big: "слишком большой файл",
+  too_long: "слишком длинная запись",
+  // Канал не отдал файл (ссылка Meta уже не работает) и отказ ключа канала — 26.11.2026.
+  unavailable: "канал не отдал файл",
+  no_key: "канал не отдал файл: ключ канала не работает, руководство уже предупреждено",
 };
 
 export function lostAttachmentText(kind: string, reason: string, channel?: string | null): string {
   const what = LOST_WHAT[kind] ?? "файл";
-  const why = reason === "too_big" || reason === "too_long" ? LOST_LIMIT[kind] ?? "слишком большой" : LOST_WHY[reason] ?? LOST_WHY.failed;
+  const why = LOST_WHY[reason] ?? LOST_WHY.failed;
   return `Клиент прислал ${what} — ${why}, в CRM не сохранилось. Откройте ${whereToLook(channel)}`;
 }
 
@@ -164,6 +163,8 @@ function AttachmentItem({
   const url = attachment.url ?? (useDirect ? (isImage ? links.thumb ?? links.src ?? null : links.src ?? null) : stored.url);
   const failed = attachment.url || useDirect ? false : stored.failed;
   const [zoomed, setZoomed] = useState(false);
+  // Файл по ссылке не отдался (удалён, срок ссылки вышел): вместо битой картинки с подписью-alt, вылезающей из пузыря.
+  const [imgBroken, setImgBroken] = useState(false);
   // Голосовое ogg/opus, которое этот браузер не играет, — сразу версия m4a.
   const audioNeedsPlay = attachment.kind === "audio" && useDirect && !!links.play && !browserPlays(attachment.mime);
   // Версия для браузера готовится на сервере (503 + Retry-After) — ждём её, а не
@@ -218,6 +219,10 @@ function AttachmentItem({
     );
   }
 
+  if (isImage && imgBroken) {
+    return <Note icon={ImageOff} rh2={rh2}>Фото не загрузилось</Note>;
+  }
+
   if (isImage) {
     return (
       <>
@@ -240,6 +245,7 @@ function AttachmentItem({
             decoding="async"
             onError={() => {
               if (useDirect) onDirectError();
+              else setImgBroken(true);
             }}
           />
         </button>

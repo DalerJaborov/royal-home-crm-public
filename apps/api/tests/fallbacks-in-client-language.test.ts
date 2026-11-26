@@ -94,8 +94,8 @@ describe("заготовленные фразы на языке клиента",
 
     expect(result).toMatchObject({ reply: "", shouldReply: false, aiUnavailable: true });
     expect(callAi).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "lead-qualify" }));
-    const conversation = await prisma.botConversation.findUniqueOrThrow({
-      where: { channel_subscriberId: { channel: "INSTAGRAM", subscriberId } },
+    const conversation = await prisma.botConversation.findFirstOrThrow({
+      where: { channel: "INSTAGRAM", subscriberId },
     });
     expect(conversation.clientId).toBeNull();
     expect(conversation.messages).toEqual(expect.arrayContaining([

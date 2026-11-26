@@ -1,11 +1,14 @@
 /** Operational completion is independent of private investigation state. */
 export const COMPLETED_ASSIGNMENT_MESSAGE = "Работа по этому назначению завершена. Дальнейшее решение принимает руководитель";
 
+const COMPLETION_OVERRIDE_ROLES: ReadonlySet<string> = new Set(["ADMIN", "DIRECTOR", "HEAD_OF_SALES"]);
+
 export function assignmentWriteDenied(
   client: { assignmentCompletedAt?: Date | string | null },
   role: string | null | undefined,
 ): string | null {
-  return client.assignmentCompletedAt && role !== "ADMIN" && role !== "DIRECTOR"
+  // Решение по завершённому назначению принимает руководство: директор, админ и РОП.
+  return client.assignmentCompletedAt && !COMPLETION_OVERRIDE_ROLES.has(role ?? "")
     ? COMPLETED_ASSIGNMENT_MESSAGE : null;
 }
 

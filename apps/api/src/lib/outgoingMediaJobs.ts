@@ -174,6 +174,8 @@ export async function enqueueOutgoingMedia(input: {
   conversationId: string;
   file: AcceptedMediaFile;
   caption?: string;
+  /** Срок паузы бота, выбранный сотрудником (минуты от сейчас, replyPauseInput.ts); пусто — умолчание сервера. */
+  pauseMinutes?: number;
 }): Promise<{ status: number; body: Record<string, unknown> }> {
   const drop = () => fs.promises.rm(input.file.path, { force: true }).catch(() => {});
   const mimetype = normalizeOutgoingMime(input.file.mimetype, input.file.originalname);
@@ -221,7 +223,7 @@ export async function enqueueOutgoingMedia(input: {
     return { status: 503, body: { error: "Файл не сохранился на сервере — попробуйте ещё раз" } };
   }
   // Сотрудник взял диалог в момент «Отправить», а не через минуты сжатия: бот замолкает сразу.
-  const pause = await placeQueuedMediaPause(target, sender);
+  const pause = await placeQueuedMediaPause(target, sender, input.pauseMinutes);
   if (!pause.ok) {
     await fs.promises.rm(dest, { force: true }).catch(() => {});
     return { status: pause.status, body: { error: pause.error } };
@@ -237,6 +239,7 @@ export async function enqueueOutgoingMedia(input: {
         mimeType: mimetype,
         sizeBytes: input.file.size,
         caption: input.caption || null,
+        ...(input.pauseMinutes ? { pauseMinutes: input.pauseMinutes } : {}),
         ...(pause.undo ? { pauseUndo: pause.undo as unknown as Prisma.InputJsonValue } : {}),
       },
     });
@@ -323,7 +326,7 @@ export async function retryOutgoingMediaJob(jobId: string, agentId: string): Pro
   }
   const target = await resolveMediaTarget(job.conversationId);
   if (!target) return { status: 404, body: { error: "Диалог не найден" } };
-  const pause = await placeQueuedMediaPause(target, await agentSender(agentId));
+  const pause = await placeQueuedMediaPause(target, await agentSender(agentId), job.pauseMinutes, true);
   if (!pause.ok) return { status: pause.status, body: { error: pause.error } };
   const reset = await prisma.outgoingMediaJob.updateMany({
     where: { id: jobId, status: "FAILED", retryable: true },
@@ -336,11 +339,16 @@ export async function retryOutgoingMediaJob(jobId: string, agentId: string): Pro
     await rollbackQueuedMediaPause(pause.undo);
     return { status: 409, body: { error: "Повторять нечего" } };
   }
+  // СВОЙ КЛЮЧ НА КАЖДЫЙ ПОВТОР (охота 26.11.2026). FAILED пишется посреди обработчика (failDefinitely), а задание
+  // очереди остаётся RUNNING, пока уходит пуш сотруднику; ключ `outgoing-media:<id>` живёт до DONE (jobs/runner.ts).
+  // «Повторить», нажатое в эти секунды, очередь принимала за дубль (enqueued: true без строки) — и задание висело
+  // QUEUED навсегда. Дубль исполнения здесь не страшен: повтор уже защищён переходом FAILED → QUEUED выше, а
+  // захват QUEUED → PREPARING и «отправляется» в runOutgoingMediaJob пускают к клиенту ровно одного исполнителя.
   const queued = await enqueueBackgroundJob({
     type: jobTypeFor(job.mimeType),
     payload: { mediaJobId: jobId },
     maxAttempts: OUTGOING_MEDIA_MAX_ATTEMPTS,
-    dedupeKey: `outgoing-media:${jobId}`,
+    dedupeKey: `outgoing-media:${jobId}:retry:${randomUUID()}`,
   });
   if (!queued.enqueued) {
     await failDefinitely(jobId, "Очередь отправки недоступна — нажмите «Повторить» через минуту");
@@ -477,6 +485,9 @@ export async function runOutgoingMediaJob(mediaJobId: string, stopSignal?: Abort
       {
         sender: await agentSender(job.agentId),
         caption: job.caption ?? undefined,
+        // Выбранный сотрудником срок: продление перед отправкой считает его от этого момента, а не берёт умолчание
+        // (для своего агента это 10 лет — выбранный «час» превратился бы в бессрочную паузу).
+        pausedUntilOverride: job.pauseMinutes ? new Date(Date.now() + job.pauseMinutes * 60_000) : undefined,
         pausePlacedByQueue: true,
         queuedPauseUndo: storedUndo(job.pauseUndo),
         beforeTransport: async () => {

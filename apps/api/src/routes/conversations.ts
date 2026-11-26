@@ -20,6 +20,7 @@ import { loadClientDisplayLabels, type ClientLabel } from "../lib/clientDisplayL
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { agentSender, deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../lib/conversationDelivery.js";
+import { replyPausedUntilField, pauseMinutesUntil } from "../lib/replyPauseInput.js";
 import { presentMessages, presentSender } from "../lib/messageAttachments.js";
 import { attachmentLinkSigner } from "../lib/chatAttachmentLinks.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
@@ -46,6 +47,7 @@ import { publishConversationUpdated } from "../lib/livePublish.js";
 import { anyParams } from "../lib/routeParams.js";
 import { logAudit } from "../lib/audit.js";
 import { TG_PREFIX } from "../lib/conversationId.js";
+import { loadSendContext, sendPropertiesFromConversation } from "../lib/conversationPropertySend.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
 /**
@@ -1533,7 +1535,7 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
 // на фронте) — если не передали, остаётся старое поведение по умолчанию (1 час).
 const replySchema = z.object({
   text: z.string().trim().min(1).max(2000),
-  pausedUntil: z.string().datetime().optional(),
+  pausedUntil: replyPausedUntilField,
 });
 
 conversationsRouter.post("/:id/reply", requireAuth, async (req, res) => {
@@ -1581,6 +1583,40 @@ conversationsRouter.post("/:id/reply", requireAuth, async (req, res) => {
   // masked отдаём наружу: интерфейс показывает агенту, что номер был скрыт, —
   // иначе он решит, что клиент номер получил, и будет ждать звонка впустую.
   res.json({ ok: true, pausedUntil: delivery.pausedUntil, masked: delivery.masked });
+});
+
+/**
+ * ОБЪЕКТЫ ИЗ ПЕРЕПИСКИ БЕЗ КАРТОЧКИ КЛИЕНТА (26.11.2026, lib/conversationPropertySend.ts).
+ * Право — тот же заслон `/:id`, что у ответа: кто может отвечать в переписке, тот и отправляет
+ * объекты. Повтор с тем же Idempotency-Key отдаёт ответ первого раза (идемпотентность — общий
+ * щиток /api/v1), клиенту не уйдёт дубль.
+ */
+const sendPropertiesBodySchema = z.object({
+  propertyIds: z.array(z.guid()).min(1).max(10),
+  caption: z.string().trim().max(500).optional(),
+  pausedUntil: replyPausedUntilField,
+  prepareOnly: z.boolean().optional(),
+});
+
+conversationsRouter.get("/:id/send-context", requireAuth, async (req, res) => {
+  const outcome = await loadSendContext(req, req.params.id);
+  res.status(outcome.status).json(outcome.body);
+});
+
+conversationsRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
+  const parsed = sendPropertiesBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  const outcome = await sendPropertiesFromConversation({
+    req,
+    rawId: req.params.id,
+    propertyIds: parsed.data.propertyIds,
+    caption: parsed.data.caption || undefined,
+    pausedUntil: parsed.data.pausedUntil ? new Date(parsed.data.pausedUntil) : undefined,
+    prepareOnly: parsed.data.prepareOnly,
+  });
+  res.status(outcome.status).json(outcome.body);
 });
 
 const translateMessageSchema = z.object({ at: z.string().min(1) });
@@ -1643,6 +1679,11 @@ conversationsRouter.post("/:id/translate", requireAuth, async (req, res) => {
  */
 conversationsRouter.post("/:id/reply-voice", requireAuth, anyParams(voiceMessageUpload.single("audio")), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Файл не передан" });
+  // Срок паузы бота, выбранный сотрудником (поле формы), — те же границы, что у текста и файла.
+  const pauseParsed = replyVoicePauseSchema.safeParse(req.body ?? {});
+  if (!pauseParsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: pauseParsed.error.flatten() });
+  }
 
   const rawId = req.params.id;
   const isTelegram = rawId.startsWith(TG_PREFIX);
@@ -1663,6 +1704,7 @@ conversationsRouter.post("/:id/reply-voice", requireAuth, anyParams(voiceMessage
 
   const delivery = await deliverVoiceToConversation(target, { buffer: req.file.buffer }, {
     sender: await agentSender(req.agent!.id),
+    pausedUntilOverride: pauseParsed.data.pausedUntil ? new Date(pauseParsed.data.pausedUntil) : undefined,
     clientId: conversation.client?.id ?? null,
     clientName: conversation.client?.fullName ?? conversation.name ?? null,
   });
@@ -1672,9 +1714,12 @@ conversationsRouter.post("/:id/reply-voice", requireAuth, anyParams(voiceMessage
   res.json({ ok: true, pausedUntil: delivery.pausedUntil });
 });
 
-/** Подпись к фото/видео — необязательна, тот же лимит длины, что и у обычного текста. */
+const replyVoicePauseSchema = z.object({ pausedUntil: replyPausedUntilField });
+
+/** Подпись к фото/видео — необязательна, тот же лимит длины, что и у обычного текста; срок паузы бота — как у текста. */
 const replyMediaCaptionSchema = z.object({
   caption: z.string().trim().max(1000).optional(),
+  pausedUntil: replyPausedUntilField,
 });
 
 /**
@@ -1693,8 +1738,8 @@ conversationsRouter.post("/:id/reply-media", requireAuth, anyParams(mediaMessage
 
   const file = { path: req.file.path, size: req.file.size, mimetype: req.file.mimetype, originalname: req.file.originalname };
   const outcome = (await outgoingMediaCompressOn())
-    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption })
-    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption);
+    ? await enqueueOutgoingMedia({ agentId: req.agent!.id, conversationId: req.params.id, file, caption: parsed.data.caption, pauseMinutes: replyPauseMinutes(parsed.data.pausedUntil) })
+    : await deliverReplyMedia(req.agent!.id, req.params.id, file, parsed.data.caption, parsed.data.pausedUntil);
   res.status(outcome.status).json(outcome.body);
 });
 
@@ -1755,8 +1800,8 @@ conversationsRouter.post("/:id/reply-media/upload-sessions/complete", requireAut
         };
         // Очередь забирает файл себе и убирает его сама; deliverReplyMedia убирает временный файл в любом исходе.
         const outcome = queued
-          ? await enqueueOutgoingMedia({ agentId, conversationId: req.params.id, file, caption: parsed.data.caption })
-          : await deliverReplyMedia(agentId, req.params.id, file, parsed.data.caption);
+          ? await enqueueOutgoingMedia({ agentId, conversationId: req.params.id, file, caption: parsed.data.caption, pauseMinutes: replyPauseMinutes(parsed.data.pausedUntil) })
+          : await deliverReplyMedia(agentId, req.params.id, file, parsed.data.caption, parsed.data.pausedUntil);
         return { ...outcome, finalize: outcome.status < 500 };
       },
     });
@@ -1809,12 +1854,18 @@ conversationsRouter.delete("/:id/media-jobs/:jobId", requireAuth, async (req, re
   res.status(outcome.status).json(outcome.body);
 });
 
+/** Срок паузы из тела запроса — минутами для строки задания очереди; нет срока — нет и поля. */
+function replyPauseMinutes(pausedUntil: string | undefined): number | undefined {
+  return pausedUntil ? pauseMinutesUntil(new Date(pausedUntil)) : undefined;
+}
+
 /** Доставка принятого файла в переписку; временный файл убирается в любом исходе. */
 async function deliverReplyMedia(
   agentId: string,
   rawId: string,
   file: { path: string; size: number; mimetype: string; originalname: string },
-  caption: string | undefined
+  caption: string | undefined,
+  pausedUntil?: string
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
     await fs.rm(file.path, { force: true });
@@ -1865,7 +1916,11 @@ async function deliverReplyMedia(
    */
   let outcome: { status: number; body: Record<string, unknown> };
   try {
-    const delivery = await deliverMediaToConversation(target, file, { sender: await agentSender(agentId), caption });
+    const delivery = await deliverMediaToConversation(target, file, {
+      sender: await agentSender(agentId),
+      caption,
+      pausedUntilOverride: pausedUntil ? new Date(pausedUntil) : undefined,
+    });
     outcome = delivery.ok
       ? { status: 200, body: { ok: true, pausedUntil: delivery.pausedUntil } }
       : { status: delivery.status, body: { error: delivery.error, code: delivery.code } };

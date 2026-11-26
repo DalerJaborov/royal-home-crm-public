@@ -403,7 +403,7 @@ function ClientMatchPanel({
       </div>}
       {!readOnly && failure && (failure.fallback ? <div className="client-match-preview">
         <h3>Отправка подборки · {failure.fallback.links.length}</h3>
-        <SendFallback key={failure.fallback.links.map(link => link.propertyId).join(",")} clientId={client.id} message={failure.message} fallback={failure.fallback} tone={failure.tone}
+        <SendFallback key={`fallback:${failure.fallback.links.map(link => link.propertyId).join(",")}`}clientId={client.id} message={failure.message} fallback={failure.fallback} tone={failure.tone}
           smsAvailable={target.data?.smsAvailable ?? false} disabled={busy} onBusyChange={setOperationBusy} layer={layer}
           onDone={ids => { setJustOffered(prev => new Set([...prev, ...ids])); setSelected(prev => new Set([...prev].filter(id => !ids.includes(id)))); }} />
         <p className="state">Отправка через CRM приостановит бота в выбранном диалоге. Копирование и системное меню не подтверждают доставку.</p>

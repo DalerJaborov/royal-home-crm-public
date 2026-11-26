@@ -13,6 +13,12 @@ describe("describeServiceMarker", () => {
     expect(describeServiceMarker(BARE_ATTACHMENT_MARKER, { channel: "INSTAGRAM" })).toContain("в Instagram");
     expect(describeServiceMarker(BARE_ATTACHMENT_MARKER)).toContain("в самом мессенджере");
   });
+  it("старые пометки бота «[📎 файл не открылся]» и «[📎]» — тот же файл без текста, в списке чатов без скобок (26.11.2026)", () => {
+    expect(serviceMarkerKind("[📎 файл не открылся]")).toBe("attachment");
+    expect(describeServiceMarker("[📎 файл не открылся]", { channel: "INSTAGRAM", attachmentsUnknown: true })).toBe("Клиент прислал файл");
+    expect(describeServiceMarker("[📎]", { hasAttachments: true })).toBe("");
+    expect(describeForStaff("[📎 файл не открылся]")).toBe(NO_TEXT_NOTE);
+  });
   it("файл показан рядом — пометка лишняя (пустая строка)", () => {
     expect(describeServiceMarker(BARE_ATTACHMENT_MARKER, { hasAttachments: true })).toBe("");
   });
