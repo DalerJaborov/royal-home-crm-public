@@ -7512,6 +7512,12 @@ model Settings {
   /// ВКЛ: узнавание по приметам (lib/propertyMatch.ts) отдаёт заявку хозяину объекта, сверяет названное имя с
   /// хозяином, при похожих — подсказка руководству. ВЫКЛ — объект только номером/адресом/ссылкой/объявлением.
   callObjectToOwnerEnabled              Boolean @default(true)
+  /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
+  /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
+  /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).
+  chatObjectToOwnerEnabled              Boolean @default(true)
+  callAdObjectToOwnerEnabled            Boolean @default(true)
+  objectInterestPullsQueueLeadEnabled   Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

@@ -68,6 +68,8 @@ export interface FunctionStatusSettings {
   openaiEnabled: boolean;
   /** Рубильник А: СМС со ссылкой на WhatsApp после пропущенного звонка (18.11.2026). */
   missedCallSmsEnabled: boolean;
+  /** Непринятая заявка из очереди переезжает к хозяину объекта (Settings.objectInterestPullsQueueLeadEnabled, 27.11.2026). */
+  objectInterestPullsQueueLeadEnabled?: boolean;
   /** Сколько таких СМС ушло за 7 дней (lib/telephony/missedCallFollowup.ts). */
   missedCallSmsSent7d: number;
   /** Рубильник Б: карточка и задача по пропущенному с незнакомого номера. */
@@ -254,10 +256,12 @@ const EVALUATORS: Record<string, Evaluator> = {
       ? { state: "working", reason: "Бот видит карточку объекта, с которого пришёл клиент." }
       : { state: "off", reason: `Выключено: ${ENV_NOT_SET("BOT_PROPERTY_CONTEXT_ENABLED")}. Бот не видит карточку объекта, с которого пришёл клиент.` },
 
-  "object-interest-pull": () =>
-    objectInterestPullsQueueLead()
+  "object-interest-pull": ({ settings, env }) =>
+    objectInterestPullsQueueLead(settings.objectInterestPullsQueueLeadEnabled ?? true, env)
       ? { state: "working", reason: "Непринятая заявка из очереди переходит хозяину объекта, о котором спросил клиент." }
-      : { state: "off", reason: `Выключено: ${ENV_NOT_SET("OBJECT_INTEREST_PULLS_QUEUE_LEAD")}. Хозяину объекта уходит только уведомление, заявка остаётся в очереди.` },
+      : { state: "off", reason: env.OBJECT_INTEREST_PULLS_QUEUE_LEAD === "0"
+          ? "Выключено переменной OBJECT_INTEREST_PULLS_QUEUE_LEAD=0 на сервере. Хозяину объекта уходит только уведомление, заявка остаётся в очереди."
+          : "Выключено рубильником «Непринятая заявка переходит хозяину объекта» в Настройках. Хозяину объекта уходит только уведомление, заявка остаётся в очереди." },
 
   "live-voice": ({ settings, spend }) => {
     if (!settings.liveVoiceEnabled) {
@@ -524,6 +528,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
         openaiEnabled: true,
         missedCallSmsEnabled: true,
         missedCallCallbackTaskEnabled: true,
+        objectInterestPullsQueueLeadEnabled: true,
       },
     }),
     countMissedCallSmsSent(7, now).catch(() => 0),
@@ -564,6 +569,7 @@ export async function loadFunctionStatus(viewerRole: string | undefined, now: Da
     geminiSpareKeyInSettings: !!decryptSecretSafe(row?.geminiApiKey2 ?? null),
     openaiEnabled: row?.openaiEnabled ?? false,
     missedCallSmsEnabled: row?.missedCallSmsEnabled ?? false,
+    objectInterestPullsQueueLeadEnabled: row?.objectInterestPullsQueueLeadEnabled ?? true,
     missedCallSmsSent7d,
     missedCallCallbackTaskEnabled: row?.missedCallCallbackTaskEnabled ?? false,
   };

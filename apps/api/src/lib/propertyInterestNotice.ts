@@ -13,6 +13,7 @@ import { lockCustomerNative } from "./customerNativeLock.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /** Local relation witness, NOT customer identity or a private ACL. By-ID callers
  * already select an authorized native resource; public ASIDs must not mint it. */
@@ -209,11 +210,22 @@ export async function noticeInterestByConversation(input: {
  *      переезжает к хозяину объекта; принятый, названный клиентом или отданный по
  *      другому объекту — остаётся, хозяину уходит уведомление (б).
  *
- * Флаг — переменная окружения, а не поле Настроек: поле требовало бы миграции
- * схемы ради решения, которого ещё нет.
+ * С 27.11.2026 (владелец: «чтобы агенты не теряли своих клиентов») это рубильник в Настройках
+ * `objectInterestPullsQueueLeadEnabled`, ВКЛ по умолчанию (вариант а). Переменная окружения
+ * `OBJECT_INTEREST_PULLS_QUEUE_LEAD` осталась аварийной ручкой поверх Настроек: "1" — включить, "0" — выключить.
+ * Принятого клиента правило по-прежнему не трогает (закон о владении, П-3/П-4).
  */
-export function objectInterestPullsQueueLead(): boolean {
-  return process.env.OBJECT_INTEREST_PULLS_QUEUE_LEAD === "1";
+export function objectInterestPullsQueueLead(settingOn: boolean, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const forced = env.OBJECT_INTEREST_PULLS_QUEUE_LEAD;
+  if (forced === "1") return true;
+  if (forced === "0") return false;
+  return settingOn;
+}
+
+/** То же по живым Настройкам. Не прочитали — как раньше (только уведомление): лид без согласия не переезжает. */
+async function objectInterestPullsQueueLeadNow(): Promise<boolean> {
+  try { return objectInterestPullsQueueLead(await automationSwitchOn("objectInterestPullsQueueLeadEnabled")); }
+  catch { return objectInterestPullsQueueLead(false); }
 }
 
 const ANON_SOURCE = "property-interest-conversation";
@@ -286,7 +298,7 @@ export async function noticeOwnerOfConversationInterest(input: {
     const ownerActive = !!owner?.isActive;
 
     if (client?.assignedAgentId && ownerActive) {
-      if (objectInterestPullsQueueLead() && owner?.role === "AGENT" && (await pullQueueLeadToOwner(client, ownerId, property, witness))) return;
+      if (owner?.role === "AGENT" && (await objectInterestPullsQueueLeadNow()) && (await pullQueueLeadToOwner(client, ownerId, property, witness))) return;
       await noticeInterestInOtherAgentProperty({ clientId: client.id, propertyId: property.id, witness });
       return;
     }
