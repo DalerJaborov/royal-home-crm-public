@@ -55,8 +55,13 @@ export type RequestedAgentBlock = "fired" | "frozen" | "paused" | "not_agent";
 export type RequestedAgentMatch =
   /** Имени сотрудника в сообщении нет — обычный путь, ничего не выдумываем. */
   | { status: "none" }
-  /** Однозначно и доступен: клиент закрепляется за ним мимо очереди. */
-  | { status: "matched"; agentId: string; fullName: string; namedAs: string }
+  /**
+   * Однозначно и доступен: клиент закрепляется за ним мимо очереди.
+   * `resolvedBy` (26.11.2026) — чем развели похожих, если имя подошло нескольким:
+   * "property" — один из них хозяин узнанного объекта; "active" — остальные
+   * уволены, а имя расслышано с ошибкой. Нет поля — имя подошло одному.
+   */
+  | { status: "matched"; agentId: string; fullName: string; namedAs: string; resolvedBy?: "property" | "similar_property" | "active" }
   /** Имя подошло двоим и больше — НЕ УГАДЫВАЕМ (в базе два Баходура). */
   | { status: "ambiguous"; namedAs: string; candidates: { id: string; fullName: string }[] }
   /** Нашли одного, но он сейчас не берёт клиентов (уволен, заморожен, на паузе). */
@@ -150,16 +155,28 @@ function tolerance(len: number): number {
   return 2;
 }
 
-/** Слово похоже на часть имени сотрудника. */
-function looksLikeName(word: string, part: string): boolean {
-  if (word === part) return true;
+/**
+ * Насколько слово похоже на часть имени сотрудника: 0 — совпало (с точностью до
+ * падежа), 1–2 — столько букв расслышано иначе, null — не это имя. Расстояние
+ * нужно, чтобы развести похожих: «Файзуллоев» с расшифровки подходит и
+ * «Сайфуллоеву» (2 буквы), и «Нарзуллоеву» (2 буквы); точное совпадение одного из
+ * них перебило бы оба (26.11.2026).
+ */
+function nameDistance(word: string, part: string): number | null {
+  if (word === part) return 0;
   const a = nameStem(word);
   const b = nameStem(part);
-  if (a.length < MIN_NAME_LENGTH || b.length < MIN_NAME_LENGTH) return false;
-  if (a === b) return true;
+  if (a.length < MIN_NAME_LENGTH || b.length < MIN_NAME_LENGTH) return null;
+  if (a === b) return 0;
   const max = tolerance(Math.min(a.length, b.length));
-  if (max === 0) return false;
-  return levenshteinDistance(a, b, max) <= max;
+  if (max === 0) return null;
+  const d = levenshteinDistance(a, b, max);
+  return d <= max ? d : null;
+}
+
+/** Слово похоже на часть имени сотрудника. */
+function looksLikeName(word: string, part: string): boolean {
+  return nameDistance(word, part) !== null;
 }
 
 function nameParts(fullName: string): string[] {
@@ -192,6 +209,27 @@ export interface MatchOptions {
    * намерении сказано отдельно, а в строке стоит одно имя.
    */
   requireCue?: boolean;
+  /**
+   * СОТРУДНИКИ, СВЯЗАННЫЕ С УЗНАННЫМ ОБЪЕКТОМ (26.11.2026, ПК-001086). Клиент
+   * прочитал фамилию с ролика и назвал её с ошибкой («Файзуллоев» вместо
+   * «Сайфуллоев»); имя подошло двоим. Если ровно один из похожих — хозяин
+   * объекта, о котором шла речь, это не неоднозначность, а подтверждение: его и
+   * берём. Пусто — прежнее правило «тёзок не угадываем».
+   */
+  preferAgentIds?: readonly string[];
+  /**
+   * ИМЯ ИЗ РАСШИФРОВКИ, А НЕ ИЗ РУК ЧЕЛОВЕКА (26.11.2026): точно расслышанное имя
+   * побеждает похожее; среди похожих с ошибкой уволенные уступают действующему.
+   * Включает только разбор звонка при рубильнике callObjectToOwnerEnabled; чат
+   * (человек пишет сам) — прежнее правило «тёзок не угадываем».
+   */
+  asrAware?: boolean;
+  /**
+   * preferAgentIds — хозяин УЗНАННОГО объекта (true) или лишь хозяева похожих
+   * (false): от этого зависит подпись в хронологии (ревью 26.11 — слабого
+   * кандидата не называть «объектом из разговора»).
+   */
+  preferIsSure?: boolean;
 }
 
 /**
@@ -203,7 +241,7 @@ export function matchRequestedAgent(
   agents: KnownAgent[],
   options: MatchOptions = {}
 ): RequestedAgentMatch {
-  const { now = new Date(), requireCue = true } = options;
+  const { now = new Date(), requireCue = true, preferAgentIds = [], asrAware = false, preferIsSure = true } = options;
   const parsed = requestTextSchema.safeParse(text);
   if (!parsed.success) return { status: "none" };
   const raw = parsed.data;
@@ -215,25 +253,37 @@ export function matchRequestedAgent(
   const digits = new Set(words.filter((w) => /^\d{3,5}$/.test(w)));
 
   // Сколько частей имени сотрудника прозвучало: «Баходур Рахимов» даст 2 и разведёт
-  // тёзок сам, без переспрашивания.
-  const hits = new Map<string, { agent: KnownAgent; parts: number; namedAs: string }>();
+  // тёзок сам, без переспрашивания. `distance` — сколько букв расслышано иначе
+  // (сумма по частям): точное имя побеждает похожее.
+  const hits = new Map<string, { agent: KnownAgent; parts: number; namedAs: string; distance: number }>();
   for (const agent of agents) {
     const parts = nameParts(agent.fullName);
     if (parts.length === 0) continue;
     let matched = 0;
     let namedAs = "";
+    let distance = 0;
     for (const part of parts) {
-      const word = words.find((w) => looksLikeName(w, part));
-      if (word) {
+      let bestWord: string | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const w of words) {
+        const d = nameDistance(w, part);
+        if (d !== null && d < bestDistance) {
+          bestDistance = d;
+          bestWord = w;
+        }
+      }
+      if (bestWord) {
         matched++;
-        if (!namedAs) namedAs = word;
+        distance += bestDistance;
+        if (!namedAs) namedAs = bestWord;
       }
     }
-    if (matched > 0) hits.set(agent.id, { agent, parts: matched, namedAs });
+    if (matched > 0) hits.set(agent.id, { agent, parts: matched, namedAs, distance });
   }
   if (hits.size === 0) return { status: "none" };
 
   let candidates = [...hits.values()];
+  let resolvedBy: "property" | "similar_property" | "active" | undefined;
   // Внутренний номер сотрудника, названный рядом с именем, — прямое уточнение.
   const byExtension = candidates.filter((c) => c.agent.sipExtension && digits.has(c.agent.sipExtension));
   if (byExtension.length === 1) candidates = byExtension;
@@ -241,6 +291,33 @@ export function matchRequestedAgent(
     // Названы имя И фамилия — этого достаточно, чтобы отсеять тёзку по имени.
     const best = Math.max(...candidates.map((c) => c.parts));
     candidates = candidates.filter((c) => c.parts === best);
+  }
+  if (asrAware && candidates.length > 1) {
+    // Имя расслышано точно у одного и с ошибками у других — точное побеждает.
+    const closest = Math.min(...candidates.map((c) => c.distance));
+    candidates = candidates.filter((c) => c.distance === closest);
+  }
+  if (candidates.length > 1 && preferAgentIds.length > 0) {
+    // Ровно один из похожих связан с объектом разговора — это подтверждение, не тёзки.
+    const byProperty = candidates.filter((c) => preferAgentIds.includes(c.agent.id));
+    if (byProperty.length === 1) {
+      candidates = byProperty;
+      resolvedBy = preferIsSure ? "property" : "similar_property";
+    }
+  }
+  if (asrAware && candidates.length > 1 && candidates.every((c) => c.distance > 0)) {
+    /**
+     * ИМЯ РАССЛЫШАНО С ОШИБКОЙ, И СРЕДИ ПОХОЖИХ ЕСТЬ УВОЛЕННЫЕ (26.11.2026).
+     * «Файзуллоев» подошёл и действующему Сайфуллоеву, и давно уволенному
+     * Нарзуллоеву — звать это тёзками и отдавать заявку по очереди значит
+     * отнять клиента у того, кто один и мог иметься в виду. Правило «уволенного
+     * тоже надо узнать» остаётся для имени, названного ТОЧНО (distance 0).
+     */
+    const working = candidates.filter((c) => c.agent.isActive);
+    if (working.length === 1 && working.length < candidates.length) {
+      candidates = working;
+      resolvedBy = "active";
+    }
   }
 
   if (candidates.length > 1) {
@@ -262,7 +339,13 @@ export function matchRequestedAgent(
       reason: block,
     };
   }
-  return { status: "matched", agentId: only.agent.id, fullName: only.agent.fullName.trim(), namedAs: only.namedAs };
+  return {
+    status: "matched",
+    agentId: only.agent.id,
+    fullName: only.agent.fullName.trim(),
+    namedAs: only.namedAs,
+    ...(resolvedBy ? { resolvedBy } : {}),
+  };
 }
 
 /** То же по тексту с внешней границы, со списком сотрудников из базы. */
@@ -318,7 +401,13 @@ export function requestedAgentNote(match: RequestedAgentMatch): string | null {
     case "none":
       return null;
     case "matched":
-      return `Клиент сам назвал сотрудника: ${match.fullName} — закреплён за ним вне очереди`;
+      return match.resolvedBy === "property"
+        ? `Клиент назвал «${match.namedAs}» — это ${match.fullName}, агент объекта из разговора; закреплён за ним вне очереди`
+        : match.resolvedBy === "similar_property"
+          ? `Клиент назвал «${match.namedAs}» — похоже на ${match.fullName}, агента похожего объекта из разговора; закреплён за ним вне очереди`
+          : match.resolvedBy === "active"
+          ? `Клиент назвал «${match.namedAs}» — похоже на ${match.fullName} (остальные похожие уже не работают); закреплён за ним вне очереди`
+          : `Клиент сам назвал сотрудника: ${match.fullName} — закреплён за ним вне очереди`;
     case "ambiguous":
       return `Клиент назвал имя «${match.namedAs}», но однозначно определить не вышло — подходят: ${match.candidates
         .map((c) => c.fullName)

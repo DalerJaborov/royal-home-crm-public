@@ -39,6 +39,8 @@ import { handleNarrationCallback, handleNarrationTextReply } from "./assistantNa
 import { handleNarrationPreviewCallback } from "./narrationPreviewBot.js";
 import { handleAdTextRequest, handleFreeNarrationCallback, handleFreeNarrationMessage, isBareNarrationAsk, looksLikeNarrationDictation, narrationBodyAfterCue, narrationDictationReply, offerNarrationButton, parseFreeNarrationTrigger, showVoiceNarrationDraft, startFreeNarrationFromAsk } from "./assistantFreeNarration.js";
 import { handleStaffClipCallback, handleStaffClipMessage, handleStaffClipText } from "./staffClip.js";
+import { bareVideoReason, bareVideoReplyText } from "./bareVideoReply.js";
+import { isVideoDocument } from "../lib/videoFileExtension.js";
 import { handleStaffSocialCallback, handleStaffSocialPhoto, handleStaffSocialText, type DeferWork } from "./staffSocialPost.js";
 import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
@@ -980,8 +982,7 @@ export async function handleAssistantPrivate(
   const cardScope: CardScope = { chatId, agentId: agent.id, replyTo: msg.message_id };
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
-    const videoDocument = msg.document && (msg.document.mime_type?.startsWith("video/")
-      || /\.(?:mov|mp4|m4v|mkv|avi|webm)$/iu.test(msg.document.file_name ?? "")) ? msg.document : undefined;
+    const videoDocument = isVideoDocument(msg.document) ? msg.document : undefined;
     const video = msg.video ?? msg.video_note ?? videoDocument;
     if (!IS_LOCAL_BOT_API && video?.file_size && video.file_size > TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES) {
       await send("Это видео больше 20 МБ — в текущем подключении к Telegram я не могу его скачать. Загрузите ролик через CRM-панель объекта. Файл ещё не сохранён в CRM.");
@@ -1078,6 +1079,13 @@ export async function handleAssistantPrivate(
         // Фото без слов у того, кто ведёт расходы, помнится 30 минут: «мана акс, ворид кун» следом
         // разберёт его как расходы (assistantExpenseFollowup.ts), а не уйдёт модели без фото.
         if (msg.photo?.length) await rememberExpensePhoto(msg, agent.id).catch(() => false);
+        // Видео, которое никто не взял, — честный ответ «не сохранён, что сделать» (26.11.2026):
+        // молчаливое «👀» агент принимал за «ролик в CRM».
+        const videoReason = bareVideoReason(msg);
+        if (videoReason) {
+          await send(bareVideoReplyText(videoReason, await stepUpLanguageOf(chatId, agent.id)));
+          return;
+        }
         await setMessageReaction(chatId, msg.message_id, "👀");
         return;
       }
