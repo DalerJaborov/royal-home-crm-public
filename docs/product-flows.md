@@ -12940,7 +12940,7 @@
     · ответ 404 — «Объект не найден»
 - const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   · зовёт stripEmbedding()
-- const ownsIt = ownsProperty(req.agent!.id, property);
+- const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === "HEAD_OF_SALES";
   · зовёт ownsProperty()
 - res.json({ ...presented, ownerContactMasked: presented.ownerContactHidden && ownsIt ? maskOwnerContact(proper…
   · ответ 200
