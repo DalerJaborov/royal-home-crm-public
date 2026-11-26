@@ -4,21 +4,17 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 858 (размер поднят у 848, гарнитура сведена у 50).
+ * Правил: 866 (размер поднят у 856, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
-@media print {
-  .dd-print-meta { font-size: 13px; }
-  .dd-table { font-size: 13px; }
-  .vacancy-print-root { font-size: 15px; }
-  .vacancy-print-brand { font-size: 15px; }
-  .vacancy-print-position { font-size: 17px; }
-  .vacancy-print-page h2 { font-size: 17px; }
-  .vacancy-print-facts dt { font-size: 15px; }
-  .vacancy-print-facts dd { font-size: 15px; }
-  .vacancy-print-text { font-size: 15px; }
-  .vacancy-print-page footer { font-size: 15px; }
-}
+.rh2 .cop-tabs button { font-size: 15px; }
+.rh2 .cop-search input { font-size: 17px; }
+.rh2 .cop-price { font-size: 17px; }
+.rh2 .cop-facts,.rh2 .cop-where { font-size: 15px; }
+.rh2 .cop-chip { font-size: 15px; }
+.rh2 .cop-note { font-size: 15px; }
+.rh2 .cop-hint { font-size: 15px; }
+.rh2 .cop-error { font-size: 15px; }
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
 .rh2 .offer-status { font-size: 15px; }
 .rh2 .fs-code { font-size: 13px; }
@@ -750,6 +746,18 @@ html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary u { font-size: 15px
 .rh2 .scr .rh-gallery-count { font-size: 15px; }
 .rh2 .scr .rh-price-sub { font-size: 15px; }
 .rh2 .scr .rh-price-title { font-size: 20px; }
+@media print {
+  .dd-print-meta { font-size: 13px; }
+  .dd-table { font-size: 13px; }
+  .vacancy-print-root { font-size: 15px; }
+  .vacancy-print-brand { font-size: 15px; }
+  .vacancy-print-position { font-size: 17px; }
+  .vacancy-print-page h2 { font-size: 17px; }
+  .vacancy-print-facts dt { font-size: 15px; }
+  .vacancy-print-facts dd { font-size: 15px; }
+  .vacancy-print-text { font-size: 15px; }
+  .vacancy-print-page footer { font-size: 15px; }
+}
 @media (max-width:819px) {
   .rh2 .scr .sheet.assistant-sheet .sheet-f .inp { font-size: 17px; }
 }
