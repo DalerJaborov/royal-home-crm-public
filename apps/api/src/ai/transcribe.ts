@@ -324,6 +324,14 @@ export interface TranscribeContext {
    * разговора. Сегодня используется только для журнала на стороне вызывающего.
    */
   agentExtension?: string | null;
+  /**
+   * СЛОВА, КОТОРЫЕ МОГУТ ПРОЗВУЧАТЬ (26.11.2026, ПК-001086): фамилии сотрудников и
+   * ориентиры объектов в продаже. Клиент читает фамилию агента с ролика, и
+   * «Сайфуллоев» приходил из расшифровки «Файзуллоевым». Подсказка — не словарь
+   * замены: инструкция прямо запрещает вписывать слова, которых не было.
+   * Собирает lib/telephony/transcriptionVocabulary.ts.
+   */
+  vocabulary?: readonly string[] | null;
 }
 
 /**
@@ -371,14 +379,42 @@ function callerPhoneInstruction(callerPhone: string): string {
   );
 }
 
+/**
+ * ЧИСЛА И СУММЫ — ЦЕЛИКОМ, С СОТНЯМИ (26.11.2026, ПК-001086). Расшифровка записала
+ * «165 ҳазор» там, где в ролике и в карточке 965 000: потерян разряд сотен
+ * («нӯҳсаду» → «саду»). Инструкция называет ловушку прямо; само узнавание объекта
+ * всё равно считает цену с допуском (lib/propertyClueScoring.ts) — промт не гарантия.
+ */
+const CALL_NUMBERS_INSTRUCTION =
+  "Суммы и числа пиши цифрами целиком, не теряя разрядов: «нӯҳсаду шасту панҷ ҳазор» = 965 000, " +
+  "«саду шасту панҷ ҳазор» = 165 000, «ҳаштсад ҳазор» = 800 000; «ҳазор» — тысяча, «ҳазор доллар» — " +
+  "доллары, «сомонӣ» — сомони. Сомневаешься в первой цифре — поставь «?» рядом, но не меняй число. ";
+
+/** Потолок подсказки: длинный список модель всё равно не держит. */
+const VOCABULARY_CAP = 80;
+
+/** Фамилии сотрудников и ориентиры — чтобы модель писала их в нашем написании,
+ *  а не придумывала похожее. Запрет вписывать непроизнесённое — тот же, что у номера. */
+function vocabularyInstruction(words: readonly string[]): string {
+  const list = [...new Set(words.map((w) => w.trim()).filter(Boolean))].slice(0, VOCABULARY_CAP);
+  if (list.length === 0) return "";
+  return (
+    `В разговоре могут звучать имена сотрудников агентства и названия мест: ${list.join(", ")}. ` +
+    "Если слышишь похожее слово — пиши его в этом написании. НИКОГДА не вписывай слово из этого списка, " +
+    "если его не произносили. "
+  );
+}
+
 /** Собирает инструкцию по контексту: для звонка — база плюс блок про реплики,
  *  имя агента (если известно) и известный номер (если известен); для голосового
  *  (kind не "call") — ровно GEMINI_INSTRUCTION без изменений, как было раньше. */
-function instructionFor(context?: TranscribeContext): string {
+export function instructionFor(context?: TranscribeContext): string {
   if (context?.kind !== "call") return GEMINI_INSTRUCTION;
   let extra = CALL_DIALOGUE_INSTRUCTION;
   if (context.agentName) extra += agentNameInstruction(context.agentName);
   if (context.callerPhone) extra += callerPhoneInstruction(context.callerPhone);
+  if (context.vocabulary?.length) extra += vocabularyInstruction(context.vocabulary);
+  extra += CALL_NUMBERS_INSTRUCTION;
   extra += CALL_UNCLEAR_WORD_INSTRUCTION;
   return `${GEMINI_INSTRUCTION} ${extra}`;
 }

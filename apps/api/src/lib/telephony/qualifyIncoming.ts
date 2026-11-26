@@ -25,6 +25,12 @@ import { publishCallUpdated, publishClientUpdated } from "../livePublish.js";
 import { findStaffPhone, staffPhoneError } from "../staffPhoneGuard.js";
 import { describeRoleSwap, KIND_LABELS_RU } from "../../services/leads/intake.js";
 import { canAutomationChangeKind } from "../kindChangePolicy.js";
+import { automationSwitchOn } from "../automationSwitches.js";
+import { notifyFeedOnly } from "../notifications.js";
+import { propertyOwnerAgentId } from "../propertyOwner.js";
+
+/** Похожий объект попадает в подсказку руководству только с такими баллами: один балл за район — не повод. */
+const UNSURE_HINT_MIN_SCORE = 3;
 
 /**
  * Разбор входящего звонка оператором: кто звонил и чего хочет.
@@ -149,6 +155,8 @@ export async function qualifyIncomingCall(input: {
       status: true,
       requirementsNotes: true,
       acceptedAt: true,
+      // Объявление, с которого пришёл клиент: его объект — прямое указание (26.11.2026).
+      sourceAdId: true,
     },
   });
   if (!client) return { error: "no_client" };
@@ -202,19 +210,6 @@ export async function qualifyIncomingCall(input: {
   // остаётся у него: перекидывать чужого клиента из-за того, что он позвонил в офис,
   // нечестно — то же правило, что у повторного обращения в бот (notifyRepeatInquiry).
   const needsAgent = !client.assignedAgentId && kind !== "OTHER" && settings.assignOnQualify;
-  /**
-   * Ответивший агент забирает клиента без очереди: он уже говорил с человеком.
-   * Очередь по KPI остаётся для всех остальных путей — автоматики и оператора.
-   */
-  /**
-   * Названный клиентом сотрудник — второй по силе после того, кто сам снял трубку:
-   * ответивший уже поговорил с человеком, и это факт, а просьба — намерение.
-   * Доступность сверяется по базе прямо сейчас: расшифровка приходит через минуты
-   * после разговора, за которые агента могли отключить.
-   */
-  const requested = needsAgent ? await detectRequestedAgent(input.requestedAgentText, { requireCue: false }) : { status: "none" as const };
-  const requestedAgentId =
-    requested.status === "matched" ? await requestedAgentStillAvailable(requested.agentId) : null;
 
   /**
    * ПРАВИЛО «СВОЙ ОБЪЕКТ» И ДЛЯ ЗВОНКОВ (Пачка 1 п.4, 11.09.2026).
@@ -226,20 +221,33 @@ export async function qualifyIncomingCall(input: {
    * assignAgentForLead — те же шаги «объект назван явно / бот уже показывал /
    * запрос совпал с объектом», что у переписки. Объект «назван явно» здесь
    * берётся из расшифровки (ai/incomingCallLead.ts::propertyHint), найден
-   * существующим поиском (resolveCallPropertyHint), без новой эвристики.
+   * существующим поиском (resolveCallPropertyHint), либо узнан по приметам
+   * (identifyProperty, lib/propertyMatch.ts).
    *
-   * Ответивший агент и названный сотрудник по-прежнему сильнее — они не идут
-   * через это правило вовсе (проверены раньше, синхронно).
+   * ПОРЯДОК С 26.11.2026 (ПК-001086, объект №230): объект узнаётся ПЕРВЫМ, до
+   * разбора названного имени, — потому что хозяин узнанного объекта разводит
+   * похожие фамилии («Файзуллоев» с ролика подходил и Сайфуллоеву, и уволенному
+   * Нарзуллоеву; прежний порядок называл это тёзками и отдавал заявку по
+   * очереди). Сила оснований прежняя: кто снял трубку → кого назвал клиент →
+   * чей объект → очередь.
    */
   let leadAssignment: LeadAssignment | null = null;
   let agentId: string | null = null;
   /** Что узнавание объекта сказало об этом звонке — строкой в хронологию. */
   let propertyNote: string | null = null;
   /**
-   * Объект звонка: узнанный консультантом (knownPropertyId) — первым, иначе по
-   * расшифровке. Приметы объявления — отдельно от запроса (24.09.2026): цена
-   * объявления вычёркивает дальше 20 %, а бюджет клиента — нет; комнаты объявления
-   * важнее «сколько нужно». Нет цены объявления — узнаём по бюджету мягко.
+   * Рубильник (владелец: «рубильник на каждую настройку»): узнавание по приметам
+   * отдаёт заявку хозяину, сверяет имя с хозяином и подсказывает руководству.
+   * Выключен — объект узнаётся только номером/адресом/ссылкой и роботом, как до
+   * 26.11.2026; по приметам заявка идёт обычной раздачей.
+   */
+  const objectToOwner = needsAgent ? await automationSwitchOn("callObjectToOwnerEnabled") : false;
+  /**
+   * Объект звонка: узнанный консультантом (knownPropertyId) — первым; затем
+   * объявление, с которого пришёл клиент (Client.sourceAdId → объекты объявления,
+   * если он один); иначе по расшифровке. Приметы объявления — отдельно от запроса
+   * (24.09.2026): комнаты объявления важнее «сколько нужно»; цена объявления
+   * сравнивается с допуском на ошибку распознавания, а бюджет клиента — мягко.
    */
   const identifyCallObject = async () => {
     const listing = input.listingClues ?? {};
@@ -247,15 +255,20 @@ export async function qualifyIncomingCall(input: {
       ? await prisma.property.findUnique({ where: { id: input.knownPropertyId }, select: { shortId: true } })
       : null;
     const byRobot = known ? await identifyProperty({ text: String(known.shortId) }) : null;
-    const recognized = byRobot?.propertyId ? byRobot : await identifyProperty({
-      text: input.data.propertyHint ?? null,
-      ...listing,
-      priceTjs: listing.priceTjs ?? null,
-      budgetTjs: listing.priceTjs ? null : (input.data.budgetMax ?? null),
-      districtId: input.data.desiredDistrictId ?? null,
-      type: input.data.desiredType ?? null,
-      rooms: listing.rooms ?? input.data.desiredRooms ?? null,
-    });
+    const byAd = byRobot?.propertyId ? null : await identifyByAd(client.sourceAdId);
+    const recognized = byRobot?.propertyId
+      ? byRobot
+      : byAd?.propertyId
+        ? byAd
+        : await identifyProperty({
+            text: input.data.propertyHint ?? null,
+            ...listing,
+            priceTjs: listing.priceTjs ?? null,
+            budgetTjs: listing.priceTjs ? null : (input.data.budgetMax ?? null),
+            districtId: input.data.desiredDistrictId ?? null,
+            type: input.data.desiredType ?? null,
+            rooms: listing.rooms ?? input.data.desiredRooms ?? null,
+          });
     /**
      * ПРОДАВЕЦ — ТОЛЬКО ПО ПРЯМОМУ УКАЗАНИЮ (24.09.2026, проход по классам).
      * Продавец описывает СВОЁ жильё: «продаю двушку у Бодомзора за 300» по
@@ -263,10 +276,35 @@ export async function qualifyIncomingCall(input: {
      * чужого продавца. Номер, адрес или ЖК — прямое указание, по нему можно.
      */
     const identified: Awaited<ReturnType<typeof identifyProperty>> =
-      kind === "SELLER" && recognized.via !== "hint" ? { propertyId: null, via: null, candidates: [] } : recognized;
-    return { identified, byRobot: !!byRobot?.propertyId };
+      kind === "SELLER" && recognized.via !== "hint"
+        ? { propertyId: null, via: null, candidates: [], strong: false, lead: null }
+        : recognized;
+    /**
+     * Узнан по приметам, но рубильник выключен — для раздачи это «не узнан»; в
+     * хронологию похожие всё равно пишутся (кандидаты остаются).
+     */
+    const usable = identified.via === "description" && !objectToOwner ? { ...identified, propertyId: null, via: null, strong: false } : identified;
+    return { identified: usable, byRobot: !!byRobot?.propertyId, byAd: !!byAd?.propertyId };
   };
-  if (needsAgent) {
+  const object = needsAgent ? await identifyCallObject() : null;
+  /** Хозяева объекта разговора (узнанного или похожих) — ими разводятся похожие фамилии. */
+  const objectOwnerIds = object && objectToOwner ? ownersForNameCheck(object.identified) : [];
+
+  /**
+   * Названный клиентом сотрудник — второй по силе после того, кто сам снял трубку:
+   * ответивший уже поговорил с человеком, и это факт, а просьба — намерение.
+   * Доступность сверяется по базе прямо сейчас: расшифровка приходит через минуты
+   * после разговора, за которые агента могли отключить.
+   */
+  const requested = needsAgent
+    ? await detectRequestedAgent(input.requestedAgentText, { requireCue: false, preferAgentIds: objectOwnerIds })
+    : { status: "none" as const };
+  const requestedAgentId =
+    requested.status === "matched" ? await requestedAgentStillAvailable(requested.agentId) : null;
+
+  if (needsAgent && object) {
+    const { identified, byRobot, byAd } = object;
+    const explicit = byRobot || byAd || identified.via === "hint";
     if (input.answeredByAgentId) {
       /**
        * «КТО СНЯЛ» УСТУПАЕТ «ЧЕЙ ОБЪЕКТ», ЕСЛИ ОБЪЕКТ НАЗВАН ПРЯМО (10.10.2026,
@@ -274,15 +312,18 @@ export async function qualifyIncomingCall(input: {
        * владельца «клиент по объекту — хозяину объекта»). Трубку в KPI-очереди или
        * после перевода роботом снимает тот, кто свободен, — и клиент, позвонивший
        * по объекту А, уходил ответившему Б сразу принятым, а хозяин А не знал.
-       * Теперь объект, узнанный консультантом или названный номером/адресом/ЖК
-       * (via "hint"), отдаёт новый лид хозяину — тем же шагом «объект назван явно»,
-       * что у переписки, — и лид ждёт его «Принять», а ответившему остаётся запись
-       * в хронологии. Догадка по приметам (via "description") ответившего не
-       * перебивает: он уже говорил с человеком, а догадка — не указание. Хозяин
-       * уволен или исключён — лид у ответившего, как раньше.
+       * Объект, узнанный консультантом, объявлением или названный
+       * номером/адресом/ЖК (via "hint"), отдаёт новый лид хозяину — тем же шагом
+       * «объект назван явно», что у переписки, — и лид ждёт его «Принять», а
+       * ответившему остаётся запись в хронологии.
+       *
+       * С 26.11.2026 уступает и СИЛЬНОМУ совпадению по приметам (`strong`: место
+       * плюс не меньше двух числовых примет, отрыв от второго кандидата) — «каждый
+       * должен получить свои объекты». Обычная догадка по приметам ответившего
+       * по-прежнему не перебивает: он уже говорил с человеком. Хозяин уволен или
+       * исключён — лид у ответившего, как раньше.
        */
-      const { identified, byRobot } = await identifyCallObject();
-      if (identified.propertyId && (byRobot || identified.via === "hint")) {
+      if (identified.propertyId && (explicit || identified.strong)) {
         const byObject = await assignAgentForLead({
           clientId: client.id,
           kind: kind === "SELLER" ? "SELLER" : "BUYER",
@@ -303,8 +344,15 @@ export async function qualifyIncomingCall(input: {
       if (!agentId) agentId = input.answeredByAgentId;
     } else if (requestedAgentId) {
       agentId = requestedAgentId;
+      // Имя совпало с хозяином узнанного объекта — сказать это в хронологии: это
+      // подтверждение, а не два разных основания.
+      if (identified.propertyId) {
+        const top = identified.candidates.find((c) => c.id === identified.propertyId);
+        if (top?.agentId === requestedAgentId) {
+          propertyNote = `${identificationNote(identified, { byRobot, toOwner: true }) ?? ""} — названный клиентом сотрудник и есть агент этого объекта`.replace(/^ — /, "");
+        }
+      }
     } else {
-      const { identified, byRobot } = await identifyCallObject();
       leadAssignment = await assignAgentForLead({
         clientId: client.id,
         kind: kind === "SELLER" ? "SELLER" : "BUYER",
@@ -326,6 +374,18 @@ export async function qualifyIncomingCall(input: {
       agentId = leadAssignment.agentId;
     }
   }
+  /**
+   * ПОХОЖИЕ ОБЪЕКТЫ ЕСТЬ, УВЕРЕННОСТИ НЕТ — РУКОВОДСТВУ ПОДСКАЗКА, А НЕ ТИШИНА
+   * (26.11.2026). Раньше заявка молча уходила в очередь, и о том, что клиент
+   * звонил по объекту, узнавали из карточки задним числом. Угадывать по-прежнему
+   * нельзя (два похожих объекта рядом); но руководитель может передать заявку
+   * хозяину одним движением, если увидит её сразу. Только в ленту (колокольчик),
+   * без звонка телефона — правило владельца 20.09.2026 про эскалации.
+   */
+  const unsureCandidates =
+    objectToOwner && object && !object.identified.propertyId && kind !== "SELLER"
+      ? object.identified.candidates.filter((c) => c.score >= UNSURE_HINT_MIN_SCORE)
+      : [];
   const acceptedByAnswerer = !!agentId && agentId === input.answeredByAgentId;
   /**
    * ПОМЕТКА О НАЗВАННОМ ИМЕНИ — во всех исходах, включая «не определили».
@@ -518,6 +578,23 @@ ${propertyNote}` : "");
     liveEntry.clientId = updated.id;
     liveEntry.clientShortId = updated.shortId;
     liveEntry.clientName = updated.fullName;
+  }
+
+  if (unsureCandidates.length > 0 && assignedNow && !call.qualifiedAt) {
+    const similar = unsureCandidates
+      .map((c) => `${formatPropertyCode(c.shortId)}${c.agentName ? ` (${c.agentName})` : ""}`)
+      .join(", ");
+    findAgentsWithPermission("clients.assign")
+      .then((supervisors) =>
+        notifyFeedOnly(supervisors, {
+          kind: "lead",
+          title: "📞 Звонок по объекту: объект не узнан уверенно",
+          body: `${updated.fullName} — похожи: ${similar}. Заявка ушла обычной раздачей. Проверьте, чей это клиент.`,
+          url: `/clients/${updated.shortId}`,
+          tag: `call-object-unsure-${updated.id}`,
+        })
+      )
+      .catch((err) => console.error("[leads] подсказка «объект не узнан уверенно» не отправлена:", err));
   }
 
   // Причина назначения — «свой объект» / «показ» / «совпадение» — пишется тем же
@@ -778,6 +855,48 @@ export async function createClientForCall(phone: string, callSource?: string | n
 }
 
 /**
+ * ОБЪЕКТ ПО ОБЪЯВЛЕНИЮ, С КОТОРОГО ПРИШЁЛ КЛИЕНТ (26.11.2026). У карточки есть
+ * `sourceAdId` (реклама Meta, lib/adAttribution.ts); у объявления — объекты
+ * (AdProperty). Ровно один объект в продаже — это прямое указание, как номер в
+ * разговоре: клиент позвонил по этой рекламе. Несколько объектов в одном
+ * объявлении (карусель) — не угадываем, пусть решают приметы.
+ */
+async function identifyByAd(sourceAdId: string | null | undefined): Promise<Awaited<ReturnType<typeof identifyProperty>> | null> {
+  if (!sourceAdId) return null;
+  const items = await prisma.adProperty.findMany({
+    where: { adId: sourceAdId, property: { deletedAt: null, status: { in: ["AVAILABLE", "RESERVED"] } } },
+    select: {
+      property: { select: { id: true, shortId: true, status: true, intakeAgentId: true, assignedAgentId: true, createdById: true } },
+    },
+    take: 2,
+  });
+  if (items.length !== 1) return null;
+  const p = items[0].property;
+  const owner = propertyOwnerAgentId(p);
+  const agent = owner ? await prisma.agent.findUnique({ where: { id: owner }, select: { fullName: true, isActive: true } }) : null;
+  return {
+    propertyId: p.id,
+    via: "hint",
+    strong: true,
+    lead: null,
+    candidates: [
+      { id: p.id, shortId: p.shortId, status: p.status, agentId: owner, agentName: agent?.isActive ? agent.fullName.trim() : null, score: 99, signals: ["объявление"] },
+    ],
+  };
+}
+
+/**
+ * Чьи фамилии сверять с названным именем: хозяин узнанного объекта, а если не
+ * узнан — хозяева похожих с заметными баллами. Пусто — похожих нет.
+ */
+function ownersForNameCheck(found: Awaited<ReturnType<typeof identifyProperty>>): string[] {
+  const list = found.propertyId
+    ? found.candidates.filter((c) => c.id === found.propertyId)
+    : found.candidates.filter((c) => c.score >= UNSURE_HINT_MIN_SCORE);
+  return [...new Set(list.map((c) => c.agentId).filter((id): id is string => !!id))];
+}
+
+/**
  * ЖУРНАЛ УЗНАВАНИЯ ОБЪЕКТА — В КАРТОЧКЕ (24.09.2026, живой звонок про ОБ-000118).
  * Раньше итог узнавания не оставлял следа нигде: лид ушёл раздачей, и понять,
  * узнала ли CRM объект и почему нет, было не из чего. Теперь запись о звонке
@@ -811,6 +930,10 @@ function identificationNote(
     return `${head}. Заявка ушла обычной раздачей: ${why}.`;
   }
   if (found.candidates.length === 0) return null;
-  return `Объект по приметам уверенно не узнан. Похожие: ${found.candidates.map(describe).join("; ")}`;
+  const why =
+    found.candidates.length > 1 && found.lead !== null && found.lead < 2
+      ? "несколько объектов подходят почти одинаково, угадывать нельзя"
+      : "примет мало";
+  return `Объект по приметам уверенно не узнан (${why}). Похожие: ${found.candidates.map(describe).join("; ")}`;
 }
 

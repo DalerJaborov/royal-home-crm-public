@@ -17,6 +17,7 @@ import { enqueueBackgroundJob } from "../../jobs/enqueue.js";
 import { sendPushToAgents } from "../../push.js";
 import { shouldAlert } from "../notifications.js";
 import { scrubMentionedPhones } from "./callPhoneMasking.js";
+import { transcriptionVocabulary } from "./transcriptionVocabulary.js";
 import { dushanbeWallClock } from "../dushanbeTime.js";
 import type { CallTranscriptionStage } from "@royal-home/shared";
 
@@ -1196,11 +1197,15 @@ async function transcribeAndEnrich(params: {
       agent: { select: { fullName: true, sipExtension: true } },
     },
   });
+  // Фамилии сотрудников и ориентиры объектов — подсказка написания (26.11.2026);
+  // сбой её чтения расшифровку не останавливает.
+  const vocabulary = await transcriptionVocabulary().catch(() => []);
   const transcribeOptions = {
     kind: "call" as const,
     callerPhone: context?.client?.phone || null,
     agentName: context?.agent?.fullName || null,
     agentExtension: context?.agent?.sipExtension || null,
+    vocabulary,
   };
 
   /**

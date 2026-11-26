@@ -1,5 +1,6 @@
 import { parseShortCode } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { numberWordsToDigits } from "../numberWords.js";
 import { mentionedCardNumber } from "../propertyMentionFromText.js";
 import { toSearchTokens, toTokenVariants } from "../searchTokens.js";
 
@@ -14,7 +15,10 @@ import { toSearchTokens, toTokenVariants } from "../searchTokens.js";
  * транслитерация и таджикские буквы уже решены там, копировать не нужно.
  */
 export async function resolveCallPropertyHint(hint: string | null | undefined): Promise<string | null> {
-  const text = hint?.trim();
+  // НОМЕР СЛОВАМИ НА ЛЮБОМ ЯЗЫКЕ (26.11.2026): «объект двести тридцать», «объекти
+  // дусаду сӣ» — расшифровка пишет числа и так, и цифрами. Слова-числа становятся
+  // цифрами до разбора (lib/numberWords.ts); остальной текст не меняется.
+  const text = hint ? numberWordsToDigits(hint, { minValue: 1 }).trim() : "";
   if (!text) return null;
 
   // Голое число — это №объекта (shortId), тот же номер, что виден агенту в

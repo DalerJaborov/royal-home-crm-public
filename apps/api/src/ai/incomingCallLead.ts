@@ -13,6 +13,7 @@ import { detectOutOfScopeAsset } from "./assetScopeGuard.js";
 import { looksLikeRentBudget, looksLikeRentRequest } from "./rentGuard.js";
 import { detectIntentDirectionMismatch } from "./intentDirectionGuard.js";
 import { isJobSeekerCall } from "./jobSeekerCall.js";
+import { numberWordsToDigits } from "../lib/numberWords.js";
 
 /**
  * Кем оказался позвонивший в офис и чего он хочет — из расшифровки его разговора
@@ -276,6 +277,14 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
     "НИЧЕГО НЕ ВЫДУМЫВАЙ. Не прозвучало — оставляй поле пустым: агент переспросит, " +
     "а придуманную цифру он примет за услышанную и будет по ней искать объекты. " +
     `Суммы приводи в сомони (1 доллар ≈ ${usdToTjs} сомони). ` +
+    // ПК-001086 (26.11.2026): клиент звонил по ролику про объект №230 — цена, ориентир и фамилия
+    // агента были в разговоре, а модель записала их только в пересказ. Поля объекта
+    // сопоставляет код с допуском на ошибки распознавания; пустые поля он сопоставить не может.
+    "Если человек звонит ПО ОБЪЯВЛЕНИЮ или РОЛИКУ (видел, «дидам», «эълон», Instagram, «ваша квартира», " +
+    "«хонаи мондагитон») — заполняй приметы объекта: propertyLandmark, propertyPrice и propertyPriceCurrency, " +
+    "propertyRooms, propertyFloor — даже если он заодно говорит о своих пожеланиях. Цену пиши КАК ПРОЗВУЧАЛА, " +
+    "не исправляй её, даже если она кажется странной: сверит код. Фамилию сотрудника, которую человек прочитал с " +
+    "объявления или просил позвать («ба … занг задем»), пиши в namedAgent как услышал. " +
     (districtNames.length > 0 ? `Районы агентства: ${districtListForPrompt(districtNames)}. Других названий не пиши. ` : "") +
     "Ответ передавай через инструмент submit_reply."
   );
@@ -287,7 +296,10 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
  * означает «разобрать не удалось»: звонок останется человеку (см. autoLeadFromCall).
  */
 export async function extractIncomingCallLead(transcript: string): Promise<IncomingCallLead | null> {
-  const text = transcript.trim();
+  // Числа словами («нӯҳсаду шасту панҷ ҳазор», «двести тридцать») — цифрами до
+  // модели (lib/numberWords.ts, 26.11.2026): таджикские числительные она читает
+  // нетвёрдо, а код — одинаково. Мелкие числа («ду хона») остаются словами.
+  const text = numberWordsToDigits(transcript.trim());
   if (text.length < MIN_TRANSCRIPT_CHARS) return null;
 
   try {

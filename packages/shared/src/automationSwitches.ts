@@ -44,6 +44,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "callObjectToOwnerEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -188,6 +189,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если телефон или браузер сотрудника не умеет играть присланный файл (например, голосовое WhatsApp на старом iPhone), CRM один раз делает понятную ему копию. Оригинал не меняется.",
     off: "Копии не делаются: такой файл можно только скачать и открыть другим приложением.",
   },
+  // Владелец 26.11.2026 (звонок ПК-001086 по объекту №230 ушёл не хозяину): «каждый должен получить свои объекты».
+  callObjectToOwnerEnabled: {
+    title: "Звонок по объекту: узнавать объект по приметам и отдавать хозяину",
+    on: "После звонка в офис ИИ узнаёт объект по приметам из разговора (ориентир, комнаты, этаж, площадь, цена с допуском на ошибку распознавания и валюту, номер словами) и отдаёт заявку агенту этого объекта. Названная фамилия сверяется с хозяином объекта. Похожих несколько — руководству приходит подсказка в колокольчик, заявка идёт обычной раздачей.",
+    off: "Объект узнаётся только по номеру, адресу, ссылке или объявлению. По приметам заявка идёт обычной раздачей, как до 26.11.2026; похожие объекты всё равно записываются в хронологию.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
@@ -225,7 +232,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
