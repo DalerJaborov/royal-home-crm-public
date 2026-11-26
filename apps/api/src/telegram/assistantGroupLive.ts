@@ -1,3 +1,4 @@
+import { dushanbeDayKey } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { callGemini } from "../ai/geminiClient.js";
 import { BW, EW, TAIL } from "../ai/wordBoundary.js";
@@ -43,8 +44,9 @@ export function parseGroupModeWord(word: string): GroupMode | null {
   return null;
 }
 
-/** Не больше трёх самостоятельных реплик в час на группу и не чаще раза в 8 минут. */
+/** Не больше трёх самостоятельных реплик в час и шести в сутки по Душанбе на группу, не чаще раза в 8 минут. */
 export const LIVE_MAX_PER_HOUR = 3;
+export const LIVE_MAX_PER_DAY = 6;
 export const LIVE_COOLDOWN_MS = 8 * 60 * 1000;
 /** Не больше 20 вопросов к модели в час на группу: это и потолок расхода. */
 const LIVE_MAX_DECISIONS_PER_HOUR = 20;
@@ -153,17 +155,24 @@ export async function claimLiveSlot(chatId: string, now: Date): Promise<boolean>
     where: { chatId, OR: [{ liveWindowStartAt: null }, { liveWindowStartAt: { lte: hourAgo } }] },
     data: { liveWindowStartAt: now, liveWindowCount: 0 },
   });
+  const day = dushanbeDayKey(now);
+  await prisma.assistantTelegramGroup.updateMany({
+    where: { chatId, OR: [{ liveDayKey: null }, { liveDayKey: { not: day } }] },
+    data: { liveDayKey: day, liveDayCount: 0 },
+  });
   const cooldown = new Date(now.getTime() - LIVE_COOLDOWN_MS);
   const claim = await prisma.assistantTelegramGroup.updateMany({
     where: {
       chatId,
+      liveDayKey: day,
       liveWindowCount: { lt: LIVE_MAX_PER_HOUR },
+      liveDayCount: { lt: LIVE_MAX_PER_DAY },
       AND: [
         { OR: [{ lastLiveReplyAt: null }, { lastLiveReplyAt: { lte: cooldown } }] },
         { OR: [{ proactiveMutedUntil: null }, { proactiveMutedUntil: { lte: now } }] },
       ],
     },
-    data: { lastLiveReplyAt: now, liveWindowCount: { increment: 1 } },
+    data: { lastLiveReplyAt: now, liveWindowCount: { increment: 1 }, liveDayCount: { increment: 1 } },
   });
   return claim.count === 1;
 }
@@ -177,6 +186,8 @@ export interface LiveMessageInput {
   isBot: boolean;
   isForwarded: boolean;
   senderIsChat: boolean;
+  /** Ответ человека на сообщение другого человека (не Шабнам): это их разговор, живая реплика не вмешивается. */
+  replyToOtherHuman?: boolean;
 }
 
 export type LiveOutcome =
@@ -215,6 +226,7 @@ export async function considerLiveChime(
 ): Promise<LiveOutcome> {
   const text = input.text.trim();
   if (input.isBot || input.isForwarded || input.senderIsChat || !input.fromTelegramId) return { kind: "skip", reason: "not-human" };
+  if (input.replyToOtherHuman) return { kind: "skip", reason: "reply-to-human" };
   if (text.length < 2 || text.length > 400 || text.startsWith("/")) return { kind: "skip", reason: "text-shape" };
   if (liveQuietHours(now)) return { kind: "skip", reason: "quiet-hours" };
   if (liveTopicBlocked(text)) return { kind: "skip", reason: "topic" };
@@ -228,6 +240,8 @@ export async function considerLiveChime(
   if (group.proactiveMutedUntil && group.proactiveMutedUntil > now) return { kind: "skip", reason: "muted" };
   if (group.lastLiveReplyAt && now.getTime() - group.lastLiveReplyAt.getTime() < LIVE_COOLDOWN_MS) return { kind: "skip", reason: "cooldown" };
   if (!(await automationSwitchOn("shabnamGroupLiveEnabled"))) return { kind: "skip", reason: "switch-off" };
+  // Рубильник «отвечает без обращения» выключен: в группах Шабнам пишет только тем, кто её позвал, живая реплика тоже нет.
+  if (!(await automationSwitchOn("shabnamGroupUnaddressedEnabled"))) return { kind: "skip", reason: "unaddressed-off" };
   if (!decisionBudgetLeft(input.chatId, now.getTime())) return { kind: "skip", reason: "decision-budget" };
 
   const window = await recentWindow(input.chatId, input.threadId, now);

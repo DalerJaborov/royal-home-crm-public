@@ -11531,6 +11531,9 @@ model AssistantTelegramGroup {
   liveWindowStartAt    DateTime?
   liveWindowCount      Int      @default(0)
   lastLiveReplyAt      DateTime?
+  /// Сутки по Душанбе (ГГГГ-ММ-ДД) и число живых реплик в них: потолок LIVE_MAX_PER_DAY.
+  liveDayKey           String?
+  liveDayCount         Int      @default(0)
   /// Директор или админ выключил память группы командой /assistant_memory off (24.11.2026).
   /// Пока стоит, автопамять (рубильник shabnamGroupAutoMemoryEnabled) её не включает обратно.
   contextOptOutAt      DateTime?

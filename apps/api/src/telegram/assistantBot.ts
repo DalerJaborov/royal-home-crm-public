@@ -1642,6 +1642,7 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
         void runLiveChime({
           chatId, messageId: msg.message_id, threadId: msg.message_thread_id, text: raw,
           fromTelegramId: msg.from.id, isBot: msg.from.is_bot === true, isForwarded, senderIsChat: Boolean(msg.sender_chat),
+          replyToOtherHuman: Boolean(msg.reply_to_message) && !replyInThisConversation,
         }, (replyText) => sendAssistantReply(chatId, replyText, {
           scope: "group", mode: "text", replyTo: msg.message_id, messageThreadId: msg.message_thread_id, written: [],
         }));
