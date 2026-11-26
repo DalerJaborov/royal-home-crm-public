@@ -62,6 +62,9 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "clientRecordResultEnabled",
   // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
   "telegramPhoneLinkEnabled",
+  // Владелец 26.11.2026: «Шабнам вступает сама в беседу в группах». Пробный режим (решает, но не пишет) — опция для
+  // руководства, по умолчанию выключен. Колонка `DEFAULT false`.
+  "shabnamGroupLiveShadowEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */

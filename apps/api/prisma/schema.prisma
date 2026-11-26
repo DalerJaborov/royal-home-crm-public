@@ -7461,7 +7461,7 @@ model Settings {
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
   shabnamGroupLiveEnabled               Boolean @default(true)
-  shabnamGroupLiveShadowEnabled         Boolean @default(true)
+  shabnamGroupLiveShadowEnabled         Boolean @default(false)
   /// «Шабнам отвечает в группах без обращения» (24.11.2026, жалоба владельца «молчит, пока не позовёшь»).
   /// ВКЛ. ВЫКЛ — в рабочих группах Шабнам отвечает только тем, кто её позвал. telegram/assistantBot.ts.
   shabnamGroupUnaddressedEnabled        Boolean @default(true)
