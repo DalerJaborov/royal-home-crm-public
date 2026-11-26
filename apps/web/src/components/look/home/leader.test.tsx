@@ -346,7 +346,7 @@ describe("раскладка ролей", () => {
   it("акционер — деньги и тренды без операционных блоков; РОП — свой набор", () => {
     const ids = (role: string) => homeBlocksFor(role, HOME_BLOCKS, HOME_LAYOUT).map((b) => b.id);
     expect(ids("SHAREHOLDER")).toEqual(["money", "commission", "pulse", "channels", "ask"]);
-    expect(ids("HEAD_OF_SALES")).toEqual(["ropTiles", "ropSpread", "ropTeam", "ropTasks", "ropLosses", "teamCharts", "full"]);
+    expect(ids("HEAD_OF_SALES")).toEqual(["ropTiles", "agentFirstCalls", "ropTasks", "ropSpread", "ropTeam", "ropLosses", "teamCharts", "full"]);
     expect(ids("MANAGER")).not.toContain("money");
   });
 });
