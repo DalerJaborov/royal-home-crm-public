@@ -23,7 +23,10 @@ vi.mock("../src/lib/audioTranscode.js", async (importOriginal) => ({
   transcodeToM4a: vi.fn(async () => Buffer.from("m4a")),
   isSilentAudio: vi.fn(async () => false),
 }));
-vi.mock("../src/ai/transcribe.js", () => ({ transcribeAudio: vi.fn(async () => "Здравствуйте") }));
+vi.mock("../src/ai/transcribe.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/ai/transcribe.js")>()),
+  transcribeAudio: vi.fn(async () => "Здравствуйте"),
+}));
 vi.mock("../src/ai/voiceComplianceGuard.js", () => ({ checkAgentVoiceMessage: vi.fn(async () => ({ blocked: false })) }));
 vi.mock("../src/lib/outgoingVoice.js", () => ({ saveOutgoingVoice: vi.fn(async () => "/uploads/msg-voice/t.ogg") }));
 vi.mock("../src/lib/voiceSecurityAlert.js", () => ({ alertVoiceViolation: vi.fn(async () => {}) }));
