@@ -87,6 +87,13 @@ export interface ActiveCall {
    */
   clientRang?: boolean;
   /**
+   * DIALSTATUS второго плеча (BUSY / NOANSWER / CONGESTION / CHANUNAVAIL), когда
+   * клиент не ответил (26.11.2026). Нужен, чтобы агенту писать причину словами
+   * («занято», «номер выключен», «сеть не пропустила — международный номер?»), а
+   * не одно общее «клиент не ответил». См. describeNoAnswerReason.
+   */
+  dialStatus?: string;
+  /**
    * Агент нажал «Отменить» на полосе звонка: случайно набрал или передумал.
    *
    * Пометка НЕ решает исход сама — она лишь говорит, как читать то, что произошло
@@ -292,6 +299,7 @@ export function applyStationDialResult(channelId: string, result: StationDialRes
     // недозвон клиенту, а не «агент не снял трубку».
     call.clientRang = true;
     call.answeredAt = undefined;
+    call.dialStatus = result.status;
     return;
   }
 
@@ -305,11 +313,48 @@ export function applyStationDialResult(channelId: string, result: StationDialRes
   }
 }
 
+/**
+ * ПРИЧИНА НЕДОЗВОНА СЛОВАМИ (владелец 26.11.2026: «надо написать, что клиент не
+ * ответил, или занято, или международный номер, а не тупо не дозвонился»).
+ *
+ * Станция говорит, чем кончилось второе плечо (DIALSTATUS), — раньше все четыре
+ * варианта сливались в одно «клиент не ответил». Международный номер (не +992)
+ * с отказом сети почти всегда значит, что транк не пропускает такие вызовы: агенту
+ * сразу подсказываем написать в мессенджер, вместо трёх бесполезных перезвонов.
+ */
+export function describeNoAnswerReason(
+  dialStatus: string | null | undefined,
+  clientPhone: string | null | undefined
+): { short: string; hint: string | null } {
+  const digits = (clientPhone ?? "").replace(/\D/g, "").replace(/^00/, "");
+  // Иностранный — только полный номер с чужим кодом страны (11+ цифр не с 992).
+  // Местные записи без кода (9 цифр, 0XXXXXXXXX) иностранными не считаем: не гадаем.
+  const foreign = digits.length >= 11 && !digits.startsWith("992");
+  switch (dialStatus) {
+    case "BUSY":
+      return { short: "занято", hint: "Клиент говорил по другой линии или сбросил вызов — перезвоните позже." };
+    case "CHANUNAVAIL":
+      return foreign
+        ? { short: "международный номер недоступен", hint: "Иностранный номер не дозвонился через станцию — напишите клиенту в WhatsApp или Telegram." }
+        : { short: "номер выключен или вне сети", hint: "Телефон клиента выключен или без связи — напишите ему в мессенджер." };
+    case "CONGESTION":
+      return foreign
+        ? { short: "международный номер — сеть не пропустила вызов", hint: "Иностранный номер через станцию не проходит — напишите клиенту в WhatsApp или Telegram." }
+        : { short: "сеть не пропустила вызов", hint: "Оператор не соединил — проверьте номер в карточке или напишите клиенту в мессенджер." };
+    default:
+      return { short: "клиент не ответил", hint: null };
+  }
+}
+
 /** Длительность разговора в секундах (0, если клиент так и не ответил). */
 export function talkSeconds(call: ActiveCall): number {
   if (!call.answeredAt) return 0;
   const end = call.endedAt ?? new Date();
   return Math.max(0, Math.round((end.getTime() - call.answeredAt.getTime()) / 1000));
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function formatDuration(seconds: number): string {
@@ -346,7 +391,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
     : cancelled
       ? "Вызов отменён"
       : call.clientRang
-        ? "Клиент не ответил"
+        ? capitalize(describeNoAnswerReason(call.dialStatus, call.clientPhone).short)
         : "Агент не снял трубку";
 
   // Запись исхода — замыканием, чтобы её можно было повторить после временного сбоя
@@ -414,12 +459,13 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
         select: { notes: true },
       });
       const wasMarkedLost = existingNote?.notes?.startsWith(LOST_CALL_NOTE_PREFIX) ?? false;
+      const noAnswerReason = describeNoAnswerReason(call.dialStatus, call.clientPhone);
       const outcomeText = call.answeredAt
         ? `разговор ${formatDuration(seconds)}`
         : cancelled
           ? "звонок отменён агентом — телефон клиента уже звонил"
           : clientDidNotAnswer
-            ? "клиент не ответил"
+            ? noAnswerReason.short
             : "агент не снял трубку, клиенту не звонили";
       // Одна и та же классификация нужна и записи ниже (callAttempt), и
       // троттлингу/счётчику AGENT_NO_PICKUP (agentNoPickupGuard.ts) — считаем
@@ -460,7 +506,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
                 // должно быть честно: отменил агент, а не «клиент не ответил».
                 "Звонок через CRM отменён агентом — телефон клиента уже звонил"
               : clientDidNotAnswer
-                ? "Звонок через CRM: клиент не ответил"
+                ? `Звонок через CRM: ${noAnswerReason.short}${noAnswerReason.hint ? `. ${noAnswerReason.hint}` : ""}`
                 : // Честный текст вместо прежнего «клиент не ответил»: до клиента вызов
                   // не дошёл, и в карточке это должно читаться именно так.
                   "Звонок через CRM не состоялся: агент не снял трубку, клиенту не звонили",
@@ -570,7 +616,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
           select: { id: true, fullName: true, shortId: true, kind: true },
         });
         if (clientForEscalation) {
-          void notifyNoAnswerEscalation(clientForEscalation, call.agentId, noAnswerStep.maxAttempts).catch((err) =>
+          void notifyNoAnswerEscalation(clientForEscalation, call.agentId, noAnswerStep.maxAttempts, noAnswerReason.short).catch((err) =>
             console.error("[звонок] уведомление о недозвонах:", err instanceof Error ? err.message : err)
           );
         }

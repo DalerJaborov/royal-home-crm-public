@@ -4627,7 +4627,9 @@ model MessengerAccount {
 model BotConversation {
   recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())
-  /// Gate A keeps the legacy global unique; scoped cutover is a later release.
+  /// Область нашего номера/аккаунта. В WhatsApp — ключ переписки вместе с subscriberId
+  /// (своя переписка на каждый наш номер, 26.11.2026); в остальных каналах
+  /// (channel, subscriberId) по-прежнему уникален (частичный индекс).
   endpointScopeId String?
   endpointScope CustomerEndpointScope? @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict)
   customerInquiry CustomerInquiry?
@@ -4887,7 +4889,14 @@ model BotConversation {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
-  @@unique([channel, subscriberId])
+  /// Уникальность (channel, subscriberId) живёт частичным индексом
+  /// "BotConversation_channel_subscriberId_non_whatsapp_key" (миграция
+  /// 20261126190000_whatsapp_chat_per_number): Instagram, Facebook, сайт, YouTube —
+  /// одна переписка на собеседника, как раньше. В WhatsApp собеседник — номер
+  /// телефона, и у КАЖДОГО нашего номера с ним своя переписка (владелец 26.11.2026):
+  /// там ключ — (endpointScopeId, subscriberId). Prisma частичных индексов не
+  /// описывает, поэтому здесь только обычный индекс для поиска.
+  @@index([channel, subscriberId])
   @@unique([endpointScopeId, subscriberId])
   /// Список отмеченных спамеров (для ручной блокировки сотрудником) — без индекса
   /// это полный проход по всем диалогам ради единиц отмеченных.
@@ -7493,6 +7502,10 @@ model Settings {
   /// «Кнопка «Записать результат» в карточке клиента» (владелец 22.11.2026). Реестр — automationSwitches.ts.
   /// ВЫКЛ по умолчанию: ИИ пишет итог звонка сам, ручная кнопка спрятана. ВКЛ — видна в меню «Ещё» и на телефоне.
   clientRecordResultEnabled             Boolean @default(false)
+  /// «Звонок по объекту: узнавать объект по приметам и отдавать хозяину» (владелец 26.11.2026, ПК-001086 → №230).
+  /// ВКЛ: узнавание по приметам (lib/propertyMatch.ts) отдаёт заявку хозяину объекта, сверяет названное имя с
+  /// хозяином, при похожих — подсказка руководству. ВЫКЛ — объект только номером/адресом/ссылкой/объявлением.
+  callObjectToOwnerEnabled              Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
@@ -8799,7 +8812,10 @@ model ShownProperty {
   shortId     Int
   sentAt      DateTime @default(now())
 
-  @@unique([channel, recipientId, shortId])
+  /// (channel, recipientId, shortId) уникален частичным индексом вне WhatsApp
+  /// (миграция 20261126190000_whatsapp_chat_per_number): у WhatsApp своя переписка —
+  /// и свои отметки показов — на каждый наш номер, ключ там по области.
+  @@index([channel, recipientId, shortId])
   @@unique([endpointScopeId, recipientId, shortId])
   @@index([sentAt])
 }
@@ -10422,7 +10438,11 @@ model OutboundShieldState {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([channel, subscriberId])
+  /// (channel, subscriberId) уникален частичными индексами (миграция
+  /// 20261126190000_whatsapp_chat_per_number): вне WhatsApp — как раньше; строки без
+  /// области — для ON CONFLICT старого пути. WhatsApp с областью — по
+  /// (endpointScopeId, subscriberId): у каждого нашего номера свой счётчик щита.
+  @@index([channel, subscriberId])
   @@unique([endpointScopeId, subscriberId])
   @@index([pausedUntil])
 }
@@ -11549,6 +11569,23 @@ model AssistantTelegramLinkOffer {
   codeSentAt         DateTime?
 
   @@index([offeredAt])
+}
+
+/// Человек в подключённой рабочей группе (26.11.2026, жалоба владельца: Шабнам повторяла длинную подсказку
+/// непривязанному и приветствовала одного и того же дважды). Одна строка на пару «группа + Telegram-аккаунт»:
+/// welcomedAt — когда его приветствовали (один раз); linkHintAt/linkHintCount — последняя подсказка
+/// непривязанному и сколько их было (не чаще раза в 6 часов, каждая следующая другой фразой). Только эти поля,
+/// не дольше 90 дней (telegram/assistantGroupNewcomer.ts).
+model AssistantGroupPerson {
+  chatId         String
+  telegramUserId String
+  welcomedAt     DateTime?
+  linkHintAt     DateTime?
+  linkHintCount  Int       @default(0)
+
+  @@id([chatId, telegramUserId])
+  @@index([linkHintAt])
+  @@index([welcomedAt])
 }
 
 /// Кто нажал /start или написал «меню» в ещё НЕ подключённой группе (23.11.2026). Когда группу

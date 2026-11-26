@@ -15,6 +15,14 @@ export const customerInboxConsumeJob: JobHandler<z.infer<typeof schema>> = {
     await logSystemError("background-jobs", "Сохранённое входящее сообщение требует проверки обработки", {
       dedupKey: `customer-inbox-consume:${payload.eventKey}`,
     });
+    // A ticket left RECEIVED would count as core work in flight and block every
+    // revision advance (prod 26.11.2026). HELD is still claimable by any other
+    // live job for it, so this closes nothing that could still answer; the
+    // orphan sweep (customerAgentOrphanClaims.ts) then does not report it twice.
+    const { prisma } = await import("../db.js");
+    await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"='consume_job_gave_up'
+      WHERE "eventKey"=${payload.eventKey} AND "processingState"='RECEIVED' AND "leaseOwner" IS NULL`.catch(error =>
+      console.error("[customer-inbox] give-up hold failed:", error instanceof Error ? error.message : error));
     // The customer is still unanswered: say so to a person, not only to the journal.
     const { reportUnansweredCustomerTurn } = await import("../lib/customerTurnSilence.js");
     void reportUnansweredCustomerTurn(payload.eventKey, "consume_job_gave_up", { gaveUp: true });

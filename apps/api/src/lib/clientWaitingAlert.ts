@@ -418,6 +418,8 @@ export async function alertClientWaiting(input: {
       ? `${name}: клиент снова пишет после жалобы или грубости; бот молчит. ${answerHint}`
       : staffReason === "repeat_question"
       ? `${name}: клиент повторяет тот же вопрос (где работаем, часы, кто мы); бот второй раз отвечать не стал. ${answerHint}`
+      : staffReason === "repeat_shield"
+      ? `${name}: клиент пишет снова, а все формулировки ответа уже звучали сегодня, поэтому бот молчит. ${answerHint}`
       : staffReason === "promise_unkept"
       ? `${name}: клиенту обещали связаться, ни звонка, ни ответа в переписке так и не было, а он снова пишет. Бот второй раз не обещает. ${answerHint}`
       : staffReason === "no_phone"

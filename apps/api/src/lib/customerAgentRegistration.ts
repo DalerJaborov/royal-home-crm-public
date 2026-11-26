@@ -66,7 +66,9 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       // Метка рекламы решает тему разговора ядра (вакансия, продавец, объект) — 13.11.2026.
       "./adAttribution.js", "../ai/adTemplateOpener.js", "../ai/adTemplatePhrase.js",
       // Один мозг, шаг 3 (16.11.2026): адаптер каналов без своего ядра, голос компании по аккаунту, место объекта в анкете.
-      "./customerChannelCore.js", "./customerAgentBrandRead.js", "../ai/customerAgentBrand.js", "../ai/coverageGuard.js"].map(apiFile)),
+      "./customerChannelCore.js", "./customerAgentBrandRead.js", "../ai/customerAgentBrand.js", "../ai/coverageGuard.js",
+      // «Ок / спасибо / пока» — реакция вместо хода, решает код до модели (26.11.2026).
+      "../ai/ackTurnDoor.js", "../ai/ackOnly.js", "./customerLastBotLine.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentStaffFollowUp.js", "../ai/customerAgentLiveWording.js", "../ai/adTemplatePhrase.js", "../ai/bannedWordsGuard.js", "../ai/customerAgentSay.js", "../ai/customerAgentAnswer.js", "../ai/customerAgentHumanText.js", "../ai/customerAgentIntake.js", "../ai/customerBuyerNeeds.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js", "recruitmentContact.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),

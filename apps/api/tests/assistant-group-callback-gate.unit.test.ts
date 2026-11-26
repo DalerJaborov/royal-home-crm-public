@@ -1,4 +1,5 @@
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
+import * as assistantName from "../src/telegram/assistantName.js";
 import { STAFF_TOOL_NAMES } from "../src/ai/assistant/tools/staffToolNames.js";
 import * as publicListings from "../src/telegram/assistantGroupPublicListing.js";
 import { readFileSync } from "node:fs";
@@ -77,6 +78,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantDelivery.js": { sendAssistantReply: async () => true },
     "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: edit },
     "./assistantGroupParticipation.js": participation,
+    "./assistantName.js": assistantName,
     "./assistantGroupPublicListing.js": publicListings,
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantGroupPhrases.js": { ASSISTANT_GROUP_GREETING: { ru: "Fixture greeting" } },

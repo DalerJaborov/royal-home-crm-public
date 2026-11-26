@@ -5,7 +5,9 @@ import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { directAssistantVoice } from "./assistantVoiceDirection.js";
 import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
-import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
+import {
+  assistantDictionaryRejected, assistantElevenLabsPaused, noteAssistantDictionaryRejected, noteAssistantElevenLabsFailure,
+} from "./assistantElevenLabsAvailability.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
 import { logSystemError } from "../lib/systemError.js";
@@ -71,12 +73,19 @@ export function speechTextFromReply(text: string): string {
   return prepareAssistantReply(text).speech;
 }
 
-async function synthesize(
-  text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
-): Promise<Buffer | null> {
+/** Отказ ElevenLabs: HTTP-код и машинный код ошибки, без текста ответа (в нём может быть присланное). */
+class AssistantTtsHttpError extends Error {
+  constructor(readonly status: number, readonly code: string | null) {
+    super(`ElevenLabs HTTP ${status}${code ? ` ${code}` : ""}`);
+  }
+}
+// Отказ, который мог вызвать словарь (не найден, чужой аккаунт, версия удалена). Квоту и права словарь не меняет.
+const DICTIONARY_SUSPECT_STATUSES = new Set([400, 404, 422]);
+
+async function requestSpeech(
+  text: string, language: "ru" | "tg", config: SpeechConfig & { key: string }, dictionary: PronunciationDictionaryLocator | undefined,
+): Promise<Buffer> {
   const { voiceId, key } = config;
-  if (!key || assistantElevenLabsPaused(key, "synthesis")) return null;
-  if (!(await claimAssistantTtsChars(text.length))) return null;
   const profile = VOICE_PROFILES[language];
   const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
   const input = language === "ru"
@@ -94,17 +103,51 @@ async function synthesize(
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
-  if (!res.ok) {
-    await noteAssistantElevenLabsFailure(key, "synthesis", res);
-    throw new Error(`ElevenLabs HTTP ${res.status}`);
+  if (!res.ok) throw new AssistantTtsHttpError(res.status, await noteAssistantElevenLabsFailure(key, "synthesis", res));
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** Словарь, который этот аккаунт уже отверг, не шлём: иначе каждый ответ сначала получает отказ. */
+function usableDictionary(key: string | null, dictionary: PronunciationDictionaryLocator | undefined) {
+  return dictionary && key && assistantDictionaryRejected(key, dictionary.pronunciation_dictionary_id, dictionary.version_id)
+    ? undefined : dictionary;
+}
+
+async function synthesize(
+  text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
+): Promise<Buffer | null> {
+  const { key } = config;
+  if (!key || assistantElevenLabsPaused(key, "synthesis")) return null;
+  if (!(await claimAssistantTtsChars(text.length))) return null;
+  let audio: Buffer;
+  try {
+    audio = await requestSpeech(text, language, { ...config, key }, dictionary);
+  } catch (err) {
+    // 14–26.11.2026: после перевода голоса на новый аккаунт ElevenLabs словари произношения из окружения
+    // остались от старого, и КАЖДЫЙ синтез получал отказ — голосовых не было ни одного. Отказ со словарём
+    // повторяем один раз без него (отклонённый запрос не тарифицируется, знаки уже учтены); если без словаря
+    // прошло — словарь виноват: запоминаем и говорим в журнал, а голос уходит.
+    if (!(dictionary && err instanceof AssistantTtsHttpError && DICTIONARY_SUSPECT_STATUSES.has(err.status) && err.code !== "quota_exceeded")) throw err;
+    audio = await requestSpeech(text, language, { ...config, key }, undefined);
+    noteAssistantDictionaryRejected(key, dictionary.pronunciation_dictionary_id, dictionary.version_id);
+    void logSystemError("telegram",
+      `Озвучка помощника: ElevenLabs отверг словарь произношения (${language}, HTTP ${err.status}${err.code ? ` ${err.code}` : ""}); голос идёт без словаря — проверьте ASSISTANT_TTS_DICTIONARY_ID_${language.toUpperCase()} и ключ голоса`,
+      { dedupKey: `assistant-voice-dictionary-${language}`, silent: true });
   }
-  const audio = Buffer.from(await res.arrayBuffer());
   if (!isOggOpusAudio(audio)) throw new Error("ElevenLabs returned invalid Ogg/Opus audio");
   if (language === "tg") {
     const adjusted = await adjustTelegramVoiceTempo(audio, TAJIK_TEMPO).catch(() => null);
     if (adjusted && isOggOpusAudio(adjusted)) return adjusted;
   }
   return audio;
+}
+
+/** Причина сбоя для журнала: HTTP-код и код ElevenLabs, таймаут или формат — без текста исключения. */
+function failureReason(err: unknown): string {
+  if (err instanceof AssistantTtsHttpError) return `, ElevenLabs HTTP ${err.status}${err.code ? ` ${err.code}` : ""}`;
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return ", таймаут";
+  if (err instanceof Error && /invalid Ogg\/Opus/u.test(err.message)) return ", не Ogg/Opus";
+  return "";
 }
 
 /** Озвучивает ответ и шлёт голосовым. Никогда не бросает. */
@@ -132,7 +175,7 @@ export async function sendAssistantVoiceReply(
       void logSystemError("telegram", `Озвучка ответа помощника: голос (${language}) не настроен`, { dedupKey: `assistant-voice-config-${language}`, silent: true });
       return false;
     }
-    const dictionary = pronunciationDictionary(language);
+    const dictionary = usableDictionary(config.key, pronunciationDictionary(language));
     stage = "synthesis";
     const showVoiceAction = (action: "record_voice" | "upload_voice") => void (messageThreadId === undefined
       ? sendChatAction(chatId, undefined, action) : sendChatAction(chatId, undefined, action, messageThreadId));
@@ -190,10 +233,12 @@ export async function sendAssistantVoiceReply(
     return true;
   } catch (err) {
     const code = err instanceof TelegramApiError ? err.errorCode : undefined;
-    console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }) });
-    // В журнал ошибок — только этап и код Telegram: текст исключения может нести ключ или адрес файла.
-    void logSystemError("telegram", `Озвучка ответа помощника не вышла (этап ${stage}${code === undefined ? "" : `, код Telegram ${code}`})`,
-      { dedupKey: `assistant-voice-${stage}`, silent: true });
+    const http = err instanceof AssistantTtsHttpError ? { httpStatus: err.status, ...(err.code ? { providerCode: err.code } : {}) } : {};
+    const reason = failureReason(err);
+    console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }), ...http, ...(reason && !("httpStatus" in http) ? { reason: reason.slice(2) } : {}) });
+    // В журнал ошибок — этап, код Telegram и код ElevenLabs: текст исключения может нести ключ или адрес файла.
+    void logSystemError("telegram", `Озвучка ответа помощника не вышла (этап ${stage}${code === undefined ? "" : `, код Telegram ${code}`}${reason})`,
+      { dedupKey: `assistant-voice-${stage}${err instanceof AssistantTtsHttpError ? `-${err.status}` : ""}`, silent: true });
     return false;
   }
 }

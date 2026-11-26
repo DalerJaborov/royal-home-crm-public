@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4360,
+  "forks": 4363,
   "mounts": 87,
   "cron": 147,
   "jobs": 37,
@@ -89449,9 +89449,17 @@
      "c": [
       {
        "k": "do",
-       "t": "return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;",
+       "t": "const offers = await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } });",
        "a": [
         "удаляет в базе: assistantTelegramLinkOffer"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const people = await prisma.assistantGroupPerson.deleteMany({ where: { AND: [ { OR: [{ linkHintAt: null }, { …",
+       "a": [
+        "удаляет в базе: assistantGroupPerson"
        ],
        "c": []
       }
@@ -90859,7 +90867,7 @@
         },
         {
          "k": "do",
-         "t": "const calls = await prisma.interaction.findMany({ where: { type: \"CALL\", archiveReview: false, clientId: { in…",
+         "t": "const calls = await prisma.interaction.findMany({ where: agentCallAfterWhere(withClient.map((r)",
          "a": [
           "читает в базе: interaction"
          ],
@@ -129113,6 +129121,21 @@
       },
       {
        "k": "if",
+       "t": "selected?.processingState === \"HELD\" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(selected.errorCode ?? \"\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"held\", reason: selected.errorCode! };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
        "t": "selected?.intakeAgentRevisionId",
        "a": [],
        "c": [
@@ -129154,11 +129177,41 @@
          "c": [
           {
            "k": "do",
-           "t": "await prisma.$executeRaw`UPDATE \"CustomerPropertyIngressTicket\" SET \"processingState\"='HELD',\"errorCode\"=${re…",
+           "t": "const changed = await prisma.$executeRaw`UPDATE \"CustomerPropertyIngressTicket\" SET \"processingState\"='HELD',…",
            "a": [
             "обращается к базе своим SQL"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "changed === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const now = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { processing…",
+             "a": [
+              "читает в базе: customerPropertyIngressTicket"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "now?.processingState === \"HELD\" && CUSTOMER_TICKET_ORPHAN_REASONS.includes(now.errorCode ?? \"\")",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { status: \"held\", reason: now.errorCode! };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
           },
           {
            "k": "if",
@@ -129499,6 +129552,14 @@
         }
        ],
        "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      },
+      {
+       "k": "do",
+       "t": "await prisma.$executeRaw`UPDATE \"CustomerPropertyIngressTicket\" SET \"processingState\"='HELD',\"errorCode\"='con…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
       },
       {
        "k": "do",

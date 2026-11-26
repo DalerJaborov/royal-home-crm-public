@@ -14,6 +14,11 @@ vi.mock("../src/lib/workingHours.js", async (importOriginal) => ({
   isWithinAlarmHours: async () => true,
 }));
 
+// Этот файл проверяет СТАРЫЙ путь эскалации «руководству» — он за рубильником
+// с 26.11.2026 (lib/noAnswerStreak.ts), по умолчанию выключен. Путь «только
+// агенту» — tests/no-answer-agent-only.test.ts.
+process.env.NO_ANSWER_LEADERSHIP_ALERTS = "1";
+
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
 const { sendHourBeforeReminders } = await import("../src/lib/meetingReminders.js");
