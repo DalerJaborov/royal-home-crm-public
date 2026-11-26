@@ -20019,8 +20019,10 @@
     · удаляет в базе: assistantTelegramContext
 - await cleanupTelegramLinkOffers();
   · зовёт cleanupTelegramLinkOffers()
-  - return (await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } })).count;
+  - const offers = await prisma.assistantTelegramLinkOffer.deleteMany({ where: { offeredAt: { lt: edge } } });
     · удаляет в базе: assistantTelegramLinkOffer
+  - const people = await prisma.assistantGroupPerson.deleteMany({ where: { AND: [ { OR: [{ linkHintAt: null }, { …
+    · удаляет в базе: assistantGroupPerson
 
 ### background-jobs — * * * * *
 
