@@ -534,9 +534,12 @@ describe("Instagram через Страницу", () => {
     const identity = await instagramTokenIdentity(PT_A);
     expect(identity).toMatchObject({ ok: true, id: IG_A, username: `arvan_${run}`, pageId: PAGE_A });
 
-    // Суточная проверка ключей: жив по Странице, без «запасной личный не работает».
+    // Суточная проверка ключей: жив по Странице, без «запасной личный не работает». И снимает ложную отметку «доступ
+    // потерян» (ревью #432): у аккаунта «Войти через Facebook» другой пробы нет — без этого отметка жила бы вечно.
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: new Date(), accessLostReason: "HTTP 401: тест" } });
     const [check] = await checkInstagramAccountsHealth([accountId]);
     expect(check).toMatchObject({ ok: true, detail: expect.stringContaining(PAGE_A) });
+    expect((await prisma.messengerAccount.findUniqueOrThrow({ where: { id: accountId } })).accessLostAt).toBeNull();
 
     // Самопроверка «Вечные ключи» не пугает «нет ключа компании»: у аккаунта свой ключ Страницы.
     const status = await eternal.metaEternalStatus();

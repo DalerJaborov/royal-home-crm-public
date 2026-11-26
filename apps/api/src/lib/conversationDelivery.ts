@@ -32,6 +32,8 @@ import {
 import { isMessagingWindowClosedError, windowClosedStaffText } from "./messagingWindow.js";
 import { isMessagingWindowClosedFor, lastInboundAt, messagingWindowStateOfMessages, META_OUTGOING_MEDIA_LIMITS, formatChannelLimit, type MessagingWindowState } from "@royal-home/shared";
 import { isMetaSendBlockError, metaSendBlockStaffText, MetaGraphCallError } from "./metaSendBlock.js";
+import { isInstagramAccessLostError } from "./instagramAccountAccess.js";
+import { isProviderDefinitiveRejection } from "./metaProviderRejection.js";
 import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import {
   sendMessage as sendTelegramMessage,
@@ -602,6 +604,12 @@ export async function deliverToConversation(
         error: windowClosedStaffText(target.channel),
       };
     }
+    // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): сотрудник видит причину и что делать;
+    // журнал и руководство уже знают — одна запись и одна тревога на эпизод.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: "Сообщение не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы." };
+    }
     // Часть вызовов сюда — фоновые (напоминания о показе, ответ на «уточню у
     // собственника» без карточки под рукой): там нет запроса, ждущего 502, и без
     // записи в журнал отказ пропадал бесследно — экран «Здоровье системы» этого
@@ -1070,7 +1078,9 @@ function humanMb(bytes: number): string {
 export function isDefiniteSendRejection(err: unknown): boolean {
   if (err instanceof MetaGraphCallError) return err.graph.status >= 400 && err.graph.status < 500;
   if (err instanceof TelegramApiError) return typeof err.errorCode === "number" && err.errorCode >= 400 && err.errorCode < 500;
-  return err instanceof Error && /^Graph API HTTP 4\d\d:/.test(err.message);
+  // Остальное по Meta — одно правило с транспортом, ядром и трассой (lib/metaProviderRejection.ts): текст «Graph API
+  // HTTP 4xx» или «доступ к аккаунту Instagram потерян» — запроса в Meta не было, файл точно не ушёл.
+  return isProviderDefinitiveRejection(err);
 }
 
 export type MediaDeliveryResult =
@@ -1331,6 +1341,11 @@ export async function deliverMediaToConversation(
         code: "window_closed",
         error: windowClosedStaffText(target.channel),
       };
+    }
+    // Доступ к аккаунту Instagram потерян — как у текста выше: причина сотруднику, журнал и тревогу дала отметка.
+    if (isInstagramAccessLostError(err)) {
+      await rollbackDeliveryPause(pauseUndo);
+      return { ok: false, status: 502, error: `${isImage ? "Фото" : "Видео"} не отправлено: Meta не принимает ключ этого аккаунта Instagram. Руководитель должен нажать «Заменить маркер» в Настройках → Каналы.` };
     }
     void logSystemError(isTelegram ? "telegram" : "meta", `${isImage ? "Фото" : "Видео"} сотрудника не отправлено: ${describeError(err)}`);
     // Канал ответил 4xx — файл заведомо не принят: «Повторить» уместно, пауза возвращается. Таймаут,

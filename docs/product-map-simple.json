@@ -16,7 +16,7 @@
   "paths": 785,
   "cron": 145,
   "jobs": 37,
-  "conditions": 4243,
+  "conditions": 4245,
   "untranslatedUnique": 494,
   "untranslatedTotal": 633,
   "partialUnique": 1135,
@@ -80340,7 +80340,7 @@
          "c": []
         },
         {
-         "t": "иначе если ответ — «channel-dead»",
+         "t": "иначе если ответ — «channel-dead» или ответ — «channel-paused»",
          "k": "elseif",
          "a": [],
          "c": []
@@ -80367,6 +80367,12 @@
        "c": []
       }
      ]
+    },
+    {
+     "t": "если ответ — «channel-paused»",
+     "k": "if",
+     "a": [],
+     "c": []
     },
     {
      "t": "если ответ — «channel-dead»",

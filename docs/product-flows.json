@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 785,
-  "forks": 4282,
+  "forks": 4284,
   "mounts": 87,
   "cron": 145,
   "jobs": 37,
@@ -85262,12 +85262,19 @@
                  ]
                 },
                 {
-                 "k": "do",
-                 "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
-                 "a": [
-                  "запись в журнал ошибок"
-                 ],
-                 "c": []
+                 "k": "if",
+                 "t": "!isInstagramAccessLostError(err)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
+                   "a": [
+                    "запись в журнал ошибок"
+                   ],
+                   "c": []
+                  }
+                 ]
                 },
                 {
                  "k": "if",
@@ -98538,9 +98545,9 @@
         },
         {
          "k": "do",
-         "t": "const due = (await prisma.instagramComment.findMany({ where: { OR: [ { status: \"PENDING\", replyDueAt: { lte: …",
+         "t": "const due = await selectDueComments(now);",
          "a": [
-          "читает в базе: instagramComment"
+          "зовёт selectDueComments()"
          ],
          "c": []
         },
@@ -123658,7 +123665,7 @@
         },
         {
          "k": "elseif",
-         "t": "result === \"channel-dead\"",
+         "t": "result === \"channel-dead\" || result === \"channel-paused\"",
          "a": [],
          "c": [
           {
@@ -123701,6 +123708,21 @@
        "t": "throw new Error(\"ИИ всё ещё недоступен\");",
        "a": [
         "ошибка Error — «ИИ всё ещё недоступен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"channel-paused\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
        ],
        "c": []
       }

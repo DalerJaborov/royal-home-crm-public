@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "./helpers/waitFor.js";
 import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
@@ -184,6 +185,10 @@ beforeEach(async () => {
   following = true;
   sendFails = false;
   stubMeta();
+  // Отметка «доступ к аккаунту Instagram потерян» (lib/instagramAccountAccess.ts, PR #432) живёт в базе и в памяти
+  // процесса: тест с отказом 190 ставит её — следующие тесты файла начинают с живого ключа.
+  await prisma.messengerAccount.updateMany({ where: { id: instagram.id }, data: { accessLostAt: null, accessLostReason: null } });
+  (await import("../src/lib/instagramAccountAccess.js")).resetInstagramAccessProbes();
   /**
    * ЩИТ ИСХОДЯЩИХ (feat/outbound-shield, 17.09.2026) ПОМНИТ ПОЛУЧАТЕЛЯ В БАЗЕ,
    * А НЕ В ПАМЯТИ ТЕСТА. `IG_USER` — один и тот же `igsid` на ВЕСЬ файл (не
@@ -857,7 +862,14 @@ describe("сбой не должен терять оплаченный лид", 
     expect(conversationAfterFailure).toBeTruthy();
     expect(conversationAfterFailure?.contactProfileId).toBeTruthy();
 
+    // Отказ «Invalid OAuth access token» (код 190) — мёртвый ключ: с PR #432 аккаунт метится, и дальше в Meta этим
+    // ключом не ходим (иначе каждый комментарий бился бы в Meta и в журнал). Лид при этом не теряется: запись FAILED
+    // ждёт. Владелец нажал «Заменить маркер» — отметка снята, следующий комментарий доходит.
+    // Отметка ставится в отрыве от отправки (callGraph → describeMetaToken) — ждём её, а не читаем сразу.
+    await waitFor(async () => (await prisma.messengerAccount.findUnique({ where: { id: instagram.id } }))?.accessLostAt ?? null,
+      { label: "отметка «доступ потерян»" });
     sendFails = false;
+    await prisma.messengerAccount.update({ where: { id: instagram.id }, data: { accessLostAt: null, accessLostReason: null } });
     sent = [];
     const retry = await tryLeadMagnetComment(comment("ЧЕКЛИСТ", "y"));
     expect(retry?.dmSent).toBe(true);
