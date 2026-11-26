@@ -92,6 +92,16 @@ async function downloadThumb(remoteUrl: string): Promise<string> {
 export type EnsureAvatarResult = "stored" | "skipped" | "none" | "failed";
 
 /**
+ * Запуск из горячего пути входящего сообщения («в отрыве»). Под Vitest молчит: фоновый запрос к каналу и запись
+ * в досье иначе гоняются с подменой сети и уборкой базы в ЧУЖИХ тестах бота (ship #469: 7 машин красные,
+ * «vi.fn() вызван 9 раз»). Сам `ensureContactAvatar` тесты зовут напрямую. Тот же приём, что lib/sms::isDryRun.
+ */
+export function scheduleContactAvatar(input: Parameters<typeof ensureContactAvatar>[0]): void {
+  if (process.env.VITEST && process.env.CONTACT_AVATAR_IN_TESTS !== "1") return;
+  void ensureContactAvatar(input).catch(() => undefined);
+}
+
+/**
  * Забрать миниатюру собеседника, если её ещё не пробовали брать. Зовётся «в отрыве» (`void`) из входящего
  * сообщения: ответ клиенту от неё не зависит.
  */

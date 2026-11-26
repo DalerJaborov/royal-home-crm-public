@@ -410,11 +410,23 @@ describe("миниатюра: ключ аккаунта-получателя, о
     accountTokenMock.mockReset().mockResolvedValue({ id: "acc-door", token: "token-door", disabled: false });
     fetchInstagramProfileMock.mockReset().mockResolvedValue({});
     safeOpenMock.mockReset();
-    const profileId = await ensureConversationContactProfile({
+    // Горячий путь под Vitest молчит (scheduleContactAvatar), здесь включаем его нарочно.
+    process.env.CONTACT_AVATAR_IN_TESTS = "1";
+    try {
+      const profileId = await ensureConversationContactProfile({
+        id: conversation.id, channel: "INSTAGRAM", subscriberId: conversation.subscriberId, name: null, contactProfileId: null, accountId: "acc-door",
+      });
+      if (profileId) profileIds.push(profileId);
+      await vi.waitFor(() => expect(fetchInstagramProfileMock).toHaveBeenCalledWith(conversation.subscriberId, "token-door"));
+    } finally {
+      delete process.env.CONTACT_AVATAR_IN_TESTS;
+    }
+    fetchInstagramProfileMock.mockReset();
+    await ensureConversationContactProfile({
       id: conversation.id, channel: "INSTAGRAM", subscriberId: conversation.subscriberId, name: null, contactProfileId: null, accountId: "acc-door",
     });
-    if (profileId) profileIds.push(profileId);
-    await vi.waitFor(() => expect(fetchInstagramProfileMock).toHaveBeenCalledWith(conversation.subscriberId, "token-door"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchInstagramProfileMock).not.toHaveBeenCalled();
     await prisma.botConversation.delete({ where: { id: conversation.id } });
   });
 
