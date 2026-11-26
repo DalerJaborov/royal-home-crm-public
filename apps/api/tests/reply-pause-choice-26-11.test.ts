@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
-const { replyPausedUntilField, pauseMinutesUntil, REPLY_PAUSE_MAX_AHEAD_MS } = await import("../src/lib/replyPauseInput.js");
+const { replyPausedUntilField, pauseMinutesUntil, REPLY_PAUSE_MAX_AHEAD_MS, REPLY_PAUSE_PAST_TOLERANCE_MS } = await import("../src/lib/replyPauseInput.js");
 const { z } = await import("zod");
 
 const runId = `${Date.now()}`.slice(-7);
@@ -50,9 +50,13 @@ describe("границы срока: одна проверка на все пу�
     }
   });
   it("прошлое, не дата и слишком далёкое — отказ", () => {
-    for (const bad of [iso(-60_000), "завтра", "60", "2026-13-45T00:00:00Z", iso(REPLY_PAUSE_MAX_AHEAD_MS + 3_600_000)]) {
+    for (const bad of [iso(-3 * 60_000), "завтра", "60", "2026-13-45T00:00:00Z", iso(REPLY_PAUSE_MAX_AHEAD_MS + 3_600_000)]) {
       expect(schema.safeParse({ pausedUntil: bad }).success, bad).toBe(false);
     }
+  });
+  it("допуск на отстающие часы: на минуту в прошлом проходит, больше чем на 2 минуты — отказ", () => {
+    expect(schema.safeParse({ pausedUntil: iso(-60_000) }).success).toBe(true);
+    expect(schema.safeParse({ pausedUntil: iso(-REPLY_PAUSE_PAST_TOLERANCE_MS - 5_000) }).success).toBe(false);
   });
   it("минуты для задания очереди: от сейчас, не меньше одной", () => {
     const now = Date.now();

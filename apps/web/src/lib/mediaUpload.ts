@@ -1,5 +1,6 @@
 import { CONVERSATION_MEDIA_MAX_BYTES, formatUploadLimit } from "@royal-home/shared";
 import { api } from "./api";
+import { pausedUntilIso } from "./botPauseOptions";
 import { uploadToPurpose, type ChunkedSessionHolder } from "./chunkedUpload";
 import type { UploadLive } from "./upload/progressText";
 
@@ -111,8 +112,9 @@ export function uploadConversationMedia(
   localId?: string,
   /** МБ из МБ, «ждём связь», «повтор через N с» — для строки под пузырём (25.11.2026). */
   onLive?: (live: UploadLive) => void,
-  /** Срок паузы бота, выбранный при отправке (ISO): сервер ставит его при приёме файла. Пусто — умолчание сервера. */
-  pausedUntil?: string
+  /** Срок паузы бота, выбранный при отправке (МИНУТЫ): в ISO он превращается в момент вызова «собрать и отправить», а
+   *  не при старте загрузки — долгая загрузка не должна приводить к «срок уже прошёл» (ревью PR #463). */
+  pauseMinutes?: number
 ): Promise<ConversationMediaUploadResult> {
   const previous = localId ? inFlight.get(localId) : undefined;
   const entry = { session: previous?.session ?? {}, controller: new AbortController() };
@@ -120,7 +122,7 @@ export function uploadConversationMedia(
   return uploadToPurpose<ConversationMediaUploadResult>("conversation-media", file, {
     // id сессии — в теле: ключ повтора привязан к адресу, а повтор открывает новую сессию.
     completeUrl: () => `/api/v1/conversations/${conversationId}/reply-media/upload-sessions/complete`,
-    completeBody: (sessionId) => ({ sessionId, ...(caption ? { caption } : {}), ...(pausedUntil ? { pausedUntil } : {}) }),
+    completeBody: (sessionId) => ({ sessionId, ...(caption ? { caption } : {}), ...(pauseMinutes ? { pausedUntil: pausedUntilIso(pauseMinutes) } : {}) }),
     completeHeaders: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     completeWaitMs: MEDIA_DELIVERY_WAIT_MS,
     completeWaitMessage: "Сервер долго отправляет файл. Проверьте переписку: файл мог уйти — тогда повторять не нужно.",

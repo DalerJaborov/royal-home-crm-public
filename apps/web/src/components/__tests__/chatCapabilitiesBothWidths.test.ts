@@ -104,7 +104,9 @@ describe("срок паузы бота при ответе: одна строк�
     expect(condition).not.toMatch(/narrow/);
   });
   it("одно число срока уходит с текстом, голосовым и фото/видео", () => {
-    expect(desktop).toContain("useSendVoiceMessage(replyTargetId, () => replyPauseMinutes())");
+    expect(desktop).toContain("useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined)");
+    // Прежний вид: голос и фото/видео срок НЕ шлют (как до 26.11) — «Бессрочно» им тихо не раздаём.
+    expect(desktop).toMatch(/function mediaPauseMinutes\(\)[^{]*\{\s*return royal \? replyPauseMinutes\(\) : undefined;/);
     const starts = desktop.split(/\r?\n/).filter((line) => line.includes("mediaUpload.start("));
     expect(starts.length).toBe(3);
     for (const line of starts) expect(line, line).toMatch(/[pP]auseMinutes/);

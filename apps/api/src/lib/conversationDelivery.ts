@@ -219,7 +219,7 @@ async function applyDeliveryPauseUndoable(
         ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
         : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     if (!prev) throw new Error("Delivery lost its native conversation");
-    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx);
+    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx, sender?.kind === "agent" ? sender.agentId : null);
     const placedRow = target.kind === "telegram" ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
       : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     const ownershipFence = await lockDeliveryOwnershipFence(tx, target);
@@ -325,7 +325,7 @@ async function extendQueuedMediaPause(
         : tx.botConversation.findUnique({ where: { id: target.id }, select });
     const fenceBefore = await lockDeliveryOwnershipFence(tx, target);
     const before = await read();
-    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx);
+    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx, sender.kind === "agent" ? sender.agentId : null);
     const after = await read();
     const fenceAfter = await lockDeliveryOwnershipFence(tx, target);
     const ours =

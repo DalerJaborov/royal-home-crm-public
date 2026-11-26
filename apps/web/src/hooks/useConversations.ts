@@ -435,8 +435,8 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
           upload.uploadKey ?? `media:${upload.localId}`,
           upload.localId,
           (live) => setLive(conversationId, upload.localId, live),
-          // Срок считается на каждой попытке заново: «Повторить» через час не шлёт уже прошедшее время.
-          upload.pauseMinutes ? pausedUntilIso(upload.pauseMinutes) : undefined
+          // Минуты, а не дата: ISO считается в момент «собрать» (на каждой попытке заново), а не при старте долгой загрузки.
+          upload.pauseMinutes
         );
         if (result?.queued && result.jobId) {
           await follow(conversationId, upload, result.jobId);

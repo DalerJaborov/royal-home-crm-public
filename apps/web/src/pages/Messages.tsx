@@ -1222,7 +1222,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     [allMessages]
   );
   const reply = useReplyToConversation(replyTargetId);
-  const voiceMessage = useSendVoiceMessage(replyTargetId, () => replyPauseMinutes());
+  const voiceMessage = useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
   const pendingUploads = usePendingMediaUploads(replyTargetId);
@@ -1397,6 +1397,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     return customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
   }
 
+  /** Голос и фото/видео шлют выбранный срок только в новом виде: в прежнем виде они уходили без срока (умолчание
+   *  сервера для отправителя), и «Бессрочно» тихо раздать им нельзя (ревью PR #463). */
+  function mediaPauseMinutes(): number | undefined {
+    return royal ? replyPauseMinutes() : undefined;
+  }
+
   async function handleSend() {
     const value = text.trim();
     if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
@@ -1436,7 +1442,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       return;
     }
     // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
-    const pauseMinutes = replyPauseMinutes();
+    const pauseMinutes = mediaPauseMinutes();
     plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
     setText("");
   }
@@ -1449,7 +1455,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
    */
   function handleSendMedia() {
     if (!pendingMedia || readOnly || !replyTargetId) return;
-    mediaUpload.start(pendingMedia, text.trim() || undefined, replyPauseMinutes());
+    mediaUpload.start(pendingMedia, text.trim() || undefined, mediaPauseMinutes());
     setPendingMedia(null);
     setText("");
   }
@@ -2036,7 +2042,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             type="button"
             className="pill sm"
             onClick={() => {
-              const pauseMinutes = replyPauseMinutes();
+              const pauseMinutes = mediaPauseMinutes();
               pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
               setPendingBatch(null);
               setText("");
