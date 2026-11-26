@@ -616,7 +616,7 @@ export async function finishCall(channelId: string): Promise<ActiveCall | undefi
           select: { id: true, fullName: true, shortId: true, kind: true },
         });
         if (clientForEscalation) {
-          void notifyNoAnswerEscalation(clientForEscalation, call.agentId, noAnswerStep.maxAttempts, noAnswerReason.short).catch((err) =>
+          void notifyNoAnswerEscalation(clientForEscalation, call.agentId, noAnswerStep.maxAttempts).catch((err) =>
             console.error("[звонок] уведомление о недозвонах:", err instanceof Error ? err.message : err)
           );
         }
