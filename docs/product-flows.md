@@ -18969,6 +18969,8 @@
       · зовёт ingestInstagramComments()
   - void rememberBusinessAccountFromWebhook(req.body, waPhoneId);
     · зовёт rememberBusinessAccountFromWebhook()
+  - await handleWhatsappServiceEvents(req.body, waPhoneId);
+    · зовёт handleWhatsappServiceEvents()
   - для каждого: const s of parseMetaStatusUpdates(req.body)
     - void withBotTurnTrace({ channel: "WHATSAPP", account: s.accountExternalId, source: "delivery_status", event: …
       - если ["sent", "delivered", "read", "failed"].includes(s.status)
