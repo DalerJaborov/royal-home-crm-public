@@ -150,6 +150,12 @@ it("waiting past the grace pages once; a transient error inside the grace does n
   expect(await autoRefreshCustomerAgentRevision()).toMatchObject({ status: "busy" });
   now.mockRestore();
   expect(await prisma.pendingDirectorAlert.count({ where: { tag: alertTag } })).toBe(1);
+  // Blocked by idle, not by a decision: the text names the blocker and does not
+  // send the owner to the button that waits for the same idle (prod 26.11.2026).
+  const journal = await prisma.errorLog.findFirst({ where: { dedupKey: `customer-agent-revision-held:${oldId}` }, orderBy: { createdAt: "desc" } });
+  expect(journal?.message).toContain("ответ клиенту ещё отправляется");
+  expect(journal?.message).not.toContain("Откройте Настройки");
+  await prisma.errorLog.deleteMany({ where: { dedupKey: `customer-agent-revision-held:${oldId}` } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: alertTag } });
 });
 
