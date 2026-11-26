@@ -22409,17 +22409,17 @@
      "c": [
       {
        "k": "do",
-       "t": "const archiveEnabled = await automationSwitchOn(\"chatArchiveEnabled\");",
+       "t": "const directCountP = accountId || (channel && channel !== \"TELEGRAM_DIRECT\") ? Promise.resolve(0) : prisma.te…",
        "a": [
-        "зовёт automationSwitchOn()"
+        "считает в базе: telegramDirectConversation"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "const directCount = accountId || (channel && channel !== \"TELEGRAM_DIRECT\") ? 0 : await prisma.telegramDirect…",
+       "t": "const [{ archiveEnabled, result }, directCount, accounts, alerts] = await Promise.all([ automationSwitchOn(\"c…",
        "a": [
-        "считает в базе: telegramDirectConversation"
+        "зовёт automationSwitchOn()"
        ],
        "c": []
       },
