@@ -1730,6 +1730,11 @@
       "label": null
     },
     {
+      "id": "customer-media-settle",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
       "id": "customer-outbox-jobs",
       "expr": "*/5 * * * * *",
       "label": null
