@@ -110,7 +110,9 @@ export function uploadConversationMedia(
   /** id пузыря: по нему повтор находит прошлую сессию, а «Отменить» — эту отправку. */
   localId?: string,
   /** МБ из МБ, «ждём связь», «повтор через N с» — для строки под пузырём (25.11.2026). */
-  onLive?: (live: UploadLive) => void
+  onLive?: (live: UploadLive) => void,
+  /** Срок паузы бота, выбранный при отправке (ISO): сервер ставит его при приёме файла. Пусто — умолчание сервера. */
+  pausedUntil?: string
 ): Promise<ConversationMediaUploadResult> {
   const previous = localId ? inFlight.get(localId) : undefined;
   const entry = { session: previous?.session ?? {}, controller: new AbortController() };
@@ -118,7 +120,7 @@ export function uploadConversationMedia(
   return uploadToPurpose<ConversationMediaUploadResult>("conversation-media", file, {
     // id сессии — в теле: ключ повтора привязан к адресу, а повтор открывает новую сессию.
     completeUrl: () => `/api/v1/conversations/${conversationId}/reply-media/upload-sessions/complete`,
-    completeBody: (sessionId) => (caption ? { sessionId, caption } : { sessionId }),
+    completeBody: (sessionId) => ({ sessionId, ...(caption ? { caption } : {}), ...(pausedUntil ? { pausedUntil } : {}) }),
     completeHeaders: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     completeWaitMs: MEDIA_DELIVERY_WAIT_MS,
     completeWaitMessage: "Сервер долго отправляет файл. Проверьте переписку: файл мог уйти — тогда повторять не нужно.",

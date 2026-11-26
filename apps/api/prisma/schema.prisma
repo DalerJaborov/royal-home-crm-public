@@ -12188,6 +12188,9 @@ model OutgoingMediaJob {
   retryable      Boolean   @default(true)
   /// Снимок паузы бота, поставленной при приёме (conversationDelivery.ts::placeQueuedMediaPause) — для отката.
   pauseUndo      Json?
+  /// Срок паузы бота в минутах, который сотрудник выбрал при отправке (26.11.2026); null — умолчание сервера.
+  /// Хранится длительность, а не дата: приём, продление перед отправкой и «Повторить» считают её от своего момента.
+  pauseMinutes   Int?
   outBytes       Int?
   outMime        String?
   prepareMs      Int?

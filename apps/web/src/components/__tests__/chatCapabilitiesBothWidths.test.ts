@@ -86,3 +86,27 @@ describe("«Отправить объект» видно всегда", () => {
     expect(before).not.toMatch(/\{conversation\?\.clientId && conversation\.clientShortId && \(\s*<button[^>]*role="menuitem"/);
   });
 });
+
+/**
+ * СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ ВИДЕН НА ОБЕИХ ШИРИНАХ (владелец 26.11.2026: «вернуть выбор срока,
+ * по умолчанию час»). Новый вид чата — один адаптивный экран (`royal` в Messages.tsx): строка выбора
+ * срока не завёрнута в условие ширины, а один и тот же срок получают текст, голосовое и фото/видео.
+ * (`MobileChatView.tsx` сейчас нигде не подключён — отдельной ветки для телефона нет.)
+ */
+describe("срок паузы бота при ответе: одна строка на ПК и телефоне", () => {
+  const desktop = fs.readFileSync(DESKTOP_CHAT, "utf8");
+  it("строка выбора срока есть в новом виде и не зависит от ширины экрана", () => {
+    const at = desktop.indexOf('data-testid="chat-reply-pause"');
+    expect(at).toBeGreaterThan(0);
+    const condition = desktop.slice(Math.max(0, at - 260), at);
+    expect(condition).toContain("royal &&");
+    expect(condition).not.toMatch(/narrow/);
+  });
+  it("одно число срока уходит с текстом, голосовым и фото/видео", () => {
+    expect(desktop).toContain("useSendVoiceMessage(replyTargetId, () => replyPauseMinutes())");
+    const starts = desktop.split(/\r?\n/).filter((line) => line.includes("mediaUpload.start("));
+    expect(starts.length).toBe(3);
+    for (const line of starts) expect(line, line).toMatch(/[pP]auseMinutes/);
+    expect(desktop).toContain("pausedUntil: pausedUntilIso(replyPauseMinutes())");
+  });
+});
