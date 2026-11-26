@@ -33,3 +33,24 @@ export function videoExtensionOf(filename: string): string | null {
 }
 
 export const UNSUPPORTED_VIDEO_MESSAGE = "Этот тип видеофайла не поддерживается. Подойдут MP4, MOV, M4V или WebM.";
+
+/**
+ * Файл-документ — это видео? Один ответ для всех входов Telegram (Шабнам: мастер
+ * объекта, ролик сотрудника, общий ответ): раньше каждый держал свой список
+ * расширений (4, 5 и 6 из 12), и «.3gp» с Android проходил в одном месте и
+ * молча терялся в другом (26.11.2026).
+ */
+export function isVideoDocument(doc: { mime_type?: string; file_name?: string } | null | undefined): boolean {
+  if (!doc) return false;
+  if (doc.mime_type?.startsWith("video/")) return true;
+  const ext = path.extname(doc.file_name ?? "").toLowerCase();
+  return Boolean(ext) && (ALLOWED_VIDEO_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/** Размер для сообщения сотруднику: «41,8 МБ» (до 10 МБ — с десятой, дальше — целые). */
+export function formatVideoSizeMb(bytes: number | null | undefined): string | null {
+  if (!bytes || bytes <= 0) return null;
+  const mb = bytes / (1024 * 1024);
+  const text = mb < 10 ? mb.toFixed(1).replace(".", ",") : String(Math.round(mb));
+  return `${text === "0,0" ? "0,1" : text} МБ`;
+}
