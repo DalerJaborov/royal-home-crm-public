@@ -93,7 +93,7 @@ export interface MessageAttachment {
    * Клиент прислал файл, но сохранить его не удалось (больше предела, формат,
    * отказ диска). Пометка на месте вложения вместо тишины; `file` тогда null.
    */
-  lost?: "too_big" | "too_long" | "unsupported" | "failed" | "too_many";
+  lost?: "too_big" | "too_long" | "unsupported" | "failed" | "too_many" | "unavailable" | "no_key";
 }
 
 /**

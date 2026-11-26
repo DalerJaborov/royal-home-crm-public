@@ -51,6 +51,9 @@ export interface ChatMessage {
    *  пересобирают сообщение по полям role/content (см. client.ts), иначе
    *  Anthropic отверг бы объект с незнакомым ключом. */
   attachments?: StoredAttachment[];
+  /** Файлы клиента, которые сохранить не удалось, и почему (messengers/attachments.ts::LostAttachment).
+   *  Показывается сотруднику пометкой на месте файла; в модель не уходит. */
+  attachmentsLost?: Array<{ kind: "image" | "audio" | "video" | "file"; reason: string }>;
   /**
    * Когда реплика была сказана (ISO). В модель полем НЕ уходит — вызовы
    * пересобирают сообщение по role/content, — но из него считаются разрывы во
