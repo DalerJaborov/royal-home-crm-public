@@ -131,6 +131,9 @@ services:
       # Директор и админ без кода подтверждения (владелец 23.11.2026). Пусто или любое значение кроме 0 —
       # без кода; STEP_UP_OWNERS_EXEMPT=0 в .env.production возвращает защиту без правки кода.
       STEP_UP_OWNERS_EXEMPT: "${STEP_UP_OWNERS_EXEMPT:-}"
+      # «Агент не может дозвониться» и «Телефон агента не отвечает» — только самому агенту (владелец 26.11.2026).
+      # NO_ANSWER_LEADERSHIP_ALERTS=1 в .env.production возвращает тревоги руководству без правки кода.
+      NO_ANSWER_LEADERSHIP_ALERTS: "${NO_ANSWER_LEADERSHIP_ALERTS:-}"
       PORT: 4000
       # Пул потоков libuv (22.09.2026, вместе с параллельной обработкой фото —
       # см. routes/properties/photos.ts). Node по умолчанию даёт 4 потока на

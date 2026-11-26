@@ -23,6 +23,22 @@ import { logSystemError } from "./systemError.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { logTimeline } from "./timeline.js";
 import { upsertAutoTask } from "./autoTasks.js";
+import { createNotifications } from "./notifications.js";
+
+/**
+ * РУБИЛЬНИК «НЕДОЗВОН — РУКОВОДСТВУ» (владелец 26.11.2026).
+ *
+ * Владелец получал пуш «Агент X не может дозвониться — проверьте контакт с
+ * клиентом» и справедливо спросил: «я как это исправлю?». Руководитель на
+ * недозвон повлиять не может — клиент не берёт трубку у кого угодно. Поэтому по
+ * умолчанию (переменная не задана или ≠ "1") эскалация идёт ТОЛЬКО агенту:
+ * задача «напишите в мессенджер или переведите в Неактивные» и строка в его
+ * колокольчике, с причиной от станции. Вернуть старое поведение (задача и пуш
+ * всем с правом clients.assign) — `NO_ANSWER_LEADERSHIP_ALERTS=1` в .env.
+ */
+export function noAnswerLeadershipAlertsEnabled(): boolean {
+  return process.env.NO_ANSWER_LEADERSHIP_ALERTS === "1";
+}
 
 
 /** Сколько звонков подряд клиент не поднял трубку — считая от самого свежего звонка
@@ -102,7 +118,11 @@ export async function notifyNoAnswerEscalation(client: {
    * пропадут ровно в том тексте, ради которого всё это делалось.
    */
   kind?: ClientKind | null;
-}, agentId: string, maxAttempts: number): Promise<void> {
+}, agentId: string, maxAttempts: number, lastReason?: string): Promise<void> {
+  if (!noAnswerLeadershipAlertsEnabled()) {
+    await notifyAgentNoAnswerFollowUp(client, agentId, maxAttempts, lastReason);
+    return;
+  }
   const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { fullName: true } });
   // Число — из Настроек (noAnswerMaxAttempts), не зашито: владелец пометил его
   // «например, три», а не жёстким правилом, и уже сегодня менял в UI.
@@ -162,6 +182,50 @@ export async function notifyNoAnswerEscalation(client: {
 
   // «Хвост» дозвона (маячки и отложенная задача «ещё раз дозвониться») удалён
   // 16.11.2026 вместе со светофором неактивных (владелец: «ничего лишнего»).
+}
+
+/**
+ * Попытки кончились, а руководство не дёргаем (рубильник выше выключен): одна
+ * задача и одна строка в колокольчике — тому агенту, который звонил. Задача
+ * одна на клиента (upsertAutoTask обновит открытую, а не заведёт вторую) и
+ * гаснет сама, как только с клиентом состоится разговор (CALLBACK_AUTO_TASK_KINDS).
+ */
+async function notifyAgentNoAnswerFollowUp(
+  client: { id: string; fullName: string; shortId: number; kind?: ClientKind | null },
+  agentId: string,
+  maxAttempts: number,
+  lastReason?: string
+): Promise<void> {
+  const who = `${formatClientName(client)} ${formatClientCode(client.shortId, client.kind)}`;
+  const few = maxAttempts % 10 >= 2 && maxAttempts % 10 <= 4 && (maxAttempts % 100 < 12 || maxAttempts % 100 > 14);
+  const one = maxAttempts % 10 === 1 && maxAttempts % 100 !== 11;
+  const times = `${maxAttempts} раз${few ? "а" : ""}`;
+  const calls = `${maxAttempts} звон${one ? "ок" : few ? "ка" : "ков"}`;
+  const reason = lastReason && lastReason !== "клиент не ответил" ? ` (последний раз: ${lastReason})` : "";
+  const taskText = `Клиент ${who} не взял трубку ${times} подряд${reason} — напишите ему в WhatsApp или Telegram; не отвечает и там — переведите в «Неактивные»`;
+  try {
+    await upsertAutoTask({
+      clientId: client.id,
+      kind: "no_answer_agent_followup",
+      actor: { kind: "system", source: "noAnswerStreak", subjectAgentId: agentId },
+      type: "SYSTEM",
+      notes: taskText,
+      nextAction: taskText,
+      nextActionDate: new Date(),
+    });
+  } catch (err) {
+    await logSystemError(
+      "api",
+      `Задача агенту о недозвонах (клиент ${client.shortId}): ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  await createNotifications([agentId], {
+    kind: "no_answer_followup",
+    title: `${formatClientName(client)}: не берёт трубку`,
+    body: `${calls} подряд без ответа${reason}. Напишите клиенту в мессенджер.`,
+    url: `/clients/${client.shortId}`,
+    tag: `no-answer-${client.id}`,
+  });
 }
 
 /** Клиент наконец ответил — эскалация «не отвечает» у руководителей больше не
