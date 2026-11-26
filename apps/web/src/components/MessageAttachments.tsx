@@ -164,6 +164,8 @@ function AttachmentItem({
   const url = attachment.url ?? (useDirect ? (isImage ? links.thumb ?? links.src ?? null : links.src ?? null) : stored.url);
   const failed = attachment.url || useDirect ? false : stored.failed;
   const [zoomed, setZoomed] = useState(false);
+  // Файл по ссылке не отдался (удалён, срок ссылки вышел): вместо битой картинки с подписью-alt, вылезающей из пузыря.
+  const [imgBroken, setImgBroken] = useState(false);
   // Голосовое ogg/opus, которое этот браузер не играет, — сразу версия m4a.
   const audioNeedsPlay = attachment.kind === "audio" && useDirect && !!links.play && !browserPlays(attachment.mime);
   // Версия для браузера готовится на сервере (503 + Retry-After) — ждём её, а не
@@ -218,6 +220,10 @@ function AttachmentItem({
     );
   }
 
+  if (isImage && imgBroken) {
+    return <Note icon={ImageOff} rh2={rh2}>Фото не загрузилось</Note>;
+  }
+
   if (isImage) {
     return (
       <>
@@ -240,6 +246,7 @@ function AttachmentItem({
             decoding="async"
             onError={() => {
               if (useDirect) onDirectError();
+              else setImgBroken(true);
             }}
           />
         </button>
