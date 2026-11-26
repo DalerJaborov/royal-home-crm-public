@@ -15924,8 +15924,10 @@
 `apps/api/src/routes/settings.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: siteAdmin.reset, requireElevation
 
 - если !url || !apiKey
-  - return res.status(503).json({ error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)" …
-    · ответ 503 — «Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)»
+  - console.warn("[site-reset] не заданы SITE_SYNC_URL / SITE_SYNC_ADMIN_RESET_KEY");
+    · пишет строку в журнал сервера
+  - return res.status(503).json({ error: "Связь с сайтом не настроена. Обратитесь к администратору." });
+    · ответ 503 — «Связь с сайтом не настроена. Обратитесь к администратору.»
 - const parsed = siteAdminResetSchema.safeParse(req.body ?? {});
   · проверяет данные схемой siteAdminResetSchema
 - если !parsed.success
@@ -25051,7 +25053,7 @@
   - const result = await collectSiteStats();
     · зовёт collectSiteStats()
     - если !siteStatsConfigured()
-      - return { ok: false, error: "Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", notConfigured: tr…
+      - return { ok: false, error: "Связь с сайтом не настроена. Обратитесь к администратору.", notConfigured: true };
         · дословно из кода
     - пробует
       - const { since, until } = await siteStatsWindow(now);
@@ -29220,8 +29222,8 @@
 - const result = await syncPropertiesToSite([property], "sold");
   · зовёт syncPropertiesToSite()
   - если !SITE_SYNC_URL || !SITE_SYNC_API_KEY
-    - return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", retryable…
-      · дословно из кода
+    - console.warn("[site-sync] не заданы SITE_SYNC_URL / SITE_SYNC_API_KEY");
+      · пишет строку в журнал сервера
   - если action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…
     - return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов', retryabl…
       · дословно из кода

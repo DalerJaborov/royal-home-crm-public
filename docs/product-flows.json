@@ -74065,9 +74065,17 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: \"Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)\" …",
+       "t": "console.warn(\"[site-reset] не заданы SITE_SYNC_URL / SITE_SYNC_ADMIN_RESET_KEY\");",
        "a": [
-        "ответ 503 — «Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)»"
+        "пишет строку в журнал сервера"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(503).json({ error: \"Связь с сайтом не настроена. Обратитесь к администратору.\" });",
+       "a": [
+        "ответ 503 — «Связь с сайтом не настроена. Обратитесь к администратору.»"
        ],
        "c": []
       }
@@ -113108,7 +113116,7 @@
          "c": [
           {
            "k": "do",
-           "t": "return { ok: false, error: \"Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\", notConfigured: tr…",
+           "t": "return { ok: false, error: \"Связь с сайтом не настроена. Обратитесь к администратору.\", notConfigured: true };",
            "a": [
             "дословно из кода"
            ],
@@ -132575,9 +132583,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return { ok: false, error: \"Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\", retryable…",
+         "t": "console.warn(\"[site-sync] не заданы SITE_SYNC_URL / SITE_SYNC_API_KEY\");",
          "a": [
-          "дословно из кода"
+          "пишет строку в журнал сервера"
          ],
          "c": []
         }
