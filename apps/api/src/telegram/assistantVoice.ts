@@ -74,7 +74,7 @@ export function speechTextFromReply(text: string): string {
 }
 
 /** Отказ ElevenLabs: HTTP-код и машинный код ошибки, без текста ответа (в нём может быть присланное). */
-export class AssistantTtsHttpError extends Error {
+class AssistantTtsHttpError extends Error {
   constructor(readonly status: number, readonly code: string | null) {
     super(`ElevenLabs HTTP ${status}${code ? ` ${code}` : ""}`);
   }
