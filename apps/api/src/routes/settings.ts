@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { ASSISTANT_STAFF_TOTP_KEY, assistantStaffTotpSwitchUpdateSchema, AUTOMATION_SWITCH_KEYS, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
+import { ASSISTANT_STAFF_TOTP_KEY, assistantStaffTotpSwitchUpdateSchema, AUTOMATION_SWITCH_KEYS, BOT_DAILY_SPEND_CAP_MAX_USD, automationSwitchesUpdateSchema, ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, LIVE_VOICE_MINUTES_CAP_MAX, MARKET_BUYER_RULE_LIMITS, SELLER_AUTOMATION_FIELDS, SECURITY_AUTOMATION_KEY, canViewInvestigations, securityAutomationSwitchUpdateSchema, sellerAutomationSwitchesUpdateSchema } from "@royal-home/shared";
 import { readLiveVoiceSpend } from "../lib/liveVoiceSpend.js";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -1065,6 +1065,8 @@ const settingsUpdateSchema = z.object({
    *  0 — без потолка (явный выбор владельца). Верх — защита от лишнего нуля. */
   liveVoiceDailyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
   liveVoiceMonthlyMinutesCap: z.number().int().min(0).max(LIVE_VOICE_MINUTES_CAP_MAX).optional(),
+  /** Суточный денежный потолок бота клиентов в USD (CRM-47, lib/customerBotSpendCap.ts). 0 — без потолка. */
+  botDailySpendCapUsd: z.number().finite().min(0).max(BOT_DAILY_SPEND_CAP_MAX_USD).optional(),
   /** ГОЛОСОВЫЕ ОТВЕТЫ БОТА В ПЕРЕПИСКЕ (13.09.2026) — озвучивает свой текстовый
    *  ответ, только если клиент сам прислал голосовое в этом же ходе (см.
    *  messengers/botCapabilities.ts::voiceReplies). Выключено по умолчанию —
@@ -2031,6 +2033,8 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     ...(rest[ASSISTANT_STAFF_TOTP_KEY] !== undefined ? { [ASSISTANT_STAFF_TOTP_KEY]: rest[ASSISTANT_STAFF_TOTP_KEY] } : {}),
     // Автоматика ИИ и напоминания (19.11.2026): выключенная функция выглядит как поломка — в журнале видно, кто и когда.
     ...Object.fromEntries(AUTOMATION_SWITCH_KEYS.filter((k) => rest[k] !== undefined).map((k) => [k, rest[k]])),
+    // Денежный потолок бота клиентов (CRM-47): сумма трат — в журнале видно, кто и какую поставил.
+    ...(rest.botDailySpendCapUsd !== undefined ? { botDailySpendCapUsd: rest.botDailySpendCapUsd } : {}),
   });
 
   // Маркер рекламного кабинета из Graph API Explorer живёт час-два — меняем его на

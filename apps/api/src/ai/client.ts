@@ -56,6 +56,11 @@ export async function callAiText<T>(params: {
   signal?: AbortSignal;
 }): Promise<T | null> {
   params.providerOperation?.check();
+  // Суточный денежный потолок бота клиентов (CRM-47, lib/customerBotSpendCap.ts): точку бота при достигнутом потолке не
+  // зовём — «нет ответа», вызывающий отвечает своими правилами. Чужие точки (Шабнам, звонки, карточки) не трогаются.
+  // Динамический импорт: lib → ai/client без цикла импортов.
+  const { customerBotSpendCapReached } = await import("../lib/customerBotSpendCap.js");
+  if (await customerBotSpendCapReached(params.endpoint)) return null;
   // Блокировка промта — решение по содержимому, а не по поставщику: повтор
   // ниже получит тот же blockReason на том же тексте, поэтому при блокировке
   // его пропускаем (15.09.2026) вместо того, чтобы гарантированно жечь вторую
