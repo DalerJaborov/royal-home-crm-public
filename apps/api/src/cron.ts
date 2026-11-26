@@ -2540,14 +2540,17 @@ export function startCronJobs() {
         const result = await runDailyStoriesTick();
         if (result.ran) {
           console.log(
-            `[cron] Ежедневная подборка сторис: кандидатов ${result.candidateCount}, опубликовано ${result.published}, не удалось ${result.failed}`
+            `[cron] Ежедневная подборка сторис: кандидатов ${result.candidateCount}, опубликовано ${result.published} (роликом ${result.videos ?? 0}), не удалось ${result.failed}, пропущено ${result.skipped ?? 0}`
           );
         }
       } catch (err) {
         reportCronTickError("Ошибка ежедневной подборки сторис", err);
       }
     },
-    { timezone: "Asia/Dushanbe" }
+    { timezone: "Asia/Dushanbe" },
+    undefined,
+    // Роликами (26.11.2026): до трёх роликов, у каждого ffmpeg и обработка у Meta — прогон сам кончает за 35 минут.
+    { timeoutMs: 45 * 60_000 }
   );
 
   /**

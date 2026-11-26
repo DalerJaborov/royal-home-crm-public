@@ -198,7 +198,7 @@ export async function runPropertyStatusEffects(input: {
 
   if (flags.becameSold || flags.becameWithdrawn || flags.becameReserved) {
     // Монтаж, фото-посты, повторы и будущие показы — одной общей функцией (lib/propertyLeftSale.ts).
-    closeWorkAfterLeavingSale(updated.id, flags.becameSold ? "sold" : flags.becameWithdrawn ? "withdrawn" : "reserved");
+    closeWorkAfterLeavingSale(updated.id, flags.becameSold ? "sold" : flags.becameWithdrawn ? "withdrawn" : "reserved", existing.status);
   }
 
   // Сайт следует за статусом: «Продано» — бейдж, возврат — снять бейдж, снятие и

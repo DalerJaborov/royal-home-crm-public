@@ -312,7 +312,7 @@ export async function refreshPropertyStatus(
   }
 
   // Посты, повторы, место монтажёра и будущие показы — как при ручной смене статуса.
-  if (next === "SOLD") closeWorkAfterLeavingSale(property.id, "sold");
+  if (next === "SOLD") closeWorkAfterLeavingSale(property.id, "sold", from);
   else if (next === "WITHDRAWN") closeWorkAfterLeavingSale(property.id, "withdrawn");
   else if (next === "RESERVED") closeWorkAfterLeavingSale(property.id, "reserved");
 

@@ -8,10 +8,13 @@ import { propertyPriceTjs } from "@royal-home/shared";
 import {
   PRICE_DROP_STORY_MAX_ATTEMPTS,
   PROPERTY_STATUS_STORY_JOB_TYPE,
+  isStoryKeyDead,
   priceDropVoiceCheck,
   publishPropertyPriceDropStory,
   publishPropertySoldStory,
+  soldStoryEverPublished,
 } from "../lib/instagramStories.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -25,6 +28,13 @@ import type { JobHandler } from "./registry.js";
  *
  * Идемпотентность: публикация проверяет суточный ограничитель по (объект, вид, канал) и сама записывает
  * PropertyStoryPost; повтор после успеха ничего не выложит второй раз.
+ *
+ * АВТОИСТОРИЯ «ПРОДАНО» (26.11.2026, `auto`): ставится при продаже (instagramStories.ts::queueAutoPropertySoldStory).
+ * Перед публикацией заново: выключатель storySoldAutoEnabled, статус SOLD, «продано» по объекту ещё не выходило
+ * (один раз на объект). Без `force` — рубильник автоисторий и суточный ограничитель решает сама публикация.
+ *
+ * МЁРТВЫЙ КЛЮЧ (401/190, дверь #432): повтора нет ни у одного вида — каждый повтор снова встречал бы Meta мёртвым
+ * ключом. Отметку и тревогу ставит дверь; здесь одна строка журнала на эпизод.
  */
 const schema = z.object({
   propertyId: z.string(),
@@ -33,6 +43,8 @@ const schema = z.object({
   priceWasTjs: z.number().nullable().optional(),
   queuedAt: z.number(),
   force: z.boolean().optional(),
+  /** Поставлено автоматически при продаже (не кнопкой). */
+  auto: z.boolean().optional(),
 });
 type Payload = z.infer<typeof schema>;
 
@@ -73,6 +85,11 @@ export const propertyStatusStoryJob: JobHandler<Payload> = {
     }
     // Повтор «продано» после частичного успеха (таймаут, подбор упавшего задания) ничего не выкладывает второй раз:
     // `force` обходит только рубильник и суточный ограничитель, а не то, что история этого задания уже вышла.
+    // Автоистория «продано»: выключили, пока ждала паузу, или «продано» по объекту уже выходило — ничего не делаем.
+    if (payload.kind === "SOLD" && payload.auto && !payload.force) {
+      if (!(await automationSwitchOn("storySoldAutoEnabled"))) return;
+      if (await soldStoryEverPublished(payload.propertyId)) return;
+    }
     if (payload.kind === "SOLD") {
       const done = await prisma.propertyStoryPost.findFirst({
         where: { propertyId: payload.propertyId, kind: "SOLD", channel: "INSTAGRAM", publishedAt: { gte: new Date(payload.queuedAt - 1000) } },
@@ -96,8 +113,10 @@ export const propertyStatusStoryJob: JobHandler<Payload> = {
     // «Продано» — статус перечитывается прямо перед публикацией (ревью #445): задание ждёт в очереди минуты,
     // за это время продажу могли отменить, и печать «Продано» на живом объекте была бы враньём.
     if (payload.kind === "SOLD") {
-      const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, deletedAt: true } });
+      const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, deletedAt: true, offSite: true } });
       if (!fresh || fresh.deletedAt || fresh.status !== "SOLD") return;
+      // Объект стал «только для своих», пока задание ждало, — частный объект в истории не выкладываем.
+      if (fresh.offSite) return;
     }
 
     const summary =
@@ -106,6 +125,15 @@ export const propertyStatusStoryJob: JobHandler<Payload> = {
         : await publishPropertySoldStory(payload.propertyId, { force: payload.force ?? false, video: true });
     // История уже ждёт обработки у Meta: её дозавершит фоновый проход контейнеров. Повтор здесь выложил бы вторую.
     if (summary.pending) return;
+    // Мёртвый ключ: повтор встретил бы Meta тем же ключом. Дверь #432 уже отметила аккаунт и подняла тревогу.
+    if (isStoryKeyDead(summary)) {
+      void logSystemError(
+        "meta",
+        `История «${payload.kind === "SOLD" ? "продано" : "цена снижена"}» (объект ${payload.propertyId}) не вышла: ключ Instagram не принят — повторять не будем, нужно «Заменить маркер»`,
+        { dedupKey: `property-status-story-key-dead:${payload.kind}:${payload.propertyId}` }
+      );
+      return;
+    }
     // Ничего не вышло и причина названа (Meta отказала, нет токена) — повтор через backoff; «выключено/уже было» — не ошибка.
     if (summary.attempted && summary.publishedParts === 0 && summary.error) throw new Error(summary.error);
   },

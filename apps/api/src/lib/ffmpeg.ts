@@ -429,12 +429,38 @@ export function buildOverlayCardArgs(inputPath: string, overlayPngPath: string, 
  * в минуту: звать только из фонового задания, не из запроса пользователя. `ok: false` — ffmpeg не справился:
  * `reason` (код выхода, таймаут, хвост stderr) вызывающий кладёт в журнал ошибок и публикует фото-карточку.
  */
+/**
+ * ОДИН ffmpeg НАЛОЖЕНИЯ НА ПРОЦЕСС (26.11.2026). Истории-ролики ставят и задания очереди («цена снижена»,
+ * «продано»), и ежедневная подборка — всё в процессе worker, где на машине около гигабайта свободной памяти:
+ * два libx264 разом на минутных роликах — риск выбить соседей. Ждущий встаёт в очередь (порядок вызовов);
+ * отказ предыдущего очередь не рвёт. Вынесено ради теста без ffmpeg.
+ */
+let overlaySlot: Promise<void> = Promise.resolve();
+export function runInOverlaySlot<T>(fn: () => Promise<T>): Promise<T> {
+  const run = overlaySlot.then(fn, fn);
+  overlaySlot = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function overlayCardOnVideo(
   inputPath: string,
   overlayPngPath: string,
   outputPath: string,
   opts: { showSec?: number; maxDurationSec?: number } = {},
   timeoutMs = 240_000
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return runInOverlaySlot(() => overlayCardOnVideoNow(inputPath, overlayPngPath, outputPath, opts, timeoutMs));
+}
+
+async function overlayCardOnVideoNow(
+  inputPath: string,
+  overlayPngPath: string,
+  outputPath: string,
+  opts: { showSec?: number; maxDurationSec?: number },
+  timeoutMs: number
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   try {
     await runFfmpeg({

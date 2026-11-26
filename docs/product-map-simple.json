@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 146,
   "jobs": 37,
-  "conditions": 4313,
-  "untranslatedUnique": 496,
-  "untranslatedTotal": 637,
-  "partialUnique": 1139,
+  "conditions": 4329,
+  "untranslatedUnique": 498,
+  "untranslatedTotal": 639,
+  "partialUnique": 1143,
   "translatedShare": 85
  },
  "untranslated": [
@@ -28,6 +28,7 @@
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+  "!(await automationSwitchOn(\"storySoldAutoEnabled\"))",
   "!(await claimRun(id))",
   "!(await deleteNarrationMusicTrack(id.data))",
   "!(await discardDraft(d.id, { expiredAt: now }))",
@@ -242,6 +243,7 @@
   "await refreshMetaAdsTokenIfDue()",
   "await removeStationObject(creds, \"bridge\", bridge.id)",
   "await removeStationObject(creds, \"channel\", channel.id)",
+  "await soldStoryEverPublished(payload.propertyId)",
   "await sourceClosed(new Date())",
   "await staffAnsweredLate(incoming)",
   "await staleLeadCircleOpen()",
@@ -69182,6 +69184,20 @@
            "more": true
           },
           {
+           "t": "если elapsed не меньше daily запустить deadline ms",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть видео",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
            "t": "пробует сделать",
            "k": "try",
            "a": [],
@@ -86073,6 +86089,27 @@
      ]
     },
     {
+     "t": "если вид — «SOLD» и есть auto и нет: force",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если !(await automationSwitchOn(\"storySoldAutoEnabled\"))",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!(await automationSwitchOn(\"storySoldAutoEnabled\"))"
+      },
+      {
+       "t": "если await soldStoryEverPublished(payload.propertyId)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "await soldStoryEverPublished(payload.propertyId)"
+      }
+     ]
+    },
+    {
      "t": "если вид — «SOLD»",
      "k": "if",
      "a": [],
@@ -86121,6 +86158,12 @@
        "k": "if",
        "a": [],
        "c": []
+      },
+      {
+       "t": "если есть off сайт",
+       "k": "if",
+       "a": [],
+       "c": []
       }
      ]
     },
@@ -86129,6 +86172,84 @@
      "k": "if",
      "a": [],
      "c": []
+    },
+    {
+     "t": "если это story ключ dead",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть context и (есть ссылка или есть stack)",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если это private operation",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если source — «investigation»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если сервер сейчас выключается",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть недавняя запись",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "заводит: запись в журнале ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: quiet пульт",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: ever просмотрено и нет: молчащие",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     },
     {
      "t": "если есть attempted и опубликованные части (сводка) — «0» и есть ошибка (сводка)",

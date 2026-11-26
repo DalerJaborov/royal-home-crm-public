@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4368**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5909,7 +5909,7 @@
           · зовёт logTimeline()
     - если revivedReservedProperty
       - closeWorkAfterLeavingSale(existing.propertyId, "reserved");
-        · зовёт closeWorkAfterLeavingSale()
+        · дословно из кода
     - если sellerClientIdToRecompute
       - const sellerBefore = await prisma.client.findUnique({ where: { id: sellerClientIdToRecompute }, select: { sta…
         · читает в базе: client
@@ -5950,8 +5950,6 @@
       - await reverseDealClosedScore({ dealId: existing.id, agentId: existing.agentId, client: existing.client, initi…
         · зовёт reverseDealClosedScore()
     - если isCompleting
-      - closeWorkAfterLeavingSale(existing.propertyId, "sold");
-        · зовёт closeWorkAfterLeavingSale()
       - await enqueueBackgroundJob({ type: "deal-close-followup", payload: { dealId: existing.id, propertyId: existin…
         · зовёт enqueueBackgroundJob()
       - void enqueueBackgroundJob({ type: "deal-review-ask", payload: { dealId: existing.id }, maxAttempts: 5, dedupe…
@@ -6134,8 +6132,6 @@
         · дословно из кода
     - throw error;
       · пробрасывает ошибку дальше
-  - closeWorkAfterLeavingSale(data.propertyId, "reserved");
-    · зовёт closeWorkAfterLeavingSale()
   - logAudit(req, "DEAL_CREATE", "Deal", deal.id, { clientId: data.clientId, propertyId: data.propertyId, agentId…
     · зовёт logAudit()
   - publishDealUpdated({ dealId: deal.id, clientId: deal.clientId, agentId: deal.agentId, stage: deal.stage, acto…
@@ -21229,19 +21225,35 @@
       · читает в базе: property
     - const ranked = rankDailyStoryCandidates( candidates.map((p)
       · зовёт rankDailyStoryCandidates()
+    - const videoOn = await automationSwitchOn("dailyStoriesVideoEnabled");
+      · зовёт automationSwitchOn()
     - для каждого: let i = 0; i < chosen.length; i++
       - если i > 0
         - await sleep(PAUSE_BETWEEN_PROPERTIES_MS);
           · зовёт sleep()
+      - если elapsed >= DAILY_RUN_DEADLINE_MS
+        - void logSystemError("meta", `Ежедневная подборка сторис: не уложилась в ${Math.round(DAILY_RUN_DEADLINE_MS / …
+          · запись в журнал ошибок
+        - break;
+          · прекращает перебор
+      - const video = videoOn && videoTries < DAILY_VIDEO_MAX && elapsed < DAILY_VIDEO_START_BUDGET_MS && !!row && ca…
+        · зовёт cardVideoClipUsable()
+      - если video
+        - videoTries++;
+          · дословно из кода
       - пробует
-        - const summary = await publishPropertyCardStory(chosen[i].id, { force: true });
+        - const summary = await publishPropertyCardStory(chosen[i].id, { force: true, video });
           · зовёт publishPropertyCardStory()
         - если summary.publishedParts > 0
-          - published++;
-            · дословно из кода
+          - если summary.video
+            - videos++;
+              · дословно из кода
         - иначе
           - failed++;
             · дословно из кода
+        - если summary.keyDead
+          - break;
+            · прекращает перебор
       - если сорвалось
         - void logSystemError("meta", `Ежедневная подборка сторис (объект ${chosen[i].id}) упала неожиданно: ${describe…
           · запись в журнал ошибок
@@ -30069,6 +30081,13 @@
   - если nowTjs !== null && nowTjs >= payload.priceWasTjs
     - return;
       · дальше не идёт, ничего не меняя
+- если payload.kind === "SOLD" && payload.auto && !payload.force
+  - если !(await automationSwitchOn("storySoldAutoEnabled"))
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если await soldStoryEverPublished(payload.propertyId)
+    - return;
+      · дальше не идёт, ничего не меняя
 - если payload.kind === "SOLD"
   - const done = await prisma.propertyStoryPost.findFirst({ where: { propertyId: payload.propertyId, kind: "SOLD"…
     · читает в базе: propertyStoryPost
@@ -30089,9 +30108,54 @@
   - если !fresh || fresh.deletedAt || fresh.status !== "SOLD"
     - return;
       · дальше не идёт, ничего не меняя
+  - если fresh.offSite
+    - return;
+      · дальше не идёт, ничего не меняя
 - const summary = payload.kind === "PRICE_DROP" ? await publishPropertyPriceDropStory(payload.propertyId, paylo…
   · зовёт publishPropertyPriceDropStory()
 - если summary.pending
+  - return;
+    · дальше не идёт, ничего не меняя
+- если isStoryKeyDead(summary)
+  - void logSystemError( "meta", `История «${payload.kind === "SOLD" ? "продано" : "цена снижена"}» (объект ${pay…
+    · запись в журнал ошибок
+    - message = maskPhoneNumbersInText(String(message));
+      · зовёт maskPhoneNumbersInText()
+    - message = redactSecretsInText(message);
+      · зовёт redactSecretsInText()
+    - если context && (context.url || context.stack)
+      - context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };
+        · зовёт redactSecretsInText()
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
   - return;
     · дальше не идёт, ничего не меняя
 - если summary.attempted && summary.publishedParts === 0 && summary.error

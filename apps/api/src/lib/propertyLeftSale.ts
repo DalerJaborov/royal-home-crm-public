@@ -3,6 +3,7 @@ import { retireNarrationsOfClosedProperties } from "./narrationOptOut.js";
 import { removePropertyPhotoPosts } from "./photoPosts.js";
 import { removePropertySocialReposts } from "./socialReposts.js";
 import { retireSocialAfterSale } from "./propertySoldSocial.js";
+import { queueAutoPropertySoldStory } from "./instagramStories.js";
 import { cancelFutureShowingsForOffSale } from "./trashProperty.js";
 import { describeError } from "./describeError.js";
 import { logSystemError } from "./systemError.js";
@@ -31,7 +32,15 @@ const REASON: Record<LeftSaleKind, string> = {
   reserved: "в резерве",
 };
 
-export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind): void {
+/**
+ * `from` — статус ДО смены, обязателен для продажи (26.11.2026): история «Продано» выходит сама только у объекта,
+ * который был в продаже (lib/instagramStories.ts::queueAutoPropertySoldStory). Новый путь продажи без `from` не
+ * соберётся — и не выложит печать «Продано» на объект, которого подписчики не видели.
+ */
+export function closeWorkAfterLeavingSale(propertyId: string, kind: "sold", from: string | null): void;
+export function closeWorkAfterLeavingSale(propertyId: string, kind: "withdrawn" | "reserved", from?: string | null): void;
+export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind, from: string | null): void;
+export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind, from: string | null = null): void {
   const reason = REASON[kind];
   const fail = (what: string, source: "video-handoff" | "meta" | "api") => (err: unknown) =>
     void logSystemError(source, `Объект ${propertyId}: ${what} при смене статуса (${reason}) не удалось: ${describeError(err)}`);
@@ -51,4 +60,6 @@ export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind
   // Основной ролик — только при продаже (29.10.2026): снятый с продажи объект часто
   // возвращается, и его ролик должен дождаться этого на месте.
   if (kind === "sold") void retireSocialAfterSale(propertyId).catch(fail("снятие роликов из соцсетей", "meta"));
+  // История «Продано» сама (26.11.2026, выключатель storySoldAutoEnabled): задание с паузой, оно перечитает статус.
+  if (kind === "sold") void queueAutoPropertySoldStory(propertyId, from).catch(fail("постановка истории «Продано»", "meta"));
 }

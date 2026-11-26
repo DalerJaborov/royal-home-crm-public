@@ -20,7 +20,7 @@ vi.mock("../src/lib/instagramStories.js", async (importOriginal) => ({
 process.env.CRM_PUBLIC_URL = process.env.CRM_PUBLIC_URL ?? "https://crm-test.royalhome.tj";
 
 const { prisma } = await import("../src/db.js");
-const { runDailyStoriesTick, rankDailyStoryCandidates } = await import("../src/lib/dailyStories.js");
+const { runDailyStoriesTick, rankDailyStoryCandidates, DAILY_VIDEO_MAX, DAILY_VIDEO_START_BUDGET_MS, DAILY_RUN_DEADLINE_MS } = await import("../src/lib/dailyStories.js");
 
 const runId = Date.now();
 let districtId: string;
@@ -29,6 +29,7 @@ let savedSettings: {
   dailyStoriesCount: number;
   dailyStoriesHourDushanbe: number;
   dailyStoriesLastRunAt: Date | null;
+  dailyStoriesVideoEnabled: boolean;
 };
 const propertyIds: string[] = [];
 
@@ -36,8 +37,8 @@ const propertyIds: string[] = [];
  *  зависел от реального времени запуска. */
 const NOON_DUSHANBE = new Date("2026-09-28T06:00:00.000Z");
 
-async function makeProperty(opts: { withPhoto?: boolean; offSite?: boolean; status?: "AVAILABLE" | "SOLD"; postApprovedAt?: Date }) {
-  const { withPhoto = true, offSite = false, status = "AVAILABLE", postApprovedAt } = opts;
+async function makeProperty(opts: { withPhoto?: boolean; offSite?: boolean; status?: "AVAILABLE" | "SOLD"; postApprovedAt?: Date; clip?: "ok" | "price-in-frame" }) {
+  const { withPhoto = true, offSite = false, status = "AVAILABLE", postApprovedAt, clip } = opts;
   const property = await prisma.property.create({
     data: {
       title: `Тест-подборка-${runId}-${propertyIds.length}`,
@@ -51,6 +52,14 @@ async function makeProperty(opts: { withPhoto?: boolean; offSite?: boolean; stat
       status,
       offSite,
       postApprovedAt: postApprovedAt ?? new Date(),
+      ...(clip
+        ? {
+            videoHandoffStatus: "RECEIVED" as const,
+            clipReviewStatus: "APPROVED" as const,
+            videoHandoffFinalPath: `/uploads/handoff/daily-${runId}-${propertyIds.length}.mp4`,
+            videoHandoffLastFactsText: clip === "ok" ? "Объект №1\nЭтаж: 3" : "Объект №1\nЦена: 100 000 с.",
+          }
+        : {}),
     },
   });
   propertyIds.push(property.id);
@@ -68,6 +77,7 @@ beforeAll(async () => {
     dailyStoriesCount: current.dailyStoriesCount,
     dailyStoriesHourDushanbe: current.dailyStoriesHourDushanbe,
     dailyStoriesLastRunAt: current.dailyStoriesLastRunAt,
+    dailyStoriesVideoEnabled: current.dailyStoriesVideoEnabled,
   };
 });
 
@@ -76,7 +86,7 @@ beforeEach(async () => {
   publishPropertyCardStory.mockResolvedValue({ attempted: true, publishedParts: 1, totalParts: 1 });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { dailyStoriesEnabled: false, dailyStoriesCount: 3, dailyStoriesHourDushanbe: 11, dailyStoriesLastRunAt: null },
+    data: { dailyStoriesEnabled: false, dailyStoriesCount: 3, dailyStoriesHourDushanbe: 11, dailyStoriesLastRunAt: null, dailyStoriesVideoEnabled: true },
   });
 });
 
@@ -222,5 +232,75 @@ describe("runDailyStoriesTick", () => {
     expect(result.ran).toBe(true);
     expect(result.failed).toBe(1);
     expect(result.published).toBe(0);
+  });
+});
+
+/**
+ * ПОДБОРКА РОЛИКАМИ (26.11.2026): объект с годным роликом (без цены в кадре) идёт `video: true`, остальное — фото;
+ * предел роликов за прогон, бюджет времени, общий срок, выключатель и мёртвый ключ. Публикация подменена —
+ * проверяем решение подборки; сам ролик без цены проверяет tests/story-sold-auto.test.ts.
+ */
+describe("runDailyStoriesTick роликами", () => {
+  const videoFlagOf = (id: string) => {
+    const call = publishPropertyCardStory.mock.calls.find((c) => (c as unknown[])[0] === id) as unknown[] | undefined;
+    return (call?.[1] as { video?: boolean } | undefined)?.video;
+  };
+  const onlyOurs = async () => prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesEnabled: true, dailyStoriesHourDushanbe: 11, dailyStoriesCount: 1000 } });
+
+  it("годный ролик — роликом; без ролика и с ценой в кадре — фото-карточкой", async () => {
+    await onlyOurs();
+    const withClip = await makeProperty({ clip: "ok" });
+    const noClip = await makeProperty({});
+    const priced = await makeProperty({ clip: "price-in-frame" });
+    await runDailyStoriesTick(NOON_DUSHANBE);
+    expect(videoFlagOf(withClip.id)).toBe(true);
+    expect(videoFlagOf(noClip.id)).toBe(false);
+    expect(videoFlagOf(priced.id)).toBe(false);
+  });
+
+  it("выключатель «подборка роликами» выключен — все фото-карточкой", async () => {
+    await onlyOurs();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesVideoEnabled: false } });
+    const withClip = await makeProperty({ clip: "ok" });
+    await runDailyStoriesTick(NOON_DUSHANBE);
+    expect(videoFlagOf(withClip.id)).toBe(false);
+  });
+
+  it("роликов за прогон не больше предела", async () => {
+    await onlyOurs();
+    for (let i = 0; i < DAILY_VIDEO_MAX + 2; i++) await makeProperty({ clip: "ok" });
+    await runDailyStoriesTick(NOON_DUSHANBE);
+    const videoCalls = publishPropertyCardStory.mock.calls.filter((c) => ((c as unknown[])[1] as { video?: boolean }).video === true);
+    expect(videoCalls.length).toBe(DAILY_VIDEO_MAX);
+  });
+
+  it("бюджет времени на ролики вышел — дальше фото; общий срок вышел — остальное пропущено", async () => {
+    await onlyOurs();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesCount: 3 } });
+    // Свои объекты первыми: никогда не публиковались и одобрены «в будущем» — свежее любого сида стенда.
+    const future = new Date(Date.now() + 86_400_000);
+    await makeProperty({ clip: "ok", postApprovedAt: new Date(future.getTime() + 3) });
+    await makeProperty({ clip: "ok", postApprovedAt: new Date(future.getTime() + 2) });
+    await makeProperty({ clip: "ok", postApprovedAt: new Date(future.getTime() + 1) });
+    // Часы прогона: старт 0, первый объект — сразу, второй — после бюджета роликов, третий — после общего срока.
+    const ticks = [0, 0, DAILY_VIDEO_START_BUDGET_MS + 1, DAILY_RUN_DEADLINE_MS + 1];
+    let i = 0;
+    const result = await runDailyStoriesTick(NOON_DUSHANBE, () => ticks[Math.min(i++, ticks.length - 1)]);
+    const flags = publishPropertyCardStory.mock.calls.map((c) => ((c as unknown[])[1] as { video?: boolean }).video);
+    expect(flags).toEqual([true, false]);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("мёртвый ключ Instagram — остальные объекты тем же ключом не пробуем", async () => {
+    await onlyOurs();
+    await prisma.settings.update({ where: { id: "singleton" }, data: { dailyStoriesCount: 3 } });
+    publishPropertyCardStory.mockResolvedValue({ attempted: true, publishedParts: 0, totalParts: 1, keyDead: true } as never);
+    await makeProperty({});
+    await makeProperty({});
+    await makeProperty({});
+    const result = await runDailyStoriesTick(NOON_DUSHANBE);
+    expect(publishPropertyCardStory).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(1);
+    expect(result.skipped).toBe(2);
   });
 });
