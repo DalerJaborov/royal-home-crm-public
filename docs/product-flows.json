@@ -57879,7 +57879,7 @@
     },
     {
      "k": "do",
-     "t": "const ownsIt = ownsProperty(req.agent!.id, property);",
+     "t": "const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === \"HEAD_OF_SALES\";",
      "a": [
       "зовёт ownsProperty()"
      ],
