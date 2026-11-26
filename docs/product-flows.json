@@ -35780,7 +35780,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ property: { title: property.title, type: property.type, rooms: property.rooms, areaSqm: property.a…",
+     "t": "res.json({ property: { title: publicPropertyTitle(property), type: property.type, rooms: property.rooms, area…",
      "a": [
       "ответ 200"
      ],

@@ -15,7 +15,9 @@
  *    Не готовы фото или канал их не умеет — клиент всё равно получил текст со ссылкой;
  *  - карточку клиента отправка НЕ создаёт и заявку не принимает. Журнал показов
  *    (PropertyExposure) пишется на пару (канал, собеседник) — тот же мост, что у бота, —
- *    и привяжется к карточке сам, когда она появится (linkExposuresToClient). Хронология
+ *    и привяжется к карточке сам, когда она появится: и при рождении заявки у бота, и при ручной привязке
+ *    переписки (conversationClientLink.ts), оба зовут linkExposuresToClient. Пока карточки нет, такой показ помечен
+ *    источником MANUAL_NO_CARD и правило «свой объект показан» при распределении заявки его не считает. Хронология
  *    клиента и «объект отправлен» пишутся, только если карточка у переписки есть;
  *  - рубильник `sendPropertiesWithoutCardEnabled`: выключен — прежний отказ «сначала
  *    примите заявку», отправка только клиенту с принятой карточкой.
@@ -327,7 +329,8 @@ export async function sendPropertiesFromConversation(input: SendFromConversation
     recipientId,
     properties.map((p) => ({ propertyId: p.id, shortId: p.shortId, kind: photos.queued > 0 ? ("PHOTO" as const) : ("LINK" as const) })),
     client?.id,
-    info.target.kind === "bot" ? info.target.transport : undefined
+    info.target.kind === "bot" ? info.target.transport : undefined,
+    client ? undefined : "MANUAL_NO_CARD"
   );
   if (client) {
     await recordPropertyDispatchAccepted(client.id, client.assignedAt ?? new Date(), propertyIds, targetChannel(info.target), agentId).catch(() => {});

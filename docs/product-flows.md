@@ -7922,7 +7922,7 @@
 - если !property || property.deletedAt
   - return res.status(404).json({ error: "Ссылка не найдена" });
     · ответ 404 — «Ссылка не найдена»
-- res.json({ property: { title: property.title, type: property.type, rooms: property.rooms, areaSqm: property.a…
+- res.json({ property: { title: publicPropertyTitle(property), type: property.type, rooms: property.rooms, area…
   · ответ 200
 
 ## /api/v1/landmarks

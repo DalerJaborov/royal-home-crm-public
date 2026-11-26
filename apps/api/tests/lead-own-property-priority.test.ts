@@ -176,6 +176,20 @@ describe("Бот показал объект — лид хозяину, безу
     await prisma.propertyExposure.deleteMany({ where: { recipientId } });
   });
 
+  it("ручной показ без карточки (MANUAL_NO_CARD) хозяину заявку не приносит, а после привязки к карточке приносит", async () => {
+    const recipientId = `psid-manual-${runId}`;
+    await prisma.propertyExposure.create({
+      data: { channel: "INSTAGRAM", recipientId, propertyId: exactPropertyId, shortId: exactShortId, kind: "LINK", source: "MANUAL_NO_CARD" },
+    });
+    const before = await assignAgentForLead({ channel: "INSTAGRAM", recipientId }, outsiders);
+    expect(before.reason).not.toBe("own_property_shown");
+    await prisma.propertyExposure.updateMany({ where: { recipientId }, data: { clientId } });
+    const after = await assignAgentForLead({ clientId }, outsiders);
+    expect(after.reason).toBe("own_property_shown");
+    expect(after.agentId).toBe(ownerId);
+    await prisma.propertyExposure.deleteMany({ where: { recipientId } });
+  });
+
   it("показ старше окна из Настроек уже не считается", async () => {
     await prisma.propertyExposure.create({
       data: {

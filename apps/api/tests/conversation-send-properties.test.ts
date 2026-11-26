@@ -9,6 +9,7 @@ import { prisma } from "../src/db.js";
 import * as conversationDelivery from "../src/lib/conversationDelivery.js";
 import * as outgoingMediaJobs from "../src/lib/outgoingMediaJobs.js";
 import * as push from "../src/push.js";
+import { linkConversationClient } from "../src/lib/conversationClientLink.js";
 import { uploadsDir } from "../src/upload.js";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 
@@ -37,6 +38,11 @@ let agentAId: string;
 let agentAToken: string;
 let agentBId: string;
 let agentBToken: string;
+let shareholderId: string;
+let shareholderToken: string;
+let securityId: string;
+let securityToken: string;
+const extraConvIds: string[] = [];
 let ownProperty: string;
 let foreignProperty: string;
 let soldProperty: string;
@@ -99,8 +105,11 @@ beforeAll(async () => {
   const admin = await mk("Админ из чата", `+992960${runId}`, "ADMIN");
   const agentA = await mk("Агент А из чата", `+992961${runId}`, "AGENT");
   const agentB = await mk("Агент Б из чата", `+992962${runId}`, "AGENT");
+  const shareholder = await mk("Акционер из чата", `+992964${runId}`, "SHAREHOLDER" as never);
+  const security = await mk("Безопасник из чата", `+992965${runId}`, "SECURITY" as never);
+  shareholderId = shareholder.id; securityId = security.id;
   adminId = admin.id; agentAId = agentA.id; agentBId = agentB.id;
-  for (const [a, set] of [[admin, (t: string) => (adminToken = t)], [agentA, (t: string) => (agentAToken = t)], [agentB, (t: string) => (agentBToken = t)]] as const) {
+  for (const [a, set] of [[admin, (t: string) => (adminToken = t)], [agentA, (t: string) => (agentAToken = t)], [agentB, (t: string) => (agentBToken = t)], [shareholder, (t: string) => (shareholderToken = t)], [security, (t: string) => (securityToken = t)]] as const) {
     const res = await request(app).post("/api/v1/auth/login").send({ phone: a.phone, password });
     expect(res.status).toBe(200);
     set(res.body.accessToken);
@@ -153,12 +162,12 @@ afterAll(async () => {
   await prisma.propertyExposure.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: createdClientIds } } });
   await prisma.propertyShareLink.deleteMany({ where: { propertyId: { in: propertyIds } } });
-  await prisma.idempotencyKey.deleteMany({ where: { agentId: { in: [adminId, agentAId, agentBId] } } }).catch(() => {});
-  await prisma.botConversation.updateMany({ where: { id: cardConvId }, data: { clientId: null } });
+  await prisma.idempotencyKey.deleteMany({ where: { agentId: { in: [adminId, agentAId, agentBId, shareholderId, securityId] } } }).catch(() => {});
+  await prisma.botConversation.updateMany({ where: { id: { in: [cardConvId, ...extraConvIds] } }, data: { clientId: null } });
   await prisma.client.deleteMany({ where: { id: { in: createdClientIds } } });
   await prisma.propertyPhoto.deleteMany({ where: { propertyId: photoPropertyId } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
-  await prisma.agent.deleteMany({ where: { id: { in: [adminId, agentAId, agentBId] } } });
+  await prisma.agent.deleteMany({ where: { id: { in: [adminId, agentAId, agentBId, shareholderId, securityId] } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
   fs.rmSync(path.join(uploadsDir, photoFile), { force: true });
   await whatsapp.cleanupConversations();
@@ -316,5 +325,68 @@ describe("объект в переписку без карточки клиен�
     expect((await post(adminToken, noCardConvId, { propertyIds: [] })).status).toBe(400);
     expect((await post(adminToken, noCardConvId, { propertyIds: Array.from({ length: 11 }, () => randomUUID()) })).status).toBe(400);
     expect((await post(adminToken, noCardConvId, { propertyIds: [randomUUID()] })).status).toBe(404);
+  });
+
+  it("показ без карточки помечен MANUAL_NO_CARD, с карточкой — нет", async () => {
+    stubDelivery();
+    await post(adminToken, noCardConvId, { propertyIds: [ownProperty] });
+    const manual = await prisma.propertyExposure.findFirst({ where: { propertyId: ownProperty, recipientId: noCardSubscriber } });
+    expect(manual?.source).toBe("MANUAL_NO_CARD");
+    const carded = await prisma.propertyExposure.findFirst({ where: { propertyId: foreignProperty, recipientId: cardSubscriber } });
+    expect(carded?.source).toBeNull();
+  });
+
+  it("ручная привязка переписки к карточке переносит показы на клиента", async () => {
+    stubDelivery();
+    const sub = `99297${String(runId).slice(-7)}`;
+    const convId = (await whatsapp.ensureConversation(sub)).id;
+    extraConvIds.push(convId);
+    await prisma.botConversation.update({ where: { id: convId }, data: { lastMessageAt: new Date(), messages: [{ role: "user", content: "салом", at: new Date().toISOString() }] } });
+    const client = await prisma.client.create({ data: { fullName: "Привязка из чата", phone: `+992966${runId}`, source: "WHATSAPP", assignedAgentId: agentAId, acceptedAt: new Date() } });
+    createdClientIds.push(client.id);
+    expect((await post(adminToken, convId, { propertyIds: [ownProperty] })).status).toBe(200);
+    expect((await prisma.propertyExposure.findFirstOrThrow({ where: { recipientId: sub } })).clientId).toBeNull();
+    await linkConversationClient(convId, { clientId: client.id }, adminId);
+    const linked = await prisma.propertyExposure.findFirstOrThrow({ where: { recipientId: sub } });
+    expect(linked.clientId).toBe(client.id);
+  });
+
+  it("личная страница /l/<токен> не отдаёт улицу, телефон, имя собственника и название из объявления", async () => {
+    const id = await makeProperty({
+      title: `Улица Рудаки 15 звонить +992900123456 ${runId}`,
+      description: `Светлая квартира на ул. Рудаки 15, рядом школа. Звоните Рустаму +992 900 777 123, @rustam_owner, mail rustam@example.com. ${SECRET_ADDRESS}`,
+    });
+    const link = await prisma.propertyShareLink.create({ data: { propertyId: id, token: `tok-${runId}-leak`, createdByAgentId: adminId, expiresAt: new Date(Date.now() + 3600_000) } });
+    const alt = await request(app).get(`/api/v1/l/${link.token}`);
+    expect(alt.status).toBe(200);
+    const body = JSON.stringify(alt.body);
+    for (const secret of ["Рудаки", "900123456", "900 777", "777 123", "rustam", "Рустам", "Секретная", "example.com"]) expect(body).not.toContain(secret);
+    expect(alt.body.property.title).toContain("2-комн");
+    expect(alt.body.property.description).toContain("Светлая квартира");
+  });
+
+  it("частичный сбой фото: карточка ушла, в ответе честная пометка", async () => {
+    stubDelivery();
+    enqueue.mockRestore();
+    let n = 0;
+    enqueue = vi.spyOn(outgoingMediaJobs, "enqueueOutgoingMedia").mockImplementation(async () => (++n === 1
+      ? { status: 202, body: { ok: true, queued: true, jobId: randomUUID(), status: "QUEUED" } }
+      : { status: 503, body: { error: "нет места" } }));
+    await prisma.propertyPhoto.create({ data: { propertyId: photoPropertyId, url: `/uploads/${photoFile}`, thumbUrl: `/uploads/${photoFile}`, order: 1 } });
+    const res = await post(adminToken, noCardConvId, { propertyIds: [photoPropertyId] });
+    expect(res.status).toBe(200);
+    expect(res.body.photos.queued).toBe(1);
+    expect(res.body.photos.skipped).toBe(1);
+    expect(res.body.photos.note).toMatch(/Часть фото/);
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("акционер и служба безопасности отправлять объекты не могут", async () => {
+    stubDelivery();
+    for (const token of [shareholderToken, securityToken]) {
+      const res = await post(token, noCardConvId, { propertyIds: [ownProperty] });
+      expect([403, 404]).toContain(res.status);
+    }
+    expect(deliver).not.toHaveBeenCalled();
   });
 });

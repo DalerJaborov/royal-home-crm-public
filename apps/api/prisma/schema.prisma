@@ -8842,6 +8842,8 @@ model PropertyExposure {
   /// PHOTO | LINK — отправили снимки или адрес карточки.
   kind        String
   sentAt      DateTime  @default(now())
+  /// Откуда показ: MANUAL_NO_CARD — агент отправил объект из чата собеседнику без карточки (26.11.2026). Пусто — показ бота или отправка клиенту с карточкой.
+  source      String?
 
   @@index([clientId, propertyId])
   @@index([channel, recipientId, sentAt])
