@@ -57,7 +57,7 @@ export const HOME_BLOCKS: readonly HomeBlockDef[] = [
   { id: "ropLosses", roles: ["HEAD_OF_SALES"], requires: ["reports.view"], title: "Где теряем клиентов", span: "a", component: RopLosses },
 
   { id: "agentTiles", roles: ["AGENT"], title: "Заявки, показы и дела", component: AgentTiles },
-  { id: "agentFirstCalls", roles: ["AGENT"], title: "Позвонить сейчас", span: "a", component: AgentFirstCalls },
+  { id: "agentFirstCalls", roles: ["AGENT", "HEAD_OF_SALES"], title: "Позвонить сейчас", span: "a", component: AgentFirstCalls },
   { id: "agentPending", roles: ["AGENT"], title: "Ждут принятия", span: "a", component: AgentPending },
   { id: "agentShowings", roles: ["AGENT"], title: "Показы сегодня", span: "b", component: AgentShowings },
   { id: "agentMonth", roles: ["AGENT"], title: "Мой месяц", span: "b", component: AgentMonth },
@@ -102,7 +102,7 @@ const SHAREHOLDER_LAYOUT = ["money", "commission", "pulse", "channels", "ask"] a
 export const HOME_LAYOUT: Readonly<Record<string, readonly string[]>> = {
   DIRECTOR: DIRECTOR_LAYOUT,
   ADMIN: DIRECTOR_LAYOUT,
-  HEAD_OF_SALES: ["ropTiles", "ropSpread", "ropTeam", "ropTasks", "ropLosses", "teamCharts", "full"],
+  HEAD_OF_SALES: ["ropTiles", "agentFirstCalls", "ropTasks", "ropSpread", "ropTeam", "ropLosses", "teamCharts", "full"],
   AGENT: ["agentTiles", "agentFirstCalls", "agentPending", "agentShowings", "agentMonth", "full"],
   EDITOR: ["editorTiles", "editorQuick", "editorHint", "editorEditing", "editorUpcoming"],
   MARKETING: ["marketingTiles", "marketingQuick", "marketingFocus", "ask", "marketingQueue", "marketingAds", "marketingStale"],
