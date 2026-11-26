@@ -51,7 +51,7 @@ type AttachmentKind = MessageAttachment["kind"];
 export type PresentedAttachment = MessageAttachment;
 export type PresentedMessage = ConversationMessage;
 
-const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed", "too_many"]);
+const LOST_REASONS = new Set(["too_big", "too_long", "unsupported", "failed", "too_many", "unavailable", "no_key"]);
 
 function presentAttachments(raw: unknown, allowed: boolean, signedFor: string | null): PresentedAttachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;

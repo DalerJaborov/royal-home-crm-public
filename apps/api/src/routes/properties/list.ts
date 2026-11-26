@@ -520,7 +520,11 @@ listRouter.get("/:id", requireAuth, async (req, res) => {
   const presented = stripEmbedding(stripOwnerContact(property, can(req, "properties.viewOwners")));
   // Кто ведёт объект сам, видит продавца именем и хвостом номера и звонит ему кнопкой
   // (набирает станция); полный номер — только директору (владелец 18.11.2026).
-  const ownsIt = ownsProperty(req.agent!.id, property);
+  // РОП (26.11.2026, владелец: «она должна иметь права любому человеку позвонить и
+  // видеть имя хозяина объекта»): ведёт продажи всей команды и звонит любому клиенту
+  // (clients.assign), поэтому имя продавца и кнопку звонка видит на ЛЮБОМ объекте,
+  // как хозяин объекта. Полный номер ему по-прежнему закрыт — только маска и станция.
+  const ownsIt = ownsProperty(req.agent!.id, property) || req.agent!.role === "HEAD_OF_SALES";
   const showSeller = !presented.ownerContactHidden || ownsIt;
   res.json({
     ...presented,

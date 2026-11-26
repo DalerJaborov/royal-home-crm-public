@@ -54,7 +54,9 @@ export async function prepareCustomerDmInboxCoreContext(eventKey: unknown): Prom
         payload.verification.issuedAt !== evidence.issuedAt) return { status: "held", reason: "payload_binding_unavailable" };
     const canonicalTicket = { ...ticket, evidence: payload.payload.propertyEvidence };
     if (!await recordScopedCustomerInput({ channel: evidence.channel, subscriberId: evidence.peer,
-      skipSaveIncoming: false, replyToMessageId: payload.payload.replyToMessageId }, input, canonicalTicket)) {
+      skipSaveIncoming: false, replyToMessageId: payload.payload.replyToMessageId }, input, canonicalTicket,
+      { ...(payload.payload.accountExternalId ? { accountExternalId: payload.payload.accountExternalId } : {}),
+        media: payload.payload.media, kinds: payload.payload.observations.classifier?.mediaKinds })) {
       return { status: "held", reason: "input_record_unavailable" };
     }
     // CORE bypasses the legacy webhook loop's noteRealInbound. Without this
