@@ -38,7 +38,7 @@ const SHARED_CHAT_CAPABILITIES = [
   { marker: "useUploadConversationMediaWithProgress", what: "отправить файл с показом хода загрузки" },
   { marker: "usePendingMediaUploads", what: "видеть пузырь загрузки в ленте" },
   { marker: "planOutgoingMediaPick", what: "получить отказ по размеру до загрузки" },
-  { marker: "ChatPropertySend", what: "отправить объект прямо из чата" },
+  { marker: "ChatObjectPicker", what: "отправить объект прямо из чата" },
   { marker: "VoiceRecordButton", what: "записать голосовое" },
 ];
 
@@ -68,7 +68,7 @@ describe("чат на ПК и на телефоне", () => {
 
 /**
  * ВИДИМЫЙ ТРИГГЕР, А НЕ ИМПОРТ (25.11.2026, владелец: «кнопки „Отправить объект“
- * нет»). Импорт ChatPropertySend стоял, сторож выше был зелёный, а пункт в
+ * нет»). Импорт ChatPropertySend (теперь ChatObjectPicker) стоял, сторож выше был зелёный, а пункт в
  * скрепке рисовался только у диалога с карточкой клиента — у «Продавца из
  * WhatsApp» без карточки он молча пропадал. Теперь в строке ввода нового вида
  * нет отдельной кнопки (26.11.2026 убрана как дубль), а пункт меню не завёрнут в условие
@@ -79,6 +79,11 @@ describe("«Отправить объект» видно всегда", () => {
   it("отдельной кнопки-здания в строке ввода нет: «Объект» только пунктом меню скрепки (владелец 26.11.2026)", () => {
     expect(desktop).not.toContain('data-testid="chat-send-property"');
     expect(desktop).toContain("Объект из базы");
+  });
+  it("пункта «Сначала примите заявку» больше нет: объект уходит и без карточки (владелец 26.11.2026)", () => {
+    expect(desktop).not.toContain("PROPERTY_SEND_NEEDS_CARD");
+    expect(desktop).not.toContain("Сначала примите заявку");
+    expect(desktop).not.toContain("aria-disabled={!canSendProperty");
   });
   it("пункт «Объект из базы» не прячется условием карточки клиента", () => {
     const at = desktop.indexOf("Объект из базы");

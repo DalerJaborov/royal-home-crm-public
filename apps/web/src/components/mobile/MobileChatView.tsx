@@ -53,7 +53,7 @@ import { MessageSenderBadge } from "../MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "../MessageQuote";
 import { DeliveryTicks } from "../DeliveryTicks";
 import { VoiceRecordButton } from "../VoiceRecordButton";
-import { ChatPropertySend } from "../ChatPropertySend";
+import { ChatObjectPicker } from "../ChatObjectPicker";
 import { relativeTime } from "../../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../../lib/botMessages";
@@ -998,14 +998,13 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
           {/* ОТПРАВИТЬ ОБЪЕКТ ПРЯМО ИЗ ЧАТА (просьба владельца 21.08.2026,
               совет экспертов 26.08, пункт 10). Кнопка была только на десктопе, а
               агенты живут в телефоне. Компонент один и тот же. */}
-          {conversation?.clientId && conversation.clientShortId && <span data-compose-slot>
-            <ChatPropertySend
-              clientId={conversation?.clientId ?? null}
-              clientShortId={conversation?.clientShortId ?? null}
+          <span data-compose-slot>
+            <ChatObjectPicker
               conversationId={replyTargetId ?? undefined}
               disabled={reply.isPending || loadFailed || !replyTargetId}
+              onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
             />
-          </span>}
+          </span>
           {/* ФОТО/ВИДЕО ИЗ ЧАТА (22.09.2026, перенос с десктопа Messages.tsx —
               баг класса «desktop и mobile ship together»): агенты живут в
               телефоне, а отправить снимок клиенту могли только с компьютера.

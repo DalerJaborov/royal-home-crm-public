@@ -1,0 +1,40 @@
+/* Шторка «Объект» в чате (26.11.2026, макет A + подсказка из C). Только токены темы 2026, шрифт не мельче 13px. */
+.rh2 .cop-tabs{display:flex;gap:6px;padding:4px;border-radius:var(--r-pill,999px);background:var(--line-soft);margin:0 0 12px}
+.rh2 .cop-tabs button{flex:1 1 0;min-height:44px;padding:0 10px;border-radius:var(--r-pill,999px);font-size:14px;color:var(--body);background:transparent;border:0;white-space:nowrap}
+.rh2 .cop-tabs button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.rh2 .cop-search{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:0 12px;border-radius:var(--r-pill,999px);background:var(--line-soft)}
+.rh2 .cop-search svg{width:18px;height:18px;flex:none;color:var(--muted)}
+.rh2 .cop-search input{flex:1;min-height:44px;border:0;background:transparent;font-size:16px;color:var(--ink);outline:none}
+.rh2 .cop-list{display:grid;gap:0}
+.rh2 .cop-row{display:grid;grid-template-columns:64px 1fr 28px;align-items:center;gap:12px;width:100%;min-height:80px;padding:10px 4px;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);color:var(--ink)}
+.rh2 .cop-row:disabled{opacity:.5}
+.rh2 .cop-row.on{background:var(--hover)}
+.rh2 .cop-thumb{display:block;width:64px;height:64px;border-radius:12px;overflow:hidden;background:var(--line-soft)}
+.rh2 .cop-body{display:grid;gap:2px;min-width:0}
+.rh2 .cop-price{font-weight:700;font-size:16px}
+.rh2 .cop-facts,.rh2 .cop-where{font-size:13px;color:var(--body)}
+.rh2 .cop-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.rh2 .cop-chip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:var(--r-pill,999px);font-size:13px;background:var(--line-soft);color:var(--body)}
+.rh2 .cop-chip.ok{background:var(--lime,#e6f4d7);color:var(--lime-ink,#2c5a0e)}
+.rh2 .cop-chip.bad{background:var(--pink,#fde4e4);color:var(--pink-ink,#8a1f1f)}
+.rh2 .cop-chip.sent{background:var(--sky,#e1eefc);color:var(--sky-ink,#1d4f8a)}
+.rh2 .cop-check{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;border:2px solid var(--line);color:var(--pill-ink,#fff)}
+.rh2 .cop-row.on .cop-check{background:var(--pill);border-color:var(--pill)}
+.rh2 .cop-check svg{width:14px;height:14px}
+.rh2 .cop-more{margin:12px auto;display:flex}
+.rh2 .cop-note{margin:8px 4px;font-size:13px;color:var(--muted)}
+.rh2 .cop-skel{display:grid;gap:10px;padding:6px 0}
+.rh2 .cop-skel-row{display:block;height:76px;border-radius:12px;background:var(--line-soft);animation:cop-pulse 1.2s ease-in-out infinite}
+@keyframes cop-pulse{50%{opacity:.5}}
+.rh2 .cop-foot{display:grid;gap:8px;width:100%}
+.rh2 .cop-hint{margin:0;font-size:13px;color:var(--body)}
+.rh2 .cop-hint.warn,.rh2 .cop-error{color:var(--crit,#b3261e)}
+.rh2 .cop-error{margin:0;font-size:13px}
+.rh2 .cop-send{width:100%;min-height:48px}
+.rh2 .cop-spin{width:16px;height:16px;animation:cop-rot 1s linear infinite;vertical-align:-3px}
+@keyframes cop-rot{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.rh2 .cop-skel-row,.rh2 .cop-spin{animation:none}}
+.rh2 .cop-search input.inp{border:0;background:transparent;box-shadow:none;padding:0}
+.rh2 .cop-tabs button[role=tab]{flex:1 1 auto}
+.rh2 .cop-search input[type="search"]{border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;padding:0!important;height:auto!important;outline:none}
+.rh2 .cop-search input[type="search"]:focus-visible{outline:2px solid var(--pill);outline-offset:2px;border-radius:8px!important}

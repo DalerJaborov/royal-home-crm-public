@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 787,
-  "forks": 4349,
+  "endpoints": 789,
+  "forks": 4348,
   "mounts": 87,
   "cron": 145,
   "jobs": 37,
@@ -15635,6 +15635,14 @@
     },
     {
      "k": "do",
+     "t": "const { channel: exposureChannelName, recipientId: exposureRecipientId } = exposureChannel(target);",
+     "a": [
+      "зовёт exposureChannel()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "await recordExposures( exposureChannelName, exposureRecipientId, properties.map((p)",
      "a": [
       "зовёт recordExposures()"
@@ -15658,56 +15666,11 @@
     },
     {
      "k": "do",
-     "t": "const policy = await loadMatchPolicy();",
+     "t": "await notifyPropertyOwners( properties, req.agent!.id, `агент ${sender.kind === \"agent\" ? sender.agentName : …",
      "a": [
-      "зовёт loadMatchPolicy()"
+      "зовёт notifyPropertyOwners()"
      ],
      "c": []
-    },
-    {
-     "k": "if",
-     "t": "policy.notifyPropertyOwner",
-     "a": [],
-     "c": [
-      {
-       "k": "loop",
-       "t": "для каждого: const p of properties",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "const ownerId = propertyOwnerAgentId(p);",
-         "a": [
-          "зовёт propertyOwnerAgentId()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!ownerId || ownerId === req.agent!.id",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "void sendPushToAgent(ownerId, { title: \"🏠 Ваш объект предложен клиенту\", body: `Объект №${p.shortId} — ${p.t…",
-         "a": [
-          "push-уведомление"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
     },
     {
      "k": "do",
@@ -15803,6 +15766,22 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const channel = targetChannel(target);",
+     "a": [
+      "зовёт targetChannel()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [enabled, lastAt, windowState] = await Promise.all([channelEnabled(target), lastClientMessageAt(target)…",
+     "a": [
+      "зовёт channelEnabled()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -21438,6 +21417,105 @@
      "t": "res.json({ ok: true });",
      "a": [
       "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/send-context",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/:id/send-context",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const outcome = await loadSendContext(req, req.params.id);",
+     "a": [
+      "зовёт loadSendContext()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/send-properties",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/:id/send-properties",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = sendPropertiesBodySchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой sendPropertiesBodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await sendPropertiesFromConversation({ req, rawId: req.params.id, propertyIds: parsed.data.pr…",
+     "a": [
+      "зовёт sendPropertiesFromConversation()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json(outcome.body);",
+     "a": [
+      "ответ (код зависит от условия)"
      ],
      "c": []
     }
