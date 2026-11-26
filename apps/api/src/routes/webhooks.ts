@@ -85,7 +85,7 @@ import {
   parseIncoming as parseMetaIncoming,
   parseStatusUpdates as parseMetaStatusUpdates,
   sendMessage as sendMetaMessage,
-  sendReaction as sendMetaReaction,
+  sendCustomerReaction,
   showReadAndTyping as showMetaReadAndTyping,
   verifyHandshake as verifyMetaHandshake,
   verifySignature as verifyMetaSignature,
@@ -93,7 +93,7 @@ import {
   type MetaChannel,
 } from "../messengers/meta.js";
 import { handleWhatsappCallEvents } from "../messengers/whatsappCalls.js";
-import { emojiThanksReply, ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
+import { ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { brandForAccount } from "../ai/brandName.js";
 import { outgoingContentKey, wasRecentlySentText, wasSentByUs } from "../messengers/outgoingMids.js";
@@ -1371,11 +1371,13 @@ webhooksRouter.get("/meta", async (req, res) => {
  * мешает ответить клиенту — вернётся undefined, и диалог заведётся как прежде.
  */
 /**
- * Ответ смайликом вместо полноценного текста — общий приём для «пустой реакции»
- * клиента (🔥 на сторис) и для повторного «спасибо» после уже состоявшегося
- * прощания (см. reactOnly в MessengerTurnResult, conversation.ts). В WhatsApp —
- * настоящая реакция на сообщение клиента; в Instagram/Messenger такого эндпоинта
- * у Meta нет вовсе — там отдельным сообщением-смайликом, как и раньше.
+ * Реакция вместо полноценного текста — общий приём для «пустой реакции» клиента
+ * (🔥 на сторис) и для «ок / спасибо / пока» (reactOnly в MessengerTurnResult,
+ * дверь ai/ackTurnDoor.ts). Во всех каналах Meta — настоящая реакция на сообщение
+ * клиента (WhatsApp — эмодзи, Instagram/Messenger — "love", messengers/meta.ts::
+ * sendCustomerReaction; прежнее «у Meta нет эндпоинта» устарело, 26.11.2026).
+ * Реакция не поставилась (нет идентификатора сообщения, отказ Graph) — ТИШИНА:
+ * отдельное сообщение-смайлик владелец запретил (26.11.2026).
  */
 async function sendReactionOrEmoji(
   channel: MetaChannel,
@@ -1384,15 +1386,7 @@ async function sendReactionOrEmoji(
   token: string | undefined,
   customerTransport?: import("../lib/customerConversationScope.js").CustomerTransportReference
 ): Promise<void> {
-  if (channel === "WHATSAPP" && messageId) {
-    await sendMetaReaction(senderId, messageId, reactionHeart(messageId), token, customerTransport);
-  } else {
-    await stampOutgoingMid(
-      channel,
-      senderId,
-      await sendMetaMessage(channel, senderId, emojiThanksReply(messageId ?? senderId), token, { transport: customerTransport }), customerTransport
-    );
-  }
+  await sendCustomerReaction(channel, senderId, messageId, reactionHeart(messageId ?? senderId), token, customerTransport);
 }
 
 async function resolveInstagramName(channel: MetaChannel, senderId: string, tokenOverride?: string, accountId?: string | null,
@@ -2799,15 +2793,14 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
 
       // Записали в CRM (см. silent выше) — и на этом всё, ни ответа, ни «прочитано».
       if (moneyRequestOnly) continue;
-      // Пустая реакция — ответ смайликом, не через обычный ход ниже: там ответ
+      // Пустая реакция — ответ реакцией, не через обычный ход ниже: там ответ
       // проверяется общим фильтром, который эмодзи в личке запрещает (правило
       // «без смайликов в личке» — оно для осмысленного текста, а не для этого
       // единственного нарочного исключения).
       //
-      // В WhatsApp — НАСТОЯЩАЯ реакция (тап эмодзи на сообщение клиента), не
-      // отдельный пузырь в переписке: технически доступно с 18.08.2026
-      // (meta.ts: sendReaction). В Instagram/Messenger такого эндпоинта у Meta
-      // нет вовсе — там как раньше, отдельным сообщением-смайликом.
+      // Во всех каналах Meta — НАСТОЯЩАЯ реакция (тап на сообщение клиента), не
+      // отдельный пузырь в переписке: WhatsApp с 18.08.2026, Instagram/Messenger
+      // с 26.11.2026 (meta.ts: sendCustomerReaction). Не поставилась — тишина.
       //
       // ГЛАВНОЕ (находка №105, 24.09.2026): смайлик — тоже ответ клиенту, и он
       // обязан подчиняться тем же правилам молчания, что и обычная реплика.

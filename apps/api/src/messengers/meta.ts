@@ -2948,12 +2948,10 @@ async function sendLocationImpl(
 /**
  * НАСТОЯЩАЯ РЕАКЦИЯ (тап эмодзи на сообщение), а не отдельным сообщением.
  *
- * Только WhatsApp Cloud API: `type: "reaction"` документирован и стабилен.
- * Instagram/Messenger Send API такого типа не предоставляет (нет эндпоинта
- * «поставить реакцию от имени страницы/бизнеса») — вызывающий должен сам
- * решить, что делать на этих каналах (см. `emojiThanksReply` в webhooks.ts —
- * там ставится текстовым сообщением-смайликом, это НЕ обходной путь этой
- * функции, а единственный доступный способ на IG/Messenger).
+ * Здесь — WhatsApp Cloud API: `type: "reaction"`. Instagram/Messenger — ниже,
+ * buildInstagramReactionRequest (sender_action "react"; прежний комментарий «у
+ * Meta нет эндпоинта» устарел — исправлено 26.11.2026). Вызывающим нужна одна
+ * функция на все каналы — sendCustomerReaction.
  *
  * @param messageId `wamid` сообщения клиента, на которое реагируем — то же
  *   поле, что `msg.messageId` из parseIncoming.
@@ -3002,5 +3000,78 @@ async function sendReactionImpl(
     // Реакция — украшение поверх уже случившегося разговора: её провал не должен
     // рушить основной ответ клиенту (тот же принцип, что у showReadAndTyping).
     logMetaSendError("Реакция в WhatsApp не поставлена", err);
+  }
+}
+
+/**
+ * РЕАКЦИЯ В INSTAGRAM И MESSENGER (26.11.2026, владелец: на «ок / спасибо / пока» — сердечко, а не текст).
+ *
+ * ФАКТ (документация Meta, Instagram Messaging → Send Message → «React to a message», прочитано 26.11.2026):
+ * POST /me/messages (или /PAGE-ID/messages), recipient={"id": IGSID}, sender_action="react",
+ * payload={"message_id": MID, "reaction": "love"}; снять — sender_action="unreact". В документации показана только
+ * реакция "love"; окно 24 часа и «одна реакция на сообщение» там не указаны — при отказе Graph просто молчим.
+ * Адрес — тот же, что у «прочитано» (showReadAndTyping): Instagram через instagramApiUrl, Messenger через Страницу.
+ */
+export function buildInstagramReactionRequest(
+  channel: "INSTAGRAM" | "FACEBOOK",
+  c: MetaCredentials,
+  recipientId: string,
+  messageId: string,
+  action: "react" | "unreact" = "react"
+): { url: string; body: unknown } {
+  if (channel === "FACEBOOK" && !c.pageId) throw new Error("Идентификатор Страницы Facebook не задан в Настройках");
+  return {
+    url: channel === "INSTAGRAM"
+      ? instagramApiUrl(`/${GRAPH_VERSION}/me/messages`)
+      : `https://graph.facebook.com/${GRAPH_VERSION}/${c.pageId}/messages`,
+    body: {
+      recipient: { id: recipientId },
+      sender_action: action,
+      payload: action === "react" ? { message_id: messageId, reaction: "love" } : { message_id: messageId },
+    },
+  };
+}
+
+/**
+ * ОДНА ДВЕРЬ РЕАКЦИИ НА СООБЩЕНИЕ КЛИЕНТА во всех каналах Meta (26.11.2026): WhatsApp — эмодзи `whatsappEmoji`
+ * (type "reaction"), Instagram и Messenger — "love" (sender_action "react"). Никогда не бросает: реакция — жест,
+ * а не сообщение; провал — в журнал (logMetaSendError) и `false`, и вызывающий МОЛЧИТ — отдельного
+ * сообщения-смайлика взамен нет (владелец 26.11.2026). Таймаут и пути отправки — общие, через callGraph.
+ */
+export function sendCustomerReaction(...args: Parameters<typeof sendCustomerReactionImpl>): Promise<boolean> {
+  return traceObserveSend("reaction", "", undefined, () => sendCustomerReactionImpl(...args), { channel: args[0], peer: args[1] })
+    .catch(() => false);
+}
+async function sendCustomerReactionImpl(
+  channel: MetaChannel,
+  recipientId: string,
+  messageId: string | null | undefined,
+  whatsappEmoji: string,
+  tokenOverride?: string,
+  transport?: CustomerTransportReference
+): Promise<boolean> {
+  if (!messageId) return false;
+  try {
+    if (channel === "WHATSAPP") {
+      const loaded = await loadCredentials();
+      const captured = transport ?? await resolveLegacyMetaSendTransport(loaded, "WHATSAPP", recipientId, tokenOverride);
+      const bound = await bindCustomerMetaSendCredentials(loaded, "WHATSAPP", recipientId, tokenOverride, captured);
+      const { token: fallbackToken, url, body } = buildReactionRequest(bound?.credentials ?? loaded, recipientId, messageId, whatsappEmoji);
+      const token = bound?.token || tokenOverride || fallbackToken;
+      if (!token) throw new Error("Маркер доступа для WhatsApp не задан в Настройках");
+      await callGraph(url, token, body, "POST", undefined, captured);
+      return true;
+    }
+    const loaded = await loadCredentials();
+    const captured = transport ?? await resolveLegacyMetaSendTransport(loaded, channel, recipientId, tokenOverride);
+    const bound = await bindCustomerMetaSendCredentials(loaded, channel, recipientId, tokenOverride, captured);
+    const { url, body } = buildInstagramReactionRequest(channel, bound.credentials, recipientId, messageId);
+    const token = bound.token;
+    if (!token) throw new Error(`Маркер доступа для ${channel === "INSTAGRAM" ? "Instagram" : "Messenger"} не задан в Настройках`);
+    await callGraph(url, token, body, "POST", undefined, captured);
+    return true;
+  } catch (err) {
+    logMetaSendError(`Реакция в ${channel === "WHATSAPP" ? "WhatsApp" : channel === "INSTAGRAM" ? "Instagram" : "Messenger"} не поставлена (клиенту ничего не ушло)`, err);
+    return false;
   }
 }

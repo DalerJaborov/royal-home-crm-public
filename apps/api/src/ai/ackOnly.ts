@@ -22,20 +22,49 @@
  * «Хотите посмотреть?» — это «да», и на него отвечает обычный ход.
  *
  * `\w`/`\b` не используются: по кириллице они молчат (ai/wordBoundary.ts).
+ *
+ * ПРОЩАНИЯ И ЗАКРЫТИЯ (владелец 26.11.2026, Instagram: после «Спасибо, номер получил, агент вам позвонит.» клиент
+ * написал «Ок», бот ответил текстом «Ваша заявка у агента, он с вами свяжется.»). «Пока», «до свидания», «хайр»,
+ * «худо ҳофиз», «то дидор», латиница («rahmat», «xop», «poka») и «👌🙏❤️» — тоже не вопрос: вместо текста реакция.
+ * Решение «ответить реакцией» принимает одна дверь до модели — ai/ackTurnDoor.ts. Новую живую фразу дописывать
+ * строкой в таблицу tests/ack-reaction-door-26-11.test.ts и словом в списки ниже.
  */
 
-/** Слова согласия и благодарности. Хотя бы одно из них обязано быть в сообщении. */
+/** Слова согласия и благодарности. Хотя бы одно из них (или прощание, или ожидание) обязано быть в сообщении. */
 const ACK_WORDS = new Set([
-  "ок", "окей", "окэй", "оке", "ok", "okay", "okey", "k",
+  "ок", "окей", "окэй", "оке", "ok", "okay", "okey", "k", "kk", "оки", "окс",
   "хоп", "хуп", "хуб", "хоб", "хорошо", "хорош", "добро", "ладно", "ладна",
   "понял", "поняла", "понятно", "ясно", "фаҳмидам", "фахмидам", "майлаш", "майли", "мешавад", "мешава",
   "спасибо", "спс", "благодарю", "мерси", "рахмат", "раҳмат", "рахмет", "ташаккур", "ташакур",
   "сипос", "сипосгузорам", "thanks", "thank", "thx",
+  // Изофа: «ташаккури зиёд», «раҳмати калон» (26.11.2026).
+  "ташаккури", "ташакури", "рахмати", "раҳмати", "сипоси",
   "саломат", "бошед", "бошен", "бош", "барака", "ебед",
   "да", "ага", "бале", "ҳа", "ха", "хо", "ҳо",
   // «Ок, договорились», «Хуб шуд» (ревью #333, 20.11.2026: подтверждение с хвостом получало «Передал агенту»).
-  "договорились", "договорились", "договорено", "конечно", "шуд",
+  "договорились", "договорено", "конечно", "шуд",
+  // Латиница (клиенты из Таджикистана пишут транслитом): «Rahmat», «Xop», «Tashakkur», «Xorosho», «Spasibo».
+  "rahmat", "rakhmat", "raxmat", "tashakkur", "tashakur", "spasibo", "spasiba", "xorosho", "horosho", "xop", "hop", "xup",
+  "xub", "hub", "maylash", "mayli", "salomat", "boshed", "barakat",
 ]);
+
+/**
+ * Прощания и закрытия (26.11.2026). Само по себе прощание — тоже «ок»: в ACK-сообщении достаточно его одного. Вместе с
+ * благодарностью — «закрывающее» сообщение (isClosingOnlyMessage); с прощанием — не ответ даже на вопрос бота (isFarewellClosingMessage).
+ */
+const FAREWELL_WORDS = new Set([
+  "пока", "покеда", "пака", "свидания", "свиданья", "связи", "встречи", "доброго", "хорошего", "удачи", "удачного",
+  "хайр", "хайрт", "худоҳофиз", "худохофиз", "ҳофиз", "хофиз", "дидор", "боздид", "хуш", "соғ", "сог",
+  "bye", "goodbye", "poka", "xayr", "hayr", "khayr", "xudohofiz", "hofiz", "xush",
+]);
+
+/**
+ * Ожидание без слова согласия («Жду», «Буду ждать», «Жду вашего звонка», «Мунтазирам») — НЕ «ок» (ревью 26.11.2026): так клиент
+ * через три дня напоминает о себе, и оператор поднимает сигнал «обещание не выполнено» (ai/operator/decide.ts). Реакция
+ * его бы заглушила. «Спасибо, жду звонка», «Хорошо, жду» — по-прежнему «ок»: слово согласия рядом.
+ */
+/** Знаки неудовольствия: «🖕», «👎», «😡» — не согласие, а повод для настоящего ответа (как RUDE_EMOJI в messengers/comments.ts). */
+const NEGATIVE_EMOJI = /🖕|👎|💩|🤮|🤢|🤡|👿|😡|🤬|😠|💀|☠️|🙄|😤|😒/u;
 
 /**
  * Ожидание рядом с согласием: «Хорошо, жду», «Ладно, буду ждать», «Хоп, интизор мешавам», «Спасибо, жду звонка» — тоже
@@ -55,45 +84,103 @@ const FILLER_WORDS = new Set([
   "брат", "братан", "бародар", "бародарҷон", "ака", "акаҷон", "апа", "ҷон", "джон", "jon",
   "аз", "шумо", "ба", "ҳам", "хам", "боз", "зиёд", "калон", "бисёр", "қаблан", "каблан", "пешакӣ", "пешаки",
   "вам", "тебе", "большое", "огромное", "you", "very", "much", "ва", "и", "всё", "все",
+  // Хвосты прощаний и благодарностей (26.11.2026): «до свидания», «всего доброго», «хорошего дня», «то дидор»,
+  // «худо ҳофиз», «ваалейкум ассалом», «спасибо за информацию», «ну ок тогда».
+  "зиед", "до", "всего", "дня", "вечера", "то", "худо", "ассалом", "ассалам", "салом", "салам", "assalom", "salom",
+  "за", "помощь", "информацию", "ответ", "ну", "тогда", "очень", "aka", "brat", "jon",
 ]);
 
 /** Не длиннее — иначе это уже рассказ, а не «ок». */
 const MAX_WORDS = 7;
 
-export function isAckOnlyMessage(text: string | null | undefined): boolean {
+/** «спасибооо», «окккк», «рахмааат» — та же вежливость: повтор буквы сводим к одной и сравниваем со сжатым словарём. */
+const squeeze = (word: string): string => word.replace(/(\p{L})\1+/gu, "$1");
+const squeezedSet = (set: ReadonlySet<string>): ReadonlySet<string> => new Set([...set].map(squeeze));
+const ACK_SQ = squeezedSet(ACK_WORDS), FAREWELL_SQ = squeezedSet(FAREWELL_WORDS);
+const inSet = (set: ReadonlySet<string>, squeezed: ReadonlySet<string>, w: string): boolean => set.has(w) || squeezed.has(squeeze(w));
+
+/** Слова сообщения в нижнем регистре, без знаков и эмодзи; «ва алейкум» — одним словом «ваалейкум». */
+function messageWords(raw: string): string[] {
+  const words = raw.toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  const joined: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if ((words[i] === "ва" || words[i] === "wa" || words[i] === "va") && /^(?:а?л[еаяи]й?ку[мн]|a?l[ea]y?ku[mn])/u.test(words[i + 1] ?? "")) {
+      joined.push("ваалейкум"); i++; continue;
+    }
+    joined.push(words[i]);
+  }
+  return joined;
+}
+
+type AckShape = { ack: boolean; thanks: boolean; farewell: boolean; yes: boolean; waiting: boolean; other: boolean };
+
+/** Разбор сообщения на классы слов; `null` — это не «ок» вовсе (вопрос, цифры, рассказ, грубый смайлик). */
+function ackShape(text: string | null | undefined): AckShape | null {
   const raw = (text ?? "").trim();
-  if (!raw) return false;
-  if (/[?？]/.test(raw)) return false;
+  if (!raw) return null;
+  if (/[?？]/.test(raw)) return null;
   // Цифры — почти всегда номер, цена или площадь («ок 918…», «хоп, 65кв»): это суть.
-  if (/\d/.test(raw)) return false;
+  if (/\d/.test(raw)) return null;
+  if (NEGATIVE_EMOJI.test(raw)) return null;
   // Эмодзи, знаки, цифры убираем: «👍», «ок!!!», «Рахмат 🙏» — та же вежливость.
-  const words = raw
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[^\p{L}\s]/gu, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+  const words = messageWords(raw);
   if (words.length === 0) {
-    // Одни эмодзи вроде «👍» / «🙏» — тоже согласие.
-    return /\p{Extended_Pictographic}/u.test(raw);
+    // Одни эмодзи вроде «👍» / «🙏» / «👌🙏❤️🔥» — тоже согласие.
+    return /\p{Extended_Pictographic}/u.test(raw) ? { ack: true, thanks: false, farewell: false, yes: false, waiting: false, other: false } : null;
   }
-  if (words.length > MAX_WORDS) return false;
-  let hasAck = false, waiting = false, companion = false;
+  if (words.length > MAX_WORDS) return null;
+  const shape: AckShape = { ack: false, thanks: false, farewell: false, yes: false, waiting: false, other: false };
+  let companion = false;
   for (const w of words) {
-    if (ACK_WORDS.has(w)) hasAck = true;
-    else if (WAITING_WORDS.has(w)) waiting = true;
-    else if (WAITING_COMPANIONS.has(w)) companion = true;
-    else if (!FILLER_WORDS.has(w)) return false;
+    if (inSet(ACK_WORDS, ACK_SQ, w)) {
+      shape.ack = true;
+      if (THANKS_WORDS.has(w) || THANKS_SQ.has(squeeze(w))) shape.thanks = true;
+      if (YES_WORDS.has(w) || YES_SQ.has(squeeze(w))) shape.yes = true;
+      if (!THANKS_WORDS.has(w) && !THANKS_SQ.has(squeeze(w)) && !CLOSING_COMPANIONS.has(w)) shape.other = true;
+    } else if (inSet(FAREWELL_WORDS, FAREWELL_SQ, w)) shape.farewell = true;
+    else if (WAITING_WORDS.has(w)) { shape.waiting = true; shape.other = true; }
+    else if (WAITING_COMPANIONS.has(w)) { companion = true; shape.other = true; }
+    else if (!FILLER_WORDS.has(w)) return null;
   }
-  return hasAck && (!companion || waiting);
+  // «Да, звонок» — не «ок»: спутник ожидания только рядом с глаголом ожидания.
+  if (companion && !shape.waiting) return null;
+  // Нужно слово согласия или прощание; одно ожидание — напоминание, а не «ок».
+  if (!shape.ack && !shape.farewell) return null;
+  if (shape.waiting && !shape.ack) return null;
+  return shape;
+}
+
+export function isAckOnlyMessage(text: string | null | undefined): boolean {
+  return ackShape(text) !== null;
+}
+
+/**
+ * Одно ожидание без согласия: «Жду», «Буду ждать», «Жду вашего звонка», «Ждём звонка», «Мунтазирам», «Интизор мешавам».
+ * Само по себе не «ок» (напоминание); дверь (ai/ackTurnDoor.ts) решает по времени после реплики бота.
+ */
+const WAIT_ONLY_WORDS = new Set(["жду", "ждем", "ждать", "буду", "будем", "подожду", "подождем", "вашего", "вашу", "звонка",
+  "звонок", "ответа", "связи", "интизор", "интизорам", "интизорем", "мешавам", "мешавем", "мунтазир", "мунтазирам", "мунтазирем",
+  "занг", "зангатон", "зангро", "ну", "тогда", "уже"]);
+const WAIT_ROOT = new Set(["жду", "ждем", "ждать", "подожду", "подождем", "интизор", "интизорам", "интизорем", "мунтазир", "мунтазирам", "мунтазирем"]);
+export function isWaitOnlyMessage(text: string | null | undefined): boolean {
+  const raw = (text ?? "").trim();
+  if (!raw || /[?？\d]/u.test(raw) || NEGATIVE_EMOJI.test(raw)) return false;
+  const words = messageWords(raw);
+  if (!words.length || words.length > MAX_WORDS) return false;
+  return words.some((w) => WAIT_ROOT.has(w)) && words.every((w) => WAIT_ONLY_WORDS.has(w) || FILLER_WORDS.has(w));
 }
 
 /** Слова благодарности: «спасибо» — это не ответ «да» на вопрос бота. */
 const THANKS_WORDS = new Set(["спасибо", "спс", "благодарю", "мерси", "рахмат", "раҳмат", "рахмет", "ташаккур", "ташакур",
-  "сипос", "сипосгузорам", "thanks", "thank", "thx"]);
+  "ташаккури", "ташакури", "рахмати", "раҳмати", "сипоси",
+  "сипос", "сипосгузорам", "thanks", "thank", "thx", "rahmat", "rakhmat", "raxmat", "tashakkur", "tashakur", "spasibo", "spasiba"]);
 /** Слова согласия, которыми отвечают на вопрос («да», «ок»): с ними сообщение — не только благодарность. */
-const YES_WORDS = new Set(["да", "ага", "бале", "ҳа", "ха", "хо", "ҳо", "ок", "окей", "окэй", "оке", "ok", "okay", "okey", "k",
-  "хорошо", "ладно", "ладна", "добро", "майлаш", "майли", "мешавад", "мешава", "хоп", "хуп", "хуб", "хоб"]);
+const YES_WORDS = new Set(["да", "ага", "бале", "ҳа", "ха", "хо", "ҳо", "ок", "окей", "окэй", "оке", "ok", "okay", "okey", "k", "kk", "оки", "окс",
+  "хорошо", "ладно", "ладна", "добро", "майлаш", "майли", "мешавад", "мешава", "хоп", "хуп", "хуб", "хоб", "конечно", "договорились",
+  "xorosho", "horosho", "xop", "hop", "xup", "xub", "hub", "maylash", "mayli"]);
+/** «Саломат бошед», «барака ёбед» — пожелание при прощании, не «да». */
+const CLOSING_COMPANIONS = new Set(["саломат", "бошед", "бошен", "бош", "барака", "ебед", "salomat", "boshed", "barakat"]);
+const THANKS_SQ = squeezedSet(THANKS_WORDS), YES_SQ = squeezedSet(YES_WORDS);
 
 /**
  * Сообщение — ТОЛЬКО благодарность («спасибо», «рахмат брат», «ташаккур 🙏»), без «да»/«ок».
@@ -101,12 +188,47 @@ const YES_WORDS = new Set(["да", "ага", "бале", "ҳа", "ха", "хо",
  * вакансию в ответ на «спасибо» бот слал весь блок вакансии заново).
  */
 export function isThanksOnlyMessage(text: string | null | undefined): boolean {
-  if (!isAckOnlyMessage(text)) return false;
-  const words = (text ?? "").toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
-  return words.some((w) => THANKS_WORDS.has(w)) && !words.some((w) => YES_WORDS.has(w));
+  const shape = ackShape(text);
+  return !!shape && shape.thanks && !shape.yes;
+}
+
+/**
+ * Сообщение ЗАКРЫВАЕТ разговор и ничего не отвечает (26.11.2026): только благодарность, прощание и пожелания —
+ * «Спасибо, до свидания», «Рахмат, худо ҳофиз», «Пока», «Саломат бошед», «Хайр». Без «да/ок/хорошо» и без ожидания.
+ * Такое сообщение не ответ и на вопрос бота: «Пока» на «Хотите посмотреть?» — не «да».
+ */
+export function isClosingOnlyMessage(text: string | null | undefined): boolean {
+  const shape = ackShape(text);
+  return !!shape && (shape.thanks || shape.farewell) && !shape.yes && !shape.other;
+}
+
+/**
+ * Закрытие с ПРОЩАНИЕМ («Пока», «Спасибо, до свидания», «Рахмат, худо ҳофиз», «Хайр»). Только оно — не ответ на предложение
+ * звонка или просьбу номера. Голое «Спасибо / Рахмат» там оператор читает как согласие (ai/operator/decide.ts: заявка на
+ * номер WhatsApp или «куда позвонить»), поэтому оно идёт обычным ходом (ревью 26.11.2026: иначе терялась заявка).
+ */
+export function isFarewellClosingMessage(text: string | null | undefined): boolean {
+  const shape = ackShape(text);
+  return !!shape && shape.farewell && !shape.yes && !shape.other;
 }
 
 /** Бот своим последним сообщением о чём-то спросил — тогда «ок»/«да» это ответ. */
 export function botAskedQuestion(lastBotText: string | null | undefined): boolean {
   return /[?？]/.test(lastBotText ?? "");
+}
+
+/**
+ * Бот последней репликой ЖДЁТ ответа, даже без знака «?» (26.11.2026): предложение («Если хотите, агент позвонит…»,
+ * «Агар хоҳед…») и просьба номера («Напишите, пожалуйста, ваш номер», «Рақамро нависед»). Оператор приёма заявок
+ * читает «ок» на них как согласие (в WhatsApp — заявка на этот номер, ai/operator/decide.ts agreedToCall / phone_where):
+ * реакция вместо хода потеряла бы заявку. Закрывающее «Если будут вопросы, пишите» ответа не ждёт.
+ */
+const OFFER = /(?:^|[\s,.!])(?:если\s+(?:хотите|удобно|желаете|интересно|нужно|надо)|агар\s+(?:хоҳед|хохед|хоҳиш|мувофиқ|мувофик|розӣ|рози|лозим|даркор))(?=$|[\s,.!])/iu;
+const ASK_VERB = "напиш|написать|остав|отправ|пришл|прислать|укаж|указать|скин|дайте|сообщите|нависед|нависен|фирист|гузор|диҳед|дихед";
+const PHONE_ASK = new RegExp(`(?:номер|телефон|рақам|ракам)[^.!?]{0,60}(?:${ASK_VERB})|(?:${ASK_VERB})[^.!?]{0,40}(?:номер|телефон|рақам|ракам)`, "iu");
+const CLOSING_INVITE = /(?:пиш|напиш|нависед|нависен)[^.!?]{0,12}(?:если|агар)[^.!?]*|(?:если|агар)[^.!?]{0,30}(?:вопрос|савол)[^.!?]*/giu;
+export function botAwaitsAnswer(lastBotText: string | null | undefined): boolean {
+  // «Напишите, если будут вопросы» / «Агар савол бошад, нависед» — прощальная формула, а не просьба: вырезаем её.
+  const text = (lastBotText ?? "").replace(CLOSING_INVITE, " ");
+  return botAskedQuestion(text) || OFFER.test(text) || PHONE_ASK.test(text);
 }
