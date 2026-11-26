@@ -15,6 +15,7 @@ import { classifyErrorLog, errorLogPriorityWhere, type ErrorLogPriority } from "
 import { checkGeminiHealth } from "../lib/integrationHealth.js";
 import { dushanbeStartOfToday } from "../lib/dushanbeTime.js";
 import { reopenErrorLogEntry, resolveErrorLogEntry } from "../lib/errorLogActions.js";
+import { redactSecretsInText } from "../lib/secretRedaction.js";
 
 export const errorLogRouter = Router();
 
@@ -29,6 +30,11 @@ const clientErrorSchema = z.object({
 errorLogRouter.post("/", requireAuth, async (req, res) => {
   const parsed = clientErrorSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
+  // Адрес страницы и текст ошибки браузера несут подписанные ссылки (?k=, ?t=,
+  // ?token=) — секреты вычищаются той же дверью, что у logSystemError (26.11.2026).
+  parsed.data.message = redactSecretsInText(parsed.data.message);
+  parsed.data.stack = redactSecretsInText(parsed.data.stack);
+  parsed.data.url = redactSecretsInText(parsed.data.url);
   // Дедуп за 10 минут: одна и та же ошибка в цикле рендера не должна заспамить журнал.
   const recentSame = await prisma.errorLog.count({
     where: {

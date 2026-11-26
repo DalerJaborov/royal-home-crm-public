@@ -202,6 +202,15 @@ export function DealSubmitModal({
           Итого комиссии: <span className="money">{total.toLocaleString("ru-RU")}<span className="cur">{currency}</span></span>
         </p>
       )}
+      {/* Серая кнопка без объяснения была ловушкой: в полях стоит бледный «0», и кажется, что
+          пустое поле — это ноль. Пустая комиссия не принимается (суммы вписываются руками),
+          поэтому прямо говорим, что делать. */}
+      {!commissionExceedsPrice && nums.soldPrice > 0 && (realtor.trim() === "" || company.trim() === "") && (
+        <p className="quiet" data-testid="deal-commission-hint">
+          <span className="dot" />
+          <span className="txt">Впишите обе суммы комиссии: если доли нет, поставьте 0.</span>
+        </p>
+      )}
       {commissionExceedsPrice && (
         <p className="quiet crit">
           <span className="dot crit" />
