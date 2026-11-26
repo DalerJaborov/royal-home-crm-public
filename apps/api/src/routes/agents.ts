@@ -27,8 +27,10 @@ import {
   listStaffHandovers,
   pauseStaffLeads,
   readStaffPermissions,
+  issueStaffTelegramLink,
   resetStaffLoginCodeBlock,
   resetStaffTwoFactor,
+  unlinkStaffTelegram,
   resumeStaffLeads,
   revertStaffHandover,
   setStaffPermissions,
@@ -255,6 +257,28 @@ agentsRouter.post("/:id/login-code/reset", requirePermission("agents.manage"), r
   if (!id.success) return res.status(400).json({ error: "Неверный сотрудник" });
   const outcome = await resetStaffLoginCodeBlock(req.agent!, id.data);
   send(res, outcome);
+});
+
+/**
+ * «Подключить к Шабнам» (Настройки → Сотрудники, 25.11.2026): одноразовая ссылка на
+ * привязку Telegram сотрудника, которую руководитель пересылает ему сам. Ссылка — ключ
+ * к каналу кода входа, поэтому подтверждение личности, как у профиля (POST /me/telegram-link).
+ * Код уходит только в этот ответ: в журнал пишется лишь факт выдачи (lib/staffAdmin.ts).
+ */
+agentsRouter.post("/:id/telegram-link", requirePermission("agents.manage"), requireElevation, async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный сотрудник" });
+  const outcome = await issueStaffTelegramLink(req.agent!, id.data);
+  // Ответ с ключом не кэшируется ни браузером, ни прокси.
+  res.setHeader("Cache-Control", "no-store");
+  send(res, outcome);
+});
+
+/** «Отключить Шабнам» — снять Telegram сотрудника (чат, аккаунт, недоиспользованный код). */
+agentsRouter.post("/:id/telegram-unlink", requirePermission("agents.manage"), requireElevation, async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id);
+  if (!id.success) return res.status(400).json({ error: "Неверный сотрудник" });
+  send(res, await unlinkStaffTelegram(req.agent!, id.data));
 });
 
 agentsRouter.post("/:id/avatar", requirePermission("agents.manage"), requireElevation, anyParams(upload.single("avatar")), async (req, res) => {

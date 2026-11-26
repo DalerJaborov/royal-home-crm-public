@@ -8,6 +8,7 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { CustomerPropertyHeldError, withCustomerPropertyTransport } from "./customerPropertyTransport.js";
 import { isOutboundBlockedError } from "./outboundShield.js";
+import { isProviderDefinitiveRejection } from "./metaProviderRejection.js";
 import { traceStamp, traceOutcome, traceWebsiteMessagesPersisted } from "./botTurnTrace.js";
 import type { CustomerPropertyTurnContext } from "./customerPropertyTurnContext.js";
 import { MAX_STORED_MESSAGES } from "../messengers/appendMessages.js";
@@ -173,7 +174,9 @@ export async function sendManagedCustomerPropertyReply(part: ManagedCustomerProp
     status = accepted ? "accepted" : "unknown";
   } catch (error) {
     status = accepted ? "accepted" : error instanceof CustomerPropertyHeldError || isOutboundBlockedError(error) ||
-      (error instanceof Error && /^Graph API HTTP 4\d\d:/.test(error.message)) ? "held" : "unknown";
+      // «Meta точно не приняла» — одно правило с транспортом (lib/metaProviderRejection.ts, ревью #432): 4xx или
+      // «доступ к аккаунту Instagram потерян» (запроса не было).
+      isProviderDefinitiveRejection(error) ? "held" : "unknown";
   }
   // Acceptance is already irrevocably observed; a stamp failure does not turn
   // it into a failed turn or permission to send again. Pending remains terminal.

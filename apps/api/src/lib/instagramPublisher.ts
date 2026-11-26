@@ -1,4 +1,5 @@
 import { instagramTokenIdentity } from "../messengers/meta.js";
+import { isFacebookLoginToken } from "../messengers/metaGraph.js";
 import { describeMetaToken, instagramCompanyPublishRoute, isPermissionCode, noteCompanyPublishRefused } from "./metaEternalTokens.js";
 import { isMetaAuthFailureText, raiseChannelKeyAlarm } from "./channelKeyAlarm.js";
 import { noteInstagramKeyRefused } from "./instagramAccountAccess.js";
@@ -233,7 +234,11 @@ async function noteKeyFailure(
     }
     // «Войдите в Instagram и пройдите проверку» — это не смерть ключа, а закрытый аккаунт:
     // отметка и тревога своей дверью, второй тревоги не даём.
-    const refused = await noteInstagramKeyRefused({ token: personalToken, text: error, detail: error.replace(/\s+/g, " ").slice(0, 300) });
+    // Ключ Страницы («Войти через Facebook», EAA): личность читалась на graph.facebook.com — отказ не про личный ключ
+    // Instagram, отметку не ставим (ревью #432: снять её у такого аккаунта было бы нечем).
+    const refused = isFacebookLoginToken(personalToken)
+      ? { locked: false }
+      : await noteInstagramKeyRefused({ token: personalToken, text: error, detail: error.replace(/\s+/g, " ").slice(0, 300) });
     if (refused.locked || !isMetaAuthFailureText(error)) return;
     const owner = await describeMetaToken(personalToken);
     await raiseChannelKeyAlarm({ key: owner.key, label: owner.label, detail, fix: INSTAGRAM_KEY_FIX, audience: "management" });

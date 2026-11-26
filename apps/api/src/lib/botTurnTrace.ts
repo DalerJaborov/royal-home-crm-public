@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, traceLegacyShadowSchema, type TraceLegacyShadow, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceOutcomeReason, type TraceStage } from "@royal-home/shared";
 import { boundedTracePayload, projectTraceModel, sanitizeTraceText, tracePseudonym } from "./botTurnTracePrivacy.js";
+import { isProviderDefinitiveRejection } from "./metaProviderRejection.js";
 
 type Channel = BotTurnTracePayload["channel"];
 export interface TraceConfig { enabled: boolean; secret: string; text: boolean; write?: (payload: BotTurnTracePayload) => void | Promise<void> }
@@ -185,7 +186,7 @@ export async function traceObserveSend<T>(kind: TraceOutgoingPart["kind"], value
     try { return await send(); }
     catch (err) { observe((c) => { const part = c.payload.outgoing.find((item) => item.ordinal === ordinal); if (!part || part.providerOutcome === "accepted") return;
       part.finishedAt = new Date().toISOString(); const name = err instanceof Error ? err.name : "";
-      part.providerOutcome = name === "OutboundBlockedError" ? "blocked" : err instanceof Error && /^Graph API HTTP 4\d\d:/.test(err.message) ? "failed" : "unknown";
+      part.providerOutcome = name === "OutboundBlockedError" ? "blocked" : isProviderDefinitiveRejection(err) ? "failed" : "unknown";
     }); throw err; }
     finally { observe((c) => { const part = c.payload.outgoing.find((item) => item.ordinal === ordinal); if (part?.providerOutcome === "started") { part.providerOutcome = "unknown"; part.finishedAt = new Date().toISOString(); } }); traceCheckpoint(); }
   });

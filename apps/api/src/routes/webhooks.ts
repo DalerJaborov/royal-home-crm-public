@@ -103,6 +103,7 @@ import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
+import { isInstagramAccessLostError } from "../lib/instagramAccountAccess.js";
 import { OPERATOR_ECHO_PAUSE_MS, applyDeliveryPause, deliverBotVoiceReply, staffRelayPauseMs } from "../lib/conversationDelivery.js";
 import {
   noteFirstContactDelivery,
@@ -2952,14 +2953,19 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // A real provider MID precedes history stamping. Losing that local stamp
       // must not reopen the whole turn or claim that no answer reached the user.
       if (providerAcceptedReply) replySent = true;
-      void logSystemError(
+      // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходили, запись и тревогу дала
+      // отметка — строка на каждое входящее была бы шумом (прод 24.11: ×18 за сутки). Остальное — как при любом отказе.
+      if (!isInstagramAccessLostError(err)) void logSystemError(
         "meta",
         `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message : String(err)}`
       );
       // Клиент остался без ответа ПРЯМО СЕЙЧАС — не ждать, пока диалог доедет до
       // findStuckConversations (health-automation раз в 30 минут) или до утреннего
       // журнала (24.09.2026, ночная проверка, находка №108).
-      if (!providerAcceptedReply) void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId));
+      // Кроме потерянного доступа к аккаунту Instagram (ревью #432): пуш «Доставка ответа требует проверки» ушёл бы
+      // всем с messages.view по КАЖДОМУ клиенту, хотя руководству уже ушла одна тревога отметки. Ответ остаётся
+      // помеченным «не доставлен» (строка выше), и после «Заменить маркер» повтор зависших его отправит.
+      if (!providerAcceptedReply) void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryAccountId, err));
       // Замок дубля ставится ДО обработки (см. lib/webhookDedupe.ts). Раз она не
       // дошла до ответа — отметку снимаем, иначе повторная доставка от Meta молча
       // отступит перед «уже обработанным» сообщением, которое на деле осталось без
@@ -3019,7 +3025,11 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
  * Экспортирована для собственного теста (тот же приём, что у groupMetaBySender
  * ниже) — гонять ради неё весь вебхук с подписью Meta не нужно.
  */
-export async function notifyBotReplyNotDelivered(channel: string, subscriberId: string, transport?: CustomerTransportHint): Promise<void> {
+export async function notifyBotReplyNotDelivered(channel: string, subscriberId: string, transport?: CustomerTransportHint, cause?: unknown): Promise<void> {
+  // Доступ к аккаунту Instagram потерян (ревью #432): в Meta не ходили, руководству уже ушла одна тревога отметки.
+  // Пуш всем с messages.view по каждому клиенту был бы потоком; ответ помечен «не доставлен» и уйдёт повтором после
+  // «Заменить маркер».
+  if (isInstagramAccessLostError(cause)) return;
   try {
     const conv = transport ? await findScopedBotConversation(customerTransportInput(channel, subscriberId, transport)) : null;
     const recipients = await findAgentsWithPermission("messages.view");
