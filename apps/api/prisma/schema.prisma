@@ -7469,6 +7469,8 @@ model Settings {
   botSpamFilterEnabled                  Boolean @default(true)
   /// Ход бота клиента упал с исключением: агента звать сразу (24.11.2026). ВКЛ.
   botCoreFailAlertEnabled               Boolean @default(true)
+  shabnamGroupLiveEnabled               Boolean @default(true)
+  shabnamGroupLiveShadowEnabled         Boolean @default(false)
   /// «Шабнам отвечает в группах без обращения» (24.11.2026, жалоба владельца «молчит, пока не позовёшь»).
   /// ВКЛ. ВЫКЛ — в рабочих группах Шабнам отвечает только тем, кто её позвал. telegram/assistantBot.ts.
   shabnamGroupUnaddressedEnabled        Boolean @default(true)
@@ -11558,6 +11560,14 @@ model AssistantTelegramGroup {
   /// Separate opt-in. A later opt-in starts a new evidence window.
   contextEnabledAt     DateTime?
   contextIncludeUnlinked Boolean @default(false)
+  /// LISTEN | HELP | LIVE; пусто = LIVE (telegram/assistantGroupLive.ts).
+  chatMode             String?
+  liveWindowStartAt    DateTime?
+  liveWindowCount      Int      @default(0)
+  lastLiveReplyAt      DateTime?
+  /// Сутки по Душанбе (ГГГГ-ММ-ДД) и число живых реплик в них: потолок LIVE_MAX_PER_DAY.
+  liveDayKey           String?
+  liveDayCount         Int      @default(0)
   /// Директор или админ выключил память группы командой /assistant_memory off (24.11.2026).
   /// Пока стоит, автопамять (рубильник shabnamGroupAutoMemoryEnabled) её не включает обратно.
   contextOptOutAt      DateTime?

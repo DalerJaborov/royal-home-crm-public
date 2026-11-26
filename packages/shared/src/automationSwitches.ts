@@ -45,6 +45,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "shabnamGroupLiveEnabled",
+  "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
   "callObjectToOwnerEnabled",
 ] as const;
@@ -62,6 +64,9 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "clientRecordResultEnabled",
   // Ревью 25.11.2026: Telegram — канал кода входа, привязка по одному контакту слабее входа по СМС. Колонка `DEFAULT false`.
   "telegramPhoneLinkEnabled",
+  // Владелец 26.11.2026: «Шабнам вступает сама в беседу в группах». Пробный режим (решает, но не пишет) — опция для
+  // руководства, по умолчанию выключен. Колонка `DEFAULT false`.
+  "shabnamGroupLiveShadowEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -162,6 +167,17 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Сотрудник с правом маркетинга присылает Шабнам ролик или до 10 фото, она готовит подпись и показывает пост. В соцсети он уходит только после кнопки «Опубликовать».",
     off: "Шабнам не готовит такие посты. Ролики к объектам она принимает как раньше, пост без объекта можно сделать в разделе «Ролики».",
   },
+  // Владелец 23–25.11.2026: «Шабнам должна работать всегда, как человек, и вступать в беседу».
+  shabnamGroupLiveEnabled: {
+    title: "Шабнам вступает в беседу в группах сама",
+    on: "В группах с режимом «живая» Шабнам сама иногда отвечает на приветствие, шутку, добрую новость или усталость коллеги: одна короткая реплика, не больше трёх в час, не ночью (с 22:00 до 08:00 по Душанбе). Молчит о деньгах, штрафах, жалобах, личном, ссорах. «Шабнам, помолчи» работает всегда.",
+    off: "Шабнам отвечает в группах только когда её позвали и на ясные рабочие вопросы, как раньше.",
+  },
+  shabnamGroupLiveShadowEnabled: {
+    title: "Живая беседа в пробном режиме (только запись)",
+    on: "Шабнам решает, вступать ли в беседу, но ничего не пишет в группу. Что сказала бы, видно в журнале помощника (telegram.live.chime). Удобно первую неделю, чтобы оценить тон.",
+    off: "Шабнам пишет в группу сама.",
+  },
   // Владелец 24.11.2026: «молчит, пока не напишешь "Шабнам"», новички пишут, она не отвечает.
   shabnamGroupUnaddressedEnabled: {
     title: "Шабнам отвечает в группах без обращения",
@@ -246,7 +262,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
