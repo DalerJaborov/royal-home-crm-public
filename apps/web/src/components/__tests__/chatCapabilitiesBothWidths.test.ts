@@ -71,18 +71,45 @@ describe("чат на ПК и на телефоне", () => {
  * нет»). Импорт ChatPropertySend стоял, сторож выше был зелёный, а пункт в
  * скрепке рисовался только у диалога с карточкой клиента — у «Продавца из
  * WhatsApp» без карточки он молча пропадал. Теперь в строке ввода нового вида
- * есть круглая кнопка `chat-send-property`, а пункт меню не завёрнут в условие
+ * нет отдельной кнопки (26.11.2026 убрана как дубль), а пункт меню не завёрнут в условие
  * наличия карточки (без неё — серый с пояснением).
  */
 describe("«Отправить объект» видно всегда", () => {
   const desktop = fs.readFileSync(DESKTOP_CHAT, "utf8");
-  it("в строке ввода есть кнопка-здание, а не только скрытый триггер", () => {
-    expect(desktop).toContain('data-testid="chat-send-property"');
+  it("отдельной кнопки-здания в строке ввода нет: «Объект» только пунктом меню скрепки (владелец 26.11.2026)", () => {
+    expect(desktop).not.toContain('data-testid="chat-send-property"');
+    expect(desktop).toContain("Объект из базы");
   });
   it("пункт «Объект из базы» не прячется условием карточки клиента", () => {
     const at = desktop.indexOf("Объект из базы");
     expect(at).toBeGreaterThan(0);
     const before = desktop.slice(Math.max(0, at - 900), at);
     expect(before).not.toMatch(/\{conversation\?\.clientId && conversation\.clientShortId && \(\s*<button[^>]*role="menuitem"/);
+  });
+});
+
+/**
+ * СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ ВИДЕН НА ОБЕИХ ШИРИНАХ (владелец 26.11.2026: «вернуть выбор срока,
+ * по умолчанию час»). Новый вид чата — один адаптивный экран (`royal` в Messages.tsx): строка выбора
+ * срока не завёрнута в условие ширины, а один и тот же срок получают текст, голосовое и фото/видео.
+ * (`MobileChatView.tsx` сейчас нигде не подключён — отдельной ветки для телефона нет.)
+ */
+describe("срок паузы бота при ответе: одна строка на ПК и телефоне", () => {
+  const desktop = fs.readFileSync(DESKTOP_CHAT, "utf8");
+  it("строка выбора срока есть в новом виде и не зависит от ширины экрана", () => {
+    const at = desktop.indexOf('data-testid="chat-reply-pause"');
+    expect(at).toBeGreaterThan(0);
+    const condition = desktop.slice(Math.max(0, at - 260), at);
+    expect(condition).toContain("royal &&");
+    expect(condition).not.toMatch(/narrow/);
+  });
+  it("одно число срока уходит с текстом, голосовым и фото/видео", () => {
+    expect(desktop).toContain("useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined)");
+    // Прежний вид: голос и фото/видео срок НЕ шлют (как до 26.11) — «Бессрочно» им тихо не раздаём.
+    expect(desktop).toMatch(/function mediaPauseMinutes\(\)[^{]*\{\s*return royal \? replyPauseMinutes\(\) : undefined;/);
+    const starts = desktop.split(/\r?\n/).filter((line) => line.includes("mediaUpload.start("));
+    expect(starts.length).toBe(3);
+    for (const line of starts) expect(line, line).toMatch(/[pP]auseMinutes/);
+    expect(desktop).toContain("pausedUntil: pausedUntilIso(replyPauseMinutes())");
   });
 });

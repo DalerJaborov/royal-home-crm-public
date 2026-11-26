@@ -219,7 +219,7 @@ async function applyDeliveryPauseUndoable(
         ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
         : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     if (!prev) throw new Error("Delivery lost its native conversation");
-    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx);
+    const effective = await applyDeliveryPause(target, pausedUntil, keepLonger, tx, sender?.kind === "agent" ? sender.agentId : null);
     const placedRow = target.kind === "telegram" ? await tx.telegramConversation.findUnique({ where: { id: target.id }, select })
       : await tx.botConversation.findUnique({ where: { id: target.id }, select });
     const ownershipFence = await lockDeliveryOwnershipFence(tx, target);
@@ -285,9 +285,15 @@ function revivePauseUndo(s: StoredPauseUndo): PauseUndo {
  */
 export async function placeQueuedMediaPause(
   target: DeliveryTarget,
-  sender: MessageSender
+  sender: MessageSender,
+  /** Срок, выбранный сотрудником при отправке (минуты от сейчас). Пусто — умолчание сервера для отправителя. */
+  pauseMinutes?: number | null,
+  /** «Повторить»: срок выбран давно, а за это время пауза могла стать чужой и длиннее — её не укорачиваем. */
+  neverShorten = false
 ): Promise<{ ok: true; undo: StoredPauseUndo | null } | { ok: false; status: number; error: string }> {
-  const pause = await deliveryPauseFor(target, undefined, sender, () => defaultPauseForSender(target, sender));
+  const override = pauseMinutes ? new Date(Date.now() + pauseMinutes * 60_000) : undefined;
+  const chosen = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  const pause = neverShorten ? { ...chosen, keepLonger: true } : chosen;
   const placed = await applyDeliveryPauseUndoable(target, pause.until, pause.keepLonger, sender);
   if (!placed.ok) return placed;
   return { ok: true, undo: placed.undo ? storePauseUndo(placed.undo) : null };
@@ -305,7 +311,10 @@ async function extendQueuedMediaPause(
   override: Date | undefined,
   queued: StoredPauseUndo | null | undefined
 ): Promise<{ pausedUntil: Date; undo: PauseUndo | null }> {
-  const pause = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  const chosen = await deliveryPauseFor(target, override, sender, () => defaultPauseForSender(target, sender));
+  // Продление только ДОБАВЛЯЕТ: сотрудник выбрал срок при отправке и он уже стоит с приёма; за минуты сжатия
+  // пауза могла стать чужой и длиннее (человек нажал «Бессрочно») — выбранный срок её не затирает.
+  const pause = { ...chosen, keepLonger: true };
   const select = { pausedUntil: true, botPausedAt: true } as const;
   // Одной транзакцией: любое изменение паузы двигает ownership-эпоху, и откат допускается только при
   // совпадении «отпечатка» — поэтому новый отпечаток снимаем здесь же, сразу после записи.
@@ -316,7 +325,7 @@ async function extendQueuedMediaPause(
         : tx.botConversation.findUnique({ where: { id: target.id }, select });
     const fenceBefore = await lockDeliveryOwnershipFence(tx, target);
     const before = await read();
-    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx);
+    const pausedUntil = await applyDeliveryPause(target, pause.until, pause.keepLonger, tx, sender.kind === "agent" ? sender.agentId : null);
     const after = await read();
     const fenceAfter = await lockDeliveryOwnershipFence(tx, target);
     const ours =

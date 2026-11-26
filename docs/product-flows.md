@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4348**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2522**; вместе с задачами по расписанию и фоновыми заданиями — **4349**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4803,6 +4803,11 @@
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
     · ответ 400 — «Файл не передан»
+- const pauseParsed = replyVoicePauseSchema.safeParse(req.body ?? {});
+  · проверяет данные схемой replyVoicePauseSchema
+- если !pauseParsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: pauseParsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
 - const conversation = isTelegram ? await prisma.telegramConversation.findUnique({ where: { id: rawId.slice(TG_…
   · читает в базе: telegramConversation
   · читает в базе: botConversation

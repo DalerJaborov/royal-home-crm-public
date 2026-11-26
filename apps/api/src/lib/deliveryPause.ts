@@ -89,20 +89,36 @@ export async function applyDeliveryPause(
   target: Pick<DeliveryTarget, "kind" | "id">,
   pausedUntil: Date,
   keepLonger: boolean,
-  database: Pick<TxClient, "botConversation" | "telegramConversation"> = prisma
+  database: Pick<TxClient, "botConversation" | "telegramConversation"> = prisma,
+  /** Сотрудник, чей ответ ставит паузу. Нужен для явного срока: ЧУЖУЮ более длинную паузу он не укорачивает. */
+  byAgentId?: string | null
 ): Promise<Date> {
   const now = new Date();
   const isTelegram = target.kind === "telegram";
+  const by = byAgentId ? `${byAgentId}|${now.toISOString()}` : null;
   // Новая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
   if (!keepLonger) {
-    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
-    else await database.botConversation.update({ where: { id: target.id }, data: { pausedUntil, botPausedAt: now, pauseAlertSentAt: null } });
+    // Явный срок сотрудника ставится как выбран, КРОМЕ одного случая (ревью PR #463): действующая пауза длиннее
+    // выбранного срока и поставлена НЕ им (директор нажал «Пауза бессрочно», агент ответил с умолчанием «1 час»).
+    // «Поставлена им» — отметка botPausedBy совпала с текущим botPausedAt; всякая иная запись паузы её гасит.
+    if (byAgentId) {
+      const cur = isTelegram
+        ? await database.telegramConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true, botPausedAt: true, botPausedBy: true } })
+        : await database.botConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true, botPausedAt: true, botPausedBy: true } });
+      if (cur?.pausedUntil && cur.pausedUntil.getTime() > Math.max(now.getTime(), pausedUntil.getTime())) {
+        const mine = !!cur.botPausedAt && cur.botPausedBy === `${byAgentId}|${cur.botPausedAt.toISOString()}`;
+        if (!mine) return cur.pausedUntil;
+      }
+    }
+    const data = { pausedUntil, botPausedAt: now, pauseAlertSentAt: null, botPausedBy: by };
+    if (isTelegram) await database.telegramConversation.update({ where: { id: target.id }, data });
+    else await database.botConversation.update({ where: { id: target.id }, data });
     return pausedUntil;
   }
   // botPausedAt двигается только вместе со сроком: действующую паузу начал не этот
   // вызов, и «пауза протухла» (conversationState.isStalePause) считается от её начала.
   const where = { id: target.id, OR: [{ pausedUntil: null }, { pausedUntil: { lt: pausedUntil } }] };
-  const data = { pausedUntil, botPausedAt: now, pauseAlertSentAt: null };
+  const data = { pausedUntil, botPausedAt: now, pauseAlertSentAt: null, botPausedBy: by };
   const { count } = isTelegram
     ? await database.telegramConversation.updateMany({ where, data })
     : await database.botConversation.updateMany({ where, data });
