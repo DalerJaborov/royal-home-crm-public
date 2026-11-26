@@ -7,8 +7,8 @@ import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPubl
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
-import { claimNewMemberWelcome, offerTelegramLinkToNewcomer, sendColleagueWelcome } from "./assistantGroupNewcomer.js";
-import { ASSISTANT_NAME_SOURCE, assistantNameAtStart, mentionsAssistantName } from "./assistantName.js";
+import { claimNewMemberWelcome, offerTelegramLinkToNewcomer, releaseNewMemberWelcome, sendColleagueWelcome } from "./assistantGroupNewcomer.js";
+import { ASSISTANT_NAME_SOURCE, addressesAssistantByName, assistantNameAtStart } from "./assistantName.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, unaddressedHelpQuestion, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMigrationEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
@@ -1504,13 +1504,13 @@ async function groupMontageReply(
  * помощника, дальше обычная логика групп (комментарии канала).
  *
  * Сообщение, которое помощница не взяла, может быть от человека, которого CRM не узнаёт. С 26.11.2026
- * (жалоба владельца: Шабнам «срамит» и повторяется) ему отвечаем ТОЛЬКО если к ней обратились: имя где
- * угодно в тексте или подписи (все написания, telegram/assistantName.ts). Без обращения, на фото, стикер,
+ * (жалоба владельца: Шабнам «срамит» и повторяется) ему отвечаем ТОЛЬКО если к ней обратились: имя в начале
+ * текста или подписи, приветствие с именем (addressesAssistantByName, telegram/assistantName.ts); имя в середине фразы — разговор о ней. Без обращения, на фото, стикер,
  * открытку, голосовое без подписи и пересылку — тишина. Сама подсказка — одна дверь offerNewcomerHint.
  */
 export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (await handleAssistantGroupMessageCore(msg, updateId)) return true;
-  if (!mentionsAssistantName(msg.text ?? msg.caption ?? "")) return false;
+  if (!addressesAssistantByName(msg.text ?? msg.caption ?? "")) return false;
   return offerNewcomerHint(msg, "addressed");
 }
 
@@ -1770,9 +1770,13 @@ async function handleAssistantGroupMessageCore(msg: TelegramIncomingMessage, upd
         },
         data: { lastJoinWelcomeAt: now },
       });
-      if (claim.count === 1) {
+      if (claim.count !== 1) {
+        await releaseNewMemberWelcome(chatId, msg.new_chat_members, now);
+        return true;
+      }
+      {
         // Одно текстовое сообщение на двух языках, а не два голосовых подряд (26.11.2026).
-        await sendColleagueWelcome(chatId);
+        if (!(await sendColleagueWelcome(chatId))) await releaseNewMemberWelcome(chatId, msg.new_chat_members, now);
         await greetStartPressers(msg, "hint").catch((err) => logSystemError("telegram",
           `Шабнам: не удалось отметить нажавших /start: ${describeError(err)}`, { dedupKey: "assistant-group-start-press" }));
       }

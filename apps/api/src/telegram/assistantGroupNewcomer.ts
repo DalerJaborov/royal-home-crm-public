@@ -148,8 +148,28 @@ export async function claimNewMemberWelcome(chatId: string, members: unknown, no
   return created.count + updated.count;
 }
 
+/**
+ * Приветствия не было (кулдаун группы или сбой отправки) — снять отметку, поставленную этим же захватом
+ * (сверка по точному времени now), чтобы человек не остался «поприветствованным» без приветствия (ревью 26.11.2026).
+ */
+export async function releaseNewMemberWelcome(chatId: string, members: unknown, now: Date): Promise<void> {
+  const ids = (Array.isArray(members) ? members : [])
+    .filter((m): m is { id: number } => Boolean(m) && typeof (m as { id?: unknown }).id === "number")
+    .map((m) => String(m.id));
+  if (!ids.length) return;
+  await prisma.assistantGroupPerson.updateMany({
+    where: { chatId, telegramUserId: { in: ids }, welcomedAt: now },
+    data: { welcomedAt: null },
+  });
+}
+
 /** Приветствие одним текстовым сообщением: русский и таджикский вместе, без голоса (26.11.2026). */
-export async function sendColleagueWelcome(chatId: string): Promise<void> {
-  await sendMessage(chatId, bothLanguages(ASSISTANT_COLLEAGUE_GREETING)).catch((err) => logSystemError("telegram",
-    `Шабнам: приветствие нового участника не ушло: ${describeError(err)}`, { dedupKey: "assistant-group-greeting-text" }));
+export async function sendColleagueWelcome(chatId: string): Promise<boolean> {
+  try {
+    await sendMessage(chatId, bothLanguages(ASSISTANT_COLLEAGUE_GREETING));
+    return true;
+  } catch (err) {
+    await logSystemError("telegram", `Шабнам: приветствие нового участника не ушло: ${describeError(err)}`, { dedupKey: "assistant-group-greeting-text" });
+    return false;
+  }
 }

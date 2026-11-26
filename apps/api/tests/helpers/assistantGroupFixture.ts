@@ -43,7 +43,8 @@ export function assistantGroupFixture() {
     }
     return fresh;
   });
-  const welcome = vi.fn(async (_chatId: string) => {});
+  const welcome = vi.fn(async (_chatId: string) => true);
+  const welcomeRelease = vi.fn(async (_chatId: string, _members: unknown, _now: Date) => {});
   const contextPurge = vi.fn(async (_args: unknown) => ({ count: 0 }));
   const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE", instagramUrl: null as string | null }] }));
   const plain = vi.fn(async (..._args: unknown[]) => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
@@ -137,7 +138,7 @@ export function assistantGroupFixture() {
         },
         deleteMany: async () => { registered = false; return { count: 1 }; } },
       assistantTelegramContext: { deleteMany: contextPurge } } },
-    "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer, claimNewMemberWelcome: welcomeClaim, sendColleagueWelcome: welcome },
+    "./assistantGroupNewcomer.js": { offerTelegramLinkToNewcomer: offer, claimNewMemberWelcome: welcomeClaim, releaseNewMemberWelcome: welcomeRelease, sendColleagueWelcome: welcome },
     "./assistantName.js": assistantName,
     "../lib/automationSwitches.js": { automationSwitchOn: async (key: string) => key !== "shabnamGroupUnaddressedEnabled" || unaddressedOn },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },

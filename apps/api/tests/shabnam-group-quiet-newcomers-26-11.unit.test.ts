@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assistantNameAtStart, mentionsAssistantName } from "../src/telegram/assistantName.js";
+import { addressesAssistantByName, assistantNameAtStart, mentionsAssistantName } from "../src/telegram/assistantName.js";
 import {
   ASSISTANT_COLLEAGUE_GREETING, NEWCOMER_HINT_BUTTON, asksToBeLinked, bothLanguages, newcomerLinkHint,
 } from "../src/telegram/assistantGroupPhrases.js";
@@ -36,6 +36,21 @@ describe("имя Шабнам во всех написаниях", () => {
     expect(mentionsAssistantName(text)).toBe(false);
   });
 
+  // Ревью 26.11.2026: «чун» по-таджикски и «когда», «мушовир» и «консультант» — это разговор о людях, не к ней.
+  it.each(["Шабнам чун касал буд, наомад", "Мушовир чун омад"])("«чун» через пробел — не ласковая форма: %s", (text) => {
+    expect(assistantNameAtStart(text)?.vocative ?? false).toBe(false);
+  });
+
+  it.each(["Шабнам, найди", "шабнам найди", "Шабнамчун хонахои", "Шабнам-чон хона ёб", "Салом, Шабнамҷон", "Мушовир, ёрӣ деҳ", "Shabnam help"])(
+    "непривязанному: обращение по имени — %s", (text) => {
+      expect(addressesAssistantByName(text)).toBe(true);
+    });
+
+  it.each(["вчера Шабнам сказала", "я спросила у Шабнам вчера", "ба Шабнамҷон гуфтам", "ба мушовир занг занед", "Мушовир чун омад"])(
+    "непривязанному: имя в середине фразы — разговор о ней, тишина — %s", (text) => {
+      expect(addressesAssistantByName(text)).toBe(false);
+    });
+
   it("обработчик группы: «Шабнамчун …» — обращение, текст просьбы без имени", () => {
     const f = fixture();
     expect(f.adapter.addressedToBot(f.message("Шабнамчун хонахои заминира манда равонкнен"), "fixture_bot")).toEqual({
@@ -65,10 +80,13 @@ describe("непривязанный в группе: подсказка тол�
     expect(f.plain).not.toHaveBeenCalled();
   });
 
-  it("имя внутри фразы — тоже обращение", async () => {
+  // Ревью 26.11.2026: имя в середине фразы — разговор о ней, непривязанному тишина; в начале — обращение.
+  it("имя внутри фразы — тишина, имя в начале — подсказка", async () => {
     const f = fixture();
     f.setLinked(false);
     await f.send("коллеги, а у Шабнам можно спросить про это?");
+    expect(f.offer).not.toHaveBeenCalled();
+    await f.send("Шабнам, можно спросить про это?");
     expect(f.offer).toHaveBeenCalledExactlyOnceWith(expect.anything(), "addressed");
   });
 
