@@ -113,6 +113,12 @@ export function DealSubmitModal({
       closeOnBackdrop={false}
       onSubmit={async () => {
         if (!valid || busy) return;
+        // Без сети запрос не уйдёт, а кнопка зависла бы на «Сохраняю…» до возвращения связи:
+        // говорим причину сразу, суммы остаются в полях.
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          setError("Нет связи с интернетом. Суммы не отправлены, проверьте сеть и нажмите ещё раз.");
+          return;
+        }
         setBusy(true);
         setError(null);
         try {
