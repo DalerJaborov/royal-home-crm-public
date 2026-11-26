@@ -128,8 +128,9 @@ export async function restoreClientFromTrash(clientId: string, actorId: string):
   }).catch(error => { if (error === restoreConflict) return false; throw error; });
   if (duplicateOf) {
     const dup: { id: string; shortId: number } = duplicateOf;
+    // Без совета «объедините»: слияние с карточкой из Корзины отказывает (lib/clientMerge.ts, ClientMergeTrashedError).
     return { ok: false, status: 409, duplicateOf: dup,
-      error: `Номер этого клиента уже у живой карточки №${dup.shortId}. Работайте в ней или объедините карточки` };
+      error: `Номер этого клиента уже у живой карточки №${dup.shortId}. Откройте карточку №${dup.shortId}` };
   }
   if (!restored) return { ok: false, status: 409, error: "Карточка изменилась. Обновите страницу" };
   if (toQueue) {

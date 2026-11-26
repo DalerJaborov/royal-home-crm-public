@@ -140,3 +140,118 @@ describe("восстановление из Корзины не делает в�
     expect((await prisma.client.findUniqueOrThrow({ where: { id: trashed.id } })).deletedAt).toBeNull();
   });
 });
+
+/**
+ * ПРАВКИ НЕЗАВИСИМОГО РЕВЬЮ #447 (26.11.2026).
+ * п.1 — агент уже позвонил, а тик закрытия ещё не закрыл просьбу: повтор — новая просьба, старая закрыта автором звонка.
+ *        Повтор без звонка дольше получаса — напоминание агенту, а не глухое подавление.
+ * п.2 — метка notifyHumanAsk до назначения агента (пуш ушёл дежурному) не глушит пуш новому агенту.
+ * п.3 — поправленный номер и новая тема повтора не теряются.
+ * п.5 — после отказа 409 слияние с карточкой из Корзины тоже отказывает, поэтому текст не советует объединять.
+ */
+const { notifyHumanAsk, routeMessengerCallbackRequest } = await import("../src/lib/callbackRequests.js");
+const { mergeClients, ClientMergeTrashedError } = await import("../src/lib/clientMerge.js");
+
+describe("правки ревью #447", () => {
+  async function liveClient(agentId: string | null, assignedAt = new Date()) {
+    const row = await prisma.client.create({ data: { fullName: `Ревью ${runId}`, phone: phone(), source: "PHONE_CALL", kind: "BUYER",
+      status: "NEW", assignedAgentId: agentId, assignedAt } });
+    clientIds.push(row.id);
+    return row;
+  }
+  const ask = (conversationId: string, clientId: string | null, channel: string, topic: string, agentId: string, phoneNo?: string) =>
+    recordCallbackRequest({ conversationId, clientId, channel, topic: `dupcls ${runId}: ${topic}`, targetAgentId: agentId, autoConnect: false,
+      ...(phoneNo ? { phone: phoneNo } : {}) });
+
+  it("п.1: агент позвонил после просьбы — «пропустил, перезвоните» заводит новую просьбу и новый пуш, старая закрыта автором звонка", async () => {
+    const agentId = await agent();
+    const client = await liveClient(agentId);
+    const conversationId = await conversation("WHATSAPP");
+    sendPushToAgent.mockClear();
+    await ask(conversationId, client.id, "WHATSAPP", "перезвоните", agentId);
+    await prisma.interaction.create({ data: { clientId: client.id, agentId, type: "CALL", notes: "звонок агента" } });
+    await ask(conversationId, client.id, "WHATSAPP", "пропустил, перезвоните", agentId);
+    const rows = await prisma.callbackRequest.findMany({ where: { conversationId }, orderBy: { requestedAt: "asc" }, select: { doneAt: true, doneById: true } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.doneAt).not.toBeNull();
+    expect(rows[0]!.doneById).toBe(agentId);
+    expect(rows[1]!.doneAt).toBeNull();
+    expect(sendPushToAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it("п.1: повтор без звонка агента дольше получаса — одна просьба, но агенту одно напоминание", async () => {
+    const agentId = await agent();
+    const client = await liveClient(agentId, new Date(Date.now() - 3 * 3600_000));
+    const conversationId = await conversation("INSTAGRAM");
+    await ask(conversationId, client.id, "INSTAGRAM", "перезвоните", agentId);
+    await prisma.callbackRequest.updateMany({ where: { conversationId }, data: { requestedAt: new Date(Date.now() - 40 * 60_000) } });
+    sendPushToAgent.mockClear();
+    await ask(conversationId, client.id, "INSTAGRAM", "ну что", agentId);
+    await ask(conversationId, client.id, "INSTAGRAM", "ау", agentId);
+    expect(await count(conversationId)).toBe(1);
+    expect(sendPushToAgent).toHaveBeenCalledTimes(1);
+    expect(sendPushToAgent.mock.calls[0]![1]).toMatchObject({ title: "📞 Клиент снова просит звонок" });
+  });
+
+  it("п.2: метка notifyHumanAsk до назначения агента не глушит пуш новому агенту", async () => {
+    const operatorId = await agent();
+    const saved = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { callbackOperatorAgentId: true } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { callbackOperatorAgentId: operatorId } });
+    try {
+      const client = await liveClient(null);
+      const conversationId = await conversation("WHATSAPP");
+      expect(await notifyHumanAsk({ conversationId, clientId: client.id, channel: "WHATSAPP", topic: `dupcls ${runId}: оператор`,
+        clientText: "Соедините с оператором" })).toBe("sent");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const agentB = await agent();
+      await prisma.client.update({ where: { id: client.id }, data: { assignedAgentId: agentB, assignedAt: new Date() } });
+      sendPushToAgent.mockClear();
+      expect(await routeMessengerCallbackRequest({ conversationId, clientId: client.id, channel: "WHATSAPP", topic: `dupcls ${runId}: перезвоните` })).toBe(true);
+      expect(sendPushToAgent).toHaveBeenCalledWith(agentB, expect.objectContaining({ title: "📞 Клиент просит звонок" }));
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { callbackOperatorAgentId: saved?.callbackOperatorAgentId ?? null } });
+    }
+  });
+
+  it("параллельный notifyHumanAsk одной переписки — одна запись и один пуш", async () => {
+    const agentId = await agent();
+    const client = await liveClient(agentId);
+    const conversationId = await conversation("FACEBOOK");
+    sendPushToAgent.mockClear();
+    const results = await Promise.all([1, 2, 3].map((i) => notifyHumanAsk({ conversationId, clientId: client.id, channel: "FACEBOOK",
+      topic: `dupcls ${runId}: человек ${i}`, clientText: "Соедините с оператором" })));
+    expect(results.filter((r) => r === "sent")).toHaveLength(1);
+    expect(await count(conversationId)).toBe(1);
+    expect(sendPushToAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("п.3: поправленный номер заменяет старый, тема повтора дописывается", async () => {
+    const agentId = await agent();
+    const conversationId = await conversation();
+    const first = phone(), second = phone();
+    await ask(conversationId, null, "INSTAGRAM", "по первому объекту", agentId, first);
+    await ask(conversationId, null, "INSTAGRAM", "по второму объекту", agentId, second);
+    const rows = await prisma.callbackRequest.findMany({ where: { conversationId }, select: { phone: true, topic: true } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.phone).toBe(second);
+    expect(rows[0]!.topic).toContain("по первому объекту");
+    expect(rows[0]!.topic).toContain("Повторно: dupcls");
+    expect(rows[0]!.topic).toContain("по второму объекту");
+  });
+
+  it("п.5: после 409 слияние с карточкой из Корзины отказывает — текст отказа не советует объединять", async () => {
+    const p = phone();
+    const trashed = await prisma.client.create({ data: { fullName: `Корзина ${runId}`, phone: p, source: "PHONE_CALL", kind: "BUYER", status: "NEW", deletedAt: new Date() } });
+    clientIds.push(trashed.id);
+    const live = await prisma.client.create({ data: { fullName: `Живая ${runId}`, phone: phone(), source: "PHONE_CALL", kind: "BUYER", status: "NEW", extraPhones: [p] } });
+    clientIds.push(live.id);
+    const actor = await agent();
+    const result = await restoreClientFromTrash(trashed.id, actor);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).not.toMatch(/объедин/iu);
+      expect(result.error).toContain(`Откройте карточку №${live.shortId}`);
+    }
+    await expect(mergeClients(live.id, trashed.id, actor, "тест")).rejects.toBeInstanceOf(ClientMergeTrashedError);
+  });
+});
