@@ -8,7 +8,7 @@ import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPr
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { assertCustomerFence, loadCustomerStateSnapshot, lockCustomerStateSnapshot } from "./customerState.js";
 import { appendConversationMessagesInTransaction } from "../messengers/appendMessages.js";
-import { takePendingCustomerMedia } from "./customerInputMedia.js";
+import { keepIngressMediaInBackground, takePendingCustomerMedia, type StoredIngressMedia } from "./customerInputMedia.js";
 import { publishMessageNew } from "./livePublish.js";
 import { traceWebsiteMessagesPersisted } from "./botTurnTrace.js";
 import type { ScopedCustomerQualifierLane } from "./customerQualifierContext.js";
@@ -19,7 +19,10 @@ import type { ChatMessage } from "../ai/client.js";
  * still be recorded after a human takes ownership; rebinding never adopts it.
  * Marker and append commit together and survive the 40-message history trim. */
 export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, "channel" | "subscriberId" | "skipSaveIncoming" | "replyToMessageId">,
-  frame: AuthenticatedCustomerInput | undefined, ticket: CustomerPropertyAdmission): Promise<boolean> {
+  frame: AuthenticatedCustomerInput | undefined, ticket: CustomerPropertyAdmission,
+  /** Файлы входящего (из нормализованного payload): сохраняются для сотрудника ровно один раз — в той транзакции,
+   *  что записала реплику. Без этого файл клиента в ядре терялся молча (прод 25–26.11, 8 из 8). */
+  incomingMedia?: { accountExternalId?: string; media: readonly StoredIngressMedia[]; kinds?: readonly (string | undefined)[] }): Promise<boolean> {
   const evidence = inspectAuthenticatedCustomerInput(frame), original = evidence?.acceptedFence;
   if (!evidence || !original || evidence.channel !== input.channel || evidence.peer !== input.subscriberId ||
       original.nativeId !== ticket.conversationId || original.endpoint.channel !== ticket.channel ||
@@ -62,6 +65,7 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
     if (saved && appended.length) {
       void captureConversationPhoneMessages(ticket.conversationId, appended.map(message => ({ ...message, at: new Date(evidence.issuedAt).toISOString() }))).catch(error => console.error("[contact-capture]", error instanceof Error ? error.name : "UnknownError"));
       void publishMessageNew("bot", ticket.conversationId, "IN");
+      if (incomingMedia?.media.length) keepIngressMediaInBackground({ channel: evidence.channel, peer: evidence.peer, mid: evidence.eventId, ...incomingMedia });
       // Действия CRM на входящее (пуш агенту, возврат из «Потерянных», автопилот…)
       // — ровно один раз на сообщение: эта ветка проходится только в той
       // транзакции, которая поставила inputRecordedAt. Не зависит от того,

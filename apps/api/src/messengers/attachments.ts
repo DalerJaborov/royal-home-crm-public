@@ -53,6 +53,23 @@ const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 
 /**
+ * ПРОФИЛЬ «ДЛЯ СОТРУДНИКА» (26.11.2026): файл клиента сохраняется в CRM по потолкам
+ * ПЛАТФОРМЫ, а не по потолкам разбора моделью. Потолки выше — про счёт за ИИ и память;
+ * сотруднику нужно видеть всё, что клиент смог отправить: WhatsApp принимает до 100 МБ,
+ * Instagram/Messenger — до 25 МБ. Длительность не ограничивается (платить за разбор не надо).
+ * Параллельность скачивания ниже (две), чтобы стомегабайтные файлы не раздували память API.
+ */
+export type FetchProfile = "model" | "staff";
+const STAFF_IMAGE_BYTES = 25 * 1024 * 1024;
+const STAFF_AUDIO_BYTES = 25 * 1024 * 1024;
+const STAFF_MEDIA_BYTES = 100 * 1024 * 1024;
+function byteLimit(kind: Detected["kind"], profile: FetchProfile, managed: boolean): number {
+  const isMedia = kind === "video" || kind === "document";
+  if (profile === "staff") return isMedia ? STAFF_MEDIA_BYTES : kind === "audio" ? STAFF_AUDIO_BYTES : STAFF_IMAGE_BYTES;
+  return isMedia ? (managed ? 12 * 1024 * 1024 : MAX_MEDIA_BYTES) : kind === "audio" ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
+}
+
+/**
  * Второй потолок — по длительности, и он не про память, а про счёт за разбор.
  *
  * Вес и длительность связаны слабо: три мегабайта opus — это и полторы минуты, и
@@ -236,7 +253,7 @@ function detect(contentType: string, url: string, declaredKind?: string, managed
 }
 
 /** Почему файл клиента не сохранён — для пометки на месте вложения (25.11.2026). */
-export type LostReason = "too_big" | "too_long" | "unsupported" | "failed" | "too_many";
+export type LostReason = "too_big" | "too_long" | "unsupported" | "failed" | "too_many" | "unavailable" | "no_key";
 export interface LostAttachment {
   kind: "image" | "audio" | "video" | "file";
   reason: LostReason;
@@ -520,7 +537,7 @@ async function readLocalOne(source: AttachmentSource): Promise<FetchedAttachment
   }
 }
 
-async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDownload): Promise<FetchedAttachment | null> {
+async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDownload, profile: FetchProfile = "model"): Promise<FetchedAttachment | null> {
   if (managed && source.localPath) return { kind: "unsupported" };
   if (source.localPath) return readLocalOne(source);
   const { url, headers, declaredKind } = source;
@@ -565,7 +582,7 @@ async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDow
     const contentType = res.headers.get("content-type") ?? "";
     const detected = detect(contentType, url, declaredKind, !!managed);
     const isMedia = detected.kind === "video" || detected.kind === "document";
-    const limit = isMedia ? managed ? 12 * 1024 * 1024 : MAX_MEDIA_BYTES : detected.kind === "audio" ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
+    const limit = byteLimit(detected.kind, profile, !!managed);
     const declaredLength = Number(res.headers.get("content-length") ?? "0");
     // Отсекаем ДО скачивания тела: неизвестные типы и заведомо огромные файлы не
     // должны буферизоваться в память только ради проверки размера.
@@ -597,7 +614,7 @@ async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDow
     if (truncated)
       return rejectAttachment(detected, declaredKind, contentType, "файл больше предела по размеру", hostOf(url));
 
-    if (await isTooLong(buf, detected, hostOf(url)))
+    if (profile !== "staff" && (await isTooLong(buf, detected, hostOf(url))))
       return rejectAttachment(detected, declaredKind, contentType, "запись длиннее предела по времени", hostOf(url));
 
     if (detected.mediaType === HEIC_PENDING) {
@@ -649,25 +666,42 @@ export interface FetchedAttachments {
   lost?: LostAttachment[];
 }
 
+/**
+ * Пометки «файл клиента не сохранён» после скачивания и записи: то, что отвергла загрузка (`lost`), плюс то, что
+ * скачали, но не записали (диск, формат без расширения). Одна функция на все каналы (26.11.2026): раньше причина
+ * терялась, и сотрудник видел голое «[вложение: image]».
+ */
+export function lostAfterStore(
+  fetched: { images: unknown[]; audios: unknown[]; medias?: unknown[]; lost?: LostAttachment[] },
+  storedCount: number
+): LostAttachment[] {
+  const lost: LostAttachment[] = [...(fetched.lost ?? [])];
+  const downloaded = fetched.images.length + fetched.audios.length + (fetched.medias?.length ?? 0);
+  for (let i = storedCount; i < downloaded; i++) lost.push({ kind: "file", reason: "failed" });
+  return lost;
+}
+
 export function fetchAttachments(
   sources: AttachmentSource[],
   managed?: ManagedAttachmentDownload,
   /** Сколько файлов брать за раз. По умолчанию MAX_FILES — столько уходит модели;
    *  сохранение для сотрудника (lib/customerInputMedia.ts) берёт больше. */
-  maxFiles: number = MAX_FILES
+  maxFiles: number = MAX_FILES,
+  profile: FetchProfile = "model"
 ): Promise<FetchedAttachments> {
-  return traceMeasured("media_download", () => fetchAttachmentsImpl(sources, managed, maxFiles));
+  return traceMeasured("media_download", () => fetchAttachmentsImpl(sources, managed, maxFiles, profile));
 }
-async function fetchAttachmentsImpl(sources: AttachmentSource[], managed: ManagedAttachmentDownload | undefined, maxFiles: number): Promise<FetchedAttachments> {
+async function fetchAttachmentsImpl(sources: AttachmentSource[], managed: ManagedAttachmentDownload | undefined, maxFiles: number, profile: FetchProfile): Promise<FetchedAttachments> {
   // По DOWNLOAD_CONCURRENCY за раз, а не все разом (ревью #428): десять видео по
   // 16 МБ одновременно — 160 МБ буферов в процессе API с потолком 768 МБ.
   const picked = sources.slice(0, maxFiles);
   const results: Array<FetchedAttachment | null> = new Array(picked.length);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, picked.length) }, async () => {
+  const concurrency = profile === "staff" ? 2 : DOWNLOAD_CONCURRENCY;
+  await Promise.all(Array.from({ length: Math.min(concurrency, picked.length) }, async () => {
     while (next < picked.length) {
       const i = next++;
-      results[i] = await fetchOne(picked[i], managed);
+      results[i] = await fetchOne(picked[i], managed, profile);
     }
   }));
   const lost: LostAttachment[] = results.flatMap((r, i): LostAttachment[] => {

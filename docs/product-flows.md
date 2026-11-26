@@ -18976,7 +18976,7 @@
               - continue;
                 · дословно из кода
             - если inspectCustomerDmRouting(customerDmRoutingForIncoming(req, rawMsg))?.execution.lane === "HELD"
-              - if (msg.messageId && !msg.isEcho) { const held = msg; void resolveIncomingAccount(held.channel, held.accountE…
+              - traceOutcome("blocked", "dm_lane_held");
                 · дословно из кода
               - continue;
                 · дословно из кода
