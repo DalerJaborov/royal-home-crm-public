@@ -1,7 +1,10 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
 import { fetchAttachments, storeFetchedAttachments, type AttachmentSource, type LostAttachment } from "../messengers/attachments.js";
-import { deletePrivateFileByName } from "./privateFiles.js";
+import { isInstagramLink } from "./instagramLink.js";
+import { isMetaCdnUrl } from "../messengers/sharedPostCard.js";
+import fs from "node:fs";
+import { deletePrivateFileByName, privateDirRoot } from "./privateFiles.js";
 import { publishConversationUpdated } from "./livePublish.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
@@ -41,6 +44,53 @@ import type { MessengerTurnInput } from "../messengers/turnTypes.js";
 
 /** Сколько файлов одного сообщения сохраняем: пачка фото квартиры в Instagram бывает до 10. */
 export const KEEP_MAX_FILES = 10;
+/** Меньше этого свободного места на диске — файлы клиентов не качаем (и говорим об этом громко): иначе диск
+ *  доедает база и сайт. 100-мегабайтное видео плюс запас. */
+const MIN_FREE_DISK_BYTES = 1024 * 1024 * 1024;
+async function diskIsLow(): Promise<boolean> {
+  try {
+    const st = await fs.promises.statfs(privateDirRoot());
+    return Number(st.bavail) * Number(st.bsize) < MIN_FREE_DISK_BYTES;
+  } catch {
+    return false; // не смогли измерить — не мешаем сохранению
+  }
+}
+
+/**
+ * ОДНО СКАЧИВАНИЕ ЗА РАЗ НА ВЕСЬ ПРОЦЕСС (ревью #465). Файл до 100 МБ читается в память целиком (readCapped), а фото
+ * ещё и раздувается в base64: восемь клиентов с видео разом — это OOM всего API (mem_limit 768m). Остальные ждут
+ * очереди, а не получают отказ; реплика к тому времени уже записана, пометки «скачивается» не нужно.
+ */
+export const KEEP_MAX_CONCURRENT_DOWNLOADS = 1;
+let activeDownloads = 0;
+const downloadWaiters: Array<() => void> = [];
+async function withDownloadSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (activeDownloads >= KEEP_MAX_CONCURRENT_DOWNLOADS) await new Promise<void>((resolve) => downloadWaiters.push(resolve));
+  else activeDownloads++;
+  try {
+    return await run();
+  } finally {
+    const next = downloadWaiters.shift();
+    if (next) next(); // место передаётся следующему, счётчик не меняется
+    else activeDownloads--;
+  }
+}
+
+/** Реплика уже несёт файлы или пометки этого сообщения — скачивать второй раз незачем (повторный проход, второй путь). */
+async function alreadyKept(channel: string, subscriberId: string, mid: string): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ messages: Prisma.JsonValue }[]>`
+    SELECT "messages" FROM "BotConversation"
+    WHERE "channel"::text = ${channel} AND "subscriberId" = ${subscriberId} AND "messages" @> ${JSON.stringify([{ mid }])}::jsonb`;
+  for (const row of rows) {
+    const entry = findEntry(row.messages, mid);
+    if (!entry) continue;
+    if (Array.isArray(entry.attachments) && entry.attachments.length > 0) return true;
+    // Пометки сверки («не докачалось») настоящей попыткой не считаются: медленная очередь ещё может скачать файл.
+    if (Array.isArray(entry.attachmentsLost) && entry.attachmentsLost.some((l) => !(l as { settled?: unknown })?.settled)) return true;
+  }
+  return false;
+}
+
 /** Строка ожидания старше этого — ничья (реплику так и не записали). */
 const PENDING_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -50,6 +100,10 @@ export interface KeepCustomerInputMediaInput {
   /** mid сообщения у платформы — по нему находится реплика клиента в истории. */
   mid: string;
   sources: AttachmentSource[];
+  /** Что не удалось даже начать скачивать (нет ключа, Meta не отдала адрес): пометки пишутся рядом с файлами. */
+  lostBefore?: LostAttachment[];
+  /** Идентификатор нашего аккаунта у Meta — по нему понимаем, что ключ канала мёртв. */
+  accountExternalId?: string;
 }
 
 type LedgerEntry = Prisma.JsonObject & { attachments?: unknown; attachmentsLost?: unknown };
@@ -123,9 +177,9 @@ export async function attachOrPark(
 ): Promise<{ result: AttachResult; conversationId?: string; drop: string[] }> {
   return prisma.$transaction(async (tx) => {
     const inserted = await tx.$queryRaw<{ id: string }[]>`
-      INSERT INTO "CustomerPendingMedia" ("id", "channel", "subscriberId", "mid", "files", "lost")
+      INSERT INTO "CustomerPendingMedia" ("id", "channel", "subscriberId", "mid", "files", "lost", "createdAt")
       VALUES (gen_random_uuid()::text, ${input.channel}, ${input.subscriberId}, ${input.mid},
-              ${JSON.stringify(files)}::jsonb, ${JSON.stringify(lost)}::jsonb)
+              ${JSON.stringify(files)}::jsonb, ${JSON.stringify(lost)}::jsonb, (now() AT TIME ZONE 'UTC'))
       ON CONFLICT ("channel", "subscriberId", "mid") DO NOTHING
       RETURNING "id"`;
     // Строка уже была — это повтор вебхука. Ждут её файлы, наши копии лишние; но если
@@ -133,13 +187,13 @@ export async function attachOrPark(
     // должны наши файлы (повторное ревью #428).
     let drop: string[] = [];
     if (!inserted.length) {
-      const updated = files.length
-        ? await tx.$queryRaw<{ id: string }[]>`
-            UPDATE "CustomerPendingMedia" SET "files" = ${JSON.stringify(files)}::jsonb, "lost" = ${JSON.stringify(lost)}::jsonb
-            WHERE "channel" = ${input.channel} AND "subscriberId" = ${input.subscriberId} AND "mid" = ${input.mid}
-              AND jsonb_array_length("files") = 0
-            RETURNING "id"`
-        : [];
+      // Заявка без файлов (заглушка при записи реплики или прежняя неудачная попытка) заменяется итогом ЭТОЙ попытки,
+      // даже когда он только пометки: свежая причина точнее прежней.
+      const updated = await tx.$queryRaw<{ id: string }[]>`
+        UPDATE "CustomerPendingMedia" SET "files" = ${JSON.stringify(files)}::jsonb, "lost" = ${JSON.stringify(lost)}::jsonb
+        WHERE "channel" = ${input.channel} AND "subscriberId" = ${input.subscriberId} AND "mid" = ${input.mid}
+          AND jsonb_array_length("files") = 0
+        RETURNING "id"`;
       if (!updated.length) drop = fileNames(files);
     }
 
@@ -173,17 +227,51 @@ export async function attachOrPark(
  */
 export async function keepCustomerInputMedia(input: KeepCustomerInputMediaInput): Promise<AttachResult | "nothing" | "failed"> {
   const sources = input.sources.filter((s) => !s.localPath);
-  if (!sources.length || !input.mid) return "nothing";
+  const lostBefore = input.lostBefore ?? [];
+  if ((!sources.length && !lostBefore.length) || !input.mid) return "nothing";
   let files: StoredAttachment[] = [];
   try {
-    const fetched = await fetchAttachments(sources, undefined, KEEP_MAX_FILES);
-    files = await storeFetchedAttachments(fetched);
-    const lost: LostAttachment[] = [...(fetched.lost ?? [])];
-    // Скачали, но не записали (диск) — тоже пометка, а не тишина.
+    // Файлы этого сообщения уже скачаны и ждут реплику/замену пометки — качать не надо, только прикрепить.
+    const waiting = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "CustomerPendingMedia"
+      WHERE "channel" = ${input.channel} AND "subscriberId" = ${input.subscriberId} AND "mid" = ${input.mid} AND jsonb_array_length("files") > 0`;
+    if (waiting.length) {
+      const attached = await attachOrPark(input, [], []);
+      if (attached.conversationId) void publishConversationUpdated("bot", attached.conversationId);
+      return attached.result;
+    }
+    if (await alreadyKept(input.channel, input.subscriberId, input.mid)) return "already";
+    if (sources.length && (await diskIsLow())) {
+      void logSystemError("api", "На диске осталось меньше 1 ГБ: файлы клиентов в CRM не сохраняются. Освободите место (уборка вложений, бэкапы).", {
+        dedupKey: "customer-input-media-disk-low",
+      });
+      const lowLost: LostAttachment[] = [...lostBefore, ...sources.map((s): LostAttachment => ({ kind: lostKindOf(s.declaredKind ?? "file"), reason: "failed" }))];
+      const parked = await attachOrPark(input, [], lowLost);
+      if (parked.conversationId) void publishConversationUpdated("bot", parked.conversationId);
+      return parked.result;
+    }
+    // Потолки платформы, а не потолки разбора моделью («staff» в messengers/attachments.ts).
+    const slot = await withDownloadSlot(async () => {
+      // Повторная проверка уже в очереди: пока ждали место, тот же файл мог сохранить другой путь.
+      if (await alreadyKept(input.channel, input.subscriberId, input.mid)) return null;
+      const got = sources.length
+        ? await fetchAttachments(sources, undefined, KEEP_MAX_FILES, "staff")
+        : { images: [], audios: [], medias: [], hadUnsupported: false, lost: [] as LostAttachment[] };
+      return { fetched: got, stored: await storeFetchedAttachments(got) };
+    });
+    if (!slot) return "already";
+    const { fetched, stored } = slot;
+    files = stored;
+    const lost: LostAttachment[] = [...lostBefore, ...(fetched.lost ?? [])];
+    // Скачали, но не записали (диск, формат без расширения в справочнике) — тоже пометка, а не тишина.
     const downloaded = fetched.images.length + fetched.audios.length + fetched.medias.length;
     for (let i = files.length; i < downloaded; i++) lost.push({ kind: "file", reason: "failed" });
     for (let i = KEEP_MAX_FILES; i < sources.length; i++) lost.push({ kind: "file", reason: "too_many" });
     if (!files.length && !lost.length) return "nothing";
+    // «Не скачалось» у канала с мёртвым ключом — не случайность: пишем причину, а не «сбой».
+    if (lost.some((l) => l.reason === "failed") && (await channelKeyIsDead(input.channel, input.accountExternalId))) {
+      for (const l of lost) if (l.reason === "failed") l.reason = "no_key";
+    }
 
     const { result, conversationId, drop } = await attachOrPark(input, files, lost);
     dropFiles(drop);
@@ -201,6 +289,152 @@ export async function keepCustomerInputMedia(input: KeepCustomerInputMediaInput)
     });
     return "failed";
   }
+}
+
+/** Meta закрыла аккаунту доступ / ключ не принят (lib/instagramAccountAccess.ts: отметка accessLostAt). Никогда не бросает. */
+async function channelKeyIsDead(channel: string, accountExternalId: string | undefined): Promise<boolean> {
+  if (!accountExternalId || channel === "WHATSAPP") return false;
+  try {
+    const row = await prisma.messengerAccount.findFirst({
+      where: { channel, accessLostAt: { not: null },
+        OR: [{ externalId: accountExternalId }, { messagingId: accountExternalId }, { extraExternalIds: { has: accountExternalId } }] },
+      select: { id: true },
+    });
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+/** Что лежит в нормализованном входящем (lib/customerIngressPayload.ts::media) — нужно только для скачивания. */
+export interface StoredIngressMedia { kind: string; url?: string; assetRef?: string }
+
+const FILE_KINDS = ["image", "video", "audio", "document"];
+function lostKindOf(kind: string): LostAttachment["kind"] {
+  return kind === "image" || kind === "audio" || kind === "video" ? kind : "file";
+}
+
+/**
+ * ИЗ ЗАПИСАННОГО ВХОДЯЩЕГО — ОТКУДА КАЧАТЬ (26.11.2026). Одна дверь для всех путей, где реплика клиента
+ * пишется БЕЗ старого цикла бота: ядро (recordScopedCustomerInput) и сообщение, удержанное до ACK
+ * (recordHeldCustomerMessage). Вебхук вызывал сохранение только в ветке HELD, а основной путь ядра его не
+ * звал вовсе — прод 25–26.11: 8 клиентских файлов из 8 потеряно молча.
+ *
+ * Файл — это фото/видео/голос/документ с адресом или media_id WhatsApp; а также картинка пересланной публикации
+ * и «неизвестное» с адресом на CDN Meta (ig_reel, история, стикер). Страницы instagram.com и геометки — не файл:
+ * их не качаем и «не сохранилось» про них не пишем. Файл заявлен, а адреса нет, или Meta его не отдала — пометка
+ * с причиной (lost), а не тишина.
+ */
+export async function sourcesFromIngressMedia(input: {
+  channel: string; accountExternalId?: string; media: readonly StoredIngressMedia[]; kinds?: readonly (string | undefined)[];
+}): Promise<{ sources: AttachmentSource[]; lost: LostAttachment[] }> {
+  const sources: AttachmentSource[] = [];
+  const lost: LostAttachment[] = [];
+  for (const [i, item] of input.media.entries()) {
+    const stored = item.kind;
+    const observed = input.kinds?.[i] ?? stored;
+    const declared = FILE_KINDS.includes(stored) ? stored : FILE_KINDS.includes(observed) ? observed : undefined;
+    if (input.channel === "WHATSAPP" && item.assetRef) {
+      // Динамический импорт: meta.js и accounts.js тянут пол-проекта, а этот модуль зовёт ledger (цикл импортов).
+      const { lookupWhatsAppMedia } = await import("../messengers/meta.js");
+      const { resolveIncomingAccount } = await import("../messengers/accounts.js");
+      const account = await resolveIncomingAccount("WHATSAPP", input.accountExternalId);
+      const found = await lookupWhatsAppMedia(item.assetRef, account.id ? (account.token ?? null) : undefined);
+      if (found.source) sources.push({ ...found.source, ...(declared ? { declaredKind: declared } : {}) });
+      else lost.push({ kind: lostKindOf(declared ?? "file"), reason: found.reason });
+      continue;
+    }
+    if (item.url) {
+      if (isInstagramLink(item.url)) continue; // страница публикации, а не файл
+      if (declared) sources.push({ url: item.url, declaredKind: declared });
+      else if ((stored === "share" || stored === "unknown") && isMetaCdnUrl(item.url)) {
+        sources.push(stored === "share" ? { url: item.url, declaredKind: "image" } : { url: item.url });
+      }
+      continue;
+    }
+    if (declared) lost.push({ kind: lostKindOf(declared), reason: "unavailable" });
+  }
+  return { sources, lost };
+}
+
+/** Что в записанном входящем — файлы (те же правила, что у sourcesFromIngressMedia, но без сети). */
+function ingressFileKinds(input: { channel: string; media: readonly StoredIngressMedia[]; kinds?: readonly (string | undefined)[] }): LostAttachment["kind"][] {
+  const out: LostAttachment["kind"][] = [];
+  for (const [i, item] of input.media.entries()) {
+    const observed = input.kinds?.[i] ?? item.kind;
+    const declared = FILE_KINDS.includes(item.kind) ? item.kind : FILE_KINDS.includes(observed) ? observed : undefined;
+    const isFile = input.channel === "WHATSAPP" && item.assetRef ? true
+      : item.url ? !isInstagramLink(item.url) && (!!declared || ((item.kind === "share" || item.kind === "unknown") && isMetaCdnUrl(item.url)))
+      : !!declared;
+    if (isFile) out.push(lostKindOf(declared ?? "file"));
+  }
+  return out;
+}
+
+/**
+ * ЗАЯВКА НА СКАЧИВАНИЕ В ТОЙ ЖЕ ТРАНЗАКЦИИ, ЧТО ЗАПИСЬ РЕПЛИКИ (ревью #465). Скачивание идёт в фоне после коммита, и
+ * рестарт API между ними (выкат каждую минуту, OOM) оставлял голую «[📎]»: повторный проход видит, что реплика
+ * записана, и ничего не качает. Теперь вместе с репликой кладётся строка ожидания с пометкой «не скачалось»; настоящее
+ * скачивание заменяет её итогом, а если оно так и не случилось — settleStalePendingCustomerMedia прикрепит пометку.
+ * Строка, уже взятая из ожидания этой же транзакцией (файлы скачаны раньше реплики), заявкой не заменяется.
+ */
+export async function insertSettlementPlaceholder(
+  tx: Pick<TxClient, "$executeRaw">,
+  input: { channel: string; peer: string; mid: string; media: readonly StoredIngressMedia[]; kinds?: readonly (string | undefined)[] }
+): Promise<void> {
+  const kinds = ingressFileKinds({ channel: input.channel, media: input.media, kinds: input.kinds });
+  if (!kinds.length || !input.mid) return;
+  const lost = kinds.map((kind): LostAttachment => ({ kind, reason: "failed" }));
+  await tx.$executeRaw`
+    INSERT INTO "CustomerPendingMedia" ("id", "channel", "subscriberId", "mid", "files", "lost", "createdAt")
+    VALUES (gen_random_uuid()::text, ${input.channel}, ${input.peer}, ${input.mid}, '[]'::jsonb, ${JSON.stringify(lost)}::jsonb, (now() AT TIME ZONE 'UTC'))
+    ON CONFLICT ("channel", "subscriberId", "mid") DO NOTHING`;
+}
+
+/** Заявка без файлов старше этого — скачивание не состоялось (обрыв) или стоит в очереди слишком долго. */
+const SETTLE_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * Сверка каждые пять минут: заявки без файлов старше десяти минут получают на реплике пометку «не скачалось» (файл,
+ * который всё же докачается позже, заменит пометку сам — attachOrPark). Возвращает число прикреплённых пометок.
+ */
+export async function settleStalePendingCustomerMedia(now: Date = new Date()): Promise<{ settled: number }> {
+  const cutoff = new Date(now.getTime() - SETTLE_AFTER_MS);
+  const rows = await prisma.$queryRaw<{ channel: string; subscriberId: string; mid: string; lost: unknown }[]>`
+    SELECT "channel", "subscriberId", "mid", "lost" FROM "CustomerPendingMedia"
+    WHERE "createdAt" < ${cutoff} AND jsonb_array_length("files") = 0 AND jsonb_array_length("lost") > 0
+    ORDER BY "createdAt" LIMIT 200`;
+  let settled = 0;
+  for (const row of rows) {
+    const lost = (Array.isArray(row.lost) ? (row.lost as LostAttachment[]) : []).map((l): LostAttachment => ({ ...l, settled: true }));
+    const out = await attachOrPark({ channel: row.channel, subscriberId: row.subscriberId, mid: row.mid }, [], lost);
+    if (out.result === "attached" || out.result === "already") settled++;
+    if (out.conversationId) void publishConversationUpdated("bot", out.conversationId);
+  }
+  if (settled) {
+    void logSystemError("meta", `Файлы клиентов не докачались (обрыв или очередь): пометка «не скачалось» поставлена на ${settled} реплик`, {
+      dedupKey: "customer-input-media-settled",
+    });
+  }
+  return { settled };
+}
+
+/**
+ * Сохранить файлы только что записанного входящего (ядро и удержанные). Не ждёт скачивания, не бросает.
+ * `mid` — идентификатор события Meta: по нему файлы находят свою реплику.
+ */
+export function keepIngressMediaInBackground(input: {
+  channel: string; peer: string; accountExternalId?: string; mid: string;
+  media: readonly StoredIngressMedia[]; kinds?: readonly (string | undefined)[];
+}): void {
+  if (!input.media.length || !input.mid) return;
+  void (async () => {
+    const { sources, lost } = await sourcesFromIngressMedia(input);
+    await keepCustomerInputMedia({ channel: input.channel, subscriberId: input.peer, mid: input.mid, sources, lostBefore: lost,
+      ...(input.accountExternalId ? { accountExternalId: input.accountExternalId } : {}) });
+  })().catch((err) => {
+    void logSystemError("meta", `Файл клиента не сохранён в CRM (${input.channel}): ${describeError(err)}`, { dedupKey: `customer-input-media-error:${input.channel}` });
+  });
 }
 
 /** То же в фоне — для мест, где ход разговора ждать скачивания не должен. */
