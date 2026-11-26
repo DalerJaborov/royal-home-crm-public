@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 789,
-  "cron": 146,
+  "cron": 147,
   "jobs": 37,
-  "conditions": 4313,
+  "conditions": 4321,
   "untranslatedUnique": 496,
-  "untranslatedTotal": 637,
-  "partialUnique": 1139,
+  "untranslatedTotal": 638,
+  "partialUnique": 1142,
   "translatedShare": 85
  },
  "untranslated": [
@@ -67628,6 +67628,107 @@
       },
       {
        "t": "если отправленных больше 0",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "channel-volume-watch",
+   "when": "40 * * * *",
+   "label": "channel-volume-watch",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это не канал watch hour или это не канал watch день",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если это не канал watch hour или это не канал watch день",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))"
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: alert",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если выключено: Meta канал",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если канал — «INSTAGRAM» и есть Instagram все подключения потерянные",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть queued",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если разосланных тревог количество больше 0",
        "k": "if",
        "a": [],
        "c": []

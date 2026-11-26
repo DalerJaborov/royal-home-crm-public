@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4352**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4360**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20503,6 +20503,50 @@
 - в любом случае
   - isCandidatePhoneAskRunning = false;
     · дословно из кода
+
+### channel-volume-watch — 40 * * * *
+
+- пробует
+  - const { alerted } = await runChannelVolumeWatchTick();
+    · зовёт runChannelVolumeWatchTick()
+    - если !isChannelWatchHour(at) || !isChannelWatchDay(at)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !isChannelWatchHour(previousAt) || !isChannelWatchDay(previousAt)
+      - return { alerted: [] };
+        · дословно из кода
+    - если !(await automationSwitchOn("notifyClientWaitingEnabled"))
+      - return { alerted: [] };
+        · дословно из кода
+    - const rows = await prisma.$queryRaw<VolumeRow[]>` SELECT "channel"::text AS channel, COUNT(*) FILTER (WHERE e…
+      · обращается к базе своим SQL
+    - для каждого: const channel of WATCHED_CHANNELS
+      - const { alert, average } = channelVolumeVerdict(Number(row?.cur ?? 0), Number(row?.past ?? 0), Number(row?.pr…
+        · зовёт channelVolumeVerdict()
+      - если !alert
+        - continue;
+          · переходит к следующему
+      - если !(await isMetaChannelEnabled(channel))
+        - continue;
+          · переходит к следующему
+      - если channel === "INSTAGRAM" && (await instagramAllAccountsLost())
+        - continue;
+          · переходит к следующему
+      - const { alerted: queued } = await raiseCriticalAlarm({ tag: `channel-volume-${channel}`, title: `📉 ${channel…
+        · зовёт raiseCriticalAlarm()
+      - если queued
+        - alerted.push(channel);
+          · дословно из кода
+  - если alerted.length > 0
+    - console.log(`[cron] Канал затих, тревога руководству: ${alerted.join(", ")}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «канал затих»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### chunked-uploads-cleanup — 17 * * * *
 
