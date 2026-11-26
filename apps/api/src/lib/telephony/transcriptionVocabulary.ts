@@ -1,6 +1,8 @@
 import { prisma } from "../../db.js";
 import { SALES_AGENT_ROLES } from "@royal-home/shared";
 import { FOLK_PLACES } from "../../ai/folkPlaces.js";
+import { describeError } from "../describeError.js";
+import { logSystemError } from "../systemError.js";
 
 /**
  * ПОДСКАЗКА РАСШИФРОВКЕ ЗВОНКА: КТО И ЧТО МОЖЕТ ПРОЗВУЧАТЬ (26.11.2026, ПК-001086).
@@ -35,6 +37,17 @@ export function resetTranscriptionVocabularyCache(): void {
 
 export async function transcriptionVocabulary(): Promise<string[]> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.words;
+  try {
+    return await buildVocabulary();
+  } catch (err) {
+    // Подсказка — не условие расшифровки: без неё запись всё равно расшифровывается,
+    // но сбой чтения виден в «Здоровье системы», а не проглочен.
+    void logSystemError("telephony", `Подсказка расшифровке (фамилии, ориентиры) не собралась: ${describeError(err)}`);
+    return [];
+  }
+}
+
+async function buildVocabulary(): Promise<string[]> {
   const [agents, properties] = await Promise.all([
     prisma.agent.findMany({
       where: { isActive: true, role: { in: [...SALES_AGENT_ROLES] } },

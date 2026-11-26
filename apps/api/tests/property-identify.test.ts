@@ -222,20 +222,9 @@ describe("identifyProperty — какой объект имеет в виду з
   it("бюджет клиента не вычёркивает объект: «ищу до 400, видел вашу за 300 у ориентира»", async () => {
     const place = `${tag}бодомзор`;
     const p = await makeProperty({ price: 300000, currency: "TJS", landmark: `Бог ${place}`, areaSqm: 48 });
-    /**
-     * Та же сумма как ЦЕНА ОБЪЯВЛЕНИЯ. До 26.11.2026 цена дальше 20 % вычёркивала
-     * объект совсем — и вычеркнула №230 (ПК-001086: «165 ҳазор» в расшифровке
-     * вместо 965 000). Теперь «400» против «300» — одна цифра иначе при тех же
-     * разрядах, это примета «цена похожа», а не приговор: ориентир и площадь
-     * узнают объект, в приметах видно, что цена сошлась не точно.
-     */
+    // Та же сумма как ЦЕНА ОБЪЯВЛЕНИЯ — это уже другой объект (дальше 20 %).
     const asPrice = await identifyProperty({ place, priceTjs: 400000, areaSqm: 48 });
-    expect(asPrice.propertyId).toBe(p.id);
-    expect(asPrice.candidates[0].signals.some((s) => s.startsWith("цена похожа"))).toBe(true);
-    // Совсем другая цена (не одна цифра) снимает баллы: ориентир и площадь дают 5, минус три — не узнан.
-    const farPrice = await identifyProperty({ place, priceTjs: 777000, areaSqm: 48 });
-    expect(farPrice.propertyId).toBeNull();
-    expect(own(farPrice.candidates).map((c) => c.id)).toContain(p.id);
+    expect(asPrice.candidates.map((c) => c.id)).not.toContain(p.id);
     // Как бюджет — не приговор: ориентир и площадь узнают объект.
     const asBudget = await identifyProperty({ place, budgetTjs: 400000, areaSqm: 48 });
     expect(asBudget.propertyId).toBe(p.id);

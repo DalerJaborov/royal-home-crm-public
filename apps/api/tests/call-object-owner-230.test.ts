@@ -51,6 +51,7 @@ const { resetIncomingCalls } = await import("../src/lib/telephony/incomingCalls.
 const { resetKnownAgentsCache } = await import("../src/lib/requestedAgent.js");
 const { resetGeoMentionIndex } = await import("../src/ai/geoMentions.js");
 const { loadMoneyContext } = await import("../src/lib/money.js");
+const { reserveExtensionBase } = await import("./helpers/extensionBase.js");
 
 const runId = Date.now();
 const tail = String(runId).slice(-7);
@@ -346,7 +347,7 @@ describe("ПК-001086 → объект №230 → Сайфуллоев Илҳо�
     expect(client?.assignReason).not.toBe("own_property_explicit");
   });
 
-  it("рубильник выключен — по приметам заявка идёт обычной раздачей, похожие всё равно в хронологии", async () => {
+  it("рубильник выключен — ровно как до 26.11: «165» против 965 000 вычёркивает объект, подсказки нет", async () => {
     switchesOff.add("callObjectToOwnerEnabled");
     const target = await makeProperty({});
     extractIncomingCallLead.mockResolvedValue(extractAsOnProd({ namedAgent: null }));
@@ -354,12 +355,34 @@ describe("ПК-001086 → объект №230 → Сайфуллоев Илҳо�
     await autoLeadFromIncomingCall(callId);
     const client = await clientAfter(clientId);
     expect(client?.matchedPropertyId).not.toBe(target.id);
-    expect(await timelineNotes(clientId)).toContain("уверенно не узнан");
     expect(notifyFeedOnly).not.toHaveBeenCalled();
   });
 
-  it("номер объекта словами («объект двести тридцать») — прямое указание, рубильник не нужен", async () => {
+  it("рубильник выключен — узнавание по приметам с верной ценой по-прежнему отдаёт хозяину (не хуже, чем до правки, ревью В4)", async () => {
     switchesOff.add("callObjectToOwnerEnabled");
+    const target = await makeProperty({});
+    extractIncomingCallLead.mockResolvedValue(extractAsOnProd({ namedAgent: null, propertyPrice: 965_000, budgetMax: 965_000 }));
+    const { callId, clientId } = await seedCall(nextPhone());
+    await autoLeadFromIncomingCall(callId);
+    const client = await clientAfter(clientId);
+    expect(client?.assignedAgentId).toBe(ownerId);
+    expect(client?.matchedPropertyId).toBe(target.id);
+  });
+
+  it("с рубильником совсем другая цена не убивает объект, если сошлись ориентир, комнаты и этаж", async () => {
+    // Краснеет, если вернуть вычёркивание по цене в путь звонка (ревью 26.11).
+    const target = await makeProperty({});
+    extractIncomingCallLead.mockResolvedValue(
+      extractAsOnProd({ namedAgent: null, propertyPrice: 300_000, budgetMax: 300_000, propertyFloor: 3 })
+    );
+    const { callId, clientId } = await seedCall(nextPhone());
+    await autoLeadFromIncomingCall(callId);
+    const client = await clientAfter(clientId);
+    expect(client?.assignedAgentId).toBe(ownerId);
+    expect(client?.matchedPropertyId).toBe(target.id);
+  });
+
+  it("номер объекта словами («объект двести тридцать») — прямое указание (рубильник включён)", async () => {
     const target = await makeProperty({});
     extractIncomingCallLead.mockResolvedValue(
       extractAsOnProd({ namedAgent: null, propertyLandmark: null, propertyPrice: null, propertyPriceCurrency: null, propertyHint: `объект ${numberInWords(target.shortId)}` })
@@ -372,7 +395,7 @@ describe("ПК-001086 → объект №230 → Сайфуллоев Илҳо�
   });
 
   it("трубку снял другой агент: слабое совпадение по приметам его не перебивает, сильное (место + этаж + комнаты + цена) — перебивает", async () => {
-    const answererExt = `9${tail.slice(0, 3)}`;
+    const answererExt = String(await reserveExtensionBase(1));
     const answererId = await makeAgent(`Снявший трубку ${runId}`, { sipExtension: answererExt });
     try {
       const target = await makeProperty({});
@@ -390,6 +413,23 @@ describe("ПК-001086 → объект №230 → Сайфуллоев Илҳо�
       expect(client?.assignedAgentId).toBe(ownerId);
       expect(client?.matchedPropertyId).toBe(target.id);
       expect(await timelineNotes(strong.clientId)).toContain("Трубку снял");
+
+      // Покупатель рассказал, ЧТО ИЩЕТ (комнаты, бюджет, район — пожелания), объект
+      // назван лишь ориентиром: это не приметы объявления — снявший трубку остаётся
+      // (правило 10.10 P0-4, ревью 26.11 В3).
+      extractIncomingCallLead.mockResolvedValue(
+        extractAsOnProd({
+          namedAgent: null,
+          propertyRooms: null,
+          propertyPrice: null,
+          propertyPriceCurrency: null,
+          desiredRooms: 2,
+          budgetMax: 965_000,
+        })
+      );
+      const wishes = await seedCall(nextPhone(), { answeredBy: answererExt });
+      await autoLeadFromIncomingCall(wishes.callId);
+      expect((await clientAfter(wishes.clientId))?.assignedAgentId).toBe(answererId);
     } finally {
       await prisma.interaction.deleteMany({ where: { agentId: answererId } });
       await prisma.agent.delete({ where: { id: answererId } }).catch(() => {});

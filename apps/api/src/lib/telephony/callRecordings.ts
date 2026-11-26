@@ -18,6 +18,7 @@ import { sendPushToAgents } from "../../push.js";
 import { shouldAlert } from "../notifications.js";
 import { scrubMentionedPhones } from "./callPhoneMasking.js";
 import { transcriptionVocabulary } from "./transcriptionVocabulary.js";
+import { automationSwitchOn } from "../automationSwitches.js";
 import { dushanbeWallClock } from "../dushanbeTime.js";
 import type { CallTranscriptionStage } from "@royal-home/shared";
 
@@ -1197,14 +1198,17 @@ async function transcribeAndEnrich(params: {
       agent: { select: { fullName: true, sipExtension: true } },
     },
   });
-  // Фамилии сотрудников и ориентиры объектов — подсказка написания (26.11.2026);
-  // сбой её чтения расшифровку не останавливает.
-  const vocabulary = await transcriptionVocabulary().catch(() => []);
+  // Фамилии сотрудников, ориентиры объектов и «числа целиком» — подсказки расшифровке
+  // (26.11.2026), только пока включён рубильник «Звонок по объекту — хозяину»: это
+  // часть того же механизма, и выключать его владелец должен одним движением.
+  const asrHints = await automationSwitchOn("callObjectToOwnerEnabled").catch(() => false);
+  const vocabulary = asrHints ? await transcriptionVocabulary() : [];
   const transcribeOptions = {
     kind: "call" as const,
     callerPhone: context?.client?.phone || null,
     agentName: context?.agent?.fullName || null,
     agentExtension: context?.agent?.sipExtension || null,
+    asrHints,
     vocabulary,
   };
 

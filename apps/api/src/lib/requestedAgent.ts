@@ -61,7 +61,7 @@ export type RequestedAgentMatch =
    * "property" — один из них хозяин узнанного объекта; "active" — остальные
    * уволены, а имя расслышано с ошибкой. Нет поля — имя подошло одному.
    */
-  | { status: "matched"; agentId: string; fullName: string; namedAs: string; resolvedBy?: "property" | "active" }
+  | { status: "matched"; agentId: string; fullName: string; namedAs: string; resolvedBy?: "property" | "similar_property" | "active" }
   /** Имя подошло двоим и больше — НЕ УГАДЫВАЕМ (в базе два Баходура). */
   | { status: "ambiguous"; namedAs: string; candidates: { id: string; fullName: string }[] }
   /** Нашли одного, но он сейчас не берёт клиентов (уволен, заморожен, на паузе). */
@@ -217,6 +217,19 @@ export interface MatchOptions {
    * берём. Пусто — прежнее правило «тёзок не угадываем».
    */
   preferAgentIds?: readonly string[];
+  /**
+   * ИМЯ ИЗ РАСШИФРОВКИ, А НЕ ИЗ РУК ЧЕЛОВЕКА (26.11.2026): точно расслышанное имя
+   * побеждает похожее; среди похожих с ошибкой уволенные уступают действующему.
+   * Включает только разбор звонка при рубильнике callObjectToOwnerEnabled; чат
+   * (человек пишет сам) — прежнее правило «тёзок не угадываем».
+   */
+  asrAware?: boolean;
+  /**
+   * preferAgentIds — хозяин УЗНАННОГО объекта (true) или лишь хозяева похожих
+   * (false): от этого зависит подпись в хронологии (ревью 26.11 — слабого
+   * кандидата не называть «объектом из разговора»).
+   */
+  preferIsSure?: boolean;
 }
 
 /**
@@ -228,7 +241,7 @@ export function matchRequestedAgent(
   agents: KnownAgent[],
   options: MatchOptions = {}
 ): RequestedAgentMatch {
-  const { now = new Date(), requireCue = true, preferAgentIds = [] } = options;
+  const { now = new Date(), requireCue = true, preferAgentIds = [], asrAware = false, preferIsSure = true } = options;
   const parsed = requestTextSchema.safeParse(text);
   if (!parsed.success) return { status: "none" };
   const raw = parsed.data;
@@ -270,7 +283,7 @@ export function matchRequestedAgent(
   if (hits.size === 0) return { status: "none" };
 
   let candidates = [...hits.values()];
-  let resolvedBy: "property" | "active" | undefined;
+  let resolvedBy: "property" | "similar_property" | "active" | undefined;
   // Внутренний номер сотрудника, названный рядом с именем, — прямое уточнение.
   const byExtension = candidates.filter((c) => c.agent.sipExtension && digits.has(c.agent.sipExtension));
   if (byExtension.length === 1) candidates = byExtension;
@@ -279,7 +292,7 @@ export function matchRequestedAgent(
     const best = Math.max(...candidates.map((c) => c.parts));
     candidates = candidates.filter((c) => c.parts === best);
   }
-  if (candidates.length > 1) {
+  if (asrAware && candidates.length > 1) {
     // Имя расслышано точно у одного и с ошибками у других — точное побеждает.
     const closest = Math.min(...candidates.map((c) => c.distance));
     candidates = candidates.filter((c) => c.distance === closest);
@@ -289,10 +302,10 @@ export function matchRequestedAgent(
     const byProperty = candidates.filter((c) => preferAgentIds.includes(c.agent.id));
     if (byProperty.length === 1) {
       candidates = byProperty;
-      resolvedBy = "property";
+      resolvedBy = preferIsSure ? "property" : "similar_property";
     }
   }
-  if (candidates.length > 1 && candidates.every((c) => c.distance > 0)) {
+  if (asrAware && candidates.length > 1 && candidates.every((c) => c.distance > 0)) {
     /**
      * ИМЯ РАССЛЫШАНО С ОШИБКОЙ, И СРЕДИ ПОХОЖИХ ЕСТЬ УВОЛЕННЫЕ (26.11.2026).
      * «Файзуллоев» подошёл и действующему Сайфуллоеву, и давно уволенному
@@ -390,7 +403,9 @@ export function requestedAgentNote(match: RequestedAgentMatch): string | null {
     case "matched":
       return match.resolvedBy === "property"
         ? `Клиент назвал «${match.namedAs}» — это ${match.fullName}, агент объекта из разговора; закреплён за ним вне очереди`
-        : match.resolvedBy === "active"
+        : match.resolvedBy === "similar_property"
+          ? `Клиент назвал «${match.namedAs}» — похоже на ${match.fullName}, агента похожего объекта из разговора; закреплён за ним вне очереди`
+          : match.resolvedBy === "active"
           ? `Клиент назвал «${match.namedAs}» — похоже на ${match.fullName} (остальные похожие уже не работают); закреплён за ним вне очереди`
           : `Клиент сам назвал сотрудника: ${match.fullName} — закреплён за ним вне очереди`;
     case "ambiguous":

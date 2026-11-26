@@ -332,6 +332,8 @@ export interface TranscribeContext {
    * Собирает lib/telephony/transcriptionVocabulary.ts.
    */
   vocabulary?: readonly string[] | null;
+  /** Подсказки звонку включены (рубильник callObjectToOwnerEnabled): словарь и «числа целиком». */
+  asrHints?: boolean;
 }
 
 /**
@@ -413,8 +415,10 @@ export function instructionFor(context?: TranscribeContext): string {
   let extra = CALL_DIALOGUE_INSTRUCTION;
   if (context.agentName) extra += agentNameInstruction(context.agentName);
   if (context.callerPhone) extra += callerPhoneInstruction(context.callerPhone);
-  if (context.vocabulary?.length) extra += vocabularyInstruction(context.vocabulary);
-  extra += CALL_NUMBERS_INSTRUCTION;
+  if (context.asrHints) {
+    if (context.vocabulary?.length) extra += vocabularyInstruction(context.vocabulary);
+    extra += CALL_NUMBERS_INSTRUCTION;
+  }
   extra += CALL_UNCLEAR_WORD_INSTRUCTION;
   return `${GEMINI_INSTRUCTION} ${extra}`;
 }

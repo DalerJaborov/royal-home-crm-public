@@ -559,9 +559,27 @@ function anySameWord(said: string[], card: string[]): number {
   return said.filter((w) => card.some((c) => sameWord(w, c))).length;
 }
 
-/** То же с допуском на написание («казакон» = «казокон») — для узнавания объекта по звонку. */
-function anyFuzzyWord(said: string[], card: string[]): number {
-  return said.filter((w) => card.some((c) => fuzzyPlaceWord(w, c))).length;
+/** То же с допуском на написание «о/а» («казакон» = «казокон») для всех каналов; `loose` —
+ *  ещё и одна замена буквы, только у разбора звонка с допуском на расшифровку. */
+function anyFuzzyWord(said: string[], card: string[], loose: boolean): number {
+  // Дешёвое прежнее правило первым; «о/а» и замена буквы — только для слов от шести букв
+  // (горячий путь: пул объектов × слова карточки, без лишних выделений строк).
+  const longCard = card.filter((c) => c.length >= 6);
+  return said.filter(
+    (w) => card.some((c) => sameWord(w, c)) || (w.length >= 6 && longCard.some((c) => fuzzyPlaceWord(w, c, { loose })))
+  ).length;
+}
+
+export interface IdentifyOptions {
+  /**
+   * ДОПУСК НА ОШИБКУ РАСШИФРОВКИ (26.11.2026, ПК-001086) — только разбор звонка
+   * оператора при включённом рубильнике callObjectToOwnerEnabled. Включает: цену без
+   * вычёркивания (другая валюта, потерянные тысячи, старший разряд — плюс; совсем
+   * другая — минус три), ориентиры с одной заменой буквы, вид места TJ↔RU («масҷид» =
+   * «мечеть»). Без флага (чат, голосовой консультант, рубильник выключен) — правила
+   * 24.09.2026 без изменений: цена дальше 20 % вычёркивает объект.
+   */
+  tolerateAsr?: boolean;
 }
 
 function num(v: unknown): number | null {
@@ -606,10 +624,11 @@ async function withAgents(list: Omit<IdentifiedCandidate, "agentName">[]): Promi
   });
 }
 
-export async function identifyProperty(clues: PropertyClues): Promise<PropertyIdentification> {
+export async function identifyProperty(clues: PropertyClues, options: IdentifyOptions = {}): Promise<PropertyIdentification> {
+  const tolerateAsr = options.tolerateAsr === true;
   const text = clues.text?.trim() || null;
   if (text) {
-    const byHint = await resolveCallPropertyHint(text);
+    const byHint = await resolveCallPropertyHint(text, { spelledNumbers: tolerateAsr });
     if (byHint) {
       const p = await prisma.property.findUnique({ where: { id: byHint }, select: CARD_SELECT });
       if (p) {
@@ -624,8 +643,8 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
   const placeText = clues.place?.trim() || null;
   const placeWords = words(placeText);
   const textWords = words(text);
-  // Вид места («мечеть», «рынок») — отдельно от названий: он слабая примета.
-  const saidPlaceTypes = placeTypeWords([placeText, text].filter(Boolean).join(" "));
+  // Вид места («мечеть», «рынок») — отдельно от названий: он слабая примета (только с допуском).
+  const saidPlaceTypes = tolerateAsr ? placeTypeWords([placeText, text].filter(Boolean).join(" ")) : new Set<string>();
   const [places, pool, money] = await Promise.all([
     placeText || text ? placesMentioned([placeText, text].filter(Boolean).join(" "), { loose: true }) : Promise.resolve([]),
     prisma.property.findMany({
@@ -647,7 +666,7 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     loadMoneyContext(),
   ]);
 
-  const scored: (Omit<IdentifiedCandidate, "agentName"> & { located: boolean; numeric: number })[] = [];
+  const scored: (Omit<IdentifiedCandidate, "agentName"> & { located: boolean; numeric: number; fresh: boolean })[] = [];
   const now = Date.now();
   for (const p of pool) {
     const signals: string[] = [];
@@ -674,21 +693,21 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
      * КОМНАТЫ — ТОЖЕ ПРИМЕТА (24.09.2026, проход по классам после ОБ-000118).
      * Раньше чужое число комнат вычёркивало объект, как и тип. Но в разборе
      * звонка это может быть и «сколько нужно», и «сколько в объявлении», а агент
-     * может посчитать «3 хона» иначе, чем клиент. Противоречие снимает четыре балла
-     * (было три; с 26.11.2026 к сумме прибавился балл за свежесть, и трёх перестало
-     * хватать): при цене и ориентире объект уже не «узнан уверенно», но остаётся в
-     * похожих.
+     * может посчитать «3 хона» иначе, чем клиент. Противоречие снимает три балла:
+     * при цене и ориентире объект уже не «узнан уверенно», но остаётся в похожих.
      */
-    if (clues.rooms && p.rooms && p.rooms !== clues.rooms) score -= 4;
+    if (clues.rooms && p.rooms && p.rooms !== clues.rooms) score -= 3;
 
     if (clues.priceTjs && clues.priceTjs > 0) {
       /**
-       * ЦЕНА ОБЪЯВЛЕНИЯ — ПРИМЕТА С ДОПУСКОМ НА ОШИБКУ РАСПОЗНАВАНИЯ (26.11.2026,
-       * ПК-001086). Точная/близкая — плюс, как раньше; другая валюта, потерянные
-       * тысячи, одна неверная цифра — маленький плюс; совсем другая — минус три,
-       * но объект остаётся: решают место и остальные приметы (propertyClueScoring.ts).
+       * ЦЕНА ОБЪЯВЛЕНИЯ. Без допуска (чат, голос, рубильник выключен) — правило
+       * 24.09.2026: дальше 20 % объект вычёркивается. С допуском на ошибку
+       * расшифровки (разбор звонка оператора, 26.11.2026, ПК-001086): другая валюта,
+       * потерянные тысячи, старший разряд — маленький плюс; совсем другая — минус
+       * три, но объект остаётся: решают место и остальные приметы (propertyClueScoring.ts).
        */
-      const verdict = comparePrice(clues.priceTjs, toTjs(p.price, p.currency, money), money.usdToTjs);
+      const verdict = comparePrice(clues.priceTjs, toTjs(p.price, p.currency, money), money.usdToTjs, { tolerateAsr });
+      if (verdict.veto) continue;
       score += verdict.score;
       if (verdict.signal) signals.push(verdict.signal);
       if (verdict.exact) priceExact = true;
@@ -710,7 +729,7 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
 
     const cardText = [p.landmark, p.address, p.title].filter(Boolean).join(" ");
     const cardWords = words(cardText);
-    if (anyFuzzyWord(placeWords, cardWords) > 0) {
+    if (anyFuzzyWord(placeWords, cardWords, tolerateAsr) > 0) {
       score += 3;
       located = true;
       signals.push("ориентир");
@@ -733,7 +752,7 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     }
 
     if (textWords.length > 0) {
-      const hits = anyFuzzyWord(textWords, cardWords);
+      const hits = anyFuzzyWord(textWords, cardWords, tolerateAsr);
       if (hits > 0) {
         score += Math.min(3, hits);
         located = true;
@@ -817,13 +836,10 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
 
     /**
      * СВЕЖИЙ ОБЪЕКТ (26.11.2026): ролик вышел вчера — звонят чаще всего по нему.
-     * Один балл, местом не считается: разводит двух похожих у одного ориентира,
-     * но сам по себе объект не узнаёт.
+     * Не баллы и не порог (ревью architect 26.11): только порядок между объектами с
+     * РАВНЫМИ баллами, уже совпавшими по приметам. В кандидаты сам по себе не ведёт.
      */
-    if (isFreshProperty(p.createdAt, now)) {
-      score += 1;
-      signals.push("свежий");
-    }
+    const fresh = isFreshProperty(p.createdAt, now);
 
     if (priceExact && areaMatch && sameDistrict === true) located = true;
     /**
@@ -834,12 +850,13 @@ export async function identifyProperty(clues: PropertyClues): Promise<PropertyId
     if (priceExact && areaMatch && roomsMatch && floorMatch) located = true;
 
     if (score > 0) {
-      scored.push({ id: p.id, shortId: p.shortId, status: p.status, agentId: propertyOwnerAgentId(p), score, signals, located, numeric });
+      scored.push({ id: p.id, shortId: p.shortId, status: p.status, agentId: propertyOwnerAgentId(p), score, signals, located, numeric, fresh });
     }
   }
 
-  scored.sort((a, b) => b.score - a.score || b.shortId - a.shortId);
-  const candidates = await withAgents(scored.slice(0, 3).map(({ located: _located, numeric: _numeric, ...c }) => c));
+  // Баллы → свежесть (тай-брейк при равных баллах) → номер карточки.
+  scored.sort((a, b) => b.score - a.score || (tolerateAsr ? Number(b.fresh) - Number(a.fresh) : 0) || b.shortId - a.shortId);
+  const candidates = await withAgents(scored.slice(0, 3).map(({ located: _located, numeric: _numeric, fresh: _fresh, ...c }) => c));
   const [top, second] = scored;
   const lead = top && second ? top.score - second.score : null;
   const sure = !!top && top.located && top.score >= MIN_SCORE && (lead === null || lead >= MIN_LEAD);

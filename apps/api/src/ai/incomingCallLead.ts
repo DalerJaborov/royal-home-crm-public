@@ -295,11 +295,22 @@ function systemPrompt(districtNames: string[], usdToTjs: number): string {
  * работа после разговора, и падать из-за неё конвейер записи не должен. `null`
  * означает «разобрать не удалось»: звонок останется человеку (см. autoLeadFromCall).
  */
-export async function extractIncomingCallLead(transcript: string): Promise<IncomingCallLead | null> {
-  // Числа словами («нӯҳсаду шасту панҷ ҳазор», «двести тридцать») — цифрами до
-  // модели (lib/numberWords.ts, 26.11.2026): таджикские числительные она читает
-  // нетвёрдо, а код — одинаково. Мелкие числа («ду хона») остаются словами.
-  const text = numberWordsToDigits(transcript.trim());
+export interface ExtractIncomingCallLeadOptions {
+  /**
+   * Числа словами («нӯҳсаду шасту панҷ ҳазор», «двести тридцать») — цифрами до
+   * модели (lib/numberWords.ts, 26.11.2026): таджикские числительные она читает
+   * нетвёрдо, а код — одинаково. Только безопасное подмножество; мелкие числа («ду
+   * хона») остаются словами. Включает разбор звонка при рубильнике
+   * callObjectToOwnerEnabled; по умолчанию текст уходит модели как есть.
+   */
+  normalizeNumbers?: boolean;
+}
+
+export async function extractIncomingCallLead(
+  transcript: string,
+  options: ExtractIncomingCallLeadOptions = {}
+): Promise<IncomingCallLead | null> {
+  const text = options.normalizeNumbers ? numberWordsToDigits(transcript.trim()) : transcript.trim();
   if (text.length < MIN_TRANSCRIPT_CHARS) return null;
 
   try {
