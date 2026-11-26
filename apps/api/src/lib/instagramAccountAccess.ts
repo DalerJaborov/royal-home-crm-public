@@ -1,7 +1,7 @@
 import { prisma } from "../db.js";
 import { decryptSecretSafe } from "../crypto.js";
 import { logSystemError } from "./systemError.js";
-import { MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
+import { isMetaAuthFailure, MANAGEMENT_ALARM_ROLES, raiseCriticalAlarm } from "./channelKeyAlarm.js";
 import { instagramRouteForToken } from "./metaEternalTokens.js";
 
 /**
@@ -34,6 +34,146 @@ import { instagramRouteForToken } from "./metaEternalTokens.js";
 /** Признак ответа Meta «аккаунт закрыт, войдите в Instagram и пройдите проверку». */
 export function isInstagramAccountLockedText(text: string | undefined): boolean {
   return /cannot access the app till you log in to (www\.)?instagram\.com/i.test(text ?? "");
+}
+
+/**
+ * ОТКАЗ КЛЮЧА, ПОСЛЕ КОТОРОГО АККАУНТ МЕТИТСЯ (25.11.2026, прод 24.11 03:18: «The session has been invalidated because
+ * the user changed their password», HTTP 401 / код 190 по Arvan Estate — за ~28 часов около 270 строк журнала: отправка,
+ * повтор зависших раз в 30 минут, профиль, публикация, комментарии, личное по комментарию). До этой правки дверь метила
+ * только «войдите в Instagram и пройдите проверку», а мёртвый после смены пароля ключ каждый путь встречал заново.
+ * Теперь: «аккаунт закрыт» ИЛИ «ключ не принят» (узкая проверка channelKeyAlarm.ts::isMetaAuthFailure: 401 или код
+ * 190/102 вместе с текстом про маркер/сессию). 5xx, 429, лимиты 613/4/17 и отказы «про клиента» сюда не попадают.
+ *
+ * ГОЛЫЙ 401 НЕ МЕТИТ (ревью #432): isMetaAuthFailure считает отказом ключа любой 401 — для тревоги это допустимо, а
+ * отметка глушит аккаунт. 401 без кода 190/102 и без слов про маркер/сессию — например, отказ прокси Instagram
+ * («Unauthorized», чужой x-proxy-key) — не про ключ аккаунта.
+ */
+const KEY_SIGNAL_TEXT = /access token|session|OAuthException|OAuth access/i;
+function graphErrorCode(text: string | undefined): number | null {
+  try {
+    const code = (JSON.parse(text ?? "") as { error?: { code?: unknown } }).error?.code;
+    return typeof code === "number" ? code : null;
+  } catch {
+    return null;
+  }
+}
+export function isInstagramKeyRefusal(status: number | undefined, text: string | undefined): boolean {
+  if (isInstagramAccountLockedText(text)) return true;
+  if (!isMetaAuthFailure(status, text)) return false;
+  if (status !== 401) return true; // 190/102 с текстом про ключ — проверено в isMetaAuthFailure
+  const code = graphErrorCode(text);
+  return code === 190 || code === 102 || KEY_SIGNAL_TEXT.test(text ?? "");
+}
+
+/**
+ * ОТКАЗ, КОТОРЫЙ ДОКАЗЫВАЕТ, ЧТО КЛЮЧ ПРИНЯТ (ревью #432). Meta разобрала запрос этим ключом и отказала «про
+ * получателя/запрос» (окно 24 ч закрыто, получатель недоступен, нет прав на объект, правила) — значит, ключ жив, и
+ * отметка «доступ потерян» на пробе снимается. Не доказывают: 401, 429 и лимиты (4/17/32/613), коды ключа 190/102,
+ * любой отказ ключа по isInstagramKeyRefusal/isMetaAuthFailure и ответ без кода Graph (прокси, HTML-страница).
+ */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
+export function isInstagramKeyAcceptedRefusal(status: number, text: string | undefined): boolean {
+  if (status < 400 || status >= 500 || status === 401 || status === 429) return false;
+  if (isInstagramKeyRefusal(status, text) || isMetaAuthFailure(status, text)) return false;
+  const code = graphErrorCode(text);
+  if (code === null || code === 190 || code === 102 || RATE_LIMIT_CODES.has(code)) return false;
+  return true;
+}
+
+/**
+ * ПОКА ОТМЕТКА СТОИТ, В META ЭТИМ КЛЮЧОМ НЕ ХОДИМ (25.11.2026). Вызов, который знает ключ (или аккаунт), спрашивает здесь
+ * до запроса: аккаунт с отметкой — «закрыто», запрос не делается, вызывающий молчит (журнал и тревогу дала отметка).
+ *
+ * САМОИЗЛЕЧЕНИЕ: раз в PROBE_EVERY_MS на аккаунт (в каждом процессе) один запрос пропускается как проба. Ответ Meta
+ * успешный — отметка снимается (noteInstagramProbeSucceeded); отказ — отметка уже стоит, писать нечего. Иначе ошибочная
+ * отметка на живом аккаунте глушила бы его до суточной проверки (integrationHealth.ts), а это сутки молчания клиентам.
+ *
+ * Чтение — один запрос по аккаунтам С ОТМЕТКОЙ (обычно их ноль, расшифровки нет вовсе). Никогда не бросает: сбой
+ * чтения — «открыто», как было до двери.
+ */
+export const PROBE_EVERY_MS = 30 * 60_000;
+const probeTakenAt = new Map<string, number>();
+
+/** Только для тестов: забыть, когда брались пробы. */
+export function resetInstagramAccessProbes(): void {
+  probeTakenAt.clear();
+}
+
+export interface InstagramAccessRef {
+  accountId?: string | null;
+  /** Instagram-идентификатор аккаунта (messengerAccount.externalId) — у комментариев. */
+  externalId?: string | null;
+  /** Ключ, которым пойдёт запрос: метка ищется по нему (только среди аккаунтов с отметкой). */
+  token?: string | null;
+}
+
+export interface LostInstagramAccount {
+  id: string;
+  reason: string | null;
+}
+
+/** Аккаунт этой ссылки с отметкой «доступ потерян»; null — отметки нет (или аккаунт не Instagram/не найден). */
+export async function lostInstagramAccount(ref: InstagramAccessRef): Promise<LostInstagramAccount | null> {
+  try {
+    if (!ref.accountId && !ref.externalId && !ref.token) return null;
+    const rows = await prisma.messengerAccount.findMany({
+      where: {
+        channel: "INSTAGRAM",
+        accessLostAt: { not: null },
+        ...(ref.accountId ? { id: ref.accountId } : {}),
+      },
+      select: { id: true, token: true, externalId: true, extraExternalIds: true, accessLostReason: true },
+      take: 50,
+    });
+    const hit = rows.find((r) =>
+      (ref.accountId && r.id === ref.accountId) ||
+      (ref.externalId && (r.externalId === ref.externalId || r.extraExternalIds.includes(ref.externalId))) ||
+      (ref.token && decryptSecretSafe(r.token) === ref.token));
+    return hit ? { id: hit.id, reason: hit.accessLostReason } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Ошибка «в Meta не ходили» живёт в модуле без импортов: её разбирают и ядро, и трасса (одно правило «не ушло»).
+export { InstagramAccessLostError, isInstagramAccessLostError } from "./metaProviderRejection.js";
+
+/**
+ * Решение перед запросом в Meta этим ключом/аккаунтом: null — идти как обычно; `{ probe: true }` — идти, это проба
+ * (успех вызывающий передаёт в noteInstagramProbeSucceeded); `{ probe: false }` — не идти.
+ */
+export async function instagramAccessGate(ref: InstagramAccessRef, now: number = Date.now()): Promise<{ account: LostInstagramAccount; probe: boolean } | null> {
+  const account = await lostInstagramAccount(ref);
+  if (!account) return null;
+  const last = probeTakenAt.get(account.id) ?? 0;
+  if (now - last >= PROBE_EVERY_MS) {
+    probeTakenAt.set(account.id, now);
+    return { account, probe: true };
+  }
+  return { account, probe: false };
+}
+
+/** Проба после отметки прошла (Meta приняла ключ) — снять отметку. Никогда не бросает. */
+export async function noteInstagramProbeSucceeded(accountId: string): Promise<void> {
+  await clearInstagramAccountLocked(accountId, "probe_ok");
+}
+
+/**
+ * След пропуска: одна строка журнала на аккаунт и вид работы в сутки (а не строка на каждый диалог раз в 30 минут).
+ * Отметка уже дала свою запись и тревогу — эта строка только говорит, что работа ждёт. Никогда не бросает.
+ */
+export async function noteInstagramWorkHeld(accountId: string, what: string): Promise<void> {
+  try {
+    await logSystemError("meta",
+      `Instagram (аккаунт ${accountId}): ${what} ждёт — доступ к аккаунту потерян, в Meta не ходим. ` +
+        // Честно (ревью #432): повтор зависших берёт только сегодняшние (по Душанбе) переписки (stuckConversations.ts,
+        // stuckWhere), комментарии ждут не дольше 3 суток — более старое после замены ключа само не уйдёт.
+        `После «Заменить маркер» в Настройках → Каналы сами уйдут ответы на сегодняшние сообщения и комментарии ` +
+        `последних 3 суток; более ранним клиентам ответьте вручную.`,
+      { dedupKey: `ig-access-held:${accountId}:${what}`.slice(0, 120), dedupWindowMs: DAY_MS, silent: true, quietPult: true });
+  } catch {
+    // Журнал не должен ронять то, о чём пишет.
+  }
 }
 
 const REASON_MAX = 300;
@@ -128,19 +268,29 @@ export async function noteInstagramAccountLocked(accountId: string, detail: stri
       data: { accessLostAt: lostAt, accessLostReason: reason },
     });
     if (marked.count === 0) return { marked: false };
+    probeTakenAt.set(accountId, lostAt.getTime()); // первая проба — не раньше PROBE_EVERY_MS после отметки
     const name = await accountName(accountId);
     const episode = `${accountId}:${lostAt.getTime()}`;
+    // Ключ не принят (смена пароля, выход из сессии), а не проверка безопасности: войти и пройти проверку не нужно,
+    // нужен новый ключ. Метка эпизода и тревоги — та же: одна дверь, одна тревога на эпизод.
+    const locked = isInstagramAccountLockedText(reason);
     await logSystemError(
       "meta",
-      `${name}: Meta закрыла доступ к аккаунту (${reason}). Бот в этом аккаунте не отвечает, проверки его не трогают, ` +
-        `пока доступ не вернётся. Что сделать: войти в этот аккаунт в приложении Instagram или на instagram.com и пройти ` +
-        `проверку; затем в Настройках → Каналы → «Аккаунты Instagram» нажать «Заменить маркер».`,
+      locked
+        ? `${name}: Meta закрыла доступ к аккаунту (${reason}). Бот в этом аккаунте не отвечает, проверки его не трогают, ` +
+          `пока доступ не вернётся. Что сделать: войти в этот аккаунт в приложении Instagram или на instagram.com и пройти ` +
+          `проверку; затем в Настройках → Каналы → «Аккаунты Instagram» нажать «Заменить маркер».`
+        : `${name}: Meta не принимает ключ аккаунта (${reason}) — обычно после смены пароля или выхода из аккаунта. Бот в этом ` +
+          `аккаунте не отвечает, проверки и повторы его не трогают, пока ключ не заменят. Что сделать: в Настройках → Каналы → ` +
+          `«Аккаунты Instagram» нажать «Заменить маркер» и войти в аккаунт заново.`,
       { dedupKey: `ig-account-locked:${episode}`, dedupWindowMs: 30 * 24 * 60 * 60_000, silent: true }
     );
     await raiseCriticalAlarm({
       tag: `ig-account-locked:${episode}`,
-      title: "Meta закрыла доступ к аккаунту Instagram",
-      body: `${name}: бот здесь не отвечает. Войдите в этот аккаунт в Instagram и пройдите проверку, затем «Заменить маркер» в Настройках → Каналы.`,
+      title: locked ? "Meta закрыла доступ к аккаунту Instagram" : "Instagram: ключ аккаунта больше не принимается",
+      body: locked
+        ? `${name}: бот здесь не отвечает. Войдите в этот аккаунт в Instagram и пройдите проверку, затем «Заменить маркер» в Настройках → Каналы.`
+        : `${name}: бот здесь не отвечает — Meta не принимает ключ (сменили пароль или вышли из аккаунта). Нажмите «Заменить маркер» в Настройках → Каналы.`,
       url: "/settings?tab=channels",
       quiet: true,
       recipientRoles: MANAGEMENT_ALARM_ROLES,
@@ -160,10 +310,14 @@ export async function noteInstagramAccountLocked(accountId: string, detail: stri
  * дёргал раз в 15 минут — 66 строк «401 … log in to www.instagram.com» в журнале за сутки. Теперь кто бы ни
  * получил текст «войдите в Instagram и пройдите проверку», отметка ставится сразу (одна запись, одна тревога),
  * и все проверки дальше этот аккаунт не трогают. true — это был отказ «аккаунт закрыт» (вызывающему писать нечего).
+ *
+ * 25.11.2026: и «ключ не принят» (isInstagramKeyRefusal: 401 / код 190 про маркер или сессию) — после смены пароля
+ * Arvan каждый путь писал своё. `status` — HTTP-код ответа, когда он есть (без него решает текст/JSON тела).
+ * Ключ, которого нет среди аккаунтов (запасной из Настроек, ключ Страницы), не метится: { locked: false }.
  */
-export async function noteInstagramKeyRefused(input: { accountId?: string | null; token?: string; text: string; detail: string }): Promise<{ locked: boolean }> {
+export async function noteInstagramKeyRefused(input: { accountId?: string | null; token?: string; text: string; detail: string; status?: number }): Promise<{ locked: boolean }> {
   try {
-    if (!isInstagramAccountLockedText(input.text)) return { locked: false };
+    if (!isInstagramKeyRefusal(input.status, input.text)) return { locked: false };
     const id = input.accountId ?? (input.token ? await instagramAccountIdByToken(input.token) : null);
     if (!id) return { locked: false };
     await noteInstagramAccountLocked(id, input.detail);
@@ -186,6 +340,7 @@ export async function clearInstagramAccountLocked(accountId: string, why: "probe
       where: { id: accountId, accessLostAt: { not: null } },
       data: { accessLostAt: null, accessLostReason: null },
     });
+    probeTakenAt.delete(accountId);
     if (cleared.count === 0) return;
     const because = why === "probe_ok" ? "личный ключ снова отвечает" : why === "page_route_ok" ? "аккаунт отвечает через Страницу" : "вставлен новый ключ";
     await logSystemError(

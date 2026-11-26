@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **785**. Развилок в самих путях: **2509**; вместе с задачами по расписанию и фоновыми заданиями — **4282**. Модулей: **87**.
+Путей: **787**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4295**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -974,6 +974,45 @@
 - res.json({ total: totals.get(req.params.id) ?? 0, entries });
   · ответ 200
 
+### POST /api/v1/agents/:id/telegram-link
+
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+- const outcome = await issueStaffTelegramLink(req.agent!, id.data);
+  · зовёт issueStaffTelegramLink()
+  - если !canManageStaffTelegram(actor.role)
+    - return fail(403, "Подключать сотрудников к Шабнам может директор или администратор");
+      · дословно из кода
+  - если await forbiddenDirectorTarget(actor, targetId)
+    - return fail(403, "Управлять учёткой директора может только директор");
+      · дословно из кода
+  - если await forbiddenPrivilegedTarget(actor, targetId)
+    - return fail(403, PRIVILEGED_TARGET_ERROR);
+      · дословно из кода
+  - const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, i…
+    · читает в базе: agent
+  - если !target
+    - return fail(404, "Сотрудник не найден");
+      · дословно из кода
+  - если !target.isActive
+    - return fail(409, "Сотрудник отключён. Сначала включите учётку");
+      · дословно из кода
+  - const { code, deepLink } = await createTelegramLinkCode(target.id, ADMIN_LINK_CODE_TTL_MS);
+    · зовёт createTelegramLinkCode()
+- res.setHeader("Cache-Control", "no-store");
+  · ставит заголовок ответа
+
+### POST /api/v1/agents/:id/telegram-unlink
+
+`apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
+
+- если !id.success
+  - return res.status(400).json({ error: "Неверный сотрудник" });
+    · ответ 400 — «Неверный сотрудник»
+
 ### POST /api/v1/agents/:id/unfreeze
 
 `apps/api/src/routes/agents.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
@@ -1083,6 +1122,15 @@
     - если holder
       - return fail(409, `Этот телефон уже записан за сотрудником «${holder.fullName}»`);
         · дословно из кода
+  - если typeof rest.samePersonAgentId === "string"
+    - если rest.samePersonAgentId === targetId
+      - return fail(400, "Учётка не может быть «тем же человеком» сама себе");
+        · дословно из кода
+    - const other = await prisma.agent.findUnique({ where: { id: rest.samePersonAgentId }, select: { id: true } });
+      · читает в базе: agent
+    - если !other
+      - return fail(404, "Вторая учётка не найдена");
+        · дословно из кода
   - const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: targetId }, select:…
     · читает в базе: agent
   - const wasInactive = rest.isActive === true ? (await prisma.agent.findUnique({ where: { id: targetId }, select…
@@ -1185,8 +1233,12 @@
 
 - res.json( await listStaffDirectory(req.agent!, { includeFormer: wantsFormerStaff(req.query[INCLUDE_FORMER_STA…
   · ответ 200
-  - const agents = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select:…
+  - const rows = await prisma.agent.findMany({ ...(includeFormer ? {} : { where: { isActive: true } }), select: i…
     · читает в базе: agent
+  - const agents = rows.map((row)
+    - если !("telegramChatId" in row)
+      - return row;
+        · дословно из кода
   - если !isAdmin || opts.telephony === false
     - return agents;
       · дословно из кода
@@ -19094,8 +19146,9 @@
             - если providerAcceptedReply
               - replySent = true;
                 · дословно из кода
-            - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
-              · запись в журнал ошибок
+            - если !isInstagramAccessLostError(err)
+              - void logSystemError( "meta", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…
+                · запись в журнал ошибок
             - если !providerAcceptedReply
               - void trackBackgroundTask(notifyBotReplyNotDelivered(msg.channel, msg.senderId, deliveryTransport ?? deliveryA…
                 · зовёт trackBackgroundTask()
@@ -21947,8 +22000,8 @@
     - если !(await loadBotCapabilities()).comments
       - return stats;
         · дословно из кода
-    - const due = (await prisma.instagramComment.findMany({ where: { OR: [ { status: "PENDING", replyDueAt: { lte: …
-      · читает в базе: instagramComment
+    - const due = await selectDueComments(now);
+      · зовёт selectDueComments()
     - для каждого: const row of due
       - если group
         - group.push(row);
@@ -27302,7 +27355,7 @@
     - если result === "failed" || result === "ai-down"
       - traceOutcome("failed");
         · зовёт traceOutcome()
-    - иначе если result === "channel-dead"
+    - иначе если result === "channel-dead" || result === "channel-paused"
       - traceOutcome("blocked", "channel_key_dead");
         · зовёт traceOutcome()
     - иначе если result === "no-reply"
@@ -27311,6 +27364,9 @@
 - если outcome === "ai-down"
   - throw new Error("ИИ всё ещё недоступен");
     · ошибка Error — «ИИ всё ещё недоступен»
+- если outcome === "channel-paused"
+  - return;
+    · дальше не идёт, ничего не меняя
 - если outcome === "channel-dead"
   - если !capBase
     - throw new Error("повтор не удался: ключ канала не принят (подробности в журнале ошибок)");

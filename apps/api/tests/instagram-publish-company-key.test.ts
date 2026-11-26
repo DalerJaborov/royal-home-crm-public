@@ -214,19 +214,32 @@ describe("тревога, когда ключ Instagram перестал раб�
     await settings({ instagramCompanyKeyEnabled: false });
     meta.personalMe = () =>
       json({ error: { code: 190, error_subcode: 460, message: "Error validating access token: The session has been invalidated because the user changed their password." } }, 401);
-    const tag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
-    tagsToClean.push(tag);
-    await prisma.pendingDirectorAlert.deleteMany({ where: { tag } });
+    // С 25.11.2026 (PR #432) отказ 401/190 личного ключа идёт в ОДНУ дверь lib/instagramAccountAccess.ts: отметка
+    // аккаунта и одна тревога эпизода «ig-account-locked:<аккаунт>:<время>» вместо второй тревоги ключа канала.
+    const doorTag = { startsWith: `ig-account-locked:${accountId}:` };
+    const keyTag = `${CHANNEL_KEY_ALERT_TAG_PREFIX}account:${accountId}`;
+    tagsToClean.push(keyTag);
+    await prisma.pendingDirectorAlert.deleteMany({ where: { OR: [{ tag: keyTag }, { tag: doorTag }] } });
+    await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: null, accessLostReason: null } });
 
-    const first = await resolveInstagramPublisher(IG_LOGIN);
-    expect(first.ok).toBe(false);
-    const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag } }));
-    expect(alert?.body).toContain("Настройках → Каналы");
-    expect([...(alert?.recipientRoles ?? [])].sort()).toEqual([...MANAGEMENT_ALARM_ROLES].sort());
+    try {
+      const first = await resolveInstagramPublisher(IG_LOGIN);
+      expect(first.ok).toBe(false);
+      const alert = await waitFor(() => prisma.pendingDirectorAlert.findFirst({ where: { tag: doorTag } }));
+      expect(alert?.body).toContain("Настройках → Каналы");
+      expect(alert?.body).toContain("Заменить маркер");
+      expect([...(alert?.recipientRoles ?? [])].sort()).toEqual([...MANAGEMENT_ALARM_ROLES].sort());
+      expect((await prisma.messengerAccount.findUnique({ where: { id: accountId } }))?.accessLostAt).not.toBeNull();
 
-    const second = await resolveInstagramPublisher(IG_LOGIN);
-    expect(second.ok).toBe(false);
-    expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag } }))).toBe(1);
+      const second = await resolveInstagramPublisher(IG_LOGIN);
+      expect(second.ok).toBe(false);
+      expect(await waitForSettled(() => prisma.pendingDirectorAlert.count({ where: { tag: doorTag } }))).toBe(1);
+      // Второй тревоги «ключ канала не работает» поверх двери нет.
+      expect(await prisma.pendingDirectorAlert.count({ where: { tag: keyTag } })).toBe(0);
+    } finally {
+      await prisma.pendingDirectorAlert.deleteMany({ where: { tag: doorTag } });
+      await prisma.messengerAccount.update({ where: { id: accountId }, data: { accessLostAt: null, accessLostReason: null } });
+    }
   });
 });
 

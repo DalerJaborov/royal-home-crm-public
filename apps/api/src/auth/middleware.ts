@@ -118,6 +118,11 @@ const READ_ONLY_EXEMPT_WRITES = new Set([
   // свой чат сотрудника, а право на сам отчёт проверяет маршрут.
   "POST /api/v1/report-pdf/finance/telegram",
   "POST /api/v1/report-pdf/team/telegram",
+  // Свой Telegram с ботом (25.11.2026): блок привязки виден всем ролям, а отчёт выше
+  // акционер без привязанного чата получить не мог. Это личная привязка, не данные
+  // компании; помощница сама держит режим просмотра (ai/assistant/actor.ts).
+  "POST /api/v1/me/telegram-link",
+  "POST /api/v1/me/telegram-unlink",
 ]);
 /** DELETE /api/v1/me/sessions/:id — тоже своё (завершить свою сессию на другом устройстве). */
 const READ_ONLY_EXEMPT_PREFIXES: ReadonlyArray<readonly [string, string]> = [["DELETE", "/api/v1/me/sessions/"]];
