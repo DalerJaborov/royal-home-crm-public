@@ -109,6 +109,8 @@
 /* Защита от наезда и вылета текста (R2, 06.10.2026): правила на класс, найденные
    щупом сверки. После всех генерируемых файлов, по той же причине, что и typeset. */
 @import './theme-2026-overflow-guard.css';
+/* Кнопки растут по подписи, текст не выходит за рамку (27.11.2026): правило на семейства кнопок с текстом. */
+@import './theme-2026-button-fit.css';
 /* Royal Clean has its own approved 13–40 px scale; apply it after the legacy typeset expansion. */
 @import './theme-2026-clean.css';
 @import './theme-2026-clean-records.css';
