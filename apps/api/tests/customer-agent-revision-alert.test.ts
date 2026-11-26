@@ -20,7 +20,7 @@ vi.mock("../src/db.js", () => ({ prisma: {
 import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
 import { buildCurrentCustomerAgentManifest, loadVerifiedCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
 import { customerAgentManifestId, decodeCustomerAgentRevision } from "../src/lib/customerAgentRevision.js";
-import { reportCustomerAgentRevisionHeld, resetCustomerAgentRevisionAlertMemo, setCustomerAgentAutoRefreshPending } from "../src/lib/customerAgentRevisionAlert.js";
+import { describeCustomerAgentIdleBlockers, reportCustomerAgentRevisionHeld, resetCustomerAgentRevisionAlertMemo, setCustomerAgentAutoRefreshPending } from "../src/lib/customerAgentRevisionAlert.js";
 import { checkActiveCustomerAgentRevisionOnStart } from "../src/lib/customerAgentRevisionStartCheck.js";
 
 const snapshot = createCustomerAgentProviderSnapshot();
@@ -100,6 +100,25 @@ describe("stale core is journalled, once per revision", () => {
     setCustomerAgentAutoRefreshPending(true, Date.now() - 1);
     await reportCustomerAgentRevisionHeld("8".repeat(64), "current_artifact_revision_mismatch");
     expect(h.logSystemError).toHaveBeenCalledTimes(1);
+  });
+  it("idle-blocked names what blocks and does not send the owner to the button that would fail (prod 26.11.2026)", async () => {
+    setCustomerAgentAutoRefreshPending(true); // reported while the refresh is still pending: not held back
+    await reportCustomerAgentRevisionHeld("9".repeat(64), "core_idle_blocked", ["customer_turn", "delivery"]);
+    expect(h.logSystemError).toHaveBeenCalledTimes(1);
+    const [, text, ctx] = h.logSystemError.mock.calls[0] as unknown as [string, string, { dedupKey: string }];
+    expect(text).toContain("сообщение клиента ещё в работе у бота");
+    expect(text).toContain("ответ клиенту ещё отправляется");
+    expect(text).toContain("не поможет");
+    expect(text).not.toContain("Откройте Настройки");
+    expect(ctx.dedupKey).toBe(`customer-agent-revision-held:${"9".repeat(64)}`); // one daily slot per revision with the mismatch text
+    const [alert] = h.enqueue.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(String(alert.body)).toContain("не поможет");
+    expect(String(alert.body)).not.toContain("Настройки → Новый бот");
+    setCustomerAgentAutoRefreshPending(false);
+  });
+  it("idle-blocked without a readable list still says it in words", () => {
+    expect(describeCustomerAgentIdleBlockers([])).toBe("причину прочитать не удалось");
+    expect(describeCustomerAgentIdleBlockers(["provider_operation", "unknown_code"])).toBe("ещё идёт запрос к ИИ; unknown_code");
   });
   it("a failing journal never throws into the turn", async () => {
     h.logSystemError.mockRejectedValueOnce(new Error("db down"));
