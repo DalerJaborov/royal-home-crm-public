@@ -2,6 +2,9 @@ import "./helpers/routeMountRecorder.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import type { Server } from "node:http";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
@@ -25,31 +28,40 @@ import { collectRoutes, type RegisteredRoute } from "./helpers/routeMountRecorde
  *     идентификатору Б, ни в списках. Каталог объектов общий по замыслу, поэтому
  *     название и адрес объекта меткой не служат; номер собственника — служит.
  *
- * Добавляешь публичный маршрут — впиши его в PUBLIC_ROUTES с причиной; запись,
- * которой больше нет в приложении, тоже валит тест (список только честный).
+ * Добавляешь публичный маршрут — впиши его в PUBLIC_ROUTES: зачем он открыт
+ * (reason), чем защищён (guard — один из GUARDS) и где эта защита стоит в коде
+ * (where: файл и функция). Запись без любого из трёх, с guard не из списка или
+ * с where на несуществующий файл валит тест; запись, которой больше нет в
+ * приложении, тоже. «Открыт по привычке» здесь не проходит.
  */
 
-const PUBLIC_ROUTES: Record<string, string> = {
-  "GET /api/v1/health": "проверка живости для деплоя и мониторинга",
-  "GET /api/v1/health/deep": "проверка базы и воркера для деплоя, без данных",
-  "GET /api/v1/auth/session": "отдаёт только sid из своей же httpOnly-cookie",
-  "GET /api/v1/settings/branding": "название и логотип для экрана входа",
-  "GET /api/v1/attachments/s/:name": "подписанная короткая ссылка на вложение (#428)",
-  "GET /api/v1/media/chat/*splat": "файл переписки по неугадываемому uuid-ключу R2",
-  "GET /api/v1/l/:token": "публичная ссылка на объект для клиента, токен в адресе",
-  "GET /api/v1/l/:token/go": "переход по публичной ссылке на объект",
-  "GET /api/v1/morning-report": "свой служебный токен (Нужен служебный токен)",
-  "GET /api/v1/properties/:id/videos/:videoId/download-file": "подписанный токен скачивания ролика",
-  "GET /api/v1/telephony/whisper/manifest": "токен станции АТС в заголовке",
-  "GET /api/v1/telephony/whisper/file/:name": "токен станции АТС в заголовке",
-  "GET /api/v1/ads/callback": "возврат OAuth из Facebook, проверка state",
-  "GET /api/v1/tiktok/oauth/callback": "возврат OAuth из TikTok, проверка state",
-  "GET /api/v1/threads/oauth/callback": "возврат OAuth из Threads, проверка state",
-  "GET /api/v1/search-console/oauth/callback": "возврат OAuth из Google, проверка state",
-  "GET /api/v1/search-console/yandex/oauth/callback": "возврат OAuth из Яндекса, проверка state",
-  "GET /api/v1/webhooks/meta": "рукопожатие Meta по verify token",
-  "GET /api/v1/webhooks/website-working-hours": "часы работы для виджета сайта",
-  "GET /api/v1/webhooks/website-chat/:sessionId": "чат сайта, ключ сайта X-Api-Key",
+/** Чем публичный маршрут защищён вместо входа. `public-data` — только то, что и
+ *  так видно всем (без людей, номеров, переписки), и это надо доказать в reason. */
+const GUARDS = ["signature", "api-key", "link-token", "station-token", "service-token", "oauth-state", "own-cookie", "public-data"] as const;
+type Guard = (typeof GUARDS)[number];
+interface PublicRoute { reason: string; guard: Guard; where: string }
+
+const PUBLIC_ROUTES: Record<string, PublicRoute> = {
+  "GET /api/v1/health": { reason: "проверка живости для выката и мониторинга, отдаёт только ok", guard: "public-data", where: "src/app.ts app.get(\"/api/v1/health\")" },
+  "GET /api/v1/health/deep": { reason: "проверка базы и воркера для выката, только флаги без данных", guard: "public-data", where: "src/app.ts app.get(\"/api/v1/health/deep\")" },
+  "GET /api/v1/auth/session": { reason: "отдаёт только sid из своей же httpOnly-cookie входа", guard: "own-cookie", where: "src/routes/auth.ts authRouter.get(\"/session\")" },
+  "GET /api/v1/settings/branding": { reason: "название, слоган и логотип для экрана входа", guard: "public-data", where: "src/routes/settings.ts settingsRouter.get(\"/branding\")" },
+  "GET /api/v1/attachments/s/:name": { reason: "файл переписки в <img>/<video> без заголовка входа (#428)", guard: "link-token", where: "src/routes/attachments.ts verifyAttachmentLink" },
+  "GET /api/v1/media/chat/*splat": { reason: "файл переписки в R2 по неугадываемому uuid-ключу, отдаётся подписанной ссылкой R2", guard: "link-token", where: "src/routes/mediaProxy.ts r2PresignDownloadUrl" },
+  "GET /api/v1/l/:token": { reason: "личная ссылка клиента на объект, клиент без входа в CRM", guard: "link-token", where: "src/routes/propertyShare.ts propertyShareLink.findUnique({ token })" },
+  "GET /api/v1/l/:token/go": { reason: "переход по ссылке объекта из СМС", guard: "link-token", where: "src/routes/propertyShare.ts propertyShareLink.findUnique({ token })" },
+  "GET /api/v1/morning-report": { reason: "утренний отчёт для служебного скрипта", guard: "service-token", where: "src/routes/morningReport.ts serviceTokenValid" },
+  "GET /api/v1/properties/:id/videos/:videoId/download-file": { reason: "скачивание ролика по ссылке window.open/Telegram без заголовка входа", guard: "link-token", where: "src/auth/jwt.ts verifyVideoDownloadToken" },
+  "GET /api/v1/telephony/whisper/manifest": { reason: "список подсказок для станции АТС", guard: "station-token", where: "src/routes/telephonyWhisper.ts stationAuthorized" },
+  "GET /api/v1/telephony/whisper/file/:name": { reason: "файл подсказки для станции АТС", guard: "station-token", where: "src/routes/telephonyWhisper.ts stationAuthorized" },
+  "GET /api/v1/ads/callback": { reason: "возврат из входа Facebook, приходит без маркера CRM", guard: "oauth-state", where: "src/routes/ads.ts consumeMetaLoginCode" },
+  "GET /api/v1/tiktok/oauth/callback": { reason: "возврат из входа TikTok, приходит без маркера CRM", guard: "oauth-state", where: "src/routes/tiktok.ts verifyState" },
+  "GET /api/v1/threads/oauth/callback": { reason: "возврат из входа Threads, приходит без маркера CRM", guard: "oauth-state", where: "src/routes/threads.ts verifyState" },
+  "GET /api/v1/search-console/oauth/callback": { reason: "возврат из входа Google, приходит без маркера CRM", guard: "oauth-state", where: "src/routes/searchConsole.ts verifyState" },
+  "GET /api/v1/search-console/yandex/oauth/callback": { reason: "возврат из входа Яндекса, приходит без маркера CRM", guard: "oauth-state", where: "src/routes/searchConsole.ts verifyState" },
+  "GET /api/v1/webhooks/meta": { reason: "рукопожатие подписки вебхука Meta", guard: "signature", where: "src/messengers/meta.ts verifyHandshake" },
+  "GET /api/v1/webhooks/website-working-hours": { reason: "рабочие часы для виджета сайта, одно поле true/false", guard: "public-data", where: "src/routes/webhooks.ts webhooksRouter.get(\"/website-working-hours\")" },
+  "GET /api/v1/webhooks/website-chat/:sessionId": { reason: "опрос чата сайта сервером сайта", guard: "api-key", where: "src/routes/webhooks.ts secretsMatch(X-Api-Key)" },
 };
 
 /** Публичные по префиксу: вебхуки с подписью/ключом, публичная витрина, вход. Их
@@ -58,6 +70,7 @@ const PUBLIC_ROUTES: Record<string, string> = {
 const PUBLIC_PREFIXES = ["/api/v1/webhooks/", "/api/v1/public/", "/api/v1/sms/webhook/", "/api/v1/push/action",
   "/api/v1/backups/report", "/api/v1/auth/"];
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AUTH_REQUIRED = "Требуется авторизация";
 const DUMMY_ID = "00000000-0000-4000-8000-000000000000";
 
@@ -166,6 +179,21 @@ afterAll(async () => {
 });
 
 describe("Маршруты закрыты по умолчанию", () => {
+  it("у каждого публичного маршрута есть причина, защита из списка и место защиты в коде", () => {
+    const bad: string[] = [];
+    for (const [route, entry] of Object.entries(PUBLIC_ROUTES)) {
+      if (typeof entry?.reason !== "string" || entry.reason.trim().length < 15) bad.push(`${route}: нет причины`);
+      if (!(GUARDS as readonly string[]).includes(entry?.guard)) bad.push(`${route}: защита «${String(entry?.guard)}» не из списка`);
+      const file = typeof entry?.where === "string" ? entry.where.trim().split(/\s+/)[0]! : "";
+      if (!file || entry.where.trim() === file) bad.push(`${route}: не указано, где стоит защита (файл и функция)`);
+      else if (!existsSync(path.resolve(__dirname, "..", file))) bad.push(`${route}: файла защиты ${file} нет`);
+      else if (!readFileSync(path.resolve(__dirname, "..", file), "utf8").includes(entry.where.trim().slice(file.length).trim().split(/[({]/)[0]!)) {
+        bad.push(`${route}: в ${file} не найдено «${entry.where.trim().slice(file.length).trim()}»`);
+      }
+    }
+    expect(bad, bad.join("\n")).toEqual([]);
+  });
+
   it("без входа каждый маршрут, кроме списка публичных, отвечает requireAuth", async () => {
     const routes = allRoutes();
     expect(routes.length, "обход не нашёл маршрутов — сломан сборщик путей").toBeGreaterThan(300);
