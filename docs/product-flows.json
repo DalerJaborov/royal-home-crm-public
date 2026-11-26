@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 787,
-  "forks": 4274,
+  "forks": 4295,
   "mounts": 87,
   "cron": 145,
-  "jobs": 36,
+  "jobs": 37,
   "hidden": 0
  },
  "hidden": [],
@@ -47463,16 +47463,23 @@
      ]
     },
     {
-     "k": "do",
-     "t": "const summary = await publishPropertySoldStory(property.id, { force: true });",
-     "a": [
-      "зовёт publishPropertySoldStory()"
-     ],
-     "c": []
+     "k": "if",
+     "t": "!(await queuePropertySoldStory(property.id))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(502).json({ error: \"Не удалось поставить историю в очередь — попробуйте ещё раз через минут…",
+       "a": [
+        "ответ 502 — «Не удалось поставить историю в очередь — попробуйте ещё раз через…»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
-     "t": "logAudit(req, \"PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED\", \"Property\", property.id, { published: summary.publis…",
+     "t": "logAudit(req, \"PROPERTY_INSTAGRAM_STORY_SOLD_PUBLISHED\", \"Property\", property.id, { queued: true });",
      "a": [
       "зовёт logAudit()"
      ],
@@ -47480,7 +47487,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(200).json({ ok: summary.publishedParts === 1, error: summary.error ?? null });",
+     "t": "res.status(200).json({ ok: true, queued: true, error: null });",
      "a": [
       "ответ 200"
      ],
@@ -85503,12 +85510,19 @@
                  ]
                 },
                 {
-                 "k": "do",
-                 "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
-                 "a": [
-                  "запись в журнал ошибок"
-                 ],
-                 "c": []
+                 "k": "if",
+                 "t": "!isInstagramAccessLostError(err)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "void logSystemError( \"meta\", `Сообщение из ${msg.channel} не обработано: ${err instanceof Error ? err.message…",
+                   "a": [
+                    "запись в журнал ошибок"
+                   ],
+                   "c": []
+                  }
+                 ]
                 },
                 {
                  "k": "if",
@@ -98779,9 +98793,9 @@
         },
         {
          "k": "do",
-         "t": "const due = (await prisma.instagramComment.findMany({ where: { OR: [ { status: \"PENDING\", replyDueAt: { lte: …",
+         "t": "const due = await selectDueComments(now);",
          "a": [
-          "читает в базе: instagramComment"
+          "зовёт selectDueComments()"
          ],
          "c": []
         },
@@ -123899,7 +123913,7 @@
         },
         {
          "k": "elseif",
-         "t": "result === \"channel-dead\"",
+         "t": "result === \"channel-dead\" || result === \"channel-paused\"",
          "a": [],
          "c": [
           {
@@ -123942,6 +123956,21 @@
        "t": "throw new Error(\"ИИ всё ещё недоступен\");",
        "a": [
         "ошибка Error — «ИИ всё ещё недоступен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "outcome === \"channel-paused\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
        ],
        "c": []
       }
@@ -135263,6 +135292,393 @@
         }
        ],
        "from": "closeStuckScheduledPhotoPosts() — apps/api/src/lib/photoPosts.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "propertyStatusStoryJob",
+   "file": "apps/api/src/jobs/propertyStatusStory.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!property || property.deletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.kind === \"PRICE_DROP\" && property.status !== \"AVAILABLE\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.kind === \"PRICE_DROP\" && payload.priceWasTjs",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rate = property.currency === \"USD\" ? (await loadUsdRateInfo()).rate : null;",
+       "a": [
+        "зовёт loadUsdRateInfo()"
+       ],
+       "c": [],
+       "from": "loadUsdRateInfo() — apps/api/src/lib/money.ts"
+      },
+      {
+       "k": "if",
+       "t": "nowTjs !== null && nowTjs >= payload.priceWasTjs",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.kind === \"SOLD\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const done = await prisma.propertyStoryPost.findFirst({ where: { propertyId: payload.propertyId, kind: \"SOLD\"…",
+       "a": [
+        "читает в базе: propertyStoryPost"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "done",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const decision = storyJobDecision({ kind: payload.kind, remixPending: priceDrop ? await narrationRemixPending…",
+     "a": [
+      "зовёт storyJobDecision()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "input.kind !== \"PRICE_DROP\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"PUBLISH\";",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "storyJobDecision() — apps/api/src/jobs/propertyStatusStory.ts"
+    },
+    {
+     "k": "if",
+     "t": "decision === \"WAIT\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(\"озвучка с новой ценой ещё не легла в ролик — историю выложим следом\");",
+       "a": [
+        "ошибка Error — «озвучка с новой ценой ещё не легла в ролик — историю выложим следом»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "payload.kind === \"SOLD\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const fresh = await prisma.property.findUnique({ where: { id: payload.propertyId }, select: { status: true, d…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!fresh || fresh.deletedAt || fresh.status !== \"SOLD\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const summary = payload.kind === \"PRICE_DROP\" ? await publishPropertyPriceDropStory(payload.propertyId, paylo…",
+     "a": [
+      "зовёт publishPropertyPriceDropStory()"
+     ],
+     "c": [],
+     "from": "publishPropertyPriceDropStory() — apps/api/src/lib/instagramStories.ts"
+    },
+    {
+     "k": "if",
+     "t": "summary.pending",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "summary.attempted && summary.publishedParts === 0 && summary.error",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(summary.error);",
+       "a": [
+        "ошибка Error — «summary.error»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await logSystemError( \"meta\", `История «${payload.kind === \"SOLD\" ? \"продано\" : \"цена снижена\"}» (объект ${pa…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "message = maskPhoneNumbersInText(String(message));",
+         "a": [
+          "зовёт maskPhoneNumbersInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
       }
      ]
     }

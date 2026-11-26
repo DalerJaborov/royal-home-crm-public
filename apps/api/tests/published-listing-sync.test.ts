@@ -13,14 +13,14 @@ const {
   updateYouTubeDescription,
   loadCredentials,
   logSystemError,
-  publishPropertyPriceDropStory,
+  queuePropertyPriceDropStory,
 } = vi.hoisted(() => ({
   editMessageCaption: vi.fn<typeof import("../src/telegram/api.js").editMessageCaption>(async () => {}),
   updateFacebookVideoDescription: vi.fn<typeof import("../src/lib/socialPublish.js").updateFacebookVideoDescription>(async () => ({ ok: true })),
   updateYouTubeDescription: vi.fn(async () => ({ ok: true })),
   loadCredentials: vi.fn(async () => ({ pageToken: "fb-token", pageId: "123", igToken: "ig-token" })),
   logSystemError: vi.fn(async () => {}),
-  publishPropertyPriceDropStory: vi.fn(async () => ({ attempted: true, publishedParts: 1, totalParts: 1 })),
+  queuePropertyPriceDropStory: vi.fn(async () => ({ attempted: true, publishedParts: 1, totalParts: 1 })),
 }));
 
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
@@ -42,11 +42,11 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   logSystemError }));
 // История «цена снижена» (21.09.2026) — своя логика (рубильник, суточный кулдаун,
 // рендер картинки, Graph API) уже покрыта instagram-price-drop-story.test.ts;
-// здесь проверяем только то, что publishedListingSync ЗОВЁТ её с правильным
+// здесь проверяем только то, что publishedListingSync СТАВИТ её в очередь (queuePropertyPriceDropStory, с 25.11.2026 — задание, которое ждёт озвучку и выкладывает ролик) с правильным
 // решением «снижение/рост», не второй копией сравнения цен.
 vi.mock("../src/lib/instagramStories.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/instagramStories.js")>()),
-  publishPropertyPriceDropStory,
+  queuePropertyPriceDropStory,
 }));
 
 const { prisma } = await import("../src/db.js");
@@ -99,8 +99,8 @@ beforeEach(async () => {
   updateYouTubeDescription.mockResolvedValue({ ok: true });
   loadCredentials.mockClear();
   logSystemError.mockClear();
-  publishPropertyPriceDropStory.mockClear();
-  publishPropertyPriceDropStory.mockResolvedValue({ attempted: true, publishedParts: 1, totalParts: 1 });
+  queuePropertyPriceDropStory.mockClear();
+  queuePropertyPriceDropStory.mockResolvedValue({ attempted: true, publishedParts: 1, totalParts: 1 });
   await prisma.settings.upsert({
     where: { id: "singleton" },
     update: { telegramChannelId: "-100999", youtubeClientId: "test-client", youtubeClientSecret: "test-secret", youtubeRefreshToken: "test-refresh" },
@@ -236,18 +236,19 @@ describe("published price caption delivery", () => {
   });
 
   describe("история «цена снижена» (владелец, 21.09.2026)", () => {
-    it("цена снизилась — зовёт publishPropertyPriceDropStory со старой ценой", async () => {
+    it("цена снизилась — зовёт queuePropertyPriceDropStory со старой ценой", async () => {
       const property = await seedProperty({ publishedChannels: [], publishedPostIds: null });
       await changeAndDeliver(property.id, 250000);
 
-      expect(publishPropertyPriceDropStory).toHaveBeenCalledWith(property.id, expect.stringContaining(formatPrice(300000, "TJS")));
+      // Третий аргумент — старая цена числом в сомони (25.11.2026): из неё карточка считает «−разница».
+      expect(queuePropertyPriceDropStory).toHaveBeenCalledWith(property.id, expect.stringContaining(formatPrice(300000, "TJS")), 300000);
     });
 
     it("цена ВЫРОСЛА — историю не публикуем, рост не новость для покупателя", async () => {
       const property = await seedProperty({ publishedChannels: [], publishedPostIds: null });
       await changeAndDeliver(property.id, 350000);
 
-      expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
+      expect(queuePropertyPriceDropStory).not.toHaveBeenCalled();
     });
 
     it("цена не менялась — историю не публикуем", async () => {
@@ -255,16 +256,16 @@ describe("published price caption delivery", () => {
 
       await changeAndDeliver(property.id, 300000);
 
-      expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
+      expect(queuePropertyPriceDropStory).not.toHaveBeenCalled();
     });
 
     it("объект не в продаже (резерв, снят, подготовка, продан) — истории «цена снижена» нет (№194)", async () => {
       for (const status of ["RESERVED", "WITHDRAWN", "PENDING_REVIEW", "SOLD"]) {
-        publishPropertyPriceDropStory.mockClear();
+        queuePropertyPriceDropStory.mockClear();
         const property = await seedProperty({ status, publishedChannels: [], publishedPostIds: null });
         await changeAndDeliver(property.id, 250000);
 
-        expect(publishPropertyPriceDropStory, status).not.toHaveBeenCalled();
+        expect(queuePropertyPriceDropStory, status).not.toHaveBeenCalled();
       }
     });
 
@@ -277,7 +278,7 @@ describe("published price caption delivery", () => {
       });
       await changeAndDeliver(property.id, 250000);
 
-      expect(publishPropertyPriceDropStory).toHaveBeenCalledTimes(1);
+      expect(queuePropertyPriceDropStory).toHaveBeenCalledTimes(1);
     });
   });
 });
@@ -310,7 +311,7 @@ describe("persistent price caption outcomes", () => {
     await nextTick();
     expect(fetchMeta).toHaveBeenCalledTimes(2);
     expect(editMessageCaption).toHaveBeenCalledTimes(2);
-    expect(publishPropertyPriceDropStory).toHaveBeenCalledTimes(1);
+    expect(queuePropertyPriceDropStory).toHaveBeenCalledTimes(1);
     expect((await ledger(property.id)).every(({ status }) => status === "APPLIED")).toBe(true);
   });
 

@@ -12,10 +12,10 @@ import { waitFor, waitForSettled } from "./helpers/waitFor.js";
  * правильно собирает итог (что сделано / что руками / FAILED).
  */
 
-const { sendPushToAgent, publishPropertyPriceDropStory, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
+const { sendPushToAgent, queuePropertyPriceDropStory, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
   vi.hoisted(() => ({
     sendPushToAgent: vi.fn(async () => 0),
-    publishPropertyPriceDropStory: vi.fn(async () => undefined),
+    queuePropertyPriceDropStory: vi.fn(async () => undefined),
     sendBackToMontajer: vi.fn(async () => ({ ok: true, queued: true, message: "Ролик отправлен монтажёру" })),
     removeFromSocial: vi.fn(async () => ({
       removed: ["FACEBOOK"],
@@ -32,7 +32,7 @@ vi.mock("../src/push.js", async (importOriginal) => ({
 }));
 vi.mock("../src/lib/instagramStories.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/instagramStories.js")>()),
-  publishPropertyPriceDropStory,
+  queuePropertyPriceDropStory,
 }));
 vi.mock("../src/lib/publishedVideoFix.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/publishedVideoFix.js")>()),
@@ -144,7 +144,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sendPushToAgent.mockClear();
-  publishPropertyPriceDropStory.mockClear();
+  queuePropertyPriceDropStory.mockClear();
   sendBackToMontajer.mockClear();
   removeFromSocial.mockClear();
   refreshPublishedCaptions.mockClear();
@@ -272,7 +272,7 @@ describe("«Принять»: цена", () => {
     const deliveries = await prisma.publicationMetadataSync.findMany({ where: { propertyId: property.id } });
     expect(deliveries.some(row => row.channel === "FACEBOOK" && row.operation === "CAPTION")).toBe(true);
     expect(fresh.reelsCaption).toContain(buildPriceDisplay(380000, "TJS"));
-    expect(publishPropertyPriceDropStory).toHaveBeenCalledTimes(1);
+    expect(queuePropertyPriceDropStory).toHaveBeenCalledTimes(1);
 
     const pushedTo = sendPushToAgent.mock.calls.map((c) => c[0]);
     expect(pushedTo).toContain(agentId); // автору — итог
@@ -313,7 +313,7 @@ describe("«Принять»: цена", () => {
     })).toBe(2);
   });
 
-  it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются, когда выйдет новый", async () => {
+  it("remake=true в заявке на цену игнорируется: цены в ролике нет, перемонтажа и возврата монтажёру нет (25.11.2026)", async () => {
     const property = await seedProperty();
     const created = await queue(property.id, {
       kind: "PRICE_CHANGE",
@@ -323,13 +323,8 @@ describe("«Принять»: цена", () => {
     const res = await decide(directorToken, created.body.request.id, "approve");
     expect(res.status).toBe(200);
     expect(res.body.request.status).toBe("APPROVED");
-    expect(res.body.request.result.remakeQueued).toBe(true);
-    expect(sendBackToMontajer).toHaveBeenCalledTimes(1);
-    const args = sendBackToMontajer.mock.calls[0] as unknown as unknown[];
-    expect(args[0]).toBe(property.id);
-    expect(args[2]).toBe("CARD_DATA_CHANGED");
-    expect(String(args[3])).toContain("Новая цена");
-    expect(args[5]).toEqual({ removeFromSocial: "on-new-video" });
+    expect(res.body.request.result.remakeQueued).toBeFalsy();
+    expect(sendBackToMontajer).not.toHaveBeenCalled();
   });
 });
 
@@ -421,7 +416,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
       .not.toHaveProperty("statusChange");
     await decide(directorToken, forged.body.request.id, "approve");
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).status).toBe("AVAILABLE");
-    expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
+    expect(queuePropertyPriceDropStory).not.toHaveBeenCalled();
     expect(sendBackToMontajer).not.toHaveBeenCalled();
     expect(removeFromSocial).not.toHaveBeenCalled();
   });

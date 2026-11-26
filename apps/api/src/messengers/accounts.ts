@@ -11,6 +11,7 @@ import {
 import { logSystemError } from "../lib/systemError.js";
 import { readInstalledCustomerTransport } from "../lib/customerInstalledTransport.js";
 import { resetMetaEternalCache } from "../lib/metaEternalTokens.js";
+import { releaseAiRetryKeyStops } from "../jobs/aiReplyRetryCap.js";
 
 /**
  * Подключённые аккаунты мессенджеров: какой Instagram (WhatsApp, Facebook) чей.
@@ -50,6 +51,9 @@ export interface MessengerAccountView {
   /** Идентификаторы, добавленные вручную — Meta их своим ответом не подтверждает
    *  и подтвердить не может (см. schema.prisma, поле extraExternalIds). */
   extraExternalIds: string[];
+  /** Отметка «Meta не принимает ключ / закрыла доступ» (lib/instagramAccountAccess.ts): когда и почему. Снимает «Заменить маркер». */
+  accessLostAt: string | null;
+  accessLostReason: string | null;
 }
 
 export interface ResolvedAccount {
@@ -91,6 +95,9 @@ let cache: {
     messagingId: string | null;
     /** Идентификаторы, введённые вручную (см. schema.prisma) — Meta их не подтверждает. */
     extraExternalIds: string[];
+    /** Отметка потери доступа Instagram (lib/instagramAccountAccess.ts) — для экрана аккаунтов. */
+    accessLostAt: Date | null;
+    accessLostReason: string | null;
   }>;
 } | null = null;
 /** Когда последний раз сверяли идентификаторы с Meta — см. reconcileInstagramAccountIds. */
@@ -137,6 +144,8 @@ export async function listAccounts(channel?: string): Promise<MessengerAccountVi
       systemPrompt: r.systemPrompt,
       brandName: r.brandName,
       extraExternalIds: r.extraExternalIds,
+      accessLostAt: r.accessLostAt ? r.accessLostAt.toISOString() : null,
+      accessLostReason: r.accessLostReason ?? null,
     }));
 }
 
@@ -661,6 +670,9 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   });
 
   resetAccountsCache();
+  // Новый ключ существующего аккаунта: остановки повтора ответа «ключ мёртв» по его перепискам снимаются, и ответы
+  // клиентам, ждавшие ключа, уходят с ближайшим кроном, а не через два часа (jobs/aiReplyRetryCap.ts, 25.11.2026).
+  if (token && input.id) await releaseAiRetryKeyStops(id);
   return id;
 }
 

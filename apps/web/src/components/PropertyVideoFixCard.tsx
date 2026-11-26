@@ -1435,7 +1435,7 @@ export function PropertyVideoFixCard({
           <div className="t">
             <b>Печать «Продано» в истории</b>
             <span>
-              Главное фото объекта с оттиском «ПРОДАНО» — одной историей в Instagram. В ленте пост остаётся как был:
+              Готовый ролик объекта (или главное фото, если ролика нет) с оттиском «ПРОДАНО» — одной историей в Instagram. В ленте пост остаётся как был:
               историю Instagram удаляет сама через сутки.
             </span>
           </div>
@@ -1448,12 +1448,14 @@ export function PropertyVideoFixCard({
                 run(
                   "sold",
                   () =>
-                    api<{ ok: boolean; error?: string | null }>(`/properties/${property.id}/instagram-story-sold`, {
+                    api<{ ok: boolean; queued?: boolean; error?: string | null }>(`/properties/${property.id}/instagram-story-sold`, {
                       method: "POST",
                     }),
                   (r) => {
                     if (!r.ok) throw new Error(r.error ?? "Не удалось выложить печать в истории");
-                    return "Печать «Продано» выложена в истории.";
+                    return r.queued
+                      ? "Печать «Продано» поставлена в очередь — история с роликом выйдет через пару минут."
+                      : "Печать «Продано» выложена в истории.";
                   }
                 )
               }

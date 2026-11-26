@@ -34,6 +34,8 @@ import {
   loadCredentials,
   sendPrivateReply,
 } from "./meta.js";
+import { isInstagramApiUrl } from "./metaGraph.js";
+import { stillLostAfterProbe } from "../lib/instagramAccessProbe.js";
 import type { MessengerChannel } from "./turnTypes.js";
 import { loadBotCapabilities } from "./botCapabilities.js";
 import {
@@ -65,6 +67,7 @@ import { releaseCommentPhoneHold } from "../lib/commentPhoneHold.js";
 import { onBotOffCommentsStored } from "../lib/commentBotOffHook.js";
 import { notifyAgentOfClientMessage } from "../lib/clientMessageAlert.js";
 import { isAccountSendBlocked, isMetaSendBlockError, MetaGraphCallError } from "../lib/metaSendBlock.js";
+import { isInstagramAccessLostError, lostInstagramAccount, noteInstagramKeyRefused, noteInstagramWorkHeld } from "../lib/instagramAccountAccess.js";
 import { sendErrorKind } from "../lib/metaEternalTokens.js";
 import { createLeadFromChannel } from "../services/leads/intake.js";
 import { findPhoneOwners } from "../lib/clientPhones.js";
@@ -679,13 +682,24 @@ async function fetchMedia(
   const path = facebook
     ? `/${GRAPH_VERSION}/${encodeURIComponent(mediaId)}?fields=permalink_url,message`
     : `/${GRAPH_VERSION}/${encodeURIComponent(mediaId)}?fields=permalink,caption`;
+  // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходим и строку не пишем — отметка уже
+  // дала запись и тревогу (прод 24.11: «Публикация Instagram … не получена» ×20 за сутки по мёртвому ключу).
+  if (!facebook && await lostInstagramAccount({ token })) return null;
   try {
     const req = instagramRequest(
       facebook ? `https://graph.facebook.com${path}` : instagramApiUrl(path),
       token
     );
     const res = await fetchWithRetry(req.url, { headers: req.headers });
-    if (!res.ok) throw new Error(`Graph API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const body = await res.text();
+      // Отказ ключа Instagram — отметка через общую дверь, своя строка не нужна.
+      // Метит только отказ ВЫЗОВА Instagram (ревью #432): у аккаунта «Войти через Facebook» (ключ Страницы) запрос
+      // уходит на graph.facebook.com, и его отказ про личный ключ ничего не говорит — а снять такую отметку нечем.
+      if (!facebook && isInstagramApiUrl(req.url) &&
+          (await noteInstagramKeyRefused({ token, status: res.status, text: body, detail: `HTTP ${res.status}: ${body.slice(0, 200)}` })).locked) return null;
+      throw new Error(`Graph API HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
     const media = (await res.json()) as {
       permalink?: string;
       caption?: string;
@@ -1221,18 +1235,7 @@ export async function processDueComments(now: Date = new Date()): Promise<Commen
    */
   if (!(await loadBotCapabilities()).comments) return stats;
 
-  const due = (await prisma.instagramComment.findMany({
-    where: {
-      OR: [
-        { status: "PENDING", replyDueAt: { lte: now } },
-        // Потолок попыток здесь — БОЛЬШИЙ из двух (ИИ-недоступность терпит 12):
-        // застрявший в WORKING комментарий с пятой попыткой ИИ-сбоя всё ещё наш.
-        { status: "WORKING", updatedAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) }, attempts: { lt: AI_DOWN_MAX_ATTEMPTS } },
-      ],
-    },
-    orderBy: { replyDueAt: "asc" },
-    take: BATCH_LIMIT,
-  })) as QueuedComment[];
+  const due = await selectDueComments(now);
 
   /**
    * ПАРАЛЛЕЛЬНО, А НЕ ПО ОЧЕРЕДИ (05.09.2026, вместе с переносом человеческой паузы
@@ -1286,6 +1289,18 @@ async function processClaimedComment(row: QueuedComment, stats: CommentRunStats)
         await finish(row.id, { status: "SKIPPED", note: "bot_off" });
         stats.skipped++;
         return;
+      }
+      /**
+       * ДОСТУП К АККАУНТУ INSTAGRAM ПОТЕРЯН (25.11.2026, lib/instagramAccountAccess.ts): ни ИИ, ни Meta — комментарий ждёт
+       * в очереди (попытка не тратится) и разберётся, когда ключ заменят. Публичный ответ у Meta без срока, личное — 7 суток.
+       */
+      if (row.channel === "INSTAGRAM" && row.accountExternalId) {
+        const lost = await lostInstagramAccount({ externalId: row.accountExternalId });
+        if (lost) {
+          await parkCommentWhileAccessLost(row, lost.id);
+          stats.skipped++;
+          return;
+        }
       }
       const outcome = await handleComment(row);
       stats[outcome]++;
@@ -2268,9 +2283,19 @@ async function maybeSendPrivateReply(
     // Личное — дополнение к публичному ответу; его отказ (человек закрыл личку, окно истекло, нет права у приложения) ответ не
     // отменяет. Причина — в пометке комментария и в журнале с кодом Meta (разбор суток 23.11.2026: 7 из 7 личных по Facebook
     // не ушли, а в пометке было голое «dm_failed» — почему, видно не было).
+    // Доступ к аккаунту Instagram потерян (lib/instagramAccountAccess.ts): в Meta не ходили, запись дала отметка.
+    if (isInstagramAccessLostError(err)) return { sent: false, note: "dm_access_lost" };
     const why = privateReplyFailure(err);
+    /**
+     * ОЖИДАЕМЫЙ ОТКАЗ — СТРОКА В СУТКИ НА ВИД (25.11.2026, прод: «… This user cant reply» ×7 за сутки). Окно ответа на
+     * комментарий закрыто или человек не принимает личные — это не поломка CRM, чинить нечего: одна строка на канал и вид
+     * в сутки, без пуша. Права приложения, ключ и прочие отказы — как раньше (6 часов на код).
+     */
+    const expected = why.kind === "window" || why.kind === "recipient";
     void logSystemError("meta", `Личное по комментарию ${row.channel} ${row.commentId} не ушло (${why.label}): ${describeError(err)}`,
-      { dedupKey: `comment-dm-failed:${row.channel}:${why.code}`, dedupWindowMs: 6 * 60 * 60_000 });
+      expected
+        ? { dedupKey: `comment-dm-expected:${row.channel}:${why.kind}`, dedupWindowMs: 24 * 60 * 60_000, silent: true, quietPult: true }
+        : { dedupKey: `comment-dm-failed:${row.channel}:${why.code}`, dedupWindowMs: 6 * 60 * 60_000 });
     return { sent: false, note: `dm_failed:${why.kind}:${why.code}` };
   }
 }
@@ -2284,7 +2309,9 @@ export function privateReplyFailure(err: unknown): { kind: "permission" | "windo
   const { code, subcode, message } = err.graph;
   const tag = `${code ?? "—"}/${subcode ?? "-"}`;
   const text = message ?? "";
-  const known = sendErrorKind(code, subcode);
+  // «This user can't reply / cant reply to this comment» — человеку нельзя написать по этому комментарию (закрыл личные,
+  // ограничил аккаунт): отказ «про получателя», а не поломка (прод 24.11, ×7). Код у Meta плавает — узнаём по тексту.
+  const known = sendErrorKind(code, subcode) ?? (/\b(can'?t|cannot)\s+(reply|receive)\b/iu.test(text) ? "recipient" : null);
   const kind = known ?? (code === 10 || code === 200 || code === 230 || code === 3 || (code !== null && code >= 200 && code < 300) ||
     /permission|pages_messaging|instagram_manage_messages|app review|advanced access/iu.test(text) ? "permission" : "other");
   const label = kind === "permission" ? "у приложения Meta нет права на личные (App Review / разрешения)"
@@ -2846,7 +2873,67 @@ async function finishModeration(
   return deleted ? "deleted" : "hidden";
 }
 
+/**
+ * ОЧЕРЕДЬ КОММЕНТАРИЕВ БЕЗ АККАУНТОВ С ОТМЕТКОЙ «ДОСТУП ПОТЕРЯН» (ревью #432). Выборка берёт BATCH_LIMIT в минуту по самым
+ * давним replyDueAt; отложенные комментарии брошенного аккаунта (Arvan) иначе набирались бы сотнями и забивали выборку —
+ * вставала бы очередь всех аккаунтов (Royal Home, Facebook). Поэтому:
+ *  - такие комментарии исключаются В ЗАПРОСЕ (а не пропуском после выборки);
+ *  - ждут не дольше ACCESS_LOST_MAX_WAIT_MS от появления: старше — закрываются «access_lost» без пуша (публичный ответ
+ *    через трое суток уже не к месту, личное Meta разрешает 7 суток, а ключ могут не заменить никогда).
+ * Отметку снимут («Заменить маркер», проба) — оставшиеся комментарии разберутся обычным порядком.
+ */
+export const ACCESS_LOST_MAX_WAIT_MS = 3 * 24 * 60 * 60 * 1000;
+
+export async function selectDueComments(now: Date = new Date()): Promise<QueuedComment[]> {
+  const marked = await prisma.messengerAccount.findMany({
+    where: { channel: "INSTAGRAM", accessLostAt: { not: null } },
+    select: { id: true, externalId: true, extraExternalIds: true },
+  }).catch(() => [] as { id: string; externalId: string; extraExternalIds: string[] }[]);
+  // Проба без входящих (ревью #432): очередь крутится каждую минуту, поэтому здесь же — дешёвый GET /me не чаще раза в
+  // 30 минут на аккаунт. Ключ ожил — отметка снята, комментарии аккаунта разбираются в этом же проходе.
+  const lost: typeof marked = [];
+  for (const account of marked) if (await stillLostAfterProbe(account.id, now.getTime())) lost.push(account);
+  const lostIds = [...new Set(lost.flatMap((a) => [a.externalId, ...a.extraExternalIds]).filter(Boolean))];
+  if (lostIds.length) {
+    const closed = await prisma.instagramComment.updateMany({
+      where: { channel: "INSTAGRAM", accountExternalId: { in: lostIds }, status: "PENDING",
+        createdAt: { lt: new Date(now.getTime() - ACCESS_LOST_MAX_WAIT_MS) } },
+      data: { status: "SKIPPED", note: "access_lost" },
+    }).catch(() => ({ count: 0 }));
+    if (closed.count > 0) console.warn(`[comments] ${closed.count} комментариев аккаунта без доступа закрыты «access_lost» (ждали дольше 3 суток)`);
+  }
+  return (await prisma.instagramComment.findMany({
+    where: {
+      OR: [
+        { status: "PENDING", replyDueAt: { lte: now } },
+        // Потолок попыток здесь — БОЛЬШИЙ из двух (ИИ-недоступность терпит 12):
+        // застрявший в WORKING комментарий с пятой попыткой ИИ-сбоя всё ещё наш.
+        { status: "WORKING", updatedAt: { lt: new Date(now.getTime() - STUCK_AFTER_MS) }, attempts: { lt: AI_DOWN_MAX_ATTEMPTS } },
+      ],
+      // NOT IN через явное OR: у accountExternalId бывает NULL, а NOT (x IN …) по NULL в SQL отбросил бы и такие строки.
+      ...(lostIds.length ? { AND: [{ OR: [
+        { channel: { not: "INSTAGRAM" } }, { accountExternalId: null }, { accountExternalId: { notIn: lostIds } },
+      ] }] } : {}),
+    },
+    orderBy: { replyDueAt: "asc" },
+    take: BATCH_LIMIT,
+  })) as QueuedComment[];
+}
+
+/** Пока доступ к аккаунту потерян, комментарий ждёт: снова PENDING через полчаса, захват попытку не тратит. */
+const ACCESS_LOST_RECHECK_MS = 30 * 60 * 1000;
+async function parkCommentWhileAccessLost(row: QueuedComment, accountId: string): Promise<void> {
+  await noteInstagramWorkHeld(accountId, "разбор комментариев");
+  await finish(row.id, { status: "PENDING", attempts: row.attempts, replyDueAt: new Date(Date.now() + ACCESS_LOST_RECHECK_MS) });
+}
+
 async function failComment(row: QueuedComment, err: unknown): Promise<void> {
+  // Доступ к аккаунту Instagram потерян посреди разбора (отметку поставил этот же или соседний вызов): строку не пишем,
+  // попытку не тратим — ждём ключа (lib/instagramAccountAccess.ts).
+  if (isInstagramAccessLostError(err)) {
+    await parkCommentWhileAccessLost(row, err.accountId);
+    return;
+  }
   if (isCommentGone(err) && !(await commentStillExists(row))) {
     // В журнал ошибок не пишем и человека не зовём: отвечать физически некуда.
     console.warn(`[comments] Комментарий ${row.commentId} удалён или недоступен — закрыт без ответа`);

@@ -39,6 +39,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${lockedId}` } } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${deadId}` } } });
   await prisma.errorLog.deleteMany({ where: { dedupKey: { startsWith: `ig-feed-failed:${deadId}` } } }).catch(() => {});
   await prisma.messengerAccount.deleteMany({ where: { id: { in: [lockedId, deadId] } } });
   eternal.resetMetaEternalCache();
@@ -47,6 +48,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await prisma.messengerAccount.updateMany({ where: { id: { in: [lockedId, deadId] } }, data: { accessLostAt: null, accessLostReason: null } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${lockedId}` } } });
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: `ig-account-locked:${deadId}` } } });
   await prisma.errorLog.deleteMany({ where: { dedupKey: { startsWith: `ig-feed-failed:${deadId}` } } }).catch(() => {});
   eternal.resetMetaEternalCache();
   fetchMock.mockReset();
@@ -75,12 +77,23 @@ describe("лента аккаунтов: отказ ключа", () => {
     expect(lockedCalls()).toBe(before);
   });
 
-  it("ключ просто мёртв (смена пароля) — не «закрыт», и в журнале одна строка на аккаунт в сутки", async () => {
+  /**
+   * ДО 25.11.2026 здесь было обратное: «ключ просто мёртв — не «закрыт», одна строка ленты в сутки». На проде это дало
+   * 24–25.11 сотни строк от ДРУГИХ путей (отправка, повтор зависших, профиль, публикация, комментарии), которые
+   * отметку не видели вовсе. Теперь мёртвый ключ метится той же дверью (своим текстом: «Заменить маркер», без
+   * «пройдите проверку»), а лента его дальше не трогает — строка ленты не нужна.
+   */
+  it("ключ мёртв (смена пароля) — та же отметка своим текстом, строки ленты нет, следующая лента не дёргает", async () => {
     await getAllOwnMedia(0);
-      await getAllOwnMedia(0);
-    expect((await prisma.messengerAccount.findUnique({ where: { id: deadId }, select: { accessLostAt: true } }))?.accessLostAt).toBeNull();
+    const row = await prisma.messengerAccount.findUnique({ where: { id: deadId }, select: { accessLostAt: true, accessLostReason: true } });
+    expect(row?.accessLostAt).not.toBeNull();
+    expect(row?.accessLostReason).toMatch(/session has been invalidated/);
+    const deadCalls = () => fetchMock.mock.calls.filter(([u, i]) => carries(String(u), i as RequestInit, DEAD)).length;
+    const before = deadCalls();
+    await getAllOwnMedia(0);
+    expect(deadCalls()).toBe(before);
     const lines = await waitForSettled(() => prisma.errorLog.count({ where: { dedupKey: `ig-feed-failed:${deadId}:401` } }));
-    expect(lines).toBe(1);
+    expect(lines).toBe(0);
   });
 });
 
