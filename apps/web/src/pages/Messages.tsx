@@ -45,7 +45,7 @@ import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "../components/MessageQuote";
 import { VoiceRecordButton } from "../components/VoiceRecordButton";
-import { ChatPropertySend } from "../components/ChatPropertySend";
+import { ChatObjectPicker } from "../components/ChatObjectPicker";
 import { ContactProfilePanel } from "../components/ContactProfilePanel";
 import { ConversationClientLink } from "../components/ConversationClientLink";
 import { relativeTime } from "../lib/format";
@@ -95,7 +95,6 @@ import { autoReplySourceId, chatTitle, isGroupTail, sameSide } from "../componen
 import { isLongPressTarget, RoyalMessageInfo, RoyalTicks, useLongPress } from "../components/look/chats/RoyalMessageInfo";
 
 /** Почему «Отправить объект» серый: отправка пишет показ объекта в карточку клиента. */
-const PROPERTY_SEND_NEEDS_CARD = "Сначала примите заявку: у этого диалога ещё нет карточки клиента";
 
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
@@ -1265,10 +1264,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   const [moreView, setMoreView] = useState<"main" | "pause">("main");
   const attachMenu = useDismissableMenu<HTMLButtonElement>();
   const [propertyPickerOpen, setPropertyPickerOpen] = useState(false);
-  /** Пояснение у серой кнопки «Объект», когда у диалога нет карточки клиента. */
-  const [propertyHint, setPropertyHint] = useState(false);
-  const canSendProperty = !!(conversation?.clientId && conversation.clientShortId);
-  useEffect(() => { setPropertyHint(false); }, [id]);
   // «Сведения о сообщении» — абсолютный индекс в allMessages; setState стабилен,
   // поэтому memo-ленте передаётся как есть и не перерисовывает её при печати.
   const [infoIndex, setInfoIndex] = useState<number | null>(null);
@@ -2084,14 +2079,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </div>
       )}
 
-      {/* Серая кнопка «Отправить объект» (нет карточки клиента): на телефоне подсказки
-          по наведению нет, поэтому причина по нажатию показывается строкой над полем. */}
-      {propertyHint && !canSendProperty && (
-        <div className="suggest" role="status" data-testid="chat-send-property-hint">
-          <span className="dot warn"></span>
-          <span className="txt">{PROPERTY_SEND_NEEDS_CARD}</span>
-        </div>
-      )}
       {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
       {/* СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ (владелец 26.11.2026: «вернуть выбор срока, по умолчанию час»).
           Одна тонкая строка над полем ввода, на ПК и телефоне одна и та же: подпись и выбор срока. Родной
@@ -2146,17 +2133,9 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
                 <button type="button" role="menuitem" onClick={() => mediaInputRef.current?.click()}>
                   <Video aria-hidden="true" />Фото или видео
                 </button>
-                {/* «Объект» виден ВСЕГДА (владелец 25.11.2026: «кнопки нет»): у диалога без
-                    карточки клиента пункт серый и говорит, почему, а не пропадает молча —
-                    отправка объекта пишет показ в карточку клиента, без неё некуда. */}
-                <button
-                  type="button"
-                  role="menuitem"
-                  aria-disabled={!canSendProperty || undefined}
-                  title={canSendProperty ? undefined : PROPERTY_SEND_NEEDS_CARD}
-                  onClick={() => (canSendProperty ? setPropertyPickerOpen(true) : setPropertyHint(true))}
-                  style={canSendProperty ? undefined : { opacity: 0.55 }}
-                >
+                {/* «Объект» активен ВСЕГДА (владелец 26.11.2026: «клиент должен сначала посмотреть объекты, а потом дать
+                    номер»): карточка клиента и принятая заявка не нужны, объект уходит в любую переписку. */}
+                <button type="button" role="menuitem" onClick={() => setPropertyPickerOpen(true)}>
                   <Building2 aria-hidden="true" />Объект из базы
                 </button>
                 {quickReplies.length > 0 && (
@@ -2206,17 +2185,15 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             }}
           />
           {/* Объект — только пунктом «Объект из базы» в меню скрепки (владелец 26.11.2026: отдельная кнопка-здание была дублем). */}
-          {conversation?.clientId && conversation.clientShortId && (
-            <ChatPropertySend
-              clientId={conversation.clientId}
-              clientShortId={conversation.clientShortId}
-              conversationId={replyTargetId ?? undefined}
-              disabled={reply.isPending || conversationLoading || !replyTargetId}
-              hideTrigger
-              open={propertyPickerOpen}
-              onOpenChange={setPropertyPickerOpen}
-            />
-          )}
+          <ChatObjectPicker
+            conversationId={replyTargetId ?? undefined}
+            disabled={reply.isPending || conversationLoading || !replyTargetId}
+            hideTrigger
+            open={propertyPickerOpen}
+            onOpenChange={setPropertyPickerOpen}
+            pauseMinutes={mediaPauseMinutes()}
+            onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
+          />
           {/* Одна круглая кнопка; на ней — значок канала, куда уйдёт ответ, если
               каналов несколько: виден и во время набора, когда подсказки уже нет. */}
           <span className="ry-send-wrap">
@@ -2337,12 +2314,12 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         </button>
         {/* Быстрая отправка объекта из чата (владелец 21.08.2026) — вся логика в
             компоненте, здесь только кнопка. */}
-        {conversation?.clientId && conversation.clientShortId && <ChatPropertySend
-          clientId={conversation?.clientId ?? null}
-          clientShortId={conversation?.clientShortId ?? null}
+        <ChatObjectPicker
           conversationId={replyTargetId ?? undefined}
           disabled={reply.isPending || conversationLoading || !replyTargetId}
-        />}
+          pauseMinutes={mediaPauseMinutes()}
+          onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
+        />
         {/* «Предложить ответ» (черновик от ИИ рядом с микрофоном) убрана
             целиком (владелец 06.09.2026: «зачем она?») — не отвечала на
             явную потребность и добавляла кнопку туда, где должно быть

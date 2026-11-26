@@ -559,7 +559,32 @@ export function useUploadConversationMediaWithProgress(id: string | null) {
     [id, remove]
   );
 
-  return { start, retry, cancel };
+  /**
+   * Фото объекта, поставленные в очередь сервером при отправке объекта из чата (26.11.2026): те же пузыри
+   * «В очереди / Сжимаем / Отправляем», что у фото из галереи, поднятые по номерам заданий, без файла.
+   */
+  const adoptJobs = useCallback(
+    (jobIds: readonly string[]) => {
+      if (!id) return;
+      for (const jobId of jobIds) {
+        if (followedMediaJobs.has(jobId)) continue;
+        const upload: PendingMediaUpload = {
+          localId: serverJobLocalId(jobId),
+          file: null,
+          previewUrl: "",
+          kind: "image",
+          progress: 0,
+          status: "processing",
+          jobId,
+        };
+        add(id, upload);
+        void follow(id, upload, jobId);
+      }
+    },
+    [id, add, follow]
+  );
+
+  return { start, retry, cancel, adoptJobs };
 }
 
 /** Одна переписка или все каналы общего чата клиента (новый вид, ревью #332):

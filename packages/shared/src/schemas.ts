@@ -1548,6 +1548,38 @@ export const sendPropertiesSchema = z.object({
 });
 export type SendPropertiesInput = z.infer<typeof sendPropertiesSchema>;
 
+/** Ответ GET /conversations/:id/send-context — всё, что нужно шторке «Объект» (26.11.2026). */
+export interface ConversationSendContext {
+  hasCard: boolean;
+  clientId: string | null;
+  /** false — рубильник выключен и карточки нет: прежний отказ. */
+  allowed: boolean;
+  deniedReason: string | null;
+  channel: SendTargetInfo["channel"];
+  channelEnabled: boolean;
+  windowOpen: boolean;
+  lastClientMessageAt: string | null;
+  photosSupported: boolean;
+  hint: string;
+  /** Объекты, которые этому собеседнику уже отправляли за 30 дней. */
+  sentPropertyIds: string[];
+  /** Что бот собрал о запросе (комнаты/район/бюджет); null — ничего. */
+  draft: { rooms?: number; districtId?: string; districtName?: string; budgetMin?: number; budgetMax?: number; type?: string } | null;
+}
+
+/** Ответ POST /conversations/:id/send-properties. */
+export interface ConversationSendPropertiesResult {
+  ok: true;
+  sent: number;
+  propertyIds: string[];
+  masked: boolean;
+  pausedUntil: string | null;
+  channel: string;
+  hasCard: boolean;
+  /** jobIds — задания очереди фото: экран показывает по ним пузыри «В очереди / Отправляем». */
+  photos: { queued: number; jobIds: string[]; skipped: number; note: string | null };
+}
+
 /**
  * Куда уйдёт объект, отправленный из CRM (GET /clients/:id/send-target) —
  * агент видит это ДО нажатия, а не узнаёт из отказа Meta после.
