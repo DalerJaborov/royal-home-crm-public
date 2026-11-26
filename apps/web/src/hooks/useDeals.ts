@@ -90,7 +90,11 @@ export function useUpdateDeal() {
     mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => {
       const cached = qc.getQueriesData<Deal[]>({ queryKey: ["deals"] }).map(([, data]) => data);
       const deal = findCachedDeal(cached, id);
-      return api<Deal>(`/deals/${id}`, { method: "PATCH", body: attachDealVersion(body, deal), queueOffline: true });
+      return api<Deal>(`/deals/${id}`, { method: "PATCH", body: attachDealVersion(body, deal),
+        // Деньги подтверждает сервер, а не офлайн-очередь: без сети окно показывает причину и остаётся,
+        // второе нажатие не ставит второй PATCH (ключа повтора у PATCH нет) и не ловит 409 по версии.
+        queueOffline: !isMoneyDealWrite(body),
+      });
     },
     // silent: у смены этапа своя обратная связь — карточка перелетает в колонку
     // (успех) и своя же именная плашка с «Понятно» прямо на доске (отказ, см.
@@ -104,12 +108,14 @@ export function useUpdateDeal() {
       await qc.cancelQueries({ queryKey: ["deals"] });
       const prev = qc.getQueriesData<Deal[]>({ queryKey: ["deals"] });
       // Деньги — только после ответа сервера (см. isMoneyDealWrite): окно закрытия ждёт его само.
-      if (!isMoneyDealWrite(body)) {
+      const optimistic = !isMoneyDealWrite(body);
+      if (optimistic) {
         qc.setQueriesData<Deal[]>({ queryKey: ["deals"] }, (old) =>
           old?.map((d) => (d.id === id ? ({ ...d, ...body } as Deal) : d))
         );
       }
-      return { prev, epoch: currentSessionEpoch() };
+      // Снимок для отката нужен только там, где что-то менялось заранее.
+      return { prev: optimistic ? prev : [], epoch: currentSessionEpoch() };
     },
     onError: (err, _vars, ctx) => {
       // 409 замка версии: сделку изменили без нас, поэтому снимок `prev` из
@@ -131,7 +137,14 @@ export function useUpdateDeal() {
     // нет — закрытие это PATCH этапа, поэтому повод узнаём из аргументов
     // мутации: сервер возвращает сделку целиком, но именно ПЕРЕХОД в
     // COMPLETED (а не «она и так была закрыта») виден только здесь.
-    onSuccess: () => {
+    onSuccess: (deal) => {
+      // PATCH возвращает сделку целиком: кладём её в кэш сразу, чтобы карточка переехала в тот же миг,
+      // что и закрылось окно, а «Закрыть» нельзя было нажать повторно со старой version (409).
+      if (deal?.id) {
+        qc.setQueriesData<Deal[]>({ queryKey: ["deals"] }, (old) =>
+          Array.isArray(old) ? old.map((d) => (d.id === deal.id ? ({ ...d, ...deal } as Deal) : d)) : old
+        );
+      }
       invalidateAfterDealChange(qc);
     },
   });
