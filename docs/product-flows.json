@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 787,
-  "forks": 4295,
+  "forks": 4348,
   "mounts": 87,
   "cron": 145,
   "jobs": 37,
@@ -27683,6 +27683,30 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "parsed.data.message = redactSecretsInText(parsed.data.message);",
+     "a": [
+      "зовёт redactSecretsInText()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "parsed.data.stack = redactSecretsInText(parsed.data.stack);",
+     "a": [
+      "зовёт redactSecretsInText()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "parsed.data.url = redactSecretsInText(parsed.data.url);",
+     "a": [
+      "зовёт redactSecretsInText()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -74041,9 +74065,17 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(503).json({ error: \"Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)\" …",
+       "t": "console.warn(\"[site-reset] не заданы SITE_SYNC_URL / SITE_SYNC_ADMIN_RESET_KEY\");",
        "a": [
-        "ответ 503 — «Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_ADMIN_RESET_KEY)»"
+        "пишет строку в журнал сервера"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(503).json({ error: \"Связь с сайтом не настроена. Обратитесь к администратору.\" });",
+       "a": [
+        "ответ 503 — «Связь с сайтом не настроена. Обратитесь к администратору.»"
        ],
        "c": []
       }
@@ -89539,6 +89571,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -96220,6 +96275,29 @@
            "c": []
           },
           {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -96426,6 +96504,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -98582,6 +98683,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -99208,6 +99332,29 @@
            "c": []
           },
           {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -99389,6 +99536,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -112946,7 +113116,7 @@
          "c": [
           {
            "k": "do",
-           "t": "return { ok: false, error: \"Связь с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\", notConfigured: tr…",
+           "t": "return { ok: false, error: \"Связь с сайтом не настроена. Обратитесь к администратору.\", notConfigured: true };",
            "a": [
             "дословно из кода"
            ],
@@ -113229,6 +113399,29 @@
              "c": []
             },
             {
+             "k": "do",
+             "t": "message = redactSecretsInText(message);",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "context && (context.url || context.stack)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+               "a": [
+                "зовёт redactSecretsInText()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "if",
              "t": "isPrivateOperation()",
              "a": [],
@@ -113402,6 +113595,29 @@
             "зовёт maskPhoneNumbersInText()"
            ],
            "c": []
+          },
+          {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -120662,6 +120878,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -122667,6 +122906,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -123084,6 +123346,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -124133,6 +124418,29 @@
            "c": []
           },
           {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -124437,6 +124745,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -124687,6 +125018,29 @@
         "зовёт maskPhoneNumbersInText()"
        ],
        "c": []
+      },
+      {
+       "k": "do",
+       "t": "message = redactSecretsInText(message);",
+       "a": [
+        "зовёт redactSecretsInText()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "context && (context.url || context.stack)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "if",
@@ -125741,6 +126095,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -126224,6 +126601,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -126487,6 +126887,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -126796,6 +127219,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -127164,6 +127610,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -127747,6 +128216,29 @@
            "c": []
           },
           {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -127935,6 +128427,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -128354,6 +128869,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -128950,6 +129488,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -129275,6 +129836,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -129695,6 +130279,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -129866,6 +130473,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -130233,6 +130863,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -131115,6 +131768,29 @@
            "c": []
           },
           {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "if",
            "t": "isPrivateOperation()",
            "a": [],
@@ -131564,6 +132240,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -131884,9 +132583,9 @@
        "c": [
         {
          "k": "do",
-         "t": "return { ok: false, error: \"Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\", retryable…",
+         "t": "console.warn(\"[site-sync] не заданы SITE_SYNC_URL / SITE_SYNC_API_KEY\");",
          "a": [
-          "дословно из кода"
+          "пишет строку в журнал сервера"
          ],
          "c": []
         }
@@ -132173,6 +132872,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -132405,6 +133127,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -132623,6 +133368,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -133178,6 +133946,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -133555,6 +134346,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -133945,6 +134759,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -135095,6 +135932,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -135530,6 +136390,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -135816,6 +136699,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -136504,6 +137410,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -136879,6 +137808,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -137143,6 +138095,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -137434,6 +138409,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -137621,6 +138619,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -138032,6 +139053,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -138602,6 +139646,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -139425,6 +140492,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -139989,6 +141079,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -140201,6 +141314,29 @@
             "зовёт maskPhoneNumbersInText()"
            ],
            "c": []
+          },
+          {
+           "k": "do",
+           "t": "message = redactSecretsInText(message);",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "context && (context.url || context.stack)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+             "a": [
+              "зовёт redactSecretsInText()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -140460,6 +141596,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -141856,6 +143015,29 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "if",
          "t": "isPrivateOperation()",
          "a": [],
@@ -142086,6 +143268,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -142416,6 +143621,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -142983,6 +144211,29 @@
           "зовёт maskPhoneNumbersInText()"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "message = redactSecretsInText(message);",
+         "a": [
+          "зовёт redactSecretsInText()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "context && (context.url || context.stack)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, url: redactSecretsInText(context.url), stack: redactSecretsInText(context.stack) };",
+           "a": [
+            "зовёт redactSecretsInText()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
