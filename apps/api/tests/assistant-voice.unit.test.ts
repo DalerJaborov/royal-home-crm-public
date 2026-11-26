@@ -498,3 +498,19 @@ it("a rejected voice recognition is logged with its HTTP status, without the pro
     expect.objectContaining({ dedupKey: "assistant-scribe-401", silent: true }));
   expect(JSON.stringify(logError.mock.calls)).not.toContain("secret text");
 });
+// Ревью 26.11.2026: квота, права и частота словарём не лечатся — повтора без словаря нет, лишний запрос не уходит.
+it.each([
+  [401, null], [402, null], [429, null], [400, "quota_exceeded"], [401, "quota_exceeded"],
+] as const)("HTTP %s (%s) with a dictionary is not retried without it", async (status, code) => {
+  vi.stubEnv("ELEVENLABS_API_KEY", `test-no-dictionary-retry-${status}-${code ?? "none"}`);
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "dict-ru");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-ru");
+  fetchMock.mockImplementation(async () => new Response(code ? JSON.stringify({ detail: { status: code } }) : null, { status }));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await sendAssistantVoiceReply("test", "Хорошо, проверила, всё на месте.")).toBe(false);
+  } finally { warn.mockRestore(); }
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).pronunciation_dictionary_locators).toHaveLength(1);
+  expect(sendVoice).not.toHaveBeenCalled();
+});
