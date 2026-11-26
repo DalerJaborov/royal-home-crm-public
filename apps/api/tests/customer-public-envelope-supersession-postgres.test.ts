@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { waitFor } from "./helpers/waitFor.js";
 import { prisma } from "../src/db.js";
 import { createCustomerCoreGoldenFixture, decision } from "./helpers/customerCoreGoldenFixture.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
@@ -52,9 +53,15 @@ it("does not reuse an already answered image as current media in public-envelope
     language: "unknown", transcript: "", subject: "home_interior", visible: ["kitchen"], readableText: "", speech: "none" } } }],
   [decision({ kind: "reply", refs: [], social: "acknowledge", question: "none" })]]);
   expect((await f.deliver(first)).text).toContain("Спасибо, фото получил.");
+  // 26.11.2026 (владелец): «Спасибо» после «фото получил» — реакция без текста и без модели (ai/ackTurnDoor.ts), значит и
+  // повторного описания фото быть не может. Вопрос по делу — снова обычный ход, и уже отвеченное фото в нём не всплывает.
   const next = await f.capture(owner, "Спасибо");
-  f.script([[decision({ kind: "reply", refs: [], social: "thank", question: "none" })]]);
-  const again = (await f.deliver(next)).text;
+  expect(await consumeCustomerInboxTicket(next)).toEqual({ status: "held", reason: "ack_only_reaction" });
+  expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: next } })).toBe(0);
+  await waitFor(async () => f.reactions.length === 1, { timeoutMs: 5000, label: "реакция Instagram на «Спасибо»" });
+  const question = await f.capture(owner, "А что ещё нужно?");
+  f.script([[decision({ kind: "reply", refs: [], social: "acknowledge", question: "none" })]]);
+  const again = (await f.deliver(question)).text;
   expect(again).not.toContain("кухня"); expect(again).not.toContain("фото получил");
 });
 it("does not reach past an intervening message for visual content", async () => {
