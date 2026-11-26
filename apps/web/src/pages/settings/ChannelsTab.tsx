@@ -310,14 +310,14 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
         />
 
         <FacebookCrosspostSetting
-          key={(settings?.facebookCrosspostPageIds ?? []).join("\n")}
+          key={`fb-crosspost:${(settings?.facebookCrosspostPageIds ?? []).join("\n")}`}
           value={settings?.facebookCrosspostPageIds ?? []}
           pending={updateSettings.isPending}
           onSave={(list) => updateSettings.mutate({ facebookCrosspostPageIds: list })}
         />
 
         <FacebookGroupsSetting
-          key={(settings?.facebookShareGroups ?? []).join("\n")}
+          key={`fb-groups:${(settings?.facebookShareGroups ?? []).join("\n")}`}
           value={settings?.facebookShareGroups ?? []}
           pending={updateSettings.isPending}
           onSave={(list) => updateSettings.mutate({ facebookShareGroups: list })}
