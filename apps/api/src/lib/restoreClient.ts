@@ -1,6 +1,7 @@
 import { SALES_AGENT_ROLES } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { changeClientAgent } from "./changeClientAgent.js";
+import { findPhoneOwners } from "./clientPhones.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { sendPushToAgents } from "../push.js";
@@ -20,7 +21,7 @@ export type RestoreClientResult =
       client: { id: string; shortId: number; fullName: string; phone: string };
       ownerReassignedToQueue: boolean;
     }
-  | { ok: false; status: 404 | 409; error: string };
+  | { ok: false; status: 404 | 409; error: string; duplicateOf?: { id: string; shortId: number } };
 
 /**
  * Восстановление клиента из Корзины — право `clients.delete` (директор, админ).
@@ -63,10 +64,27 @@ export async function restoreClientFromTrash(clientId: string, actorId: string):
     : {};
 
   const restoreConflict = new Error("Restore conflict");
+  let duplicateOf: { id: string; shortId: number } | null = null;
   const restored = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
     const current = await tx.client.findUnique({ where: { id: client.id } });
     if (!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()) {
+      return false;
+    }
+    /**
+     * ВОССТАНОВЛЕНИЕ НЕ ДЕЛАЕТ ВТОРУЮ ЖИВУЮ КАРТОЧКУ ТОГО ЖЕ ЧЕЛОВЕКА (CRM-38, 26.11.2026).
+     *
+     * Пока карточка лежала в Корзине, человек мог написать снова: бот завёл новую заявку, или слияние
+     * дублей перенесло номер живой карточке запасным. Кнопка «Восстановить» оживляла старую оболочку
+     * рядом: два агента звонят одному клиенту, переписка и сделки расходятся. Номер — один хозяин
+     * (lib/clientPhones.ts): если живая карточка уже держит любой из номеров этой (главный, WhatsApp,
+     * запасной), восстановление отказывает и называет её. Проверка внутри транзакции, под блокировкой
+     * восстанавливаемой строки.
+     */
+    const phones = [current.phone, current.whatsappPhone, ...(current.extraPhones ?? [])].filter((p): p is string => !!p);
+    const [live] = await findPhoneOwners(phones, { exceptClientId: client.id, limit: 1, db: tx });
+    if (live) {
+      duplicateOf = { id: live.id, shortId: live.shortId };
       return false;
     }
     const checkedOwners = [[client.assignedAgentId, eligible(owner)], [historicalOwner?.id ?? null, eligible(historicalOwner)]] as const;
@@ -108,6 +126,11 @@ export async function restoreClientFromTrash(clientId: string, actorId: string):
     }
     return true;
   }).catch(error => { if (error === restoreConflict) return false; throw error; });
+  if (duplicateOf) {
+    const dup: { id: string; shortId: number } = duplicateOf;
+    return { ok: false, status: 409, duplicateOf: dup,
+      error: `Номер этого клиента уже у живой карточки №${dup.shortId}. Работайте в ней или объедините карточки` };
+  }
   if (!restored) return { ok: false, status: 409, error: "Карточка изменилась. Обновите страницу" };
   if (toQueue) {
     const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id) => id !== actorId);
