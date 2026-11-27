@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from "react";
 import {
   getDraftMediaSnapshot,
+  getDraftPhotoGeoStatusSnapshot,
   getDraftPhotoLocationSnapshot,
   subscribeDraftMedia,
   subscribeDraftPhotoLocation,
   type DraftMediaItem,
 } from "../lib/draftUploads";
 import type { ExifGpsPoint } from "../lib/exifGps";
+import type { PhotoGeoStatus } from "../lib/photoGeoHint";
 
 /**
  * Подписка на ход загрузки файлов черновика (lib/draftUploads.ts) — тем же
@@ -21,6 +23,11 @@ export function useDraftMedia(): DraftMediaItem[] {
 /** Точка, найденная в EXIF первого добавленного снимка — `null`, пока не найдена. */
 export function useDraftPhotoLocation(): ExifGpsPoint | null {
   return useSyncExternalStore(subscribeDraftPhotoLocation, getDraftPhotoLocationSnapshot, getDraftPhotoLocationSnapshot);
+}
+
+/** Итог разбора геометки у снимков — для подсказки на шаге «Где». */
+export function useDraftPhotoGeoStatus(): PhotoGeoStatus {
+  return useSyncExternalStore(subscribeDraftPhotoLocation, getDraftPhotoGeoStatusSnapshot, getDraftPhotoGeoStatusSnapshot);
 }
 
 export interface DraftMediaSummary {

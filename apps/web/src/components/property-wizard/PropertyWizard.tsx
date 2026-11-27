@@ -18,7 +18,8 @@ import {
   invalidatePropertyDraftSession, loadPropertyDraftSession,
   isPropertyDraftSessionCurrent, propertyDraftSessionToken, type PropertyDraftSession,
 } from "../../lib/propertyDraftSession";
-import { useDraftMedia, useDraftPhotoLocation, summarizeDraftMedia } from "../../hooks/useDraftMedia";
+import { useDraftMedia, useDraftPhotoGeoStatus, useDraftPhotoLocation, summarizeDraftMedia } from "../../hooks/useDraftMedia";
+import { photoGeoHint } from "../../lib/photoGeoHint";
 import { snapNote, fetchHouseSnap } from "../../lib/houseSnap";
 import { useAuthStore } from "../../store/auth";
 import { useCan } from "../../lib/permissions";
@@ -425,6 +426,7 @@ export function PropertyWizard({
    * карты, а не команда "переставь".
    */
   const photoLocation = useDraftPhotoLocation();
+  const photoGeoStatus = useDraftPhotoGeoStatus();
   /**
    * Точка по фото — сразу на дом (28.09.2026, владелец: «по EXIF на пару метров
    * в дорогу ввёл, и не выходит номер дома»). GPS в помещении уходит на улицу;
@@ -1115,7 +1117,7 @@ export function PropertyWizard({
           districts={districts ?? []}
           districtsLoading={districtsLoading}
           onChange={patch}
-          mapNote={photoSnapNote}
+          mapNote={photoSnapNote ?? (values.lat === null ? photoGeoHint(photoGeoStatus) : null)}
           registrySlot={
             <RegistryField
               point={values.lat !== null && values.lng !== null ? { lat: values.lat, lng: values.lng } : null}

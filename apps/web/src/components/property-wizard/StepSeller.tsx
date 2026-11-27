@@ -5,6 +5,7 @@ import { useAgents } from "../../hooks/useAgents";
 import { useClient, useClients } from "../../hooks/useClients";
 import { useAuthStore } from "../../store/auth";
 import { api } from "../../lib/api";
+import { intakeAgentCandidates } from "../../lib/intakeAgents";
 import type { Client } from "../../types";
 import { PhoneInput } from "../FormField";
 import { SearchableSelect } from "../SearchableSelect";
@@ -130,7 +131,19 @@ export function StepSeller({
   onSellerPicked?: (clientId: string) => void;
 }) {
   const { data: agents } = useAgents({ enabled: requireIntakeAgent });
+  const intakeCandidates = useMemo(() => intakeAgentCandidates(agents), [agents]);
   const myAgentId = useAuthStore((s) => s.agent?.id);
+
+  // Выбранный «кто принял» не из списка (хозяин продавца — директор, прошлый
+  // черновик, ссылка `?intake=`) — сбрасываем: сервер такого отвергнет, а
+  // директор в строке не должен выглядеть «принявшим» (27.11.2026).
+  useEffect(() => {
+    if (!requireIntakeAgent || !agents || !values.intakeAgentId) return;
+    if (intakeCandidates.some((a) => a.id === values.intakeAgentId)) return;
+    onChange({ intakeAgentId: "" });
+    // onChange приходит новым на каждый рендер родителя — в deps не нужен.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requireIntakeAgent, agents, intakeCandidates, values.intakeAgentId]);
 
   const digits = phoneDigits(values.sellerPhone);
   const lookupEnabled = !values.sellerClientId && digits.length >= 9;
@@ -227,7 +240,7 @@ export function StepSeller({
             <SearchableSelect
               value={values.intakeAgentId}
               onChange={(id) => onChange({ intakeAgentId: id })}
-              options={(agents ?? []).map((a) => ({ value: a.id, label: a.fullName }))}
+              options={intakeCandidates.map((a) => ({ value: a.id, label: a.fullName }))}
               placeholder="Выберите сотрудника"
             />
           </div>
