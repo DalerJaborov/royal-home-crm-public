@@ -50,11 +50,17 @@ describe("A. C6: без живого агента и после невыполн
 
   it("«Салом алайкум» по карточке без агента: приветствие и «записали, увидит сотрудник» — без срока и без «свяжутся»", () => {
     const c = ctx({ leadExists: true, cardAgentActive: false });
-    const t = turn(leadState(), c, "Салом алайкум");
+    // Заявка этой переписки (роль известна): «записали» и сигнал руководству, как прежде.
+    const t = turn({ ...leadState(), role: "buyer" }, c, "Салом алайкум");
     expect(t.keys).toEqual(["greet_assalom", "no_agent_noted"]);
     expect(t.text).not.toMatch(/свяж|сегодня|завтра|тамос/iu);
     expect(t.text).toBe("Ваалейкум ассалом! Записали, ваше сообщение увидит сотрудник.");
     expect(t.d.actions).toContainEqual({ type: "follow_up" });
+    // Карточка пришла не из этой переписки (роль не названа, заявку здесь не объявляли; 27.11.2026): приветствие и «купить или
+    // продать?», ни «записали», ни сигнала руководству на голое приветствие.
+    const bare = turn(leadState(), c, "Салом алайкум");
+    expect(bare.keys).toEqual(["greet_assalom", "ask_role"]);
+    expect(bare.d.actions).toEqual([]);
   });
 
   it("ни один вариант «записали» ни на одном языке не называет срок и не обещает связаться", () => {
@@ -137,12 +143,18 @@ describe("D. Понимание: кнопка рекламы, «алекум», 
     expect(isNeutralShortReply(text)).toBe(true);
   });
 
-  it("C2 живьём: «Салом алекум» после заявки — «Ваалайкум ассалом» и напоминание, а не «Ба агент расондам»", () => {
-    const state: State = { ...initialOperatorState(), leadAccepted: true, step: "done", language: "tg", spoken: { note_added: 1 } };
+  it("C2 живьём: «Салом алекум» после заявки — «Ваалайкум ассалом», а не «Ба агент расондам»", () => {
+    // Заявка этой переписки (роль названа): приветствие и напоминание, что заявка у агента.
+    const state: State = { ...initialOperatorState(), role: "seller", leadAccepted: true, step: "done", language: "tg", spoken: { note_added: 1 } };
     const t = turn(state, ctx({ leadExists: true }), "Салом алекум");
     expect(t.u.greetingOnly).toBe(true);
     expect(t.keys).not.toContain("note_added");
     expect(t.keys).toEqual(["greet_assalom", "lead_reminder"]);
+    // Роль не названа и заявку здесь не объявляли — карточка из другого места (владелец 27.11.2026): «заявка у агента» на
+    // приветствие не звучит, вопрос «чем помочь: купить или продать?».
+    const bare = turn({ ...state, role: "unknown" }, ctx({ leadExists: true }), "Салом алекум");
+    expect(bare.keys).toEqual(["greet_assalom", "ask_role"]);
+    expect(bare.d.actions).toEqual([]);
     expect(t.d.actions.some(action => action.type === "append_note")).toBe(false);
   });
 

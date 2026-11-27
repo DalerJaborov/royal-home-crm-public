@@ -12,6 +12,8 @@
 //   enable        POST /<phone>/settings — звонки + SIP, кнопка СКРЫТА
 //   disable       POST /<phone>/settings — calling.status=DISABLED
 //   show-button / show-button-tj / hide-button — видимость кнопки «Позвонить»
+//   callback-on / callback-off — callback_permission_status (запрос «разрешить звонок» после звонка клиента);
+//                 enable его больше не меняет
 //   test-call-button  POST /<phone>/messages — ОДНО сообщение с кнопкой звонка
 //                 на номер WA_TEST_TO (только владельцу, для проверочного звонка
 //                 при скрытой кнопке). Текст зашит ниже — владелец даёт «да» на
@@ -47,8 +49,9 @@ function bodyFor(name) {
           // Кнопка скрыта до проверочного звонка: иначе (переключатель в кабинете
           // «Показать кнопки» уже «Вкл.») её увидят все клиенты сразу.
           call_icon_visibility: "DISABLE_ALL",
-          // Обратные звонки = наши исходящие (платные) — не строим.
-          callback_permission_status: "DISABLED",
+          // callback_permission_status НЕ трогаем (27.11.2026): повторный enable (второй номер, новый
+          // сертификат) молча выключал обратные звонки, включённые операцией callback-on. Без поля Meta
+          // оставляет прежнее значение [call-settings: все параметры calling — Optional].
           // SDES: без ICE/DTLS, как в примере Meta для Asterisk.
           srtp_key_exchange_protocol: "SDES",
           // G.711 a-law в дополнение к Opus: звук идёт до станции без перекодирования.
@@ -70,6 +73,13 @@ function bodyFor(name) {
       return { calling: { call_icon_visibility: "DEFAULT", call_icons: { restrict_to_user_countries: ["TJ"] } } };
     case "hide-button":
       return { calling: { call_icon_visibility: "DISABLE_ALL" } };
+    // Обратные звонки (27.11.2026, «да» владельца): после звонка клиенту показывается запрос «разрешить
+    // компании позвонить». Его ответ (interactive.call_permission_reply) CRM принимает с этой даты
+    // (messengers/whatsappServiceEvents.ts): просьба о звонке агенту и в очередь CRM.
+    case "callback-on":
+      return { calling: { callback_permission_status: "ENABLED" } };
+    case "callback-off":
+      return { calling: { callback_permission_status: "DISABLED" } };
     default:
       return null;
   }

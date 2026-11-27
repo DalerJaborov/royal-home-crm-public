@@ -23,10 +23,14 @@ import { resolveCustomerPropertyTurnContext, type CustomerPropertyTurnContext } 
 import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { customerBarePropertyAnswer, customerBarePropertyNumber } from "./customerBarePropertyAnswer.js";
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
+import { linkResolvedCustomerFocus } from "./customerFocusOwner.js";
+import { automationSwitchOn } from "./automationSwitches.js";
+import { matchPropertyByFacts, parsePropertyFacts } from "../messengers/sharedPostCard.js";
 
 /** Interpret an explicit spoken/printed public object number with the SAME
- * existing resolver/focus. Never infer identity from appearance, phone or OCR
- * prices; never rewrite RAW/FINAL, renew the source or create a new IN. */
+ * existing resolver/focus. Never infer identity from appearance or phone; OCR price+area of a listing card only
+ * when exactly one object on sale fits (switch chatObjectToOwnerEnabled, 27.11.2026); never rewrite RAW/FINAL,
+ * renew the source or create a new IN. */
 export async function enrichCustomerAgentMediaFocus(input: FocusInput): Promise<{ status: "unchanged" } | { status: "updated"; principal: CustomerPrincipal; focus: CustomerPropertyTurnContext } |
   { status: "held"; reason: string }> {
   if ((["eventKey", "order", "scopeKey", "conversationId", "channel", "accountId", "endpointScopeId"] as const)
@@ -56,7 +60,30 @@ const selectorEvidence = (shortId: number): CustomerPropertyEvidence => ({ kind:
 async function customerPerceivedCaptionSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">,
   marks: CustomerOwnBrandMarks): Promise<number[]> {
   const reference = customerCaptionReference(media.readableText, marks, { listingCard: media.subject === "listing_card" });
-  return reference && await customerCaptionReferenceVerified(reference) ? [reference.shortId] : [];
+  if (reference && await customerCaptionReferenceVerified(reference)) return [reference.shortId];
+  return customerListingCardFactsSelectors(media);
+}
+
+/**
+ * Скриншот карточки объявления БЕЗ нашего логотипа (27.11.2026, владелец: «узнал объект… по скриншотам»): клиент
+ * переснял объявление с сайта-агрегатора или из чужого репоста. Номера нет — узнаём по напечатанным цене и площади
+ * (или комнатам) тем же сличением, что подпись пересланного поста (messengers/sharedPostCard.ts): цена ±0,5 %,
+ * площадь ±1 %, и только если подходит РОВНО ОДИН объект в продаже. Только карточка объявления (не фото
+ * квартиры, не документ) и только при рубильнике chatObjectToOwnerEnabled; ВЫКЛ — как до 27.11.
+ */
+export async function customerListingCardFactsSelectors(media: Pick<CustomerAgentMediaPerception, "subject" | "readableText">): Promise<number[]> {
+  if (media.subject !== "listing_card" || !media.readableText?.trim()) return [];
+  if (!await automationSwitchOn("chatObjectToOwnerEnabled")) return [];
+  // Строже подписи поста (ревью 27.11): нужны и цена, и площадь; на скриншоте с несколькими площадями или ценами
+  // (лента объявлений, «было/стало») не узнаём — цифры могли прийти из разных карточек.
+  const text = media.readableText;
+  const areas = text.match(/(?:м²|м2|m²|m2|кв\.?\s*м)/giu) ?? [];
+  const prices = text.match(/\d[\d\s .,']{2,}\s*(?:TJS|сомон\p{L}*|смн|USD|\$|долл\p{L}*)|(?:\$|USD)\s*\d[\d\s .,']{2,}/giu) ?? [];
+  if (areas.length !== 1 || prices.length !== 1) return [];
+  const facts = parsePropertyFacts(text);
+  if (facts.price == null || facts.areaSqm == null) return [];
+  const found = await matchPropertyByFacts(facts);
+  return found && !found.deletedAt && (found.status === "AVAILABLE" || found.status === "RESERVED") ? [found.shortId] : [];
 }
 async function customerSharedCaptionSelectors(captions: readonly string[], marks: CustomerOwnBrandMarks): Promise<number[]> {
   const found = new Set<number>();
@@ -237,6 +264,8 @@ async function enrichFocus(input: FocusInput, selectors: CustomerPropertyEvidenc
     return true;
   });
   if (!changed) return held("media_focus_changed");
+  // The owner agent learns about this chat; never blocks or fails the turn (27.11.2026, lib/customerFocusOwner.ts).
+  void linkResolvedCustomerFocus(input.ticket.conversationId, next);
   const frame = customerPrincipalAuthenticatedInput(input.principal);
   const loaded = frame && await loadPublicCustomerPrincipal({ admission: input.ticket, authenticatedInput: frame, visibility: input.principal.visibility });
   if (!loaded || loaded.status !== "public_only" || !customerAgentClaimAcceptsPrincipal(input.claim, loaded.principal) ||

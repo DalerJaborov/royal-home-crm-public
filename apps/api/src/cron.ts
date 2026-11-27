@@ -27,6 +27,7 @@ import { runAgentUnansweredAlarmTick } from "./lib/agentUnansweredAlarm.js";
 import { runBotPauseWatchTick } from "./lib/botPauseWatch.js";
 import { runChannelVolumeWatchTick } from "./lib/channelVolumeWatch.js";
 import { runClientSilenceSweep } from "./lib/clientWaitingAlert.js";
+import { runBotSilenceWatchTick } from "./lib/botSilenceWatch.js";
 import { runMetaInboxReconcile } from "./lib/metaInboxReconcile.js";
 import { runWhatsappWebhookWatch } from "./lib/whatsappWebhookWatch.js";
 import { runWhatsappCallingHealthCheck } from "./lib/whatsappCallingHealth.js";
@@ -79,6 +80,7 @@ import { checkYouTubeTokenHealth, refreshThreadsTokenIfDue } from "./lib/socialP
 import { runInstagramPendingContainersTick } from "./lib/instagramPendingContainers.js";
 import { runInstagramSubscriptionWatch } from "./lib/instagramWebhookSubscription.js";
 import { runInstagramIdentityGuard } from "./lib/instagramIdentityGuard.js";
+import { runWhatsappOwnNumberGuard } from "./lib/whatsappOwnNumberLookup.js";
 import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
@@ -2507,6 +2509,14 @@ export function startCronJobs() {
     } catch (err) {
       reportCronTickError("Ошибка сторожа ников Instagram", err);
     }
+    // Тот же класс в WhatsApp (27.11.2026, lib/whatsappOwnNumberLookup.ts): неизвестный цифрами наш номер держит
+    // ответы клиентам ДРУГОГО нашего номера. Дописать у Meta, а если держим всё равно — CRITICAL директору.
+    try {
+      const { fetched, held, alerted } = await runWhatsappOwnNumberGuard();
+      if (fetched || held) console.log(`[cron] Номера WhatsApp: узнано ${fetched}, задержано входящих ${held}${alerted ? ", тревога директору" : ""}`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа номеров WhatsApp", err);
+    }
   }, { timezone: "Asia/Dushanbe" });
 
   /**
@@ -2730,6 +2740,21 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Клиент ждёт ответа: сигналов ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка сторожа «клиент ждёт ответа»", err);
+    }
+  });
+
+  /**
+   * «БОТ ЗАМОЛЧАЛ» (владелец 27.11.2026, инцидент 26.11, lib/botSilenceWatch.ts). Раз в 5 минут, круглые сутки:
+   * в канале трое и больше клиентов ждут ответа дольше 10 минут, а бот там с тех пор не ответил никому — директору и
+   * администратору простыми словами; напоминание раз в час, «бот снова отвечает» по восстановлении. По признаку, не по
+   * причине: любая будущая поломка бота видна здесь. Рубильник botSilenceWatchEnabled.
+   */
+  scheduleTracked("bot-silence-watch", "2-59/5 * * * *", async () => {
+    try {
+      const { action, alerted } = await runBotSilenceWatchTick();
+      if (alerted) console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа «бот замолчал»", err);
     }
   });
 

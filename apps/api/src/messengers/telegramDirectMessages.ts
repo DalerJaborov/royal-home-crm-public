@@ -1,4 +1,6 @@
 import { prisma } from "../db.js";
+import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { resolveMentionedPropertyId } from "../lib/botPropertyMention.js";
 import { sharedMediaHint } from "./sharedMedia.js";
 import { publishMessageNew } from "../lib/livePublish.js";
 import { scheduleSellerFactsRefreshForConversation } from "../lib/sellerFacts.js";
@@ -736,12 +738,31 @@ export async function handleTelegramDirectMessage(msg: TelegramIncomingMessage):
           `Слова клиента: «${clientWords.replace(/\s+/g, " ").slice(0, 160)}»`
       );
     }
+    /**
+     * НОМЕР ОБЪЕКТА В СЛОВАХ КЛИЕНТА — ХОЗЯИНУ ОБЪЕКТА (27.11.2026, рубильник chatObjectToOwnerEnabled). Бот лички
+     * и Instagram давно кладут названный номер/ссылку в заявку (messengers/conversation.ts, telegram/bot.ts), а здесь
+     * «объект №112» читался только моделью, и заявка уходила в общую очередь. Только покупателю: продавец описывает своё.
+     */
+    // Свежие слова первыми: в истории первый найденный номер — самый ранний (ревью 27.11).
+    const namedPropertyId = decision.kind === "BUYER" && (await automationSwitchOn("chatObjectToOwnerEnabled").catch(() => false))
+      ? await (async () => {
+          for (const words of [text ?? "", ...history.filter((m) => m.role === "user").map((m) => m.content).reverse()]) {
+            const found = words.trim() ? await resolveMentionedPropertyId(words) : null;
+            if (found) return found;
+          }
+          return null;
+        })().catch((err) => {
+          void logSystemError("ai", `Telegram Direct: номер объекта в словах клиента не проверен: ${err instanceof Error ? err.message : String(err)}`);
+          return null;
+        })
+      : null;
     try {
       const { clientId, created } = await createLeadFromChannel({
         fullName,
         phone,
         source: "TELEGRAM",
         kind: decision.kind,
+        ...(namedPropertyId ? { propertyId: namedPropertyId } : {}),
         // Та же пара, на которую sharedMediaHint пишет «клиент прислал ссылку на
         // объект», — без неё раздача не видела этих экспозиций и отдавала заявку
         // в общую очередь, а не агенту объекта (находка треда «Бот не узнаёт наш

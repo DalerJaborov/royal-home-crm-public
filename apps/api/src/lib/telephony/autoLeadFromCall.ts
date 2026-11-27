@@ -358,7 +358,7 @@ async function decide(call: {
           clientId: client.id,
           actor: { kind: "client", source: "auto-lead-from-call", subjectAgentId: client.assignedAgentId },
           type: "SYSTEM",
-          notes: "Клиент позвонил сам — возвращён в работу из Неактивных",
+          notes: "Клиент позвонил сам — карточка снова в работе",
         });
       }
       return { status: "known_client", clientId: client.id, reason: "клиент ведётся агентом" };
