@@ -4,11 +4,13 @@
 #   wa-calling.sh enable  [--dry-run]   звонки + SIP на наш шлюз, кнопка СКРЫТА
 #   wa-calling.sh disable [--dry-run]   звонки выключены (адрес SIP Meta помнит)
 #   wa-calling.sh show-button | show-button-tj | hide-button [--dry-run]
+#   wa-calling.sh callback-on | callback-off [--dry-run]   обратные звонки (запрос разрешения после звонка клиента)
 #   wa-calling.sh status                только чтение: настройки звонков (без пароля)
 #   --number=<номер бизнеса>            не основной номер (из WA_EXTRA_NUMBERS), например Arvan
 #
 # Каждая операция кроме status МЕНЯЕТ настройку номера у Meta — только с «да»
-# владельца на эту операцию (runbook). Откат enable — disable; show-button — hide-button.
+# владельца на эту операцию (runbook). Откат enable — disable; show-button — hide-button;
+# callback-on — callback-off.
 set -euo pipefail
 # shellcheck source=ops/whatsapp-gateway/bin/wa-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wa-lib.sh"
@@ -16,8 +18,8 @@ wa_parse_common "$@"; set -- "${WA_ARGS[@]}"
 
 op="${1:-}"
 case "$op" in
-  enable|disable|show-button|show-button-tj|hide-button|status) ;;
-  *) wa_die "использование: wa-calling.sh enable|disable|show-button|show-button-tj|hide-button|status [--dry-run]" ;;
+  enable|disable|show-button|show-button-tj|hide-button|callback-on|callback-off|status) ;;
+  *) wa_die "использование: wa-calling.sh enable|disable|show-button|show-button-tj|hide-button|callback-on|callback-off|status [--number=…] [--dry-run]" ;;
 esac
 wa_require_root
 wa_load_env

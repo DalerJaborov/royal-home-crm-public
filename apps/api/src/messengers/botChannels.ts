@@ -76,6 +76,33 @@ export async function loadBotChannelToggles(): Promise<BotChannelToggles> {
   }
 }
 
+/** Каналы личной переписки, где бот отвечает клиентам сам (без Telegram: у него свои таблицы и сторожа). */
+export type BotDmChannel = "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "WEBSITE";
+
+/**
+ * ДОЛЖЕН ЛИ БОТ СЕЙЧАС ОТВЕЧАТЬ В КАНАЛЕ — по всем рубильникам Настроек разом (27.11.2026, сторож «бот замолчал»).
+ *
+ * То же правило, что у ядра (`legacyBotEnabled` в lib/customerState.ts): общий `botEnabled` И канальный рубильник;
+ * у каналов Meta ещё `metaEnabled` (канал Meta выключен — бот там не говорит), у сайта — `botWebsiteChatEnabled`.
+ * Нет строки настроек: бот включён, Meta — нет (как `isMetaChannelEnabled` в meta.ts). Сбой базы уходит вызывающему:
+ * сторожу лучше пропустить тик, чем решить «выключено» или «включено» наугад.
+ */
+export async function loadBotAnswerSwitches(): Promise<Record<BotDmChannel, boolean>> {
+  const s = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { botEnabled: true, metaEnabled: true, botWhatsappEnabled: true, botInstagramEnabled: true, botFacebookEnabled: true,
+      botWebsiteChatEnabled: true },
+  });
+  const bot = s?.botEnabled ?? true;
+  const meta = s?.metaEnabled ?? false;
+  return {
+    WHATSAPP: bot && meta && (s?.botWhatsappEnabled ?? true),
+    INSTAGRAM: bot && meta && (s?.botInstagramEnabled ?? true),
+    FACEBOOK: bot && meta && (s?.botFacebookEnabled ?? true),
+    WEBSITE: bot && (s?.botWebsiteChatEnabled ?? true),
+  };
+}
+
 /**
  * Отвечает ли бот в этом канале прямо сейчас.
  *

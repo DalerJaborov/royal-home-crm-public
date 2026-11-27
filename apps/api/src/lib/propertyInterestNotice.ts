@@ -13,6 +13,7 @@ import { lockCustomerNative } from "./customerNativeLock.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
 import { leadOnlyQuietBeforeLead } from "./leadOnlyConfig.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /** Local relation witness, NOT customer identity or a private ACL. By-ID callers
  * already select an authorized native resource; public ASIDs must not mint it. */
@@ -170,7 +171,12 @@ export async function noticeInterestInOtherAgentProperty(input: {
       return { ownerId, clientId: client.id, propertyId: property.id, shortId: property.shortId };
     });
     if (!notice || !await ownerNoticeCurrent(notice.propertyId, notice.ownerId, true, input.witness)) return;
+    // Владелец 27.11.2026: «нет удали это пусть ничего не получает сам агент потом скажет». Клиент уже у агента А —
+    // хозяин объекта Б пуша не получает; запись в истории клиента выше остаётся для агента А. Рубильник
+    // notifyOwnerOfOtherAgentClientEnabled (ВЫКЛ); не прочитали Настройки — тоже молчим.
+    if (!await automationSwitchOn("notifyOwnerOfOtherAgentClientEnabled").catch(() => false)) return;
     void sendPushToAgent(notice.ownerId, {
+      kind: "property_interest",
       title: "👀 Интерес к вашему объекту",
       body: `Клиент другого агента интересуется вашим объектом №${notice.shortId}. Согласуйте дальнейшую работу с агентом клиента в CRM.`,
       url: `/properties/${notice.shortId}`,
@@ -209,11 +215,27 @@ export async function noticeInterestByConversation(input: {
  *      переезжает к хозяину объекта; принятый, названный клиентом или отданный по
  *      другому объекту — остаётся, хозяину уходит уведомление (б).
  *
- * Флаг — переменная окружения, а не поле Настроек: поле требовало бы миграции
- * схемы ради решения, которого ещё нет.
+ * С 27.11.2026 (владелец: «чтобы агенты не теряли своих клиентов») это рубильник в Настройках
+ * `objectInterestPullsQueueLeadEnabled`, ВКЛ по умолчанию (вариант а). Переменная окружения
+ * `OBJECT_INTEREST_PULLS_QUEUE_LEAD` осталась аварийной ручкой поверх Настроек: "1" — включить, "0" — выключить.
+ * Принятого клиента правило по-прежнему не трогает (закон о владении, П-3/П-4).
  */
-export function objectInterestPullsQueueLead(): boolean {
-  return process.env.OBJECT_INTEREST_PULLS_QUEUE_LEAD === "1";
+export function objectInterestPullsQueueLead(settingOn: boolean, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  const forced = env.OBJECT_INTEREST_PULLS_QUEUE_LEAD;
+  if (forced === "1") return true;
+  if (forced === "0") return false;
+  return settingOn;
+}
+
+/** Пуши хозяину объекта по переписке без карточки клиента (рубильник notifyOwnerBeforeLeadEnabled, ВЫКЛ). Не прочитали — молчим. */
+export async function ownerPushBeforeLeadOn(): Promise<boolean> {
+  return automationSwitchOn("notifyOwnerBeforeLeadEnabled").catch(() => false);
+}
+
+/** То же по живым Настройкам. Не прочитали — как раньше (только уведомление): лид без согласия не переезжает. */
+async function objectInterestPullsQueueLeadNow(): Promise<boolean> {
+  try { return objectInterestPullsQueueLead(await automationSwitchOn("objectInterestPullsQueueLeadEnabled")); }
+  catch { return objectInterestPullsQueueLead(false); }
 }
 
 const ANON_SOURCE = "property-interest-conversation";
@@ -267,6 +289,7 @@ export async function noticeOwnerOfConversationInterest(input: {
               assignReason: true,
               deletedAt: true,
               shortId: true,
+              kind: true,
             },
           },
         },
@@ -284,9 +307,13 @@ export async function noticeOwnerOfConversationInterest(input: {
 
     const owner = await prisma.agent.findUnique({ where: { id: ownerId }, select: { isActive: true, role: true } });
     const ownerActive = !!owner?.isActive;
+    // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали…
+    // отключи». Нет карточки (заявки) — хозяину объекта ничего, во всех каналах; появилась заявка — обычный путь.
+    // Сигнал руководству «по объекту пишут, а хозяин отключён» рубильник не глушит (ревью 27.11).
+    if (!client && ownerActive && !await ownerPushBeforeLeadOn()) return;
 
     if (client?.assignedAgentId && ownerActive) {
-      if (objectInterestPullsQueueLead() && owner?.role === "AGENT" && (await pullQueueLeadToOwner(client, ownerId, property, witness))) return;
+      if (owner?.role === "AGENT" && (await objectInterestPullsQueueLeadNow()) && (await pullQueueLeadToOwner(client, ownerId, property, witness))) return;
       await noticeInterestInOtherAgentProperty({ clientId: client.id, propertyId: property.id, witness });
       return;
     }
@@ -324,6 +351,9 @@ export async function noticeOwnerOfConversationInterest(input: {
       // point-in-time check is not atomically revocable (P12 remains separate).
       await sendPushToAgents(recipients, {
         ...payload,
+        // Хозяин объекта может выключить эти пуши в профиле (вид «Интерес к вашему объекту», 27.11.2026);
+        // сигнал руководству «хозяина нет» — без вида, его не выключают.
+        ...(ownerActive ? { kind: "property_interest" as const } : {}),
         url: handledElsewhere ? `/properties/${property.shortId}` : `/messages?open=${conv.id}`,
         tag,
       });
@@ -364,12 +394,14 @@ export async function noticeOwnerOfConversationInterest(input: {
  * (canAutoTransfer); гонку с «Принять» держит условие на снимок в guardWhere.
  */
 async function pullQueueLeadToOwner(
-  client: { id: string; assignedAgentId: string | null; acceptedAt: Date | null; assignReason: string | null; shortId: number | null },
+  client: { id: string; assignedAgentId: string | null; acceptedAt: Date | null; assignReason: string | null; shortId: number | null; kind?: string | null },
   ownerId: string,
   property: { id: string; shortId: number },
   witness: ConversationInterestWitness
 ): Promise<boolean> {
-  if (client.acceptedAt || (client.assignReason && client.assignReason !== "queue")) return false;
+  // Только покупатель, выданный ОЧЕРЕДЬЮ (ревью 27.11): продавец описывает своё жильё и к хозяину чужого объекта не
+  // едет; assignReason = null — клиента вручную передал руководитель (changeClientAgent), его решение не отменяем.
+  if (client.acceptedAt || client.assignReason !== "queue" || client.kind !== "BUYER") return false;
   const now = new Date();
   const reason = `Клиент из очереди пишет по объекту №${property.shortId} — заявка передана хозяину объекта до принятия`;
   const committed = await prisma.$transaction(async tx => {
@@ -378,8 +410,8 @@ async function pullQueueLeadToOwner(
     if (locked.length !== 1) return null;
     if (!await lockConversationInterestWitness(tx, witness)) return null;
     const currentClient = await tx.client.findUnique({ where: { id: client.id },
-      select: { assignedAgentId: true, acceptedAt: true, assignReason: true, deletedAt: true, lastAgentId: true } });
-    if (!currentClient || currentClient.deletedAt || currentClient.acceptedAt !== null ||
+      select: { assignedAgentId: true, acceptedAt: true, assignReason: true, deletedAt: true, lastAgentId: true, kind: true } });
+    if (!currentClient || currentClient.deletedAt || currentClient.acceptedAt !== null || currentClient.kind !== "BUYER" ||
       currentClient.assignedAgentId !== client.assignedAgentId || currentClient.assignReason !== client.assignReason) return null;
     const live = await liveProperty(property.id, tx);
     if (!live || propertyOwnerAgentId(live) !== ownerId) return null;
