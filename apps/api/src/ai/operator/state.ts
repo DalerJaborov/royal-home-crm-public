@@ -140,3 +140,24 @@ export async function saveOperatorStateIsolatedTx(tx: TxClient, conversationId: 
 export async function saveOperatorStateTx(tx: TxClient | typeof prisma, conversationId: string, state: OperatorState, now: Date = new Date()): Promise<void> {
   await tx.botConversation.updateMany({ where: { id: conversationId }, data: { leadOnlyPending: serializeOperatorState(state, now) as object } });
 }
+
+/** В переписке есть ДОСТАВЛЕННОЕ приветствие бота, отправленное до первого слова клиента (отметка `botWelcome`, WhatsApp, 27.11.2026). */
+export function botWelcomeDelivered(messages: unknown): boolean {
+  return Array.isArray(messages) && messages.some(message => !!message && typeof message === "object" &&
+    Reflect.get(message, "role") === "assistant" && Reflect.get(message, "botWelcome") === true && Reflect.get(message, "deliveryStatus") !== "failed");
+}
+
+/**
+ * Бот УЖЕ поздоровался и спросил «купить или продать?» до первого слова клиента: в памяти разговора это его собственный
+ * прошлый ход. Без этого на первое «Салом» бот здоровался и спрашивал то же самое второй раз (27.11.2026). Только для чистой
+ * памяти (роли нет, вопросов не было, ничего не говорили). Дальше обычный путь decide.ts: одинокое приветствие — «Нависед,
+ * чӣ хизмат кунем», неясный ответ — тот же вопрос другими словами (второй вариант фразы). Меняет `state` на месте.
+ */
+export function seedStateFromBotWelcome(state: OperatorState): boolean {
+  if (state.role !== "unknown" || state.asked.role > 0 || state.leadAccepted || Object.values(state.spoken).some(count => !!count)) return false;
+  state.asked.role = 1;
+  state.step = "role";
+  state.spoken.greet = 1;
+  state.spoken.ask_role = 1;
+  return true;
+}

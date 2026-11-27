@@ -62,6 +62,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyDealClosedTeamPushEnabled",
   "notifyOperatorTalkedPushEnabled",
   "notifyNoVideoEnabled",
+  "botPauseOnStaffReplyEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -92,6 +93,8 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "notifyOperatorTalkedPushEnabled",
   // Владелец 27.11.2026: уведомления «нет видео» отключить совсем.
   "notifyNoVideoEnabled",
+  // Владелец 27.11.2026: «Бот молчит: 1 час» в чате убран у всех, ответ сотрудника бота не глушит. Колонка `DEFAULT false`.
+  "botPauseOnStaffReplyEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -331,6 +334,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Переписки без карточки клиента, в которых 30 дней нет новых сообщений, не показываются в списке чатов, а лежат в «Архиве». Ничего не удаляется: поиск их находит, новое сообщение клиента возвращает чат в общий список. Чат с карточкой клиента в архив не уходит никогда.",
     off: "Все переписки остаются в общем списке чатов, как раньше. Архив скрыт.",
   },
+  // Владелец 27.11.2026: «Убрать у всех» (выбор «Бот молчит: 1 час» над строкой ввода).
+  botPauseOnStaffReplyEnabled: {
+    title: "Ответ сотрудника останавливает бота",
+    on: "Когда сотрудник отвечает клиенту из CRM, бот замолкает в этой переписке: на срок из запроса, а без него на умолчание сервера (своему агенту надолго, остальным на 10 минут); в WhatsApp, Instagram и Facebook бот молчит ещё и пока сотрудник писал недавно. Первое сообщение клиенту в WhatsApp из карточки тоже ставит паузу.",
+    off: "Ответ сотрудника бота не останавливает, выбора срока в чате нет. Остановить бота можно кнопкой паузы в переписке. Сообщения сотрудника бот видит в истории и не повторяет их.",
+  },
   // Владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам… можно своими словами отвечать».
   showingAgreementAskEnabled: {
     title: "Шабнам переспрашивает о показе",
@@ -365,7 +374,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "botPauseOnStaffReplyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

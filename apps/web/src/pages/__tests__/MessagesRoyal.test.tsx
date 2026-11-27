@@ -158,94 +158,24 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
     expect(document.querySelector('[title="Записать голосовое"]')).toBeNull();
     h.mutation.mockResolvedValue({ ok: true });
     click(byLabel("Отправить"));
-    // Ревью #332: без срока сервер дал бы директору/чужому агенту 10 минут, и бот писал бы поверх человека.
-    // Владелец 26.11.2026: по умолчанию ЧАС, а не «бессрочно».
+    // Владелец 27.11.2026 («Убрать у всех»): срок паузы бота с ответом не уходит, решает рубильник на сервере.
     const body = h.mutation.mock.calls[0][0] as { text: string; pausedUntil?: string };
     expect(body.text).toBe("Здравствуйте");
-    const minutes = (Date.parse(body.pausedUntil ?? "") - Date.now()) / 60_000;
-    expect(minutes).toBeGreaterThan(59);
-    expect(minutes).toBeLessThan(61);
+    expect(body.pausedUntil).toBeUndefined();
   });
 
-  describe("срок паузы бота при ответе (владелец 26.11.2026)", () => {
-    // Шторка выбора вместо родного списка (пачка shell2, 27.11.2026): кнопка с текущим сроком и варианты-радиокнопки.
-    const pauseButton = () => document.querySelector('[data-testid="chat-reply-pause-picker"]') as HTMLButtonElement | null;
-    const pauseValue = () => pauseButton()?.querySelector(".ry-picker-value")?.textContent;
-    const pauseOptions = () => [...document.querySelectorAll('.ry-picker-sheet [role="radio"]')] as HTMLButtonElement[];
-    function choose(label: string) {
-      act(() => { pauseButton()!.click(); });
-      const option = pauseOptions().find((o) => o.querySelector(".ry-picker-option-label")?.textContent === label);
-      expect(option, `вариант «${label}»`).toBeTruthy();
-      act(() => { option!.click(); });
-    }
-    const sendText = (value: string) => {
-      type(byLabel("Текст ответа") as HTMLTextAreaElement, value);
-      click(byLabel("Отправить"));
-      return h.mutation.mock.calls.at(-1)![0] as { pausedUntil?: string };
-    };
-    const minutesOf = (iso?: string) => Math.round((Date.parse(iso ?? "") - Date.now()) / 60_000);
-    afterEach(() => { try { window.localStorage.clear(); } catch { /* нет хранилища */ } });
-
-    it("виден в новом виде и на ПК, и на узком экране; час выбран, «Бессрочно» последним", () => {
-      h.perms = AGENT;
-      for (const narrow of [false, true]) {
-        h.narrow = narrow;
-        mount();
-        expect(pauseButton(), narrow ? "телефон" : "ПК").toBeTruthy();
-        expect(pauseValue()).toBe("1 час");
-        expect(pauseButton()!.getAttribute("aria-label")).toBe("На сколько бот замолкает после вашего ответа: 1 час");
-        act(() => { pauseButton()!.click(); });
-        expect(pauseOptions().at(-1)!.textContent).toBe("Бессрочно");
-        expect(pauseOptions().find((o) => o.getAttribute("aria-checked") === "true")?.textContent).toBe("1 час");
-        expect(document.querySelector("#chat-reply-pause-label")?.textContent).toBe("Бот молчит:");
-        // Серого списка браузера в новом виде нет.
-        expect(document.querySelector('[data-testid="chat-reply-pause"] select')).toBeNull();
-        unmount();
+  describe("выбора срока паузы бота больше нет (владелец 27.11.2026: «Убрать у всех»)", () => {
+    it("ни строки «Бот молчит», ни селекта срока: ни на ПК, ни на телефоне, ни у одной роли", () => {
+      for (const perms of [AGENT, DIRECTOR]) {
+        h.perms = perms;
+        for (const narrow of [false, true]) {
+          h.narrow = narrow;
+          const html = markup();
+          expect(html).not.toContain("chat-reply-pause");
+          expect(html).not.toContain("Бот молчит:");
+          expect(html).not.toContain("На сколько бот замолкает");
+        }
       }
-    });
-
-    it("выбранный срок уходит с текстом и помнится при следующем открытии", () => {
-      h.perms = AGENT;
-      mount();
-      h.mutation.mockResolvedValue({ ok: true });
-      choose("2 часа");
-      expect(minutesOf(sendText("Привет").pausedUntil)).toBe(120);
-      unmount();
-      mount();
-      expect(pauseValue()).toBe("2 часа");
-      choose("Бессрочно");
-      expect(minutesOf(sendText("Ещё").pausedUntil)).toBeGreaterThan(5 * 365 * 24 * 60);
-    });
-
-    it("хранилище закрыто — страница работает, час по умолчанию", () => {
-      h.perms = AGENT;
-      const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
-      const setSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
-      try {
-        mount();
-        expect(pauseValue()).toBe("1 час");
-        expect(() => choose("30 минут")).not.toThrow();
-      } finally { spy.mockRestore(); setSpy.mockRestore(); }
-    });
-
-    it("тот же срок получают фото/видео: третий аргумент старта загрузки", async () => {
-      h.perms = AGENT;
-      const file = new File(["x"], "a.jpg", { type: "image/jpeg" });
-      mount();
-      choose("30 минут");
-      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-      Object.defineProperty(input, "files", { value: [file], configurable: true });
-      act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
-      click([...document.querySelectorAll("button")].find((b) => b.textContent === "Отправить"));
-      const call = h.mutation.mock.calls.at(-1)!;
-      expect(call[2]).toBe(30);
-    });
-
-    it("нет строки у переписки только для чтения (общий чат без каналов ответа)", () => {
-      h.perms = DIRECTOR;
-      h.grouped = { id: "client:client", sources: [{ id: "td_1", channel: "TELEGRAM_DIRECT", canReply: false, pausedUntil: null }], messages: [] };
-      const html = markup("client:client");
-      expect(html).not.toContain("chat-reply-pause");
     });
   });
 
@@ -465,11 +395,9 @@ describe("Чаты в новом виде: окно как в WhatsApp", () => {
       messages: [msg("user", "Первое", conversationId, "WHATSAPP"), msg("user", "Второе", instagramSource, "INSTAGRAM"), msg("assistant", "Ответ", conversationId, "WHATSAPP")],
     };
     const html = markup("client:client");
-    // Выбора канала строкой нет; единственный список в окне — срок паузы бота над полем ввода.
+    // Выбора канала строкой нет; срока паузы бота тоже нет (владелец 27.11.2026: пауза без выбора срока).
     expect(html).not.toContain('aria-label="Куда ответить"');
-    // Серых списков браузера в новом виде нет вовсе: срок паузы — шторка выбора (пачка shell2, 27.11.2026).
     expect(html).not.toContain("<select");
-    expect(html).toContain('data-testid="chat-reply-pause-picker"');
     expect(html).not.toContain("Выберите канал");
     expect(html).toContain('placeholder="Сообщение в Instagram"');
     expect(h.replyTarget).toBe(instagramSource);
