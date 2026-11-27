@@ -340,11 +340,14 @@ export function useVoiceRecorderSession(send: (blob: Blob) => Promise<unknown>, 
     void start(true);
   };
 
-  // Уход с экрана или смена диалога — отмена, а не отправка обрубка.
+  // Уход с экрана или смена диалога — отмена, а не отправка обрубка. НО если палец уже отпущен («Отправить»), запись
+  // доотправляется: обработчик остановки сам отдаст файл и освободит микрофон (ревью 27.11.2026: уход с экрана сразу
+  // после отпускания терял голосовое молча).
   useEffect(
     () => () => {
       genRef.current++;
       const rec = recorderRef.current;
+      if (rec && sendIntentRef.current) return;
       if (rec) {
         rec.ondataavailable = null;
         rec.onstop = null;
