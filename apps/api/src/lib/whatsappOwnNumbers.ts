@@ -73,7 +73,8 @@ async function cached(): Promise<{ ours: Set<string>; digits: Map<string, string
     readWhatsappOwnRegistry(prisma),
   ]);
   const ours = new Set(registry.accounts.map(a => a.externalId));
-  if (settings?.metaWaPhoneId) ours.add(settings.metaWaPhoneId);
+  const installed = settings?.metaWaPhoneId?.trim() || process.env.META_WA_PHONE_ID;
+  if (installed) ours.add(installed);
   cache = { at: Date.now(), ours, digits: registry.digits };
   return cache;
 }

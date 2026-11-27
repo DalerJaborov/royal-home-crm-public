@@ -26,13 +26,15 @@ export async function fetchMissingWhatsappOwnNumbers(): Promise<number> {
       prisma.messengerAccount.findMany({ where: { channel: "WHATSAPP", enabled: true }, select: { externalId: true, token: true }, take: 32 }),
       readWhatsappOwnRegistry(prisma),
     ]);
+    const installedId = settings?.metaWaPhoneId?.trim() || process.env.META_WA_PHONE_ID || null;
     const candidates = [
-      ...(settings?.metaWaPhoneId ? [{ id: settings.metaWaPhoneId, sealed: settings.metaWaToken }] : []),
-      ...accounts.map(a => ({ id: a.externalId, sealed: a.token })),
+      // The main number answers from Settings or, as everywhere else (customerInstalledTransport.ts), from the environment.
+      ...(installedId ? [{ id: installedId, token: decryptSecretSafe(settings?.metaWaToken ?? null) || process.env.META_WA_TOKEN || null }] : []),
+      ...accounts.map(a => ({ id: a.externalId, token: decryptSecretSafe(a.token) })),
     ].filter(c => !registry.digits.has(c.id) && Date.now() - (failedAt.get(c.id) ?? 0) > FETCH_BACKOFF_MS);
     let stored = 0;
     for (const candidate of candidates.slice(0, 8)) {
-      const token = decryptSecretSafe(candidate.sealed ?? null);
+      const token = candidate.token;
       const reply = token ? await metaGraphGet(`/${encodeURIComponent(candidate.id)}?fields=display_phone_number`, token)
         : { ok: false as const, error: "нет ключа номера", auth: false };
       const digits = reply.ok ? whatsappOwnDigits(reply.data?.display_phone_number) : null;

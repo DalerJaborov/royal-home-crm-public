@@ -3,7 +3,7 @@
 // a minute after the Arvan row appeared — the classifier allowed exactly ONE WhatsApp installation. The rule now: the sender
 // must not be ANY of our numbers, every other enabled number must be known in digits (lib/whatsappOwnNumbers.ts), and an
 // unknown one still holds (never a guess). Real Postgres: the classifier reads the actual registry.
-import { createHash, randomInt, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomInt, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -12,6 +12,11 @@ import type { CustomerNormalizedIngressInput, CustomerPendingVerification } from
 import { learnWhatsappOwnNumbersFromWebhook, rememberWhatsappOwnNumber, resetWhatsappOwnNumbersCache } from "../src/lib/whatsappOwnNumbers.js";
 import { WA_OWN_NUMBER_ALERT_TAG, fetchMissingWhatsappOwnNumbers, runWhatsappOwnNumberGuard } from "../src/lib/whatsappOwnNumberLookup.js";
 import { isOwnAccountSender, resetOwnAccountCache } from "../src/lib/ownAccountGuard.js";
+import { classifyRecoveredCustomerPendingInput, recoverCustomerPendingEnvelope, registerAuthenticatedMetaCustomerRequest } from "../src/lib/customerIngressAuthority.js";
+import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressProducer.js";
+import { resetMetaAccountCredsCache } from "../src/messengers/meta.js";
+import { resetAccountsCache } from "../src/messengers/accounts.js";
+import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 
 const runId = randomUUID().replaceAll("-", "").slice(0, 10);
 const mainId = `own-phone-main-${runId}`, arvanExternal = `own-phone-arvan-${runId}`, sandboxId = `own-phone-sandbox-${runId}`;
@@ -166,5 +171,106 @@ describe("WhatsApp: customers of BOTH our numbers are answered, our own numbers 
     expect(await isOwnAccountSender({ senderId: arvanDigits, channel: "WHATSAPP" })).toBe(true);
     expect(await isOwnAccountSender({ senderId: customer(), channel: "WHATSAPP" })).toBe(false);
     expect(await isOwnAccountSender({ senderId: arvanDigits, channel: "INSTAGRAM" })).toBe(false);
+  });
+});
+
+// The glue of the core (customerIngressAuthority.ts::classifyRecoveredCustomerPendingInput): a REAL signed WhatsApp frame to
+// the Arvan row, persisted as a pending ticket, while the Settings number is not yet known in digits. The core must look
+// the number up and classify AGAIN — also when someone else (an Arvan webhook, the cron guard) stored it at the same moment
+// and our own lookup wrote nothing (independent review of #495: the re-check was skipped then, held for good).
+describe("core glue: held own-number → lookup → the actual classifier again", { timeout: 60_000 }, () => {
+  const glueMain = `own-phone-glue-main-${runId}`, glueMainDigits = digitsOf(), secret = `synthetic-glue-secret-${runId}`;
+  const glueArvan = randomUUID(), glueArvanExternal = `own-phone-glue-arvan-${runId}`, glueArvanDigits = digitsOf();
+  let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
+  let glueSettings: { metaWaPhoneId: string | null; metaWaToken: string | null; botEnabled: boolean; metaEnabled: boolean; botWhatsappEnabled: boolean };
+  const scopes: string[] = [];
+  beforeAll(async () => {
+    glueSettings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" },
+      select: { metaWaPhoneId: true, metaWaToken: true, botEnabled: true, metaEnabled: true, botWhatsappEnabled: true } });
+    rollout = await createCustomerRolloutFixture();
+    // Its own Settings number: the earlier lookup test left a 5-minute pause on the first one.
+    await prisma.settings.update({ where: { id: "singleton" }, data: { metaWaPhoneId: glueMain, metaWaToken: encryptSecret(`synthetic-glue-main-token-${runId}`),
+      botEnabled: true, metaEnabled: true, botWhatsappEnabled: true } });
+    await prisma.messengerAccount.create({ data: { id: glueArvan, channel: "WHATSAPP", externalId: glueArvanExternal, title: "Synthetic glue Arvan",
+      enabled: true, isDefault: false, token: encryptSecret(`synthetic-glue-arvan-token-${runId}`), appSecret: encryptSecret(secret) } });
+    resetAccountsCache(); resetMetaAccountCredsCache(); resetOwnAccountCache();
+  });
+  afterAll(async () => {
+    const tickets = await prisma.customerPropertyIngressTicket.findMany({ where: { endpointScopeId: { in: scopes } }, select: { eventKey: true } });
+    await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: tickets.map(t => `customer-inbox-consume:${t.eventKey}`) } } });
+    await prisma.customerPropertyIngressTicket.deleteMany({ where: { endpointScopeId: { in: scopes } } });
+    await prisma.botConversation.deleteMany({ where: { accountId: glueArvan } });
+    await prisma.customerEndpointScope.deleteMany({ where: { id: { in: scopes } } });
+    await prisma.messengerAccount.deleteMany({ where: { id: glueArvan } });
+    await forget(glueMain, glueArvanExternal);
+    await prisma.settings.update({ where: { id: "singleton" }, data: glueSettings });
+    await rollout.restore();
+    resetAccountsCache(); resetMetaAccountCredsCache(); resetOwnAccountCache();
+  });
+  async function pendingToArvan() {
+    const peer = customer(), eventId = `wamid.${randomUUID()}`;
+    const endpoint = await rollout.allowDm({ peer, accountId: glueArvan, accountExternalId: glueArvanExternal, channel: "WHATSAPP" });
+    scopes.push(endpoint.endpointScopeId);
+    const body = { object: "whatsapp_business_account", entry: [{ id: "synthetic-waba", changes: [{ field: "messages", value: {
+      metadata: { phone_number_id: glueArvanExternal, display_phone_number: `+${glueArvanDigits}` }, contacts: [{ wa_id: peer, profile: { name: "Synthetic" } }],
+      messages: [{ from: peer, id: eventId, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "Салом, нарх?" } }] } }] }] };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const request = { rawBody, get: () => `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}` };
+    registerAuthenticatedMetaCustomerRequest(request);
+    const stored = await persistVerifiedCustomerIngressBatch(request);
+    if (stored.status !== "persisted") throw new Error(`not persisted: ${JSON.stringify(stored)}`);
+    const eventKey = stored.tickets[0].eventKey;
+    await prisma.backgroundJob.updateMany({ where: { dedupeKey: `customer-inbox-consume:${eventKey}` }, data: { runAt: new Date("2099-01-01") } });
+    const recovered = await recoverCustomerPendingEnvelope(eventKey);
+    if (recovered.status !== "pending") throw new Error(`not pending: ${JSON.stringify(recovered)}`);
+    return recovered.envelope;
+  }
+
+  it("the Settings number is unknown: the core reads it from Meta with the Settings key and the customer passes", async () => {
+    await forget(glueMain);
+    await rememberWhatsappOwnNumber(glueArvanExternal, glueArvanDigits, "webhook");
+    await fillStrangers();
+    const envelope = await pendingToArvan();
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: { headers: Record<string, string> }) => {
+      asked.push(`${new URL(url).pathname.split("/").pop()} ${init.headers.Authorization}`);
+      if (url.includes(glueMain)) return new Response(JSON.stringify({ id: glueMain, display_phone_number: `+${glueMainDigits}` }), { status: 200 });
+      return new Response(JSON.stringify({ error: { message: "synthetic" } }), { status: 400 });
+    }));
+    const result = await classifyRecoveredCustomerPendingInput(envelope);
+    expect(result.status, JSON.stringify(result)).toBe("classified");
+    expect(asked).toContain(`${glueMain} Bearer synthetic-glue-main-token-${runId}`);
+  });
+
+  it("race: the number is stored by someone else while our lookup fails — the frame is still checked again and passes", async () => {
+    await forget(glueMain);
+    await rememberWhatsappOwnNumber(glueArvanExternal, glueArvanDigits, "webhook"); // our recipient pair writes nothing new
+    await fillStrangers();
+    const envelope = await pendingToArvan();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      // Another process (a webhook of that number, the cron guard) stores the number in the same moment.
+      await prisma.$executeRaw`INSERT INTO "WhatsappOwnNumber" ("phoneNumberId","digits","source","updatedAt")
+        VALUES (${glueMain},${glueMainDigits},'webhook',now()) ON CONFLICT DO NOTHING`;
+      return new Response(JSON.stringify({ error: { message: "synthetic timeout" } }), { status: 500 });
+    }));
+    const result = await classifyRecoveredCustomerPendingInput(envelope);
+    expect(result.status, JSON.stringify(result)).toBe("classified");
+  });
+
+  it("the number stays unknown (Meta refuses, nobody else learns it): held, never answered on a guess", async () => {
+    // A fresh unknown second row: the first Settings number already failed once and sits in the 5-minute pause.
+    const extra = randomUUID();
+    await prisma.messengerAccount.create({ data: { id: extra, channel: "WHATSAPP", externalId: `own-phone-glue-extra-${runId}`, title: "Synthetic extra",
+      enabled: true, isDefault: false, token: encryptSecret(`synthetic-glue-extra-token-${runId}`) } });
+    try {
+      await rememberWhatsappOwnNumber(glueMain, glueMainDigits, "webhook");
+      await rememberWhatsappOwnNumber(glueArvanExternal, glueArvanDigits, "webhook");
+      const envelope = await pendingToArvan();
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "synthetic" } }), { status: 400 })));
+      expect(await classifyRecoveredCustomerPendingInput(envelope)).toEqual({ status: "held", reason: "own_phone_identity_unavailable" });
+    } finally {
+      await prisma.messengerAccount.deleteMany({ where: { id: extra } });
+      await forget(`own-phone-glue-extra-${runId}`);
+    }
   });
 });
