@@ -53,6 +53,7 @@ import { MessageSenderBadge } from "../MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "../MessageQuote";
 import { DeliveryTicks } from "../DeliveryTicks";
 import { VoiceRecordButton } from "../VoiceRecordButton";
+import { MessagingWindowBanner } from "../MessagingWindowBanner";
 import { ChatObjectPicker } from "../ChatObjectPicker";
 import { relativeTime } from "../../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../../lib/date";
@@ -374,10 +375,6 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
   // нём, а не четырьмя разнокалиберными контролами в шапке — шапка стала одной
   // строкой 56 px вместо 140 (docs/mobile-ux-plan-10-09.md §2).
   const [menuOpen, setMenuOpen] = useState(false);
-  // Подсказка «ваш ответ ставит бота на паузу» — один раз после первой отправки
-  // за сессию, а не постоянной строкой над полем: постоянная строка отнимала
-  // 44 px у переписки на каждом экране (там же, §2).
-  const [pauseHint, setPauseHint] = useState(false);
   // Клавиатура Android поднимает visualViewport, но не меняет layout viewport —
   // fixed-контейнер оставался во всю высоту, и композер уезжал под клавиатуру.
   // Смещение считается от visualViewport и прикладывается к нижней границе.
@@ -477,24 +474,11 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
     const value = text.trim();
     if (readOnly || !replyTargetId || !value || reply.isPending) return;
     try {
-      // Пауза после ручного ответа — фиксированная «Бессрочно» (последний пресет
-      // PAUSE_OPTIONS, то же число, что OPERATOR_REPLY_PAUSE_MS на сервере; решение
-      // владельца 18.08.2026), без выбора рядом с полем ввода: в макете это
-      // строка-подсказка, а не второй селект паузы — выбор длительности живёт
-      // один раз, в шапке диалога.
-      await reply.mutateAsync({
-        text: value,
-        pausedUntil: pausedUntilIso(PAUSE_OPTIONS[PAUSE_OPTIONS.length - 1].minutesFromNow()),
-      });
+      // Срок паузы бота с ответом не уходит (владелец 27.11.2026: «Убрать у всех»): решает рубильник на сервере
+      // «Ответ сотрудника останавливает бота» (lib/deliveryPause.ts, по умолчанию выключен).
+      await reply.mutateAsync({ text: value });
       // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
       setText((cur) => clearIfUnchanged(cur, value));
-      // Подсказка про паузу бота — один раз за сессию вкладки, после ПЕРВОЙ
-      // удачной отправки, и гаснет сама (см. pauseHint).
-      if (canManageBot && !sessionStorage.getItem("rh-chat-pause-hint")) {
-        sessionStorage.setItem("rh-chat-pause-hint", "1");
-        setPauseHint(true);
-        window.setTimeout(() => setPauseHint(false), 3200);
-      }
     } catch {
       // Ошибка показана через reply.isError — текст не очищаем.
     }
@@ -862,28 +846,11 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
             отказ сервера, показывается строка ниже с точным текстом Meta, эта
             прячется: дублировать одно предупреждение незачем. */}
         {windowClosed && !reply.isError && (
-          <div className="suggest">
-            <span className="dot warn"></span>
-            <span className="txt">
-              Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
-              {conversation?.clientPhone ? (
-                <>
-                  {" "}
-                  <CallClientButton
-                    clientId={conversation.clientId}
-                    phone={conversation.clientPhone}
-                    variant="full"
-                    label="через CRM"
-                    className="lnk"
-                  />
-                </>
-              ) : (
-                " с личного телефона"
-              )}{" "}
-              или дождитесь его сообщения.
-              {replyChannel === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
-            </span>
-          </div>
+          <MessagingWindowBanner
+            isWhatsApp={replyChannel === "WHATSAPP"}
+            clientId={conversation?.clientId}
+            clientPhone={conversation?.clientPhone}
+          />
         )}
 
         {/* Ошибки и предупреждения — над композером, чтобы их видел палец на кнопке.
@@ -946,15 +913,6 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
           <div className="suggest">
             <span className="dot warn"></span>
             <span className="txt">Телефон в сообщении будет скрыт, клиент увидит «****».</span>
-          </div>
-        )}
-
-        {/* Подсказка про паузу — один раз после первой отправки (см. handleSend),
-            а не постоянной строкой: постоянная отнимала 44 px у переписки. Дефолт
-            при ручном ответе — «Бессрочно»; выбор длительности — в меню «⋯». */}
-        {pauseHint && (
-          <div className="suggest" role="status">
-            <span className="txt">Бот на паузе в этом диалоге, вернуть можно в меню ⋯.</span>
           </div>
         )}
 
