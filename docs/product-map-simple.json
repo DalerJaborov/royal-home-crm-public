@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 790,
-  "cron": 148,
+  "cron": 149,
   "jobs": 37,
-  "conditions": 4354,
-  "untranslatedUnique": 500,
-  "untranslatedTotal": 642,
-  "partialUnique": 1155,
+  "conditions": 4362,
+  "untranslatedUnique": 501,
+  "untranslatedTotal": 644,
+  "partialUnique": 1157,
   "translatedShare": 85
  },
  "untranslated": [
@@ -27,6 +27,7 @@
   "!(\"telegramChatId\" in row)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
   "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
   "!(await claimRun(id))",
@@ -69235,6 +69236,95 @@
    ]
   },
   {
+   "id": "customer-turn-catch-up",
+   "when": "1-59/2 * * * *",
+   "label": "customer-turn-catch-up",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(await automationSwitchOn(\"botCatchUpEnabled\"))",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если queued больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "customer-unrecorded-summary",
    "when": "*/2 * * * *",
    "label": "customer-unrecorded-summary",
@@ -83254,6 +83344,54 @@
   {
    "kind": "customer-inbox-consume",
    "tree": [
+    {
+     "t": "если есть продолжить",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если !(await automationSwitchOn(\"botCatchUpEnabled\"))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!(await automationSwitchOn(\"botCatchUpEnabled\"))"
+        },
+        {
+         "t": "если ответ — «failed»",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка: «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если ответ — «not_eligible»",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "если нет: resumed at или processing state — «PLANNED»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
     {
      "t": "внутри этого шага",
      "k": "do",
