@@ -4405,6 +4405,10 @@ model TelegramConversation {
   client        Client?   @relation(fields: [clientId], references: [id])
   /// Момент последнего входящего сообщения — для сортировки и «непрочитано» в инбоксе.
   lastMessageAt DateTime?
+  /// Ручной архив чата (27.11.2026): ARCHIVED или RESTORED; действует, пока нет нового входящего (archiveMarkAt >= lastMessageAt).
+  archiveMark   String?
+  archiveMarkAt DateTime?
+  archiveMarkById String?
   /// Когда руководитель последний раз открывал диалог в инбоксе «Сообщения» —
   /// по нему считается индикатор «непрочитано» (lastMessageAt > readAt).
   readAt        DateTime?
@@ -4474,6 +4478,10 @@ model TelegramDirectConversation {
   clientId      String?
   client        Client?   @relation(fields: [clientId], references: [id])
   lastMessageAt DateTime?
+  /// Ручной архив чата (27.11.2026): ARCHIVED или RESTORED; действует, пока нет нового входящего (archiveMarkAt >= lastMessageAt).
+  archiveMark   String?
+  archiveMarkAt DateTime?
+  archiveMarkById String?
   readAt        DateTime?
   /// Оператор взял диалог на себя — бот молчит, тот же принцип, что у
   /// TelegramConversation/BotConversation.
@@ -4689,6 +4697,10 @@ model BotConversation {
   /// Момент последнего зарегистрированного входящего сообщения — по нему обработчик
   /// понимает, остался ли он «последним» после ожидания дебаунса, или его опередили.
   lastMessageAt      DateTime?
+  /// Ручной архив чата (27.11.2026): ARCHIVED или RESTORED; действует, пока нет нового входящего (archiveMarkAt >= lastMessageAt).
+  archiveMark        String?
+  archiveMarkAt      DateTime?
+  archiveMarkById String?
   /// Когда пришло ПЕРВОЕ сообщение текущей пачки. Пауза перед ответом продлевается,
   /// пока клиент дописывает, но не дольше потолка от этого момента — иначе человек,
   /// пишущий каждые 20 секунд, откладывал бы ответ бесконечно.

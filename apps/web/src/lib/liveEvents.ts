@@ -249,8 +249,29 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
   const runConversationLists = () => {
     conversationListTimer = null;
     lastConversationListRunAt = Date.now();
-    void queryClient.invalidateQueries({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList });
+    // cancelRefetch: false — волна НЕ обрывает запрос, который уже идёт. По умолчанию запрос списка, ещё не вернувшийся
+    // (длинный «Архив» на живой базе), сбрасывался каждой волной раз в 5 секунд и начинался заново: при потоке
+    // входящих он не заканчивался никогда, и список вечно показывал «Загружаем диалоги» (владелец, 27.11.2026).
+    // Но ответ уже идущего запроса мог собраться ДО события этой волны: помечаем «грязно» и, когда он вернётся,
+    // гоним ещё одну волну, иначе новое сообщение не появится в списке до следующего события (ревью 27.11.2026).
+    if (listFetching()) {
+      conversationListDirty = true;
+    }
+    void queryClient.invalidateQueries({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList }, { cancelRefetch: false });
   };
+  /** Волна пришла, пока запрос списка уже шёл: повторить её после его возврата. */
+  let conversationListDirty = false;
+  // `?.` — в тестах клиент запросов бывает урезанным до invalidateQueries.
+  function listFetching(): boolean {
+    return (queryClient.isFetching?.({ queryKey: [CONVERSATIONS_ROOT], exact: false, predicate: isConversationList }) ?? 0) > 0;
+  }
+  const unsubscribeDirty = queryClient.getQueryCache?.()?.subscribe((event) => {
+    if (!conversationListDirty || event.type !== "updated") return;
+    if (!isConversationList(event.query)) return;
+    if (listFetching()) return;
+    conversationListDirty = false;
+    scheduleConversationLists();
+  });
   const scheduleConversationLists = () => {
     if (conversationListTimer) return;
     const delay = CONVERSATION_LIST_THROTTLE_MS - (Date.now() - lastConversationListRunAt);
@@ -444,6 +465,8 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
       hotTimers.clear();
       if (conversationListTimer) clearTimeout(conversationListTimer);
       conversationListTimer = null;
+      unsubscribeDirty?.();
+      conversationListDirty = false;
       disconnect();
       if (current === manager) current = null;
     },

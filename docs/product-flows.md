@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4388**. Модулей: **87**.
+Путей: **790**. Развилок в самих путях: **2527**; вместе с задачами по расписанию и фоновыми заданиями — **4391**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4976,6 +4976,28 @@
 - const contact = await contactProfileView(conversation.contactProfileId, { canSeeOrigin, canSeePhone: can(req,…
   · зовёт contactProfileView()
 - res.json({ id: conversation.id, channel: shown.channel, name: shown.name, profileName: canSeeOrigin && profil…
+  · ответ 200
+
+### POST /api/v1/conversations/archive-mark
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const parsed = archiveMarkSchema.safeParse(req.body);
+  · проверяет данные схемой archiveMarkSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если !can(req, "messages.view") && !can(req, "messages.viewOwn")
+  - return res.status(403).json({ error: "Нет доступа к чатам" });
+    · ответ 403 — «Нет доступа к чатам»
+- const updated = await setChatArchiveMark({ id, mark: action === "archive" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIV…
+  · зовёт setChatArchiveMark()
+- если updated === 0
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- logAudit(req, action === "archive" ? "CHAT_ARCHIVED" : "CHAT_UNARCHIVED", "BotConversation", id);
+  · зовёт logAudit()
+- res.json({ ok: true, updated });
   · ответ 200
 
 ### GET /api/v1/conversations/groups/:groupId
