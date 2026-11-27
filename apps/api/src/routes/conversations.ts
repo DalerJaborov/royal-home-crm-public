@@ -53,6 +53,7 @@ import { chatArchiveCutoff, chatArchivedSql } from "../lib/chatArchive.js";
 import { buildChatInterest, type ChatInterest } from "../lib/chatInterest.js";
 import { contactAvatarLink } from "../lib/contactAvatar.js";
 import { automationSwitchOn } from "../lib/automationSwitches.js";
+import { setChatArchiveMark, CHAT_ARCHIVE_MARKED, CHAT_ARCHIVE_RESTORED } from "../lib/chatArchiveMark.js";
 import { loadSendContext, sendPropertiesFromConversation } from "../lib/conversationPropertySend.js";
 import { ConversationClientLinkError, linkConversationClient } from "../lib/conversationClientLink.js";
 
@@ -93,6 +94,8 @@ conversationsRouter.use("/:id", async (req, res, next) => {
   // `/groups/:groupId` has its own linked-client/direct-source ownership checks
   // below. The generic `/:id` middleware also matches its `groups` prefix.
   if (req.params.id === "groups") return next();
+  // `/archive-mark` ищет свои переписки сам (lib/chatArchiveMark.ts, в том числе `client:…` и `td_…`).
+  if (req.params.id === "archive-mark") return next();
   if (agentId && !(await conversationBelongsTo(req.params.id, agentId))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
@@ -310,6 +313,7 @@ conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
     shieldPause: null,
     messages: messages.map(({ sourceOrder: _sourceOrder, ...message }) => message),
     contact: null,
+    ...(await loadDetailAvatar(sourceList.map((source) => source.id), req.agent!.id)),
     grouped: true,
     sources: sourceList,
   });
@@ -1073,7 +1077,7 @@ async function loadGroupedInboxRows(input: {
       ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "BotConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     LEFT JOIN "MessengerAccount" acc ON acc.id = c."accountId"
     WHERE (${channel ?? null}::text IS NULL OR c.channel = ${channel ?? null})
@@ -1085,7 +1089,8 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
   const telegramRows = includeTelegram ? Prisma.sql`
     SELECT ${TG_PREFIX} || c.id AS id, ${TG_PREFIX} || c.id AS "sourceId", 'telegram'::text AS kind, ${TELEGRAM_CHANNEL}::text AS channel,
       CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name, c."chatId" AS "subscriberId",
@@ -1094,7 +1099,7 @@ async function loadGroupedInboxRows(input: {
       ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "TelegramConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
       AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
@@ -1103,7 +1108,8 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
   const directRows = includeDirect ? Prisma.sql`
     SELECT 'td_' || c.id AS id, 'td_' || c.id AS "sourceId", 'telegram-direct'::text AS kind, 'TELEGRAM_DIRECT'::text AS channel,
       CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name,
@@ -1113,7 +1119,7 @@ async function loadGroupedInboxRows(input: {
       ${LAST_MESSAGE_C} AS "lastMessage",
       cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
       cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind::text AS "clientKind", cl.source::text AS "clientSource",
-      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt", c."archiveMark", c."archiveMarkAt", c."archiveMarkById"
     FROM "TelegramDirectConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
     WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
       AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
@@ -1122,7 +1128,8 @@ async function loadGroupedInboxRows(input: {
       NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
       NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
       NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
-      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt",
+      NULL::text AS "archiveMark", NULL::timestamp AS "archiveMarkAt", NULL::text AS "archiveMarkById" WHERE FALSE`;
 
   /** Строка ответа: источник страницы плюс сводка, повторённая в каждой строке. Пустая страница —
    *  одна строка только со сводкой (`groupId` = NULL), чтобы числа на вкладках приходили и тогда. */
@@ -1142,6 +1149,7 @@ async function loadGroupedInboxRows(input: {
     countPaused: bigint;
     countMine: bigint;
     countArchived: bigint;
+    isArchived: boolean;
   };
   // Те же условия «ждёт человека», что у плоского списка (lib/inboxWaiting.ts), но над
   // колонками объединённой выборки: у неё нет присоединённого `cl`, поэтому отметка
@@ -1162,7 +1170,7 @@ async function loadGroupedInboxRows(input: {
   // Числа на вкладках всегда про основной список: открытый «Архив» их не раздувает (поиск архив не прячет, и числа тоже).
   const hideInCounts = archiveOn && !like;
   const archiveCutoff = chatArchiveCutoff(now);
-  const archivedSql = chatArchivedSql({ cutoff: archiveCutoff, now });
+  const archivedSql = chatArchivedSql({ cutoff: archiveCutoff, now, viewerId: input.viewerAgentId });
   // ОДИН ПРОХОД ВМЕСТО ДВУХ (27.11.2026): сводка для чисел на вкладках раньше считалась отдельным запросом
   // по той же выборке — вся переписка разворачивалась дважды на каждое открытие «Чатов». Теперь она едет в
   // той же выдаче (CTE metrics), а пустая страница всё равно возвращает одну строку со сводкой (LEFT JOIN).
@@ -1281,6 +1289,8 @@ async function loadGroupedInboxRows(input: {
       channels: row.channels,
       unread: row.unread,
       unreadCount: row.unreadCount,
+      // Строка в архиве (для этого зрителя): в поиске у неё «Вернуть», а не «В архив».
+      archived: archiveOn && sources.every((source) => source.isArchived === true),
     };
   });
   const summary = rows[0];
@@ -1329,6 +1339,16 @@ async function loadRowEnrichment(sourceIds: string[]): Promise<Map<string, RowEn
     });
   }
   return out;
+}
+
+/** Миниатюра собеседника и закреплённый за ним цвет для шапки открытой переписки (те же, что у строки списка). */
+async function loadDetailAvatar(sourceIds: string[], viewerAgentId: string): Promise<{ avatarUrl: string | null; avatarSeed: string | null }> {
+  const found = await loadRowEnrichment(sourceIds);
+  const all = sourceIds.map((id) => found.get(id));
+  return {
+    avatarUrl: contactAvatarLink(all.find((e) => e?.avatarKey)?.avatarKey ?? null, viewerAgentId),
+    avatarSeed: all.find((e) => e?.profileId)?.profileId ?? null,
+  };
 }
 
 conversationsRouter.get("/", requireAuth, async (req, res) => {
@@ -1632,6 +1652,8 @@ conversationsRouter.get("/:id", requireAuth, async (req, res) => {
     ),
     /** Что бот знает о человеке вообще — см. lib/contactProfileView.ts. */
     contact,
+    // Та же миниатюра, что в списке: шапка переписки не должна показывать буквы, когда у собеседника есть фото.
+    ...(await loadDetailAvatar([req.params.id], req.agent!.id)),
   });
 });
 
@@ -2096,6 +2118,34 @@ conversationsRouter.post("/:id/spam-restore", requireAuth, requirePermission("cl
   // Кто и когда вернул разговор боту — в журнале действий.
   logAudit(req, "BOT_SPAM_RESTORED", "BotConversation", id.data);
   res.json({ ok: true });
+});
+
+/**
+ * «В архив» и «Вернуть» из строки списка чатов (27.11.2026, lib/chatArchiveMark.ts). Идентификатор — как в списке:
+ * `client:…`, `tg_…`, `td_…` или id диалога бота. Новое входящее сообщение само возвращает чат в список.
+ */
+const archiveMarkSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  action: z.enum(["archive", "restore"]),
+});
+conversationsRouter.post("/archive-mark", requireAuth, async (req, res) => {
+  const parsed = archiveMarkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  if (!can(req, "messages.view") && !can(req, "messages.viewOwn")) {
+    return res.status(403).json({ error: "Нет доступа к чатам" });
+  }
+  const { id, action } = parsed.data;
+  const updated = await setChatArchiveMark({
+    id,
+    mark: action === "archive" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIVE_RESTORED,
+    ownAgentId: chatScopeAgentId(req),
+    viewerId: req.agent!.id,
+  });
+  if (updated === 0) return res.status(404).json({ error: "Диалог не найден" });
+  logAudit(req, action === "archive" ? "CHAT_ARCHIVED" : "CHAT_UNARCHIVED", "BotConversation", id);
+  res.json({ ok: true, updated });
 });
 
 /** «Вернуть боту» прямо из инбокса — снимает паузу, ИИ снова отвечает сам.

@@ -7,8 +7,9 @@ import { MarketingAds, MarketingFocus, MarketingQueue, MarketingQuick, Marketing
 import { ManagerFocus, ManagerQuick, ManagerTeam, ManagerTiles, ManagerUnread, ManagerWaiting } from "./blocks/manager";
 import { DirectorBurning, DirectorChannels, DirectorCheck, DirectorCommission, DirectorDecisions, DirectorFull, DirectorMoney, DirectorPulse, DirectorTeam } from "./blocks/director";
 import { RopFull, RopLosses, RopSpread, RopTasks, RopTeam, RopTiles } from "./blocks/rop";
-import { AttentionStrip, DashboardHomeBlock } from "./blocks/dashboardHome";
 import { DASHBOARD_HOME_ROLES, useDashboardHome } from "../../../lib/homeDashboard";
+import { CommissionPlate, CrewBlock, PulseTiles, QuickActions, SourcesColumns, SpeedGauge } from "../home2/blocks";
+import { LeaderHome } from "../home2/LeaderHome";
 import { AgentFirstCalls, AgentFull, AgentMonth, AgentPending, AgentShowings, AgentTiles } from "./blocks/agent";
 
 /**
@@ -37,13 +38,18 @@ function FullBlock({ role }: HomeBlockProps) {
 }
 
 export const HOME_BLOCKS: readonly HomeBlockDef[] = [
-  // Главная руководителя = дашборд (21.11.2026): полоса срочного и сам дашборд. Блоки ниже у этих
-  // ролей остаются в реестре как запас для руководителя без права на отчёты (HOME_LAYOUT).
-  { id: "attention", roles: DASHBOARD_HOME_ROLES, requires: ["dashboard.analytics"], title: "Требует внимания сейчас", component: AttentionStrip },
-  { id: "dashboard", roles: DASHBOARD_HOME_ROLES, requires: ["reports.view"], title: "Дашборд", component: DashboardHomeBlock },
+  // Главная руководителя с правом на отчёты (пачка home2, 27.11.2026): сверху блоки макета
+  // (LEADER_LAYOUT), ниже «Аналитика» — дашборд целиком (../home2/LeaderHome.tsx, не выключается:
+  // это ТЗ директора). Плитки «Ждут ответа» и «Горит» несут и прежнюю полосу «Требует внимания».
+  { id: "plate", roles: DIRECTORS, requires: ["dashboard.analytics", "finance.view"], title: "Комиссия за месяц", component: CommissionPlate },
+  { id: "tiles", roles: DASHBOARD_HOME_ROLES, requires: ["dashboard.analytics"], title: "Ждут ответа и горит", component: PulseTiles },
+  { id: "quick", roles: DIRECTORS, title: "Быстрые действия", component: QuickActions },
+  { id: "speed", roles: DASHBOARD_HOME_ROLES, requires: ["dashboard.analytics"], title: "Скорость ответа", component: SpeedGauge },
+  { id: "crew", roles: DASHBOARD_HOME_ROLES, requires: ["dashboard.analytics"], title: "Команда", component: CrewBlock },
+  { id: "sources", roles: DIRECTORS, requires: ["reports.view"], title: "Заявки по источникам", component: SourcesColumns },
   { id: "money", roles: MONEY_VIEWERS, title: "Деньги и главное за день", component: DirectorMoney },
-  { id: "decisions", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
-  { id: "burning", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Горит сейчас", span: "b", component: DirectorBurning },
+  { id: "decisions", roles: [...DIRECTORS, "HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Нужно ваше решение", span: "a", component: DirectorDecisions },
+  { id: "burning", roles: [...DIRECTORS, "HEAD_OF_SALES"], requires: ["dashboard.analytics"], title: "Горит сейчас", span: "b", component: DirectorBurning },
   { id: "check", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Проверить", span: "a", component: DirectorCheck },
   { id: "team", roles: DIRECTORS, requires: ["dashboard.analytics"], title: "Команда", span: "b", component: DirectorTeam },
   { id: "pulse", roles: MONEY_VIEWERS, requires: ["dashboard.analytics"], title: "Заявки за 30 дней", span: "a", component: DirectorPulse },
@@ -115,17 +121,41 @@ export const HOME_LAYOUT: Readonly<Record<string, readonly string[]>> = {
 // Личная раскладка — в ./prefs.ts (её читают и блоки: РОП не ставит ссылку на выключенную «Команду»).
 export { useHomeLayoutPrefs } from "./prefs";
 
-/** Главная руководителя с правом на отчёты: полоса срочного и дашборд, без личных выключателей. */
-const DASHBOARD_LAYOUT: Readonly<Record<string, readonly string[]>> = {
-  ...HOME_LAYOUT,
-  ...Object.fromEntries(DASHBOARD_HOME_ROLES.map((role) => [role, ["attention", "dashboard"]])),
+/**
+ * Главная руководителя с правом на отчёты (пачка home2, 27.11.2026) — порядок и колонки как
+ * LAYOUT макета (royal-home.src.html): у директора и админа плита комиссии, плитки, быстрые
+ * действия, решения, «Горит», скорость, команда, заявки; у РОП — плитки, «Горит», решения,
+ * скорость, команда и «Мои задачи» (день по времени). Порядок — телефонный; на ПК блок встаёт
+ * в свою колонку (`LEADER_COLUMNS`: «a» — левая широкая, «b» — правая). Личные выключатели и
+ * порядок — те же, что у остальных главных (Профиль → Оформление). «Звонки на разбор» макета
+ * нет: в реестре главной у них нет источника.
+ */
+const LEADER_DIRECTOR = ["plate", "tiles", "quick", "decisions", "burning", "speed", "crew", "sources"] as const;
+export const LEADER_LAYOUT: Readonly<Record<string, readonly string[]>> = {
+  DIRECTOR: LEADER_DIRECTOR,
+  ADMIN: LEADER_DIRECTOR,
+  HEAD_OF_SALES: ["tiles", "burning", "decisions", "speed", "crew", "ropTasks"],
 };
+export const LEADER_COLUMNS: Readonly<Record<string, "a" | "b">> = {
+  plate: "a", quick: "a", decisions: "a", burning: "a", crew: "a", ropTasks: "a",
+  tiles: "b", speed: "b", sources: "b",
+};
+/** РОП: решения — справа, под плитками (как в макете). */
+const LEADER_COLUMNS_ROP: Readonly<Record<string, "a" | "b">> = { ...LEADER_COLUMNS, decisions: "b" };
+
+/** Раскладка главной для «Оформления»: у руководителя с правом на отчёты — блоки макета. */
+export function homeLayoutFor(dashboardHome: boolean): Readonly<Record<string, readonly string[]>> {
+  return dashboardHome ? LEADER_LAYOUT : HOME_LAYOUT;
+}
 
 /** Главная «Нового вида» любой роли: ядро с реестром, раскладкой и личными выключателями. */
 export function RoyalRoleHome() {
   const role = useAuthStore((s) => s.agent?.role) ?? "default";
   const { order, hidden } = useHomeLayoutPrefs(role);
   const dashboardHome = useDashboardHome();
-  if (dashboardHome) return <RoyalHomeCore role={role} registry={HOME_BLOCKS} layout={DASHBOARD_LAYOUT} />;
+  if (dashboardHome) {
+    return <LeaderHome role={role} registry={HOME_BLOCKS} layout={LEADER_LAYOUT} order={order} hidden={hidden}
+      columns={role === "HEAD_OF_SALES" ? LEADER_COLUMNS_ROP : LEADER_COLUMNS} />;
+  }
   return <RoyalHomeCore role={role} registry={HOME_BLOCKS} layout={HOME_LAYOUT} order={order} hidden={hidden} />;
 }

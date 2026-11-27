@@ -1420,6 +1420,7 @@ export async function acceptLead(
      */
     requestedAgentId: draft.requestedAgentId,
     requestedAgentNote: draft.requestedAgentNote,
+    requestedAgentReason: draft.requestedAgentReason,
     /**
      * НОМЕР ОБЪЕКТА, НАЗВАННЫЙ КЛИЕНТОМ («объект №112») — уходит в ту же
      * лесенку «объект назван явно», что уже обслуживает ссылку с сайта и
