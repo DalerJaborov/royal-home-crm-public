@@ -195,11 +195,99 @@ describe("вебхук целиком на номере бренда «Арва�
     expect(outbound.transport?.accountId).toBe(wa.id);
     expect(outbound.origin).toBe("bot");
     expect(processTurn).not.toHaveBeenCalled();
-    expect(await prisma.botConversation.count({ where: { channel: "WHATSAPP", subscriberId: from } })).toBe(0);
     expect(await prisma.callbackRequest.count({ where: { phone: `+${from}` } })).toBe(0);
 
+    // Приветствие лежит в переписке ЭТОГО номера исходящим сообщением бота («Чаты» видят его как обычный ответ бота).
+    const rows = await prisma.botConversation.findMany({ where: { channel: "WHATSAPP", subscriberId: from } });
+    expect(rows).toHaveLength(1);
+    const conv = rows[0]!;
+    expect(conv.accountId).toBe(wa.id);
+    expect(conv.name).toBe("Гость");
+    const messages = conv.messages as Array<Record<string, unknown>>;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "assistant", content: text, by: { kind: "bot" }, botWelcome: true, mid: "wamid.out-fake" });
+    // Ни карточки, ни заявки, ни агента, ни напоминаний, ни пуша: lastMessageAt пуст, напоминание молчащим его не видит.
+    expect(conv).toMatchObject({ clientId: null, lastMessageAt: null, followUpsSent: 0, pausedUntil: null, readAt: null });
+    expect(await prisma.client.count({ where: { phone: `+${from}` } })).toBe(0);
+    expect(pushed).not.toHaveBeenCalled();
+
+    // Повтор доставки (тот же wamid) и повтор под другим wamid — второго приветствия и второй записи нет.
     await post(body);
+    await post(waBody({ messages: [welcome(from, `wamid.welcome-again-${runId}`)] }, wa.externalId));
     expect(sendMessage).toHaveBeenCalledTimes(1);
+    const after = await prisma.botConversation.findMany({ where: { channel: "WHATSAPP", subscriberId: from } });
+    expect(after).toHaveLength(1);
+    expect(after[0]!.messages as unknown[]).toHaveLength(1);
+  });
+
+  it("две одновременные доставки с разными wamid — одно приветствие и одна запись (замок записи, а не только проверка «переписка есть»)", async () => {
+    const { handleWhatsappServiceEvents } = await import("../src/messengers/whatsappServiceEvents.js");
+    const from = `99291${tail}1`;
+    const body = (mid: string) => waBody({ messages: [welcome(from, mid)] }, wa.externalId);
+    const handled = await Promise.all([
+      handleWhatsappServiceEvents(body(`wamid.race-a-${runId}`), [wa.externalId]),
+      handleWhatsappServiceEvents(body(`wamid.race-b-${runId}`), [wa.externalId]),
+    ]);
+    expect(handled.reduce((sum, n) => sum + n, 0)).toBe(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const rows = await prisma.botConversation.findMany({ where: { channel: "WHATSAPP", subscriberId: from } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.messages as unknown[]).toHaveLength(1);
+  });
+
+  it("два номера: у каждого своя переписка с приветствием от своего бренда, на второй номер второе приветствие тоже уходит", async () => {
+    const wa2 = await createCustomerMessengerFixture("WHATSAPP");
+    try {
+      await prisma.messengerAccount.update({ where: { id: wa2.id }, data: { brandName: "Royal Home" } });
+      resetAccountsCache();
+      const from = `99290${tail}8`;
+      await post(waBody({ messages: [welcome(from, `wamid.welcome-n1-${runId}`)] }, wa.externalId));
+      await post(waBody({ messages: [welcome(from, `wamid.welcome-n2-${runId}`)] }, wa2.externalId, "992777776001"));
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      const rows = await prisma.botConversation.findMany({ where: { channel: "WHATSAPP", subscriberId: from } });
+      expect(rows.map((row) => row.accountId).sort()).toEqual([wa.id, wa2.id].sort());
+      for (const row of rows) {
+        const messages = row.messages as Array<Record<string, unknown>>;
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toMatchObject({ botWelcome: true, by: { kind: "bot" } });
+        expect(String(messages[0]!.content)).toContain(row.accountId === wa.id ? "Арван" : "Royal Home");
+      }
+    } finally {
+      await wa2.dispose();
+    }
+  });
+
+  it("ядро после приветствия: «Салом» не повторяет вопрос; приветствие, которое не ушло, за вопрос не считается", async () => {
+    const { loadOperatorTurnSetup } = await import("../src/lib/operatorTurn.js");
+    const { runOperatorTurn } = await import("../src/ai/operator/index.js");
+    const { loadLeadOnlyConfig } = await import("../src/lib/leadOnlyConfig.js");
+    const setupFor = async (from: string) => {
+      const conv = await prisma.botConversation.findFirstOrThrow({ where: { channel: "WHATSAPP", subscriberId: from } });
+      const setup = await loadOperatorTurnSetup({ channel: "WHATSAPP", conversationId: conv.id, config: await loadLeadOnlyConfig(),
+        focusPropertyId: null, phoneKnownByChannel: true, peerPhone: `+${from}` });
+      const messages = conv.messages as Array<{ role: string; content: string }>;
+      return { setup, recent: messages.map((m) => ({ role: m.role as "user" | "assistant", text: m.content })) };
+    };
+
+    const delivered = `99290${tail}9`;
+    await post(waBody({ messages: [welcome(delivered, `wamid.welcome-core-${runId}`)] }, wa.externalId));
+    const { setup, recent } = await setupFor(delivered);
+    expect(setup.ctx.botWelcomed).toBe(true);
+    expect(setup.ctx.staffThread).toBeFalsy();
+    const turn = await runOperatorTurn({ storedState: setup.stored, ctx: setup.ctx, input: { current: "Салом", recent }, model: async () => null });
+    expect(turn.steps.map((step) => step.key)).toEqual(["greet_continue"]);
+    expect(turn.text ?? "").not.toMatch(/хона|купить|продать/iu);
+
+    // Отправка упала: переписка есть, пометка «не доставлено», ядро спрашивает как обычно.
+    sendMessage.mockRejectedValueOnce(new Error("Meta 131047"));
+    const failed = `99290${tail}0`;
+    await post(waBody({ messages: [welcome(failed, `wamid.welcome-fail-${runId}`)] }, wa.externalId));
+    const second = await setupFor(failed);
+    const stored = (await prisma.botConversation.findFirstOrThrow({ where: { channel: "WHATSAPP", subscriberId: failed } })).messages as Array<Record<string, unknown>>;
+    expect(stored[0]).toMatchObject({ botWelcome: true, deliveryStatus: "failed" });
+    expect(second.setup.ctx.botWelcomed).toBeUndefined();
+    const asked = await runOperatorTurn({ storedState: second.setup.stored, ctx: second.setup.ctx, input: { current: "Салом", recent: second.recent }, model: async () => null });
+    expect(asked.steps.map((step) => step.key)).toContain("ask_role_brand");
   });
 
   it("request_welcome, когда переписка на этом номере уже есть — молчим", async () => {

@@ -69,6 +69,7 @@ import { refreshPropertyStatusesByTime } from "./lib/propertyAutoStatus.js";
 import { runNightlyGeoMatchSweepTick } from "./lib/geoMatchSweep.js";
 import { runContactLinkSweepTick } from "./lib/contactLinkSweep.js";
 import { generateMonthlyReport } from "./lib/monthlyReport.js";
+import { findReportRecipientsByRoles } from "./lib/reportRecipients.js";
 import { generateProblemReport } from "./lib/problemReport.js";
 import { notifyReportsAboutMarketingInsights } from "./lib/marketingInsights.js";
 import { runDuplicatesWeeklyDigestTick } from "./lib/duplicatesWeeklyDigest.js";
@@ -432,7 +433,8 @@ export async function sendDirectorDigest(): Promise<number> {
     sellerLinesOn,
   ] = await Promise.all([
     loadMorningNumbers({ ads: true }),
-    prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } }),
+    // Акционер — тоже получатель сводки (отчёт для чтения, lib/reportRecipients.ts, рубильник «Отчёты акционеру»).
+    findReportRecipientsByRoles(["DIRECTOR", "ADMIN"]).then((ids) => ids.map((id) => ({ id }))),
     sellerSwitchOn("morningSellerLinesEnabled"),
   ]);
 

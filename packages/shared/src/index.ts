@@ -119,6 +119,7 @@ export * from "./narrationLength.js";
 export * from "./narrationMusic.js";
 export * from "./freeNarration.js";
 export * from "./tajikSpeechNumbers.js";
+export * from "./spokenPronunciation.js";
 export * from "./russianSpeechNumbers.js";
 export * from "./investigationCases.js";
 export * from "./propertyRemoval.js";

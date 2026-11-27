@@ -178,3 +178,29 @@ describe("agent phone navigation preservation", () => {
     expect(routes(nav.bottom.right)).toEqual(["/properties", "/messages"]);
   });
 });
+
+/**
+ * НИЖНЕЕ МЕНЮ «НОВОГО ВИДА» КАК В МАКЕТЕ (27.11.2026, пачка shell2): пять вкладок без «+»
+ * («+» в шапке у колокола), подпись «Сегодня» — как на ПК. Права и счётчики — из реестра.
+ */
+describe("нижнее меню «Нового вида» (royalBottom)", () => {
+  it.each(["DIRECTOR", "ADMIN", "HEAD_OF_SALES"] as const)("%s: Сегодня, Клиенты, Чаты, Команда, Ещё", (role) => {
+    const nav = buildNavigation(makeInputs(role));
+    expect(routes(nav.royalBottom)).toEqual(["/", "/clients", "/messages", "/team", "/more"]);
+    expect(nav.royalBottom.map((i) => i.label)).toEqual(["Сегодня", "Клиенты", "Чаты", "Команда", "Ещё"]);
+  });
+  it("агент: Сегодня, Клиенты, Чаты, Объекты, Ещё; счётчик чатов на месте", () => {
+    const nav = buildNavigation(makeInputs("AGENT"));
+    expect(routes(nav.royalBottom)).toEqual(["/", "/clients", "/messages", "/properties", "/more"]);
+    expect(nav.royalBottom.find((i) => i.to === "/messages")?.badge).toBe(5);
+  });
+  it.each(["MANAGER", "MARKETING", "EDITOR", "SECURITY", "SHAREHOLDER"] as const)("%s: пять разных пунктов, «Ещё» последним, без чужих прав", (role) => {
+    const nav = buildNavigation(makeInputs(role));
+    const paths = routes(nav.royalBottom);
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(paths.at(-1)).toBe("/more");
+    expect(paths.length).toBeLessThanOrEqual(5);
+    const allowed = new Set([...routes(nav.main), ...routes(nav.all), "/more"]);
+    for (const path of paths) expect(allowed.has(path), path).toBe(true);
+  });
+});

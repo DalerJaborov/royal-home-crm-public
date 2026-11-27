@@ -128,14 +128,18 @@ describe("«Оформление» → «Главная»", () => {
     signIn("ad1", "ADMIN");
     perms.deny = new Set(["dashboard.analytics"]);
     view("ADMIN");
-    // Остался один блок («Деньги и главное за день» с текстом «только руководству») — раздела нет.
-    expect(screen.queryByRole("heading", { name: "Главная" })).toBeNull();
-    // РОП с правом на отчёты получает на главной дашборд (lib/homeDashboard): выключать там нечего.
+    // Главная руководителя с правом на отчёты (пачка home2, 27.11.2026): без права на аналитику
+    // ему рисуются только быстрые действия и «Заявки» — выключатели только у них.
+    expect(screen.getByRole("switch", { name: "Быстрые действия" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Заявки по источникам" })).toBeTruthy();
+    for (const name of ["Комиссия за месяц", "Ждут ответа и горит", "Нужно ваше решение", "Команда"]) expect(screen.queryByRole("switch", { name })).toBeNull();
+    // РОП с правом на отчёты: выключатели блоков макета его главной (сама «Аналитика» — не выключается).
     perms.deny = new Set();
     cleanup();
     signIn("r1", "HEAD_OF_SALES");
     view("HEAD_OF_SALES");
-    expect(screen.queryByRole("heading", { name: "Главная" })).toBeNull();
+    for (const name of ["Ждут ответа и горит", "Горит сейчас", "Нужно ваше решение", "Скорость ответа", "Команда", "Мои задачи"]) expect(screen.getByRole("switch", { name })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Дашборд" })).toBeNull();
     // Без права на отчёты — прежняя главная РОПа со своими выключателями.
     perms.deny = new Set(["team.viewFull", "reports.view"]);
     cleanup();

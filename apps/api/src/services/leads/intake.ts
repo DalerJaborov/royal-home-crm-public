@@ -22,6 +22,7 @@ import { noticeAbsentAgentReturn } from "../../lib/absentAgentNotice.js";
 import { fuzzySimilarClientNotes } from "../../lib/fuzzySearch.js";
 import { findFuzzyDuplicateCandidate, openDuplicateReview } from "../../lib/duplicateReview.js";
 import { assignAgentForLead, recordAssignReason, recordAssignReasonTx, type LeadAssignment } from "./assignment.js";
+import { DIRECT_ASSIGN_REASONS } from "./assignmentTypes.js";
 import { INTENT_UNKNOWN_NOTE } from "./intentUnknown.js";
 import { findStaffPhone, staffPhoneError, loadStaffPhoneChecker, StaffPhoneLeadError } from "../../lib/staffPhoneGuard.js";
 import { logSystemError } from "../../lib/systemError.js";
@@ -94,6 +95,9 @@ export interface ChannelLeadInput {
    *  ушёл в обычную очередь (тёзки, сотрудник недоступен). Терять этот факт нельзя:
    *  агент узнает о нём от самого клиента («я же просил Баходура»). */
   requestedAgentNote?: string;
+  /** Почему лид идёт requestedAgentId: по умолчанию «клиент назвал сам»; сторож WhatsApp — «сотрудник уже вёл
+   *  переписку» (ревью #497, п.4). Влияет только на причину в карточке и отчётах, дверь назначения та же. */
+  requestedAgentReason?: "staff_led_conversation";
   /// pickAgentForLead сейчас, лид остаётся без агента до утренней волны
   /// (assignPendingLeads, вызывается кроном при входе в рабочее окно). Молча,
   /// без пуша руководству — это ожидаемая ночная норма, а не сбой.
@@ -1598,7 +1602,10 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    * INTENT_UNKNOWN_NOTE), а тот, кто назначает агентов, узнаёт о ней сразу:
    * раньше такие заявки молча лежали в «Прочих» без агента.
    */
-  if (input.requirementsNotes?.includes(INTENT_UNKNOWN_NOTE)) {
+  const requestedAgentId = await requestedAgentStillAvailable(input.requestedAgentId);
+  // Карточка уходит прямо названному сотруднику (или тому, кто уже вёл переписку): тип он уточнит сам, назначать
+  // некого — пуш руководству «заявка без типа» здесь лишний (ревью #497, п.2).
+  if (input.requirementsNotes?.includes(INTENT_UNKNOWN_NOTE) && !requestedAgentId) {
     notifyIntentUnknownLead(created).catch((err) => console.error("[push] заявка без типа:", err));
   }
 
@@ -1615,8 +1622,8 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    * Доступность проверяется ЗАНОВО, по базе: между репликой клиента и этой
    * секундой агента могли уволить, заморозить или он сам выключил приём. Не
    * прошёл проверку — обычный путь, а факт просьбы остаётся в заметке ниже.
+   * (requestedAgentId посчитан выше — до пуша «заявка без типа».)
    */
-  const requestedAgentId = await requestedAgentStillAvailable(input.requestedAgentId);
 
   /**
    * РАЗДЕЛ L — ГЛАВНОЕ ПРАВИЛО (владелец, 03.09.2026 вечером, план вечерней сессии
@@ -1639,7 +1646,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
   }
 
   const assignment: LeadAssignment = requestedAgentId
-    ? { agentId: requestedAgentId, reason: "requested_by_client", note: input.requestedAgentNote }
+    ? { agentId: requestedAgentId, reason: input.requestedAgentReason ?? "requested_by_client", note: input.requestedAgentNote }
     : input.deferAssignment
       ? { agentId: null, reason: "queue" }
       : await assignAgentForLead({
@@ -1695,7 +1702,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
         });
         if (ownedPending) {
           await recordAssignReasonTx(tx, updated.id, agentId!, assignment);
-          if (assignment.reason !== "requested_by_client" && input.requestedAgentNote) {
+          if (!DIRECT_ASSIGN_REASONS.includes(assignment.reason) && input.requestedAgentNote) {
             await logTimeline({ clientId: updated.id, actor: { kind: "system", source: "intake-requested-agent-note", subjectAgentId: agentId },
               type: "SYSTEM", notes: input.requestedAgentNote, tx });
           }
@@ -1721,7 +1728,7 @@ async function createNewChannelLead(input: ChannelLeadInput, ownedPending?: Clie
    * пишем это в хронологию отдельно: recordAssignReason молчит про очередь, а
    * агенту важно знать, что клиент называл имя.
    */
-  if (agentId && assignment.reason !== "requested_by_client" && input.requestedAgentNote) {
+  if (agentId && !DIRECT_ASSIGN_REASONS.includes(assignment.reason) && input.requestedAgentNote) {
     await logTimeline({
       clientId: client.id,
       actor: { kind: "system", source: "intake-requested-agent-note", subjectAgentId: agentId },

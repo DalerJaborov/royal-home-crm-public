@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { decide, initialOperatorState } from "../src/ai/operator/decide.js";
 import { renderOperatorReply } from "../src/ai/operator/phrases.js";
 import { understandFallback, understandingFromModel } from "../src/ai/operator/understand.js";
-import { withoutOwnRepeats } from "../src/ai/operator/index.js";
-import { readOperatorState, serializeOperatorState } from "../src/ai/operator/state.js";
+import { runOperatorTurn, withoutOwnRepeats } from "../src/ai/operator/index.js";
+import { botWelcomeDelivered, readOperatorState, seedStateFromBotWelcome, serializeOperatorState } from "../src/ai/operator/state.js";
 import { leadOnlyOutgoing } from "../src/ai/leadOnlyMode.js";
 import type { OperatorAction, OperatorContext, OperatorState, PhraseKey } from "../src/ai/operator/types.js";
 
@@ -174,5 +174,76 @@ describe("нет напоминания агенту", () => {
     for (const text of ["Что с заявкой?", "Когда позвонят?", "Хочу оставить заявку", "Салом", "Дархост додам, кай занг мезанед?"]) {
       expect(denies(text), text).toBe(false);
     }
+  });
+});
+
+/**
+ * ПРИВЕТСТВИЕ ДО ПЕРВОГО СЛОВА (27.11.2026, #488 + эта правка): WhatsApp `request_welcome` отправляет «Ассалому алейкум! Ин Арван…
+ * купить или продать?» и кладёт его в переписку с отметкой `botWelcome`. Ядро обязано считать это своим прошлым ходом: на первое
+ * «Салом» не здороваться заново и не спрашивать то же самое второй раз.
+ */
+describe("приветствие бота до первого слова клиента: ядро знает, что уже спросило", () => {
+  const welcomeText = "Ассалому алейкум! Ин Арван. Шумо хона харидан мехоҳед ё фурӯхтан?\n\nЗдравствуйте! Это Арван. Подскажите, вы хотите купить жильё или продать?";
+  async function afterWelcome(texts: string[], over: Partial<OperatorContext> = ARVAN) {
+    let stored: unknown = null;
+    const recent: Turn[] = [{ role: "assistant", text: welcomeText }];
+    const out = [];
+    for (const [index, text] of texts.entries()) {
+      const turn = await runOperatorTurn({ storedState: stored, ctx: ctx({ botWelcomed: true, leadExists: false, ...over }),
+        now: new Date(Date.UTC(2026, 10, 27, 5, index)), input: { current: text, recent: [...recent] }, model: async () => null });
+      stored = turn.stored;
+      recent.push({ role: "user", text });
+      if (turn.text) recent.push({ role: "assistant", text: turn.text });
+      out.push({ keys: turn.steps.map(step => step.key), text: turn.text ?? "", state: turn.state });
+    }
+    return out;
+  }
+
+  it("«Салом» / «Здравствуйте» после приветствия — короткое тёплое приглашение, без повторного «купить или продать?»", async () => {
+    for (const hello of ["Салом", "Салом алейкум", "Ассалому алайкум", "Здравствуйте", "Привет", "Добрый день"]) {
+      const [t] = await afterWelcome([hello]);
+      expect(t!.keys, hello).toEqual(["greet_continue"]);
+      expect(t!.text, hello).not.toMatch(/купить|продать|хона мехаред|мефурӯшед|харидан|покупаете|продаёте/iu);
+      expect(t!.text, hello).not.toMatch(/[—–]/u);
+      expect(t!.text, hello).toMatch(/Нависед|напишите/u);
+    }
+  });
+
+  it("клиент ответил по делу — обычный путь: роль принята, вопроса о роли нет", async () => {
+    const [t] = await afterWelcome(["Хочу купить квартиру"]);
+    expect(t!.state.role).toBe("buyer");
+    expect(t!.keys).not.toContain("ask_role");
+    expect(t!.keys).not.toContain("ask_role_brand");
+  });
+
+  it("неясный ответ — вопрос второй раз другими словами (первое слово не повторяется), потом человек, как и без приветствия", async () => {
+    const [unclear1, unclear2] = await afterWelcome(["Не знаю", "Ну так"]);
+    expect(unclear1!.keys).toEqual(["ask_role"]);
+    expect(unclear1!.text).toBe("Подскажите, пожалуйста: вы покупаете или продаёте?");
+    expect(unclear2!.state.step).toBe("handoff");
+  });
+
+  it("без приветствия в переписке (флага нет) — прежнее поведение: приветствие и вопрос от имени бренда", async () => {
+    const turn = await runOperatorTurn({ storedState: null, ctx: ctx({ ...ARVAN, leadExists: false }), now: new Date("2026-11-27T05:00:00Z"),
+      input: { current: "Салом", recent: [] }, model: async () => null });
+    expect(turn.steps.map(step => step.key)).toEqual(["greet", "ask_role_brand"]);
+  });
+
+  it("память уже не чистая (роль известна, что-то говорили) — отметка приветствия её не трогает", () => {
+    const known: OperatorState = { ...initialOperatorState(), role: "seller", asked: { role: 1, details: 0, phone: 0 } };
+    expect(seedStateFromBotWelcome(known)).toBe(false);
+    const spoke: OperatorState = { ...initialOperatorState(), spoken: { greet_continue: 1 } };
+    expect(seedStateFromBotWelcome(spoke)).toBe(false);
+    expect(seedStateFromBotWelcome(initialOperatorState())).toBe(true);
+  });
+
+  it("доставленное приветствие учитывается, не ушедшее (deliveryStatus failed), чужая реплика и пустая лента — нет", () => {
+    const ok = { role: "assistant", content: "x", botWelcome: true };
+    expect(botWelcomeDelivered([ok])).toBe(true);
+    expect(botWelcomeDelivered([{ ...ok, deliveryStatus: "failed" }])).toBe(false);
+    expect(botWelcomeDelivered([{ role: "assistant", content: "x" }])).toBe(false);
+    expect(botWelcomeDelivered([{ role: "user", content: "x", botWelcome: true }])).toBe(false);
+    expect(botWelcomeDelivered([])).toBe(false);
+    expect(botWelcomeDelivered(null)).toBe(false);
   });
 });

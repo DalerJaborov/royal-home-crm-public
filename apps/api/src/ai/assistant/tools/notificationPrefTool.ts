@@ -46,6 +46,8 @@ export const notificationPrefExecutor: AssistantActionExecutor<Args> = {
   channels: ["crm", "telegram"],
   // Личная настройка: в общей группе чужие глаза и чужие кнопки.
   privateTelegram: true,
+  // Только своё — можно и акционеру (правило владельца: любое сообщение бота отключается словами, 27.11.2026).
+  readOnlyRoleAllowed: true,
   parseArgs: (raw) => argsSchema.parse(raw),
 
   async snapshot(args, actor): Promise<Snap> {
@@ -109,8 +111,9 @@ export const notificationPrefPlugin: AssistantWriteToolPlugin = {
     required: ["kind", "muted"],
   },
   statusPhrase: "Готовлю настройку уведомлений…",
-  // Нажать «Подтвердить» в Telegram может только не-наблюдатель (assistantBot отказывает акционеру);
-  // наблюдателю остаются кнопка «🔕 Не присылать такое» и профиль CRM.
-  allowed: (actor) => actor.surface !== "telegram-group" && !isReadOnlyRole(actor.role),
+  // Акционер (режим просмотра) — только в личке Telegram (27.11.2026): там он получает отчёты и
+  // кнопку «Подтвердить» пропускает assistantBot по флагу исполнителя; в CRM подтверждение — запись
+  // через REST, ему закрытая, а свой список «Что присылать мне» у него и так есть в профиле.
+  allowed: (actor) => actor.surface !== "telegram-group" && (!isReadOnlyRole(actor.role) || actor.surface === "telegram-private"),
   executor: notificationPrefExecutor as unknown as AssistantWriteToolPlugin["executor"],
 };

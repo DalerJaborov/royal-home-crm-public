@@ -8,13 +8,14 @@
  * Объект вне Душанбе сервер по объекту не определяет: в наших карточках только зона работы, а «вне зоны» приходит словами
  * клиента (понимание оператора). Поэтому `ctx.outOfArea` здесь всегда false.
  */
+import { automationSwitchOn } from "./automationSwitches.js";
 import { RECRUITMENT_CONTACT, type RecruitmentPosition } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
 import type { LeadOnlyConfig } from "../ai/leadOnlyMode.js";
 import { operatorPriceText, operatorWhenText } from "../ai/operator/phrases.js";
-import { readOperatorState } from "../ai/operator/state.js";
+import { botWelcomeDelivered, readOperatorState } from "../ai/operator/state.js";
 import type { OperatorAction, OperatorChannel, OperatorContext, OperatorPropertyFocus, OperatorState } from "../ai/operator/types.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
@@ -117,7 +118,11 @@ export async function loadOperatorTurnSetup(input: {
     // lib/customerLeadOnlyCore.ts «card_pending»); заявки нет вовсе — живого агента нет (ревью #333).
     clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : leadIntakePending(input.conversationId),
     contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
-    staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now)]);
+    // Рубильник «Ответ сотрудника останавливает бота» (владелец 27.11.2026, «убрать и его»): выключен (по умолчанию) —
+    // бот отвечает всегда, ответ сотрудника его не глушит; включён — прежнее молчание на staffQuietMinutes.
+    automationSwitchOn("botPauseOnStaffReplyEnabled")
+      .then((on) => on && staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now))
+      .catch(() => false)]);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
   const staffThread = await staffWroteEver(input.conversationId);
   const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
@@ -148,6 +153,8 @@ export async function loadOperatorTurnSetup(input: {
     workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
     reviewer,
     staffThread,
+    // Бот уже поздоровался и спросил «купить или продать?» до первого слова человека (приветствие WhatsApp, 27.11.2026).
+    ...(botWelcomeDelivered(row?.messages) ? { botWelcomed: true } : {}),
     // Только у клиента с карточкой: обещание связаться уже звучало, звонка и ответа сотрудника после него не было.
     ...(clientId && contactPromiseUnkept(row?.messages, row?.client?.lastAgentAttemptAt ?? null, now,
       { start: input.config.workHoursStart, end: input.config.workHoursEnd }) ? { promiseUnkept: true } : {}),

@@ -1,3 +1,4 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import fs from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
@@ -7,6 +8,8 @@ import { prisma } from "../src/db.js";
 import { savePrivateFile, privateFilePath } from "../src/lib/privateFiles.js";
 import { fetchTelegramAttachments } from "../src/telegram/attachments.js";
 import { handleTelegramUpdate } from "../src/telegram/bot.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /* Транспорт и ИИ подменены только для блока «сообщение без подписи» ниже:
  * разбор вложений выше идёт настоящим кодом (без токена — без сети). */

@@ -57,7 +57,7 @@ import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { assertClientWritable, assistantInvestigationRole, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
 import { assistantChannelGuide, assistantSectionsGuide } from "./assistant/promptSections.js";
-import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
+import { assistantPluginAllowed, findAssistantToolPlugin, listAssistantToolPlugins, pluginWrites } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
 import { safeField } from "./assistant/tools/safeField.js";
 import { canonicalJson } from "../lib/canonicalJson.js";
@@ -1197,7 +1197,8 @@ const WRITE_TOOLS = new Set(["create_task", "reschedule_task"]);
 function isWriteTool(name: string): boolean {
   if (WRITE_TOOLS.has(name)) return true;
   const plugin = findAssistantToolPlugin(name);
-  return plugin !== null && plugin.level !== "A";
+  // Действие без карточки (sideEffect: PDF себе, тишина в группе) — тоже запись (ревью #506).
+  return plugin !== null && pluginWrites(plugin);
 }
 
 /**
@@ -1237,11 +1238,14 @@ export function pluginDeclarations(
   actor: AssistantActor,
   confirmUi: boolean,
   channel: "crm" | "telegram" = "crm",
+  /** Ход «только прочитать»: действия без карточки (sideEffect) не объявляются. */
+  readOnly = false,
 ): GeminiToolDefinition[] {
   return listAssistantToolPlugins()
     .filter((p) => p.level === "A" || (confirmUi && (p.executor.channels ?? ["crm"]).includes(channel)))
+    .filter((p) => !(readOnly && pluginWrites(p)))
     .filter((p) => !actor.hiddenTools?.has(p.name))
-    .filter((p) => (p.allowed ? p.allowed(actor) : true))
+    .filter((p) => assistantPluginAllowed(p, actor))
     .map((p) => ({
       name: p.name,
       description: p.description,
@@ -1542,7 +1546,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
   let result: unknown;
   if (hooks.readOnly && isWriteTool(call.name)) {
     result = { error: "Этот запрос можно только прочитать. Для записи попросите отдельным сообщением.", code: "READ_ONLY_TURN" };
-  } else if (plugin?.allowed && !plugin.allowed(actor)) {
+  } else if (plugin && !assistantPluginAllowed(plugin, actor)) {
     result = { error: "Нет доступа к этому действию" };
   } else if (plugin && plugin.level !== "A" && !hooks.confirmUi) {
     result = { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" };
@@ -1761,7 +1765,7 @@ export async function runAssistantDetailed(
       ...GEMINI_TOOLS.filter((t) =>
         assistantToolAllowed(actor, t.name) && (!options.readOnly || !isWriteTool(t.name)),
       ),
-      ...pluginDeclarations(actor, confirmUi, options.channel ?? "crm"),
+      ...pluginDeclarations(actor, confirmUi, options.channel ?? "crm", options.readOnly === true),
     ];
 
     // Задача 4 (docs/ai-bots-audit-13-09.md): фиксируем состояние рубильника НА
@@ -1954,6 +1958,7 @@ export async function runAssistantDetailed(
         confirmUi,
         readOnly: options.readOnly,
         writeBudget,
+        signal,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
         question: lastUserText,
         turnKey: options.turnKey,

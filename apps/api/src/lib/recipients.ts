@@ -1,4 +1,4 @@
-import { resolvePermissions, parsePermissionOverrides, type PermissionId, type Role } from "@royal-home/shared";
+import { isReadOnlyRole, resolvePermissions, parsePermissionOverrides, type PermissionId, type Role } from "@royal-home/shared";
 import { prisma } from "../db.js";
 
 /**
@@ -14,7 +14,22 @@ import { prisma } from "../db.js";
  * Directоr-only права сюда не подходят по смыслу: уведомление должно приходить
  * тем, кто может ПОЧИНИТЬ ситуацию, а не только владельцу.
  */
-export async function findAgentsWithPermission(permission: PermissionId): Promise<string[]> {
+/**
+ * РЕЖИМ ПРОСМОТРА (акционер, SHAREHOLDER) — НЕ ПОЛУЧАТЕЛЬ ПО УМОЛЧАНИЮ (27.11.2026).
+ *
+ * У акционера права «смотреть» (messages.view, otherInquiries.view, finance.view, vacancies.view…),
+ * и по одним правам он попадал в получатели ВСЕХ тревог с этими правами: «клиент ждёт ответа»,
+ * «бот не ответил», «кандидат оставил номер», «оплата подписки», — хотя сделать по ним он не может
+ * ничего (запись закрыта в requireAuth). Это противоречит смыслу функции (см. выше: «тем, кто может
+ * ПОЧИНИТЬ»), поэтому роли режима просмотра отсюда исключены ПО УМОЛЧАНИЮ, одним местом на все
+ * ~60 вызовов и очередь тревог (lib/directorAlertQueue.ts). Отчёты для чтения зовут
+ * `includeReadOnly: true` — только через lib/reportRecipients.ts, под рубильник владельца.
+ */
+export interface RecipientOptions {
+  includeReadOnly?: boolean;
+}
+
+export async function findAgentsWithPermission(permission: PermissionId, opts: RecipientOptions = {}): Promise<string[]> {
   // Права лежат в overrides поверх пресета роли и считаются в памяти, поэтому
   // отфильтровать их запросом к базе нельзя. Активных сотрудников в агентстве
   // десятки, выборка дешёвая — берём id, роль и overrides и решаем на месте.
@@ -24,6 +39,7 @@ export async function findAgentsWithPermission(permission: PermissionId): Promis
   });
 
   return agents
+    .filter((a) => opts.includeReadOnly === true || !isReadOnlyRole(a.role as Role))
     .filter((a) =>
       resolvePermissions(a.role as Role, parsePermissionOverrides(a.permissions)).has(permission)
     )

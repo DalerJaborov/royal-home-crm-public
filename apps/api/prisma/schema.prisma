@@ -7530,6 +7530,9 @@ model Settings {
   /// «Все/Ждут/Мои», а лежат в «Архиве». Ничего не удаляется и не переносится: правило считает запрос списка
   /// (lib/chatArchive.ts). ВКЛ. Выключено — список как раньше.
   chatArchiveEnabled                    Boolean @default(true)
+  /// Ответ сотрудника из CRM ставит бота на паузу (lib/deliveryPause.ts, 27.11.2026). ВЫКЛ: не ставит, выбора срока в чате нет.
+  /// ВКЛ — прежнее поведение сервера (срок из запроса или умолчание для отправителя).
+  botPauseOnStaffReplyEnabled           Boolean @default(false)
   /// Объект из чата уходит в ЛЮБУЮ переписку, в том числе без карточки клиента (26.11.2026, lib/conversationPropertySend.ts).
   /// ВКЛ. Выключено — прежний отказ «сначала примите заявку»: отправка только клиенту с принятой карточкой.
   sendPropertiesWithoutCardEnabled      Boolean @default(true)
@@ -7581,6 +7584,10 @@ model Settings {
   notifyOperatorTalkedPushEnabled       Boolean @default(false)
   /// Уведомления «нет видео» у объекта (агенту и руководству). ВЫКЛ — владелец 27.11: «отключить совсем».
   notifyNoVideoEnabled                  Boolean @default(false)
+  /// Отчёты акционеру (SHAREHOLDER) наравне с директором; тревоги с действием ему не идут. ВКЛ (владелец 27.11.2026).
+  shareholderReportsEnabled             Boolean @default(true)
+  /// Telegram-бот только для сотрудников: незнакомцу памятка вместо клиентского диалога. ВКЛ (владелец 27.11.2026).
+  telegramStaffOnlyEnabled              Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из
