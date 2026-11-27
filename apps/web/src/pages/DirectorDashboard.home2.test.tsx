@@ -11,7 +11,7 @@ import type { DirectorFilters } from "../hooks/useDirectorDashboard";
  * те же кнопки Excel и Печать; шторка «Фильтры» даёт ровно тот же запрос сводки, что прежние три
  * списка (Менеджер, Источник, Клиенты); выбранные фильтры видны чипами и снимаются крестиком.
  */
-const h = vi.hoisted(() => ({ calls: [] as DirectorFilters[], royal: false }));
+const h = vi.hoisted(() => ({ calls: [] as DirectorFilters[], royal: false, mobile: false }));
 vi.mock("../store/auth", async (importOriginal) => ({
   ...await importOriginal<typeof import("../store/auth")>(),
   useAuthStore: (select: (s: unknown) => unknown) => select({ agent: { id: "a1", fullName: "Фарход Назаров", role: "DIRECTOR" } }),
@@ -26,7 +26,7 @@ vi.mock("../hooks/useRoyalLook", async (importOriginal) => ({
 }));
 vi.mock("../hooks/useMobileUx", async (importOriginal) => ({
   ...await importOriginal<typeof import("../hooks/useMobileUx")>(),
-  useMobileUx: () => false,
+  useMobileUx: () => h.mobile,
 }));
 vi.mock("../hooks/useAgents", async (importOriginal) => ({
   ...await importOriginal<typeof import("../hooks/useAgents")>(),
@@ -77,6 +77,7 @@ const lastQuery = () => directorQueryString(h.calls[h.calls.length - 1]!);
 
 beforeEach(() => {
   h.calls = [];
+  h.mobile = false;
   // Шторка снимает блокировку прокрутки через window.scrollTo — в jsdom его нет.
   window.scrollTo = (() => {}) as typeof window.scrollTo;
 });
@@ -101,6 +102,35 @@ describe("«Аналитика» на главной против прежнег
     within(root).getByRole("button", { name: /Фильтры/ });
     // Период — те же шесть вариантов.
     expect(within(root).getAllByRole("radio").map((r) => r.textContent)).toEqual(["День", "Неделя", "Месяц", "Квартал", "Год", "Свои даты"]);
+  });
+
+  it("телефон: ни одного списка браузера, сортировка менеджеров — шторкой, в карточке главные числа и «Ещё»", () => {
+    h.mobile = true;
+    h.royal = false;
+    const old = wrap(<DirectorDashboard />);
+    // Страница /director без нового вида — как была: список сортировки на месте.
+    expect(old.getByTestId("director-dashboard").querySelectorAll("select").length).toBeGreaterThan(0);
+    const oldCard = old.container.querySelector(".dd-agent-card") as HTMLElement;
+    const oldStats = [...oldCard.querySelectorAll("dt")].map((d) => d.textContent);
+    cleanup();
+    h.royal = true;
+    wrap(<DirectorDashboardBlock />);
+    const root = screen.getByTestId("director-dashboard");
+    expect(root.querySelector("select")).toBeNull();
+    fireEvent.click(within(root).getByRole("button", { name: /Сортировка: Сделки/ }));
+    const sheet = screen.getByRole("dialog");
+    fireEvent.click(within(sheet).getByRole("radio", { name: "Заявки" }));
+    fireEvent.click(within(sheet).getByRole("radio", { name: "По возрастанию" }));
+    // Стрелки переходят по вариантам радиогруппы.
+    fireEvent.keyDown(within(sheet).getByRole("radio", { name: "По возрастанию" }), { key: "ArrowLeft" });
+    expect(within(sheet).getByRole("radio", { name: "По убыванию" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Готово" }));
+    within(root).getByRole("button", { name: /Сортировка: Заявки, по убыванию/ });
+    // Карточка: заявки, сделки, комиссия (деньги видны), просрочено — и «Ещё», ничего не теряется.
+    const card = root.querySelector(".dd-agent-card") as HTMLElement;
+    expect([...card.querySelectorAll("dt")].map((d) => d.textContent)).toEqual(["Заявки", "Сделки", "Комиссия", "Просрочено"]);
+    fireEvent.click(within(card).getByRole("button", { name: /Ещё 7 показателей/ }));
+    expect([...card.querySelectorAll("dt")].map((d) => d.textContent).sort()).toEqual([...oldStats].sort());
   });
 
   it("шторка «Фильтры» даёт тот же запрос, что прежние списки", () => {

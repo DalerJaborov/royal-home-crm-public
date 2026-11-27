@@ -138,12 +138,17 @@ describe("главная руководителя как в макете", () =>
     const tiles = container.querySelector('[data-block-body="tiles"]') as HTMLElement;
     within(tiles).getByText("Ждут ответа");
     within(tiles).getByText("Горит");
+    // Ноль — спокойные светлые плитки той же формы, а не лайм и чёрная (решение 27.11, правило 20.11).
+    expect([...tiles.querySelectorAll(".h2-tile")].map((t) => t.getAttribute("data-variant"))).toEqual(["calm", "calm"]);
+    expect(within(tiles).getAllByText("всё спокойно")).toHaveLength(2);
     // Нулевые «пропущенные» и «ждут принятия» строками не ставятся.
     expect(tiles.textContent).not.toContain("Пропущенные звонки");
     screen.getByText("Решений нет");
     screen.getByText("Всё спокойно");
     screen.getByText("За месяц заявок нет");
     screen.getByText("Потеряно");
+    // «Потеряно» считается без фильтров «Аналитики» — подпись честно говорит, за что.
+    screen.getByText("за месяц, все менеджеры и источники");
     // Скорости нет — нет медианы: блока нет, а не «0 мин».
     expect(container.querySelector('[data-block-body="speed"]')).toBeNull();
     expect(screen.queryByText("Не загрузилось")).toBeNull();
@@ -200,8 +205,13 @@ describe("главная руководителя как в макете", () =>
     expect(tiles.textContent).toContain("дольше всех 40 мин");
     expect(tiles.textContent).toContain("Пропущенные звонки");
     expect(tiles.textContent).toContain("время вышло: 1");
+    // Больше нуля — цвета макета: лайм «Ждут ответа», чёрная «Горит».
+    expect([...tiles.querySelectorAll(".h2-tile")].map((t) => t.getAttribute("data-variant"))).toEqual(["brand", "ink"]);
     const speed = container.querySelector('[data-block-body="speed"]') as HTMLElement;
     expect(speed.textContent).toContain("13");
+    // Шкала — за вчера, и подпись это говорит; нажатие ведёт к «Скорости ответа» в «Аналитике».
+    expect(speed.textContent).toContain("Ответ вчера");
+    expect(speed.getAttribute("href")).toBe("#dd-speed");
     expect(speed.textContent).toContain("быстрее часа");
     expect(speed.textContent).toContain("без ответа 2");
     const sources = container.querySelector('[data-block-body="sources"]') as HTMLElement;
@@ -209,6 +219,29 @@ describe("главная руководителя как в макете", () =>
     // Пятый источник не пропал: строкой «Другие источники».
     expect(sources.textContent).toContain("Другие источники");
     expect(sources.textContent).toContain("7");
+  });
+
+  it("первая линия не посчиталась — «Горит» говорит «не загрузилось», а не пропадает", () => {
+    h.mc = ready({ ...EMPTY_MC, firstLine: { error: true } });
+    const { container } = renderHome();
+    const tiles = container.querySelector('[data-block-body="tiles"]') as HTMLElement;
+    within(tiles).getByText("Горит");
+    within(tiles).getByText("не загрузилось");
+    within(tiles).getByText("Не загрузилось");
+  });
+
+  it("РОП: «Просрочки агентов» ведут к «Команде» на главной, только когда она нарисована", () => {
+    h.role = "HEAD_OF_SALES";
+    const agent = { id: "g1", fullName: "Мадина Каримова", avatarUrl: null, activeLoad: 2, pendingAccept: 0, acceptedToday: 0, buyerCount: 0, sellerCount: 0, overdueTasks: 3 };
+    h.mc = ready({ ...EMPTY_MC, team: { agents: [agent] } });
+    let view = renderHome();
+    const link = () => view.container.querySelector('[data-block-body="tiles"]')!.querySelector("a[href*='team'], a[href*='crew']")!.getAttribute("href");
+    expect(link()).toBe("#ry-leader-crew");
+    // «Команда» выключена в «Оформлении» — ссылка ведёт в раздел, а не в пустоту.
+    cleanup();
+    h.hidden = ["crew"];
+    view = renderHome();
+    expect(link()).toBe("/team");
   });
 
   it("личные выключатели и порядок «Оформления» действуют на верхнюю часть, «Аналитика» остаётся", () => {

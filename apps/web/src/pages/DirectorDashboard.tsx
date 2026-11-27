@@ -197,7 +197,7 @@ function DirectorScreen({ role, embedded = false }: { role: string | undefined; 
         {rangeError ? null : view !== "ready" ? (
           <RhBlockState kind={view} onRetry={() => void query.refetch()} />
         ) : data ? (
-          <DirectorBlocks data={data} order={order} mobile={mobile} onDrill={(key, label) => setDrill({ key, label })} canDrill={canDrill}
+          <DirectorBlocks data={data} order={order} mobile={mobile} compact={embedded} onDrill={(key, label) => setDrill({ key, label })} canDrill={canDrill}
             settingsTo={can("settings.manage") ? "/settings?tab=money" : undefined} />
         ) : null}
         {!rangeError && query.isError && data && <p className="dd-quiet" role="status">Не удалось обновить, показаны прежние цифры.</p>}

@@ -166,11 +166,13 @@ export function PulseTiles({ role }: { role: string }) {
       title="Ждут принятия" sub={late > 0 ? `время вышло: ${num(late)}` : "заявки у агентов"} subTone={late > 0 ? "crit" : undefined}
       right={<b className="ry-num ry-count">{num(unaccepted)}</b>} />,
   );
+  // «Команда» на этой главной рисуется, только если не выключена, есть раздел «Команда» и есть агенты (CrewBlock).
+  const crewShown = !hidden.has("crew") && d.hasRoute("/team") && !!d.team && Array.isArray(d.team.agents) && d.team.agents.length > 0;
   if (rop && overdue > 0) rows.push(
-    <RhRow key="overdue" to={hidden.has("crew") ? (d.hasRoute("/team") ? "/team" : undefined) : "#ry-leader-crew"} lead={<RhCircle icon="hourglass" tone={pillTone("today")} />}
+    <RhRow key="overdue" to={crewShown ? "#ry-leader-crew" : d.hasRoute("/team") ? "/team" : undefined} lead={<RhCircle icon="hourglass" tone={pillTone("today")} />}
       title="Просрочки агентов" sub="задачи после срока" right={<b className="ry-num ry-count">{num(overdue)}</b>} />,
   );
-  if (!waiting && burning === null && rows.length === 0) {
+  if (!waiting && burning === null && !d.firstLineBroken && rows.length === 0) {
     return view === "error" ? blockState(d.mc) : null;
   }
   const burnTo = d.firstLine && d.firstLine.items.length > 0 && !hidden.has("burning") ? "#ry-burning" : d.hasRoute("/oversight") ? "/oversight" : undefined;
@@ -178,14 +180,18 @@ export function PulseTiles({ role }: { role: string }) {
     <div className="h2-pulse" data-block-body="tiles">
       <div className="h2-tiles">
         {waiting && (
-          <Tile variant="brand" icon="message-circle" label="Ждут ответа" value={num(waiting.count)}
-            note={waiting.count > 0 && oldest !== null ? `дольше всех ${waitLabel(oldest)}` : "клиенты в чатах"}
+          <Tile variant={waiting.count > 0 ? "brand" : "calm"} icon="message-circle" label="Ждут ответа" value={num(waiting.count)}
+            note={waiting.count > 0 ? (oldest !== null ? `дольше всех ${waitLabel(oldest)}` : "клиенты в чатах") : "всё спокойно"}
             to={d.hasRoute("/messages") ? "/messages" : undefined} />
         )}
-        {burning !== null && (
-          <Tile variant="ink" icon="flame" label="Горит" value={num(burning)} note={burning > 0 ? "срочное сейчас" : "всё спокойно"} to={burnTo} />
-        )}
+        {burning !== null ? (
+          <Tile variant={burning > 0 ? "ink" : "calm"} icon="flame" label="Горит" value={num(burning)} note={burning > 0 ? "срочное сейчас" : "всё спокойно"} to={burnTo} />
+        ) : d.firstLineBroken ? (
+          // Первая линия не посчиталась — не «всё спокойно» и не пропажа плитки: так и говорим.
+          <Tile variant="calm" icon="flame" label="Горит" value="—" note="не загрузилось" />
+        ) : null}
       </div>
+      {d.firstLineBroken && <RhBlockState kind="error" onRetry={() => void d.mc.refetch()} />}
       {rows.length > 0 && <RhGroup label="Ещё срочно">{rows}</RhGroup>}
       {/* Живая сводка не пришла — «ждут принятия» неизвестно: говорим это, а не молчим. */}
       {loadView(live) === "error" && <RhBlockState kind="error" onRetry={() => void live.refetch()} />}
@@ -193,7 +199,11 @@ export function PulseTiles({ role }: { role: string }) {
   );
 }
 
-function Tile({ variant, icon, label, value, note, to }: { variant: "brand" | "ink"; icon: RoyalIconName; label: string; value: string; note: string; to?: string }) {
+/**
+ * Плитка макета. Цвет — по смыслу (решение владельца 27.11, правило 20.11 «ноль — серым»): лайм и
+ * чёрная — только когда число больше нуля; ноль — спокойная светлая плитка той же формы.
+ */
+function Tile({ variant, icon, label, value, note, to }: { variant: "brand" | "ink" | "calm"; icon: RoyalIconName; label: string; value: string; note: string; to?: string }) {
   const inner = <>
     <span className="h2-tile-label"><RoyalIcon name={icon} size={24} />{label}</span>
     <span className="h2-tile-value ry-num">{value}</span>
@@ -241,7 +251,7 @@ export function QuickActions() {
 }
 
 /**
- * «Скорость ответа» — шкала макета на настоящем числе: медиана первого ответа за вчера (снимок
+ * «Ответ вчера» (блок «Скорость ответа» макета) — шкала на настоящем числе: медиана первого ответа за вчера (снимок
  * пульта). Шкала — час, потому что «дольше часа» — уже существующий в CRM порог долгого ответа
  * (утренняя сводка); нормы «15 мин» в CRM нет, и на экране её нет. Нет медианы — нет блока.
  */
@@ -254,9 +264,13 @@ export function SpeedGauge() {
   const none = d.hero.firstResponse.noneCountYesterday;
   const knob = gaugePoint(gauge.share);
   return (
-    <section className="h2-speed" aria-label="Скорость ответа" data-block-body="speed">
-      <span className="h2-speed-label"><RoyalIcon name="gauge" size={26} />Скорость ответа</span>
-      <div className="h2-gauge" role="img" aria-label={`Первый ответ вчера: обычно ${minutes} мин, ${gauge.verdict}`}>
+    // Шкала — за ВЧЕРА (снимок пульта), а «Скорость ответа» в «Аналитике» — за выбранный период:
+    // подпись говорит «вчера», нажатие ведёт к подробностям ниже.
+    <a href="#dd-speed" className="h2-speed" data-block-body="speed"
+      aria-label={`Ответ вчера: обычно ${minutes} мин, ${gauge.verdict}${none > 0 ? `, без ответа ${none}` : ""}. Подробнее — в «Аналитике»`}
+      onClick={(event) => { event.preventDefault(); document.getElementById("dd-speed")?.scrollIntoView({ block: "start" }); }}>
+      <span className="h2-speed-label"><RoyalIcon name="gauge" size={26} />Ответ вчера</span>
+      <div className="h2-gauge" aria-hidden="true">
         <svg viewBox="0 0 200 112" aria-hidden="true">
           <path className="h2-gauge-track" pathLength={100} d="M20 100A80 80 0 0 1 180 100" />
           <path className="h2-gauge-fill" data-tone={gauge.tone} pathLength={100} d="M20 100A80 80 0 0 1 180 100" style={{ strokeDasharray: `${gauge.share * 100} 100` }} />
@@ -266,9 +280,9 @@ export function SpeedGauge() {
       </div>
       <span className="h2-speed-foot">
         <span className="h2-chip" data-tone={gauge.tone}>{gauge.verdict}</span>
-        <span>вчера, обычно{none > 0 ? ` · без ответа ${num(none)}` : ""}</span>
+        <span>первый ответ, обычно{none > 0 ? ` · без ответа ${num(none)}` : ""}</span>
       </span>
-    </section>
+    </a>
   );
 }
 
@@ -328,7 +342,8 @@ type SourcePeriod = "week" | "month";
 /**
  * «Заявки» макета — столбики по источникам за неделю или месяц и строка «Потеряно». Числа —
  * из сводки дашборда (тот же запрос и кэш, что у «Аналитики» ниже, без фильтров), «Потеряно» —
- * сумма причин отказа за тот же период и ведёт к их разбору в «Аналитике».
+ * сумма причин отказа за тот же период БЕЗ фильтров (подпись так и говорит: у «Аналитики» ниже период
+ * и фильтры могут быть другими) и ведёт к разбору причин там.
  */
 export function SourcesColumns() {
   const role = useAuthStore((s) => s.agent?.role);
@@ -381,7 +396,7 @@ export function SourcesColumns() {
               right={<b className="ry-num ry-count">{num(cols.restLeads)}</b>} />
           )}
           <RhRow to="#dd-reasons" lead={<RhCircle icon="x-circle" tone={lost > 0 ? pillTone("overdue") : "a0"} filled={lost > 0} />}
-            title="Потеряно" subTone={lost > 0 ? "crit" : undefined} sub={lost > 0 ? "почему — в «Аналитике» ниже" : "отказов нет"}
+            title="Потеряно" sub={`${period === "week" ? "за неделю" : "за месяц"}, все менеджеры и источники${lost > 0 ? " · почему — в «Аналитике»" : ""}`}
             right={<b className="ry-num ry-count" data-tone={lost > 0 ? pillTone("overdue") : undefined}>{num(lost)}</b>} />
         </div>
       ))}

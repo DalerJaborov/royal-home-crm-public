@@ -80,6 +80,9 @@
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile[data-variant="brand"] { background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile[data-variant="ink"] { background: var(--rh-ui-ink-tile); color: var(--rh-ui-ink-tile-fg); box-shadow: inset 0 0 0 1px var(--rh-ui-ink-tile-ring); }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile[data-variant="ink"] .h2-tile-value { color: var(--rh-ui-ink-tile-num); }
+/* Ноль — спокойная светлая плитка той же формы (решение владельца 27.11, правило 20.11 «ноль — серым»). */
+:root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile[data-variant="calm"] { background: var(--rh-ui-raised); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-ring); }
+:root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile[data-variant="calm"] .h2-tile-value { color: var(--rh-ui-hint); }
 :root[data-ui-look="royal"] [data-ry-section="home2"] a.h2-tile:active { transform: scale(.98); }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-tile-label { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--rh-fs-md); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
@@ -110,6 +113,9 @@
   display: grid; gap: 8px; min-width: 0; padding: 20px; border-radius: var(--rh-r-lg);
   background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow), 0 0 0 1px var(--rh-ui-ring);
 }
+:root[data-ui-look="royal"] [data-ry-section="home2"] a.h2-speed { text-decoration: none; transition: transform 90ms cubic-bezier(.23, 1, .32, 1); }
+:root[data-ui-look="royal"] [data-ry-section="home2"] a.h2-speed:active { transform: scale(.98); }
+:root[data-ui-look="royal"] [data-ry-section="home2"] a.h2-speed:focus-visible { outline: 3px solid var(--rh-ui-primary); outline-offset: 2px; }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-speed-label { display: flex; align-items: center; gap: 10px; font-size: var(--rh-fs-lg); font-weight: 600; }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-gauge { position: relative; width: min(100%, 250px); margin: 6px auto 0; padding-bottom: 4px; }
 :root[data-ui-look="royal"] [data-ry-section="home2"] .h2-gauge svg { display: block; width: 100%; overflow: visible; }
@@ -252,3 +258,8 @@
 /* Цвет по смыслу: причины отказа — потери, полосой срочного цвета; воронка — основным синим. */
 :root[data-ui-look="royal"] [data-ry-section="home2"] [data-ry-section="director"] .dd-reason .dd-bar > span { background: var(--rh-ui-crit); }
 :root[data-ui-look="royal"] [data-ry-section="home2"] [data-ry-section="director"] .dd-bar { height: 12px; }
+
+/* Менеджеры на телефоне: сортировка — кнопкой со шторкой (как «Фильтры»), в карточке главные
+   числа и «Ещё» (остальные раскрываются на месте). */
+:root[data-ui-look="royal"] [data-ry-section="home2"] [data-ry-section="director"] .dd-agent-card > .ry-btn.h2-more-btn { justify-self: start; min-height: 44px; margin: -4px 0 -4px -12px; font-size: var(--rh-fs-sm); }
+:root[data-ui-look="royal"] [data-ry-section="home2"] [data-ry-section="director"] .dd-agent-grid dd { font-variant-numeric: tabular-nums; }

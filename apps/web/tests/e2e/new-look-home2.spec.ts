@@ -73,6 +73,10 @@ for (const role of ROLES) {
     await sheet.getByRole("radio", { name: "Покупатели" }).click();
     await sheet.getByRole("button", { name: "Готово" }).click();
     await expect(analytics.getByText("Клиенты: Покупатели")).toBeVisible();
+    // Телефон: и в «Менеджерах» серых списков браузера нет — сортировка кнопкой со шторкой, в карточке «Ещё».
+    await expect(analytics.locator("select")).toHaveCount(0);
+    await expect(analytics.getByRole("button", { name: /^Сортировка:/ })).toBeVisible();
+    await expect(analytics.locator(".dd-agent-card").first().getByRole("button", { name: /^Ещё \d+/ })).toBeVisible();
     await expectNoOverflowAt(page, 390, CHECK, { strips: ".dd-table-wrap, .dd-filters .ry-seg", textRoot: '[data-ry-section="home2"]' });
     expect(errors).toEqual([]);
     await context.close();
