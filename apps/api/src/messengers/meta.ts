@@ -1061,11 +1061,55 @@ export function whatsappInteractiveReplyText(msg: WhatsAppIncomingMessage): stri
 /** Заказ из каталога словами: текст человека и позиции. undefined — пустой заказ. */
 export function whatsappOrderText(msg: WhatsAppIncomingMessage): string | undefined {
   if (msg.type !== "order" || !msg.order) return undefined;
+  // id товара в нашем каталоге — номер объекта (lib/metaCatalogFeed.ts: home_listing_id = shortId). Словами «объект №N»
+  // его узнают те же правила, что номер, набранный клиентом (27.11.2026): заказ из каталога доходит до хозяина объекта.
   const items = (msg.order.product_items ?? [])
-    .map((p) => (p.product_retailer_id ? `${p.product_retailer_id}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}` : null))
+    .map((p) => {
+      const id = p.product_retailer_id?.trim();
+      if (!id) return null;
+      const label = /^\d{1,7}$/.test(id) ? `объект №${id}` : id;
+      return `${label}${p.quantity && Number(p.quantity) !== 1 ? ` ×${p.quantity}` : ""}`;
+    })
     .filter(Boolean);
   const parts = [msg.order.text?.trim(), items.length ? `🛒 Заказ из каталога: ${items.join(", ")}` : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+/**
+ * СЛУЖЕБНОЕ УВЕДОМЛЕНИЕ САМОЙ META ПО ТЕКСТУ (27.11.2026, живой случай: на втором номере WhatsApp
+ * пришло «Continue setting up your account…» — напоминание Meta о настройке Business-аккаунта
+ * приходит обычным `text` от служебного отправителя; бот принял его за клиента, ответил
+ * «номер получил, агент позвонит» и завёл карточку покупателя).
+ *
+ * У такого сообщения нет структурного признака (type=text, отправитель — обычный wa_id), поэтому
+ * ловим ТОЛЬКО точные известные начала уведомлений Meta. Якорь `^` — фраза должна начинать
+ * сообщение: клиент, цитирующий её внутри своего текста, под сторожа не попадает. Список
+ * намеренно узкий: ложный отброс настоящего клиента хуже одного лишнего ответа. Новое
+ * уведомление Meta — дописать фразу сюда, это одно место для WhatsApp, Instagram и Messenger
+ * (parseIncoming — общая дверь вебхука и ядра клиентского бота).
+ */
+const META_SERVICE_NOTICE_RE: RegExp[] = [
+  /^\s*continue setting up your (whatsapp business )?account/i,
+  /^\s*finish setting up your (whatsapp business )?account/i,
+  /^\s*complete (the setup of )?your whatsapp business (account|profile)/i,
+  /^\s*your whatsapp business (account|platform|api)/i,
+  /^\s*get started with the whatsapp business (app|platform|api)/i,
+];
+
+export function metaServiceNoticeReason(text: string | undefined | null): string | null {
+  if (!text) return null;
+  const head = text.slice(0, 200);
+  return META_SERVICE_NOTICE_RE.some((re) => re.test(head)) ? "уведомление Meta о настройке аккаунта" : null;
+}
+
+/** Служебное уведомление Meta мимо бота: одна строка в журнал ошибок (по отправителю — раз в сутки). */
+function logMetaServiceNotice(channel: MetaChannel, from: string, messageId: string | undefined, reason: string): void {
+  console.log(`[вебхук] ${channel}: служебное уведомление Meta мимо бота (${reason}) id=${messageId ?? "?"}`);
+  void logSystemError(
+    "meta",
+    `${channel}: ${reason} от ${from} принято как служебное и не передано боту (клиента и заявки не создано)`,
+    { dedupKey: `meta-service-notice:${channel}:${from}` }
+  );
 }
 
 export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""),
@@ -1128,6 +1172,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
               `[вебхук] WHATSAPP: служебное событие мимо бота (${serviceReason}) type=${msg.type ?? "?"}` +
                 ` id=${msg.id ?? "?"} context=${msg.context?.id ?? "-"}`
             );
+            continue;
+          }
+          const noticeReason = metaServiceNoticeReason(msg.text?.body ?? msg.button?.text);
+          if (noticeReason) {
+            logMetaServiceNotice("WHATSAPP", from, msg.id, noticeReason);
             continue;
           }
           // Кнопка под одобренным текстом — это ответ словами («Да, присылайте»), а
@@ -1204,7 +1253,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
             messageId: msg.id,
             replyToMessageId: msg.context?.id,
             fromAd: Boolean(msg.referral),
-            adId: msg.referral?.source_id,
+            // source_type «post» — переход с публикации, а не с объявления: source_id тогда номер поста, и искать его
+            // среди объявлений бесполезно — он идёт тем путём, что номер поста рекламы (adPostId, 27.11.2026).
+            ...(msg.referral?.source_type === "post" && msg.referral.source_id && /^[\d_]{5,}$/.test(msg.referral.source_id)
+              ? { adPostId: msg.referral.source_id }
+              : { adId: msg.referral?.source_id }),
             // ctwa_clid клика (04.10.2026): только для будущей отдачи событий в Meta, пока лишь хранится.
             adClickId: msg.referral?.ctwa_clid || undefined,
             adRef: [msg.referral?.headline, msg.referral?.body].filter(Boolean).join(" ") || undefined,
@@ -1346,6 +1399,11 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           ? templateAttachmentText(attachment?.payload)
           : "";
       const typedText = event.message.text ?? "";
+      const noticeReason = metaServiceNoticeReason(typedText);
+      if (noticeReason) {
+        logMetaServiceNotice(channel, senderId, event.message.mid, noticeReason);
+        continue;
+      }
       const ownText =
         fallbackUrl && !typedText.includes(fallbackUrl) ? [typedText, fallbackUrl].filter(Boolean).join(" ") : typedText;
       const text = templateText ? [ownText, `📋 ${templateText}`].filter(Boolean).join("\n") : ownText;

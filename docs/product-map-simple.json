@@ -16,10 +16,10 @@
   "paths": 789,
   "cron": 147,
   "jobs": 37,
-  "conditions": 4336,
-  "untranslatedUnique": 499,
-  "untranslatedTotal": 641,
-  "partialUnique": 1148,
+  "conditions": 4335,
+  "untranslatedUnique": 498,
+  "untranslatedTotal": 640,
+  "partialUnique": 1147,
   "translatedShare": 85
  },
  "untranslated": [
@@ -467,7 +467,6 @@
   "row.groupChatId && row.groupChatId !== settings.discussionGroupId",
   "row.status !== status",
   "row.type in byType",
-  "row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
   "row?.factsInputHash === inputHash",
   "scheduledAt.getTime() > now.getTime()",
   "scopeAgentId && !(await contactProfileBelongsTo(req.params.id, scopeAgentId))",
@@ -71226,6 +71225,70 @@
        ]
       }
      ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: held",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: отсутствует количество",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть already",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть fetched или есть held",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -74674,20 +74737,6 @@
        "a": [],
        "c": [
         {
-         "t": "внутри этого шага",
-         "k": "do",
-         "a": [],
-         "c": [
-          {
-           "t": "если added больше 0",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        },
-        {
          "t": "если found количество — «0»",
          "k": "if",
          "a": [],
@@ -74705,29 +74754,7 @@
          "a": [],
          "c": [
           {
-           "t": "если нет: eligible",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "row.unanswered ? acceptedUnanswered >= MAX_UNANSWERED_ACCEPTS_PER_TICK : accepted >= MAX_AUTO_ACCEPTS_PER_TICK",
-           "more": true
-          },
-          {
-           "t": "если taken tails содержит есть tail",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если ответ — «reviewer»",
+           "t": "если нет: можно take itself",
            "k": "if",
            "a": [],
            "c": [],
@@ -74742,13 +74769,6 @@
           },
           {
            "t": "если ответ — «accepted_other»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если есть unanswered и ответ — «declined»",
            "k": "if",
            "a": [],
            "c": [],

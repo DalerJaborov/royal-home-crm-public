@@ -247,12 +247,21 @@ describe("Переписка по своему объекту до оформл�
     expect((row.messages as unknown[]).length).toBe(1);
   });
 
-  it("следующие сообщения без заявки записываются в ленту, даже без push-подписки", async () => {
+  it("без заявки по умолчанию хозяину ничего (владелец 27.11: «просто интересуется… отключи»)", async () => {
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton" }, update: { notifyOwnerBeforeLeadEnabled: false } });
+    await notifyPropertyChatMessage(anonymousId);
+    await new Promise(r => setTimeout(r, 300));
+    expect(await prisma.notification.count({ where: { tag: `property-chat-message-${anonymousId}` } })).toBe(0);
+  });
+
+  it("рубильник ВКЛ: следующие сообщения без заявки записываются в ленту, даже без push-подписки", async () => {
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", notifyOwnerBeforeLeadEnabled: true }, update: { notifyOwnerBeforeLeadEnabled: true } });
+    try {
     const tag = `property-chat-message-${anonymousId}`;
     await notifyPropertyChatMessage(anonymousId);
     await waitForCount(() => prisma.notification.count({ where: { tag } }), 1);
     const note = await prisma.notification.findFirstOrThrow({ where: { tag, agentId: ownerId } });
-    expect(note.kind).toBe("message");
+    expect(note.kind).toBe("property_interest");
     expect(note.url).toBe(`/messages?open=${anonymousId}`);
     await notifyPropertyChatMessage(anonymousId);
     await waitFor(() => prisma.notification.findFirst({ where: { id: note.id } }).then(n => n?.count === 2));
@@ -260,6 +269,9 @@ describe("Переписка по своему объекту до оформл�
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: note.id } })).count).toBe(2);
     await notifyPropertyChatMessage(foreignId);
     expect(await prisma.notification.count({ where: { tag: `property-chat-message-${foreignId}` } })).toBe(0);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { notifyOwnerBeforeLeadEnabled: false } });
+    }
   });
 
   it("отказ отправки не откатывает чужую паузу после A→B→A с теми же датами", async () => {
@@ -306,7 +318,13 @@ describe("Переписка по своему объекту до оформл�
     expect((await authGet(`/conversations/${id}`, token)).status).toBe(404);
     const otherPropertyId = claimed.propertyChatAgentId === ownerId ? second.id : propertyId;
     const otherOwnerId = claimed.propertyChatAgentId === ownerId ? otherId : ownerId;
-    await noticeOwnerOfConversationInterest({ conversationId: id, propertyId: otherPropertyId });
+    // Пуш до заявки с 27.11 по умолчанию выключен (notifyOwnerBeforeLeadEnabled); здесь проверяется его текст — включаем.
+    await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", notifyOwnerBeforeLeadEnabled: true }, update: { notifyOwnerBeforeLeadEnabled: true } });
+    try {
+      await noticeOwnerOfConversationInterest({ conversationId: id, propertyId: otherPropertyId });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { notifyOwnerBeforeLeadEnabled: false } });
+    }
     const tag = `interest-conv-${id}-${otherPropertyId}`;
     await waitForCount(() => prisma.notification.count({ where: { tag } }), 1);
     const note = await prisma.notification.findFirstOrThrow({ where: { tag, agentId: otherOwnerId } });

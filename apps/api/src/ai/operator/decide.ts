@@ -87,6 +87,46 @@ export function operatorLeadNote(s: OperatorState, u: Understanding, ctx: Operat
   return parts.join(". ").slice(0, 600);
 }
 
+/** Фразы, которыми бот объявляет заявку принятой в ЭТОМ разговоре (decide.ts::leadMessage). */
+const LEAD_ANNOUNCE_KEYS: readonly PhraseKey[] = ["lead_and_details_seller", "lead_and_details_buyer", "lead_and_details_missing",
+  "lead_known_phone", "lead_callback", "lead_callback_time", "lead_text_only", "phone_received", "out_of_area_accepted"];
+
+/** Вопросы, которые сами по себе — дело к агенту (цена, объект, условия, «когда позвонят», «позовите человека»). */
+const BUSINESS_QUESTIONS: ReadonlySet<Understanding["question"]> = new Set(["fee", "property_price", "property_other", "status", "staff"]);
+
+/**
+ * Ход по делу: роль, номер, детали, объект, время звонка, вложение, вопрос к агенту (27.11.2026). «Кто вы?», «часы работы»,
+ * «где работаете?» бот отвечает сам и делом не считает; отрицание просьбы («какой дархост, я ничего не сказал») — тоже не дело.
+ */
+function businessMove(u: Understanding): boolean {
+  if (u.deniesRequest) return false;
+  return !!(u.phone || u.role || u.hasDetails || u.outsidePlace || u.bargain || u.showing || u.callback.when || u.callback.textOnly ||
+    u.callback.noCall || u.attachments.media || u.attachments.ownPost || u.attachments.voice !== "none" || u.aboutThisProperty ||
+    u.placeQuestion || u.propertyFacts || u.priceAsked || u.stockQuestion || u.installmentQuestion || u.nextStepQuestion ||
+    u.photoRequest || u.agentTopic || u.rude || u.complaint || BUSINESS_QUESTIONS.has(u.question) ||
+    (u.question === "other" && u.hasText && /[?؟]/u.test(u.quote)));
+}
+
+/**
+ * Пустой ход для заявки (27.11.2026): приветствие, одинокий «?», «кто вы?», «какой дархост, я ничего не сказал» — слова без дела.
+ * «Ок», «спасибо», смайлик, вложение без слов сюда не входят: у них свой путь (тишина, «пожалуйста», реакция).
+ */
+function emptyMove(u: Understanding): boolean {
+  if (businessMove(u)) return false;
+  return (u.hasText && !u.ackOnly && !u.thanksOnly) || (/^[?？]+$/u.test(u.quote.trim()) && !u.attachments.foreignPost);
+}
+
+/**
+ * У заявки есть суть В ЭТОЙ переписке: клиент здесь уже говорил по делу (флаг `leadHere`), бот здесь объявил заявку, роль
+ * известна, или переписку ведёт сотрудник. Память до правки 27.11.2026 флага не знает — тогда по роли и объявленной заявке:
+ * «заявка принята» с ролью «неизвестно» и без единой фразы о заявке — это карточка из другого места, а не просьба здесь.
+ */
+function leadSubjectHere(s: OperatorState, ctx: OperatorContext): boolean {
+  if (ctx.staffThread) return true;
+  if (!s.leadAccepted) return false;
+  return s.flags.leadHere === true || s.role !== "unknown" || LEAD_ANNOUNCE_KEYS.some(key => (s.spoken[key] ?? 0) > 0);
+}
+
 function leadRole(role: OperatorRole): "buyer" | "seller" | null {
   return role === "seller" ? "seller" : role === "buyer" || role === "buyer_property" ? "buyer" : null;
 }
@@ -171,7 +211,19 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   };
 
   // ── факты хода в память ────────────────────────────────────────────────────
-  if (ctx.leadExists && !s.leadAccepted) { s.leadAccepted = true; s.step = "done"; }
+  // КАРТОЧКА У ПЕРЕПИСКИ — ЕЩЁ НЕ ЗАЯВКА ЭТОГО РАЗГОВОРА (живой случай 27.11.2026, 1a59f7b1: первое «Салом алейкум» на второй
+  // номер WhatsApp «Арван» получило «Дархостатон назди агент аст», клиент: «Какой дархост, я же ничего ещё не сказал»).
+  // Карточку к переписке привязывают звонок, соседняя переписка того же номера (#480), другая страница, агент руками; память
+  // «заявка принята» от этого ставилась на ПЕРВОМ же ходе, и голое приветствие получало «ваша заявка у агента». Теперь пустой
+  // ход (приветствие, одинокий «?», «кто вы?», «какой дархост?») в переписке, где по сути ещё ничего не сказано, идёт обычным
+  // путём: приветствие и «чем помочь: купить или продать?». Ход по делу — прежний путь карточки (пометка агенту, без второй
+  // заявки). Одно место на все каналы и оба номера: контекст собирает lib/operatorTurn.ts для ядра и для старого пути.
+  if (ctx.leadExists) {
+    if (emptyMove(u) && !leadSubjectHere(s, ctx)) {
+      if (s.leadAccepted) { s.leadAccepted = false; if (s.step === "done") s.step = "start"; }
+    } else if (!s.leadAccepted) { s.leadAccepted = true; s.step = "done"; if (businessMove(u)) s.flags.leadHere = true; }
+    else if (businessMove(u)) s.flags.leadHere = true;
+  }
   // Карточку удалили (или заявка так и не завелась), а память говорит «заявка принята»: клиент — снова новый. Роль, язык
   // и детали остаются, шаг и счётчики вопросов — с начала (ревью 19.11, Р1). Пока задание приёма в очереди — не трогаем.
   if (!ctx.leadExists && !ctx.leadPending && s.leadAccepted) {
@@ -312,6 +364,14 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
   if (s.leadAccepted) {
     // Вопрос о работе и после заявки ведёт путь рекрутёра, а не тишина (живой прогон 19.11, перенесено).
     if (u.role === "job" && ctx.recruiterPath) { answers.length = 0; flow.length = 0; handoff = "recruiter"; return finish(); }
+    // «Какой дархост, я же ничего ещё не сказал» (27.11.2026): ни «напомнил агенту», ни «заявка у агента» — приглашение написать,
+    // чем помочь; агенту — тихая пометка в карточку (без сигнала руководству), чтобы он не звонил вслепую.
+    if (u.deniesRequest && !u.phone && !u.hasDetails && !u.role) {
+      actions.push({ type: "append_note", note: `Клиент пишет, что ни о чём не просил: «${u.quote}»`, phone: null });
+      if (ctx.staffActive) yielded = true;
+      else if (!said("greet_continue")) flow.push(draft("greet_continue"));
+      return finish();
+    }
     const extra = ctx.afterLeadReplies !== false;
     answerQuestions();
     // Продавцу комиссию называем сами один раз — только если продавцом он назвался сам (не по рекламе «для собственников»).
@@ -649,7 +709,10 @@ export function decide(prev: OperatorState, u: Understanding, ctx: OperatorConte
     // Ипотека, документы без роли: «расскажет агент» — пока не обещание без пути к агенту; сначала вопрос о роли, фраза про
     // агента — вместе с предложением звонка или просьбой номера (ревью #358).
     if (u.agentTopic) s.flags.agentTopicPending = true;
-    flow.push(draft("ask_role")); s.asked.role += 1; s.step = "role";
+    // Первое слово бота в переписке на номере или странице ОТДЕЛЬНОГО бренда («Арван», 27.11.2026): клиент должен понять, куда
+    // написал, — вопрос «купить или продать?» от имени бренда. Основной бренд — прежний вопрос.
+    const firstWord = s.asked.role === 0 && Object.values(s.spoken).every(count => !count);
+    flow.push(firstWord && ctx.ownBrand ? draft("ask_role_brand", { brand: ctx.brandName }) : draft("ask_role")); s.asked.role += 1; s.step = "role";
     return finish();
   }
 
@@ -774,7 +837,7 @@ function acceptLeadSilently(s: OperatorState, u: Understanding, ctx: OperatorCon
   actions.push({ type: "accept_lead", role: leadRole(s.role), propertyId: s.role === "buyer_property" ? s.propertyId : null,
     phone: u.phone, note: operatorLeadNote(s, u, ctx), outOfArea: s.outOfArea, callbackWhen: s.callback.when,
     textOnly: s.callback.textOnly, noCall: s.noCall });
-  s.leadAccepted = true; s.step = "done";
+  s.leadAccepted = true; s.step = "done"; s.flags.leadHere = true;
 }
 
 function textOnlyNote(ctx: OperatorContext): string {
