@@ -15,7 +15,7 @@ import { AGENCY_FACTS } from "../ai/agencyFacts.js";
 import type { LeadDraft } from "../ai/leadDraft.js";
 import type { LeadOnlyConfig } from "../ai/leadOnlyMode.js";
 import { operatorPriceText, operatorWhenText } from "../ai/operator/phrases.js";
-import { readOperatorState } from "../ai/operator/state.js";
+import { botWelcomeDelivered, readOperatorState } from "../ai/operator/state.js";
 import type { OperatorAction, OperatorChannel, OperatorContext, OperatorPropertyFocus, OperatorState } from "../ai/operator/types.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
@@ -153,6 +153,8 @@ export async function loadOperatorTurnSetup(input: {
     workHours: { from: input.config.workHoursStart, to: input.config.workHoursEnd },
     reviewer,
     staffThread,
+    // Бот уже поздоровался и спросил «купить или продать?» до первого слова человека (приветствие WhatsApp, 27.11.2026).
+    ...(botWelcomeDelivered(row?.messages) ? { botWelcomed: true } : {}),
     // Только у клиента с карточкой: обещание связаться уже звучало, звонка и ответа сотрудника после него не было.
     ...(clientId && contactPromiseUnkept(row?.messages, row?.client?.lastAgentAttemptAt ?? null, now,
       { start: input.config.workHoursStart, end: input.config.workHoursEnd }) ? { promiseUnkept: true } : {}),
