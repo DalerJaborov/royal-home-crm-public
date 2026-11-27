@@ -476,6 +476,8 @@ ${text.body}`;
             new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Telegram не ответил за 20 секунд")), TELEGRAM_TIMEOUT_MS); }),
           ]) });
         if (status === "sent") sent++;
+        // Дверь сама глотает сбой доставки и пишет общую строку; здесь — понятная причина для журнала руководства.
+        else if (status === "failed") throw new Error("Telegram не принял сообщение");
       } catch (err) {
         await logSystemError("telegram", `Сторож «бот замолчал»: не удалось отправить в Telegram (сотрудник ${agent.id}): ${err instanceof Error ? err.message : String(err)}`,
           { dedupKey: `bot-silence-telegram:${agent.id}` }).catch(() => undefined);
