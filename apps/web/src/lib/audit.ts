@@ -287,6 +287,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 };
 
 export const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  AutoCleanup: "Автоочистка старых записей",
   SomonDelivery: "Отправка Somon",
   SomonMonitor: "Мониторинг Somon",
   InvestigationControl: "Настройки проверок",
