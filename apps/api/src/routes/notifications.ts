@@ -56,7 +56,8 @@ notificationsRouter.get("/", async (req, res) => {
   const listedAt = new Date();
   // Скрытое («Скрыть», 28.11.2026) в ленту и счётчики не попадает — строка остаётся в базе.
   const where: Prisma.NotificationWhereInput = {
-    AND: [await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), { hiddenAt: null }],
+    ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)),
+    hiddenAt: null,
   };
 
   /**
