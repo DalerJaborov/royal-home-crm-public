@@ -30,10 +30,16 @@
   --rh-ui-press: rgba(90, 96, 112, .13);
   --rh-ui-hover: rgba(90, 96, 112, .06);
   --rh-ui-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 10px 28px -14px rgba(20, 24, 40, .14);
-  --rh-ui-primary: #1d5fe0;
+  /* Акцент — синий макета «Королевский синий» #2c66f2 (27.11.2026, пачка shell2): белый текст 4,9:1.
+     Один синий на весь «Новый вид»: прежние синие чистой оболочки и темы под этим видом
+     сводятся сюда же (блок «ОДИН СИНИЙ» ниже, сторож lookBlueOne.test.ts). */
+  --rh-ui-primary: #2c66f2;
+  /* Тот же синий тройкой для rgb(var(--rgb-accent)) старых правил (блок «ОДИН СИНИЙ» в конце файла). */
+  --rh-ui-primary-rgb: 44 102 242;
+  --rh-ui-primary-hover-rgb: 36 89 214;
   --rh-ui-primary-fg: #ffffff;
-  --rh-ui-primary-hover: #154ab0;
-  --rh-ui-primary-ink: #154ab0;
+  --rh-ui-primary-hover: #2459d6;
+  --rh-ui-primary-ink: #2459d6;
   --rh-ui-primary-soft: #e5ecfd;
   --rh-ui-primary-soft-fg: #1f4fc4;
   /* Подложка мини-карточек на синем: темнее плиты, белый текст держит 4,5:1+. */
@@ -84,28 +90,34 @@
   --rh-ui-cap-shadow: var(--rh-ui-shadow-lg);
   /* Нижнее меню телефона — своё стекло, а не серая капсула переключателей (владелец 26.11:
      «меню серое, некрасиво… как стекло»). Белое матовое стекло как у панели вкладок iPhone:
-     78% белого + размытие с насыщенностью, волосяная кромка, мягкая тень; выбранный раздел —
-     синей таблеткой («Королевский синий»), а не белой на сером. Токены --rh-ui-cap-* не
-     трогаем: на них стоят переключатели-сегменты (--rh-seg-on) по всему приложению. */
-  --rh-ui-nav-bg: rgba(255, 255, 255, .78);
-  --rh-ui-nav-solid: #ffffff;
+     72% белого + размытие с насыщенностью, волосяная кромка, мягкая тень. Токены --rh-ui-cap-* не
+     трогаем: на них стоят переключатели-сегменты (--rh-seg-on) по всему приложению.
+     Выбранный раздел — БЕЛАЯ таблетка с чёрным залитым значком, как в макете (27.11.2026, пачка
+     shell2; прежняя синяя таблетка 26.11 снята заданием «нижнее меню как в макете»). Таблетку
+     от стекла отделяют тень и волосяная кромка; без стекла капсула светло-серая (#eef0f4), и
+     белая таблетка на ней видна сама. */
+  --rh-ui-nav-bg: rgba(255, 255, 255, .72);
+  --rh-ui-nav-solid: #eef0f4;
   --rh-ui-nav-ring: rgba(14, 15, 18, .10);
   --rh-ui-nav-shadow: 0 8px 28px -10px rgba(10, 14, 30, .24);
-  --rh-ui-nav-on: var(--rh-ui-primary-soft);
-  --rh-ui-nav-on-fg: var(--rh-ui-primary-soft-fg);
+  --rh-ui-nav-fg: rgba(14, 15, 18, .82);
+  --rh-ui-nav-on: #ffffff;
+  --rh-ui-nav-on-fg: #0e0f12;
+  --rh-ui-nav-on-shadow: 0 1px 2px rgba(14, 15, 18, .06), 0 4px 14px -2px rgba(14, 15, 18, .16), inset 0 0 0 .5px rgba(14, 15, 18, .08);
   /* Прежние имена скруглений карточки и плитки — теперь одно --rh-r-lg (пачка C). */
   --rh-ui-r-card: var(--rh-r-lg);
   --rh-ui-r-tile: var(--rh-r-lg);
   --rh-ui-row-h: 60px;
-  --rh-ui-font-num: "Onest", ui-sans-serif, system-ui, sans-serif;
+  /* Цифры — Geist, как в макете (`--font-num`); буквы внутри сумм и времени — Onest (fonts-royal-home-2026.css). */
+  --rh-ui-font-num: "Geist", "Onest", ui-sans-serif, system-ui, sans-serif;
   /* Страницы Clean берут фон из --c-page: тот же фон, что у рамки. */
   --c-page: var(--rh-ui-bg);
   --clean-field: var(--rh-ui-bg);
 }
 
 :root[data-ui-look="royal"][data-theme="royal-home-2026-night"] {
-  --rh-ui-solid: #2a5fd9;
-  --rh-ui-solid-hover: #2457d6;
+  --rh-ui-solid: #2c66f2;
+  --rh-ui-solid-hover: #2459d6;
   --rh-ui-money-amber: #f2b45a;
   --rh-ui-bg: #0e1014;
   --rh-ui-card: #161a21;
@@ -118,8 +130,9 @@
   --rh-ui-press: rgba(255, 255, 255, .08);
   --rh-ui-hover: rgba(255, 255, 255, .04);
   --rh-ui-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), 0 10px 24px -16px rgba(0, 0, 0, .7);
-  /* Белый текст на кнопке ночью: #3b74f5 давал 4,2:1 (сторож lowContrast) — #2f6bf0 держит 4,7:1, а к карточке 3,7:1. */
-  --rh-ui-primary: #2f6bf0;
+  /* Ночью тот же синий макета: белый текст на #2c66f2 — 4,9:1 (сторож lowContrast), к карточке #161a21 — 3,6:1.
+     Прежний #2f6bf0 (4,7:1) был вторым синим рядом с дневным — теперь синий один в обеих темах. */
+  --rh-ui-primary: #2c66f2;
   --rh-ui-primary-hover: #2459d6;
   --rh-ui-primary-ink: #9db8ff;
   --rh-ui-primary-soft: rgba(59, 116, 245, .18);
@@ -160,6 +173,11 @@
   --rh-ui-nav-solid: #1b1f27;
   --rh-ui-nav-ring: rgba(255, 255, 255, .10);
   --rh-ui-nav-shadow: 0 10px 30px -10px rgba(0, 0, 0, .7);
+  /* Ночью таблетка — светлое стекло поверх тёмного (макет: белый 24 %), значок и подпись белые. */
+  --rh-ui-nav-fg: rgba(255, 255, 255, .86);
+  --rh-ui-nav-on: rgba(255, 255, 255, .18);
+  --rh-ui-nav-on-fg: #ffffff;
+  --rh-ui-nav-on-shadow: inset 0 1px 0 rgba(255, 255, 255, .22);
   --rh-ui-shadow-sm: 0 2px 6px rgba(0, 0, 0, .35);
   --rh-ui-shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, .8);
   --rh-ui-switch-off: #6b7385;
@@ -241,8 +259,8 @@
   --rh-ui-cat-ads: #c2571c;
   --rh-ui-cat-salary: #26836d;
   --rh-ui-cat-other: #7a68c9;
-  --rh-ui-solid: #1d5fe0;
-  --rh-ui-solid-hover: #154ab0;
+  --rh-ui-solid: #2c66f2;
+  --rh-ui-solid-hover: #2459d6;
   --rh-ui-money-amber: #e39a2d;
   /* Цвета долей кольца (аналитика): текст долей, подписанных в легенде. */
   --rh-ui-ink-aqua: #0d7f74;
@@ -308,7 +326,6 @@
 :root[data-ui-look="royal"] { --ry-content-w: 1280px; --ry-rail-w: 88px; }
 :root[data-ui-look="royal"] .clean-shell .clean-frame[data-ry-wide] { --ry-content-w: 1600px; }
 :root[data-ui-look="royal"] .clean-shell .app-main-col { max-width: var(--ry-content-w); margin-inline: 0; }
-:root[data-ui-look="royal"] .clean-shell .ry-rail-only { display: none; }
 
 /* ---- 1024+: боковое меню с подписями, остальная шапка справа ---- */
 @media (min-width: 1024px) {
@@ -336,20 +353,9 @@
     margin-inline: auto; padding: 28px 0 40px;
   }
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] { display: none; }
-  /* Сенсорный планшет: разделы уже в боковом меню, но «+» с быстрыми действиями и
-     голосом по удержанию живёт только в нижнем меню (ревью #329) — от него остаётся
-     одна круглая кнопка в правом нижнем углу; запас снизу, чтобы она не закрыла строку. */
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] {
-    display: block; top: auto; left: auto; right: calc(24px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    width: auto; max-width: none; margin: 0; padding: 0; border: 0; border-radius: var(--rh-r-full); box-shadow: none;
-    background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
-  }
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] > .grid { display: block; height: auto; padding: 0; }
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab { display: none; }
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
-    width: 56px; height: 56px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-shadow-lg);
-  }
-  :root[data-ui-look="royal"][data-shell="clean"][data-mobile-ux] .app-shell.clean-shell .app-main-col { padding-bottom: var(--rh-nav-clear); }
+  /* Сенсорный планшет 1024+: разделы — в боковом меню, а «+» с быстрыми действиями и голосом
+     по удержанию — в шапке у колокола (пачка shell2, 27.11.2026; прежде от нижнего меню здесь
+     оставалась одна круглая «+» в углу, ревью #329). Нижнего меню на этой ширине нет вовсе. */
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .clean-brand {
     position: fixed; z-index: 33; top: 20px; left: 16px; width: calc(var(--rh-ui-side-w) - 32px);
     height: 48px; padding: 0 12px; gap: 12px; font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.025em;
@@ -463,7 +469,7 @@
   left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
   bottom: var(--rh-nav-bottom);
   max-width: 440px; margin: 0 auto; padding: 4px 6px; border: 0; border-radius: var(--rh-r-full);
-  background: var(--rh-ui-nav-solid); color: var(--rh-ui-cap-fg);
+  background: var(--rh-ui-nav-solid); color: var(--rh-ui-nav-fg);
   box-shadow: var(--rh-ui-nav-shadow), 0 0 0 .5px var(--rh-ui-nav-ring);
   /* Без анимации: нажал — сразу переключилось. */
   transition: none;
@@ -488,16 +494,23 @@
 :root[data-ui-look="royal"][data-mobile-ux].fx-no-glass nav[data-bottomnav] { background: var(--rh-ui-nav-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] > .grid { height: 56px; padding: 0; gap: 2px; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab {
-  min-height: 48px; gap: 2px; border-radius: var(--rh-r-full); color: var(--rh-ui-cap-fg); transition: none;
+  align-self: stretch; min-height: 48px; gap: 3px; border-radius: var(--rh-r-full); color: var(--rh-ui-nav-fg); transition: none; animation: none;
 }
+/* Макет: нажал — сразу переключилось, без сдвига таблетки и подпрыгивания значка (в том числе
+   отклика scale .97 старой оболочки). */
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab:active { transform: none; }
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab :is([data-tab-icon], svg) { transition: none; animation: none; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab[aria-current="page"] {
-  background: var(--rh-ui-nav-on); color: var(--rh-ui-nav-on-fg); box-shadow: none;
+  background: var(--rh-ui-nav-on); color: var(--rh-ui-nav-on-fg); box-shadow: var(--rh-ui-nav-on-shadow);
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] .sh-tab [data-tab-icon] { display: grid; place-items: center; width: 28px; height: 26px; background: transparent; box-shadow: none; }
-:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 24px; height: 24px; }
+/* Значок меню 26 px, как в макете (v8: «значки везде чуть меньше» — 26). */
+:root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] svg { width: 26px; height: 26px; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { font-size: var(--rh-fs-xs); font-weight: 600; line-height: 1.1; color: inherit; }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-tab-badge] {
-  min-width: 18px; height: 18px; top: -4px; right: -8px; border-radius: var(--rh-r-full); background: var(--rh-ui-badge); color: var(--rh-ui-on-color); font-size: var(--rh-fs-xs); line-height: 18px;
+  min-width: 20px; height: 20px; top: -8px; right: -14px; padding: 0 5px; border-radius: var(--rh-r-full); background: var(--rh-ui-badge); color: var(--rh-ui-on-color);
+  font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-xs); font-weight: 700; line-height: 20px; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--rh-ui-nav-solid);
 }
 :root[data-ui-look="royal"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
   width: 48px; height: 48px; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
@@ -556,7 +569,6 @@
   :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] [data-fab] {
     width: 52px; height: 52px; margin: 4px auto; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: none;
   }
-  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav] .ry-rail-only { display: block; }
 }
 
 /* Тихие плашки над экраном (уведомления выключены, вопрос собственнику и т.п.):
@@ -1069,3 +1081,170 @@
   :root[data-ui-look="royal"] [data-clean-size="md"] { font-size: var(--rh-fs-md); }
   :root[data-ui-look="royal"] .sw .under :is(.l, .r) { font-size: var(--rh-fs-sm); }
 }
+
+/* ======================= ОБОЛОЧКА ПО МАКЕТУ (пачка shell2, 27.11.2026) =======================
+ * Задание владельца 27.11: «как в макете не только дашборд, а везде». Эталон —
+ * docs/design/oblik-2026-11-17/royal-home.html, разбор расхождений — compare-27-11/REPORT.md.
+ * Здесь: один синий акцент макета, цифры Geist, шапка (поиск «Найти что угодно» + Ctrl K,
+ * колокол, «+», аватар; на телефоне крупный заголовок и мини-шапка при прокрутке), боковое
+ * меню (шесть главных + «Ещё», герб Royal Home). Нижнее меню — правила «Телефон» выше. */
+
+/* ---- ОДИН СИНИЙ: прежние синие чистой оболочки и старой темы под «Новым видом» — синий макета ----
+   Кнопки и ссылки, нарисованные старыми правилами (--clean-primary-fill, rgb(var(--rgb-accent)),
+   --pill темы, --acc мастера, «Да» вопроса о показе), иначе стояли бы рядом с синим макета вторым,
+   почти таким же синим (аудит 26.11: три синих на одном экране). Ночной --rgb-accent не трогаем:
+   там это светлый синий ТЕКСТА ссылок на тёмном фоне, а не заливка. */
+:root[data-ui-look="royal"][data-shell] { --clean-primary-fill: var(--rh-ui-primary); --clean-primary-hover: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"]:not([data-theme="royal-home-2026-night"]) { --rgb-accent: var(--rh-ui-primary-rgb); --rgb-accent-hover: var(--rh-ui-primary-hover-rgb); }
+:root[data-ui-look="royal"] .rh2,
+:root[data-ui-look="royal"] .rh2 .mh { --pill: var(--rh-ui-primary); --pill-hover: var(--rh-ui-primary-hover); }
+:root[data-ui-look="royal"] .rh2 .wiz { --acc: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .sq-card button.sq-btn.sq-btn-primary { background: var(--rh-ui-primary); border-color: var(--rh-ui-primary); color: var(--rh-ui-primary-fg); }
+:root[data-ui-look="royal"] .sq-card button.sq-btn:focus-visible { outline-color: var(--rh-ui-primary); }
+:root[data-ui-look="royal"] .sq-card button.sq-btn.sq-btn-primary:disabled { opacity: .5; }
+:root[data-ui-look="royal"] .shell-rollout-choice input { accent-color: var(--rh-ui-primary); }
+
+/* ---- ЦИФРЫ: Geist, как в макете (.num), буквы вокруг — Onest ----
+   Суммы, время, счётчики: семейство цифр и табличные цифры. Вес и размер не трогаем — их задаёт
+   экран. Таджикские и русские буквы внутри («сегодня 10:00», «с.») остаются в Onest: у Geist здесь
+   только латинский набор (fonts-royal-home-2026.css). */
+/* «1 2:52», «20.1 1» (REPORT 27.11, п. 8): табличные цифры Onest — у единицы широкая клетка, и в
+   обычном тексте между цифрами виден разрыв. Прежние оболочка и тема включали табличные цифры для ВСЕГО
+   содержимого (`.clean-shell .clean`, `.rh2` в theme-2026-proto.css): под «Новым видом» текст — обычные
+   цифры, а табличные — только у чисел (свои правила экранов и список ниже), и те в Geist (как `.num`). */
+:root[data-ui-look="royal"] .clean-shell .clean,
+:root[data-ui-look="royal"] .rh2 { font-variant-numeric: normal; }
+/* Главный источник разрыва — `font-feature-settings: 'tnum'` на body (index.css): он включал табличные
+   цифры ВСЕМУ тексту в обход font-variant-numeric. Под «Новым видом» на body остаются только варианты
+   букв Onest; табличные цифры — у тех, кто просит их сам (font-variant-numeric: tabular-nums). */
+:root[data-ui-look="royal"] body { font-feature-settings: 'cv02', 'cv03'; }
+:root[data-ui-look="royal"] :is(.num, .ry-num, [data-num], time, [data-unread-badge], [data-tab-badge], .clean-nav-count, .ry-badge,
+  .ry-chat-time, .ry-chat-wait, .ry-chat-archive-n, .clean-conversation .bub .tm, .ry-crow-id, .ry-obj-head-code) {
+  font-family: var(--rh-ui-font-num); font-variant-numeric: tabular-nums;
+}
+
+/* ---- ШАПКА (RoyalTopbarRow): одна строка на телефоне и ПК ---- */
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-topbar][data-ry-top] {
+  min-height: 56px; height: auto; flex-wrap: wrap; column-gap: 8px; row-gap: 0; padding: 0;
+  background: transparent; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* Телефон и ПК меняются местами одним правилом: сенсорный планшет получает телефонную шапку, как и
+   прежде (theme-2026-clean-mobile-shell.css решал это по data-mobile-ux). Колокол и «+» — общие. */
+:root[data-ui-look="royal"] [data-ry-top] .ry-only-pc { display: none; }
+:root[data-ui-look="royal"] [data-ry-top] .ry-only-phone { display: flex; }
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) [data-ry-top] .ry-only-pc { display: flex; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) [data-ry-top] .ry-only-phone { display: none; }
+}
+:root[data-ui-look="royal"] [data-ry-top] .ry-top-tools { flex: none; margin-left: auto; }
+/* Круглые кнопки 44 px на карточке с тенью, как колокол и аватар макета. */
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-btn {
+  width: 44px; height: 44px; min-width: 44px; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: var(--rh-ui-shadow-sm);
+}
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-btn:hover { background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-btn:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-btn svg { width: 22px; height: 22px; }
+/* «+» — лаймовая, как прежняя «+» нижнего меню: ту же кнопку узнают по цвету. Кольцо удержания —
+   цвета значка (белая дуга на лайме не видна). */
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-create { position: relative; background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-create:hover { background: var(--rh-ui-tile); filter: brightness(.96); }
+:root[data-ui-look="royal"] .ry-create-btn { position: relative; }
+:root[data-ui-look="royal"] .ry-create-btn > [data-fab-ring] { position: absolute; inset: 0; width: auto; height: auto; overflow: visible; transform: rotate(-90deg); pointer-events: none; }
+:root[data-ui-look="royal"] .ry-create-btn > [data-fab-ring] circle { fill: none; stroke: transparent; stroke-width: 3.5; }
+:root[data-ui-look="royal"] .ry-create-btn > [data-fab-ring] circle + circle {
+  stroke: var(--rh-ui-tile-fg); stroke-linecap: round; stroke-dasharray: 195; stroke-dashoffset: 195; transition: stroke-dashoffset 450ms linear;
+}
+:root[data-ui-look="royal"] .ry-create-btn[data-holding="true"] > [data-fab-ring] circle:first-child { stroke: var(--rh-ui-tile-track); }
+:root[data-ui-look="royal"] .ry-create-btn[data-holding="true"] > [data-fab-ring] circle + circle { stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-look="royal"] .ry-create-btn > [data-fab-ring] circle + circle { transition-duration: 1ms; }
+}
+/* Метка колокола — красный кружок с цифрой в правом верхнем углу (макет). */
+:root[data-ui-look="royal"] [data-ry-top] .ry-top-badge {
+  position: absolute; top: -4px; right: -4px; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: var(--rh-r-full); background: var(--rh-ui-badge); color: var(--rh-ui-on-color);
+  font-size: var(--rh-fs-xs); font-weight: 700; line-height: 1; box-shadow: 0 0 0 2px var(--rh-ui-bg);
+}
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-me].sh-avatar,
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-me] button { width: 44px; height: 44px; min-width: 44px; }
+
+/* Телефон: на главной названия нет (приветствие на самом экране) — и «Royal Home CRM» тоже. */
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-title]:empty::before { content: none; }
+/* Крупный заголовок экрана, как в макете; при прокрутке — мини-шапка (тот же заголовок, шаг lg). */
+:root[data-ui-look="royal"] .clean-shell [data-topbar][data-ry-top] [data-topbar-title] {
+  flex: 1 1 0%; min-width: 0; align-items: center; padding-block: 6px;
+  font-size: var(--rh-fs-2xl); font-weight: 800; letter-spacing: -.03em; line-height: 1.1;
+  white-space: normal; overflow: visible; overflow-wrap: normal; text-wrap: balance; color: var(--rh-ui-text);
+}
+:root[data-ui-look="royal"] .clean-shell [data-topbar][data-ry-top][data-scrolled] [data-topbar-title] {
+  font-size: var(--rh-fs-lg); font-weight: 700; letter-spacing: -.015em; padding-block: 0;
+}
+/* Не помещается рядом с кнопками (замер в RoyalTopbarRow: длинное название, две кнопки экрана,
+   узкий телефон) — крупно строкой ниже, а не разрезанным словом. */
+:root[data-ui-look="royal"] .clean-shell [data-topbar][data-ry-top][data-long]:not([data-scrolled]) [data-topbar-title] { order: 3; flex-basis: 100%; padding-top: 2px; }
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-tools { gap: 6px; }
+}
+
+/* ПК: поле поиска «Найти что угодно» с подсказкой Ctrl K, справа колокол, «+», аватар. */
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"][data-shell="clean"]:not([data-mobile-ux]) .app-shell.clean-shell .clean-existing-topbar { flex: 1 1 auto; grid-column: 1 / -1; justify-self: stretch; min-width: 0; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] { width: 100%; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] { flex-wrap: nowrap; justify-content: flex-end; gap: 12px; }
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .clean-shell .clean-existing-topbar [data-ry-top] .ry-top-tools { margin-left: 0; }
+}
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-search-wide] {
+  flex: 0 1 320px; width: auto; min-width: 200px; max-width: 360px; height: 44px; margin-left: auto; padding: 0 8px 0 16px; gap: 10px;
+  justify-content: flex-start; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-raised); color: var(--rh-ui-hint); font-size: var(--rh-fs-md); font-weight: 500; text-align: left;
+}
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-search-wide]:hover { background: var(--rh-ui-press); }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-search-wide]:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-search-wide] > .ry-top-search-text { display: block; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+:root[data-ui-look="royal"] .clean-shell .clean-existing-topbar [data-ry-top] [data-topbar-search-wide] > svg { width: 20px; height: 20px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] [data-ry-top] .ry-top-kbd {
+  flex: none; display: inline-grid; place-items: center; height: 28px; padding: 0 8px; border-radius: var(--rh-r-sm);
+  background: var(--rh-ui-card); color: var(--rh-ui-hint); box-shadow: 0 0 0 1px var(--rh-ui-sep);
+  font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-xs); font-weight: 600; letter-spacing: 0;
+}
+
+/* ---- БОКОВОЕ МЕНЮ ПК: герб Royal Home, шесть главных пунктов, «Ещё» одной группой ---- */
+:root[data-ui-look="royal"] .clean-shell .clean-brand .ry-brand-crest { flex: none; width: 36px; height: 36px; border-radius: var(--rh-r-full); object-fit: cover; }
+@media (min-width: 1024px) {
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-more > .ry-nav-group-title {
+    gap: 12px; min-height: 48px; color: var(--rh-ui-hint); font-size: var(--rh-fs-md); font-weight: 600;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-more[open] > .ry-nav-group-title { color: var(--rh-ui-text); }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-sub { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-sub-title {
+    display: block; padding: 12px 14px 4px; color: var(--rh-ui-hint); font-size: var(--rh-fs-xs); font-weight: 700; letter-spacing: .02em;
+  }
+  :root[data-ui-look="royal"][data-shell="clean"] .app-shell.clean-shell .ry-nav-sub .clean-tab { min-height: 44px; font-size: var(--rh-fs-sm); }
+}
+
+/* ---- ВЫБОР ИЗ СПИСКА (RoyalPicker) вместо серого списка браузера ----
+   Таблетка с текущим значением и стрелкой; по нажатию — шторка снизу с вариантами. Разделы экрана на
+   телефоне (ScreenTabs), срок «Бот молчит» в переписке. */
+:root[data-ui-look="royal"] .ry-picker {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; max-width: 100%; padding: 0 14px 0 16px;
+  border: 0; border-radius: var(--rh-r-full); background: var(--rh-ui-card); color: var(--rh-ui-text); box-shadow: 0 0 0 1px var(--rh-ui-sep);
+  font: inherit; font-size: var(--rh-fs-sm); font-weight: 600; line-height: 1.2; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-picker:hover { background: var(--rh-ui-raised); }
+:root[data-ui-look="royal"] .ry-picker:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .ry-picker .ry-picker-value { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+:root[data-ui-look="royal"] .ry-picker .ry-picker-chev { flex: none; width: 18px; height: 18px; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .clean-section-switcher > .ry-picker { width: 100%; min-height: 48px; justify-content: space-between; font-size: var(--rh-fs-md); }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-title { margin: 0 0 8px; padding: 0 6px; font-size: var(--rh-fs-lg); font-weight: 700; line-height: 1.25; color: var(--rh-ui-text); }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-list { display: flex; flex-direction: column; gap: 2px; }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 10px 14px; border: 0; border-radius: var(--rh-r-md);
+  background: transparent; color: var(--rh-ui-text); font: inherit; font-size: var(--rh-fs-md); font-weight: 600; text-align: left; cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option:hover { background: var(--rh-ui-hover); }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: -2px; }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option[aria-checked="true"] { background: var(--rh-ui-primary-soft); color: var(--rh-ui-primary-soft-fg); }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-option-hint { font-family: var(--rh-ui-font-num); font-size: var(--rh-fs-sm); font-weight: 500; color: var(--rh-ui-hint); }
+:root[data-ui-look="royal"] .ry-picker-sheet .ry-picker-check { flex: none; width: 22px; height: 22px; }

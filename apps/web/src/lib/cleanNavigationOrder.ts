@@ -3,28 +3,34 @@ import { readCleanNavigationOrder } from "./cleanNavigationPreference";
 export { readCleanNavigationOrder } from "./cleanNavigationPreference";
 
 const PRIORITY = ["/", "/clients", "/messages", "/properties", "/deals", "/finance"];
+/**
+ * Главные пункты бокового меню «Нового вида» — как в макете (27.11.2026, пачка shell2):
+ * Сегодня, Клиенты, Чаты, Объекты, Деньги, Команда. Права те же: пункта, которого
+ * у роли нет в реестре, нет и здесь, его место занимает следующий из её `main`.
+ */
+export const ROYAL_PRIORITY = ["/", "/clients", "/messages", "/properties", "/finance", "/team"];
 
-export function defaultCleanNavigation(main: NavItem[], all: NavItem[]) {
+export function defaultCleanNavigation(main: NavItem[], all: NavItem[], priority: readonly string[] = PRIORITY) {
   const registry = new Map(all.map((item) => [item.to, item]));
-  const paths = [...new Set([...PRIORITY, ...main.map((item) => item.to), ...all.map((item) => item.to)])];
+  const paths = [...new Set([...priority, ...main.map((item) => item.to), ...all.map((item) => item.to)])];
   return paths.flatMap((path) => {
     const item = registry.get(path);
     return item ? [{ ...item, label: path === "/" ? "Сегодня" : path === "/finance" ? "Деньги" : path === "/messages" ? "Чаты" : item.label }] : [];
   });
 }
 
-export function orderedCleanNavigation(main: NavItem[], all: NavItem[], saved: unknown) {
-  const defaults = defaultCleanNavigation(main, all);
+export function orderedCleanNavigation(main: NavItem[], all: NavItem[], saved: unknown, priority: readonly string[] = PRIORITY) {
+  const defaults = defaultCleanNavigation(main, all, priority);
   const registry = new Map(defaults.map((item) => [item.to, item]));
   const stored = readCleanNavigationOrder(saved);
   const paths = [...new Set([...stored, ...defaults.map((item) => item.to)])];
   return paths.flatMap((path) => registry.has(path) ? [registry.get(path)!] : []);
 }
 
-export function partitionCleanNavigation(main: NavItem[], all: NavItem[], capacity = 6, saved: unknown = []) {
+export function partitionCleanNavigation(main: NavItem[], all: NavItem[], capacity = 6, saved: unknown = [], priority: readonly string[] = PRIORITY) {
   const order = readCleanNavigationOrder(saved);
-  const ordered = orderedCleanNavigation(main, all, order);
-  const defaultTabPaths = new Set([...PRIORITY, ...main.map((item) => item.to)]);
+  const ordered = orderedCleanNavigation(main, all, order, priority);
+  const defaultTabPaths = new Set([...priority, ...main.map((item) => item.to)]);
   const candidates = order.length ? ordered : ordered.filter((item) => defaultTabPaths.has(item.to));
   const tabs = candidates.slice(0, Math.max(0, capacity));
   const visible = new Set(tabs.map((item) => item.to));
@@ -55,8 +61,11 @@ export function mergeCleanNavigationDraft(saved: readonly string[], visible: rea
  * настройкой «Порядок вкладок», preferences.navigation) и остальное в свёрнутых
  * группах по смыслу реестра (`NavItem.group`). Права не трогаются: на вход идут
  * уже отфильтрованные `main`/`all`; каждый путь показывается ровно один раз.
+ *
+ * 27.11.2026 (пачка shell2, макет): главных — ШЕСТЬ (ROYAL_PRIORITY), остальные
+ * группы рисуются внутри одной раскрывающейся «Ещё» подзаголовками (CleanShell).
  */
-export const ROYAL_PRIMARY_CAPACITY = 8;
+export const ROYAL_PRIMARY_CAPACITY = 6;
 
 export type RoyalNavGroupKey = "work" | "team" | "money" | "ads" | "system";
 
@@ -78,7 +87,7 @@ const GROUP_ORDER: RoyalNavGroupKey[] = ["work", "team", "money", "ads", "system
 export interface RoyalNavGroup { key: RoyalNavGroupKey; title: string; items: NavItem[] }
 
 export function royalSideNavigation(main: NavItem[], all: NavItem[], saved: unknown = [], capacity = ROYAL_PRIMARY_CAPACITY) {
-  const { tabs, overflow } = partitionCleanNavigation(main, all, capacity, saved);
+  const { tabs, overflow } = partitionCleanNavigation(main, all, capacity, saved, ROYAL_PRIORITY);
   const seen = new Set(tabs.map((item) => item.to));
   const buckets = new Map<RoyalNavGroupKey, NavItem[]>();
   for (const item of overflow) {

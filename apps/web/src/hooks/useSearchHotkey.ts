@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react";
 
-/** Ctrl+K (на Mac Cmd+K) — открыть общий поиск. Одна функция на обе оболочки. */
-export function isSearchHotkey(e: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "key">): boolean {
-  return (e.ctrlKey || e.metaKey) && !e.altKey && typeof e.key === "string" && e.key.toLowerCase() === "k";
+/**
+ * Ctrl+K (на Mac Cmd+K) — открыть общий поиск. Одна функция на обе оболочки.
+ * Клавиша узнаётся и по букве, и по месту на клавиатуре (`code` = KeyK): в русской и таджикской
+ * раскладке та же клавиша даёт «л», и по одной букве подсказка «Ctrl K» в шапке нового вида молчала
+ * бы у всей команды (ревью пачки shell2, 27.11.2026).
+ */
+export function isSearchHotkey(e: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "key"> & { code?: string }): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
+  return (typeof e.key === "string" && e.key.toLowerCase() === "k") || e.code === "KeyK";
 }
 
 /**

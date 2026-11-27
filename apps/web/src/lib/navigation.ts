@@ -111,6 +111,14 @@ export interface Navigation {
   all: NavItem[];
   /** Нижние вкладки телефона: 2 слева и 2 справа от кнопки «+». */
   bottom: { left: NavItem[]; right: NavItem[] };
+  /**
+   * Нижнее меню «Нового вида» (макет 27.11.2026): пять вкладок без «+» —
+   * «+» переехал в шапку (components/look/shell/ShellCreateButton.tsx).
+   * Директор, админ, РОП: Сегодня · Клиенты · Чаты · Команда · Ещё;
+   * агент: Сегодня · Клиенты · Чаты · Объекты · Ещё. Прочие роли — свой
+   * второй пункт (как в `bottom`), затем Чаты, Объекты/Календарь и «Ещё».
+   */
+  royalBottom: NavItem[];
 }
 
 /** Входные данные реестра — считаются хуками один раз в `useNavigation()`.
@@ -456,7 +464,21 @@ function buildNavigation(inputs: NavInputs): Navigation {
       : compact<NavItem>([third, chats]).filter((item, i, all) => all.findIndex((x) => x.to === item.to) === i),
   };
 
+  // Нижнее меню «Нового вида»: те же пункты реестра (права и счётчики оттуда же), без «+».
+  const leader = role === "DIRECTOR" || role === "ADMIN" || role === "HEAD_OF_SALES";
+  const teamEntry = entry(teamItems, "Команда", UsersRound);
+  const homeTab = byPath("/");
+  const moreTab: NavItem = { to: "/more", icon: Grip, label: "Ещё", group: "system" };
+  const royalBottom = compact<NavItem>([
+    homeTab && { ...homeTab, label: "Сегодня" },
+    nav2,
+    chats ?? byPath("/calendar"),
+    leader && teamEntry ? teamEntry : (nav2?.to === "/properties" ? byPath("/calendar") : objects),
+    moreTab,
+  ]).filter((item, i, all) => all.findIndex((x) => x.to === item.to) === i);
+
   return {
+    royalBottom,
     // Рейка рисует ТОЛЬКО этот список — девять строк (см. `flatMain` выше);
     // у агента шесть, остальное в `more`.
     main: agentRail ?? flatMain,

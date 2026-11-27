@@ -94,6 +94,9 @@ function measure(page: Page) {
       sidePrimary: side ? [...side.querySelectorAll(":scope > .clean-tab")].filter((t) => box(t)).map((t) => visibleText(t.querySelector(".ry-nav-label") ?? t)) : [],
       sideGroups: side ? [...side.querySelectorAll(":scope > details > summary")].filter((t) => box(t)).map((t) => visibleText(t)) : [],
       main: box(main),
+      // «+» быстрых действий — в шапке у колокола на любой ширине (пачка shell2, 27.11.2026), ровно одна видимая.
+      create: [...document.querySelectorAll("[data-topbar-create]")].filter((el) => box(el)).length,
+      bell: [...document.querySelectorAll("[data-topbar-bell]")].filter((el) => box(el)).length,
       mainPadBottom: main ? parseFloat(getComputedStyle(main).paddingBottom) : 0,
       // Прежний телефонный интерфейс агента: его главная (.mh) и своя нижняя панель без .sh-tabbar.
       legacyAgent: !!document.querySelector(".mh") || !!document.querySelector("nav[data-bottomnav]:not(.sh-tabbar)"),
@@ -107,11 +110,16 @@ function expectLayout(g: Geometry, width: number, label: string) {
   expect(g.docScroll, `${label}: нет горизонтальной прокрутки страницы`).toBeLessThanOrEqual(1);
   expect(g.frameScroll, `${label}: нет горизонтальной прокрутки рамки`).toBeLessThanOrEqual(1);
   expect(g.main, `${label}: содержимое видно`).not.toBeNull();
+  expect(g.create, `${label}: «+» в шапке`).toBe(1);
+  expect(g.bell, `${label}: колокол в шапке`).toBe(1);
   const main = g.main!;
   if (width < 768) {
     expect(g.bottomNav, `${label}: нижнее меню`).not.toBeNull();
     expect(g.side, `${label}: бокового меню нет`).toBeNull();
-    expect(g.bottomTabs.length, `${label}: пункты нижнего меню`).toBeGreaterThanOrEqual(3);
+    // Как в макете: пять пунктов без «+», первым «Сегодня», последним «Ещё».
+    expect(g.bottomTabs.length, `${label}: пункты нижнего меню`).toBe(5);
+    expect(g.bottomTabs[0], `${label}: первый пункт`).toBe("Сегодня");
+    expect(g.bottomTabs.at(-1), `${label}: последний пункт`).toBe("Ещё");
     for (const text of g.bottomTabs) expect(text.length, `${label}: подпись пункта нижнего меню`).toBeGreaterThan(1);
     // Содержимое не прячется под меню: запас снизу не меньше высоты меню.
     expect(g.mainPadBottom, `${label}: запас под нижним меню`).toBeGreaterThanOrEqual(g.bottomNav!.height);
@@ -127,12 +135,14 @@ function expectLayout(g: Geometry, width: number, label: string) {
     expect(main.left, `${label}: содержимое правее рейки`).toBeGreaterThanOrEqual(rail!.right - 1);
   } else {
     expect(g.side, `${label}: боковое меню`).not.toBeNull();
-    // Нижнего меню нет; на сенсорном планшете от него остаётся только круглая «+».
+    // Нижнего меню нет вовсе: «+» в шапке (пачка shell2).
     expect(g.bottomTabs, `${label}: пунктов нижнего меню нет`).toEqual([]);
-    if (g.bottomNav) expect(g.bottomNav.width, `${label}: от нижнего меню — только «+»`).toBeLessThanOrEqual(80);
+    expect(g.bottomNav, `${label}: нижнего меню нет`).toBeNull();
     expect(g.side!.width, `${label}: меню с подписями, а не рейка значков`).toBeGreaterThanOrEqual(200);
     expect(g.sidePrimary.length, `${label}: главные пункты`).toBeGreaterThanOrEqual(4);
-    expect(g.sidePrimary.length, `${label}: не больше восьми главных пунктов`).toBeLessThanOrEqual(8);
+    expect(g.sidePrimary.length, `${label}: не больше шести главных пунктов (макет)`).toBeLessThanOrEqual(6);
+    expect(g.sidePrimary[0], `${label}: первый пункт`).toBe("Сегодня");
+    expect(g.sideGroups.length, `${label}: остальное — одной группой «Ещё»`).toBeLessThanOrEqual(1);
     for (const text of [...g.sidePrimary, ...g.sideGroups]) expect(text.length, `${label}: подпись пункта меню`).toBeGreaterThan(1);
     expect(main.left, `${label}: содержимое правее меню`).toBeGreaterThanOrEqual(g.side!.right - 1);
     if (width >= 1440) {
@@ -175,9 +185,11 @@ test("одна оболочка: сенсорный планшет 1100 px по�
     await expect(page.locator("html")).toHaveAttribute("data-mobile-ux", "1");
     await expect(page.locator("main#main")).toBeVisible();
     expectLayout(await measure(page), 1100, "DIRECTOR / 1100 (палец)");
-    // Нижнего меню нет, но «+» с быстрыми действиями остаётся (ревью #329).
-    const fab = page.locator("nav[data-bottomnav] [data-fab]");
-    await expect(fab).toBeVisible();
+    // Нижнего меню нет, но «+» с быстрыми действиями остаётся (ревью #329) — с 27.11.2026 (пачка shell2)
+    // в шапке у колокола, как в макете, а не круглой кнопкой в углу.
+    await expect(page.locator("nav[data-bottomnav]")).toBeHidden();
+    const fab = page.locator("[data-topbar-create]:visible");
+    await expect(fab).toHaveCount(1);
     await fab.click();
     await expect(page.getByRole("menu", { name: "Быстрые действия" })).toBeVisible();
   } finally {
