@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+// Бот только для сотрудников (27.11.2026) ВКЛ, как по умолчанию: привязка и монтажёр обязаны работать и так.
 
 /**
  * Личный чат сотрудника с CRM-ботом (telegram/bot.ts::handleAgentTelegramMessage,
@@ -253,13 +254,25 @@ describe("Привязка личного чата по коду", () => {
     expect(callAiText).not.toHaveBeenCalled();
   });
 
-  it("неизвестный/чужой код — не привязывает и не глушит, уходит в обычную клиентскую логику", async () => {
-    await textUpdate(CLIENT_CHAT_ID, "/start не-существующий-код");
+  it("неизвестный/чужой код — не привязывает и не глушит, уходит в обычную клиентскую логику (бот не только для сотрудников)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { telegramStaffOnlyEnabled: false } });
+    try {
+      await textUpdate(CLIENT_CHAT_ID, "/start не-существующий-код");
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { telegramStaffOnlyEnabled: true } });
+    }
 
     const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
     expect(agent.telegramChatId).toBeNull();
     // Раз чат не привязан ни к какому агенту — сообщение дошло до квалификации клиента.
     expect(callAiText).toHaveBeenCalledTimes(1);
+  });
+
+  it("бот только для сотрудников: неизвестный код — не привязывает, памятка вместо клиентской логики", async () => {
+    await textUpdate(CLIENT_CHAT_ID + 7, "/start не-существующий-код");
+    const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
+    expect(agent.telegramChatId).toBeNull();
+    expect(callAiText).not.toHaveBeenCalled();
   });
 });
 

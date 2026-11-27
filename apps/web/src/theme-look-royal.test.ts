@@ -602,9 +602,14 @@ export const HIDING_ALLOWED = new Set<string>([
   // боковое меню и название (те же разделы — в рейке), «Ещё» рейки вне планшета (на
   // телефоне все разделы — у аватара), телефонное название при названии ПК, маркер раскрытия.
   `${R}[data-shell="clean"] .app-shell.clean-shell > nav[data-bottomnav]`,
-  `${R}[data-shell="clean"][data-mobile-ux] .app-shell.clean-shell > nav[data-bottomnav] .sh-tab`,
   `${R}[data-shell="clean"] .app-shell.clean-shell .clean-header :is(.clean-brand, .clean-tabs)`,
-  `${R} .clean-shell .ry-rail-only`,
+  // Шапка «Нового вида» (пачка shell2, 27.11.2026): телефонная и ПК-половины одной строки меняются
+  // местами — заголовок, поиск-кнопка и аватар со шторкой «Ещё» на телефоне, поле «Найти что
+  // угодно» и меню профиля на ПК. Скрыта только ЗАМЕНА: колокол и «+» — общие, на обеих раскладках.
+  `${R} [data-ry-top] .ry-only-pc`,
+  `${R}:not([data-mobile-ux]) [data-ry-top] .ry-only-phone`,
+  // «+» в своей шапке «Чатов» — только на телефоне; на ПК та же «+» в общей шапке.
+  `${R}:not([data-mobile-ux]) .ry-chats[data-ry-section="chats"] .ry-chats-head .ry-chats-create`,
   `${R}[data-shell="clean"] .app-shell.clean-shell .clean-brand .clean-brand-mobile`,
   `${R}[data-shell="clean"] .app-shell.clean-shell .ry-nav-group-title::-webkit-details-marker`,
   // Телефонная навигация «список ↔ переписка ↔ карточка»: экран переключён, а не текст скрыт.
@@ -625,6 +630,10 @@ export const HIDING_ALLOWED = new Set<string>([
   // клиента на телефоне (они в карточке; так закреплено e2e new-look-clients).
   `${R} .ry-chats[data-ry-section="chats"] .ry-chat-last`,
   `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-pc-only`,
+  // Плотность строки клиента (пачка shell2, 27.11.2026): ответственный один раз на каждой раскладке —
+  // на телефоне в строке фактов (.ry-crow-agent-inline), на ПК своей колонкой (.ry-crow-agent).
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow[data-agent] .ry-crow-agent`,
+  `${R} .rh2[data-ry-section="clients"].clean-clients-page .ry-crow-agent-inline`,
   // Рамки фиксированного размера под картинку, инициалы (1-2 буквы в круге) и полоску без
   // текста: `overflow:hidden` + высота в цифрах режет только скругление и картинку, не слова
   // (сторож обрезки без многоточия, ревью 18.11, второе).

@@ -1,6 +1,9 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { TelegramUpdate } from "../src/telegram/api.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * JOB-06 (аудит Codex, 04.10.2026): сбой приёма апдейта Telegram терял сообщение клиента.

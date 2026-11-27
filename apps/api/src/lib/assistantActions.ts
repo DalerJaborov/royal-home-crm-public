@@ -5,6 +5,7 @@ import {
   type AssistantActionPreview,
   type AssistantActionView,
   type PermissionId,
+  isReadOnlyRole,
 } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { Prisma, type AssistantAction } from "../generated/prisma/client.js";
@@ -133,6 +134,11 @@ export interface AssistantActionExecutor<A = unknown> {
   stepUp?: true;
   /** DB-only execution with the claim, score/domain writes, audit and result in one transaction. */
   transactional?: true;
+  /**
+   * Действие меняет только СВОЁ (вид уведомлений «не присылать такое») — его можно и роли
+   * режима просмотра (акционер). Всё остальное ей закрыто брокером (assertRoleMayWrite).
+   */
+  readOnlyRoleAllowed?: true;
   /** Longer than Prisma's 5 s default for large batches (add_expenses from a spreadsheet). */
   transactionTimeoutMs?: number;
   /** Revalidate current entity access before returning an existing action, including a replay. */
@@ -250,6 +256,23 @@ function requireExecutor(tool: string): AssistantActionExecutor {
   const executor = getAssistantActionExecutor(tool);
   if (!executor) throw new AssistantActionError(422, "UNKNOWN_TOOL", "Такое действие помощник не умеет");
   return executor;
+}
+
+/**
+ * РЕЖИМ ПРОСМОТРА — ОДНОЙ ДВЕРЬЮ НА ВСЕ ДЕЙСТВИЯ ПОМОЩНИЦЫ (27.11.2026).
+ *
+ * Акционер (SHAREHOLDER) ничего не меняет: в REST это держит requireAuth, а у помощницы
+ * запрет жил в `allowed` каждого инструмента по отдельности — забытый в новом инструменте
+ * давал бы акционеру запись из Telegram, где requireAuth нет. Брокер — единственный путь
+ * записи (создание, подтверждение, откат), поэтому проверка стоит здесь, по роли ИЗ БАЗЫ
+ * (не из того, что передал вызывающий), и работает по умолчанию для любого нового
+ * действия. Исключение — только явный флаг исполнителя `readOnlyRoleAllowed`.
+ */
+export const READ_ONLY_ROLE_ACTION_MESSAGE = "Режим просмотра: изменения недоступны";
+async function assertRoleMayWrite(executor: AssistantActionExecutor, actor: AssistantActionActor): Promise<void> {
+  if (executor.readOnlyRoleAllowed) return;
+  const agent = await prisma.agent.findUnique({ where: { id: actor.agentId }, select: { role: true } });
+  if (agent && isReadOnlyRole(agent.role)) throw new AssistantActionError(403, "READ_ONLY_ROLE", READ_ONLY_ROLE_ACTION_MESSAGE);
 }
 
 function assertActorAllowed(executor: AssistantActionExecutor, actor: AssistantActionActor) {
@@ -374,6 +397,7 @@ export async function createPendingAssistantAction(
   const now = opts.now ?? new Date();
   const executor = requireExecutor(tool);
   assertActorAllowed(executor, actor);
+  await assertRoleMayWrite(executor, actor);
   const args = parseArgs(executor, rawArgs);
   await assertStepUpPossible(executor, actor, args);
   const snapshot = await readSnapshot(executor, args, actor);
@@ -541,6 +565,7 @@ export async function confirmAssistantAction(
 ): Promise<AssistantActionOutcome> {
   const now = opts.now ?? new Date();
   const { row, executor } = await loadAuthorizedAction(actionId, actor);
+  await assertRoleMayWrite(executor, actor);
   if (row.status !== "PENDING") return settledOutcome(row, now);
   if (row.expiresAt <= now) {
     await expireIfDue(row, now);
@@ -730,6 +755,7 @@ export async function undoAssistantAction(
 ): Promise<AssistantActionOutcome> {
   const now = opts.now ?? new Date();
   const { row, executor } = await loadAuthorizedAction(actionId, actor);
+  await assertRoleMayWrite(executor, actor);
   if (row.status === "UNDONE") return { action: toView(row), replay: true };
   if (row.status !== "EXECUTED" || !row.executedAt) {
     throw new AssistantActionError(409, "NOT_EXECUTED", "Откатить можно только выполненное действие");

@@ -1,0 +1,21 @@
+/* Плашка «Окно 24 часа закрыто» (components/MessagingWindowBanner.tsx, 27.11.2026, макет 02-chat-composer C).
+ * Токены нового вида с запасными значениями: плашка стоит и под старой оболочкой. Текст от 13px, касание от 44px. */
+.mwb {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 12px 4px; padding: 12px 14px; border-radius: var(--rh-r-lg, 16px);
+  background: var(--rh-ui-warn-soft, #fdecc8); color: var(--rh-ui-text, #0e0f12);
+  font-size: var(--rh-fs-sm, 14px); line-height: 1.35;
+}
+.mwb-main { display: flex; align-items: flex-start; gap: 12px; }
+.mwb-ico { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--rh-ui-card, #fff); color: var(--rh-ui-warn, #8a5a00); }
+.mwb-ico svg { width: 22px; height: 22px; }
+.mwb-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mwb-title { font-size: var(--rh-fs-md, 15px); font-weight: 700; }
+.mwb-text { color: var(--rh-ui-text, #0e0f12); opacity: .8; overflow-wrap: anywhere; }
+.mwb-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.mwb .mwb-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+  background: var(--rh-ui-primary, #1d5fe0); color: var(--rh-ui-primary-fg, #fff); font-size: var(--rh-fs-sm, 14px); font-weight: 700; cursor: pointer;
+}
+.mwb .mwb-btn-ghost { background: var(--rh-ui-card, #fff); color: var(--rh-ui-primary, #1d5fe0); }
+.mwb-template { padding: 4px 2px 0; }

@@ -22,6 +22,7 @@ const IMG_ALLOWED: Record<string, { count: number; why: string }> = {
   "components/SellerPicker.tsx": { count: 1, why: "аватар продавца" },
   "components/look/ui.tsx": { count: 1, why: "аватар (RhAvatar)" },
   "components/clean/ui.tsx": { count: 1, why: "аватар прежнего чистого вида" },
+  "components/clean/CleanShell.tsx": { count: 1, why: "герб Royal Home в боковом меню «Нового вида» — свой файл приложения, не фото" },
   "components/pult/EventFeed.tsx": { count: 1, why: "аватар в ленте событий" },
   "pages/Activity.tsx": { count: 1, why: "аватар сотрудника" },
   "pages/MarketingCenter.tsx": { count: 1, why: "аватар сотрудника" },

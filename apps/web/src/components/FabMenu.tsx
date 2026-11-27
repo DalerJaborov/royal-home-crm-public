@@ -78,8 +78,8 @@ export function wizardStepsLabel(): string {
   return `форма в ${n} ${pluralizeRu(n, ["шаг", "шага", "шагов"])}`;
 }
 
-export function buildItems(role: string | undefined, can: (p: PermissionId) => boolean, readOnly = false): FabMenuItem[] {
-  const objectNew: FabMenuItem = {
+function objectNewItem(): FabMenuItem {
+  return {
     label: "Новый объект",
     // Число шагов — из того же списка, что рисует сам мастер (WIZARD_STEPS): подпись
     // «форма в 4 шага» разошлась с «Шаг 1 из 5» в мастере (пачка D1, 20.11.2026).
@@ -89,6 +89,21 @@ export function buildItems(role: string | undefined, can: (p: PermissionId) => b
     fg: TINTS.green.fg,
     to: "/properties/new",
   };
+}
+
+/**
+ * `ensureObjectNew` — «+» в шапке «Нового вида» (27.11.2026, пачка shell2) заменил и прежнюю
+ * кнопку «Создать объект» шапки ПК: у ролей, которые создают объекты, но чей набор меню
+ * «Новый объект» не содержит (руководитель-оператор), пункт добавляется в конец — путь не теряется.
+ */
+export function buildItems(role: string | undefined, can: (p: PermissionId) => boolean, readOnly = false, ensureObjectNew = false): FabMenuItem[] {
+  const items = buildRoleItems(role, can, readOnly);
+  if (!ensureObjectNew || readOnly || !roleCreatesProperties(role) || items.some((item) => item.to === "/properties/new")) return items;
+  return [...items, objectNewItem()];
+}
+
+function buildRoleItems(role: string | undefined, can: (p: PermissionId) => boolean, readOnly: boolean): FabMenuItem[] {
+  const objectNew = objectNewItem();
   const clientNew: FabMenuItem = {
     label: "Новый клиент",
     sub: "форма и проверка дублей",
@@ -210,16 +225,19 @@ export function buildItems(role: string | undefined, can: (p: PermissionId) => b
 export function FabMenu({
   open,
   onClose,
+  ensureObjectNew = false,
 }: {
   open: boolean;
   onClose: () => void;
+  /** «+» шапки «Нового вида»: см. `buildItems`. */
+  ensureObjectNew?: boolean;
 }) {
   const navigate = useNavigate();
   const role = useAuthStore((s) => s.agent?.role);
   const can = useCan();
   const legacyAgentMobile = useLegacyAgentMobile();
   const readOnly = useIsReadOnly();
-  const items = buildItems(role, can, readOnly).map((item) => legacyAgentMobile && item.action === "showing"
+  const items = buildItems(role, can, readOnly, ensureObjectNew).map((item) => legacyAgentMobile && item.action === "showing"
     ? { ...item, action: undefined, to: "/calendar", sub: "выбрать клиента в календаре" }
     : item);
   // «Записать показ» открывает форму поверх меню, а не уводит на другой экран:

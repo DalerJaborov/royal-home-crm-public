@@ -123,9 +123,18 @@ const READ_ONLY_EXEMPT_WRITES = new Set([
   // компании; помощница сама держит режим просмотра (ai/assistant/actor.ts).
   "POST /api/v1/me/telegram-link",
   "POST /api/v1/me/telegram-unlink",
+  // Отчёты акционеру (27.11.2026): он получает сводки в колокольчик и в Telegram — значит
+  // должен суметь отметить СВОЁ прочитанным и выключить СВОЙ вид уведомлений («не
+  // присылать такое», правило владельца). Без этого колокольчик копился непрочитанным навсегда.
+  "PATCH /api/v1/push/preferences",
+  "POST /api/v1/me/notifications/read-many",
+  "POST /api/v1/me/notifications/read-all",
+  "POST /api/v1/me/notifications/seen",
 ]);
 /** DELETE /api/v1/me/sessions/:id — тоже своё (завершить свою сессию на другом устройстве). */
 const READ_ONLY_EXEMPT_PREFIXES: ReadonlyArray<readonly [string, string]> = [["DELETE", "/api/v1/me/sessions/"]];
+/** «Прочитано» одной своей записи колокольчика: шаблон целиком, от начала до конца пути, а не префикс. */
+const READ_ONLY_EXEMPT_PATTERNS: readonly RegExp[] = [/^POST \/api\/v1\/me\/notifications\/[^/]+\/read$/];
 
 export const READ_ONLY_ROLE_RESPONSE = {
   error: "Режим просмотра: изменения недоступны",
@@ -138,6 +147,7 @@ export function isReadOnlyExemptRequest(method: string, path: string): boolean {
   const clean = path.split("?")[0]!.replace(/\/+$/, "") || "/";
   if (clean === "/api/v1/auth" || clean.startsWith("/api/v1/auth/")) return true;
   if (READ_ONLY_EXEMPT_WRITES.has(`${m} ${clean}`)) return true;
+  if (READ_ONLY_EXEMPT_PATTERNS.some((re) => re.test(`${m} ${clean}`))) return true;
   return READ_ONLY_EXEMPT_PREFIXES.some(([method, prefix]) => m === method && clean.startsWith(prefix) && clean.length > prefix.length);
 }
 

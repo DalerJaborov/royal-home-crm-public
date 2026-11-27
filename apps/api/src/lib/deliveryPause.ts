@@ -1,12 +1,15 @@
 import { prisma, type TxClient } from "../db.js";
 import type { DeliveryTarget } from "./conversationState.js";
+import { automationSwitchOn } from "./automationSwitches.js";
 
 /**
- * ПАУЗА БОТА В ПЕРЕПИСКЕ — одна дверь без отправки (вынесено из conversationDelivery.ts, ревью #344):
- * её зовёт и сама отправка (`meta.ts` → `lib/threadOwnerPause.ts`, «переписку ведёт другое
- * приложение»), а conversationDelivery.ts тянет за собой отправку — общий модуль без цикла импортов.
- * conversationDelivery.ts переизлучает всё отсюда, прежние вызовы не тронуты.
+ * РУБИЛЬНИК «ОТВЕТ СОТРУДНИКА СТАВИТ БОТА НА ПАУЗУ» (владелец 27.11.2026: «убрать у всех» выбор «Бот молчит: 1 час»).
+ * Колонка Settings.botPauseOnStaffReplyEnabled, по умолчанию ВЫКЛ: ответ сотрудника из CRM бота не глушит вовсе, строки
+ * выбора срока в чате нет. ВКЛ — прежнее поведение сервера: явный срок из запроса, без него — умолчание для отправителя
+ * (defaultPauseForSender; интерфейс срок больше не шлёт). Ручная кнопка «Пауза» в переписке
+ * (POST /conversations/:id/pause) и пауза по эхо из приложения Meta рубильником не затронуты.
  */
+export const STAFF_REPLY_PAUSE_SWITCH = "botPauseOnStaffReplyEnabled" as const;
 
 /**
  * ОТВЕТ ИЗ ПРИЛОЖЕНИЯ META (эхо, мимо CRM) — 12 ЧАСОВ, А НЕ 10 МИНУТ (28.09.2026).
@@ -95,6 +98,14 @@ export async function applyDeliveryPause(
 ): Promise<Date> {
   const now = new Date();
   const isTelegram = target.kind === "telegram";
+  // byAgentId задан только у ответа сотрудника из CRM: при выключенном рубильнике он паузу не ставит (см. STAFF_REPLY_PAUSE_SWITCH).
+  if (byAgentId && !(await automationSwitchOn(STAFF_REPLY_PAUSE_SWITCH))) {
+    const cur = isTelegram
+      ? await database.telegramConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true } })
+      : await database.botConversation.findUnique({ where: { id: target.id }, select: { pausedUntil: true } });
+    if (!cur) throw new Error(`Диалог ${target.id} не найден`);
+    return cur.pausedUntil ?? now;
+  }
   const by = byAgentId ? `${byAgentId}|${now.toISOString()}` : null;
   // Новая пауза — новый отсчёт тревоги «бот на паузе» (pauseAlertSentAt, lib/botPauseWatch.ts; 21.11.2026).
   if (!keepLonger) {

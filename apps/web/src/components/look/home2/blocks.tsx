@@ -21,6 +21,7 @@ import { agentStatus, commissionTrend, previousMonthPeriod, waitLabel } from "..
 import { useHomeLayoutPrefs } from "../home/prefs";
 import { num } from "../home/charts";
 import { gaugePoint, gaugeView, lostTotal, planPercent, sourceColumns } from "./model";
+import { attentionSources } from "../../../lib/attentionCount";
 
 /**
  * БЛОКИ ГЛАВНОЙ РУКОВОДИТЕЛЯ «КАК В МАКЕТЕ» (пачка home2, 27.11.2026; макет
@@ -151,15 +152,17 @@ export function PulseTiles({ role }: { role: string }) {
   if (view === "loading" || view === "offline") return blockState(d.mc);
   const waiting = d.bot?.attention?.waitingHuman;
   const oldest = waiting?.items?.length ? Math.max(...waiting.items.map((item) => item.waitingMinutes)) : null;
-  const burning = d.firstLine?.totalCount ?? null;
-  const rop = role === "HEAD_OF_SALES";
-  const unaccepted = typeof live.data?.unacceptedTotal === "number" ? live.data.unacceptedTotal : 0;
+  // Какие числа брать и у кого — общее правило с меткой «Сегодня» в меню (lib/attentionCount.ts).
+  const att = attentionSources({ hero: d.hero, bot: d.bot, firstLine: d.firstLine, team: d.team, live: live.data, role });
+  const burning = att.burning ?? null;
+  const missed = att.missedCallsToday ?? 0;
+  const unaccepted = att.unaccepted ?? 0;
   const late = typeof live.data?.escalatedTotal === "number" ? live.data.escalatedTotal : 0;
-  const overdue = d.team ? d.team.agents.reduce((sum, agent) => sum + (agent.overdueTasks ?? 0), 0) : 0;
+  const overdue = att.overdueTasks ?? 0;
   const rows: ReactNode[] = [];
-  if (d.hero && d.hero.missedCallsToday > 0) rows.push(
+  if (missed > 0) rows.push(
     <RhRow key="missed" to={d.hasRoute("/calls") ? "/calls" : undefined} lead={<RhCircle icon="phone-missed" tone={pillTone("overdue")} filled />}
-      title="Пропущенные звонки" sub="сегодня" right={<b className="ry-num ry-count">{num(d.hero.missedCallsToday)}</b>} />,
+      title="Пропущенные звонки" sub="сегодня" right={<b className="ry-num ry-count">{num(missed)}</b>} />,
   );
   if (unaccepted > 0) rows.push(
     <RhRow key="unaccepted" to="/clients?slice=pending" lead={<RhCircle icon="user-plus" tone={pillTone(late > 0 ? "overdue" : "today")} />}
@@ -168,7 +171,7 @@ export function PulseTiles({ role }: { role: string }) {
   );
   // «Команда» на этой главной рисуется, только если не выключена, есть раздел «Команда» и есть агенты (CrewBlock).
   const crewShown = !hidden.has("crew") && d.hasRoute("/team") && !!d.team && Array.isArray(d.team.agents) && d.team.agents.length > 0;
-  if (rop && overdue > 0) rows.push(
+  if (overdue > 0) rows.push(
     <RhRow key="overdue" to={crewShown ? "#ry-leader-crew" : d.hasRoute("/team") ? "/team" : undefined} lead={<RhCircle icon="hourglass" tone={pillTone("today")} />}
       title="Просрочки агентов" sub="задачи после срока" right={<b className="ry-num ry-count">{num(overdue)}</b>} />,
   );

@@ -1,3 +1,4 @@
+import { sendReportPdfToOwnTelegram } from "../lib/reportPdf/ownTelegram.js";
 import { Router, type Request, type Response } from "express";
 import { reportPdfKindSchema, REPORT_PDF_PERMISSION, REPORT_PDF_TITLES, type ReportPdfKind } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -5,7 +6,6 @@ import { requireAuth } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { sendDocumentFile } from "../telegram/api.js";
 import { buildReportPdf, ReportPdfInputError, type ReportPdfViewer } from "../lib/reportPdf/build.js";
 import { ReportPdfBusyError, ReportPdfTimeoutError } from "../lib/reportPdf/render.js";
 
@@ -76,22 +76,12 @@ reportPdfRouter.get("/:kind", async (req, res) => {
   }
 });
 
+/** Себе в Telegram — общая дверь с Шабнам (lib/reportPdf/ownTelegram.ts): чтение, акционеру тоже открыто. */
 reportPdfRouter.post("/:kind/telegram", async (req, res) => {
   const kind = parseKind(req, res);
   if (!kind) return;
-  const viewer = await viewerOf(req);
-  if (!viewer.telegramChatId) return res.status(409).json({ error: "Привяжите свой Telegram в профиле — туда придёт отчёт" });
-  try {
-    const pdf = await buildReportPdf(kind, req.query, viewer);
-    try {
-      await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.periodLabel}`);
-    } catch (err) {
-      void logSystemError("telegram", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(err)}`);
-      return res.status(503).json({ error: "Telegram не принял файл. Повторите позже или скачайте PDF" });
-    }
-    logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "ownTelegram", period: pdf.periodKey, bytes: pdf.buffer.length });
-    res.json({ ok: true });
-  } catch (err) {
-    failed(res, kind, err);
-  }
+  const outcome = await sendReportPdfToOwnTelegram(await viewerOf(req), kind, req.query, { source: "screen" });
+  if (outcome.ok) return res.json({ ok: true });
+  if (outcome.retryAfterSec !== undefined) res.set("Retry-After", String(outcome.retryAfterSec));
+  res.status(outcome.status).json({ error: outcome.error });
 });

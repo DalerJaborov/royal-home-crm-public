@@ -323,7 +323,8 @@ describe("привязка по номеру в личке", () => {
     expect(sms.texts).toHaveLength(0);
   });
 
-  it.each(["DIRECTOR", "ADMIN"] as const)("%s по номеру не привязывается никогда, код не уходит", async (role) => {
+  // SHAREHOLDER — с 27.11.2026: видит деньги, привязка только кодом из профиля.
+  it.each(["DIRECTOR", "ADMIN", "SHAREHOLDER"] as const)("%s по номеру не привязывается никогда, код не уходит", async (role) => {
     const id = newTelegramId();
     const agentId = await createTestAgent(`Владелец ${role} ${runId}-${seq}`);
     agentIds.push(agentId);
@@ -331,7 +332,7 @@ describe("привязка по номеру в личке", () => {
     await prisma.agent.update({ where: { id: agentId }, data: { phone: `+992${tail}`, role } });
     await askStaffContactForLink(privateMsg(id, { text: "/start staff" }) as never);
     expect(await tryLinkAgentByContact(contactOf(id, `992${tail}`) as never)).toBe(true);
-    expect(String(sent.removed.at(-1)?.[1])).toContain("Директора и администратора по номеру не привязываю");
+    expect(String(sent.removed.at(-1)?.[1])).toContain("Директора, администратора и акционера по номеру не привязываю");
     expect(sms.texts).toHaveLength(0);
     expect((await prisma.agent.findUniqueOrThrow({ where: { id: agentId } })).telegramUserId).toBeNull();
   });

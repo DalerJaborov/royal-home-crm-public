@@ -698,6 +698,22 @@
   :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-filters { gap: 4px; }
 }
 
+/* «+» в своей шапке «Чатов» на телефоне (пачка shell2, 27.11.2026): общей шапки здесь нет, а «+» ушёл из
+   нижнего меню в шапку. Лаймовый круг 44, как у «+» общей шапки. На ПК «+» стоит в общей шапке — здесь
+   его копия скрыта (та же кнопка, то же действие). */
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head .ry-chats-create {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin-left: auto; border: 0; border-radius: var(--rh-r-full);
+  background: var(--rh-ui-tile); color: var(--rh-ui-tile-fg); box-shadow: var(--rh-ui-shadow-sm); cursor: pointer;
+}
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head .ry-chats-create:focus-visible { outline: 2px solid var(--rh-ui-primary); outline-offset: 2px; }
+:root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head .ry-chats-switch + .ry-chats-create { margin-left: 0; }
+@media (min-width: 820px) {
+  :root[data-ui-look="royal"]:not([data-mobile-ux]) .ry-chats[data-ry-section="chats"] .ry-chats-head .ry-chats-create { display: none; }
+}
+@media (max-width: 389.98px) {
+  :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chats-head { flex-wrap: wrap; row-gap: 8px; }
+}
+
 /* 27.11.2026: «Архив» ушёл вниз списка тихой строкой; строка чата получила обёртку с действием «В архив / Вернуть». */
 :root[data-ui-look="royal"] .ry-chats[data-ry-section="chats"] .ry-chat-archive-quiet {
   justify-content: center; min-height: 52px; gap: 8px; padding: 8px 16px; color: var(--rh-ui-hint); font-size: var(--rh-fs-md);

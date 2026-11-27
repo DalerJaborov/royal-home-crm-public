@@ -5,6 +5,7 @@ import { inboxTabs } from "../../SectionTabs";
 import { visibleScreenTabs } from "../../ScreenTabs";
 import { RoyalIcon } from "../RoyalIcon";
 import { royalIconForPath } from "../royalNavIcons";
+import { ShellCreateButton } from "../shell/ShellCreateButton";
 
 /**
  * Шапка раздела «Чаты» нового вида: заголовок и переключатель значками
@@ -42,6 +43,9 @@ export function RoyalInboxSwitch({ title }: { title?: string }) {
           })}
         </nav>
       )}
+      {/* «+» (быстрые действия и голос) — на телефоне у «Чатов» нет общей шапки, а из нижнего меню «+»
+          ушёл в шапку (пачка shell2, 27.11.2026): здесь он свой. На ПК «+» стоит в общей шапке. */}
+      {title && <ShellCreateButton className="ry-chats-create" />}
     </header>
   );
 }
