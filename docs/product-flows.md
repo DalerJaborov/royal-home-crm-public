@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4374**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4383**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20229,6 +20229,65 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка «бот на паузе и забыли»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### bot-silence-watch — 2-59/5 * * * *
+
+- пробует
+  - const { action, alerted } = await runBotSilenceWatchTick();
+    · зовёт runBotSilenceWatchTick()
+    - если !(await automationSwitchOn("botSilenceWatchEnabled"))
+      - return { action: "off", alerted: false };
+        · дословно из кода
+    - const snapshot = await loadSilenceSnapshot(now);
+      · зовёт loadSilenceSnapshot()
+    - return prisma.$transaction(async (tx)
+      · ошибка Error — «очередь тревог руководству недоступна»
+      · всё внутри — одной транзакцией
+      · обращается к базе своим SQL
+      · читает в базе: botSilenceIncident
+      · создаёт в базе: botSilenceIncident
+      · меняет в базе: botSilenceIncident
+      - const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext…
+        · обращается к базе своим SQL
+      - если !locked
+        - return { action: "busy" as const, alerted: false };
+          · дословно из кода
+      - const row = await tx.botSilenceIncident.findFirst({ where: { recoveredAt: null }, orderBy: { detectedAt: "des…
+        · читает в базе: botSilenceIncident
+      - const decision = decideBotSilence(snapshot, open, now);
+        · зовёт decideBotSilence()
+      - const send = async (tag: string, text: { title: string; body: string }, urgent: boolean)
+        · ошибка Error — «очередь тревог руководству недоступна»
+        - const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], .…
+          · зовёт enqueueDirectorAlert()
+        - если !queued
+          - throw new Error("очередь тревог руководству недоступна");
+            · ошибка Error — «очередь тревог руководству недоступна»
+      - если decision.kind === "open"
+        - const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.sta…
+          · создаёт в базе: botSilenceIncident
+      - если decision.kind === "update" && open
+        - если decision.remind
+          - await send(`bot-silence-${open.id}`, silenceAlertText({ groups: decision.groups, labels, since: open.startedA…
+            · дословно из кода
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: dec…
+          · меняет в базе: botSilenceIncident
+      - если decision.kind === "recover" && open
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
+          · меняет в базе: botSilenceIncident
+      - если decision.kind === "close" && open
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
+          · меняет в базе: botSilenceIncident
+  - если alerted
+    - console.log(`[cron] Бот замолчал — сторож: ${action}, уведомление руководству поставлено`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «бот замолчал»", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()
