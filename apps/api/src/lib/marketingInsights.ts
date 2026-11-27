@@ -1,3 +1,4 @@
+import { findReportRecipients } from "./reportRecipients.js";
 import { callAiText } from "../ai/client.js";
 import { prisma } from "../db.js";
 import { describeError } from "./describeError.js";
@@ -6,7 +7,7 @@ import { buildMarketingFunnel, type MarketingFunnelResult } from "./marketingFun
 import { countStuckConversationsByChannel } from "./stuckConversations.js";
 import { CLIENT_SOURCE_LABELS, REFUSAL_REASON_LABELS, type RefusalReason } from "@royal-home/shared";
 import { sendPushToAgents } from "../push.js";
-import { findAgentsWithPermission } from "./recipients.js";
+
 import { dushanbeWallClock } from "./dushanbeTime.js";
 import { createNotifications } from "./notifications.js";
 
@@ -231,7 +232,8 @@ export async function notifyReportsAboutMarketingInsights(): Promise<void> {
   const built = await buildMarketingInsights(false, true);
   if (!built) return;
 
-  const recipients = await findAgentsWithPermission("reports.view");
+  // Отчёт для чтения — и акционеру под рубильником (lib/reportRecipients.ts).
+  const recipients = await findReportRecipients("reports.view");
   if (recipients.length === 0) return;
 
   let headline: string;

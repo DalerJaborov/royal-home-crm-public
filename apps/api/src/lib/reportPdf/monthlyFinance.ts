@@ -1,5 +1,5 @@
+import { findAutoPdfRecipients } from "../reportRecipients.js";
 import { prisma } from "../../db.js";
-import { loadAgentAccess } from "../../auth/middleware.js";
 import { logAgentAudit } from "../audit.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
@@ -8,11 +8,13 @@ import { sendDocumentFile } from "../../telegram/api.js";
 import { buildReportPdf } from "./build.js";
 
 /**
- * ФИНАНСОВЫЙ PDF ЗА ПРОШЛЫЙ МЕСЯЦ — ДИРЕКТОРАМ В TELEGRAM, 1-го ЧИСЛА (14.11.2026).
+ * ФИНАНСОВЫЙ PDF ЗА ПРОШЛЫЙ МЕСЯЦ — В TELEGRAM, 1-го ЧИСЛА (14.11.2026; круг расширен 27.11.2026:
+ * директор, администратор и учредитель с правом на финансы, решение владельца).
  *
  * Выключено по умолчанию (Settings.financePdfMonthlyEnabled, тумблер в Настройках →
- * Система). Получатели — работающие директора, у которых привязан свой Telegram и
- * есть право на финансы; клиентам и посторонним чатам файл не уходит по устройству.
+ * Система). Получатели — `findAutoPdfRecipients("finance.view")`: работающие директор,
+ * администратор и учредитель со своим Telegram и правом на финансы; клиентам и
+ * посторонним чатам файл не уходит по устройству.
  *
  * Повтор исключён: месяц сначала «захватывается» одной атомарной записью
  * (financePdfMonthlyLastSent), и только захвативший тик рассылает — второй процесс
@@ -53,19 +55,12 @@ export async function sendMonthlyFinancePdf(now = new Date()): Promise<MonthlyFi
   const release = () =>
     prisma.settings.updateMany({ where: { id: "singleton", financePdfMonthlyLastSent: month }, data: { financePdfMonthlyLastSent: null } });
   try {
-    const candidates = await prisma.agent.findMany({
-      where: { role: "DIRECTOR", isActive: true, telegramChatId: { not: null } },
-      select: { id: true, telegramChatId: true },
-      take: 20,
-    });
-    const recipients: { id: string; chatId: string }[] = [];
-    for (const c of candidates) {
-      const access = await loadAgentAccess(c.id);
-      if (access?.isActive && access.permissions.has("finance.view") && c.telegramChatId) recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
-    }
+    // Круг получателей — одна дверь автоматических PDF (lib/reportRecipients.ts, решение владельца
+    // 27.11.2026): директор, администратор и учредитель, у кого есть право на финансы и свой Telegram.
+    const recipients = await findAutoPdfRecipients("finance.view");
     if (recipients.length === 0) {
       await release();
-      void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на финансы не привязан Telegram`);
+      void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или учредителя с правом на финансы не привязан Telegram`);
       return { month, status: "no-recipients", delivered: 0, failed: 0 };
     }
 
@@ -86,7 +81,7 @@ export async function sendMonthlyFinancePdf(now = new Date()): Promise<MonthlyFi
         logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.periodKey, bytes: pdf.buffer.length, source: "cron" });
       } catch (err) {
         failed += 1;
-        void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(err)}`);
+        void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(err)}`);
       }
     }
     if (delivered === 0) {

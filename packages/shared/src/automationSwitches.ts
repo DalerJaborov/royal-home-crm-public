@@ -62,6 +62,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "notifyDealClosedTeamPushEnabled",
   "notifyOperatorTalkedPushEnabled",
   "notifyNoVideoEnabled",
+  "shareholderReportsEnabled",
+  "telegramStaffOnlyEnabled",
   "botPauseOnStaffReplyEnabled",
 ] as const;
 
@@ -346,6 +348,18 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Если ИИ услышал в звонке или прочитал в переписке о показе, но не понял время или объект, через минуту Шабнам спрашивает агента. Нет Telegram или нет ответа — тот же вопрос в CRM.",
     off: "Не переспрашивает, всё как раньше: показ по звонку ставится сам, только если в подборе ровно один подходящий объект.",
   },
+  // Владелец 27.11.2026: «добавь нового учредителя… с автоматическими отчётами как и у директора».
+  shareholderReportsEnabled: {
+    title: "Отчёты акционеру",
+    on: "Акционер получает те же отчёты, что директор: утреннюю сводку, разбор проблемных мест за неделю и месяц, месячный отчёт, разбор маркетинга, советы ИИ к собранию и финансовый PDF в Telegram. Тревоги, где нужно что-то сделать (передать клиента, ответить, починить канал), ему не приходят: он ничего не меняет.",
+    off: "Акционеру не приходит ни отчётов, ни тревог. Всё это он видит сам на экранах CRM.",
+  },
+  // Владелец 27.11.2026: «это теперь бот только для сотрудников» (клиентов из Telegram за 60 дней: 0).
+  telegramStaffOnlyEnabled: {
+    title: "Telegram-бот только для сотрудников",
+    on: "В личном чате с ботом новый незнакомый человек получает памятку: это рабочий бот Royal Home; сотруднику — путь в CRM (Профиль, «Личный чат с ботом CRM в Telegram», «Привязать») и кнопка «Я сотрудник», если включена привязка по номеру; клиенту — наш сайт. Новая карточка и заявка из лички бота не заводятся; такие сообщения видны в журнале действий. Как раньше работают: переписки с карточкой клиента и с сообщениями за последние 30 дней, кандидаты на работу, сообщения в канал (Direct Messages) и комментарии в группе обсуждения.",
+    off: "Бот в Telegram, как раньше, разговаривает и с клиентами: приветствие, кнопки «Смотреть объекты» и «Позвать агента», заявка из переписки.",
+  },
   showingOutcomeAskEnabled: {
     title: "«У вас был показ?» после показа",
     on: "Через час после показа Шабнам спрашивает агента: был показ или нет, и что дальше с клиентом. Нет Telegram или нет ответа — тот же вопрос в CRM.",
@@ -371,10 +385,10 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
+    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "botPauseOnStaffReplyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

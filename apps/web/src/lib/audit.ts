@@ -73,6 +73,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TELEGRAM_UNLINKED: "Telegram отвязан",
   TELEGRAM_LINK_CODE_ISSUED: "Запрошена привязка Telegram",
   TELEGRAM_LINKED: "Telegram привязан",
+  TELEGRAM_STAFF_ONLY_INBOUND: "Незнакомец написал боту сотрудников, ему ушла памятка",
   TOTP_RESET_BY_DIRECTOR: "Код подтверждения сброшен директором",
   LOGIN_CODE_BLOCK_RESET: "Блок входа по коду снят директором",
   SITE_ADMIN_PASSWORD_RESET: "Сброс пароля администратора сайта",

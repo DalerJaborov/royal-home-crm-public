@@ -1,3 +1,4 @@
+import { findReportRecipientsByRoles, reportRecipientRoles } from "./reportRecipients.js";
 import {
   PROPERTY_PIPELINE_STATUSES,
   REFUSAL_REASON_LABELS,
@@ -815,15 +816,13 @@ async function notifyDirectors(period: ProblemPeriod, metrics: ProblemReportMetr
       body: metrics.headline,
       url: `/reports?problems=${period}`,
       tag,
-      recipientRoles: ["DIRECTOR", "ADMIN"],
+      // Отчёт для чтения — и акционеру (lib/reportRecipients.ts, рубильник «Отчёты акционеру»).
+      recipientRoles: await reportRecipientRoles(["DIRECTOR", "ADMIN"]),
     });
     return;
   }
 
-  const directors = await prisma.agent.findMany({
-    where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true },
-    select: { id: true },
-  });
+  const directors = (await findReportRecipientsByRoles(["DIRECTOR", "ADMIN"])).map((id) => ({ id }));
   for (const d of directors) {
     await sendPushToAgent(d.id, {
       title,

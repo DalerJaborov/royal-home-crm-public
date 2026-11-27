@@ -1,3 +1,4 @@
+import { sendFinanceReportPdfTool } from "./financeReportPdfTool.js";
 import { createKnowledgeSemanticTools } from "./knowledgeSemanticTools.js";
 import { createAssistantEmbeddingMoneyGuard } from "../moneyBudget.js";
 import { knowledgeTools } from "./knowledgeTools.js";
@@ -24,6 +25,9 @@ import { staffReadTools } from "./staffReadTools.js";
 import { staffWriteTools } from "./staffWriteTools.js";
 import { transferPropertyTool } from "./transferPropertyTool.js";
 import type { AssistantToolPlugin } from "./types.js";
+import type { AssistantActor } from "../actor.js";
+import { readOnlyRoleBlocked } from "./writeGate.js";
+export { pluginWrites, readOnlyRoleBlocked } from "./writeGate.js";
 
 export type { AssistantToolPlugin } from "./types.js";
 
@@ -49,7 +53,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, groupQuietPlugin, startPropertyDraftTool, ...brainReadTools, getConstructionRegistryTool, linkPropertyRegistryTool, getClientBaseOverviewTool, sendStaffMessagePlugin, ...directorTools]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...marketTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool, notificationPrefPlugin, groupQuietPlugin, startPropertyDraftTool, ...brainReadTools, getConstructionRegistryTool, linkPropertyRegistryTool, getClientBaseOverviewTool, sendStaffMessagePlugin, ...directorTools, sendFinanceReportPdfTool]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {
@@ -62,4 +66,18 @@ export function findAssistantToolPlugin(name: string): AssistantToolPlugin | nul
 
 export function listAssistantToolPlugins(): AssistantToolPlugin[] {
   return [...plugins.values()];
+}
+
+/**
+ * ДОСТУПЕН ЛИ ИНСТРУМЕНТ АКТОРУ — ОДНО МЕСТО (27.11.2026).
+ *
+ * Сверху `allowed` самого инструмента — общий запрет режима просмотра: запись (B, C)
+ * роли «только смотрит» (акционер) не объявляется и не исполняется, даже если автор
+ * нового инструмента забыл это в своём `allowed`. Исключение — исполнитель с флагом
+ * `readOnlyRoleAllowed` (своё: «не присылать такое»). Сервер держит то же брокером
+ * (lib/assistantActions.ts, assertRoleMayWrite) — это подсказка модели, а там защита.
+ */
+export function assistantPluginAllowed(plugin: AssistantToolPlugin, actor: AssistantActor): boolean {
+  if (readOnlyRoleBlocked(plugin, actor.role)) return false;
+  return plugin.allowed ? plugin.allowed(actor) : true;
 }

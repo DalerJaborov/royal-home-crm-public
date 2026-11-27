@@ -182,7 +182,7 @@ export async function linkAgentByCode(
  * ЗА РУБИЛЬНИКОМ «Привязка Telegram по номеру», ПО УМОЛЧАНИЮ ВЫКЛ (ревью 25.11.2026). Контакт Telegram
  * доказывает только, что на этот номер когда-то завели аккаунт (номер мог смениться у оператора), а
  * привязанный чат получает код входа в CRM. Поэтому даже при ВКЛ:
- *  1) директора и администратора по номеру не привязываем никогда (OWNER_ROLES);
+ *  1) директора, администратора и акционера по номеру не привязываем никогда (OWNER_ROLES);
  *  2) номер подтверждается кодом через ту же дверь, что вход (issueLoginCode, назначение
  *     «telegram-link»: СМС на номер из учётки, пуш только если СМС некуда); без верного кода — нет привязки;
  *  3) учётку ищем точными записями номера (staffPhoneLookupForms), а не по хвосту из девяти цифр:
@@ -200,7 +200,8 @@ export async function linkAgentByCode(
 export const STAFF_LINK_START_PAYLOAD = "staff";
 export const STAFF_CONTACT_WINDOW_MS = 30 * 60_000;
 /** По номеру не привязываем никогда: им — только код из профиля (там подтверждение личности). */
-const OWNER_ROLES: ReadonlySet<string> = new Set(["DIRECTOR", "ADMIN"]);
+/** Акционер (SHAREHOLDER) — с 27.11.2026: видит деньги компании, поэтому привязка только кодом из профиля, как у директора. */
+const OWNER_ROLES: ReadonlySet<string> = new Set(["DIRECTOR", "ADMIN", "SHAREHOLDER"]);
 
 async function phoneLinkEnabled(): Promise<boolean> {
   return automationSwitchOn("telegramPhoneLinkEnabled");
@@ -365,7 +366,7 @@ export async function tryConfirmStaffLinkCode(msg: TelegramIncomingMessage): Pro
       // Захват только свободной учётки (или уже этой же парой): ни чужой Telegram, ни чужой чат не перезаписываем.
       const claim = await tx.agent.updateMany({
         where: {
-          id: agentId, isActive: true, role: { notIn: ["DIRECTOR", "ADMIN"] },
+          id: agentId, isActive: true, role: { notIn: ["DIRECTOR", "ADMIN", "SHAREHOLDER"] },
           AND: [
             { OR: [{ telegramUserId: null }, { telegramUserId }] },
             { OR: [{ telegramChatId: null }, { telegramChatId: chatId }] },

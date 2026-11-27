@@ -65301,74 +65301,21 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!viewer.telegramChatId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Привяжите свой Telegram в профиле — туда придёт отчёт\" });",
-       "a": [
-        "ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await sendReportPdfToOwnTelegram(await viewerOf(req), kind, req.query, { source: \"screen\" });",
+     "a": [
+      "зовёт sendReportPdfToOwnTelegram()"
+     ],
+     "c": []
     },
     {
-     "k": "try",
-     "t": "пробует",
+     "k": "if",
+     "t": "outcome.ok",
      "a": [],
      "c": [
       {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…",
-         "a": [
-          "зовёт sendDocumentFile()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"telegram\", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return res.status(503).json({ error: \"Telegram не принял файл. Повторите позже или скачайте PDF\" });",
-         "a": [
-          "ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
        "k": "do",
-       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"ownTelegram\", period: pdf.periodKey, bytes…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.json({ ok: true });",
+       "t": "return res.json({ ok: true });",
        "a": [
         "ответ 200"
        ],
@@ -65377,19 +65324,27 @@
      ]
     },
     {
-     "k": "catch",
-     "t": "если сорвалось",
+     "k": "if",
+     "t": "outcome.retryAfterSec !== undefined",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "failed(res, kind, err);",
+       "t": "res.set(\"Retry-After\", String(outcome.retryAfterSec));",
        "a": [
-        "дословно из кода"
+        "ставит заголовок ответа"
        ],
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json({ error: outcome.error });",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
     }
    ]
   },
@@ -97785,41 +97740,11 @@
          "c": [
           {
            "k": "do",
-           "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
+           "t": "const recipients = await findAutoPdfRecipients(\"finance.view\");",
            "a": [
-            "читает в базе: agent"
+            "зовёт findAutoPdfRecipients()"
            ],
            "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const access = await loadAgentAccess(c.id);",
-             "a": [
-              "зовёт loadAgentAccess()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
           },
           {
            "k": "if",
@@ -97828,7 +97753,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
+             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или у…",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -97871,7 +97796,7 @@
              "c": [
               {
                "k": "do",
-               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
+               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(…",
                "a": [
                 "запись в журнал ошибок"
                ],
@@ -99481,7 +99406,7 @@
            "c": [
             {
              "k": "do",
-             "t": "await enqueueDirectorAlert({ title, body, url, tag, kind: \"oversight\", level: \"INSIGHT\", recipientRoles: [\"DI…",
+             "t": "await enqueueDirectorAlert({ title, body, url, tag, kind: \"oversight\", level: \"INSIGHT\", recipientRoles: awai…",
              "a": [
               "зовёт enqueueDirectorAlert()"
              ],
@@ -99499,15 +99424,15 @@
           },
           {
            "k": "do",
-           "t": "const directors = await prisma.agent.findMany({ where: { role: { in: [\"DIRECTOR\", \"ADMIN\"] }, isActive: true …",
+           "t": "const directorIds = await findReportRecipientsByRoles([\"DIRECTOR\", \"ADMIN\"]);",
            "a": [
-            "читает в базе: agent"
+            "зовёт findReportRecipientsByRoles()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "directors.length === 0",
+           "t": "directorIds.length === 0",
            "a": [],
            "c": [
             {
@@ -107258,9 +107183,9 @@
         },
         {
          "k": "do",
-         "t": "const recipients = await findAgentsWithPermission(\"dashboard.analytics\");",
+         "t": "const recipients = await findReportRecipients(\"dashboard.analytics\");",
          "a": [
-          "зовёт findAgentsWithPermission()"
+          "зовёт findReportRecipients()"
          ],
          "c": []
         },
@@ -107269,6 +107194,14 @@
          "t": "const { granted: seesMoney } = await partitionByPermission(recipients, \"finance.view\");",
          "a": [
           "зовёт partitionByPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const viewers = new Set( (await prisma.agent.findMany({ where: { id: { in: recipients }, role: { in: [...READ…",
+         "a": [
+          "читает в базе: agent"
          ],
          "c": []
         },
@@ -107364,7 +107297,7 @@
          "k": "do",
          "t": "const [ { tasksToday, leadsYesterday, dealsYesterday, commissionMonth, errorsYesterday, incomingYesterday, mi…",
          "a": [
-          "читает в базе: agent"
+          "зовёт loadMorningNumbers()"
          ],
          "c": []
         },
@@ -122068,9 +122001,9 @@
         },
         {
          "k": "do",
-         "t": "const recipients = await findAgentsWithPermission(\"reports.view\");",
+         "t": "const recipients = await findReportRecipients(\"reports.view\");",
          "a": [
-          "зовёт findAgentsWithPermission()"
+          "зовёт findReportRecipients()"
          ],
          "c": []
         },

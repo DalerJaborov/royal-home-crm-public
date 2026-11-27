@@ -7581,6 +7581,10 @@ model Settings {
   notifyOperatorTalkedPushEnabled       Boolean @default(false)
   /// Уведомления «нет видео» у объекта (агенту и руководству). ВЫКЛ — владелец 27.11: «отключить совсем».
   notifyNoVideoEnabled                  Boolean @default(false)
+  /// Отчёты акционеру (SHAREHOLDER) наравне с директором; тревоги с действием ему не идут. ВКЛ (владелец 27.11.2026).
+  shareholderReportsEnabled             Boolean @default(true)
+  /// Telegram-бот только для сотрудников: незнакомцу памятка вместо клиентского диалога. ВКЛ (владелец 27.11.2026).
+  telegramStaffOnlyEnabled              Boolean @default(true)
   /// Скользящее окно (дней), за которое считается Royal Score по событиям —
   /// решение владельца 03.08.2026: снимает риск «потолка 100» у голой суммы
   /// (см. docs/spec-compliance-03-08-2026.md). Старые начисления сами выходят из

@@ -72,6 +72,15 @@ describe("isReadOnlyExemptRequest", () => {
     ["PUT", "/api/v1/me/preferences"],
     ["POST", "/api/v1/me/avatar"],
     ["DELETE", "/api/v1/me/sessions/abc"],
+    // 27.11.2026: своё у акционера — Telegram с Шабнам, свои уведомления, отчёт себе.
+    ["POST", "/api/v1/me/telegram-link"],
+    ["POST", "/api/v1/me/telegram-unlink"],
+    ["PATCH", "/api/v1/push/preferences"],
+    ["POST", "/api/v1/me/notifications/read-all"],
+    ["POST", "/api/v1/me/notifications/read-many"],
+    ["POST", "/api/v1/me/notifications/seen"],
+    ["POST", "/api/v1/me/notifications/abc/read"],
+    ["POST", "/api/v1/report-pdf/finance/telegram"],
   ])("%s %s разрешён", (method, path) => {
     expect(isReadOnlyExemptRequest(method, path)).toBe(true);
   });
@@ -85,6 +94,10 @@ describe("isReadOnlyExemptRequest", () => {
     ["POST", "/api/v1/authx/steal"],
     ["PATCH", "/api/v1/me/montage-copies"],
     ["POST", "/api/v1/push/test"],
+    ["POST", "/api/v1/me/notifications/abc/read/x"],
+    ["POST", "/api/v1/me/notifications/abc/delete"],
+    ["DELETE", "/api/v1/me/notifications/abc"],
+    ["PATCH", "/api/v1/push/preferencesx"],
   ])("%s %s запрещён", (method, path) => {
     expect(isReadOnlyExemptRequest(method, path)).toBe(false);
   });

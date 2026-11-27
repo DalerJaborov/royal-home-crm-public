@@ -1,9 +1,11 @@
+import { READ_ONLY_ROLES } from "@royal-home/shared";
+import { findReportRecipients } from "./reportRecipients.js";
 import { buildExpenseSummary } from "./expenseQueries.js";
 import { prisma } from "../db.js";
 import { loadMoneyContext, roundMoney, toTjs, expenseCentsToTjs, fromCents } from "./money.js";
 import { dushanbeStartOfMonth } from "./dushanbeTime.js";
 import { sendPushToAgent } from "../push.js";
-import { findAgentsWithPermission, partitionByPermission } from "./recipients.js";
+import { partitionByPermission } from "./recipients.js";
 import { COUNTED_SHOWING_WHERE } from "./tasks.js";
 import { districtDemandForMonth } from "./propertyInterest.js";
 import { computeAgentSilenceStats, findMostProvableCase, type AgentSilenceStat, type ProvableCase } from "./postShowingSilencePattern.js";
@@ -277,18 +279,23 @@ export async function generateMonthlyReport(now: Date = new Date()): Promise<{ c
     timeZone: "UTC",
   });
   // Отчёт — управленческий документ: уходит тем, кто видит аналитику (директор, админ).
-  const recipients = await findAgentsWithPermission("dashboard.analytics");
+  // Отчёт для чтения — и акционеру под рубильником (lib/reportRecipients.ts).
+  const recipients = await findReportRecipients("dashboard.analytics");
   // Общая комиссия компании в тексте — только тем, у кого открыт finance.view: в самом
   // отчёте она закрыта тем же правом (GET /reports/monthly), а пуш отдавал её всем
   // аналитикам (аудит Codex 04.10.2026, ACCESS-04).
   const { granted: seesMoney } = await partitionByPermission(recipients, "finance.view");
+  // Акционер отчёт не дополняет (режим просмотра): ему «откройте, чтобы прочитать».
+  const viewers = new Set(
+    (await prisma.agent.findMany({ where: { id: { in: recipients }, role: { in: [...READ_ONLY_ROLES] } }, select: { id: true } })).map((a) => a.id),
+  );
   for (const agentId of recipients) {
     const commissionPart = seesMoney.includes(agentId)
       ? `, комиссия: ${Math.round(metrics.commission).toLocaleString("ru-RU")} с`
       : "";
     await sendPushToAgent(agentId, {
       title: `🗂️ Отчёт за ${monthLabel}`,
-      body: `Сделок: ${metrics.dealsCompleted}${commissionPart}. Откройте, чтобы дополнить.`,
+      body: `Сделок: ${metrics.dealsCompleted}${commissionPart}. ${viewers.has(agentId) ? "Откройте, чтобы прочитать." : "Откройте, чтобы дополнить."}`,
       url: "/reports",
       tag: `monthly-report-${monthKeyLabel(periodStart)}`,
     }).catch(() => {});

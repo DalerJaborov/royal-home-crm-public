@@ -1,3 +1,4 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import fs from "node:fs/promises";
@@ -5,6 +6,8 @@ import pathMod from "node:path";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { waitFor } from "./helpers/waitFor.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * «ОЧЕРЕДЬ МОНТАЖА ПОД КОНТРОЛЕМ» (25.09.2026, пачка 1 спецификации
