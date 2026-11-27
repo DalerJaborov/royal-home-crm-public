@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **790**. Развилок в самих путях: **2527**; вместе с задачами по расписанию и фоновыми заданиями — **4391**. Модулей: **87**.
+Путей: **790**. Развилок в самих путях: **2527**; вместе с задачами по расписанию и фоновыми заданиями — **4393**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5976,7 +5976,7 @@
           · зовёт recordScoreEvent()
       - const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
         · читает в базе: agent
-      - void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…
+      - void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…
         · читает в базе: agent
         · push-уведомление
     - const closedMonthKey = existing.closedAt ? (()
@@ -21609,14 +21609,10 @@
     - для каждого: const [a, b] of pairs
       - const payload = { kind: "oversight" as const, title: "🔎 Похожие карточки — проверьте", body: `Найдено ${dush…
         · зовёт dushanbeDateTimeString()
-      - пробует
-        - await createNotifications(directorIds, payload);
-          · зовёт createNotifications()
-        - void sendPushToAgents(directorIds, payload).catch((err)
-          · push-уведомление
-      - если сорвалось
-        - console.error("[alarm] duplicate-fuzzy notification:", err);
-          · пишет строку в журнал сервера
+      - await notifyFeedOnly(directorIds, payload);
+        · зовёт notifyFeedOnly()
+      - void sendDevicePushToAgents(directorIds, payload).catch((err)
+        · зовёт sendDevicePushToAgents()
   - если found > 0
     - console.log(`[cron] Вероятных дублей по имени/номеру: ${found}`);
       · пишет строку в журнал сервера
@@ -24710,9 +24706,14 @@
     · зовёт notifyStuckMaterials()
     - const properties = await prisma.property.findMany({ where: { deletedAt: null, OR: [ { status: "PENDING_REVIEW…
       · читает в базе: property
+    - const noVideoOn = properties.length > 0 && (await automationSwitchOn("notifyNoVideoEnabled").catch(()
+      · зовёт automationSwitchOn()
     - для каждого: const property of properties
       - пробует
         - если property.status === "PENDING_REVIEW"
+          - если !noVideoOn
+            - continue;
+              · переходит к следующему
           - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
             - continue;
               · переходит к следующему
@@ -24724,6 +24725,9 @@
           - если hoursInStage >= STUCK_ESCALATE_AFTER_HOURS
             - await enqueueDirectorAlert({ title: "🎥 Объект третьи сутки без видео", body: `${property.title} — видео так …
               · зовёт enqueueDirectorAlert()
+          - continue;
+            · переходит к следующему
+        - если property.status === "AWAITING_VIDEO" && !noVideoOn
           - continue;
             · переходит к следующему
         - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))

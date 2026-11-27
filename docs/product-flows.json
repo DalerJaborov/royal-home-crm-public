@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 790,
-  "forks": 4391,
+  "forks": 4393,
   "mounts": 87,
   "cron": 148,
   "jobs": 37,
@@ -26399,7 +26399,7 @@
           },
           {
            "k": "do",
-           "t": "void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…",
+           "t": "void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…",
            "a": [
             "читает в базе: agent",
             "push-уведомление"
@@ -96894,42 +96894,20 @@
            "c": []
           },
           {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await createNotifications(directorIds, payload);",
-             "a": [
-              "зовёт createNotifications()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void sendPushToAgents(directorIds, payload).catch((err)",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "await notifyFeedOnly(directorIds, payload);",
+           "a": [
+            "зовёт notifyFeedOnly()"
+           ],
+           "c": []
           },
           {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "console.error(\"[alarm] duplicate-fuzzy notification:\", err);",
-             "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "void sendDevicePushToAgents(directorIds, payload).catch((err)",
+           "a": [
+            "зовёт sendDevicePushToAgents()"
+           ],
+           "c": []
           }
          ]
         }
@@ -111432,6 +111410,14 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const noVideoOn = properties.length > 0 && (await automationSwitchOn(\"notifyNoVideoEnabled\").catch(()",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -111446,6 +111432,21 @@
              "t": "property.status === \"PENDING_REVIEW\"",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "!noVideoOn",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "if",
                "t": "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
@@ -111499,6 +111500,21 @@
                 }
                ]
               },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "property.status === \"AWAITING_VIDEO\" && !noVideoOn",
+             "a": [],
+             "c": [
               {
                "k": "do",
                "t": "continue;",

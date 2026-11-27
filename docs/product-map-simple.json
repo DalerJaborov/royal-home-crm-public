@@ -16,7 +16,7 @@
   "paths": 790,
   "cron": 148,
   "jobs": 37,
-  "conditions": 4352,
+  "conditions": 4354,
   "untranslatedUnique": 500,
   "untranslatedTotal": 642,
   "partialUnique": 1155,
@@ -69999,22 +69999,7 @@
          "t": "и так по каждому",
          "k": "loop",
          "a": [],
-         "c": [
-          {
-           "t": "пробует сделать",
-           "k": "try",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если не получилось",
-           "k": "catch",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
+         "c": []
         }
        ]
       },
