@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { cleanupRequestSchema, CLEANUP_TARGET_LABELS } from "@royal-home/shared";
-import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
 import { countCleanup, runManualCleanup, type CleanupActor } from "../lib/dataCleanup.js";
 
@@ -13,8 +13,8 @@ export const dataCleanupRouter = Router();
 
 dataCleanupRouter.use(requireAuth, requirePermission("settings.manage"));
 
-function actorOf(req: { agent?: { id: string; role?: string | null } }): CleanupActor {
-  return { id: req.agent!.id, role: req.agent!.role };
+function actorOf(req: Parameters<typeof can>[0] & { agent?: { id: string; role?: string | null } }): CleanupActor {
+  return { id: req.agent!.id, role: req.agent!.role, securityReview: can(req, "clients.securityReview") };
 }
 
 /** Сколько строк будет удалено — для окна подтверждения. */

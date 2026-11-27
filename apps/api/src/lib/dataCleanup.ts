@@ -8,6 +8,9 @@ import {
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { visibleSystemErrorWhere } from "./investigationOperations.js";
+import { visibleErrorLogs } from "./systemErrorVisibility.js";
+import { investigationNotificationWhere, visibleNotificationsWhere } from "./investigationNotifications.js";
+import { canViewInvestigations } from "@royal-home/shared";
 import { logSystemAudit } from "./audit.js";
 import { logSystemError } from "./systemError.js";
 import { dushanbeDateString } from "./dushanbeTime.js";
@@ -25,22 +28,32 @@ import { dushanbeDateString } from "./dushanbeTime.js";
 export const CLEANUP_BATCH_SIZE = 1000;
 /** Потолок пачек за один запуск ручной чистки (1000 × 50 = 50 000 строк) — дальше нажмут ещё раз. */
 export const MANUAL_MAX_BATCHES = 50;
-/** Потолок пачек на каждый вид за один ночной запуск. AiLog набегает ~1000 в день — с запасом. */
+/** Потолок пачек на каждый вид за один ночной запуск. Пачки по 1000 — с запасом. */
 export const AUTO_MAX_BATCHES_PER_TARGET = 40;
 
 interface CleanupDelegate {
   findMany(args: { where: unknown; select: { id: true }; take: number }): Promise<Array<{ id: string }>>;
-  deleteMany(args: { where: { id: { in: string[] } } }): Promise<{ count: number }>;
+  deleteMany(args: { where: unknown }): Promise<{ count: number }>;
   count(args: { where: unknown }): Promise<number>;
 }
 
-type StepTarget = CleanupTarget | "aiLog" | "guardHit" | "loginSmsCode" | "idempotencyKey" | "telegramCallbackSeen";
+type StepTarget = CleanupTarget | "guardHit" | "loginSmsCode" | "idempotencyKey" | "telegramCallbackSeen";
 
-function delegateFor(target: StepTarget): CleanupDelegate {
+/** Журнал ошибок чистим тем же «окном», что и список на экране (закрытые для роли записи не видны и не удаляются). */
+function errorLogDelegate(actor: CleanupActor): CleanupDelegate {
+  const view = visibleErrorLogs(actor.securityReview ? actor.role : undefined);
+  return {
+    findMany: (a) => view.findMany(a as never) as never,
+    count: (a) => view.count(a as never) as never,
+    deleteMany: (a) => prisma.errorLog.deleteMany(a as never) as never,
+  };
+}
+
+function delegateFor(target: StepTarget, actor?: CleanupActor): CleanupDelegate {
+  if (target === "errorLog" && actor) return errorLogDelegate(actor);
   // Типы делегатов Prisma у каждой модели свои; здесь нужны только три общих метода.
   if (target === "notifications") return prisma.notification as unknown as CleanupDelegate;
   if (target === "directorAlerts") return prisma.pendingDirectorAlert as unknown as CleanupDelegate;
-  if (target === "aiLog") return prisma.aiLog as unknown as CleanupDelegate;
   if (target === "guardHit") return prisma.guardHit as unknown as CleanupDelegate;
   if (target === "loginSmsCode") return prisma.loginSmsCode as unknown as CleanupDelegate;
   if (target === "idempotencyKey") return prisma.idempotencyKey as unknown as CleanupDelegate;
@@ -51,6 +64,8 @@ function delegateFor(target: StepTarget): CleanupDelegate {
 export interface CleanupActor {
   id: string;
   role?: string | null;
+  /** Право clients.securityReview: без него закрытые от роли ошибки не видны и не удаляются. */
+  securityReview?: boolean;
 }
 
 /** Условие выборки для ручной чистки. `handled` — только прочитанное/доставленное/разобранное. */
@@ -62,7 +77,12 @@ export function cleanupWhere(
 ): Prisma.NotificationWhereInput | Prisma.PendingDirectorAlertWhereInput | Prisma.ErrorLogWhereInput {
   if (target === "notifications") {
     return {
-      ...(scope === "mine" ? { agentId: actor.id } : {}),
+      // Закрытые от роли записи (расследования) не удаляем: «свои» — по правилам ленты, «у всех» — без закрытых.
+      ...(scope === "mine"
+        ? visibleNotificationsWhere(actor.id, actor.role ?? undefined)
+        : canViewInvestigations(actor.role)
+          ? {}
+          : { OR: [{ tag: null }, { NOT: investigationNotificationWhere() }] }),
       ...(mode === "handled" ? { read: true } : {}),
     };
   }
@@ -71,12 +91,12 @@ export function cleanupWhere(
   }
   // Журнал ошибок: только то, что этот человек и так видит в списке (закрытые для него записи не стираем).
   return {
-    AND: [visibleSystemErrorWhere(actor.role), mode === "handled" ? { resolvedAt: { not: null } } : {}],
+    AND: [visibleSystemErrorWhere(actor.securityReview ? actor.role : undefined), mode === "handled" ? { resolvedAt: { not: null } } : {}],
   };
 }
 
 export async function countCleanup(target: CleanupTarget, mode: CleanupMode, scope: CleanupScope, actor: CleanupActor): Promise<number> {
-  return delegateFor(target).count({ where: cleanupWhere(target, mode, scope, actor) });
+  return delegateFor(target, actor).count({ where: cleanupWhere(target, mode, scope, actor) });
 }
 
 /** Удаляет пачками по id, пока есть что удалять или не вышел потолок. Возвращает число удалённых строк. */
@@ -90,7 +110,8 @@ export async function deleteInBatches(
   for (let i = 0; i < maxBatches; i += 1) {
     const rows = await delegate.findMany({ where, select: { id: true }, take: batchSize });
     if (rows.length === 0) break;
-    const { count } = await delegate.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+    // Условие повторяем: между выбором и удалением строка могла «ожить» (повтор события) — её не стираем.
+    const { count } = await delegate.deleteMany({ where: { AND: [where, { id: { in: rows.map((r) => r.id) } }] } });
     total += count;
     if (rows.length < batchSize) break;
   }
@@ -103,7 +124,7 @@ export async function runManualCleanup(
   scope: CleanupScope,
   actor: CleanupActor
 ): Promise<number> {
-  return deleteInBatches(delegateFor(target), cleanupWhere(target, mode, scope, actor), MANUAL_MAX_BATCHES);
+  return deleteInBatches(delegateFor(target, actor), cleanupWhere(target, mode, scope, actor), MANUAL_MAX_BATCHES);
 }
 
 // ---------- автоочистка ----------
@@ -121,7 +142,6 @@ export function autoCleanupDays(settings: Partial<Record<AutoCleanupDaysKey, num
   return {
     autoCleanupNotificationsReadDays: clampDays(settings?.autoCleanupNotificationsReadDays, "autoCleanupNotificationsReadDays"),
     autoCleanupErrorsResolvedDays: clampDays(settings?.autoCleanupErrorsResolvedDays, "autoCleanupErrorsResolvedDays"),
-    autoCleanupAiLogDays: clampDays(settings?.autoCleanupAiLogDays, "autoCleanupAiLogDays"),
     autoCleanupDirectorAlertsDays: clampDays(settings?.autoCleanupDirectorAlertsDays, "autoCleanupDirectorAlertsDays"),
     autoCleanupBotCountersDays: clampDays(settings?.autoCleanupBotCountersDays, "autoCleanupBotCountersDays"),
     autoCleanupOneTimeDays: clampDays(settings?.autoCleanupOneTimeDays, "autoCleanupOneTimeDays"),
@@ -134,7 +154,6 @@ export interface AutoCleanupResult {
   ran: boolean;
   notifications: number;
   errorLog: number;
-  aiLog: number;
   directorAlerts: number;
   botCounters: number;
   oneTime: number;
@@ -145,7 +164,7 @@ export interface AutoCleanupResult {
  * неразобранное не трогаем никогда. Сбой одного вида не мешает остальным: ошибка уходит в logSystemError.
  */
 export async function runAutoCleanup(now: Date = new Date()): Promise<AutoCleanupResult> {
-  const result: AutoCleanupResult = { ran: false, notifications: 0, errorLog: 0, aiLog: 0, directorAlerts: 0, botCounters: 0, oneTime: 0 };
+  const result: AutoCleanupResult = { ran: false, notifications: 0, errorLog: 0, directorAlerts: 0, botCounters: 0, oneTime: 0 };
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
   if (!settings?.autoCleanupEnabled) return result;
   result.ran = true;
@@ -155,7 +174,6 @@ export async function runAutoCleanup(now: Date = new Date()): Promise<AutoCleanu
   const steps: Array<{ name: keyof Omit<AutoCleanupResult, "ran">; target: StepTarget; where: unknown }> = [
     { name: "notifications", target: "notifications", where: { read: true, createdAt: { lt: cutoff("autoCleanupNotificationsReadDays") } } },
     { name: "errorLog", target: "errorLog", where: { resolvedAt: { not: null, lt: cutoff("autoCleanupErrorsResolvedDays") } } },
-    { name: "aiLog", target: "aiLog", where: { createdAt: { lt: cutoff("autoCleanupAiLogDays") } } },
     { name: "directorAlerts", target: "directorAlerts", where: { sentAt: { not: null, lt: cutoff("autoCleanupDirectorAlertsDays") } } },
     // GuardHit.day — строка «ГГГГ-ММ-ДД» по Душанбе, не дата: сравниваем строкой.
     { name: "botCounters", target: "guardHit", where: { day: { lt: dushanbeDateString(cutoff("autoCleanupBotCountersDays")) } } },
@@ -172,12 +190,11 @@ export async function runAutoCleanup(now: Date = new Date()): Promise<AutoCleanu
       void logSystemError("cron", `Автоочистка «${step.target}» не удалась: ${message}`, { dedupKey: `data-cleanup:${step.target}` });
     }
   }
-  const total = result.notifications + result.errorLog + result.aiLog + result.directorAlerts + result.botCounters + result.oneTime;
+  const total = result.notifications + result.errorLog + result.directorAlerts + result.botCounters + result.oneTime;
   if (total > 0) {
     logSystemAudit("CLEANUP", "AutoCleanup", null, {
       notifications: result.notifications,
       errorLog: result.errorLog,
-      aiLog: result.aiLog,
       directorAlerts: result.directorAlerts,
       botCounters: result.botCounters,
       oneTime: result.oneTime,

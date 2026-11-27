@@ -595,7 +595,6 @@ export interface Settings extends SellerAutomationSwitches, SecurityAutomationSw
   /** Автоочистка мусора (28.11.2026): рубильник и сроки в днях. У сотрудников без настроек — нет. */
   autoCleanupNotificationsReadDays?: number;
   autoCleanupErrorsResolvedDays?: number;
-  autoCleanupAiLogDays?: number;
   autoCleanupDirectorAlertsDays?: number;
   autoCleanupBotCountersDays?: number;
   autoCleanupOneTimeDays?: number;

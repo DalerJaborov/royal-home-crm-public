@@ -44,7 +44,6 @@ beforeAll(async () => {
     autoCleanupEnabled: s.autoCleanupEnabled,
     autoCleanupNotificationsReadDays: s.autoCleanupNotificationsReadDays,
     autoCleanupErrorsResolvedDays: s.autoCleanupErrorsResolvedDays,
-    autoCleanupAiLogDays: s.autoCleanupAiLogDays,
     autoCleanupDirectorAlertsDays: s.autoCleanupDirectorAlertsDays,
     autoCleanupBotCountersDays: s.autoCleanupBotCountersDays,
     autoCleanupOneTimeDays: s.autoCleanupOneTimeDays,
@@ -55,7 +54,6 @@ afterAll(async () => {
   await prisma.settings.update({ where: { id: "singleton" }, data: savedSettings });
   await prisma.notification.deleteMany({ where: { agentId: { in: agentIds } } });
   await prisma.errorLog.deleteMany({ where: { message: { startsWith: marker } } });
-  await prisma.aiLog.deleteMany({ where: { endpoint: marker } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { title: marker } });
   await prisma.guardHit.deleteMany({ where: { guard: { startsWith: marker } } });
   await prisma.idempotencyKey.deleteMany({ where: { key: { startsWith: marker } } });
@@ -82,11 +80,11 @@ describe("условие выборки (cleanupWhere)", () => {
 
 describe("сроки автоочистки", () => {
   it("кривое число в базе приводится к пределам, свежее не стирается", () => {
-    const d = autoCleanupDays({ autoCleanupNotificationsReadDays: 0, autoCleanupAiLogDays: -5, autoCleanupErrorsResolvedDays: 99999, autoCleanupDirectorAlertsDays: null });
-    expect(d.autoCleanupNotificationsReadDays).toBe(3);
-    expect(d.autoCleanupAiLogDays).toBe(3);
+    const d = autoCleanupDays({ autoCleanupNotificationsReadDays: 0, autoCleanupErrorsResolvedDays: 99999, autoCleanupDirectorAlertsDays: null });
+    // Нижний предел 35 дней: удалить раньше — значит получить ту же тревогу заново как новую.
+    expect(d.autoCleanupNotificationsReadDays).toBe(35);
     expect(d.autoCleanupErrorsResolvedDays).toBe(365);
-    expect(d.autoCleanupDirectorAlertsDays).toBe(30);
+    expect(d.autoCleanupDirectorAlertsDays).toBe(35);
     // Счётчики щитов читаются окном в 14 суток — меньше 15 дней поставить нельзя.
     expect(autoCleanupDays({ autoCleanupBotCountersDays: 3 }).autoCleanupBotCountersDays).toBe(15);
     expect(autoCleanupDays({}).autoCleanupOneTimeDays).toBe(7);
@@ -115,14 +113,12 @@ describe("runAutoCleanup", () => {
     const oldRead = await note(agentId, { read: true, createdAt: ago(40) });
     const oldUnread = await note(agentId, { read: false, createdAt: ago(40) });
     const freshRead = await note(agentId, { read: true, createdAt: ago(5) });
-    const errOldResolved = await prisma.errorLog.create({ data: { source: "api", message: `${marker} old-resolved`, resolvedAt: ago(20) } });
-    const errOldOpen = await prisma.errorLog.create({ data: { source: "api", message: `${marker} old-open`, createdAt: ago(20) } });
+    const errOldResolved = await prisma.errorLog.create({ data: { source: "api", message: `${marker} old-resolved`, resolvedAt: ago(40) } });
+    const errOldOpen = await prisma.errorLog.create({ data: { source: "api", message: `${marker} old-open`, createdAt: ago(40) } });
     const errFreshResolved = await prisma.errorLog.create({ data: { source: "api", message: `${marker} fresh-resolved`, resolvedAt: ago(1) } });
-    const aiOld = await prisma.aiLog.create({ data: { endpoint: marker, ms: 1, ok: true, createdAt: ago(20) } });
-    const aiFresh = await prisma.aiLog.create({ data: { endpoint: marker, ms: 1, ok: true } });
     const alertOldSent = await prisma.pendingDirectorAlert.create({ data: { title: marker, body: "", recipientRoles: ["DIRECTOR"], sentAt: ago(40), createdAt: ago(40) } });
     const alertOldPending = await prisma.pendingDirectorAlert.create({ data: { title: marker, body: "", recipientRoles: ["DIRECTOR"], createdAt: ago(40) } });
-    return { oldRead, oldUnread, freshRead, errOldResolved, errOldOpen, errFreshResolved, aiOld, aiFresh, alertOldSent, alertOldPending };
+    return { oldRead, oldUnread, freshRead, errOldResolved, errOldOpen, errFreshResolved, alertOldSent, alertOldPending };
   }
 
   it("рубильник ВЫКЛ — ничего не удаляет", async () => {
@@ -131,18 +127,17 @@ describe("runAutoCleanup", () => {
     const r = await runAutoCleanup();
     expect(r.ran).toBe(false);
     expect(await prisma.notification.count({ where: { id: s.oldRead.id } })).toBe(1);
-    expect(await prisma.aiLog.count({ where: { id: s.aiOld.id } })).toBe(1);
   });
 
   it("рубильник ВКЛ — удаляет старое обработанное, непрочитанное, неразобранное и свежее остаётся", async () => {
     await prisma.settings.update({
       where: { id: "singleton" },
-      data: { autoCleanupEnabled: true, autoCleanupNotificationsReadDays: 30, autoCleanupErrorsResolvedDays: 14, autoCleanupAiLogDays: 14, autoCleanupDirectorAlertsDays: 30 },
+      data: { autoCleanupEnabled: true, autoCleanupNotificationsReadDays: 35, autoCleanupErrorsResolvedDays: 35, autoCleanupDirectorAlertsDays: 35 },
     });
     const s = await seed();
     const r = await runAutoCleanup();
     expect(r.ran).toBe(true);
-    const has = async (model: "notification" | "errorLog" | "aiLog" | "pendingDirectorAlert", id: string) =>
+    const has = async (model: "notification" | "errorLog" | "pendingDirectorAlert", id: string) =>
       (await (prisma[model] as unknown as { count(a: unknown): Promise<number> }).count({ where: { id } })) === 1;
     expect(await has("notification", s.oldRead.id)).toBe(false);
     expect(await has("notification", s.oldUnread.id)).toBe(true);
@@ -150,8 +145,6 @@ describe("runAutoCleanup", () => {
     expect(await has("errorLog", s.errOldResolved.id)).toBe(false);
     expect(await has("errorLog", s.errOldOpen.id)).toBe(true);
     expect(await has("errorLog", s.errFreshResolved.id)).toBe(true);
-    expect(await has("aiLog", s.aiOld.id)).toBe(false);
-    expect(await has("aiLog", s.aiFresh.id)).toBe(true);
     expect(await has("pendingDirectorAlert", s.alertOldSent.id)).toBe(false);
     expect(await has("pendingDirectorAlert", s.alertOldPending.id)).toBe(true);
     await prisma.settings.update({ where: { id: "singleton" }, data: { autoCleanupEnabled: false } });
@@ -233,23 +226,28 @@ describe("«Скрыть» уведомление", () => {
   const get = (token: string) => request(app).get("/api/v1/me/notifications").set("Authorization", `Bearer ${token}`);
   const ids = (res: request.Response) => (res.body.items as Array<{ id: string }>).map((n) => n.id);
 
-  it("скрытое пропадает из ленты и счётчика у владельца, остаётся в базе; чужое скрыть нельзя", async () => {
-    const mine = await note(agentId, { read: false });
-    const stranger = await note(directorId, { read: false });
+  it("скрытое пропадает из ленты у владельца, остаётся в базе; чужое скрыть нельзя", async () => {
+    const mine = await note(agentId, { read: true });
+    const stranger = await note(directorId, { read: true });
     const before = await get(agentToken);
     expect(ids(before)).toContain(mine.id);
-    const unreadBefore = before.body.unreadCount as number;
 
     const hide = await request(app).post(`/api/v1/me/notifications/${mine.id}/hide`).set("Authorization", `Bearer ${agentToken}`);
     expect(hide.status).toBe(200);
     const after = await get(agentToken);
     expect(ids(after)).not.toContain(mine.id);
-    expect(after.body.unreadCount).toBe(unreadBefore - 1);
     expect(await prisma.notification.count({ where: { id: mine.id } })).toBe(1);
 
     const foreign = await request(app).post(`/api/v1/me/notifications/${stranger.id}/hide`).set("Authorization", `Bearer ${agentToken}`);
     expect(foreign.status).toBe(404);
     expect((await prisma.notification.findUnique({ where: { id: stranger.id } }))?.hiddenAt).toBeNull();
+  });
+
+  it("непрочитанное скрыть нельзя: дело ждёт, строка остаётся в ленте", async () => {
+    const unread = await note(agentId, { read: false });
+    const res = await request(app).post(`/api/v1/me/notifications/${unread.id}/hide`).set("Authorization", `Bearer ${agentToken}`);
+    expect(res.status).toBe(404);
+    expect((await prisma.notification.findUnique({ where: { id: unread.id } }))?.hiddenAt).toBeNull();
   });
 
   it("«Скрыть всё прочитанное» скрывает только прочитанное", async () => {

@@ -1298,7 +1298,7 @@ export function startCronJobs() {
       try {
         const { runAutoCleanup } = await import("./lib/dataCleanup.js");
         const r = await runAutoCleanup();
-        if (r.ran) console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, журнал ИИ -${r.aiLog}, оповещения директору -${r.directorAlerts}, счётчики щитов -${r.botCounters}, одноразовые -${r.oneTime}`);
+        if (r.ran) console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору -${r.directorAlerts}, счётчики щитов -${r.botCounters}, одноразовые -${r.oneTime}`);
       } catch (err) {
         reportCronTickError("Ошибка автоочистки", err);
       }

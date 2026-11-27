@@ -203,10 +203,11 @@ notificationsRouter.post("/:id/hide", async (req, res) => {
   const parsed = idParamSchema.safeParse(req.params);
   if (!parsed.success) return res.status(400).json({ error: "Неверный идентификатор" });
   const result = await prisma.notification.updateMany({
-    where: { id: parsed.data.id, ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)) },
+    // Только прочитанное: нерешённое («Ждёт решения», «Критичное») не прячем, дело всё равно ждёт.
+    where: { id: parsed.data.id, read: true, ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)) },
     data: { hiddenAt: new Date() },
   });
-  if (result.count === 0) return res.status(404).json({ error: "Уведомление не найдено" });
+  if (result.count === 0) return res.status(404).json({ error: "Скрыть можно только прочитанное уведомление" });
   res.json({ ok: true });
 });
 

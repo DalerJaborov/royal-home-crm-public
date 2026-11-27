@@ -79,7 +79,7 @@ export function CleanupButton({
                 ? "Считаем, сколько записей удалится…"
                 : count === 0
                   ? "Здесь нечего удалять."
-                  : `Будет удалено записей: ${count}. Вернуть их будет нельзя.`
+                  : `Будет удалено записей: ${count}. Вернуть их будет нельзя. Если причина тревоги не устранена, такая тревога может прийти снова как новая.`
           }
           confirmLabel={count ? `Удалить ${count}` : "Удалить"}
           confirmDisabled={run.isPending || preview.isLoading || preview.isError || !count}

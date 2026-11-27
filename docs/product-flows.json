@@ -42769,7 +42769,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...await loadVisibleNotifi…",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, read: true, ...await loadV…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -42782,9 +42782,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Уведомление не найдено\" });",
+       "t": "return res.status(404).json({ error: \"Скрыть можно только прочитанное уведомление\" });",
        "a": [
-        "ответ 404 — «Уведомление не найдено»"
+        "ответ 404 — «Скрыть можно только прочитанное уведомление»"
        ],
        "c": []
       }
@@ -96454,7 +96454,7 @@
        "c": [
         {
          "k": "do",
-         "t": "console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, журнал ИИ -${r.aiLog…",
+         "t": "console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору…",
          "a": [
           "пишет строку в журнал сервера"
          ],

@@ -12,10 +12,12 @@ const src = (f: string) => fs.readFileSync(path.join(__dirname, f), "utf8").repl
 describe("экран уведомлений: скрыть и очистить в каждом виде", () => {
   const page = src("pages/Notifications.tsx");
   it("«Скрыть» у строки — в трёх разметках (ПК, телефон, новый вид)", () => {
-    expect(page.match(/hide\.mutate\(n\.id\)/g)?.length).toBe(3);
+    expect(page.match(/hideOne\(n\.id\)/g)?.length).toBe(3);
+    // «Скрыть» только у прочитанного: нерешённое прятать нельзя.
+    expect(page.match(/\{n\.read && \(/g)?.length).toBe(3);
   });
   it("«Скрыть прочитанное» и «Очистить» — в трёх заголовках", () => {
-    expect(page.match(/hideRead\.mutate\(\)/g)?.length).toBe(3);
+    expect(page.match(/hideAllRead\(\)/g)?.length).toBe(3);
     expect(page.match(/<CleanupButton target="notifications" scope="mine"/g)?.length).toBe(3);
   });
 });

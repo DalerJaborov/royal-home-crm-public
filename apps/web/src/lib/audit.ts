@@ -130,6 +130,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   PROPERTY_CHANGE_REQUEST: "Заявка на изменение опубликованного объекта",
   PROPERTY_CHANGE_REQUEST_DECIDED: "Заявка на изменение объекта: решение",
   PROPERTY_CHANGE_REQUEST_CANCELLED: "Заявка на изменение объекта отозвана",
+  CLEANUP: "Очистка данных (уведомления, оповещения, журнал ошибок)",
   PROPERTY_VIDEO_CLEANUP: "Исходные видео объекта удалены ночной уборкой",
   PROPERTY_DRAFT_MEDIA_LOST: "Файлы из мастера не дошли до карточки",
   PROPERTY_PHOTOS_ADDED: "Фото добавлены",

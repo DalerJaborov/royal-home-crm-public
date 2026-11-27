@@ -7564,10 +7564,9 @@ model Settings {
   /// Автоочистка мусора (владелец 28.11.2026, lib/dataCleanup.ts, крон «data-cleanup»). ВЫКЛ по умолчанию:
   /// удаление безвозвратное, включает владелец сам. Сроки — в днях; непрочитанное и неразобранное не трогается.
   autoCleanupEnabled                    Boolean @default(false)
-  autoCleanupNotificationsReadDays      Int     @default(30)
-  autoCleanupErrorsResolvedDays         Int     @default(14)
-  autoCleanupAiLogDays                  Int     @default(14)
-  autoCleanupDirectorAlertsDays         Int     @default(30)
+  autoCleanupNotificationsReadDays      Int     @default(35)
+  autoCleanupErrorsResolvedDays         Int     @default(35)
+  autoCleanupDirectorAlertsDays         Int     @default(35)
   autoCleanupBotCountersDays            Int     @default(30)
   autoCleanupOneTimeDays                Int     @default(7)
   /// «Звонок по объекту: узнавать объект по приметам и отдавать хозяину» (владелец 26.11.2026, ПК-001086 → №230).

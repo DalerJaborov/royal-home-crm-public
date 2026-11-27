@@ -78,7 +78,7 @@ async function staleSummaries(now: Date): Promise<StuckPulse["staleSummaries"]> 
 async function unreadNotifications(): Promise<StuckPulse["unreadNotifications"]> {
   const rows = await prisma.notification.groupBy({
     by: ["agentId"],
-    where: { read: false },
+    where: { read: false, hiddenAt: null },
     _count: { _all: true },
   });
   const loud = rows.filter((r) => r._count._all >= UNREAD_ALARM);

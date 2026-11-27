@@ -34,14 +34,15 @@ export type CleanupRequest = z.infer<typeof cleanupRequestSchema>;
 
 /** Пределы сроков автоочистки, дней. min не даёт случайно стереть вчерашнее. */
 export const AUTO_CLEANUP_DAYS = {
-  autoCleanupNotificationsReadDays: { min: 3, max: 365, default: 30 },
-  autoCleanupErrorsResolvedDays: { min: 3, max: 365, default: 14 },
-  autoCleanupAiLogDays: { min: 3, max: 365, default: 14 },
-  autoCleanupDirectorAlertsDays: { min: 3, max: 365, default: 30 },
+  // Нижний предел 35 дней: CRM помнит «тревога уже была» по записи в ленте/очереди/журнале (окна повтора до 30 дней).
+  // Удалить раньше — значит получить ту же тревогу заново как новую (ревью 28.11.2026).
+  autoCleanupNotificationsReadDays: { min: 35, max: 365, default: 35 },
+  autoCleanupErrorsResolvedDays: { min: 35, max: 365, default: 35 },
+  autoCleanupDirectorAlertsDays: { min: 35, max: 365, default: 35 },
   // Дневные счётчики щитов бота (GuardHit): пульт и утренний отчёт читают окно 14 суток, поэтому min 15.
   autoCleanupBotCountersDays: { min: 15, max: 365, default: 30 },
   // Просроченные одноразовые записи: коды входа, ключи повтора, метки кнопок Telegram.
-  autoCleanupOneTimeDays: { min: 2, max: 90, default: 7 },
+  autoCleanupOneTimeDays: { min: 4, max: 90, default: 7 },
 } as const;
 export type AutoCleanupDaysKey = keyof typeof AUTO_CLEANUP_DAYS;
 export const AUTO_CLEANUP_DAYS_KEYS = Object.keys(AUTO_CLEANUP_DAYS) as AutoCleanupDaysKey[];
@@ -49,10 +50,9 @@ export const AUTO_CLEANUP_DAYS_KEYS = Object.keys(AUTO_CLEANUP_DAYS) as AutoClea
 export const AUTO_CLEANUP_DAYS_LABELS: Record<AutoCleanupDaysKey, { label: string; hint: string }> = {
   autoCleanupNotificationsReadDays: { label: "Прочитанные уведомления, дней", hint: "Старше срока и уже прочитанные. Непрочитанные остаются." },
   autoCleanupErrorsResolvedDays: { label: "Разобранные ошибки, дней", hint: "Только отмеченные «разобрано». Неразобранные остаются." },
-  autoCleanupAiLogDays: { label: "Технический журнал ИИ, дней", hint: "Служебный журнал обращений к ИИ (около тысячи записей в день)." },
   autoCleanupDirectorAlertsDays: { label: "Оповещения директору, дней", hint: "Только уже разобранные очередью. Ждущие остаются." },
-  autoCleanupBotCountersDays: { label: "Счётчики щитов бота, дней", hint: "Дневные счётчики срабатываний защит бота. Переписки и трассы ответов не затрагиваются." },
-  autoCleanupOneTimeDays: { label: "Одноразовые записи, дней", hint: "Старые коды входа, ключи повтора запросов и метки кнопок Telegram." },
+  autoCleanupBotCountersDays: { label: "Служебные счётчики бота, дней", hint: "Дневные счётчики срабатываний защит бота. Переписки бота не затрагиваются." },
+  autoCleanupOneTimeDays: { label: "Одноразовые записи, дней", hint: "Старые коды входа и служебные метки повторных запросов." },
 };
 
 /** Пример фрагмента PATCH /settings: поля сроков. */

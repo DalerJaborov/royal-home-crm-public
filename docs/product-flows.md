@@ -9890,11 +9890,11 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный идентификатор" });
     · ответ 400 — «Неверный идентификатор»
-- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...await loadVisibleNotifi…
+- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, read: true, ...await loadV…
   · меняет в базе: notification
 - если result.count === 0
-  - return res.status(404).json({ error: "Уведомление не найдено" });
-    · ответ 404 — «Уведомление не найдено»
+  - return res.status(404).json({ error: "Скрыть можно только прочитанное уведомление" });
+    · ответ 404 — «Скрыть можно только прочитанное уведомление»
 - res.json({ ok: true });
   · ответ 200
 
@@ -21525,7 +21525,7 @@
       - logSystemAudit("CLEANUP", "AutoCleanup", null, { notifications: result.notifications, errorLog: result.errorL…
         · зовёт logSystemAudit()
   - если r.ran
-    - console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, журнал ИИ -${r.aiLog…
+    - console.log(`[cron] Автоочистка: уведомления -${r.notifications}, ошибки -${r.errorLog}, оповещения директору…
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка автоочистки", err);
