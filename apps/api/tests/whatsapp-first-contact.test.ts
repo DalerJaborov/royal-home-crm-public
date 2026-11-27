@@ -306,7 +306,7 @@ describe("кнопка «Написать в WhatsApp»", () => {
     expect(again.body.last).toMatchObject({ status: "FAILED" });
   });
 
-  it("отправка про объект: текст с номером объекта, переписка заведена, бот на паузе, повтор закрыт", async () => {
+  it("отправка про объект: текст с номером объекта, переписка заведена, бот не на паузе (рубильник выкл), повтор закрыт", async () => {
     approveAll();
     expect((await status(ownToken, clientId)).body).toMatchObject({ state: "ready", propertyTextReady: true });
     const res = await send(ownToken, clientId, { propertyShortId });
@@ -318,7 +318,8 @@ describe("кнопка «Написать в WhatsApp»", () => {
       where: { channel: "WHATSAPP", subscriberId: recipient },
     });
     expect(conversation?.clientId).toBe(clientId);
-    expect(conversation?.pausedUntil?.getTime()).toBeGreaterThan(Date.now());
+    // Рубильник botPauseOnStaffReplyEnabled по умолчанию ВЫКЛ (владелец 27.11.2026): первое сообщение бота не глушит.
+    expect((conversation?.pausedUntil?.getTime() ?? 0) <= Date.now()).toBe(true);
     const messages = conversation!.messages as { role: string; content: string; mid?: string; by?: { kind: string } }[];
     expect(messages.at(-1)).toMatchObject({ role: "assistant", by: { kind: "agent" } });
     expect(messages.at(-1)?.content).toContain(`по объекту №${propertyShortId}`);

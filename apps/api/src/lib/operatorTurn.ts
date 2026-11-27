@@ -8,6 +8,7 @@
  * Объект вне Душанбе сервер по объекту не определяет: в наших карточках только зона работы, а «вне зоны» приходит словами
  * клиента (понимание оператора). Поэтому `ctx.outOfArea` здесь всегда false.
  */
+import { automationSwitchOn } from "./automationSwitches.js";
 import { RECRUITMENT_CONTACT, type RecruitmentPosition } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { AGENCY_FACTS } from "../ai/agencyFacts.js";
@@ -117,7 +118,11 @@ export async function loadOperatorTurnSetup(input: {
     // lib/customerLeadOnlyCore.ts «card_pending»); заявки нет вовсе — живого агента нет (ревью #333).
     clientId ? leadOnlyCardAgentActive(clientId).catch(() => true) : leadIntakePending(input.conversationId),
     contactWhenWithoutAgent(now).catch(() => ({ ru: "в рабочее время", tg: "дар вақти корӣ" })),
-    staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now)]);
+    // Рубильник «Ответ сотрудника останавливает бота» (владелец 27.11.2026, «убрать и его»): выключен (по умолчанию) —
+    // бот отвечает всегда, ответ сотрудника его не глушит; включён — прежнее молчание на staffQuietMinutes.
+    automationSwitchOn("botPauseOnStaffReplyEnabled")
+      .then((on) => on && staffWroteRecently(input.conversationId, input.config.staffQuietMinutes ?? 180, now))
+      .catch(() => false)]);
   const reviewer = await isReviewerConversation(input.conversationId, input.peerPhone ?? null);
   const staffThread = await staffWroteEver(input.conversationId);
   const previousAt = Date.parse(String((row?.leadOnlyPending as { updatedAt?: unknown } | null)?.updatedAt ?? ""));
