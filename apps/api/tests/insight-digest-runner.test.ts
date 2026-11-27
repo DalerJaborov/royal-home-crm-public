@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Мокаем prisma до импорта тестируемого модуля
 vi.mock("../src/db.js", () => {
   const mock = {
-    settings: { findFirst: vi.fn() },
+    // findUnique — рубильники (lib/automationSwitches.ts): «Отчёты акционеру» решает,
+    // получает ли советы ИИ и акционер (lib/reportRecipients.ts, 27.11.2026).
+    settings: { findFirst: vi.fn(), findUnique: vi.fn() },
     insightDigest: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -335,6 +337,8 @@ describe("generateInsightDigest", () => {
 describe("notifyDirectorsAboutInsightDigest", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Рубильник «Отчёты акционеру» включён (умолчание в базе).
+    mockedPrisma.settings.findUnique.mockResolvedValue({ shareholderReportsEnabled: true } as never);
   });
 
   it("immediate:true (кнопка «Собрать сейчас») — отправляет пуш директорам сразу", async () => {
@@ -350,6 +354,11 @@ describe("notifyDirectorsAboutInsightDigest", () => {
     ] as never);
 
     await notifyDirectorsAboutInsightDigest("digest-001", true);
+
+    // Директор и администратор — как раньше; акционер — отчёт для чтения (27.11.2026).
+    expect(mockedPrisma.agent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { role: { in: ["DIRECTOR", "ADMIN", "SHAREHOLDER"] }, isActive: true } }),
+    );
 
     expect(mockedSendPush).toHaveBeenCalledWith(
       ["dir-1", "dir-2"],
@@ -380,10 +389,32 @@ describe("notifyDirectorsAboutInsightDigest", () => {
         data: expect.objectContaining({
           title: "📊 Инсайты от ИИ готовы",
           body: "3 кейсов для собрания 2026-09-15",
-          recipientRoles: ["DIRECTOR", "ADMIN"],
+          recipientRoles: ["DIRECTOR", "ADMIN", "SHAREHOLDER"],
         }),
       })
     );
+  });
+
+  it("рубильник «Отчёты акционеру» выключен — только директор и администратор, как до 27.11", async () => {
+    mockedPrisma.settings.findUnique.mockResolvedValue({ shareholderReportsEnabled: false } as never);
+    mockedPrisma.insightDigest.findUnique.mockResolvedValue({
+      id: "digest-003",
+      meetingAt: new Date("2026-09-15T04:00:00Z"),
+      periodStart: new Date("2026-09-01T00:00:00Z"),
+      _count: { cases: 2 },
+    } as never);
+    mockedPrisma.agent.findMany.mockResolvedValue([{ id: "dir-1" }] as never);
+
+    await notifyDirectorsAboutInsightDigest("digest-003");
+    expect(mockedPrisma.pendingDirectorAlert.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ recipientRoles: ["DIRECTOR", "ADMIN"] }) }),
+    );
+
+    await notifyDirectorsAboutInsightDigest("digest-003", true);
+    expect(mockedPrisma.agent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true } }),
+    );
+    expect(mockedSendPush).toHaveBeenCalledWith(["dir-1"], expect.objectContaining({ kind: "oversight" }));
   });
 
   it("ничего не делает если диджест не найден", async () => {

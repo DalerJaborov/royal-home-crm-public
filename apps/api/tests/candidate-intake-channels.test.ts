@@ -1,5 +1,8 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * КАНДИДАТ НИКОГДА НЕ ОСТАЁТСЯ У АГЕНТА — ВО ВСЕХ КАНАЛАХ ПЕРЕПИСКИ (02.10.2026).

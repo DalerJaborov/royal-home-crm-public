@@ -24,13 +24,14 @@ async function lookOn(page: Page) {
 }
 
 const CHECK = ['[data-ry-section="home"] .ry-tile', '[data-ry-section="home"] .ry-hero', '[data-ry-section="home"] .ry-row',
-  '[data-ry-section="home"] .ry-section-head', '[data-ry-section="home"] .ry-home-chart', '[data-ry-section="home"] .ry-home-quiet'].join(", ");
+  '[data-ry-section="home"] .ry-section-head', '[data-ry-section="home"] .ry-home-chart', '[data-ry-section="home"] .ry-home-quiet',
+  '[data-ry-section="home2"] :is(.h2-plate, .h2-mini, .h2-tile, .h2-q, .h2-speed, .h2-crew-person, .h2-cols, .h2-fbar)'].join(", ");
 
 /** Что обязано быть и чего быть не должно у роли. */
 const EXPECT: Record<Role, { blocks: string[]; absent: string[]; money: boolean }> = {
-  // Директор и РОП (21.11.2026): главная = полоса «Требует внимания сейчас» и дашборд; старых блоков нет.
-  DIRECTOR: { blocks: ["attention", "dashboard"], absent: ["money", "decisions", "burning", "team", "pulse", "managerTiles", "ropTiles"], money: true },
-  HEAD_OF_SALES: { blocks: ["attention", "dashboard"], absent: ["ropTiles", "ropSpread", "ropTeam", "ropTasks", "teamCharts", "money", "managerTiles"], money: false },
+  // Директор и РОП (пачка home2, 27.11.2026): блоки макета сверху и «Аналитика» под ними; старой полосы и старых блоков нет.
+  DIRECTOR: { blocks: ["plate", "tiles", "quick", "decisions", "burning", "crew", "sources", "analytics"], absent: ["attention", "dashboard", "money", "team", "pulse", "managerTiles", "ropTiles"], money: true },
+  HEAD_OF_SALES: { blocks: ["tiles", "burning", "decisions", "crew", "ropTasks", "analytics"], absent: ["attention", "dashboard", "ropTiles", "ropSpread", "ropTeam", "teamCharts", "money", "managerTiles", "plate", "sources"], money: false },
   SHAREHOLDER: { blocks: ["money", "pulse", "channels"], absent: ["managerTiles", "decisions", "managerFocus", "ropTiles"], money: true },
 };
 

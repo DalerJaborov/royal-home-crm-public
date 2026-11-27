@@ -46,7 +46,7 @@ function initials(name: string) {
  * ПК (контейнерный запрос по ширине списка) — таблица: аватар, клиент с номером,
  * запрос с источником, последний контакт (и факт «ждёт принятия»), ответственный,
  * действия; шапка — RoyalClientListHead.
- * Телефон: имя; запрос одной строкой; «последний контакт ДД.ММ»; факт-метка; ответственный.
+ * Телефон: имя; запрос; одна строка фактов «последний контакт ДД.ММ · ответственный»; факт-метка.
  * Номер карточки и источник (`ry-crow-pc-only`) на телефоне в строке не видны — они в
  * карточке клиента. Трубка — круг справа на всю высоту строки.
  *
@@ -75,9 +75,13 @@ export function RoyalClientRow({ id, name, href, avatar, identity, request, sour
       </div>
       <div className="ry-crow-next">
         {fact && <span className="ry-crow-step">{fact}</span>}
-        {lastContact && (
+        {(lastContact || showAgent) && (
           <span className="ry-crow-when">
-            <span className="ry-crow-hint ry-crow-last">{lastContact}</span>
+            {lastContact && <span className="ry-crow-hint ry-crow-last">{lastContact}</span>}
+            {/* Телефон (пачка shell2, 27.11.2026, плотность как в макете): ответственный — в той же строке
+                фактов, что и контакт, а не отдельной строкой с кружком. На ПК (таблица) у него своя колонка
+                ниже, а эта копия скрыта (theme-look-royal-clients.css). Имя полностью, без многоточия. */}
+            {showAgent && <span className="ry-crow-hint ry-crow-agent-inline">{lastContact ? " · " : ""}{agent}</span>}
           </span>
         )}
       </div>

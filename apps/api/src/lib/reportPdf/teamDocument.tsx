@@ -1,8 +1,7 @@
-import { View } from "@react-pdf/renderer";
 import { CLIENT_SOURCE_LABELS, type ClientSource } from "@royal-home/shared";
 import type { AgentReportRow, FunnelCohortStep, FunnelStep, SourcesReport } from "../teamReports.js";
-import { BarList, DataTable, FunnelBars, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
-import { C, money, num, percent } from "./theme.js";
+import { DataTable, FunnelBars, KpiGrid, Note, ReportDocument, Section } from "./kit.js";
+import { money, num, percent } from "./theme.js";
 
 /**
  * ОТЧЁТ ПО КОМАНДЕ И ЗАЯВКАМ В PDF: воронка, агенты, источники за период —
@@ -33,7 +32,6 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
   const cohortDeals = cohort.find((x) => x.key === "deals")?.count ?? 0;
   const ranked = [...agents].sort((a, b) => b.dealsClosed - a.dealsClosed || b.showings - a.showings || a.agentName.localeCompare(b.agentName));
   const shown = ranked.slice(0, AGENT_ROWS_LIMIT);
-  const withResult = ranked.filter((a) => a.dealsClosed > 0 || a.showings > 0);
 
   return (
     <ReportDocument title="Отчёт по команде и заявкам" coverTitle={"Отчёт по команде\nи заявкам"} periodLabel={periodLabel} preparedBy={preparedBy} generatedAtLabel={generatedAtLabel}>
@@ -57,12 +55,6 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
       />
 
       <Section title="Команда" hint="Показы и закрытые сделки каждого агента за период. Ушедшие сотрудники со сделками в периоде остаются в списке.">
-        {withResult.length > 0 ? (
-          <>
-            <BarList items={withResult.slice(0, 12).map((a) => ({ label: a.agentName, value: a.dealsClosed }))} color={C.accent} format={(v) => `${num(v)} сд.`} />
-            <View style={{ height: 12 }} />
-          </>
-        ) : null}
         <DataTable
           columns={[
             { title: "Агент", flex: 2.2 },
@@ -82,14 +74,14 @@ export function TeamReport({ periodLabel, preparedBy, generatedAtLabel, seesMone
         />
       </Section>
 
-      <Section title="Откуда приходят клиенты" hint="«Написали» — сколько человек начали переписку в канале; «Заявок» — сколько оставили контакт. Для сайта и звонков это одно и то же, поэтому там «—».">
+      <Section together title="Откуда приходят клиенты" hint="«Написали» — сколько человек начали переписку в канале; «Заявок» — сколько оставили контакт. Для сайта и звонков это одно и то же, поэтому там «—».">
         <DataTable
           columns={[
             { title: "Канал", flex: 1.8 },
             { title: "Написали", flex: 0.9, align: "right" },
             { title: "Заявок", flex: 0.9, align: "right" },
             { title: "Сделок", flex: 0.8, align: "right" },
-            { title: "Заявка → сделка", flex: 1.1, align: "right" },
+            { title: "Из заявки в сделку", flex: 1.1, align: "right" },
           ]}
           rows={sources.sources.map((x) => [
             CLIENT_SOURCE_LABELS[x.source as ClientSource] ?? x.source,

@@ -20,6 +20,15 @@ describe("Ctrl+K — поиск", () => {
     expect(open).toHaveBeenCalledTimes(2);
   });
 
+  it("русская (и таджикская) раскладка: та же клавиша даёт «л» — поиск всё равно открывается", () => {
+    const open = vi.fn();
+    renderHook(() => useSearchHotkey(true, open));
+    press({ key: "л", code: "KeyK", ctrlKey: true });
+    press({ key: "л", code: "KeyK" });
+    press({ key: "л", code: "KeyK", ctrlKey: true, altKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it("просто «к», Ctrl+Alt+K и другие сочетания — нет", () => {
     const open = vi.fn();
     renderHook(() => useSearchHotkey(true, open));

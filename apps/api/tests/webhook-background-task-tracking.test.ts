@@ -1,6 +1,9 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { prisma } from "../src/db.js";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * ФОНОВАЯ ОБРАБОТКА ПОСЛЕ res.json ДОЛЖНА БЫТЬ ВИДНА МЕХАНИЗМУ ОСТАНОВКИ (21.09.2026).

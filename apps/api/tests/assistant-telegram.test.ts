@@ -1,8 +1,11 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 const sendStaffCard = vi.hoisted(() => vi.fn(async (
   _chatId: string, _propertyId: string, _lang: string, _replyTo?: number, _threadId?: number,
@@ -885,17 +888,51 @@ describe("группа: одна карточка и кнопка только �
   });
 
 
-  it("акционер (только чтение) подтвердить не может", async () => {
+  // 27.11.2026: брокер закрывает режим просмотра уже на СОЗДАНИИ действия (assertRoleMayWrite,
+  // роль из базы) — карточки с кнопкой у акционера не появляется вовсе. Подтверждение держит
+  // вторая дверь: карточка, созданная до того, как человеку поставили роль «Акционер».
+  it("акционер (только чтение): действие не создаётся, карточки с кнопкой нет", async () => {
+    let refused: unknown = null;
+    runner.mockImplementation(async (_h: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
+      const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
+      try {
+        options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 50_000 }));
+      } catch (err) {
+        refused = err;
+      }
+      return { ok: true, reply: "ок" };
+    });
+    sendMessageWithButtons.mockClear();
+    await handleTelegramUpdate(groupMsg("shareholder", `@${BOT} цена`));
+    expect(refused).toMatchObject({ code: "READ_ONLY_ROLE" });
+    expect(sendMessageWithButtons).not.toHaveBeenCalled();
+    expect(await prisma.assistantAction.count({ where: { agentId: agents.shareholder.id, tool: priceTool } })).toBe(0);
+    expect(price.calls.execute).toBe(0);
+  });
+
+  it("акционер (только чтение) подтвердить не может — карточка создана до смены роли", async () => {
+    const id = agents.shareholder.id;
     runner.mockImplementation(async (_h: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
       const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
       options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 50_000 }));
       return { ok: true, reply: "ок" };
     });
-    await handleTelegramUpdate(groupMsg("shareholder", `@${BOT} цена`));
-    const ok = (sendMessageWithButtons.mock.calls.at(-1)?.[2] as { callback_data: string }[][])[0][0].callback_data;
-    await press("shareholder", ok);
-    expect(price.calls.execute).toBe(0);
-    expect(answers().at(-1)).toContain("Нет прав");
+    await prisma.agent.update({ where: { id }, data: { role: "AGENT" } });
+    invalidateAgentAccess(id);
+    try {
+      sendMessageWithButtons.mockClear();
+      await handleTelegramUpdate(groupMsg("shareholder", `@${BOT} цена`));
+      const ok = (sendMessageWithButtons.mock.calls.at(-1)?.[2] as { callback_data: string }[][])[0][0].callback_data;
+      await prisma.agent.update({ where: { id }, data: { role: "SHAREHOLDER" } });
+      invalidateAgentAccess(id);
+      await press("shareholder", ok);
+      expect(price.calls.execute).toBe(0);
+      expect(answers().at(-1)).toContain("Нет прав");
+      expect(await prisma.assistantAction.count({ where: { agentId: id, tool: priceTool, status: "EXECUTED" } })).toBe(0);
+    } finally {
+      await prisma.agent.update({ where: { id }, data: { role: "SHAREHOLDER" } });
+      invalidateAgentAccess(id);
+    }
   });
 
   it("первое действие упало — остальные не исполняются и отменяются", async () => {

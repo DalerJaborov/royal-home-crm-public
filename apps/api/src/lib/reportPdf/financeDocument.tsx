@@ -74,7 +74,7 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
         ) : (
           <Note>За выбранный месяц сводки нет. Это отсутствие данных, а не нулевой результат.</Note>
         )}
-        {cur ? <Note>{`${inProgress ? "Месяц ещё идёт — цифры на момент выгрузки, сравнение с прошлым месяцем появится после его окончания. " : ""}Новых заявок за месяц: ${num(cur.leads)}. Все расходы месяца с зарплатами из сделок: ${money(cur.totalExpenses)}.`}</Note> : null}
+        {cur ? <Note>{`${inProgress ? "Месяц ещё идёт — цифры на момент выгрузки, сравнение с прошлым месяцем появится после его окончания. " : ""}Новых заявок за месяц: ${num(cur.leads)}. Все расходы месяца с зарплатами из сделок: ${money(cur.totalExpenses)}`}</Note> : null}
       </Section>
 
       {forecast ? (
@@ -88,7 +88,24 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
         </Section>
       ) : null}
 
+      <Section title="Расходы по статьям" hint={`Все оплаченные расходы за ${periodLabel.toLowerCase()}, включая зарплаты из сделок.`} together>
+        {expenseItems.length > 0 ? (
+          <>
+            <BarList items={expenseItems} format={money} />
+            <View16 />
+            <DataTable
+              columns={[{ title: "Статья", flex: 2 }, { title: "Сумма", flex: 1, align: "right" }, { title: "Доля", flex: 0.7, align: "right" }]}
+              rows={expenseItems.map((x) => [x.label, money(x.value), percent(cur && cur.totalExpenses > 0 ? (x.value / cur.totalExpenses) * 100 : null)])}
+              totals={["Итого", money(cur?.totalExpenses ?? 0), "100 %"]}
+            />
+          </>
+        ) : (
+          <DataTable columns={[]} rows={[]} emptyText="Оплаченных расходов за месяц нет." />
+        )}
+      </Section>
+
       <Section
+        together
         title={`Динамика за ${months.length} мес.`}
         hint="Доход компании, операционные расходы и прибыль по месяцам."
         lead={<BarChart
@@ -116,23 +133,7 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
         />
       </Section>
 
-      <Section title="Расходы по статьям" hint={`Все оплаченные расходы за ${periodLabel.toLowerCase()}, включая зарплаты из сделок.`} breakBefore>
-        {expenseItems.length > 0 ? (
-          <>
-            <BarList items={expenseItems} format={money} />
-            <View16 />
-            <DataTable
-              columns={[{ title: "Статья", flex: 2 }, { title: "Сумма", flex: 1, align: "right" }, { title: "Доля", flex: 0.7, align: "right" }]}
-              rows={expenseItems.map((x) => [x.label, money(x.value), percent(cur && cur.totalExpenses > 0 ? (x.value / cur.totalExpenses) * 100 : null)])}
-              totals={["Итого", money(cur?.totalExpenses ?? 0), "100 %"]}
-            />
-          </>
-        ) : (
-          <DataTable columns={[]} rows={[]} emptyText="Оплаченных расходов за месяц нет." />
-        )}
-      </Section>
-
-      <Section title="Выплаты агентам" hint="Доля риелтора по закрытым сделкам месяца: кому сколько причитается и сколько сделок уже выплачено.">
+      <Section together={payoutRows.length <= 6} title="Выплаты агентам" hint="Доля риелтора по закрытым сделкам месяца: кому сколько причитается и сколько сделок уже выплачено.">
         <DataTable
           columns={[
             { title: "Агент", flex: 2 },
@@ -147,7 +148,7 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
         />
       </Section>
 
-      <Section title="Реклама: цена заявки и сделки" hint="Только каналы с рекламным расходом в этом месяце. «—» — заявок или сделок по каналу не было.">
+      <Section together title="Реклама: цена заявки и сделки" hint="Только каналы с рекламным расходом в этом месяце. «—» — заявок или сделок по каналу не было.">
         <DataTable
           columns={[
             { title: "Канал", flex: 1.6 },
@@ -166,7 +167,7 @@ export function FinanceReport({ month, summary, forecast, inProgress = false, pr
       </Section>
 
       {founders && (
-        <Section title="Взносы учредителей" hint="Деньги, которые учредители вложили в компанию. Это не доход от продаж: в выручку, прибыль и комиссию не входят.">
+        <Section together title="Взносы учредителей" hint="Деньги, которые учредители вложили в компанию. Это не доход от продаж: в выручку, прибыль и комиссию не входят.">
           <DataTable
             columns={[
               { title: "Учредитель", flex: 2 },

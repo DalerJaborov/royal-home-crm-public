@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tajikCardinal, tajikOrdinal, tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 import { russianSpeechNumbers } from "./russianSpeechNumbers.js";
+import { applySpokenPronunciation } from "./spokenPronunciation.js";
 import { numberToWords, russianOrdinal } from "./spokenNumber.js";
 import { apartmentPriceCurrencySuspect, propertyPriceTjs } from "./money.js";
 
@@ -798,9 +799,11 @@ export function pickNarrationVoice(config: Pick<NarrationConfig, "voices" | "def
  * (дата, дробь) — текст остаётся как есть, агент услышит и поправит.
  */
 export function narrationSpeechText(script: string, lang: NarrationLang | null | undefined): string {
-  if (lang === "ru") return russianSpeechNumbers(script) ?? script;
-  if (lang !== "tg") return script;
-  return tajikSpeechNumbers(script) ?? script;
+  // Произношение (CRM → «сиарэм») — здесь же: от этого текста считаются знаки, отпечаток звука и сам синтез.
+  const spoken = applySpokenPronunciation(script);
+  if (lang === "ru") return russianSpeechNumbers(spoken) ?? spoken;
+  if (lang !== "tg") return spoken;
+  return tajikSpeechNumbers(spoken) ?? spoken;
 }
 
 export const narrationDraftSchema = z.object({

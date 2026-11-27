@@ -514,8 +514,12 @@ describe("add_client_note", () => {
     expect(own).toMatchObject({ error: expect.any(String), code: "FORBIDDEN" });
     const security = await runNote(foreignClientId, "заметка", agents.security);
     expect(security).toMatchObject({ code: "FORBIDDEN" });
+    // Акционер (режим просмотра) отсекается раньше прав на клиента — одной дверью записи
+    // помощницы (tools/writeGate.ts + брокер, 27.11.2026): код честный, «только просмотр».
+    const ownNotesBefore = (await notesOf(ownClientId)).length;
     const shareholder = await runNote(ownClientId, "заметка", agents.shareholder);
-    expect(shareholder).toMatchObject({ code: "FORBIDDEN" });
+    expect(shareholder).toMatchObject({ error: expect.any(String), code: "READ_ONLY_ROLE" });
+    expect(await notesOf(ownClientId)).toHaveLength(ownNotesBefore);
     expect(await notesOf(foreignClientId)).toHaveLength(0);
 
     const director = await runNote(foreignClientId, "заметка руководителя", agents.director);

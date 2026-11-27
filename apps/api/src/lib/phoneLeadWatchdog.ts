@@ -13,8 +13,8 @@ import { customerRoleSignals } from "../ai/customerAgentRole.js";
 import { phoneTail } from "./clientPhones.js";
 import { maskClientPhone } from "./clientPhone.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
-import { createNotifications, shouldAlert } from "./notifications.js";
-import { sendPushToAgents } from "../push.js";
+import { notifyFeedOnly, shouldAlert } from "./notifications.js";
+import { sendDevicePushToAgents } from "../push.js";
 import { resolveWhatsAppLeadIdentity, WHATSAPP_CHANNEL } from "./whatsappPhone.js";
 import { CUSTOMER_LEAD_ONLY_INTAKE_JOB } from "./customerLeadOnlyCore.js";
 import { lastAgentContactPromise, PROMISE_GRACE_MS } from "./agentContactPromise.js";
@@ -25,7 +25,8 @@ import { customerTurnSilenceIsIntended } from "./customerIntendedSilence.js";
 import { customerSpamMuteActive, customerSpamMuteFrom } from "../ai/customerSpamMute.js";
 import { loadLeadOnlyConfig } from "./leadOnlyConfig.js";
 import { leadOnlyAppliesTo } from "../ai/leadOnlyMode.js";
-import { findStaffPhone } from "./staffPhoneGuard.js";
+import { loadStaffPhoneChecker } from "./staffPhoneGuard.js";
+import { requestedAgentStillAvailable } from "./requestedAgent.js";
 export { lastAgentContactPromise, PROMISE_GRACE_MS } from "./agentContactPromise.js";
 
 /**
@@ -215,6 +216,9 @@ export async function findPhonesWithoutLead(
 
   const failedTurns = unansweredOn ? await provenFailedTurns(rows, now, options.ignoreAttempts ?? false) : new Map<string, UnansweredTurn>();
   const found: PhoneWithoutLead[] = [];
+  /** Номера сотрудников — один запрос на проход и только когда понадобились (ревью #497, п.4: не на каждую строку). */
+  let staffPhoneChecker: Awaited<ReturnType<typeof loadStaffPhoneChecker>> | null = null;
+  const isStaffPhone = async (p: string) => !!(staffPhoneChecker ??= await loadStaffPhoneChecker())([p]);
   for (const row of rows) {
     const history = (row.messages as unknown as ConversationMessage[]) ?? [];
     // РЕШЕНИЕ ЧЕЛОВЕКА НЕ ОТМЕНЯЕТСЯ АВТОМАТИКОЙ (ревью 194-1, 15.11.2026): карточку, которую
@@ -286,10 +290,13 @@ export async function findPhonesWithoutLead(
       // Несостоявшийся ход без номера отправителя — не заявка; карточку из Корзины удалил человек — не воскрешаем.
       if (unanswered && (!phone || basketCard)) continue;
       // Номер отправителя — наш собственный (агентство или сотрудник пишет со своего WhatsApp): не клиент (ревью #497, S5).
-      if (phone && (isOwnAgencyNumber(phone) || (await findStaffPhone([phone])))) continue;
+      if (phone && (isOwnAgencyNumber(phone) || (await isStaffPhone(phone)))) continue;
       // Направление неясно и никто из сотрудников разговор не вёл: в общую раздачу такое не шлём — пуши агентам и
-      // руководству по «Салом, ?» хуже тишины (ревью #497, B1). Разговор с сотрудником — карточка ему же (S3).
+      // руководству по «Салом, ?» хуже тишины (ревью #497, B1). Разговор с сотрудником — карточка ему же (S3), но только
+      // если он доступный агент продаж (та же проверка, что у приёма): ответил директор, замороженный или агент на паузе —
+      // приём всё равно отдал бы карточку в общую раздачу с пушами, значит, как будто сотрудник не вёл (доводка #497).
       if (unanswered) {
+        if (unanswered.staffAgentId && !(await requestedAgentStillAvailable(unanswered.staffAgentId))) unanswered = { ...unanswered, staffAgentId: null };
         const intent = watchdogLeadDraft({ draft: row.leadDraft, coreTopic, history, promised: false }).intent;
         if (intent !== "buy" && intent !== "sell" && intent !== "rent" && !unanswered.staffAgentId) continue;
       }
@@ -525,14 +532,12 @@ async function attachKnownClientConversations(rows: PhoneWithoutLead[]): Promise
       url: `/clients/${match.shortId}`,
       tag: `duplicate-review-known-client-${row.conversationId}`,
     };
-    try {
-      await createNotifications([match.assignedAgentId], payload);
-      void sendPushToAgents([match.assignedAgentId], payload).catch((err) =>
-        console.error("[push] phone-watchdog автопривязка:", err)
-      );
-    } catch (err) {
-      console.error("[alarm] phone-watchdog автопривязка уведомление:", err);
-    }
+    // Одна запись в колокольчике (владелец 27.11.2026): раньше запись + sendPushToAgents (который пишет ленту сам)
+    // давали ту же строку дважды — «повтор» 2 при одном событии. Ленту пишем и ждём здесь, телефону — только звонок.
+    await notifyFeedOnly([match.assignedAgentId], payload).catch((err) => console.error("[alarm] phone-watchdog автопривязка уведомление:", err));
+    void sendDevicePushToAgents([match.assignedAgentId], payload).catch((err) =>
+      console.error("[push] phone-watchdog автопривязка:", err)
+    );
   }
   return { attached };
 }
@@ -611,7 +616,8 @@ async function tryAcceptQuietly(row: PhoneWithoutLead): Promise<"accepted" | "ac
       // Сотрудник уже вёл переписку руками — карточка ему же, через ту же дверь назначения, что «клиент назвал агента»
       // (services/leads/intake.ts, requestedAgentId; доступность сотрудника там проверяется заново).
       row.staffAgentId
-        ? { ...watchdogLeadDraft(row), requestedAgentId: row.staffAgentId, requestedAgentNote: "Сотрудник уже вёл эту переписку вручную: карточка заведена сторожем ему же" }
+        ? { ...watchdogLeadDraft(row), requestedAgentId: row.staffAgentId, requestedAgentReason: "staff_led_conversation",
+          requestedAgentNote: "Сотрудник уже вёл эту переписку вручную: карточка заведена сторожем ему же" }
         : watchdogLeadDraft(row),
       // Тот же приём, что и в живом пути (messengers/conversation.ts): переписка
       // лежит в JSON-колонке, и её форма совпадает с ChatMessage.
@@ -865,10 +871,12 @@ export async function sweepCardConversationPhones(now: Date = new Date()): Promi
   const { captureExplicitClientPhone, precedingQuestionOf } = await import("./clientPhoneCapture.js");
   const { bareOwnPhoneFact, explicitOwnPhoneFact, fullPhoneIdentity } = await import("./clientPhoneFacts.js");
   let added = 0;
+  const swept: string[] = [];
   for (const row of rows) {
     const known = new Set([row.phone, row.whatsappPhone, ...(row.extraPhones ?? [])].filter((p): p is string => !!p).map(fullPhoneIdentity));
     const messages = Array.isArray(row.messages) ? (row.messages as ConversationMessage[]) : [];
-    const after = row.phoneSweepAt && row.phoneSweepAt > since ? row.phoneSweepAt : since;
+    const after = sweepRereadFrom(row.phoneSweepAt, since);
+    let failed = false;
     for (const m of messages.slice(-LOOK_BACK_MESSAGES * 2)) {
       if (m.role !== "user" || m.by || m.silentCapture || m.attachments?.length || typeof m.content !== "string" || typeof m.at !== "string") continue;
       const at = new Date(m.at);
@@ -882,13 +890,28 @@ export async function sweepCardConversationPhones(now: Date = new Date()): Promi
           known.add(fullPhoneIdentity(fact.phone));
         }
       } catch (err) {
+        failed = true;
         console.error("[alarm] phone-watchdog номер в карточку:", err instanceof Error ? err.name : "UnknownError");
       }
     }
+    if (!failed) swept.push(row.id);
   }
   // Отметка — только своей колонкой и сырым запросом: ни updatedAt, ни поля, на которые смотрит ревизия ядра, не трогаем.
-  await prisma.$executeRaw`UPDATE "BotConversation" SET "phoneSweepAt" = ${now} WHERE "id" = ANY(${rows.map((r) => r.id)})`;
+  // Запись номера упала — отметку не ставим: следующий тик попробует снова (ревью #497, п.3).
+  if (swept.length > 0) await prisma.$executeRaw`UPDATE "BotConversation" SET "phoneSweepAt" = ${now} WHERE "id" = ANY(${swept})`;
   return added;
+}
+
+/** Запас при повторном разборе: время реплики — время Meta (`m.at`), а отметка прохода — время сервера. Реплика, которую
+ *  Meta доставила с опозданием, могла лечь в базу ПОСЛЕ прохода с отметкой времени ДО него (ревью #497, п.3). Повтор
+ *  безвреден: дверь идемпотентна, записанный номер второй раз не пишется. */
+export const PHONE_SWEEP_REREAD_MS = 15 * 60_000;
+
+/** С какого момента реплики переписки — новые для прохода номеров в карточку. */
+export function sweepRereadFrom(phoneSweepAt: Date | null, since: Date): Date {
+  if (!phoneSweepAt) return since;
+  const from = new Date(phoneSweepAt.getTime() - PHONE_SWEEP_REREAD_MS);
+  return from > since ? from : since;
 }
 
 /**

@@ -41,7 +41,7 @@ function capitalize(text: string) {
 }
 
 /** Приветствие и дата — тем же правилом, что у главной директора (TodayRoyal). */
-function RoyalGreeting() {
+export function RoyalGreeting() {
   const agent = useAuthStore((s) => s.agent);
   const now = useMinuteNow();
   const firstName = agent?.fullName?.trim().split(/\s+/)[0] ?? "";

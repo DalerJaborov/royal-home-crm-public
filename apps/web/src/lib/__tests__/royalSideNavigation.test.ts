@@ -46,11 +46,11 @@ describe("боковое меню нового вида", () => {
     expect(sideNavProblems(royalSideNavigation(main, all), new Set([...main, ...all].map((i) => i.to)))).toEqual([]);
   });
 
-  it("директор: 33 строки свёрнуты до восьми главных и групп", () => {
+  it("директор: шесть главных как в макете (27.11.2026), остальное — группами внутри «Ещё»", () => {
     const { main, all } = buildNavigation(inputs("DIRECTOR"));
     const { primary, groups } = royalSideNavigation(main, all);
-    expect(primary.map((i) => i.to).slice(0, 6)).toEqual(["/", "/clients", "/messages", "/properties", "/deals", "/finance"]);
-    expect(primary).toHaveLength(8);
+    expect(primary.map((i) => i.to)).toEqual(["/", "/clients", "/messages", "/properties", "/finance", "/team"]);
+    expect(primary.map((i) => i.label)).toEqual(["Сегодня", "Клиенты", "Чаты", "Объекты", "Деньги", "Команда"]);
     expect(groups.length).toBeGreaterThanOrEqual(3);
     expect(groups.length).toBeLessThanOrEqual(5);
   });

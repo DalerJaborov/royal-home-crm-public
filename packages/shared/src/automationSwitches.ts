@@ -45,6 +45,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "showingAgreementAskEnabled",
   "showingOutcomeAskEnabled",
   "clientRecordResultEnabled",
+  "clientCardRobotRowsEnabled",
   "shabnamGroupLiveEnabled",
   "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
@@ -58,6 +59,14 @@ export const AUTOMATION_SWITCH_KEYS = [
   "objectInterestPullsQueueLeadEnabled",
   "notifyOwnerOfOtherAgentClientEnabled",
   "notifyOwnerBeforeLeadEnabled",
+  "notifyRepeatContactPushEnabled",
+  "notifyMarketMatchPushEnabled",
+  "notifyDealClosedTeamPushEnabled",
+  "notifyOperatorTalkedPushEnabled",
+  "notifyNoVideoEnabled",
+  "shareholderReportsEnabled",
+  "telegramStaffOnlyEnabled",
+  "botPauseOnStaffReplyEnabled",
 ] as const;
 
 export type AutomationSwitchKey = (typeof AUTOMATION_SWITCH_KEYS)[number];
@@ -81,6 +90,17 @@ export const AUTOMATION_SWITCH_DEFAULT_OFF: ReadonlySet<AutomationSwitchKey> = n
   "notifyOwnerOfOtherAgentClientEnabled",
   // Владелец 27.11.2026: «если кто-то просто интересуется, им тоже приходит уведомление… номера свои не давали… отключи».
   "notifyOwnerBeforeLeadEnabled",
+  // Владелец 27.11.2026: «Все пять групп» — лишние уведомления агентам по умолчанию тихие. Колонки `DEFAULT false`.
+  "notifyRepeatContactPushEnabled",
+  "notifyMarketMatchPushEnabled",
+  "notifyDealClosedTeamPushEnabled",
+  "notifyOperatorTalkedPushEnabled",
+  // Владелец 27.11.2026: уведомления «нет видео» отключить совсем.
+  "notifyNoVideoEnabled",
+  // Владелец 27.11.2026: «Бот молчит: 1 час» в чате убран у всех, ответ сотрудника бота не глушит. Колонка `DEFAULT false`.
+  "botPauseOnStaffReplyEnabled",
+  // Владелец 27.11.2026: «удали это» — строки робота в карточке клиента спрятаны. Колонка `DEFAULT false`.
+  "clientCardRobotRowsEnabled",
 ]);
 
 /** Как поля лежат в ответе GET /settings (и в строке Settings базы). */
@@ -283,11 +303,42 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Человек пишет про ваш объект, но номера не оставил и карточки нет — вам приходит пуш «Интерес к вашему объекту» и «Новое сообщение по вашему объекту» на каждое его сообщение. Во всех каналах.",
     off: "Как решил владелец 27.11.2026: пока у клиента нет карточки или заявки, хозяину объекта ничего не приходит. Как только заявка появилась — обычный пуш о новой заявке и о сообщениях клиента.",
   },
+  notifyRepeatContactPushEnabled: {
+    title: "Пуш «клиент снова на связи» поверх «Ваш клиент написал»",
+    on: "Когда ваш клиент снова пишет боту с новым делом или возвращается из «Потерянных», вам приходит ещё один пуш: «снова на связи», «пишет о новом деле», «снова обратился».",
+    off: "Как решил владелец 27.11.2026: такого отдельного пуша нет, хватает «Ваш клиент написал». Запись в истории клиента остаётся.",
+  },
+  notifyMarketMatchPushEnabled: {
+    title: "Совпадения с сайтами объявлений — пушем",
+    on: "«Ваш объект есть на площадке», «Цена на площадке изменилась», «Объявление сняли» приходят пушем на телефон.",
+    off: "Как решил владелец 27.11.2026: только в колокольчике CRM, телефон не звенит.",
+  },
+  notifyDealClosedTeamPushEnabled: {
+    title: "«Сделка закрыта» — поздравление всем агентам",
+    on: "Когда кто-то закрывает сделку, всем агентам приходит пуш-поздравление.",
+    off: "Как решил владелец 27.11.2026 («не надо»): поздравления нет — ни пуша, ни строки в колокольчике.",
+  },
+  notifyOperatorTalkedPushEnabled: {
+    title: "«Ваш клиент звонил в офис» — уведомление агенту",
+    on: "Ваш клиент позвонил в офис и поговорил с оператором — вам приходит пуш.",
+    off: "Как решил владелец 27.11.2026 («не надо»): агенту ничего, разговор виден в истории клиента. Руководителю, если агент клиента уволен или заморожен, пуш приходит всегда — нужно назначить нового.",
+  },
+  notifyNoVideoEnabled: {
+    title: "Уведомления «нет видео» у объекта",
+    on: "Объект на проверке или в этапе «Ожидает видео» сутки без ролика — агенту и руководству приходит «Видео не догружено» / «У объекта нет видео».",
+    off: "Как решил владелец 27.11.2026: про отсутствие видео никому ничего не приходит. Про отсутствие фото — как раньше.",
+  },
   // Владелец 22.11.2026: итог звонка пишет ИИ, ручная кнопка в карточке пока спрятана.
   clientRecordResultEnabled: {
     title: "Кнопка «Записать результат» в карточке клиента",
     on: "В карточке клиента (в меню «Ещё» и под кнопками на телефоне) есть кнопка «Записать результат»: можно вручную записать, чем закончился разговор или показ, в том числе задним числом.",
     off: "Кнопки «Записать результат» в карточке нет. Итог звонка пишет ИИ, показ назначается кнопкой «Назначить показ».",
+  },
+  // Владелец 27.11.2026 (скриншот карточки): «удали это, я вроде бы просил, он висит все еще».
+  clientCardRobotRowsEnabled: {
+    title: "Строки робота в карточке клиента",
+    on: "В меню «Ещё» карточки клиента есть «Звонок роботом» (робот сам набирает клиента, только руководителю) и переключатель «Не звонить роботом». Видны, только когда живой голос включён.",
+    off: "Этих строк в карточке нет. Отметки «не звонить», уже поставленные клиентам, продолжают действовать; опрос после показа, проверка продавца и приглашения звонят по своим правилам.",
   },
   // Владелец 21.11.2026: «Да, переводи» — Instagram на постоянный ключ компании (смена пароля не глушит бота).
   instagramCompanyKeyEnabled: {
@@ -301,11 +352,29 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "Переписки без карточки клиента, в которых 30 дней нет новых сообщений, не показываются в списке чатов, а лежат в «Архиве». Ничего не удаляется: поиск их находит, новое сообщение клиента возвращает чат в общий список. Чат с карточкой клиента в архив не уходит никогда.",
     off: "Все переписки остаются в общем списке чатов, как раньше. Архив скрыт.",
   },
+  // Владелец 27.11.2026: «Убрать у всех» (выбор «Бот молчит: 1 час» над строкой ввода).
+  botPauseOnStaffReplyEnabled: {
+    title: "Ответ сотрудника останавливает бота",
+    on: "Когда сотрудник отвечает клиенту из CRM, бот замолкает в этой переписке: на срок из запроса, а без него на умолчание сервера (своему агенту надолго, остальным на 10 минут); в WhatsApp, Instagram и Facebook бот молчит ещё и пока сотрудник писал недавно. Первое сообщение клиенту в WhatsApp из карточки тоже ставит паузу.",
+    off: "Ответ сотрудника бота не останавливает, выбора срока в чате нет. Остановить бота можно кнопкой паузы в переписке. Сообщения сотрудника бот видит в истории и не повторяет их.",
+  },
   // Владелец 22.11.2026: «показы делать уведомлением с кнопками в Шабнам… можно своими словами отвечать».
   showingAgreementAskEnabled: {
     title: "Шабнам переспрашивает о показе",
     on: "Если ИИ услышал в звонке или прочитал в переписке о показе, но не понял время или объект, через минуту Шабнам спрашивает агента. Нет Telegram или нет ответа — тот же вопрос в CRM.",
     off: "Не переспрашивает, всё как раньше: показ по звонку ставится сам, только если в подборе ровно один подходящий объект.",
+  },
+  // Владелец 27.11.2026: «добавь нового учредителя… с автоматическими отчётами как и у директора».
+  shareholderReportsEnabled: {
+    title: "Отчёты акционеру",
+    on: "Акционер получает те же отчёты, что директор: утреннюю сводку, разбор проблемных мест за неделю и месяц, месячный отчёт, разбор маркетинга, советы ИИ к собранию и финансовый PDF в Telegram. Тревоги, где нужно что-то сделать (передать клиента, ответить, починить канал), ему не приходят: он ничего не меняет.",
+    off: "Акционеру не приходит ни отчётов, ни тревог. Всё это он видит сам на экранах CRM.",
+  },
+  // Владелец 27.11.2026: «это теперь бот только для сотрудников» (клиентов из Telegram за 60 дней: 0).
+  telegramStaffOnlyEnabled: {
+    title: "Telegram-бот только для сотрудников",
+    on: "В личном чате с ботом новый незнакомый человек получает памятку: это рабочий бот Royal Home; сотруднику — путь в CRM (Профиль, «Личный чат с ботом CRM в Telegram», «Привязать») и кнопка «Я сотрудник», если включена привязка по номеру; клиенту — наш сайт. Новая карточка и заявка из лички бота не заводятся; такие сообщения видны в журнале действий. Как раньше работают: переписки с карточкой клиента и с сообщениями за последние 30 дней, кандидаты на работу, сообщения в канал (Direct Messages) и комментарии в группе обсуждения.",
+    off: "Бот в Telegram, как раньше, разговаривает и с клиентами: приветствие, кнопки «Смотреть объекты» и «Позвать агента», заявка из переписки.",
   },
   showingOutcomeAskEnabled: {
     title: "«У вас был показ?» после показа",
@@ -326,16 +395,16 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
   {
     id: "ai",
     title: "ИИ решает за агента",
-    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled"],
+    keys: ["aiCardFromCallEnabled", "callObjectToOwnerEnabled", "callAdObjectToOwnerEnabled", "chatObjectToOwnerEnabled", "objectInterestPullsQueueLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled", "notifyOwnerBeforeLeadEnabled", "aiAgentShowingAutoBookEnabled", "showingAgreementAskEnabled", "aiJobSeekerAutoDetachEnabled", "shabnamSocialPublishEnabled", "shabnamGroupLiveEnabled", "shabnamGroupLiveShadowEnabled", "shabnamGroupAutoMemoryEnabled", "shabnamGroupUnaddressedEnabled", "telegramPhoneLinkEnabled", "clientRecordResultEnabled", "clientCardRobotRowsEnabled"],
   },
   { id: "tasks", title: "Задачи", keys: ["dealStaleSellersEnabled", "dealStaleBuyersEnabled"] },
   {
     id: "notifications",
     title: "Уведомления",
-    keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
+    keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botCatchUpEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */

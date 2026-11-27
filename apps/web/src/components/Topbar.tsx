@@ -17,6 +17,7 @@ import { CommandPaletteLazy } from "./CommandPaletteLazy";
 import { ProfileMenu, initials } from "./ProfileMenu";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { MoreSheet } from "./MoreSheet";
+import { RoyalTopbarRow, type RoyalProfileExtras } from "./look/shell/RoyalTopbarRow";
 import { useShellStore } from "../store/shell";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useSearchHotkey } from "../hooks/useSearchHotkey";
@@ -31,7 +32,12 @@ import {
   badgeCountOf,
 } from "../hooks/useNotifications";
 
-export function Topbar({ clean = false }: { clean?: boolean }) {
+/**
+ * `royal` — «Новый вид» (27.11.2026, пачка shell2): шапка по макету (RoyalTopbarRow) — поле
+ * «Найти что угодно» с Ctrl K, колокол, «+», аватар; тема, помощник и порядок вкладок — в
+ * меню профиля (`profileExtras` из CleanShell). Данные, поиск и уведомления — те же.
+ */
+export function Topbar({ clean = false, royal = false, profileExtras }: { clean?: boolean; royal?: boolean; profileExtras?: RoyalProfileExtras }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const bellRef = useRef<HTMLButtonElement>(null);
   // Экран, а не проценты от .relative-обёртки: панель уходит в createPortal
@@ -135,6 +141,8 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
         showSearch={showSearch}
         setShowSearch={setShowSearch}
         clean={clean}
+        royal={royal}
+        profileExtras={profileExtras}
       />
     </div>
   );
@@ -163,6 +171,8 @@ interface TopbarRowProps {
   setShowSearch: (v: boolean) => void;
   /** Строка стоит внутри чистой оболочки (CleanShell) — у той свой вход в помощника. */
   clean: boolean;
+  royal: boolean;
+  profileExtras?: RoyalProfileExtras;
 }
 
 /** Сама верхняя строка — вынесена из `Topbar`, чтобы над ней встала лента разделов. */
@@ -188,6 +198,8 @@ function TopbarRow({
   showSearch,
   setShowSearch,
   clean,
+  royal,
+  profileExtras,
 }: TopbarRowProps) {
   const agent = useAuthStore((s) => s.agent);
   const assistantEntry = useAssistantEntry();
@@ -297,6 +309,26 @@ function TopbarRow({
                 </div>
               </Rh2Portal>
             );
+  if (royal && !legacyAgentMobile) {
+    return <>
+      <RoyalTopbarRow
+        pageTitle={pageTitle}
+        back={back}
+        onBack={() => onBack ? onBack() : back ? navigate(back) : undefined}
+        phoneActions={phoneActions}
+        bellRef={bellRef}
+        bellOpen={showNotifications}
+        onBell={toggleNotifications}
+        unreadCount={unreadCount}
+        notificationsPanel={notificationsPanel}
+        onSearch={() => setShowSearch(true)}
+        onMore={() => setShowMore(true)}
+        profileExtras={profileExtras}
+      />
+      {showSearch && <CommandPaletteLazy onClose={() => setShowSearch(false)} />}
+      {showMore && <MoreSheet onClose={() => setShowMore(false)} />}
+    </>;
+  }
   if (legacyAgentMobile) {
     return <LegacyAgentTopbar
       title={pageTitle}

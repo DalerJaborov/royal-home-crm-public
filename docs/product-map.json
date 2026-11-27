@@ -1395,9 +1395,9 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 19,
+      "endpoints": 20,
       "label": "Переписка по всем каналам",
-      "usedBy": 6
+      "usedBy": 7
     },
     {
       "mount": "/api/v1/audit-log",
@@ -2423,7 +2423,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 19
+      "files": 20
     },
     {
       "name": "Телефония FreePBX / Asterisk",

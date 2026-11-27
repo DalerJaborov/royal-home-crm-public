@@ -109,6 +109,8 @@
 /* Защита от наезда и вылета текста (R2, 06.10.2026): правила на класс, найденные
    щупом сверки. После всех генерируемых файлов, по той же причине, что и typeset. */
 @import './theme-2026-overflow-guard.css';
+/* Кнопки растут по подписи, текст не выходит за рамку (27.11.2026): правило на семейства кнопок с текстом. */
+@import './theme-2026-button-fit.css';
 /* Royal Clean has its own approved 13–40 px scale; apply it after the legacy typeset expansion. */
 @import './theme-2026-clean.css';
 @import './theme-2026-clean-records.css';
@@ -154,6 +156,8 @@
 @import './theme-look-royal-admin.css';
 /* «Новый вид», пачка records: Архив и корзина, Подбор сотрудников, анкета кандидата, вход и страницы по ссылке (объект, отчёт владельцу) — только под :root[data-ui-look="royal"] и меткой раздела. */
 @import './theme-look-royal-records.css';
+/* «Новый вид», пачка home2: главная директора, админа и РОП «как в макете» и «Аналитика» под ней — только под :root[data-ui-look="royal"] и меткой раздела. */
+@import './theme-look-royal-home2.css';
 
 /* ВАЖНО: тематические файлы выше подключены БЕЗ layer(...).
  * Кодмод @tailwindcss/upgrade завернул их в layer(base) — и ночная тема

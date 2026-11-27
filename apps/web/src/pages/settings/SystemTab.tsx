@@ -1166,8 +1166,8 @@ export function ProblemReportsSection() {
 }
 
 /**
- * ФИНАНСОВЫЙ PDF РАЗ В МЕСЯЦ (14.11.2026). Выключен по умолчанию: включает директор,
- * когда хочет получать готовый отчёт сам. Подпись — про текущее положение тумблера.
+ * ФИНАНСОВЫЙ PDF РАЗ В МЕСЯЦ (14.11.2026; круг 27.11.2026 — директор, администратор, учредитель,
+ * lib/reportRecipients.ts::findAutoPdfRecipients). Выключен по умолчанию: включает директор. Подпись — про текущее положение тумблера.
  */
 export function FinancePdfMonthlySection() {
   const { data: settings } = useSettings();
@@ -1176,11 +1176,11 @@ export function FinancePdfMonthlySection() {
   return (
     <SettingsSection icon={FileText} title="Финансовый отчёт в PDF раз в месяц">
       <SwitchRow
-        title="Присылать директору в Telegram"
+        title="Присылать руководству в Telegram"
         on={on}
         hint={
           on
-            ? "1-го числа утром директор получает в свой Telegram PDF с деньгами за прошлый месяц: прибыль, расходы, выплаты агентам."
+            ? "1-го числа утром директор, администратор и учредитель с доступом к финансам получают в свой Telegram PDF с деньгами за прошлый месяц: прибыль, расходы, выплаты агентам."
             : "Не присылается. PDF за любой месяц можно скачать в разделе «Финансы» кнопкой «Скачать PDF»."
         }
         onToggle={() => save.mutate({ financePdfMonthlyEnabled: !on })}

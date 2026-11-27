@@ -26,40 +26,40 @@ const s = StyleSheet.create({
   coverMetaLabel: { width: 130, fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: 1, paddingTop: 2 },
   coverMetaValue: { flex: 1, fontSize: 12, color: C.ink, fontWeight: 500 },
   coverFoot: { position: "absolute", bottom: 40, left: 56, right: 56, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 12, flexDirection: "row", justifyContent: "space-between" },
-  coverFootText: { fontSize: 8.5, color: C.muted },
-  page: { fontFamily: "Onest", fontSize: 9.5, color: C.text, paddingTop: 78, paddingBottom: 64, paddingHorizontal: PAGE_X, backgroundColor: C.white },
-  header: { position: "absolute", top: 26, left: PAGE_X, right: PAGE_X, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 10 },
-  headerLogo: { width: 20, height: 25, marginRight: 9 },
+  coverFootText: { fontSize: 9, color: C.muted },
+  page: { fontFamily: "Onest", fontSize: 9.5, color: C.text, paddingTop: 96, paddingBottom: 64, paddingHorizontal: PAGE_X, backgroundColor: C.white },
+  header: { position: "absolute", top: 20, left: PAGE_X, right: PAGE_X, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 10 },
+  headerLogo: { width: 38, height: 48, marginRight: 12 },
   headerBrand: { fontSize: 9, fontWeight: 800, color: C.ink, letterSpacing: 1.5 },
   headerTitle: { fontSize: 9, color: C.muted, marginLeft: 8 },
   headerPeriod: { marginLeft: "auto", fontSize: 9, color: C.accent, fontWeight: 600 },
-  footer: { position: "absolute", bottom: 26, left: PAGE_X, right: PAGE_X, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: C.muted },
+  footer: { position: "absolute", bottom: 24, left: PAGE_X, right: PAGE_X, flexDirection: "row", justifyContent: "space-between", fontSize: 9, color: C.muted },
   section: { marginBottom: 22 },
   sectionTitle: { fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 3 },
-  sectionHint: { fontSize: 8.5, color: C.muted, marginBottom: 10, lineHeight: 1.4 },
+  sectionHint: { fontSize: 9, color: C.muted, marginBottom: 10, lineHeight: 1.4 },
   sectionBar: { width: 22, height: 3, backgroundColor: C.accent, borderRadius: 2, marginBottom: 7 },
   kpiGrid: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -5 },
   kpi: { width: "50%", paddingHorizontal: 5, marginBottom: 10 },
   kpiCard: { backgroundColor: C.accentSoft, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, minHeight: 74 },
   kpiCardMain: { backgroundColor: C.accent },
-  kpiLabel: { fontSize: 8.5, color: C.muted, fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.6 },
+  kpiLabel: { fontSize: 9, color: C.muted, fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.6 },
   kpiValue: { fontSize: 20, fontWeight: 800, color: C.ink, marginTop: 6 },
-  kpiHint: { fontSize: 8, color: C.muted, marginTop: 4 },
-  chip: { fontSize: 8, fontWeight: 600, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, marginTop: 6, alignSelf: "flex-start" },
+  kpiHint: { fontSize: 9, color: C.muted, marginTop: 4 },
+  chip: { fontSize: 9, fontWeight: 600, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8, marginTop: 6, alignSelf: "flex-start" },
   table: { borderRadius: 8, borderWidth: 1, borderColor: C.line },
   th: { flexDirection: "row", backgroundColor: C.zebra, borderBottomWidth: 1, borderBottomColor: C.line, paddingVertical: 7, paddingHorizontal: 8 },
-  thText: { fontSize: 7.5, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 },
-  tr: { flexDirection: "row", paddingVertical: 6.5, paddingHorizontal: 8, borderBottomWidth: 0.6, borderBottomColor: C.line },
+  thText: { fontSize: 9, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4 },
+  tr: { flexDirection: "row", paddingVertical: 5.5, paddingHorizontal: 8, borderBottomWidth: 0.6, borderBottomColor: C.line },
   trZebra: { backgroundColor: "#fbfcfe" },
   td: { fontSize: 9, color: C.text },
   totals: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 8, backgroundColor: C.accentSoft, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
   totalsText: { fontSize: 9, fontWeight: 700, color: C.ink },
-  note: { fontSize: 8, color: C.muted, marginTop: 6, lineHeight: 1.4 },
+  note: { fontSize: 9, color: C.muted, marginTop: 6, lineHeight: 1.4 },
   empty: { fontSize: 9, color: C.muted, paddingVertical: 14, paddingHorizontal: 12, backgroundColor: C.zebra, borderRadius: 8 },
   legend: { flexDirection: "row", marginTop: 8 },
   legendItem: { flexDirection: "row", alignItems: "center", marginRight: 14 },
   legendDot: { width: 8, height: 8, borderRadius: 2, marginRight: 5 },
-  legendText: { fontSize: 8, color: C.muted },
+  legendText: { fontSize: 9, color: C.muted },
 });
 
 export interface ReportShell {
@@ -83,7 +83,8 @@ export function ReportDocument({ title, coverTitle, periodLabel, preparedBy, gen
           <View style={s.coverGlow2} />
           <Image src={reportLogos().white} style={s.coverLogo} />
           <Text style={s.coverKicker}>Royal Home · отчёт для руководства</Text>
-          <Text style={s.coverTitle}>{coverTitle ?? title}</Text>
+          {/* Перенос строки — отдельными Text: символ перевода строки есть не в Onest, и движок брал для него Helvetica. */}
+          {(coverTitle ?? title).split("\n").map((line, i) => <Text key={i} style={[s.coverTitle, i > 0 ? { marginTop: 0 } : {}]}>{line}</Text>)}
           <Text style={s.coverPeriod}>{periodLabel}</Text>
         </View>
         <View style={s.coverBody}>
@@ -122,10 +123,13 @@ export function ReportDocument({ title, coverTitle, periodLabel, preparedBy, gen
   );
 }
 
-/** lead — первый блок раздела (график, плитки), который не отрывается от заголовка на другую страницу. */
-export function Section({ title, hint, lead, children, breakBefore }: { title: string; hint?: string; lead?: ReactNode; children?: ReactNode; breakBefore?: boolean }) {
+/**
+ * lead — первый блок раздела (график, плитки), который не отрывается от заголовка на другую страницу.
+ * together — раздел короткий и целиком переносится на новую страницу, если не влезает (без «хвостов» из пары строк).
+ */
+export function Section({ title, hint, lead, children, breakBefore, together }: { title: string; hint?: string; lead?: ReactNode; children?: ReactNode; breakBefore?: boolean; together?: boolean }) {
   return (
-    <View style={s.section} break={breakBefore}>
+    <View style={s.section} break={breakBefore} wrap={!together}>
       {/* Заголовок не остаётся сиротой внизу страницы без своей таблицы. */}
       <View wrap={false} minPresenceAhead={200}>
         <View style={s.sectionBar} />
@@ -189,22 +193,43 @@ export interface Column {
 export function DataTable({ columns, rows, totals, note, emptyText }: { columns: Column[]; rows: string[][]; totals?: string[]; note?: string; emptyText?: string }) {
   if (rows.length === 0) return <Text style={s.empty}>{emptyText ?? "За этот период записей нет."}</Text>;
   const cell = (c: Column) => ({ flex: c.flex, textAlign: c.align ?? "left" }) as const;
+  const renderRow = (r: string[], i: number) => (
+    <View key={i} style={[s.tr, i % 2 === 1 ? s.trZebra : {}]} wrap={false}>
+      {r.map((v, j) => <Text key={j} style={[s.td, cell(columns[j]!), j === 0 ? { color: C.ink, fontWeight: 500 } : {}]}>{v}</Text>)}
+    </View>
+  );
+  // Длинная таблица (десятки строк) повторяет шапку на каждой странице; короткая держит шапку вместе с первыми
+  // строками — иначе шапка без строк под ней остаётся сиротой внизу страницы.
+  const long = rows.length > 40;
+  const header = (
+    <View style={s.th} fixed={long}>
+      {columns.map((c) => <Text key={c.title} style={[s.thText, cell(c)]}>{c.title}</Text>)}
+    </View>
+  );
+  const headRows = long ? 0 : Math.min(2, rows.length - 1);
+  const tail = (
+    // Последняя строка и «Итого» не расходятся по страницам: «Итого» не бывает сиротой.
+    <View wrap={false}>
+      {renderRow(rows[rows.length - 1]!, rows.length - 1)}
+      {totals ? (
+        <View style={s.totals}>
+          {totals.map((v, j) => <Text key={j} style={[s.totalsText, cell(columns[j]!)]}>{v}</Text>)}
+        </View>
+      ) : null}
+    </View>
+  );
   return (
     <View>
       <View style={s.table}>
-        <View style={s.th} fixed>
-          {columns.map((c) => <Text key={c.title} style={[s.thText, cell(c)]}>{c.title}</Text>)}
-        </View>
-        {rows.map((r, i) => (
-          <View key={i} style={[s.tr, i % 2 === 1 ? s.trZebra : {}]} wrap={false}>
-            {r.map((v, j) => <Text key={j} style={[s.td, cell(columns[j]!), j === 0 ? { color: C.ink, fontWeight: 500 } : {}]}>{v}</Text>)}
+        {long ? header : null}
+        {long ? null : (
+          <View wrap={false}>
+            {header}
+            {rows.slice(0, headRows).map((r, i) => renderRow(r, i))}
           </View>
-        ))}
-        {totals ? (
-          <View style={s.totals} wrap={false}>
-            {totals.map((v, j) => <Text key={j} style={[s.totalsText, cell(columns[j]!)]}>{v}</Text>)}
-          </View>
-        ) : null}
+        )}
+        {rows.slice(headRows, -1).map((r, i) => renderRow(r, i + headRows))}
+        {tail}
       </View>
       {note ? <Text style={s.note}>{note}</Text> : null}
     </View>
@@ -238,7 +263,7 @@ export function BarChart({ labels, series, height = 170 }: { labels: string[]; s
         {ticks.map((t) => (
           <G key={t}>
             <Line x1={padL} x2={width} y1={y(t)} y2={y(t)} stroke={C.line} strokeWidth={0.7} />
-            <Text x={padL - 6} y={y(t) + 3} style={{ fontFamily: "Onest", fontSize: 7, fill: C.muted }} textAnchor="end">{num(t)}</Text>
+            <Text x={padL - 6} y={y(t) + 3} style={{ fontFamily: "Onest", fontSize: 9, fill: C.muted }} textAnchor="end">{num(t)}</Text>
           </G>
         ))}
         <Line x1={padL} x2={width} y1={y(0)} y2={y(0)} stroke={C.gray} strokeWidth={0.9} />
@@ -252,7 +277,7 @@ export function BarChart({ labels, series, height = 170 }: { labels: string[]; s
                 const h = Math.max(Math.abs(y(v) - y(0)), v === 0 ? 0 : 1);
                 return <Rect key={ser.name} x={gx + k * barW} y={top} width={barW - 2} height={h} fill={ser.color} rx={2} />;
               })}
-              <Text x={padL + i * groupW + groupW / 2} y={height - 4} style={{ fontFamily: "Onest", fontSize: 7.5, fill: C.muted }} textAnchor="middle">{label}</Text>
+              <Text x={padL + i * groupW + groupW / 2} y={height - 4} style={{ fontFamily: "Onest", fontSize: 9, fill: C.muted }} textAnchor="middle">{label}</Text>
             </G>
           );
         })}
@@ -302,10 +327,10 @@ export function FunnelBars({ steps }: { steps: { label: string; count: number; e
             <Text style={{ width: 92, fontSize: 9, color: C.text }}>{step.label}</Text>
             <View style={{ flex: 1 }}>
               <View style={{ width: `${Math.max(3, (step.count / max) * 100)}%`, backgroundColor: i === steps.length - 1 ? C.accentDeep : C.accent, opacity: 1 - i * 0.1, borderRadius: 6, paddingVertical: 5, paddingHorizontal: 8 }}>
-                <Text style={{ fontSize: 10, fontWeight: 700, color: C.white }}>{num(step.count)}</Text>
+                <Text style={{ fontFamily: "Onest", fontSize: 10, fontWeight: 700, color: C.white }}>{num(step.count)}</Text>
               </View>
             </View>
-            {step.extra ? <Text style={{ width: 120, fontSize: 8, color: C.muted, textAlign: "right" }}>{step.extra}</Text> : null}
+            {step.extra ? <Text style={{ width: 120, fontSize: 9, color: C.muted, textAlign: "right" }}>{step.extra}</Text> : null}
           </View>
         );
       })}

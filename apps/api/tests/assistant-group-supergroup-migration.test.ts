@@ -1,4 +1,7 @@
+import { useTelegramClientBot } from "./helpers/telegramClientBot.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// Клиентский путь Telegram — при выключенном «боте только для сотрудников» (27.11.2026).
+useTelegramClientBot();
 
 /**
  * ГРУППА ПОМОЩНИЦЫ СТАЛА СУПЕРГРУППОЙ (прод 20.11.2026: Шабнам молчала в рабочей группе с 05.11).

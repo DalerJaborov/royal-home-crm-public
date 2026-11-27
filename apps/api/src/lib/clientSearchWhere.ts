@@ -110,6 +110,8 @@ export async function pendingDeleteHideWhere(params: {
 export const AGENT_CLIENT_KIND_SCOPE: Prisma.ClientWhereInput[] = [
   { kind: { in: ["BUYER", "SELLER"] } },
   { assignReason: "requested_by_client" },
+  // Сотрудник уже вёл переписку руками, сторож завёл карточку ему же (ревью #497, п.4): тип мог остаться неясным.
+  { assignReason: "staff_led_conversation" },
 ];
 
 export interface ClientFieldFilters {

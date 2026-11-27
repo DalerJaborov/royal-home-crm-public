@@ -11,7 +11,7 @@
  */
 import { decide, initialOperatorState } from "./decide.js";
 import { OPERATOR_PHRASES, renderOperatorReply, renderOperatorStep } from "./phrases.js";
-import { readOperatorState, serializeOperatorState, type StoredOperatorState } from "./state.js";
+import { readOperatorState, seedStateFromBotWelcome, serializeOperatorState, type StoredOperatorState } from "./state.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { understandFallback, understandTurn, type OperatorTurnInput } from "./understand.js";
 import { REVIEWER_RESET } from "../../lib/botReviewers.js";
@@ -23,7 +23,7 @@ import type { OperatorAction, OperatorContext, OperatorLanguage, OperatorState, 
 export * from "./types.js";
 export { decide, initialOperatorState, operatorLeadNote } from "./decide.js";
 export { OPERATOR_PHRASES, operatorWhenText, renderOperatorReply, renderOperatorStep } from "./phrases.js";
-export { readOperatorState, saveOperatorStateTx, serializeOperatorState } from "./state.js";
+export { botWelcomeDelivered, readOperatorState, saveOperatorStateTx, seedStateFromBotWelcome, serializeOperatorState } from "./state.js";
 export { understandFallback, understandTurn, type OperatorTurnInput } from "./understand.js";
 export { checkComposedReply, composeOperatorReply } from "./compose.js";
 
@@ -185,6 +185,8 @@ export async function runOperatorTurn(request: OperatorTurnRequest): Promise<Ope
       understanding: understandFallback(request.input, state, request.ctx) };
   }
   reconcileAskedRole(previous, request.input.recent, request.input.sentBotTexts);
+  // После сверки: приветствие до первого слова клиента — вопрос уже задан, второй раз не спрашиваем (27.11.2026).
+  if (request.ctx.botWelcomed) seedStateFromBotWelcome(previous);
   const understanding = await understandTurn(request.input, previous, request.ctx, request.model, request.timeoutMs);
   try {
     const decision = decide(previous, understanding, request.ctx);

@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 789,
-  "forks": 4396,
+  "endpoints": 790,
+  "forks": 4393,
   "mounts": 87,
-  "cron": 149,
+  "cron": 148,
   "jobs": 37,
   "hidden": 0
  },
@@ -21982,6 +21982,105 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/archive-mark",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/archive-mark",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "предел частоты запросов",
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = archiveMarkSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой archiveMarkSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!can(req, \"messages.view\") && !can(req, \"messages.viewOwn\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа к чатам\" });",
+       "a": [
+        "ответ 403 — «Нет доступа к чатам»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const updated = await setChatArchiveMark({ id, mark: action === \"archive\" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIV…",
+     "a": [
+      "зовёт setChatArchiveMark()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "updated === 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, action === \"archive\" ? \"CHAT_ARCHIVED\" : \"CHAT_UNARCHIVED\", \"BotConversation\", id);",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, updated });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/groups/:groupId",
    "mount": "/api/v1/conversations",
@@ -26300,7 +26399,7 @@
           },
           {
            "k": "do",
-           "t": "void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…",
+           "t": "void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…",
            "a": [
             "читает в базе: agent",
             "push-уведомление"
@@ -65202,74 +65301,21 @@
      ]
     },
     {
-     "k": "if",
-     "t": "!viewer.telegramChatId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Привяжите свой Telegram в профиле — туда придёт отчёт\" });",
-       "a": [
-        "ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»"
-       ],
-       "c": []
-      }
-     ]
+     "k": "do",
+     "t": "const outcome = await sendReportPdfToOwnTelegram(await viewerOf(req), kind, req.query, { source: \"screen\" });",
+     "a": [
+      "зовёт sendReportPdfToOwnTelegram()"
+     ],
+     "c": []
     },
     {
-     "k": "try",
-     "t": "пробует",
+     "k": "if",
+     "t": "outcome.ok",
      "a": [],
      "c": [
       {
-       "k": "try",
-       "t": "пробует",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…",
-         "a": [
-          "зовёт sendDocumentFile()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void logSystemError(\"telegram\", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return res.status(503).json({ error: \"Telegram не принял файл. Повторите позже или скачайте PDF\" });",
-         "a": [
-          "ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
        "k": "do",
-       "t": "logAudit(req, \"REPORT_PDF_EXPORT\", \"Report\", kind, { destination: \"ownTelegram\", period: pdf.periodKey, bytes…",
-       "a": [
-        "зовёт logAudit()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "res.json({ ok: true });",
+       "t": "return res.json({ ok: true });",
        "a": [
         "ответ 200"
        ],
@@ -65278,19 +65324,27 @@
      ]
     },
     {
-     "k": "catch",
-     "t": "если сорвалось",
+     "k": "if",
+     "t": "outcome.retryAfterSec !== undefined",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "failed(res, kind, err);",
+       "t": "res.set(\"Retry-After\", String(outcome.retryAfterSec));",
        "a": [
-        "дословно из кода"
+        "ставит заголовок ответа"
        ],
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "res.status(outcome.status).json({ error: outcome.error });",
+     "a": [
+      "ответ (код зависит от условия)"
+     ],
+     "c": []
     }
    ]
   },
@@ -95201,198 +95255,6 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "customer-turn-catch-up",
-   "when": "1-59/2 * * * *",
-   "tree": [
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await runCustomerTurnCatchUpTick();",
-       "a": [
-        "зовёт runCustomerTurnCatchUpTick()"
-       ],
-       "c": [
-        {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
-         "c": [
-          {
-           "k": "if",
-           "t": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return result;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestH…",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const row of resumable",
-           "a": [],
-           "c": [
-            {
-             "k": "try",
-             "t": "пробует",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await prisma.backgroundJob.create({ data: { type: \"customer-inbox-consume\", payload: { version: 1, eventKey: …",
-               "a": [
-                "создаёт в базе: backgroundJob"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "catch",
-             "t": "если сорвалось",
-             "a": [],
-             "c": [
-              {
-               "k": "if",
-               "t": "!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === \"P2002\")",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "throw error;",
-                 "a": [
-                  "пробрасывает ошибку дальше"
-                 ],
-                 "c": []
-                }
-               ]
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t.\"eventKey\", t.\"errorCode\" ${unansweredLatestHe…",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const row of forHuman",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);",
-             "a": [
-              "зовёт reportUnansweredCustomerTurn()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "await prisma.$executeRaw`INSERT INTO \"ProcessedMessage\" (\"id\",\"channel\",\"messageId\",\"createdAt\",\"completedAt\"…",
-             "a": [
-              "обращается к базе своим SQL"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "void logSystemError(\"ai\", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…",
-           "a": [
-            "запись в журнал ошибок"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "result.queued > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);",
-           "a": [
-            "пишет строку в журнал сервера"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ],
-       "from": "runCustomerTurnCatchUpTick() — apps/api/src/lib/customerTurnCatchUp.ts"
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "reportCronTickError(\"Ошибка сторожа «бот догоняет»\", err);",
-       "a": [
-        "зовёт reportCronTickError()"
-       ],
-       "c": [
-        {
-         "k": "do",
-         "t": "const reason = markCronTickFailed(label, err);",
-         "a": [
-          "зовёт markCronTickFailed()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
-         "a": [
-          "запись в журнал ошибок"
-         ],
-         "c": []
-        }
-       ],
-       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
-      }
-     ]
-    }
-   ],
-   "file": "apps/api/src/cron.ts"
-  },
-  {
    "id": "customer-unrecorded-summary",
    "when": "*/2 * * * *",
    "tree": [
@@ -96987,42 +96849,20 @@
            "c": []
           },
           {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await createNotifications(directorIds, payload);",
-             "a": [
-              "зовёт createNotifications()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void sendPushToAgents(directorIds, payload).catch((err)",
-             "a": [
-              "push-уведомление"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "await notifyFeedOnly(directorIds, payload);",
+           "a": [
+            "зовёт notifyFeedOnly()"
+           ],
+           "c": []
           },
           {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "console.error(\"[alarm] duplicate-fuzzy notification:\", err);",
-             "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "void sendDevicePushToAgents(directorIds, payload).catch((err)",
+           "a": [
+            "зовёт sendDevicePushToAgents()"
+           ],
+           "c": []
           }
          ]
         }
@@ -97900,41 +97740,11 @@
          "c": [
           {
            "k": "do",
-           "t": "const candidates = await prisma.agent.findMany({ where: { role: \"DIRECTOR\", isActive: true, telegramChatId: {…",
+           "t": "const recipients = await findAutoPdfRecipients(\"finance.view\");",
            "a": [
-            "читает в базе: agent"
+            "зовёт findAutoPdfRecipients()"
            ],
            "c": []
-          },
-          {
-           "k": "loop",
-           "t": "для каждого: const c of candidates",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const access = await loadAgentAccess(c.id);",
-             "a": [
-              "зовёт loadAgentAccess()"
-             ],
-             "c": []
-            },
-            {
-             "k": "if",
-             "t": "access?.isActive && access.permissions.has(\"finance.view\") && c.telegramChatId",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "recipients.push({ id: c.id, chatId: String(c.telegramChatId) });",
-               "a": [
-                "дословно из кода"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
           },
           {
            "k": "if",
@@ -97943,7 +97753,7 @@
            "c": [
             {
              "k": "do",
-             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…",
+             "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или у…",
              "a": [
               "запись в журнал ошибок"
              ],
@@ -97986,7 +97796,7 @@
              "c": [
               {
                "k": "do",
-               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…",
+               "t": "void logSystemError(\"telegram\", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(…",
                "a": [
                 "запись в журнал ошибок"
                ],
@@ -99596,7 +99406,7 @@
            "c": [
             {
              "k": "do",
-             "t": "await enqueueDirectorAlert({ title, body, url, tag, kind: \"oversight\", level: \"INSIGHT\", recipientRoles: [\"DI…",
+             "t": "await enqueueDirectorAlert({ title, body, url, tag, kind: \"oversight\", level: \"INSIGHT\", recipientRoles: awai…",
              "a": [
               "зовёт enqueueDirectorAlert()"
              ],
@@ -99614,15 +99424,15 @@
           },
           {
            "k": "do",
-           "t": "const directors = await prisma.agent.findMany({ where: { role: { in: [\"DIRECTOR\", \"ADMIN\"] }, isActive: true …",
+           "t": "const directorIds = await findReportRecipientsByRoles([\"DIRECTOR\", \"ADMIN\"]);",
            "a": [
-            "читает в базе: agent"
+            "зовёт findReportRecipientsByRoles()"
            ],
            "c": []
           },
           {
            "k": "if",
-           "t": "directors.length === 0",
+           "t": "directorIds.length === 0",
            "a": [],
            "c": [
             {
@@ -107373,9 +107183,9 @@
         },
         {
          "k": "do",
-         "t": "const recipients = await findAgentsWithPermission(\"dashboard.analytics\");",
+         "t": "const recipients = await findReportRecipients(\"dashboard.analytics\");",
          "a": [
-          "зовёт findAgentsWithPermission()"
+          "зовёт findReportRecipients()"
          ],
          "c": []
         },
@@ -107384,6 +107194,14 @@
          "t": "const { granted: seesMoney } = await partitionByPermission(recipients, \"finance.view\");",
          "a": [
           "зовёт partitionByPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const viewers = new Set( (await prisma.agent.findMany({ where: { id: { in: recipients }, role: { in: [...READ…",
+         "a": [
+          "читает в базе: agent"
          ],
          "c": []
         },
@@ -107479,7 +107297,7 @@
          "k": "do",
          "t": "const [ { tasksToday, leadsYesterday, dealsYesterday, commissionMonth, errorsYesterday, incomingYesterday, mi…",
          "a": [
-          "читает в базе: agent"
+          "зовёт loadMorningNumbers()"
          ],
          "c": []
         },
@@ -111525,6 +111343,14 @@
          "c": []
         },
         {
+         "k": "do",
+         "t": "const noVideoOn = properties.length > 0 && (await automationSwitchOn(\"notifyNoVideoEnabled\").catch(()",
+         "a": [
+          "зовёт automationSwitchOn()"
+         ],
+         "c": []
+        },
+        {
          "k": "loop",
          "t": "для каждого: const property of properties",
          "a": [],
@@ -111539,6 +111365,21 @@
              "t": "property.status === \"PENDING_REVIEW\"",
              "a": [],
              "c": [
+              {
+               "k": "if",
+               "t": "!noVideoOn",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
               {
                "k": "if",
                "t": "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
@@ -111592,6 +111433,21 @@
                 }
                ]
               },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "property.status === \"AWAITING_VIDEO\" && !noVideoOn",
+             "a": [],
+             "c": [
               {
                "k": "do",
                "t": "continue;",
@@ -122145,9 +122001,9 @@
         },
         {
          "k": "do",
-         "t": "const recipients = await findAgentsWithPermission(\"reports.view\");",
+         "t": "const recipients = await findReportRecipients(\"reports.view\");",
          "a": [
-          "зовёт findAgentsWithPermission()"
+          "зовёт findReportRecipients()"
          ],
          "c": []
         },
@@ -130017,107 +129873,6 @@
    "kind": "customer-inbox-consume",
    "file": "apps/api/src/jobs/customerInboxConsume.ts",
    "tree": [
-    {
-     "k": "if",
-     "t": "payload.resume",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await runCustomerCatchUpTurn(payload.eventKey);",
-       "a": [
-        "зовёт runCustomerCatchUpTurn()"
-       ],
-       "c": [
-        {
-         "k": "if",
-         "t": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return null;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const outcome = await resumeHeldCustomerTurn(eventKey);",
-         "a": [
-          "зовёт resumeHeldCustomerTurn()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "outcome === \"failed\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new Error(\"Догоняющий ход: сбой базы при возобновлении, задание повторит попытку\");",
-           "a": [
-            "ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "outcome === \"not_eligible\"",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…",
-           "a": [
-            "читает в базе: customerPropertyIngressTicket"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!ticket?.resumedAt || ticket.processingState === \"PLANNED\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return null;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "return consumeCustomerInboxTicket(eventKey);",
-         "a": [
-          "зовёт consumeCustomerInboxTicket()"
-         ],
-         "c": []
-        }
-       ],
-       "from": "runCustomerCatchUpTurn() — apps/api/src/lib/customerTurnCatchUp.ts"
-      },
-      {
-       "k": "do",
-       "t": "return;",
-       "a": [
-        "дальше не идёт, ничего не меняя"
-       ],
-       "c": []
-      }
-     ]
-    },
     {
      "k": "do",
      "t": "await consumeCustomerInboxTicket(payload.eventKey);",

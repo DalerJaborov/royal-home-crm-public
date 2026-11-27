@@ -1,3 +1,4 @@
+import { findReportRecipientsByRoles, reportRecipientRoles } from "./reportRecipients.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { sendPushToAgents } from "../push.js";
@@ -383,16 +384,13 @@ export async function notifyDirectorsAboutInsightDigest(digestId: string, immedi
 
   if (!immediate) {
     // Третий уровень владельца: советы системы, не работа и не тревога.
-    await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: ["DIRECTOR", "ADMIN"] });
+    await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: await reportRecipientRoles(["DIRECTOR", "ADMIN"]) });
     return;
   }
 
-  const directors = await prisma.agent.findMany({
-    where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true },
-    select: { id: true },
-  });
-  if (directors.length === 0) return;
-  const directorIds = directors.map((d) => d.id);
+  // Отчёт для чтения — и акционеру (lib/reportRecipients.ts, рубильник «Отчёты акционеру»).
+  const directorIds = await findReportRecipientsByRoles(["DIRECTOR", "ADMIN"]);
+  if (directorIds.length === 0) return;
   // Третий уровень владельца: советы системы, не работа и не тревога.
   const payload = { kind: "oversight" as const, level: "INSIGHT" as const, tag, title, body, url };
   await sendPushToAgents(directorIds, payload);

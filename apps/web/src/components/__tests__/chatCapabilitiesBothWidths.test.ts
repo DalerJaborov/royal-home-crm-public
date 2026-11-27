@@ -94,27 +94,24 @@ describe("«Отправить объект» видно всегда", () => {
 });
 
 /**
- * СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ ВИДЕН НА ОБЕИХ ШИРИНАХ (владелец 26.11.2026: «вернуть выбор срока,
- * по умолчанию час»). Новый вид чата — один адаптивный экран (`royal` в Messages.tsx): строка выбора
- * срока не завёрнута в условие ширины, а один и тот же срок получают текст, голосовое и фото/видео.
- * (`MobileChatView.tsx` сейчас нигде не подключён — отдельной ветки для телефона нет.)
+ * ВЫБОРА СРОКА ПАУЗЫ БОТА ПРИ ОТВЕТЕ БОЛЬШЕ НЕТ (владелец 27.11.2026: «Убрать у всех»). Прежняя строка «Бот молчит:
+ * 1 час» (26.11) снята и в Messages.tsx, и в мобильном чате; срок с ответом не уходит ни с текстом, ни с голосом, ни с
+ * фото/видео — решение за сервером (рубильник botPauseOnStaffReplyEnabled, lib/deliveryPause.ts).
  */
-describe("срок паузы бота при ответе: одна строка на ПК и телефоне", () => {
+describe("срок паузы бота при ответе: выбора нет ни на ПК, ни на телефоне", () => {
   const desktop = fs.readFileSync(DESKTOP_CHAT, "utf8");
-  it("строка выбора срока есть в новом виде и не зависит от ширины экрана", () => {
-    const at = desktop.indexOf('data-testid="chat-reply-pause"');
-    expect(at).toBeGreaterThan(0);
-    const condition = desktop.slice(Math.max(0, at - 260), at);
-    expect(condition).toContain("royal &&");
-    expect(condition).not.toMatch(/narrow/);
+  const mobile = fs.readFileSync(MOBILE_CHAT, "utf8");
+  it("строки выбора срока нет", () => {
+    expect(desktop).not.toContain('data-testid="chat-reply-pause"');
+    expect(desktop).not.toContain("Ваш ответ ставит бота на паузу");
+    expect(mobile).not.toContain("rh-chat-pause-hint");
   });
-  it("одно число срока уходит с текстом, голосовым и фото/видео", () => {
-    expect(desktop).toContain("useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined)");
-    // Прежний вид: голос и фото/видео срок НЕ шлют (как до 26.11) — «Бессрочно» им тихо не раздаём.
-    expect(desktop).toMatch(/function mediaPauseMinutes\(\)[^{]*\{\s*return royal \? replyPauseMinutes\(\) : undefined;/);
-    const starts = desktop.split(/\r?\n/).filter((line) => line.includes("mediaUpload.start("));
-    expect(starts.length).toBe(3);
-    for (const line of starts) expect(line, line).toMatch(/[pP]auseMinutes/);
-    expect(desktop).toContain("pausedUntil: pausedUntilIso(replyPauseMinutes())");
+  it("срок не уходит ни с текстом, ни с голосом, ни с фото/видео", () => {
+    expect(desktop).toContain("useSendVoiceMessage(replyTargetId)");
+    expect(desktop).not.toContain("replyPauseMinutes");
+    expect(desktop).not.toContain("mediaPauseMinutes");
+    expect(desktop).toContain("reply.mutateAsync({ text: value })");
+    expect(mobile).toContain("reply.mutateAsync({ text: value })");
+    expect(mobile).not.toMatch(/mutateAsync\(\{\s*text: value,\s*pausedUntil/);
   });
 });

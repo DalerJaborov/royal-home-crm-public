@@ -1,7 +1,6 @@
 [
   "components/AddInteractionModal.tsx::{ data: districts }=useDistricts",
   "components/AssistantHost.tsx::{ data: settings }=useSettings",
-  "components/BottomNav.tsx::{ data: settings }=useSettings",
   "components/CallClientButton.tsx::{ data: activeCall }=useActiveCallValue",
   "components/CallWindow.tsx::{ data: outgoingLive }=useActiveCall",
   "components/ClientChatPanel.tsx::cost=useAiConversationCost",

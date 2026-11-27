@@ -6,7 +6,7 @@ import type { RoyalIconName } from "./royalIconData";
  * круга (замечание дизайнера 18.11: цвет круга не зависит от номера строки).
  */
 const BY_PATH: Record<string, RoyalIconName> = {
-  "/": "house",
+  "/": "calendar-days",
   "/calendar": "calendar-days",
   "/messages": "messages-square",
   "/comments": "message-circle",
@@ -40,7 +40,7 @@ const BY_PATH: Record<string, RoyalIconName> = {
   "/stuck-work": "hourglass",
   "/archive": "archive",
   "/notifications": "bell",
-  "/more": "layout-dashboard",
+  "/more": "ellipsis",
 };
 
 export function royalIconForPath(path: string): RoyalIconName {

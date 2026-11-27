@@ -439,6 +439,7 @@ function toStaffSettings(settings: {
   royalScoreEnabled: boolean;
   liveVoiceEnabled: boolean;
   clientRecordResultEnabled: boolean;
+  clientCardRobotRowsEnabled: boolean;
 }) {
   return {
     companyName: settings.companyName,
@@ -490,6 +491,8 @@ function toStaffSettings(settings: {
     // Кнопка «Записать результат» в карточке клиента (22.11.2026): её нажимает агент, значит и булев нужен агенту.
     // Тайны нет; сам путь записи (POST /clients/:id/interactions) проверяет права отдельно.
     clientRecordResultEnabled: settings.clientRecordResultEnabled,
+    // Строки робота в карточке (27.11.2026): только видимость; звонок и отметку сервер проверяет отдельно.
+    clientCardRobotRowsEnabled: settings.clientCardRobotRowsEnabled,
   };
 }
 
@@ -1224,7 +1227,7 @@ const settingsUpdateSchema = z.object({
    *  сводок; отдельного списка не заводим, пока владелец не попросит. */
   problemReportWeeklyEnabled: z.boolean().optional(),
   problemReportMonthlyEnabled: z.boolean().optional(),
-  /** Финансовый PDF за прошлый месяц директорам в Telegram, 1-го числа (14.11.2026, lib/reportPdf/monthlyFinance.ts). */
+  /** Финансовый PDF за прошлый месяц в Telegram, 1-го числа: директор, администратор, учредитель (14.11.2026, круг 27.11 — lib/reportRecipients.ts). */
   financePdfMonthlyEnabled: z.boolean().optional(),
   /** Пауза перед ответом бота, секунды: сколько тишины ждать, пока клиент дописывает.
    *  0 — отвечать сразу; верхний предел — минута, дальше клиент решит, что его не читают. */

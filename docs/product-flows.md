@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4396**. Модулей: **87**.
+Путей: **790**. Развилок в самих путях: **2528**; вместе с задачами по расписанию и фоновыми заданиями — **4393**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4978,6 +4978,28 @@
 - res.json({ id: conversation.id, channel: shown.channel, name: shown.name, profileName: canSeeOrigin && profil…
   · ответ 200
 
+### POST /api/v1/conversations/archive-mark
+
+`apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const parsed = archiveMarkSchema.safeParse(req.body);
+  · проверяет данные схемой archiveMarkSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если !can(req, "messages.view") && !can(req, "messages.viewOwn")
+  - return res.status(403).json({ error: "Нет доступа к чатам" });
+    · ответ 403 — «Нет доступа к чатам»
+- const updated = await setChatArchiveMark({ id, mark: action === "archive" ? CHAT_ARCHIVE_MARKED : CHAT_ARCHIV…
+  · зовёт setChatArchiveMark()
+- если updated === 0
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- logAudit(req, action === "archive" ? "CHAT_ARCHIVED" : "CHAT_UNARCHIVED", "BotConversation", id);
+  · зовёт logAudit()
+- res.json({ ok: true, updated });
+  · ответ 200
+
 ### GET /api/v1/conversations/groups/:groupId
 
 `apps/api/src/routes/conversations.ts` · на входе: предел частоты запросов, общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
@@ -5954,7 +5976,7 @@
           · зовёт recordScoreEvent()
       - const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
         · читает в базе: agent
-      - void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…
+      - void Promise.all([ prisma.agent.findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select:…
         · читает в базе: agent
         · push-уведомление
     - const closedMonthKey = existing.closedAt ? (()
@@ -14594,25 +14616,16 @@
 - если !kind
   - return;
     · дальше не идёт, ничего не меняя
-- если !viewer.telegramChatId
-  - return res.status(409).json({ error: "Привяжите свой Telegram в профиле — туда придёт отчёт" });
-    · ответ 409 — «Привяжите свой Telegram в профиле — туда придёт отчёт»
-- пробует
-  - пробует
-    - await sendDocumentFile(viewer.telegramChatId, pdf.buffer, pdf.filename, `${REPORT_PDF_TITLES[kind]} · ${pdf.p…
-      · зовёт sendDocumentFile()
-  - если сорвалось
-    - void logSystemError("telegram", `PDF «${REPORT_PDF_TITLES[kind]}» не отправлен в Telegram: ${describeError(er…
-      · запись в журнал ошибок
-    - return res.status(503).json({ error: "Telegram не принял файл. Повторите позже или скачайте PDF" });
-      · ответ 503 — «Telegram не принял файл. Повторите позже или скачайте PDF»
-  - logAudit(req, "REPORT_PDF_EXPORT", "Report", kind, { destination: "ownTelegram", period: pdf.periodKey, bytes…
-    · зовёт logAudit()
-  - res.json({ ok: true });
+- const outcome = await sendReportPdfToOwnTelegram(await viewerOf(req), kind, req.query, { source: "screen" });
+  · зовёт sendReportPdfToOwnTelegram()
+- если outcome.ok
+  - return res.json({ ok: true });
     · ответ 200
-- если сорвалось
-  - failed(res, kind, err);
-    · дословно из кода
+- если outcome.retryAfterSec !== undefined
+  - res.set("Retry-After", String(outcome.retryAfterSec));
+    · ставит заголовок ответа
+- res.status(outcome.status).json({ error: outcome.error });
+  · ответ (код зависит от условия)
 
 ### GET /api/v1/report-pdf/:kind
 
@@ -21247,46 +21260,6 @@
     - customerBusy[lane] = false;
       · дословно из кода
 
-### customer-turn-catch-up — 1-59/2 * * * *
-
-- пробует
-  - await runCustomerTurnCatchUpTick();
-    · зовёт runCustomerTurnCatchUpTick()
-    - пробует
-      - если !(await automationSwitchOn("botCatchUpEnabled"))
-        - return result;
-          · дословно из кода
-      - const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestH…
-        · обращается к базе своим SQL
-      - для каждого: const row of resumable
-        - пробует
-          - await prisma.backgroundJob.create({ data: { type: "customer-inbox-consume", payload: { version: 1, eventKey: …
-            · создаёт в базе: backgroundJob
-        - если сорвалось
-          - если !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-            - throw error;
-              · пробрасывает ошибку дальше
-      - const forHuman = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode" ${unansweredLatestHe…
-        · обращается к базе своим SQL
-      - для каждого: const row of forHuman
-        - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
-          · зовёт reportUnansweredCustomerTurn()
-        - await prisma.$executeRaw`INSERT INTO "ProcessedMessage" ("id","channel","messageId","createdAt","completedAt"…
-          · обращается к базе своим SQL
-    - если сорвалось
-      - void logSystemError("ai", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…
-        · запись в журнал ошибок
-    - если result.queued > 0
-      - console.log(`[cron] Бот догоняет: поставлено ходов ${result.queued}`);
-        · пишет строку в журнал сервера
-- если сорвалось
-  - reportCronTickError("Ошибка сторожа «бот догоняет»", err);
-    · зовёт reportCronTickError()
-    - const reason = markCronTickFailed(label, err);
-      · зовёт markCronTickFailed()
-    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
-      · запись в журнал ошибок
-
 ### customer-unrecorded-summary — */2 * * * *
 
 - пробует
@@ -21627,14 +21600,10 @@
     - для каждого: const [a, b] of pairs
       - const payload = { kind: "oversight" as const, title: "🔎 Похожие карточки — проверьте", body: `Найдено ${dush…
         · зовёт dushanbeDateTimeString()
-      - пробует
-        - await createNotifications(directorIds, payload);
-          · зовёт createNotifications()
-        - void sendPushToAgents(directorIds, payload).catch((err)
-          · push-уведомление
-      - если сорвалось
-        - console.error("[alarm] duplicate-fuzzy notification:", err);
-          · пишет строку в журнал сервера
+      - await notifyFeedOnly(directorIds, payload);
+        · зовёт notifyFeedOnly()
+      - void sendDevicePushToAgents(directorIds, payload).catch((err)
+        · зовёт sendDevicePushToAgents()
   - если found > 0
     - console.log(`[cron] Вероятных дублей по имени/номеру: ${found}`);
       · пишет строку в журнал сервера
@@ -21821,16 +21790,10 @@
     - const release = ()
       · меняет в базе: settings
     - пробует
-      - const candidates = await prisma.agent.findMany({ where: { role: "DIRECTOR", isActive: true, telegramChatId: {…
-        · читает в базе: agent
-      - для каждого: const c of candidates
-        - const access = await loadAgentAccess(c.id);
-          · зовёт loadAgentAccess()
-        - если access?.isActive && access.permissions.has("finance.view") && c.telegramChatId
-          - recipients.push({ id: c.id, chatId: String(c.telegramChatId) });
-            · дословно из кода
+      - const recipients = await findAutoPdfRecipients("finance.view");
+        · зовёт findAutoPdfRecipients()
       - если recipients.length === 0
-        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у одного директора с правом на фи…
+        - void logSystemError("telegram", `Финансовый PDF за ${month} не разослан: ни у директора, администратора или у…
           · запись в журнал ошибок
       - для каждого: const r of recipients
         - пробует
@@ -21839,7 +21802,7 @@
           - logAgentAudit(r.id, "REPORT_PDF_EXPORT", "Report", "finance", { destination: "monthlyTelegram", period: pdf.p…
             · зовёт logAgentAudit()
         - если сорвалось
-          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен директору ${r.id}: ${describeError(e…
+          - void logSystemError("telegram", `Финансовый PDF за ${month} не доставлен получателю ${r.id}: ${describeError(…
             · запись в журнал ошибок
       - если delivered === 0
         - await release();
@@ -22182,13 +22145,13 @@
       - const meetingDate = dushanbeWallClock(digest.meetingAt).toISOString().slice(0, 10);
         · зовёт dushanbeWallClock()
       - если !immediate
-        - await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: ["DI…
+        - await enqueueDirectorAlert({ title, body, url, tag, kind: "oversight", level: "INSIGHT", recipientRoles: awai…
           · зовёт enqueueDirectorAlert()
         - return;
           · дальше не идёт, ничего не меняя
-      - const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true …
-        · читает в базе: agent
-      - если directors.length === 0
+      - const directorIds = await findReportRecipientsByRoles(["DIRECTOR", "ADMIN"]);
+        · зовёт findReportRecipientsByRoles()
+      - если directorIds.length === 0
         - return;
           · дальше не идёт, ничего не меняя
       - await sendPushToAgents(directorIds, payload);
@@ -23839,10 +23802,12 @@
       · зовёт buildMonthlyMetrics()
     - await prisma.monthlyReport.create({ data: { periodStart, metrics: metrics as never } });
       · создаёт в базе: monthlyReport
-    - const recipients = await findAgentsWithPermission("dashboard.analytics");
-      · зовёт findAgentsWithPermission()
+    - const recipients = await findReportRecipients("dashboard.analytics");
+      · зовёт findReportRecipients()
     - const { granted: seesMoney } = await partitionByPermission(recipients, "finance.view");
       · зовёт partitionByPermission()
+    - const viewers = new Set( (await prisma.agent.findMany({ where: { id: { in: recipients }, role: { in: [...READ…
+      · читает в базе: agent
     - для каждого: const agentId of recipients
       - await sendPushToAgent(agentId, { title: `🗂️ Отчёт за ${monthLabel}`, body: `Сделок: ${metrics.dealsCompleted…
         · push-уведомление
@@ -23863,7 +23828,7 @@
   - const sent = await sendDirectorDigest();
     · зовёт sendDirectorDigest()
     - const [ { tasksToday, leadsYesterday, dealsYesterday, commissionMonth, errorsYesterday, incomingYesterday, mi…
-      · читает в базе: agent
+      · зовёт loadMorningNumbers()
     - await Promise.all( directors.map((d)
       · push-уведомление
   - console.log(`[cron] Утренний дайджест отправлен директорам: ${sent}`);
@@ -24728,9 +24693,14 @@
     · зовёт notifyStuckMaterials()
     - const properties = await prisma.property.findMany({ where: { deletedAt: null, OR: [ { status: "PENDING_REVIEW…
       · читает в базе: property
+    - const noVideoOn = properties.length > 0 && (await automationSwitchOn("notifyNoVideoEnabled").catch(()
+      · зовёт automationSwitchOn()
     - для каждого: const property of properties
       - пробует
         - если property.status === "PENDING_REVIEW"
+          - если !noVideoOn
+            - continue;
+              · переходит к следующему
           - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
             - continue;
               · переходит к следующему
@@ -24742,6 +24712,9 @@
           - если hoursInStage >= STUCK_ESCALATE_AFTER_HOURS
             - await enqueueDirectorAlert({ title: "🎥 Объект третьи сутки без видео", body: `${property.title} — видео так …
               · зовёт enqueueDirectorAlert()
+          - continue;
+            · переходит к следующему
+        - если property.status === "AWAITING_VIDEO" && !noVideoOn
           - continue;
             · переходит к следующему
         - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
@@ -26985,8 +26958,8 @@
     - если !built
       - return;
         · дальше не идёт, ничего не меняя
-    - const recipients = await findAgentsWithPermission("reports.view");
-      · зовёт findAgentsWithPermission()
+    - const recipients = await findReportRecipients("reports.view");
+      · зовёт findReportRecipients()
     - если recipients.length === 0
       - return;
         · дальше не идёт, ничего не меняя
@@ -28672,27 +28645,6 @@
 
 `apps/api/src/jobs/customerInboxConsume.ts`
 
-- если payload.resume
-  - await runCustomerCatchUpTurn(payload.eventKey);
-    · зовёт runCustomerCatchUpTurn()
-    - если !(await automationSwitchOn("botCatchUpEnabled"))
-      - return null;
-        · дословно из кода
-    - const outcome = await resumeHeldCustomerTurn(eventKey);
-      · зовёт resumeHeldCustomerTurn()
-    - если outcome === "failed"
-      - throw new Error("Догоняющий ход: сбой базы при возобновлении, задание повторит попытку");
-        · ошибка Error — «Догоняющий ход: сбой базы при возобновлении, задание повторит попытку»
-    - если outcome === "not_eligible"
-      - const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey }, select: { resumed…
-        · читает в базе: customerPropertyIngressTicket
-      - если !ticket?.resumedAt || ticket.processingState === "PLANNED"
-        - return null;
-          · дословно из кода
-    - return consumeCustomerInboxTicket(eventKey);
-      · зовёт consumeCustomerInboxTicket()
-  - return;
-    · дальше не идёт, ничего не меняя
 - await consumeCustomerInboxTicket(payload.eventKey);
   · зовёт consumeCustomerInboxTicket()
   - если !/^[a-f0-9]{64}$/.test(eventKey)

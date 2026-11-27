@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+// Бот только для сотрудников (27.11.2026) ВКЛ, как по умолчанию: привязка и монтажёр обязаны работать и так.
 
 /**
  * БОТ МОНТАЖЁРА ЦЕЛИКОМ (25.09.2026): настоящие telegram/bot.ts, montajerReceive,
