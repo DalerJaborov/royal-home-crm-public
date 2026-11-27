@@ -646,9 +646,10 @@ async function sendFirstContactOnce(input: SendFirstContactInput): Promise<WaFir
     { role: "assistant", content: text, by: sender, ...(messageId ? { mid: messageId } : {}) },
   ]);
 
-  // Писал человек — бот молчит, тот же закон, что у ручного ответа в переписке.
+  // Писал человек — тот же закон, что у ручного ответа в переписке: пауза бота только при включённом рубильнике
+  // botPauseOnStaffReplyEnabled (по умолчанию ВЫКЛ, владелец 27.11.2026 «Убрать у всех»). agentId передаётся ради него.
   const target: DeliveryTarget = { kind: "bot", id: conversationId, channel: "WHATSAPP", subscriberId: recipient, accountId: customerTransport.accountId, transport: customerTransport };
-  await applyDeliveryPause(target, new Date(Date.now() + (await defaultPauseForSender(target, sender))), true);
+  await applyDeliveryPause(target, new Date(Date.now() + (await defaultPauseForSender(target, sender))), true, prisma, agentId);
 
   // Переписка известна только теперь — дописываем её в ту же строку-замок.
   await prisma.whatsAppFirstContact.update({ where: { id: lock.id }, data: { conversationId } });
