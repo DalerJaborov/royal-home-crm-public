@@ -173,7 +173,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         await customerAgentClaimCurrentTx(prisma, claim);
     };
     const opened = await openPinnedCustomerAgentRuntime({ revision: claim.pin.revision,
-      providerOperationId: claim.pin.providerOperationId, originalReceivedAt: claim.pin.receivedAt,
+      providerOperationId: claim.pin.providerOperationId, originalReceivedAt: claim.pin.clockAt,
       providerDeadlineAt: claim.pin.providerDeadlineAt, assertCurrent: current });
     if (opened.status !== "ready") {
       await releaseHeldClaim(claim, opened.reason);
@@ -662,7 +662,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       ...(brand ? { brand } : {}),
       knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
-      startedAt: claim.pin.receivedAt, operation: runtime.operation,
+      // Turn clock, not the receipt: a held input resumed once after a pause runs a fresh turn (customerTurnClock.ts).
+      startedAt: claim.pin.clockAt, operation: runtime.operation,
       // В режиме «только заявки» подборки нет вовсе: инструмент не предлагается модели (первый слой запрета).
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS.filter(name => !leadOnly.enabled || name !== "search_public_properties"),
         ...mutations.availableToolNames]),

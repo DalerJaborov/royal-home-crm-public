@@ -21,7 +21,7 @@ declare const ackBrand: unique symbol;
 export type CustomerHandoverAckSource = { readonly [sourceBrand]: true };
 export type CustomerHandoverAckAuthority = { readonly [ackBrand]: true };
 type Source = { before: Pick<NonNullable<ReturnType<typeof inspectCustomerWriteAuthority>>, "fence" | "generation" | "eventKey" | "order">;
-  claim: CustomerAgentClaim; cipherHash: string; receivedAt: number; language: "ru" | "tg";
+  claim: CustomerAgentClaim; cipherHash: string; receivedAt: number; clockAt: number; language: "ru" | "tg";
   transport: ReturnType<typeof customerDeliveryTransportSchema.parse> };
 const sources = new WeakMap<object, Source>();
 const acknowledgments = new WeakMap<object, { fence: CustomerHandoverAckFence; source: Source }>();
@@ -60,7 +60,7 @@ export async function captureCustomerHandoverAckSourceTx(tx: TxClient, input: {
       transport.accountId !== grant.fence.endpoint.accountId) return null;
   sources.set(handle, { before: { fence: structuredClone(grant.fence), generation: grant.generation, eventKey: grant.eventKey, order: grant.order },
     claim: input.claim, cipherHash: sha(row.originCiphertext),
-    receivedAt: origin.input.issuedAt, language: input.language, transport });
+    receivedAt: origin.input.issuedAt, clockAt: input.claim.pin.clockAt, language: input.language, transport });
   return handle;
 }
 
@@ -116,6 +116,7 @@ async function currentAckTx(tx: TxClient, f: CustomerHandoverAckFence, stage: "p
        AND t."endpointScopeId"=${f.after.endpoint.endpointScopeId} AND t."order"=${BigInt(f.order)}
        AND t."tombstonedAt" IS NULL AND t."inputRecordedAt" IS NOT NULL AND t."originVersion"=1
        AND t."receivedAt"=${new Date(f.originalReceivedAt)} AND t."originCapturedAt"=t."receivedAt"
+       AND COALESCE(t."resumedAt",t."receivedAt")=${new Date(f.turnClockAt ?? f.originalReceivedAt)}
        AND t."agentRevisionId"=${f.agentRevisionId} AND t."providerOperationId"=${f.providerOperationId}
        AND t."providerDeadlineAt"=${new Date(f.deadlineAt)}
        AND t."processingState"=${stage === "plan" ? "CLAIMED" : "PLANNED"}
@@ -153,7 +154,8 @@ export async function issueCustomerHandoverAckTx(tx: TxClient, source: unknown, 
   if (!state) return null;
   const checked = customerHandoverAckFenceSchema.safeParse({ version: 1, purpose: "handover_ack", before: saved.before.fence,
     after: state.fence, eventKey: saved.before.eventKey, order: saved.before.order, originCipherHash: saved.cipherHash,
-    originalReceivedAt: saved.receivedAt, deadlineAt: saved.claim.deadlineAt, agentRevisionId: saved.claim.pin.agentRevisionId,
+    originalReceivedAt: saved.receivedAt, ...(saved.clockAt !== saved.receivedAt ? { turnClockAt: saved.clockAt } : {}),
+    deadlineAt: saved.claim.deadlineAt, agentRevisionId: saved.claim.pin.agentRevisionId,
     providerOperationId: saved.claim.pin.providerOperationId, receipt: parsed.data, language: saved.language });
   if (!checked.success || !await lockCustomerHandoverAckSourceTx(tx, checked.data) ||
       !await customerAgentClaimCurrentTx(tx, saved.claim) || !await currentAckTx(tx, checked.data, "plan")) return null;

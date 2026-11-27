@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4388**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4391**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -21246,6 +21246,40 @@
   - в любом случае
     - customerBusy[lane] = false;
       · дословно из кода
+
+### customer-turn-catch-up — 1-59/2 * * * *
+
+- пробует
+  - await runCustomerTurnCatchUpTick();
+    · зовёт runCustomerTurnCatchUpTick()
+    - пробует
+      - если !(await automationSwitchOn("botCatchUpEnabled"))
+        - return result;
+          · дословно из кода
+      - const resumable = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode", t."conversationId"…
+        · обращается к базе своим SQL
+      - для каждого: const row of resumable
+        - если await resumeHeldCustomerTurn(row)
+          - result.resumed++;
+            · дословно из кода
+      - const pinned = await prisma.$queryRaw<Candidate[]>` SELECT t."eventKey", t."errorCode", t."conversationId", t…
+        · обращается к базе своим SQL
+      - для каждого: const row of pinned
+        - await reportUnansweredCustomerTurn(row.eventKey, row.errorCode);
+          · зовёт reportUnansweredCustomerTurn()
+    - если сорвалось
+      - void logSystemError("ai", `Бот не смог догнать неотвеченные сообщения после паузы: ${error instanceof Error ?…
+        · запись в журнал ошибок
+    - если result.resumed > 0
+      - console.log(`[cron] Бот догоняет: возобновлено ходов ${result.resumed}`);
+        · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа «бот догоняет»", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### customer-unrecorded-summary — */2 * * * *
 

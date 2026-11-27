@@ -1844,6 +1844,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     source: "legacy", channel, peer: subscriberId, conversationId: resolved.id, text,
     eventId: input.skipSaveIncoming ? null : input.messageId,
     countAudience: !input.skipSaveIncoming && !input.fromStaff,
+    replay: !!input.skipSaveIncoming,
   });
   if (inboundEffects.status === "applied" && inboundEffects.clientId && inboundEffects.clientId !== resolved.clientId) {
     resolved = { ...resolved, clientId: inboundEffects.clientId };

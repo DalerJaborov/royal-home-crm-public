@@ -75,6 +75,9 @@ export interface InboundSideEffectsInput {
   eventId?: string | null;
   /** Считать ли сообщение в тепловую карту аудитории (старый ход: не повтор и не сотрудник). */
   countAudience?: boolean;
+  /** Повтор уже записанного сообщения (повтор зависшего хода, 27.11.2026): агент и хозяин объекта уже получили пуш
+   *  при его приходе — повтор их не дублирует (раньше каждые 30 минут, пока повтор шёл). Карточка и досье — как обычно. */
+  replay?: boolean;
 }
 
 export type InboundSideEffectsResult =
@@ -165,11 +168,11 @@ export async function applyInboundSideEffects(input: InboundSideEffectsInput): P
     if (review.handled) return { status: "applied", clientId, dealReview: { reply: review.reply ?? "" } };
   }
 
-  if (clientId) {
+  if (clientId && !input.replay) {
     void notifyAgentOfClientMessage(clientId, text, input.channel, input.peer,
       conversation.propertyChatAgentId ? input.conversationId : undefined);
   }
-  void notifyPropertyChatMessage(input.conversationId);
+  if (!input.replay) void notifyPropertyChatMessage(input.conversationId);
   if (clientId) {
     void checkExplicitRefusal({ clientId, text }).catch((err) =>
       console.error("[отказ] проверка явного отказа в переписке:", err instanceof Error ? err.message : err)

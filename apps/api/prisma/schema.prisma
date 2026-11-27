@@ -5008,6 +5008,9 @@ model CustomerPropertyIngressTicket {
   managedOutputRecordedAt DateTime?
   /// Set atomically with scoped IN append; NULL historical tickets prove no append.
   inputRecordedAt DateTime?
+  /// Turn clock of a held input resumed ONCE by lib/customerTurnCatchUp.ts (27.11.2026). Origin identity stays
+  /// "receivedAt"; only the turn's deadline/age counts from here (lib/customerTurnClock.ts). Set once, never cleared.
+  resumedAt DateTime?
 
   @@index([conversationId, scopeKey])
   @@index([endpointScopeId])
@@ -7548,6 +7551,9 @@ model Settings {
   /// ВКЛ: сторож lib/botSilenceWatch.ts раз в 5 минут ищет канал, где трое и больше клиентов ждут ответа дольше
   /// 10 минут, а бот за это время не ответил там никому, и говорит директору и администратору. Реестр — automationSwitches.ts.
   botSilenceWatchEnabled                Boolean @default(true)
+  /// «Бот сам догоняет после паузы» (владелец 27.11.2026): сторож lib/customerTurnCatchUp.ts один раз
+  /// перезапускает последний неотвеченный ход ядра, когда пауза кончилась или ядро сорвалось. Реестр — automationSwitches.ts.
+  botCatchUpEnabled                     Boolean @default(true)
   /// Рубильники «клиент по объекту — хозяину объекта» во всех каналах (27.11.2026), ВКЛ по умолчанию.
   /// chat — переписка (новый бот, скриншоты, Telegram, каталог WhatsApp); callAd — звонок клиента с рекламы объекта;
   /// objectInterestPullsQueueLead — непринятая заявка из очереди переезжает к хозяину (раньше env OBJECT_INTEREST_PULLS_QUEUE_LEAD).

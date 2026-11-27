@@ -14,12 +14,12 @@
  "totals": {
   "screens": 50,
   "paths": 789,
-  "cron": 148,
+  "cron": 149,
   "jobs": 37,
-  "conditions": 4349,
-  "untranslatedUnique": 500,
-  "untranslatedTotal": 642,
-  "partialUnique": 1154,
+  "conditions": 4352,
+  "untranslatedUnique": 501,
+  "untranslatedTotal": 643,
+  "partialUnique": 1155,
   "translatedShare": 85
  },
  "untranslated": [
@@ -27,6 +27,7 @@
   "!(\"telegramChatId\" in row)",
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
   "!(SOCIAL_VIDEO_COVER_MIME_TYPES as readonly string[]).includes(req.file.mimetype)",
+  "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
   "!(await automationSwitchOn(\"botSilenceWatchEnabled\"))",
   "!(await automationSwitchOn(\"notifyClientWaitingEnabled\"))",
   "!(await claimRun(id))",
@@ -69172,6 +69173,95 @@
            "c": []
           }
          ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "customer-turn-catch-up",
+   "when": "1-59/2 * * * *",
+   "label": "customer-turn-catch-up",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если !(await automationSwitchOn(\"botCatchUpEnabled\"))",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!(await automationSwitchOn(\"botCatchUpEnabled\"))",
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если resumed больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }
