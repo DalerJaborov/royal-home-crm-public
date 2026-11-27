@@ -101,6 +101,7 @@ import { outgoingContentKey, wasRecentlySentText, wasSentByUs } from "../messeng
 import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlightEcho.js";
 import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
 import { isOwnAccountSender, ownAccountPauseUntil } from "../lib/ownAccountGuard.js";
+import { learnWhatsappOwnNumbersFromWebhook } from "../lib/whatsappOwnNumbers.js";
 import { isOutboundBlockedError, noteRealInbound } from "../lib/outboundShield.js";
 import { isMetaSendBlockError } from "../lib/metaSendBlock.js";
 import { isInstagramAccessLostError } from "../lib/instagramAccountAccess.js";
@@ -1834,6 +1835,10 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
   // без ответа клиенту. До сохранения входящих — чтобы событие было видно, даже если
   // сохранение ответит 503 (повтор Meta даст лишь повтор строки).
   handleWhatsappCallEvents(req.body);
+  // НАШИ НОМЕРА WHATSAPP (27.11.2026, lib/whatsappOwnNumbers.ts): metadata подписанного события называет наш номер
+  // цифрами. Запоминаем до приёма — ядру и защите «не отвечать себе» нужен каждый наш номер, а не только получатель.
+  // Ничего не бросает; при известном номере — ноль запросов к базе (кэш).
+  await learnWhatsappOwnNumbersFromWebhook(req.body);
   // Short durable intake precedes the provider ACK when the scoped rollout
   // is enabled. No model/provider call occurs here. OFF follows legacy intake.
   const durableIngress = await persistVerifiedCustomerIngressBatch(req);
@@ -1912,7 +1917,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
                 channel: message.channel, peer: message.senderId, accountExternalId: message.accountExternalId }, {
                 kind: message.payload ? "postback" : "message", isEcho: message.isEcho,
                 bareTemplateEcho: !message.text && message.attachmentType === "template", referralOnly: message.referralOnly,
-                ownAccountSender: await isOwnAccountSender({ senderId: message.senderId, senderName: message.name }),
+                ownAccountSender: await isOwnAccountSender({ senderId: message.senderId, senderName: message.name, channel: message.channel }),
                 knownOutgoingMid: message.messageId ? await wasSentByUs(message.messageId) : false,
                 // No existing scoped native can contain an in-flight marker
                 // before this first routing scope. Unknown historical natives
@@ -2160,7 +2165,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
             .then(native => native ? prisma.botConversation.findUnique({ where: { id: native.id }, select: { name: true } }) : null)
         )?.name ??
         undefined;
-      if (await isOwnAccountSender({ senderId: msg.senderId, senderName })) {
+      if (await isOwnAccountSender({ senderId: msg.senderId, senderName, channel: msg.channel })) {
         const written = isBareTemplateEcho ? "" : msg.text || (msg.attachmentType ? `[вложение: ${msg.attachmentType}]` : "");
         if (written) {
           await processMessengerTurn({

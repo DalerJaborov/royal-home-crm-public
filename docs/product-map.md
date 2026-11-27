@@ -413,7 +413,7 @@
 |---|---|---|
 | Instagram Graph через прокси | 2 | 1 |
 | Telegram | 5 | 7 |
-| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 16 |
+| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 18 |
 | Бюджет Google Cloud | 1 | 1 |
 | Голосовой ИИ на звонках (Gemini Live) | 9 | 5 |
 | ИИ Google Gemini | 18 | 11 |
