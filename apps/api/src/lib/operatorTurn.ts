@@ -137,6 +137,8 @@ export async function loadOperatorTurnSetup(input: {
     maxPhoneAsks: input.config.maxPhoneAsks,
     vacancies: { open: jobs.open, contactPhone: RECRUITMENT_CONTACT.phone },
     brandName: row?.account?.brandName?.trim() || AGENCY_FACTS.name,
+    // Номер или страница отдельного бренда («Арван»): первое слово бота — от его имени (27.11.2026).
+    ...(row?.account?.brandName?.trim() && row.account.brandName.trim() !== AGENCY_FACTS.name ? { ownBrand: true } : {}),
     officePhone: PUBLIC_AGENCY_CONTACT.phone,
     sellerCommissionPercent: AGENCY_FACTS.commission.sellerPercent,
     outOfArea: false,
