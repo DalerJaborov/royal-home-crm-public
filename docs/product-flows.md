@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4381**. Модулей: **87**.
+Путей: **789**. Развилок в самих путях: **2524**; вместе с задачами по расписанию и фоновыми заданиями — **4379**. Модулей: **87**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -20257,27 +20257,25 @@
           · дословно из кода
       - const row = await tx.botSilenceIncident.findFirst({ where: { recoveredAt: null }, orderBy: { detectedAt: "des…
         · читает в базе: botSilenceIncident
-      - const decision = decideBotSilence(snapshot, open, now, off);
+      - const decision = decideBotSilence(snapshot, open, now);
         · зовёт decideBotSilence()
-      - const send = (tag: string, text: { title: string; body: string }, urgent: boolean)
-        · зовёт enqueueDirectorAlert()
-      - если decision.kind === "open"
-        - const created = await tx.botSilenceIncident.create({ data: { channels: decision.channels, startedAt: decision…
-          · создаёт в базе: botSilenceIncident
-        - если !alerted
+      - const send = async (tag: string, text: { title: string; body: string }, urgent: boolean)
+        · ошибка Error — «очередь тревог руководству недоступна»
+        - const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], .…
+          · зовёт enqueueDirectorAlert()
+        - если !queued
           - throw new Error("очередь тревог руководству недоступна");
             · ошибка Error — «очередь тревог руководству недоступна»
+      - если decision.kind === "open"
+        - const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.sta…
+          · создаёт в базе: botSilenceIncident
       - если decision.kind === "update" && open
         - если decision.remind
-          - если !alerted
-            - throw new Error("очередь тревог руководству недоступна");
-              · ошибка Error — «очередь тревог руководству недоступна»
-        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { channels: decision.channels, missedKeys:…
+          - await send(`bot-silence-${open.id}`, silenceAlertText({ groups: decision.groups, labels, since: open.startedA…
+            · дословно из кода
+        - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: dec…
           · меняет в базе: botSilenceIncident
       - если decision.kind === "recover" && open
-        - если !alerted
-          - throw new Error("очередь тревог руководству недоступна");
-            · ошибка Error — «очередь тревог руководству недоступна»
         - await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });
           · меняет в базе: botSilenceIncident
       - если decision.kind === "close" && open

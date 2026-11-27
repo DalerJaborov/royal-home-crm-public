@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 789,
-  "forks": 4381,
+  "forks": 4379,
   "mounts": 87,
   "cron": 148,
   "jobs": 37,
@@ -90546,7 +90546,7 @@
           },
           {
            "k": "do",
-           "t": "const decision = decideBotSilence(snapshot, open, now, off);",
+           "t": "const decision = decideBotSilence(snapshot, open, now);",
            "a": [
             "зовёт decideBotSilence()"
            ],
@@ -90554,28 +90554,22 @@
           },
           {
            "k": "do",
-           "t": "const send = (tag: string, text: { title: string; body: string }, urgent: boolean)",
+           "t": "const send = async (tag: string, text: { title: string; body: string }, urgent: boolean)",
            "a": [
-            "зовёт enqueueDirectorAlert()"
+            "ошибка Error — «очередь тревог руководству недоступна»"
            ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "decision.kind === \"open\"",
-           "a": [],
            "c": [
             {
              "k": "do",
-             "t": "const created = await tx.botSilenceIncident.create({ data: { channels: decision.channels, startedAt: decision…",
+             "t": "const queued = await enqueueDirectorAlert({ ...text, url: ALERT_URL, tag, recipientRoles: [...ALERT_ROLES], .…",
              "a": [
-              "создаёт в базе: botSilenceIncident"
+              "зовёт enqueueDirectorAlert()"
              ],
              "c": []
             },
             {
              "k": "if",
-             "t": "!alerted",
+             "t": "!queued",
              "a": [],
              "c": [
               {
@@ -90587,6 +90581,21 @@
                "c": []
               }
              ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "decision.kind === \"open\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const created = await tx.botSilenceIncident.create({ data: { groups: decision.groups, startedAt: decision.sta…",
+             "a": [
+              "создаёт в базе: botSilenceIncident"
+             ],
+             "c": []
             }
            ]
           },
@@ -90601,25 +90610,18 @@
              "a": [],
              "c": [
               {
-               "k": "if",
-               "t": "!alerted",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "throw new Error(\"очередь тревог руководству недоступна\");",
-                 "a": [
-                  "ошибка Error — «очередь тревог руководству недоступна»"
-                 ],
-                 "c": []
-                }
-               ]
+               "k": "do",
+               "t": "await send(`bot-silence-${open.id}`, silenceAlertText({ groups: decision.groups, labels, since: open.startedA…",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
               }
              ]
             },
             {
              "k": "do",
-             "t": "await tx.botSilenceIncident.update({ where: { id: open.id }, data: { channels: decision.channels, missedKeys:…",
+             "t": "await tx.botSilenceIncident.update({ where: { id: open.id }, data: { groups: decision.groups, missedKeys: dec…",
              "a": [
               "меняет в базе: botSilenceIncident"
              ],
@@ -90632,21 +90634,6 @@
            "t": "decision.kind === \"recover\" && open",
            "a": [],
            "c": [
-            {
-             "k": "if",
-             "t": "!alerted",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new Error(\"очередь тревог руководству недоступна\");",
-               "a": [
-                "ошибка Error — «очередь тревог руководству недоступна»"
-               ],
-               "c": []
-              }
-             ]
-            },
             {
              "k": "do",
              "t": "await tx.botSilenceIncident.update({ where: { id: open.id }, data: { recoveredAt: now } });",

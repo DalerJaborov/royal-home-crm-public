@@ -16,7 +16,7 @@
   "paths": 789,
   "cron": 148,
   "jobs": 37,
-  "conditions": 4342,
+  "conditions": 4340,
   "untranslatedUnique": 499,
   "untranslatedTotal": 641,
   "partialUnique": 1149,
@@ -67130,6 +67130,13 @@
           {
            "t": "если нет: locked",
            "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "поломка: «очередь тревог руководству недоступна»",
+           "k": "do",
            "a": [],
            "c": [],
            "more": true
