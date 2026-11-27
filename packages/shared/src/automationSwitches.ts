@@ -49,6 +49,8 @@ export const AUTOMATION_SWITCH_KEYS = [
   "shabnamGroupLiveShadowEnabled",
   "chatArchiveEnabled",
   "callObjectToOwnerEnabled",
+  "chatUnansweredCardEnabled",
+  "chatBarePhoneToCardEnabled",
   "botSilenceWatchEnabled",
   "chatObjectToOwnerEnabled",
   "callAdObjectToOwnerEnabled",
@@ -237,6 +239,17 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     on: "После звонка в офис ИИ узнаёт объект по приметам с допуском на ошибки расшифровки: цена не вычёркивает объект (другая валюта, потерянные тысячи, не та первая цифра), ориентир с опечаткой, «масҷид» = «мечеть», номер словами. Названная фамилия с ошибкой сверяется с хозяином узнанного объекта, уволенные уступают действующему. Сильное совпадение по приметам объявления перебивает снявшего трубку агента. Похожих несколько — руководству подсказка в колокольчик. Расшифровка получает фамилии сотрудников и ориентиры.",
     off: "Как до 26.11.2026: объект узнаётся по номеру, адресу, ссылке и по приметам без допуска на ошибки (цена дальше 20 % вычёркивает объект); похожие фамилии — «не угадываем»; снявшего трубку перебивает только прямое указание; подсказок руководству и расшифровке нет.",
   },
+  // Владелец 27.11.2026: «кто оставил номер, должен попасть в CRM сам» (26.11 бот молчал, ~15 переписок WhatsApp без карточки).
+  chatUnansweredCardEnabled: {
+    title: "Клиент в WhatsApp без ответа бота: карточка сама",
+    on: "Клиент написал в WhatsApp о покупке или продаже, а бот 20 минут не ответил из-за сбоя (или переписку уже вёл сотрудник): карточка с его номером WhatsApp заводится сама и уходит агенту, а если отвечал сотрудник — ему. Клиенту ничего не отправляется. Спам, вакансии, «спасибо», приветствие без вопроса и намеренное молчание бота карточку не заводят.",
+    off: "Карточка по переписке WhatsApp заводится, только если клиент сам написал номер или бот пообещал звонок агента, как до 27.11.2026.",
+  },
+  chatBarePhoneToCardEnabled: {
+    title: "Номер одним сообщением — в карточку клиента",
+    on: "Клиент с карточкой прислал в переписке сообщение, где только номер («+992 900 12 34 56», «900123456 вотсап»): номер сам дописывается в его запасные номера. Если перед этим спрашивали номер хозяина, мужа или другого человека, решает сотрудник.",
+    off: "В карточку дописывается только номер со словами «мой номер …», как до 27.11.2026.",
+  },
   // Владелец 27.11.2026: «бот должен узнать объект и по рекламе, и по переписке, и по скриншотам… чтобы агенты не теряли своих клиентов».
   chatObjectToOwnerEnabled: {
     title: "Переписка по объекту: заявка хозяину объекта",
@@ -315,7 +328,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
