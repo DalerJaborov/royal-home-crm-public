@@ -21,6 +21,7 @@
  * звук — как страховка от сети, а не сбой всего диалога.
  */
 
+import { applySpokenPronunciation } from "@royal-home/shared";
 import { resolveGeminiKeys } from "./geminiClient.js";
 import {
   geminiUrl,
@@ -214,7 +215,8 @@ export function chatVoiceReplyFitsTtsInputLimit(text: string): boolean {
  * feedback_single_source_of_truth_for_owner_text).
  */
 export function synthesizeChatVoiceReply(text: string, options: TtsOptions = {}): Promise<TtsResult | null> {
-  return synthesizeSpeech(CHAT_VOICE_STYLE_PROMPT + text, options);
+  // CRM → «сиарэм» только в тексте для голоса (владелец, 27.11.2026); письменный ответ бота не меняется.
+  return synthesizeSpeech(CHAT_VOICE_STYLE_PROMPT + applySpokenPronunciation(text), options);
 }
 
 export async function synthesizeSpeech(text: string, options: TtsOptions = {}): Promise<TtsResult | null> {

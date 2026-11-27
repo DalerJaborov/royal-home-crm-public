@@ -10,6 +10,7 @@ import {
 } from "./assistantElevenLabsAvailability.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
+import { applySpokenPronunciation } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
 
@@ -167,7 +168,8 @@ export async function sendAssistantVoiceReply(
     const language = plan.language;
     const speech = plan.speech;
     if (speech.length < 3) return false;
-    const performance = directAssistantVoice(speech);
+    // CRM → «сиарэм» ПОСЛЕ разметки интонации (она узнаёт рабочие факты по слову CRM) и ДО ключа кэша и синтеза.
+    const performance = applySpokenPronunciation(directAssistantVoice(speech));
     if (!performance) return false;
     const config = await resolveSpeechConfig(language);
     if (!config) {
