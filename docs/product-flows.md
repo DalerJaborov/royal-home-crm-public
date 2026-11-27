@@ -5072,10 +5072,10 @@
 - const ownAgentId = chatScopeAgentId(req);
   · зовёт chatScopeAgentId()
 - если grouped
-  - const archiveEnabled = await automationSwitchOn("chatArchiveEnabled");
-    · зовёт automationSwitchOn()
-  - const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT") ? 0 : await prisma.telegramDirect…
+  - const directCountP = accountId || (channel && channel !== "TELEGRAM_DIRECT") ? Promise.resolve(0) : prisma.te…
     · считает в базе: telegramDirectConversation
+  - const [{ archiveEnabled, result }, directCount, accounts, alerts] = await Promise.all([ automationSwitchOn("c…
+    · зовёт automationSwitchOn()
   - res.json({ items: result.items, total: result.total, page, pageSize: GROUPED_PAGE_SIZE, archiveEnabled, chann…
     · ответ 200
   - return;

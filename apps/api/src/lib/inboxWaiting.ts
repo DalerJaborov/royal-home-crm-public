@@ -1,6 +1,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { BW, EW } from "../ai/wordBoundary.js";
 import { staffContactAfterSql } from "./noContact.js";
+import { lastMessageSql } from "./lastMessageSql.js";
 
 /**
  * «ЖДУТ» В «ЧАТАХ» — ТОЛЬКО ТЕ, КОМУ РЕАЛЬНО НАДО ОТВЕТИТЬ СЕЙЧАС (владелец 21.11.2026:
@@ -132,7 +133,7 @@ export interface WaitingSqlParts {
 /** Колонки обычной выборки по `c` (диалог) и `cl` (клиент). */
 export function conversationWaitingParts(): WaitingSqlParts {
   return {
-    lastMessage: Prisma.sql`(CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END)`,
+    lastMessage: lastMessageSql(Prisma.sql`c.messages`),
     activityAt: Prisma.sql`COALESCE(c."lastMessageAt", c."updatedAt")`,
     clientId: Prisma.sql`cl.id`,
     lastAgentAttemptAt: Prisma.sql`cl."lastAgentAttemptAt"`,
