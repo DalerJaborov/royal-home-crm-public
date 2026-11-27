@@ -84704,6 +84704,14 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "await handleWhatsappServiceEvents(req.body, waPhoneId);",
+       "a": [
+        "зовёт handleWhatsappServiceEvents()"
+       ],
+       "c": []
+      },
+      {
        "k": "loop",
        "t": "для каждого: const s of parseMetaStatusUpdates(req.body)",
        "a": [],

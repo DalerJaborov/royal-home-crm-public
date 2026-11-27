@@ -41,10 +41,13 @@ import {
  *    раздачу агентам тем же путём, что при выключенном рубильнике.
  */
 export async function routeMessengerCallbackRequest(input: {
-  conversationId: string;
+  /** null — переписки ещё нет (27.11.2026: клиент разрешил звонок в WhatsApp, ни разу не написав). */
+  conversationId: string | null;
   clientId: string | null;
   channel: string;
   topic: string;
+  /** Куда звонить, если вызывающий знает точно (номер WhatsApp); иначе — из переписки. */
+  phone?: string | null;
 }): Promise<boolean> {
   if (!input.clientId) return false;
   const client = await prisma.client
