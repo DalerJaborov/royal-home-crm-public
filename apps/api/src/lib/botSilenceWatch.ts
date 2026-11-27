@@ -9,6 +9,11 @@ import { isCustomerAgentChannelOff } from "./customerAgentChannelOff.js";
 import { CUSTOMER_TURN_INTENDED_SILENCE } from "./customerIntendedSilence.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
+import { isQuietHour, quietDecision, quietHoursDisabledByEnv } from "./pushQuietHours.js";
+import { logSystemError } from "./systemError.js";
+import { isWithinWorkingHours } from "./workingHours.js";
+import { isTelegramEnabled, sendMessage as sendTelegramMessage } from "../telegram/api.js";
+import { sendStaffNotice } from "../telegram/staffNotice.js";
 
 /**
  * СТОРОЖ «БОТ ЗАМОЛЧАЛ» (владелец 27.11.2026).
@@ -49,7 +54,14 @@ import { dushanbeDateString, dushanbeTimeString } from "./dushanbeTime.js";
  * ждёт 6 часов (SILENCE_STALE_CLOSE_MS), эпизод закрывается молча: следующее молчание — новый эпизод и новое
  * уведомление. Эпизод хранится в `BotSilenceIncident` (переживает выкат), решение — под замком базы.
  *
- * РУБИЛЬНИК: `botSilenceWatchEnabled` (Настройки → Автоматика → Бот клиентов), по умолчанию ВКЛ.
+ * TELEGRAM (владелец 27.11.2026: «в Telegram дублировать, РОП не добавлять, ночью не звонить»). Тот же текст уходит
+ * тем же директору и администратору (активные, с привязанным Telegram) через бота CRM — `sendSilenceTelegram`. Только
+ * ПОСЛЕ коммита записи эпизода: откат не оставляет отправленного сообщения, а повтор тика не шлёт второе (эпизод в
+ * базе — отметка «уже сказали»). Цена: упал процесс между коммитом и отправкой — Telegram потерян, колокольчик и
+ * телефон остались. Ночью (та же тишина, что у пушей) сообщение уходит без звука. Сбой Telegram сторожа не роняет.
+ *
+ * РУБИЛЬНИКИ (Настройки → Автоматика → Бот клиентов), по умолчанию ВКЛ: `botSilenceWatchEnabled` — сторож целиком,
+ * `botSilenceTelegramEnabled` — только дубль в Telegram.
  */
 
 export const SILENCE_WATCHED_CHANNELS = ["INSTAGRAM", "WHATSAPP", "FACEBOOK", "WEBSITE"] as const;
@@ -432,10 +444,62 @@ export interface BotSilenceTickResult {
   alerted: boolean;
 }
 
+const TELEGRAM_TIMEOUT_MS = 20_000;
+
+/**
+ * Тот же текст директору и администратору в Telegram. Зовётся только после коммита эпизода; ничего не бросает:
+ * сбой одного получателя пишется в журнал ошибок и не мешает остальным и самому сторожу. Возвращает, скольким ушло.
+ */
+export async function sendSilenceTelegram(text: { title: string; body: string }, now: Date): Promise<number> {
+  try {
+    if (!isTelegramEnabled() || !(await automationSwitchOn("botSilenceTelegramEnabled"))) return 0;
+    const recipients = await prisma.agent.findMany({
+      where: { role: { in: [...ALERT_ROLES] }, isActive: true, telegramChatId: { not: null } },
+      select: { id: true, telegramChatId: true }, take: 50,
+    });
+    if (!recipients.length) return 0;
+    // Тишина — то же правило, что у пушей: ночью (вне рабочего дня) без звука.
+    const workdayOpen = !quietHoursDisabledByEnv() && isQuietHour(now) ? await isWithinWorkingHours(now) : false;
+    const silent = quietDecision({}, now, workdayOpen) !== "send";
+    const message = `${text.title}
+
+${text.body}`;
+    let sent = 0;
+    for (const agent of recipients) {
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        // Через общую дверь сообщений сотрудникам (telegram/staffNotice.ts): уважает «Не присылать такое» (вид
+        // «Контроль руководителя») и пишет журнал StaffNotice; доставка своя — без звука ночью и с таймаутом.
+        const status = await sendStaffNotice({ agentId: agent.id, kind: "oversight", subject: text.title,
+          deliver: (chatId) => Promise.race([
+            sendTelegramMessage(chatId, message, undefined, undefined, { origin: "staff", singleAttempt: true, silent }),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Telegram не ответил за 20 секунд")), TELEGRAM_TIMEOUT_MS); }),
+          ]) });
+        if (status === "sent") sent++;
+        // Дверь сама глотает сбой доставки и пишет общую строку; здесь — понятная причина для журнала руководства.
+        else if (status === "failed") throw new Error("Telegram не принял сообщение");
+      } catch (err) {
+        await logSystemError("telegram", `Сторож «бот замолчал»: не удалось отправить в Telegram (сотрудник ${agent.id}): ${err instanceof Error ? err.message : String(err)}`,
+          { dedupKey: `bot-silence-telegram:${agent.id}` }).catch(() => undefined);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    return sent;
+  } catch (err) {
+    await logSystemError("telegram", `Сторож «бот замолчал»: Telegram-дубль не выполнен: ${err instanceof Error ? err.message : String(err)}`,
+      { dedupKey: "bot-silence-telegram:all" }).catch(() => undefined);
+    return 0;
+  }
+}
+
 export async function runBotSilenceWatchTick(now: Date = new Date()): Promise<BotSilenceTickResult> {
   if (!(await automationSwitchOn("botSilenceWatchEnabled"))) return { action: "off", alerted: false };
   const snapshot = await loadSilenceSnapshot(now);
-  return prisma.$transaction(async (tx) => {
+  // Что сказали руководству в этом тике: уходит в Telegram только после коммита (при откате транзакции — ничего).
+  const said: Array<{ title: string; body: string }> = [];
+  const result = await prisma.$transaction(async (tx) => {
+    said.length = 0; // повтор транзакции Prisma не копит тексты прошлой попытки
     // Решение и запись — под одним замком: два процесса не заведут два эпизода и не пошлют одно уведомление дважды.
     const [{ locked }] = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtext(${LOCK_KEY})) AS locked`;
     if (!locked) return { action: "busy" as const, alerted: false };
@@ -450,6 +514,7 @@ export async function runBotSilenceWatchTick(now: Date = new Date()): Promise<Bo
         ...(urgent ? { level: "CRITICAL" as const, severity: "critical" as const } : {}) }, tx);
       // Не встало — откат всей записи эпизода: следующий тик попробует снова.
       if (!queued) throw new Error("очередь тревог руководству недоступна");
+      said.push(text);
       return true;
     };
     const labels = snapshot.labels;
@@ -482,4 +547,6 @@ export async function runBotSilenceWatchTick(now: Date = new Date()): Promise<Bo
     }
     return { action: "none" as const, alerted: false };
   }, { timeout: 15_000 });
+  for (const text of said) await sendSilenceTelegram(text, now);
+  return result;
 }

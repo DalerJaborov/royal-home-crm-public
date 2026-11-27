@@ -53,6 +53,7 @@ export const AUTOMATION_SWITCH_KEYS = [
   "chatUnansweredCardEnabled",
   "chatBarePhoneToCardEnabled",
   "botSilenceWatchEnabled",
+  "botSilenceTelegramEnabled",
   "chatObjectToOwnerEnabled",
   "callAdObjectToOwnerEnabled",
   "objectInterestPullsQueueLeadEnabled",
@@ -182,6 +183,12 @@ export const AUTOMATION_SWITCH_LABELS: Record<AutomationSwitchKey, AutomationSwi
     title: "Бот замолчал: сразу сказать директору и администратору",
     on: "Если на каком-то номере или аккаунте (WhatsApp, Instagram, Facebook, чат сайта) трое и больше клиентов ждут ответа дольше 10 минут, а бот за это время не ответил там никому, директор и администратор сразу получают уведомление (ночью оно в колокольчике сразу, а телефон зазвонит в 08:00). Пока это длится, напоминание не чаще раза в час; когда бот снова отвечает, приходит сообщение, сколько людей остались без ответа. Выключенный в Настройках бот или канал тревоги не вызывает.",
     off: "Такого уведомления нет. Сигналы по каждому клиенту («клиент ждёт ответа») приходят как обычно, если они включены.",
+  },
+  // Владелец 27.11.2026: «в Telegram дублировать, РОП не добавлять, ночью не звонить».
+  botSilenceTelegramEnabled: {
+    title: "Бот замолчал: дублировать в Telegram",
+    on: "То же сообщение «бот замолчал» (и напоминание, и «бот снова отвечает») директор и администратор получают ещё и в Telegram, если он у них привязан. Ночью, с 21:00 до 08:00, сообщение приходит без звука, телефон не зазвонит.",
+    off: "В Telegram такого сообщения нет, уведомление приходит только в CRM.",
   },
   // 24.11.2026 (разбор прода): повтор «зависших» крутил одни и те же переписки по 31–35 раз без ответа и тратил ИИ.
   botRetryCapEnabled: {
@@ -397,7 +404,7 @@ export const AUTOMATION_SWITCH_GROUPS: readonly AutomationSwitchGroup[] = [
     keys: ["shareholderReportsEnabled", "showingOutcomeAskEnabled", "notifyClientWaitingEnabled", "notifyRobotTookCallEnabled", "notifyTrashAnomalyEnabled", "notifyPropertyReviewOverdueEnabled", "notifyRepeatContactPushEnabled", "notifyMarketMatchPushEnabled", "notifyDealClosedTeamPushEnabled", "notifyOperatorTalkedPushEnabled", "notifyNoVideoEnabled"],
   },
   // Instagram через ключ компании — в группе бота (ревью #344: новых групп на экране не заводим).
-  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
+  { id: "bot", title: "Бот клиентов", keys: ["botSilenceWatchEnabled", "botSilenceTelegramEnabled", "botRepliesAfterLeadEnabled", "botSpamFilterEnabled", "botCoreFailAlertEnabled", "botRetryCapEnabled", "instagramCompanyKeyEnabled", "chatMediaTranscodeEnabled", "outgoingMediaCompressEnabled", "sendPropertiesWithoutCardEnabled", "chatArchiveEnabled", "chatUnansweredCardEnabled", "chatBarePhoneToCardEnabled", "telegramStaffOnlyEnabled", "botPauseOnStaffReplyEnabled"] },
 ];
 
 /** Подпись строки по ключу — для уже существовавшего выключателя берётся его родная. */
