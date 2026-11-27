@@ -1,11 +1,12 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { DirectorAgentRow, DirectorDashboardResponse, DirectorDrillKey, DirectorKpi } from "@royal-home/shared";
+import { pluralizeRu, type DirectorAgentRow, type DirectorDashboardResponse, type DirectorDrillKey, type DirectorKpi } from "@royal-home/shared";
 import { RhButton, RhGroup, RhRow, RhSection } from "../look/ui";
 import { RoyalIcon } from "../look/RoyalIcon";
 import type { RoyalIconName } from "../look/royalIconData";
 import { tileTone, type TileVariant } from "../look/tileTone";
 import { RoyalAmount } from "../look/money/RoyalAmount";
+import { SortControl } from "../look/home2/AnalyticsFilters";
 import { dushanbeDate } from "../../lib/date";
 import {
   compareDelta, minutesLabel, sharePct, percentLabel, planRemainder, sortRows,
@@ -266,8 +267,38 @@ export function lastSeen(iso: string | null): string {
   return dushanbeDate(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-/** Таблица агентов: сортировка по любому столбцу; на телефоне — карточки; клик по имени — карточка сотрудника. */
-export function AgentsBlock({ data, mobile }: { data: DirectorDashboardResponse; mobile: boolean }) {
+/** Главные числа карточки менеджера на телефоне в «Аналитике» главной (пачка home2): остальное — по «Ещё». */
+export const AGENT_CARD_MAIN = ["leads", "deals", "commission", "overdue"] as const;
+
+/** Карточка менеджера на телефоне. `compact` (главная, новый вид): 3–4 главных числа и «Ещё» — остальные на месте, ничего не теряется. */
+function AgentCard({ a, cols, compact }: { a: DirectorAgentRow; cols: AgentCol[]; compact: boolean }) {
+  const [open, setOpen] = useState(false);
+  const stats = cols.filter((c) => c.id !== "name");
+  const main = compact ? stats.filter((c) => (AGENT_CARD_MAIN as readonly string[]).includes(c.id)) : stats;
+  const rest = compact ? stats.filter((c) => !(AGENT_CARD_MAIN as readonly string[]).includes(c.id)) : [];
+  const cell = (c: AgentCol) => <div key={c.id}><dt>{c.label}</dt><dd className="ry-num">{c.text ? c.text(a) : c.get(a) ?? "—"}</dd></div>;
+  return (
+    <li className="dd-agent-card">
+      <Link to={`/team/${a.id}`} className="dd-agent-name">{a.name}{!a.isActive && <span className="dd-muted"> · не работает</span>}</Link>
+      <dl className="dd-agent-grid">
+        {main.map(cell)}
+        {open && rest.map(cell)}
+      </dl>
+      {rest.length > 0 && (
+        <RhButton variant="ghost" className="h2-more-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? "Свернуть" : `Ещё ${rest.length} ${pluralizeRu(rest.length, ["показатель", "показателя", "показателей"])}`}
+        </RhButton>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Таблица агентов: сортировка по любому столбцу; на телефоне — карточки; клик по имени — карточка сотрудника.
+ * `compact` — «Аналитика» на главной нового вида (пачка home2): сортировка кнопкой со шторкой вместо
+ * списка браузера, в карточке главные числа и «Ещё». Без него (страница /director) — как было.
+ */
+export function AgentsBlock({ data, mobile, compact = false }: { data: DirectorDashboardResponse; mobile: boolean; compact?: boolean }) {
   const cols = agentColumns(data.seesMoney);
   const [sort, setSort] = useState<{ id: string; dir: SortDir }>({ id: "deals", dir: "desc" });
   const col = cols.find((c) => c.id === sort.id) ?? cols[0]!;
@@ -277,25 +308,18 @@ export function AgentsBlock({ data, mobile }: { data: DirectorDashboardResponse;
     <RhSection title="Менеджеры" id="dd-agents">
       {rows.length === 0 ? <div className="dd-card"><p className="dd-quiet">За этот период у менеджеров нет данных.</p></div> : mobile ? (
         <>
-          <div className="dd-sortbar">
+          {compact ? (
+            <SortControl columns={cols.map((c) => ({ id: c.id, label: c.label }))} value={col.id} dir={sort.dir} onChange={(id, dir) => setSort({ id, dir })} />
+          ) : <div className="dd-sortbar">
             <label className="dd-filter"><span>Сортировка</span>
               <select value={sort.id} onChange={(e) => setSort({ id: e.target.value, dir: e.target.value === "name" ? "asc" : "desc" })}>
                 {cols.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </label>
             <RhButton variant="secondary" onClick={() => setSort({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })} aria-label={sort.dir === "asc" ? "По возрастанию" : "По убыванию"}>{sort.dir === "asc" ? "↑" : "↓"}</RhButton>
-          </div>
+          </div>}
           <ul className="dd-agent-cards">
-            {rows.map((a) => (
-              <li key={a.id} className="dd-agent-card">
-                <Link to={`/team/${a.id}`} className="dd-agent-name">{a.name}{!a.isActive && <span className="dd-muted"> · не работает</span>}</Link>
-                <dl className="dd-agent-grid">
-                  {cols.filter((c) => c.id !== "name").map((c) => (
-                    <div key={c.id}><dt>{c.label}</dt><dd className="ry-num">{c.text ? c.text(a) : c.get(a) ?? "—"}</dd></div>
-                  ))}
-                </dl>
-              </li>
-            ))}
+            {rows.map((a) => <AgentCard key={a.id} a={a} cols={cols} compact={compact} />)}
           </ul>
         </>
       ) : (
@@ -329,15 +353,15 @@ export function AgentsBlock({ data, mobile }: { data: DirectorDashboardResponse;
 }
 
 /** Порядок блоков берёт `blockOrder` (lib/directorFormat): директору — деньги и план, РОПу — скорость и менеджеры. */
-export function DirectorBlocks({ data, order, mobile, settingsTo, onDrill, canDrill }: {
-  data: DirectorDashboardResponse; order: DashboardBlock[]; mobile: boolean; settingsTo?: string;
+export function DirectorBlocks({ data, order, mobile, compact = false, settingsTo, onDrill, canDrill }: {
+  data: DirectorDashboardResponse; order: DashboardBlock[]; mobile: boolean; compact?: boolean; settingsTo?: string;
   onDrill: (key: DirectorDrillKey, label: string) => void; canDrill?: CanDrill;
 }) {
   const render: Record<DashboardBlock, ReactNode> = {
     kpi: <KpiBlock key="kpi" data={data} onDrill={onDrill} canDrill={canDrill} />,
     plan: data.seesMoney ? <PlanBlock key="plan" data={data} settingsTo={settingsTo} /> : null,
     speed: <SpeedBlock key="speed" data={data} onDrill={onDrill} canDrill={canDrill} />,
-    agents: <AgentsBlock key="agents" data={data} mobile={mobile} />,
+    agents: <AgentsBlock key="agents" data={data} mobile={mobile} compact={compact} />,
     funnel: <FunnelBlock key="funnel" data={data} />,
     sources: <SourcesBlock key="sources" data={data} />,
     reasons: <ReasonsBlock key="reasons" data={data} onDrill={onDrill} canDrill={canDrill} />,

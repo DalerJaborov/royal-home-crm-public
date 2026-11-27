@@ -6,9 +6,10 @@ import { IPHONE_UA, geometryFindings } from "./helpers/lookGeometry";
 
 /**
  * Дашборд руководителя на главной «/» (21.11.2026): директор видит всё, РОП без права на деньги —
- * без денег (плиток, столбцов и кольца нет в разметке вовсе); наверху одна полоса «Требует внимания
- * сейчас», старых блоков главной (деньги, команда, графики) нет — цифры не повторяются. Агент —
- * прежняя главная, /director для руководителя ведёт на «/». Ответы дашборда подменены. 390 и 1440.
+ * без денег (плиток, столбцов и кольца нет в разметке вовсе). С 27.11.2026 (пачка home2) над ним —
+ * блоки макета (components/look/home2), а сам дашборд — «Аналитика» ниже; прежней полосы «Требует
+ * внимания» и старых блоков главной директора нет. Агент — прежняя главная, /director для
+ * руководителя ведёт на «/». Ответы дашборда подменены. 390 и 1440.
  */
 const SIZES = [{ name: "390", width: 390, height: 844 }, { name: "1440", width: 1440, height: 900 }] as const;
 
@@ -25,12 +26,15 @@ async function open(browser: Browser, baseURL: string | undefined, role: RoleNam
   return { context, page };
 }
 
-/** На главной руководителя ровно два блока: полоса внимания и дашборд, без дублей старой главной. */
+/** Главная руководителя: блоки макета сверху и «Аналитика» под ними; старой полосы и старой главной нет. */
 async function expectDashboardHome(page: Page) {
-  await expect(page.locator("[data-block]").first()).toBeVisible({ timeout: 30_000 });
-  await expect.poll(async () => page.locator("[data-block]").evaluateAll((els) => els.map((el) => el.getAttribute("data-block")))).toEqual(["attention", "dashboard"]);
-  await expect(page.getByRole("region", { name: "Требует внимания сейчас" })).toBeVisible();
-  await expect(page.locator('[data-block="attention"] h2')).toHaveCount(1);
+  await expect(page.getByTestId("leader-home")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-block="analytics"]')).toHaveCount(1);
+  for (const id of ["attention", "dashboard", "money", "pulse", "channels", "full"]) await expect(page.locator(`[data-block="${id}"]`), id).toHaveCount(0);
+  await expect(page.locator('[data-block="tiles"]')).toHaveCount(1);
+  // «Аналитика» — ниже блоков макета.
+  const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
+  expect(await y('[data-block="analytics"]')).toBeGreaterThan(await y('[data-testid="leader-home"]'));
 }
 
 const money = (page: Page) => page.locator('[data-kpi="revenue"], #dd-plan, .dd-table th:has-text("Комиссия")');
@@ -41,7 +45,7 @@ for (const size of SIZES) {
     test.setTimeout(120_000);
     const { context, page } = await open(browser, baseURL, "DIRECTOR", size, true);
     const root = page.locator('[data-ry-section="director"] [data-testid="director-dashboard"]');
-    await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
+    await expect(root.getByRole("heading", { name: "Аналитика", level: 2 })).toBeVisible({ timeout: 30_000 });
     await expectDashboardHome(page);
     await expect(page.locator('[data-kpi="newLeads"]')).toContainText("148");
     await expect(page.locator('[data-kpi="newLeads"]')).toContainText("на 27 заявок больше, чем в прошлом периоде");
@@ -49,7 +53,7 @@ for (const size of SIZES) {
     await expect(page.locator('[data-kpi="noContact"] .dd-delta')).toHaveAttribute("data-tone", "bad");
     await expect(money(page).first()).toBeVisible();
     await expect(page.locator("#dd-plan")).toContainText("80");
-    await expect(root.getByText(/Обновлено в \d\d:\d\d/)).toBeVisible();
+    await expect(root.getByText(/обновлено в \d\d:\d\d/)).toBeVisible();
     // У директора план идёт выше плиток.
     const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
     expect(await y("#dd-plan")).toBeLessThan(await y("#dd-speed"));
@@ -71,7 +75,7 @@ for (const size of SIZES) {
     } else {
       await expect(page.locator(".dd-agent-card").first()).toBeVisible();
     }
-    await expectNoOverflowAt(page, size.width, ".dd-card, .dd-tile, .ry-row, .dd-agent-card, .dd-head, .dd-filters", { strips: ".dd-table-wrap, .dd-filters .ry-seg" });
+    await expectNoOverflowAt(page, size.width, ".dd-card, .dd-tile, .ry-row, .dd-agent-card, .dd-head, .dd-filters, .h2-fbar, .h2-plate, .h2-tile, .h2-cols, .h2-q, .h2-crew-person", { strips: ".dd-table-wrap, .dd-filters .ry-seg" });
     expect(await geometryFindings(page, { kinds: ["smallText", "smallTap", "selectClip", "fieldFrame"] }), "геометрия").toEqual([]);
     await context.close();
   });
@@ -84,7 +88,7 @@ for (const role of ["HEAD_OF_SALES"] as const) {
       test.setTimeout(120_000);
       const { context, page } = await open(browser, baseURL, role, size, false);
       const root = page.locator('[data-testid="director-dashboard"]');
-      await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
+      await expect(root.getByRole("heading", { name: "Аналитика", level: 2 })).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible();
       await expect(money(page)).toHaveCount(0);
       await expect(root).not.toContainText("Выручка");
@@ -97,7 +101,7 @@ for (const role of ["HEAD_OF_SALES"] as const) {
         expect(await y("#dd-speed")).toBeLessThan(await y("#dd-kpi"));
         expect(await y("#dd-agents")).toBeLessThan(await y("#dd-kpi"));
       }
-      await expectNoOverflowAt(page, size.width, ".dd-card, .dd-tile, .ry-row, .dd-agent-card, .dd-head, .dd-filters", { strips: ".dd-table-wrap, .dd-filters .ry-seg" });
+      await expectNoOverflowAt(page, size.width, ".dd-card, .dd-tile, .ry-row, .dd-agent-card, .dd-head, .dd-filters, .h2-fbar, .h2-plate, .h2-tile, .h2-cols, .h2-q, .h2-crew-person", { strips: ".dd-table-wrap, .dd-filters .ry-seg" });
       await context.close();
     });
   }
@@ -138,7 +142,7 @@ test("дашборд директора: живой ответ сервера (�
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const root = page.locator('[data-testid="director-dashboard"]');
-  await expect(root.getByRole("heading", { name: "Показатели компании", level: 2 })).toBeVisible({ timeout: 30_000 });
+  await expect(root.getByRole("heading", { name: "Аналитика", level: 2 })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-kpi="newLeads"]')).toBeVisible({ timeout: 30_000 });
   await expect(root.getByText("Не загрузилось")).toHaveCount(0);
   expect(errors).toEqual([]);

@@ -87,9 +87,11 @@ describe("умолчание и подписи (packages/shared)", () => {
       expect(isAutomationSwitchOn({ [key]: true }, key)).toBe(true);
     }
     // Выключенные по умолчанию — осознанный список: «Записать результат» и привязка Telegram по номеру (ревью 25.11.2026);
-    // пуши хозяину объекта до заявки и о клиенте другого агента (владелец 27.11.2026: «пусть ничего не получает»).
-    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["clientRecordResultEnabled", "notifyOwnerBeforeLeadEnabled",
-      "notifyOwnerOfOtherAgentClientEnabled", "shabnamGroupLiveShadowEnabled", "telegramPhoneLinkEnabled"]);
+    // пуши хозяину объекта до заявки и о клиенте другого агента (владелец 27.11.2026: «пусть ничего не получает»);
+    // пауза бота после ответа сотрудника (владелец 27.11.2026: «Убрать у всех»).
+    expect([...shared.AUTOMATION_SWITCH_DEFAULT_OFF].sort()).toEqual(["botPauseOnStaffReplyEnabled", "clientRecordResultEnabled", "notifyDealClosedTeamPushEnabled", "notifyMarketMatchPushEnabled",
+      "notifyNoVideoEnabled", "notifyOperatorTalkedPushEnabled", "notifyOwnerBeforeLeadEnabled", "notifyOwnerOfOtherAgentClientEnabled",
+      "notifyRepeatContactPushEnabled", "shabnamGroupLiveShadowEnabled", "telegramPhoneLinkEnabled"]);
     const [first, second] = AUTOMATION_SWITCH_KEYS;
     expect(isAutomationSwitchOn({ [first]: false }, second)).toBe(true);
   });

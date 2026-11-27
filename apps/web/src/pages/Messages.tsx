@@ -38,7 +38,8 @@ import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { CallClientButton } from "../components/CallClientButton";
 import { useLoadMoreSentinel } from "../hooks/useLoadMoreSentinel";
-import { ArchiveEntryRow, ArchiveHeaderRow, ChatSkeletonRows } from "../components/look/chats/ChatListExtras";
+import { ArchivableRow, ArchiveEntryRow, ArchiveHeaderRow, ArchiveMenuItem, ChatSkeletonRows, SlowLoadHint } from "../components/look/chats/ChatListExtras";
+import { useChatArchiveMark } from "../hooks/useChatArchiveMark";
 import { MessageAttachments } from "../components/MessageAttachments";
 import { PendingMediaBubble } from "../components/PendingMediaBubble";
 import { DeliveryTicks } from "../components/DeliveryTicks";
@@ -46,6 +47,7 @@ import { hasVoiceAttachment } from "../lib/voiceAttachment";
 import { MessageSenderBadge, senderPrefix } from "../components/MessageSenderBadge";
 import { MessageQuote, quotedMessage } from "../components/MessageQuote";
 import { VoiceRecordButton } from "../components/VoiceRecordButton";
+import { MessagingWindowBanner } from "../components/MessagingWindowBanner";
 import { ChatObjectPicker } from "../components/ChatObjectPicker";
 import { ContactProfilePanel } from "../components/ContactProfilePanel";
 import { ConversationClientLink } from "../components/ConversationClientLink";
@@ -53,7 +55,7 @@ import { relativeTime } from "../lib/format";
 import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../lib/botMessages";
 import { TranslatableMessageText } from "../components/MessageTranslateToggle";
-import { PAUSE_OPTIONS, initialReplyPauseIndex, pausedUntilIso, rememberReplyPauseIndex } from "../lib/botPauseOptions";
+import { PAUSE_OPTIONS, pausedUntilIso } from "../lib/botPauseOptions";
 import { conversationBotState } from "../lib/conversationBotState";
 import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
@@ -89,6 +91,7 @@ import { useMinuteClock } from "../components/look/chats/useMinuteClock";
 import { RoyalSection } from "../components/look/clients/RoyalSection";
 import { RoyalChannelBadge } from "../components/look/chats/RoyalChannelBadge";
 import { RhAvatar } from "../components/look/ui";
+import { RoyalContactSheet } from "../components/look/chats/RoyalContactSheet";
 import { RoyalIcon } from "../components/look/RoyalIcon";
 import { chatQuickReplies } from "../lib/chatQuickReplies";
 import { Bot, Building2, Check, Flame, Info, MoreHorizontal } from "lucide-react";
@@ -581,9 +584,16 @@ export function ConversationList({
 }) {
   const conversations = data?.items ?? [];
   const sentinelRef = useLoadMoreSentinel(onLoadMore, hasMore && !loadingMore && !error, conversations.length);
-  const archiveCount = data?.counts?.archived ?? 0;
+  // Число в архиве: пока открытый срез ещё грузится (data пуста), держим последнее известное, а не «0».
+  const archiveCountRef = useRef(0);
+  if (data?.counts?.archived != null) archiveCountRef.current = data.counts.archived;
+  const archiveCount = data?.counts?.archived ?? archiveCountRef.current;
   const inArchive = segment === "archive";
   const showArchiveEntry = !!data?.archiveEnabled && archiveCount > 0 && segment === "all" && !searchInput;
+  const archiveOn = !!data?.archiveEnabled;
+  const archiveMark = useChatArchiveMark();
+  const archiveMarkMutate = archiveMark.mutate;
+  const onArchiveAction = useCallback((id: string, action: "archive" | "restore") => archiveMarkMutate({ id, action }), [archiveMarkMutate]);
   const accounts = data?.accounts ?? [];
   const showAccounts = accounts.length > 1;
   const noFilter = !channel && !accountId;
@@ -633,7 +643,7 @@ export function ConversationList({
             segment={segment}
             counts={data.counts}
             onSegmentChange={onSegmentChange}
-            moreActive={segment === "paused" || !!channel || !!accountId}
+            moreActive={segment === "paused" || segment === "archive" || !!channel || !!accountId}
           >
             <button
               type="button"
@@ -643,6 +653,9 @@ export function ConversationList({
             >
               <Bot aria-hidden="true" />Бот на паузе<b className="ry-num">{data.counts?.paused ?? "—"}</b>
             </button>
+            {archiveOn && (archiveCount > 0 || inArchive) && (
+              <ArchiveMenuItem count={archiveCount} active={inArchive} onOpen={() => onSegmentChange(inArchive ? "all" : "archive")} />
+            )}
             <CleanInboxFilters open channels={channels} accounts={accounts} channel={channel} accountId={accountId} onChannelChange={onChannelChange} onAccountChange={onAccountChange} />
           </RoyalInboxFilters>
         )) : <>
@@ -765,9 +778,6 @@ export function ConversationList({
       )}
 
       <div className="pane-scroll">
-        {showArchiveEntry && (royal
-          ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
-          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
         {inArchive && (royal
           ? <ArchiveHeaderRow count={archiveCount} onBack={() => onSegmentChange("all")} />
           : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("all")}>Назад ко всем · в архиве {archiveCount}</button></div>)}
@@ -810,6 +820,7 @@ export function ConversationList({
               <span className="sk w22"></span>
               Загружаем диалоги
             </div>
+            <SlowLoadHint onRetry={() => onRetry?.()} />
           </div>
         ) : conversations.length === 0 ? (
           /**
@@ -834,7 +845,7 @@ export function ConversationList({
                           : segment === "mine"
                             ? "У вас пока нет диалогов."
                             : segment === "archive"
-                              ? "В архиве пусто."
+                              ? "Архив пуст."
                               : "Диалогов нет."}
               </p>
               {(accountId || channel || segment !== "all") && !searchInput && (
@@ -853,17 +864,22 @@ export function ConversationList({
             </div>
           </div>
         ) : royal ? (
-          conversations.map((c) => (
-            <RoyalDialogRow
-              key={c.id}
-              conversation={c}
-              selected={selectedId === c.id}
-              showAccount={showAccounts && noFilter}
-              onSelect={selectStable}
-              now={now}
-              showBotState={canSeeBotState}
-            />
-          ))
+          conversations.map((c) => {
+            const row = (
+              <RoyalDialogRow
+                key={c.id}
+                conversation={c}
+                selected={selectedId === c.id}
+                showAccount={showAccounts && noFilter}
+                onSelect={selectStable}
+                now={now}
+                showBotState={canSeeBotState}
+              />
+            );
+            return archiveOn
+              ? <ArchivableRow key={c.id} id={c.id} inArchive={inArchive || c.archived === true} onAction={onArchiveAction}>{row}</ArchivableRow>
+              : row;
+          })
         ) : (
           conversations.map((c) => (
             <Rh2DialogRow
@@ -881,6 +897,10 @@ export function ConversationList({
             показываем серые строки. */}
         {hasMore && <div ref={sentinelRef} className="ry-chat-more-end" aria-hidden="true" data-testid="chat-load-more" />}
         {loadingMore && (royal ? <ChatSkeletonRows /> : <div className="pane-b"><div className="state" role="status">Подгружаем ещё</div></div>)}
+        {/* «Архив» — тихой строкой в самом конце списка (владелец 27.11.2026): нужен редко, наверху ему не место. */}
+        {showArchiveEntry && !loadingMore && (royal
+          ? <ArchiveEntryRow count={archiveCount} onOpen={() => onSegmentChange("archive")} />
+          : <div className="pane-b"><button type="button" className="pill ghost sm !min-h-11 !px-4" onClick={() => onSegmentChange("archive")}>Архив ({archiveCount})</button></div>)}
       </div>
     </section>
   );
@@ -1247,7 +1267,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     [allMessages]
   );
   const reply = useReplyToConversation(replyTargetId);
-  const voiceMessage = useSendVoiceMessage(replyTargetId, royal ? () => replyPauseMinutes() : undefined);
+  const voiceMessage = useSendVoiceMessage(replyTargetId);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
   const pendingUploads = usePendingMediaUploads(replyTargetId);
@@ -1326,14 +1346,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
   // привязано к сотруднику и сессии, переживает и уход с экрана, и перезагрузку
   // при обновлении (сброс на pagehide); очищается отправкой.
   useCleanChatDraft({ enabled: true, conversationId: id, text, restore: setText });
-  // Последний пресет ("Бессрочно") — длительность паузы по умолчанию после ручного
-  // ответа (решение владельца 18.08.2026); то же значение зашито на сервере в
-  // OPERATOR_REPLY_PAUSE_MS. Агент по-прежнему может выбрать более короткую паузу.
-  // Новый вид (royal, владелец 26.11.2026): по умолчанию ЧАС, дальше — последний выбор сотрудника (браузер помнит).
-  // Прежний вид остаётся как был — «Бессрочно».
-  const [pauseOptionIndex, setPauseOptionIndex] = useState(() => (royal ? initialReplyPauseIndex() : PAUSE_OPTIONS.length - 1));
-  // Выбранное через «Произвольно…» число минут для паузы при отправке ответа.
-  const [customPauseMinutes, setCustomPauseMinutes] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   // Длинные диалоги рендерим хвостом по MESSAGES_CHUNK с кнопкой «показать более ранние».
   const reading = useChatReadingPosition(clean && !!conversation, allMessages.length, MESSAGES_CHUNK);
@@ -1413,26 +1425,13 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [search.activeAbsoluteIndex, search.matches.length, visibleCount]);
 
-  /** Срок паузы бота (минуты) для ЛЮБОЙ отправки из этого окна: текст, голосовое, фото/видео — одно число на всех. */
-  function replyPauseMinutes(): number {
-    return customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
-  }
-
-  /** Голос и фото/видео шлют выбранный срок только в новом виде: в прежнем виде они уходили без срока (умолчание
-   *  сервера для отправителя), и «Бессрочно» тихо раздать им нельзя (ревью PR #463). */
-  function mediaPauseMinutes(): number | undefined {
-    return royal ? replyPauseMinutes() : undefined;
-  }
-
   async function handleSend() {
     const value = text.trim();
     if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
     try {
-      // Срок паузы уходит ВСЕГДА (ревью #332): без срока сервер (defaultPauseForSender,
-      // lib/conversationDelivery.ts) дал бы директору/незакреплённому агенту 10 минут, и бот
-      // писал бы поверх человека. Срок выбирает сотрудник строкой «Бот молчит» над полем ввода
-      // (новый вид: по умолчанию час, 26.11.2026; прежний вид: селект ниже, по умолчанию «Бессрочно»).
-      await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(replyPauseMinutes()) });
+      // Срок паузы бота с ответом больше не уходит (владелец 27.11.2026: «Убрать у всех»): сервер решает сам по рубильнику
+      // «Ответ сотрудника останавливает бота» (lib/deliveryPause.ts, по умолчанию выключен).
+      await reply.mutateAsync({ text: value });
       // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
       setText((cur) => clearIfUnchanged(cur, value));
       if (clean) reading.jumpToLatest();
@@ -1463,8 +1462,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       return;
     }
     // Несколько файлов из выбора скрепкой — сразу в отправку; подпись из поля уходит с первым.
-    const pauseMinutes = mediaPauseMinutes();
-    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
+    plan.batch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
     setText("");
   }
 
@@ -1476,7 +1474,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
    */
   function handleSendMedia() {
     if (!pendingMedia || readOnly || !replyTargetId) return;
-    mediaUpload.start(pendingMedia, text.trim() || undefined, mediaPauseMinutes());
+    mediaUpload.start(pendingMedia, text.trim() || undefined);
     setPendingMedia(null);
     setText("");
   }
@@ -1540,7 +1538,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             title="Сведения о контакте"
           >
             <span className="ry-chat-av">
-              <RhAvatar name={headerTitle.title} size={44} />
+              <RhAvatar name={headerTitle.title} src={conversation?.avatarUrl} seed={conversation?.avatarSeed ?? undefined} size={44} />
               <RoyalChannelBadge channel={isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "MULTI" : conversation?.channel} />
             </span>
             <span className="ry-chat-who-tx">
@@ -1782,7 +1780,17 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       <div className={clean ? "clean-conversation-workspace" : undefined} data-context-open={showInfo || undefined} style={clean ? undefined : { display: "contents" }}>
       {showInfo && conversation && (
         <div id="conversation-contact-details" className="pane-b clean-contact-details" style={{ borderBottom: "1px solid var(--line-soft)" }}>
-          <div className="list">
+          {royal ? <RoyalContactSheet
+            conversationId={id}
+            conversation={conversation}
+            title={headerTitle.title}
+            code={headerTitle.code}
+            channel={isGroupedEntry && (!conversation.channel || conversation.channel === "MULTI") ? "MULTI" : conversation.channel}
+            channelLabel={isGroupedEntry && (!conversation.channel || conversation.channel === "MULTI") ? "Общий чат" : channelMeta(conversation.channel).label}
+            readOnly={readOnly}
+            isGroupedEntry={isGroupedEntry}
+            onClose={() => setShowInfo(false)}
+          /> : <div className="list">
             {clean ? <>
               <h2 className="clean-contact-title">{royal ? headerTitle.title : "О собеседнике"}</h2>
               {/* Новый вид: объект продавца и «Добавить объект» — здесь, а не полосой
@@ -1840,7 +1848,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
               </span>
             </div>
             </>}
-          </div>
+          </div>}
         </div>
       )}
       <div className={clean ? "clean-conversation-timeline" : undefined} style={clean ? undefined : { display: "contents" }}>
@@ -1991,28 +1999,11 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
           отказ сервера, показывается строка ниже с точным текстом Meta, эта
           прячется: дублировать одно предупреждение незачем. */}
       {windowClosed && !reply.isError && (
-        <div className="suggest">
-          <span className="dot warn"></span>
-          <span className="txt">
-            Клиент не писал больше суток, поэтому ваше сообщение уже не дойдёт. Позвоните
-            {conversation?.clientPhone ? (
-              <>
-                {" "}
-                <CallClientButton
-                  clientId={conversation.clientId}
-                  phone={conversation.clientPhone}
-                  variant="full"
-                  label="через CRM"
-                  className="lnk"
-                />
-              </>
-            ) : (
-              " с личного телефона"
-            )}{" "}
-            или дождитесь его сообщения.
-            {(isGroupedEntry ? replySource?.channel : conversation?.channel) === "WHATSAPP" && " В WhatsApp можно также отправить первое сообщение кнопкой «Написать в WhatsApp» в карточке клиента: она шлёт заранее одобренный текст."}
-          </span>
-        </div>
+        <MessagingWindowBanner
+          isWhatsApp={(isGroupedEntry ? replySource?.channel : conversation?.channel) === "WHATSAPP"}
+          clientId={conversation?.clientId}
+          clientPhone={conversation?.clientPhone}
+        />
       )}
 
       {/* Причина с сервера, а не общий текст: «канал выключен в Настройках → Meta»
@@ -2063,8 +2054,7 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             type="button"
             className="pill sm"
             onClick={() => {
-              const pauseMinutes = mediaPauseMinutes();
-              pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined, pauseMinutes));
+                    pendingBatch.forEach((file, i) => mediaUpload.start(file, i === 0 ? text.trim() || undefined : undefined));
               setPendingBatch(null);
               setText("");
             }}
@@ -2106,31 +2096,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       )}
 
       {clean && !narrow && !royal && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
-      {/* СРОК ПАУЗЫ БОТА ПРИ ОТВЕТЕ (владелец 26.11.2026: «вернуть выбор срока, по умолчанию час»).
-          Одна тонкая строка над полем ввода, на ПК и телефоне одна и та же: подпись и выбор срока. Родной
-          список выбора — на телефоне открывается системным окном, цель касания 44 px (стили
-          .ry-chat-pausepick). Срок действует для текста, голосового и фото/видео; браузер помнит выбор.
-          Прежний вид — селект ниже, у него своя строка. */}
-      {royal && !(isGroupedEntry && !replyableSources.length) && (
-        <div className="suggest ry-chat-pausepick" data-testid="chat-reply-pause">
-          <label className="txt" htmlFor="chat-reply-pause-select">Бот молчит:</label>
-          <select
-            id="chat-reply-pause-select"
-            className="inp"
-            value={pauseOptionIndex}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              setPauseOptionIndex(next);
-              rememberReplyPauseIndex(next);
-            }}
-            aria-label="На сколько бот замолкает после вашего ответа"
-          >
-            {PAUSE_OPTIONS.map((opt, idx) => (
-              <option key={opt.label} value={idx}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
       {royal ? (
         /* СТРОКА ВВОДА КАК В WHATSAPP (владелец 20.11.2026): скрепка, поле и одна
            круглая кнопка — пустое поле даёт микрофон, есть текст — «отправить».
@@ -2217,7 +2182,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
             hideTrigger
             open={propertyPickerOpen}
             onOpenChange={setPropertyPickerOpen}
-            pauseMinutes={mediaPauseMinutes()}
             onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
           />
           {/* Одна круглая кнопка; на ней — значок канала, куда уйдёт ответ, если
@@ -2343,7 +2307,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
         <ChatObjectPicker
           conversationId={replyTargetId ?? undefined}
           disabled={reply.isPending || conversationLoading || !replyTargetId}
-          pauseMinutes={mediaPauseMinutes()}
           onSent={(result) => mediaUpload.adoptJobs(result.photos.jobIds)}
         />
         {/* «Предложить ответ» (черновик от ИИ рядом с микрофоном) убрана
@@ -2368,39 +2331,6 @@ export function ConversationView({ id, onBack, clean = false, royal = false, onP
       </form>
       )}
 
-      {/* Пауза и возвращение бота одной строкой — `.suggest` эталона. Выбор
-          длительности остаётся тем же селектом, что и был: меняется одежда,
-          не поведение отправки. */}
-      {!paused && !royal && (
-        <div className="suggest">
-          <span className="txt">{royal ? "Ответ ставит бота на паузу:" : "Ваш ответ ставит бота на паузу на"}</span>
-          <select
-            className="inp"
-            style={{ width: "auto" }}
-            value={customPauseMinutes !== null ? "custom" : pauseOptionIndex}
-            onChange={(e) => {
-              if (e.target.value === "custom") {
-                const minutes = promptCustomPauseMinutes();
-                if (minutes !== null) setCustomPauseMinutes(minutes);
-                return;
-              }
-              setCustomPauseMinutes(null);
-              setPauseOptionIndex(Number(e.target.value));
-            }}
-            aria-label="На сколько ответ ставит бота на паузу"
-          >
-            {PAUSE_OPTIONS.map((opt, idx) => (
-              <option key={opt.label} value={idx}>
-                {opt.label}
-              </option>
-            ))}
-            <option value="custom">
-              {customPauseMinutes !== null ? `${customPauseMinutes} мин (произвольно)` : "Произвольно…"}
-            </option>
-          </select>
-          {!royal && <span className="txt">он не будет отвечать поверх вас.</span>}
-        </div>
-      )}
       </>}
       </div>
       </div>

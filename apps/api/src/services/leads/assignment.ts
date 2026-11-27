@@ -428,8 +428,9 @@ export async function recordAssignReasonTx(
    * в агентство, клиент просто попросил именно его. Поэтому у этой причины своя
    * ветка — без ownPropertyLead и без matchedPropertyId, которые считают комиссию.
    */
-  if (assignment.reason === "requested_by_client") {
-    await recordNamedAssignmentDeclaration(tx, clientId, agentId);
+  if (assignment.reason === "requested_by_client" || assignment.reason === "staff_led_conversation") {
+    // «Клиент назвал» — заявление о просьбе клиента; «сотрудник уже вёл переписку» им не является (ревью #497, п.4).
+    if (assignment.reason === "requested_by_client") await recordNamedAssignmentDeclaration(tx, clientId, agentId);
     await tx.client.update({ where: { id: clientId }, data: { assignReason: assignment.reason } });
     // SYSTEM — это объяснение алгоритма распределения, не действие агента
     // (П-10, 17.09.2026); subjectAgentId — держатель лида ПОСЛЕ назначения.
@@ -437,7 +438,9 @@ export async function recordAssignReasonTx(
       clientId,
       actor: { kind: "system", source: "lead-assignment", subjectAgentId: agentId },
       type: "SYSTEM",
-      notes: assignment.note ?? "Заявка отдана вне очереди: клиент сам назвал этого сотрудника",
+      notes: assignment.note ?? (assignment.reason === "staff_led_conversation"
+        ? "Заявка отдана вне очереди: этот сотрудник уже вёл переписку с клиентом"
+        : "Заявка отдана вне очереди: клиент сам назвал этого сотрудника"),
       tx,
     });
     return;

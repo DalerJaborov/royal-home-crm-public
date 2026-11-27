@@ -10,6 +10,8 @@
   .dd-acts, .dd-filters, .dd-sortbar { display: none !important; }
   .dd-table-wrap { overflow: visible !important; }
   .dd-tile, .dd-card, .dd-agent-card, .ry-section { break-inside: avoid; }
+  /* Главная руководителя (пачка home2): на бумагу — только «Аналитика», без блоков макета над ней. */
+  body:has(.dd) .h2-home { display: none !important; }
 }
 
 /* Печать: строка «Период и фильтры» видна только на бумаге; лист альбомный, поля не обрезаны. */
